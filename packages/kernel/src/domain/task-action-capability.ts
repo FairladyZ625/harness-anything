@@ -1,4 +1,6 @@
-import { isIndependentFrom, isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { samePrincipal } from "./actor-identity.ts";
+import { principalId } from "./actor-identity.ts";
+import { isIndependentFrom, isSameExecution } from "./actor-domain-services.ts";
 import { closeoutReadiness, currentSubmittedExecutions } from "./closeout-readiness.ts";
 import type { EntityActionCriterionStatus } from "./entity-action-explanation.ts";
 import type { EntityActionContract } from "./entity-kind-registry.ts";
@@ -85,7 +87,9 @@ const taskCapabilityEvaluators = Object.freeze(
         currentSubmittedExecutions(snapshot).some(
           (execution) =>
             isSameExecution(execution.actor, actor) ||
-            (invocation?.asOwner === true && snapshot.task !== null && isSamePerson(snapshot.task.createdBy, actor)),
+            (invocation?.asOwner === true &&
+              snapshot.task !== null &&
+              samePrincipal(snapshot.task.createdBy.principal, actor.principal)),
         )
           ? "met"
           : "unmet",
@@ -223,7 +227,7 @@ function startAvailability(input: TaskActionCapabilityInput): PredicateEvaluatio
   if (!lease || heldLeaseForExecutionActor(input.snapshot, lease.executionId, input.actor)) return "unmet";
   const taskId = invocationTaskId(input),
     executor = lease.actor.executor ? `${lease.actor.executor.kind}:${lease.actor.executor.id}` : "none",
-    holder = `personId=${lease.actor.principal.personId}, executor=${executor}`;
+    holder = `principal=${principalId(lease.actor.principal)}, executor=${executor}`;
   return {
     status: "unmet",
     nextActions: [

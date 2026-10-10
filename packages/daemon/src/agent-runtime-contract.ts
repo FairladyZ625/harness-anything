@@ -1,3 +1,4 @@
+import { validateActorIdentity, validActorPrincipal, type ActorPrincipal } from "@harness-anything/kernel/browser";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
@@ -43,7 +44,7 @@ export interface AgentRuntimeInstanceDto extends AgentRuntimeInstanceCommonDto {
 export interface AgentRuntimeAssociationDto {
   readonly taskId: string;
   readonly executionId: string;
-  readonly holder: { readonly personId: string; readonly executorId: string | null } | null;
+  readonly holder: { readonly principal: ActorPrincipal; readonly executorId: string | null } | null;
   readonly lease: { readonly phase: "reserving" | "held" | "released" | "orphaned"; readonly expiresAt: string } | null;
 }
 export interface AgentRuntimeInstallationErrorDto {
@@ -508,22 +509,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
 }
 
 function validCancellationActor(value: unknown): value is ActorIdentity {
-  if (!isAgentRuntimeContractRecord(value) || !hasAgentRuntimeContractFields(value, ["principal", "executor"], []))
-    return false;
-  const principal = value.principal,
-    executor = value.executor;
-  return (
-    isAgentRuntimeContractRecord(principal) &&
-    hasAgentRuntimeContractFields(principal, ["personId"], []) &&
-    typeof principal.personId === "string" &&
-    principal.personId.length > 0 &&
-    (executor === null ||
-      (isAgentRuntimeContractRecord(executor) &&
-        hasAgentRuntimeContractFields(executor, ["kind", "id"], []) &&
-        executor.kind === "agent" &&
-        typeof executor.id === "string" &&
-        executor.id.length > 0))
-  );
+  return validateActorIdentity(value).length === 0;
 }
 const sessionMetricsCounters = ["inputTokens", "cacheReadTokens", "outputTokens", "totalTokens", "toolCallCount"];
 
@@ -602,8 +588,8 @@ function validAssociation(value: unknown): value is AgentRuntimeAssociationDto {
     typeof value.executionId === "string" &&
     (value.holder === null ||
       (isAgentRuntimeContractRecord(value.holder) &&
-        hasExactAgentRuntimeContractFields(value.holder, ["personId", "executorId"]) &&
-        typeof value.holder.personId === "string" &&
+        hasExactAgentRuntimeContractFields(value.holder, ["principal", "executorId"]) &&
+        validActorPrincipal(value.holder.principal) &&
         (value.holder.executorId === null || typeof value.holder.executorId === "string"))) &&
     (value.lease === null ||
       (isAgentRuntimeContractRecord(value.lease) &&

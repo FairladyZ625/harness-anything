@@ -1,3 +1,4 @@
+import type { ActorIdentity } from "./actor-identity.ts";
 import { validTaskAssignment, type TaskAssignment } from "./task-assignment.ts";
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
@@ -52,10 +53,7 @@ export const retiredTaskClassRestatements: Readonly<Record<string, TaskClass>> =
 export function isWorkRoot(taskClass: TaskClass, parentTaskId: string | null, childCount: number): boolean {
   return taskClass === "work" || (parentTaskId === null && childCount > 0);
 }
-export interface ActorAxes {
-  readonly principal: { readonly personId: string };
-  readonly executor: { readonly kind: "agent"; readonly id: string } | null;
-}
+export type ActorAxes = ActorIdentity;
 export type TaskPackageDisposition = "active" | "archived" | "tombstoned";
 export interface TaskMetadataV1 {
   readonly idempotencyKey: string | null;

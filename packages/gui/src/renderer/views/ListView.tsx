@@ -21,7 +21,8 @@ const ROW_OVERSCAN = 12;
  */
 function collaborationHint(task: TaskRow): ReactNode {
   const assignee = task.assignment?.assignee,
-    assigneeId = assignee?.kind === "team" ? assignee.teamId : assignee?.personId,
+    assigneeId =
+      assignee?.kind === "team" ? assignee.teamId : assignee?.kind === "node" ? assignee.nodeId : assignee?.personId,
     leaseNode = leaseNodeIdOf(task.leaseSource);
   if (assigneeId === undefined && task.leaseActor === undefined) return task.taskId;
   const segments: readonly string[] = [

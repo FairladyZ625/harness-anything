@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { runtimeDispatchTaskMatches } from "./runtime-session-action-runtime.ts";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -101,7 +102,8 @@ export function archiveRuntimeDispatch(
       input.binding.actor.executor?.id === runtimeExecutorId ||
       (typeof input.binding.source === "object" &&
         input.binding.source.kind === "node" &&
-        occurrence?.actor.principal.personId === input.binding.actor.principal.personId &&
+        occurrence !== undefined &&
+        samePrincipal(occurrence.actor.principal, input.binding.actor.principal) &&
         JSON.stringify(occurrence.source) === JSON.stringify(input.binding.source)),
     matchingDecision =
       decision !== null &&

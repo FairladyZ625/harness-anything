@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { edgeManifestBlob } from "./fleet/replica-read-model.ts";
 import { readFileSync } from "node:fs";
 import { readEdgeCiDetail, fetchEdgeCiDetails } from "./ci-detail-cache.ts";
@@ -226,7 +227,7 @@ export async function openRepoCellProxy(
         viewRoot: edgeConfig.viewRoot,
         repoId: input.repoId,
         nodeId: edgeConfig.nodeId,
-        principalId: binding?.actor.principal.personId,
+        principalId: binding ? principalId(binding.actor.principal) : undefined,
         ...(edgeConfig.maxAgeMs === undefined ? {} : { maxAgeMs: edgeConfig.maxAgeMs }),
         ...(edgeConfig.maxLagRevisions === undefined ? {} : { maxLagRevisions: edgeConfig.maxLagRevisions }),
       },

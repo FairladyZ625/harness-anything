@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
@@ -78,7 +79,7 @@ export function makeRepoCellCommandRunner(
                     issue?.schema === "execution-delegation-event/v1" &&
                     issue.payload.operation === "issue" &&
                     issue.payload.tokenId === record.token.tokenId &&
-                    issue.actor.principal.personId === record.token.issuer.personId &&
+                    samePrincipal(issue.actor.principal, record.token.issuer) &&
                     stableStringify(issue.source) === stableStringify(record.source)
                   );
                 })
@@ -369,8 +370,8 @@ async function bindCurrentPersonIdentityWitnesses(
     action.verdict === "changes_requested" &&
     typeof action.decisionId === "string"
   ) {
-    const proposer = projection.readDecision(action.decisionId).decision?.proposer.principal.personId;
-    if (proposer) ids.add(proposer);
+    const proposer = projection.readDecision(action.decisionId).decision?.proposer.principal;
+    if (proposer?.kind !== "machine" && proposer?.personId) ids.add(proposer.personId);
   }
   if (ids.size === 0) return binding;
   const credential = binding.keycloakAuthorization;

@@ -12,13 +12,12 @@ import { listenFleetTls } from "../src/fleet/center.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 test(
   "Fleet rejects a missing or retired Schedule Agent before leaving an active claim",
   { timeout: 60_000 },
-  async () => {
+  async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-schedule-fleet-agent-")),
       repo = path.join(root, "center-repo"),
       userRoot = path.join(root, "center-user"),
@@ -87,9 +86,14 @@ test(
         runtimeDiscover: () => [runtimeInstallation],
       });
       await host.attachmentsSettled();
-      const owners = await fleetNodeOwners({ userRoot, owners: { "edge-one": "operator-one" }, repoIds: [repoId] });
+      const owners = await fleetNodeOwners({
+        userRoot,
+        owners: { "edge-one": "operator-one" },
+        repoIds: [repoId],
+        localPersonId: "operator-one",
+      });
+      t.after(() => owners.close());
       // Retire an installed Agent before the center starts holding the writer epoch.
-      signInPolicyTestUser(userRoot, "operator-one", [repoId], "admin");
       const retiredAgentId = "retired-schedule-agent";
       const installed = await host.run(
         repoId,
@@ -128,6 +132,7 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner: owners.nodeOwner,
+        nodeSubject: owners.nodeSubject,
       });
       const workspaceRoot = path.join(root, "edge-workspace"),
         viewRoot = path.join(root, "edge-view");

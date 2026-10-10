@@ -86,6 +86,8 @@ for (const restart of [false, true])
           authenticate: (nodeId, credential) =>
             [subject.nodeId, "node-two"].includes(nodeId) && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+
+          nodeSubject: fixture.owners.nodeSubject,
           onError: ({ error }) => t.diagnostic(`center publication: ${String(error)}`),
         }),
       );
@@ -226,7 +228,12 @@ for (const restart of [false, true])
         diskQuotaBytes: 64 * 1024 * 1024,
       });
       const pending = withEdgeReadModel(
-        { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
+        {
+          viewRoot: observerRoot,
+          repoId: subject.repoId,
+          nodeId: "node-two",
+          principalId: `machine:node-two:${await fixture.owners.nodeSubject("node-two")}`,
+        },
         (projection) => readScheduleRuns({ projection }, scheduleId),
       );
       assert.equal(pending.runs[0]?.outcome, "succeeded");
@@ -315,7 +322,12 @@ for (const restart of [false, true])
     });
     await restoredCenter.close();
     const result = withEdgeReadModel(
-      { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
+      {
+        viewRoot: observerRoot,
+        repoId: subject.repoId,
+        nodeId: "node-two",
+        principalId: `machine:node-two:${await fixture.owners.nodeSubject("node-two")}`,
+      },
       (projection) =>
         readScheduleRuns(
           {

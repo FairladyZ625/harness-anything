@@ -34,7 +34,7 @@ export async function resolveTaskAssignment(
   if (typeof action.nodeId === "string") {
     const node = await adapter.readNode(token, action.nodeId);
     if (!node) throw cellCodedError("node_unregistered", "The selected node is not registered.");
-    assignee = { kind: "person", personId: node.personId, nodeId: node.nodeId };
+    assignee = { kind: "node", nodeId: node.nodeId };
   } else if (typeof action.teamId === "string") {
     await adapter.readTeam(token, action.teamId);
     assignee = { kind: "team", teamId: action.teamId };
@@ -56,14 +56,18 @@ export async function assertTaskAssignment(
   binding: RepoCellBinding,
   now: string,
 ): Promise<TaskClaimant> {
-  const personId = binding.actor.principal.personId,
+  const principal = binding.actor.principal,
     nodeId = typeof binding.source === "object" && binding.source.kind === "node" ? binding.source.nodeId : null;
   let teamIds: readonly string[] = [];
-  if (assignment?.assignee.kind === "team" && Date.parse(assignment.expiresAt) > Date.parse(now)) {
+  if (
+    principal.kind !== "machine" &&
+    assignment?.assignee.kind === "team" &&
+    Date.parse(assignment.expiresAt) > Date.parse(now)
+  ) {
     const { adapter, token } = await directory(binding);
-    teamIds = await adapter.readPersonTeams(token, personId);
+    teamIds = await adapter.readPersonTeams(token, principal.personId);
   }
-  const claimant = { personId, nodeId, teamIds };
+  const claimant = { principal, nodeId, teamIds };
   if (!taskAssignmentMatches(assignment, claimant, now))
     throw cellCodedError("task_assignee_mismatch", "This task is assigned to a different person, node or work team.");
   return claimant;

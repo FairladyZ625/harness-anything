@@ -322,7 +322,14 @@ function renderEventListReceipt(receipt: Record<string, unknown>): string {
     return renderSuccessfulReceipt(receipt);
   const lines = payload.rows.map((row) => {
       if (!isRecord(row) || !isRecord(row.actor)) throw new TypeError("Event list row is invalid.");
-      const actor = typeof row.actor.executorId === "string" ? row.actor.executorId : row.actor.personId;
+      const principal = row.actor.principal;
+      if (!isRecord(principal)) throw new TypeError("Event principal is invalid.");
+      const actor =
+        typeof row.actor.executorId === "string"
+          ? row.actor.executorId
+          : principal.kind === "machine"
+            ? `machine:${principal.nodeId}:${principal.subject}`
+            : principal.personId;
       return [row.revision, row.occurredAt, row.type, row.opId, actor].map((value) => String(value ?? "")).join(" | ");
     }),
     nextCursor = isRecord(payload.page) && typeof payload.page.nextCursor === "string" ? payload.page.nextCursor : null;

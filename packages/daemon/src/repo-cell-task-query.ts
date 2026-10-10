@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import {
@@ -390,7 +391,7 @@ export function reviewTask(cell: TaskQueryCell, action: RepoTaskAction, binding:
       ? cell.legacyReviewLint(
           document.document.body,
           taskId,
-          typeof action.reviewerId === "string" ? action.reviewerId : binding.actor.principal.personId,
+          typeof action.reviewerId === "string" ? action.reviewerId : principalId(binding.actor.principal),
           cell.now(),
         )
       : {

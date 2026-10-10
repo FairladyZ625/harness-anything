@@ -21,7 +21,7 @@ const center = {
   accessToken: "center-token",
 };
 const principal = () => ({
-  personId: "person-worker",
+  principal: { personId: "person-worker" },
   repoId: "repo",
   runtimeSessionId: "runtime-worker",
   dispatchId: "dispatch-worker",
@@ -107,7 +107,7 @@ test("execution requests exclude other tasks, repos, controls, and human consent
 test("the writer rejects expired credentials, stopped or superseded dispatches, and a replaced lease", () => {
   const p = principal(),
     actor = {
-      principal: { personId: p.personId },
+      principal: p.principal,
       executor: { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
     };
   let liveness = "live",
@@ -143,22 +143,39 @@ test("the writer rejects expired credentials, stopped or superseded dispatches, 
   );
 });
 
-test("queued node executions recheck current Keycloak node ownership", async () => {
+// dec_2665E58BA5AE42E37793193748/CH1: owner changes cannot change machine authority.
+test("queued node executions retain machine identity across owner changes and reject subject changes", async () => {
   const realm = fakeKeycloak();
   realm.node("edge-one", "person-worker");
-  const p = { ...principal(), source: { kind: "node" as const, nodeId: "edge-one" } };
+  const p = {
+    ...principal(),
+    principal: {
+      kind: "machine" as const,
+      nodeId: "edge-one",
+      subject: `${realm.nodeClients.get("harness-node-edge-one")!.id}-service`,
+    },
+    source: { kind: "node" as const, nodeId: "edge-one" },
+  };
   await issueRuntimeExecutionCredential(center, p, realm.fetch);
   await verifyRuntimeExecutionPrincipal(center, p, realm.fetch);
   realm.node("edge-one", "person-other");
-  await assert.rejects(verifyRuntimeExecutionPrincipal(center, p, realm.fetch), {
-    code: "execution_credential_rejected",
-  });
+  await verifyRuntimeExecutionPrincipal(center, p, realm.fetch);
+  await assert.rejects(
+    verifyRuntimeExecutionPrincipal(
+      center,
+      { ...p, principal: { ...p.principal, subject: "wrong-subject" } },
+      realm.fetch,
+    ),
+    {
+      code: "execution_credential_rejected",
+    },
+  );
 });
 
 test("edge settlement accepts its released lease but rejects cancellation, expiry and a foreign source", () => {
   const source = { kind: "node" as const, nodeId: "edge-one" };
   const p = { ...principal(), source },
-    actor = { principal: { personId: p.personId }, executor: null };
+    actor = { principal: p.principal, executor: null };
   let outcome: string | null = null,
     phase = "held",
     submitted = false;
@@ -210,7 +227,7 @@ test("edge settlement accepts its released lease but rejects cancellation, expir
 
 test("stale reviewer can retire only its own failed or cancelled dispatch without business access", () => {
   const p = { ...principal(), role: "reviewer" as const, source: { kind: "node" as const, nodeId: "edge-one" } },
-    actor = { principal: { personId: p.personId }, executor: null };
+    actor = { principal: p.principal, executor: null };
   let outcome: string | null = null;
   const input = {
     binding: { executionPrincipal: p, actor, source: p.source },

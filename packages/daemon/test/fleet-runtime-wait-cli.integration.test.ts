@@ -87,6 +87,8 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           ...(port === undefined ? {} : { port }),
           authenticate: (nodeId, credential) => nodeId === fixture.subject.nodeId && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+
+          nodeSubject: fixture.owners.nodeSubject,
         }),
       );
     const center = await openCenter(),

@@ -180,7 +180,7 @@ function checkPrincipalBindings(graph, violations) {
     "assignment dispatch",
     "binding",
     ts.isIfStatement,
-    'if(auth.transportKind==="fleet-tls")returnnodeOwnerBinding(auth);',
+    'if(auth.transportKind==="fleet-tls")returnnodePrincipalBinding(auth);',
   );
   requireSyntax(
     "local principal authentication and expiry",
@@ -209,32 +209,40 @@ function checkPrincipalBindings(graph, violations) {
     "accessToken:auth.oidcPrincipal.accessToken",
   );
   requireSyntax(
-    "registered node owner",
-    "nodeOwnerBinding",
+    "registered node",
+    "nodePrincipalBinding",
     rejectingGuard,
-    "!owner||!owner.nodeId||!auth.keycloakCenter",
+    "!node||!node.nodeId||!auth.keycloakCenter",
     condition,
   );
   requireSyntax(
-    "authenticated node owner source",
-    "nodeOwnerBinding",
+    "authenticated node source",
+    "nodePrincipalBinding",
     ts.isVariableDeclaration,
-    "owner=auth.nodePrincipal",
+    "node=auth.nodePrincipal",
   );
   requireSyntax(
     "authenticated assignment source",
-    "nodeOwnerBinding",
+    "nodePrincipalBinding",
     ts.isVariableDeclaration,
-    "owner=auth.nodePrincipal",
+    "node=auth.nodePrincipal",
   );
+  requireSyntax("node server-derived principal", "nodePrincipalBinding", property, "actor:{principal,executor:null}");
+  // dec_2665E58BA5AE42E37793193748/CH1: owner is accountability, not authority.
   requireSyntax(
-    "node server-derived person",
-    "nodeOwnerBinding",
-    property,
-    "actor:{principal:{personId:owner.personId},executor:null}",
+    "machine or actual login principal",
+    "nodePrincipalBinding",
+    ts.isVariableDeclaration,
+    'principal=auth.oidcPrincipal?{personId:auth.oidcPrincipal.personId}:{kind:"machine"asconst,subject:node.subject,nodeId:node.nodeId}',
   );
-  requireSyntax("node assignment provenance", "nodeOwnerBinding", property, 'source:{kind:"node",nodeId:owner.nodeId}');
-  requireSyntax("node Keycloak authority", "nodeOwnerBinding", property, "center:auth.keycloakCenter");
+  requireSyntax("center machine subject lookup", "keycloakNodeRegistry", call, "adapter.nodeSubject(token,nodeId)");
+  requireSyntax(
+    "node assignment provenance",
+    "nodePrincipalBinding",
+    property,
+    'source:{kind:"node",nodeId:node.nodeId}',
+  );
+  requireSyntax("node Keycloak authority", "nodePrincipalBinding", property, "center:auth.keycloakCenter");
   requireSyntax("center node registry connection", null, call, "keycloakNodeRegistry(context.keycloakCenter)");
   requireSyntax(
     "center node credential validation",

@@ -44,11 +44,12 @@ test(
       return answer;
     };
 
-    // 1. Only the replica's authorized owner reads it.
+    // 1. A different signed-in reader cannot borrow the current replica authorization.
     await settle(3);
     e.signIn("person-two");
     assert.equal((await local()).code, "authorization_denied");
     e.signIn("person-one");
+    assert.equal((await local()).ok, true);
     const currentPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
     const currentWithoutAuthorization = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
     delete currentWithoutAuthorization.authorizationOwner;
@@ -155,10 +156,12 @@ test("same repository pulls keep per-node authorization metadata independent", {
   await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: second, diskQuotaBytes: quota });
   const one = locateFleetMirrorView(first, "lease-repo")!,
     two = locateFleetMirrorView(second, "lease-repo")!;
-  assert.equal(one.authorizationOwner, "person-one");
-  assert.equal(two.authorizationOwner, "person-two");
+  assert.equal(one.authorizationOwner, `machine:node-one:${await f.owners.nodeSubject("node-one")}`);
+  assert.equal(two.authorizationOwner, `machine:node-two:${await f.owners.nodeSubject("node-two")}`);
   assert.notEqual(one.authorizationShapeDigest, two.authorizationShapeDigest);
   f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
+  await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota });
+  f.owners.keycloak.revoke((await f.owners.nodeSubject("node-one"))!, "lease-repo", ["repository-read"]);
   await assert.rejects(runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota }), {
     code: "authorization_denied",
   });

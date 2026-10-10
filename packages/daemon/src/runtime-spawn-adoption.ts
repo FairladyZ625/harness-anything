@@ -1,3 +1,4 @@
+import { validActorPrincipal } from "@harness-anything/kernel";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -230,7 +231,7 @@ function isBinding(value: unknown): value is RuntimeBinding {
     actor !== null &&
     typeof actor === "object" &&
     !Array.isArray(actor) &&
-    typeof (actor as { principal?: { personId?: unknown } }).principal?.personId === "string" &&
+    validActorPrincipal((actor as { principal?: unknown }).principal) &&
     binding.source !== undefined
   );
 }

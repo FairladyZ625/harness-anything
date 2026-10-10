@@ -99,6 +99,7 @@ export async function fleetNodeClaimFixture(
       replicaDiskQuotaBytes: replicaQuota,
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
+      nodeSubject: owners.nodeSubject,
       ...(verifyHuman ? { verifyHuman } : {}),
       ...(loginAuthority ? { loginAuthority } : {}),
     });
@@ -165,6 +166,23 @@ export async function fleetNodeClaimFixture(
         (planPath) => host.run("lease-repo", { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
         typeof action.title === "string" ? action.title : undefined,
       );
+      // dec_2665E58BA5AE42E37793193748/CH1: fixture compute tasks receive explicit node assignments.
+      const shown = await host.run(
+        "lease-repo",
+        { kind: "task-show", taskId: result.receipt.taskId },
+        localAuthFixture(),
+      );
+      const assigned = await host.run(
+        "lease-repo",
+        {
+          kind: "task-assign",
+          taskId: result.receipt.taskId,
+          nodeId,
+          expectedVersion: JSON.parse(shown.evidence).revision,
+        },
+        localAuthFixture(),
+      );
+      if (assigned.outcome !== "applied") throw new Error(JSON.stringify(assigned));
     }
     return result;
   };

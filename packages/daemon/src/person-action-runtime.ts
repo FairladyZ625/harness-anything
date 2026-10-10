@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   executionDelegationPath,
   readExecutionDelegations,
@@ -67,7 +68,7 @@ export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityAct
         if (
           !session ||
           !dispatch ||
-          dispatch.actor.principal.personId !== binding.actor.principal.personId ||
+          !samePrincipal(dispatch.actor.principal, binding.actor.principal) ||
           stableStringify(dispatch.source) !== stableStringify(binding.source)
         )
           throw cell.cellCodedError(
@@ -122,7 +123,7 @@ export function makePersonActionRuntime(cell: RepoCellRuntimeContext): EntityAct
     }
     return {
       ...cell.receiptForOperation(opId, binding),
-      personId: binding.actor.principal.personId,
+      principal: binding.actor.principal,
       effects: ["execution-delegation/changed"],
       updatedProjection: null,
       summary: `${prior ? "Replayed" : "Accepted"} ${action.kind} for ${action.tokenId}.`,

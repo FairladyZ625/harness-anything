@@ -5,6 +5,8 @@ import type {
   GuiSubmissionV1,
 } from "@harness-anything/daemon/protocol";
 export type {
+  ActorIdentity,
+  ActorPrincipal,
   ContractVersion,
   DecisionProjectionRow,
   ProjectionWarning,

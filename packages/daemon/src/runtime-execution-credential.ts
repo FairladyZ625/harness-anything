@@ -1,5 +1,5 @@
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { stableStringify, type WriteSource } from "@harness-anything/kernel";
+import { stableStringify, validActorPrincipal, type ActorPrincipal, type WriteSource } from "@harness-anything/kernel";
 import { randomBytes } from "node:crypto";
 import type { KeycloakCenterCredential } from "./transport/auth-context.ts";
 
@@ -8,7 +8,7 @@ export const runtimeExecutionLifetimeMs = 12 * 60 * 60 * 1000;
 const clientPrefix = "harness-execution-";
 
 export interface RuntimeExecutionPrincipal {
-  readonly personId: string;
+  readonly principal: ActorPrincipal;
   readonly repoId: string;
   readonly runtimeSessionId: string;
   readonly dispatchId: string;
@@ -117,7 +117,15 @@ export async function readRuntimeExecutionPrincipal(
       { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
       fetchPort,
     ).readNode(center.accessToken, principal.source.nodeId);
-    if (node?.personId !== principal.personId) throw executionCredentialRejected();
+    if (!node) throw executionCredentialRejected();
+    if (principal.principal.kind === "machine") {
+      const subject = await new KeycloakPolicyAdapter(
+        { url: center.url, realm: center.realm, resourceServerClientId: center.clientId },
+        fetchPort,
+      ).nodeSubject(center.accessToken, principal.source.nodeId);
+      if (subject !== principal.principal.subject || node.nodeId !== principal.principal.nodeId)
+        throw executionCredentialRejected();
+    }
   }
   return principal;
 }
@@ -139,7 +147,8 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
   )
     return false;
   return (
-    ["personId", "repoId", "runtimeSessionId", "dispatchId", "taskId", "executionId"].every(
+    validActorPrincipal(p.principal) &&
+    ["repoId", "runtimeSessionId", "dispatchId", "taskId", "executionId"].every(
       (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
     ) &&
     (p.role === "implementation" || p.role === "reviewer") &&
@@ -166,7 +175,7 @@ async function adminRequest(
 /** Preserve the existing node-held lease; local workers hold their runtime's agent lease. */
 export function runtimeExecutionActor(p: RuntimeExecutionPrincipal) {
   return {
-    principal: { personId: p.personId },
+    principal: p.principal,
     executor:
       p.source !== "local" && p.role === "implementation"
         ? null

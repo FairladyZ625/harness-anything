@@ -117,6 +117,7 @@ async function initializedCenterWithEdge() {
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (candidate, credential) => candidate === nodeId && credential === "secret-node-one",
     nodeOwner: owners.nodeOwner,
+    nodeSubject: owners.nodeSubject,
   });
   const edgeSync = (): Promise<Record<string, unknown>> =>
     runFleetEdgeDocSync({

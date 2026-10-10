@@ -1,5 +1,5 @@
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
+import { evaluateKeycloakPrincipal } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { TaskAssignmentDirectory } from "./protocol/daemon-protocol-gui-types.ts";
@@ -12,9 +12,9 @@ export async function readTaskAssignmentDirectory(
 ): Promise<TaskAssignmentDirectory> {
   const credential = binding.keycloakAuthorization;
   if (!credential?.center) throw cellCodedError("authentication_required", "Task assignment requires Keycloak.");
-  const decision = await evaluateKeycloakPerson({
+  const decision = await evaluateKeycloakPrincipal({
     credential,
-    personId: binding.actor.principal.personId,
+    principal: binding.actor.principal,
     action: "task-assign",
     resource: { kind: "entity", repoId, entityRef: `task/${taskId}` },
   });

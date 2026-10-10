@@ -24,6 +24,7 @@ test(
         authenticate: (nodeId, credential) =>
           ["node-one", "node-two"].includes(nodeId) && credential === "machine-secret",
         nodeOwner: () => "person-owner",
+        nodeSubject: async () => "service-node",
         deviceLoginNotice: (nodeId, personId, notice) => service.receiveDeviceNotice(nodeId, personId, notice),
       }),
     );

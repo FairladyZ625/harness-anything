@@ -68,7 +68,7 @@ test(
     assert.ok(!frames.includes("fleet.replica.current/v1"));
     const viewDir = path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId);
     assert.equal(readHeadConfirmation(viewDir)!.headRevision, head.revision);
-    withEdgeReadModel({ ...options, principalId: "person-owner" }, (queries, frame) => {
+    withEdgeReadModel({ ...options, principalId: await f.machinePrincipal(options.nodeId) }, (queries, frame) => {
       assert.equal(queries.readCut().sourceRevision, first.revision);
       const listed = queries.list();
       assert.equal(listed.status, "ready");
@@ -164,7 +164,7 @@ for (const through of ["known-head", "write-revision"] as const) {
         viewRoot: path.join(f.root, "command-pull"),
         repoId: f.subject.repoId,
         nodeId: f.subject.nodeId,
-        principalId: "person-owner",
+        principalId: await f.machinePrincipal(f.subject.nodeId),
       },
       (queries) => {
         assert.ok(queries.list().rows.some((row) => row.taskId === "task-after-checkpoint"));
@@ -519,7 +519,7 @@ test(
         viewRoot: path.join(f.root, "continuous"),
         repoId: f.subject.repoId,
         nodeId: f.subject.nodeId,
-        principalId: "person-owner",
+        principalId: await f.machinePrincipal(f.subject.nodeId),
       },
       (queries) => {
         assert.equal(queries.readCut().sourceRevision, pulled.current.cut.revision);

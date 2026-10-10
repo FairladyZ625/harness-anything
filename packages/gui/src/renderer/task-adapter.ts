@@ -1,3 +1,5 @@
+import { principalLabel as principalId } from "./model/actor-name.ts";
+import type { ActorIdentity } from "../api/renderer-dto.ts";
 import type { TaskSnapshotProjectionRow } from "../api/renderer-dto.ts";
 import { t } from "./i18n/index.tsx";
 import type { EventEntry, TaskRow } from "./model/types.ts";
@@ -70,7 +72,7 @@ function adaptProjectionRow(
     vertical: task.metadata?.verticalId,
     preset: task.metadata?.presetId,
     profile: task.metadata?.profileId,
-    createdBy: task.createdBy.principal.personId,
+    createdBy: principalId(task.createdBy.principal),
     parentTaskId: row.placement.parentTaskId ?? undefined,
     spawningDecisionIds,
     ...(task.pinned === true ? { pinned: true } : {}),
@@ -115,12 +117,10 @@ function adaptProjectionRow(
 }
 
 /** 列表行内的 lease 持有者标签:principal personId,agent executor 附 session 标识。 */
-function leaseHolderLabel(
-  actor: { readonly principal: { readonly personId: string } } & {
-    readonly executor: { readonly kind: "agent"; readonly id: string } | null;
-  },
-): string {
-  return actor.executor === null ? actor.principal.personId : `${actor.principal.personId} · ${actor.executor.id}`;
+function leaseHolderLabel(actor: ActorIdentity): string {
+  return actor.executor === null
+    ? principalId(actor.principal)
+    : `${principalId(actor.principal)} · ${actor.executor.id}`;
 }
 
 // 快照记录 → 时间线事件种类。词表单源是 workspace-narrative 的 WorkStepKind

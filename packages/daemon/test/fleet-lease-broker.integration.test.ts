@@ -13,11 +13,13 @@ import {
 } from "../src/fleet/edge.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { parseFleetFrame } from "../src/fleet/contract.ts";
 
+// dec_2665E58BA5AE42E37793193748/CH1: independent machines never inherit owner grants or teams.
 // The retired broker suite is replaced by canonical lease tests through actual TLS clients.
 test(
-  "same-person nodes race one canonical lease, reject immediately and preserve its holder on restart",
+  "independent machines race one explicitly assigned canonical lease, reject immediately and preserve its holder on restart",
   { timeout: 60_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t);
@@ -32,7 +34,7 @@ test(
       ),
     );
     assert.equal(results.filter((r) => r.outcome === "applied").length, 1, JSON.stringify(results));
-    assert.equal(results.filter((r) => r.code === "lease_conflict").length, 2, JSON.stringify(results));
+    assert.equal(results.filter((r) => r.code === "task_assignee_mismatch").length, 2, JSON.stringify(results));
     assert.equal(f.eventCount(), before + 1);
     // task-show is answered by the edge replica; a forwarded task-show is not a fleet frame at all.
     await assert.rejects(
@@ -61,7 +63,7 @@ test(
 );
 
 test(
-  "node selector rejects same person's other node and reassigned owner; release retains selector",
+  "node selector rejects another machine, survives owner changes, and expires closed for machines",
   { timeout: 60_000 },
   async (t) => {
     let clock = Date.now();
@@ -99,10 +101,7 @@ test(
     );
     assert.equal(released.task.assignment.assignee.nodeId, "node-one");
     f.owners.reassign("node-one", "person-new");
-    assert.equal(
-      (await f.command("node-one", { kind: "task-start", taskId: "task-node" })).code,
-      "task_assignee_mismatch",
-    );
+    assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-node" })).outcome, "applied");
     await f.command("node-two", { kind: "task-create", taskId: "task-expired", title: "Expired selector" });
     const unassigned = JSON.parse(
       String(
@@ -126,7 +125,7 @@ test(
     assert.equal(expired.outcome, "applied", JSON.stringify(expired));
     clock += 10001;
     const next = await f.command("node-two", { kind: "task-start", taskId: "task-expired" });
-    assert.equal(next.outcome, "applied", JSON.stringify(next));
+    assert.equal(next.code, "task_assignee_mismatch", JSON.stringify(next));
     const taken = JSON.parse(
       String(
         (
@@ -138,7 +137,7 @@ test(
         ).evidence,
       ),
     );
-    assert.equal(taken.lease.source.nodeId, "node-two");
+    assert.equal(taken.lease, null);
     assert.equal(taken.task.assignment.expiresAt, expiry);
   },
 );
@@ -146,7 +145,7 @@ test(
 test("permission revocation rejects task start without an accepted write", { timeout: 60_000 }, async (t) => {
   const f = await fleetNodeClaimFixture(t);
   await f.command("node-one", { kind: "task-create", taskId: "task-revoke", title: "Revoke" });
-  f.owners.keycloak.revoke("person-one", "lease-repo", ["task-start"]);
+  f.owners.keycloak.revoke((await f.owners.nodeSubject("node-one"))!, "lease-repo", ["task-start"]);
   const before = f.eventCount();
   const denied = await f.command("node-one", { kind: "task-start", taskId: "task-revoke" });
   assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
@@ -182,33 +181,41 @@ test(
 );
 
 test(
-  "delivery preflight preserves task-scoped submit grants and rejects revocation and changed owner",
+  "delivery preflight preserves machine task grants, rejects revocation and ignores changed owner",
   { timeout: 60_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t);
     const peer = f.peer("node-one");
-    f.owners.keycloak.revoke("person-one", "lease-repo", ["task-submit"]);
-    f.owners.keycloak.permit("person-one", "lease-repo:task/task-delivery", ["task-submit"]);
+    f.owners.keycloak.revoke((await f.owners.nodeSubject("node-one"))!, "lease-repo", ["task-submit"]);
+    f.owners.keycloak.permit((await f.owners.nodeSubject("node-one"))!, "lease-repo:task/task-delivery", [
+      "task-submit",
+    ]);
     const allowed = await readFleetRepositoryMetadataClient({
       ...peer,
       actionKind: "task-submit",
       taskId: "task-delivery",
     });
-    assert.equal(allowed.personId, "person-one");
+    assert.deepEqual(allowed.principal, {
+      kind: "machine",
+      nodeId: "node-one",
+      subject: await f.owners.nodeSubject("node-one"),
+    });
     assert.equal(allowed.actionAllowed, true);
     assert.equal(
       (await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId: "task-other" }))
         .actionAllowed,
       false,
     );
-    f.owners.keycloak.revoke("person-one", "lease-repo:task/task-delivery", ["task-submit"]);
+    f.owners.keycloak.revoke((await f.owners.nodeSubject("node-one"))!, "lease-repo:task/task-delivery", [
+      "task-submit",
+    ]);
     assert.equal(
       (await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId: "task-delivery" }))
         .actionAllowed,
       false,
     );
     f.owners.reassign("node-one", "person-replacement");
-    assert.equal((await readFleetRepositoryMetadataClient(peer)).personId, "person-replacement");
+    assert.deepEqual((await readFleetRepositoryMetadataClient(peer)).principal, allowed.principal);
     assert.throws(() =>
       parseFleetFrame(
         JSON.stringify({
@@ -301,6 +308,24 @@ test(
       ).outcome,
       "applied",
     );
+    const unassignedStart = await f.command("node-one", { kind: "task-start", taskId: "task-bundle" });
+    assert.equal(unassignedStart.code, "task_assignee_mismatch");
+    const unassigned = await f.host.run(
+      "lease-repo",
+      { kind: "task-show", taskId: "task-bundle" },
+      f.owners.auth({ nodeId: "node-one" }),
+    );
+    assert.equal(
+      (
+        await f.command("node-one", {
+          kind: "task-assign",
+          taskId: "task-bundle",
+          nodeId: "node-one",
+          expectedVersion: JSON.parse(String(unassigned.evidence)).revision,
+        })
+      ).outcome,
+      "applied",
+    );
     const docs = await Promise.all(["node-one", "node-two"].map((n) => prepare(n)));
     const start = f.eventCount();
     const results = await Promise.all(docs.map((doc, i) => submit(i === 0 ? "node-one" : "node-two", doc)));
@@ -329,7 +354,12 @@ test(
   "native team membership is current and never substitutes for task-start permission",
   { timeout: 60000 },
   async (t) => {
-    const f = await fleetNodeClaimFixture(t);
+    const f = await fleetNodeClaimFixture(t, undefined, async (auth) =>
+      new OidcSessionService(path.join(f.root, "user")).bind(auth),
+    );
+    f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url);
+    const humanCommand = (action: Record<string, unknown>) =>
+      f.command("node-one", action, 5000, String(action.taskId), "token-person-one");
     const adapter = new KeycloakPolicyAdapter({
       url: f.owners.url,
       realm: "harness",
@@ -363,18 +393,20 @@ test(
       ).outcome,
       "applied",
     );
+    const machineDenied = await f.command("node-one", { kind: "task-start", taskId: "task-team" });
+    assert.equal(machineDenied.code, "task_assignee_mismatch");
     const before = f.eventCount();
     f.owners.keycloak.revoke("person-one", "lease-repo", ["task-start"]);
-    const noPermission = await f.command("node-one", { kind: "task-start", taskId: "task-team" });
+    const noPermission = await humanCommand({ kind: "task-start", taskId: "task-team" });
     assert.equal(noPermission.outcome, "op_rejected", JSON.stringify(noPermission));
     assert.equal(f.eventCount(), before);
     f.owners.keycloak.permit("person-one", "lease-repo", ["task-start"]);
     await adapter.setTeamMember("center-token", team.id, member, false);
-    const removed = await f.command("node-one", { kind: "task-start", taskId: "task-team" });
+    const removed = await humanCommand({ kind: "task-start", taskId: "task-team" });
     assert.equal(removed.code, "task_assignee_mismatch", JSON.stringify(removed));
     assert.equal(f.eventCount(), before);
     await adapter.setTeamMember("center-token", team.id, member, true);
-    assert.equal((await f.command("node-one", { kind: "task-start", taskId: "task-team" })).outcome, "applied");
+    assert.equal((await humanCommand({ kind: "task-start", taskId: "task-team" })).outcome, "applied");
   },
 );
 

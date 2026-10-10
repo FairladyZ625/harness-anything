@@ -1,5 +1,5 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
-  isSamePerson,
   canStartExecution,
   stableStringify,
   type AgentRuntimeEventV1,
@@ -26,7 +26,7 @@ export function requireSquadRuntimeOwner(
   requireRuntimeDispatchOwner(dispatch ?? null, binding, true);
   if (
     !dispatch ||
-    !isSamePerson(dispatch.actor, binding.actor) ||
+    !samePrincipal(dispatch.actor.principal, binding.actor.principal) ||
     !runtimeDispatchTaskMatches({
       projection: cell.projection,
       dispatch,
@@ -64,7 +64,7 @@ export function requireSquadRuntimeAdmission(
         !run ||
         run.ownerDispatchId !== context.ownerDispatchId ||
         stableStringify(run.owner.source) !== stableStringify(binding.source) ||
-        run.owner.personId !== binding.actor.principal.personId
+        !samePrincipal(run.owner.principal, binding.actor.principal)
       )
         throw cell.cellCodedError("execution_scope_mismatch", "Squad continuation must come from its run owner.");
       requireSquadBusinessAction(cell.projection, { kind: "runtime-run", squadRunId: run.squadRunId }, binding);
@@ -132,7 +132,7 @@ export function requireSquadBusinessAction(
   if (
     !run ||
     stableStringify(run.owner.source) !== stableStringify(binding.source) ||
-    run.owner.personId !== binding.actor.principal.personId ||
+    !samePrincipal(run.owner.principal, binding.actor.principal) ||
     ["cancelled", "converged", "failed"].includes(run.phase) ||
     (action.kind === "task-create" && action.parentTaskId !== run.taskId) ||
     (action.kind === "task-start" && action.taskId === run.taskId && action.executionId !== run.executionId) ||

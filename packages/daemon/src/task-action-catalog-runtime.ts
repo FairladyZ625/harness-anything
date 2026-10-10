@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { assertTaskAssignment, resolveTaskAssignment } from "./task-assignment-runtime.ts";
 import {
   canStartExecution,
@@ -32,6 +33,15 @@ export async function runTaskActionCatalogRuntime(
   binding: RepoCellBinding,
   carriedReview?: NonNullable<ReturnType<typeof reviewerArtifactsForReview>>,
 ): Promise<WriteReceipt> {
+  // Human consent is decided before selecting a review; a machine cannot confirm even with an admin grant.
+  if (
+    action.kind === "task-review-consent" &&
+    (binding.actor.principal.kind === "machine" ||
+      (typeof binding.source === "object" &&
+        binding.source.kind === "node" &&
+        binding.keycloakAuthorization?.session?.personId !== binding.actor.principal.personId))
+  )
+    throw cell.cellCodedError("human_confirmation_required", "Review consent requires an actual human login.");
   // A reviewer runtime session may only record a review; every other task action belongs to an
   // implementation executor. This runs before lease and transition checks so a reviewer can never
   // reach a path that would open or mutate an implementation iteration.
@@ -328,7 +338,7 @@ function submitActionRejection(
     executor = lease?.actor.executor,
     actual = proofFailure
       ? lease
-        ? `held by personId=${lease.actor.principal.personId}, ` +
+        ? `held by principal=${principalId(lease.actor.principal)}, ` +
           `executor=${executor ? `${executor.kind}:${executor.id}` : "none"}`
         : "no matching active lease for the authenticated actor"
       : `status=${snapshot.task?.status ?? "missing"} node=${snapshot.task?.currentNode ?? "missing"} ` +

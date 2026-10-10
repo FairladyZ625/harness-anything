@@ -1,4 +1,4 @@
-import type { ActorIdentity } from "./actor-identity.ts";
+import { samePrincipal, validActorPrincipal, type ActorIdentity, type ActorPrincipal } from "./actor-identity.ts";
 import { runtimeSessionIdFromActor } from "./task-bound-runtime-authority.ts";
 import { timestamp } from "./timestamp.ts";
 import { hasOnlyFields, isRecord } from "./write-chain.contract.ts";
@@ -8,7 +8,7 @@ export const DELEGATED_EXECUTION_TOKEN_SCHEMA = "delegated-execution-token/v1" a
 export interface DelegatedExecutionToken {
   readonly schema: typeof DELEGATED_EXECUTION_TOKEN_SCHEMA;
   readonly tokenId: string;
-  readonly issuer: { readonly personId: string };
+  readonly issuer: ActorPrincipal;
   readonly delegate: { readonly runtimeSessionId: string };
   readonly allowedActions: readonly string[];
   readonly issuedAt: string;
@@ -44,7 +44,7 @@ export function parseDelegatedExecutionToken(value: unknown): DelegatedExecution
   return {
     schema: DELEGATED_EXECUTION_TOKEN_SCHEMA,
     tokenId: token.tokenId.trim(),
-    issuer: { personId: token.issuer.personId.trim() },
+    issuer: token.issuer,
     delegate: { runtimeSessionId: token.delegate.runtimeSessionId.trim() },
     allowedActions: Object.freeze(token.allowedActions.map((action) => action.trim()).sort()),
     issuedAt: token.issuedAt,
@@ -65,8 +65,8 @@ export function validateDelegatedExecutionToken(value: unknown): readonly string
     errors.push(`DelegatedExecutionToken schema must be ${DELEGATED_EXECUTION_TOKEN_SCHEMA}`);
   if (typeof value.tokenId !== "string" || !/^det_[A-Za-z0-9][A-Za-z0-9._:-]{0,126}$/u.test(value.tokenId))
     errors.push("DelegatedExecutionToken tokenId must start with det_ and contain only stable identifier characters");
-  if (!isRecord(value.issuer) || !hasOnlyFields(value.issuer, ["personId"]) || !personId(value.issuer.personId))
-    errors.push("DelegatedExecutionToken issuer must name one principal personId");
+  if (!validActorPrincipal(value.issuer) || (value.issuer.kind !== "machine" && !personId(value.issuer.personId)))
+    errors.push("DelegatedExecutionToken issuer must name one person or machine principal");
   if (
     !isRecord(value.delegate) ||
     !hasOnlyFields(value.delegate, ["runtimeSessionId"]) ||
@@ -113,7 +113,7 @@ export function verifyDelegatedExecutionToken(
     return { ok: false, reasonCode: "delegated_token_contract_invalid" };
   }
   if (
-    token.issuer.personId !== actor.principal.personId ||
+    !samePrincipal(token.issuer, actor.principal) ||
     token.delegate.runtimeSessionId !== runtimeSessionIdFromActor(actor)
   )
     return { ok: false, reasonCode: "delegated_token_actor_mismatch" };

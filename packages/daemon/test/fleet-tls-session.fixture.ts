@@ -1,3 +1,4 @@
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -160,6 +161,7 @@ export async function fleetFixture(
     },
     "Fleet",
   );
+  await assignFixtureTask(host, subject, auth);
   if (startExecution) {
     const started = await host.run(
       subject.repoId,
@@ -189,6 +191,11 @@ export async function fleetFixture(
     hold: owned.hold,
     userRoot,
     owners,
+    machinePrincipal: async (nodeId: string) => {
+      const subject = await owners.nodeSubject(nodeId);
+      if (subject === null) throw new Error(`fixture node ${nodeId} has no machine subject`);
+      return `machine:${nodeId}:${subject}`;
+    },
     setOwnerLookupDelay: (value: number) => {
       ownerLookupDelayMs = value;
     },
@@ -276,6 +283,7 @@ export async function fleetFixture(
             }
             return machines.has(nodeId) && credential === "machine-secret";
           },
+          nodeSubject: owners.nodeSubject,
           nodeOwner: async (nodeId) => {
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             if (ownerLookupFailure) throw ownerLookupFailure;

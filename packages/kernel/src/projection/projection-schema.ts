@@ -14,4 +14,5 @@
 // Version 33 replays Agent retirement reason, time, and successor into canonical entity views.
 // Version 34 removes retired Schedule instance/model pins when replaying historical definitions.
 // Version 35 records the shared replica change sequence in each projection transaction.
-export const taskProjectionSchemaVersion = 35;
+// Version 36 replays event descriptors with typed person/machine principals.
+export const taskProjectionSchemaVersion = 36;

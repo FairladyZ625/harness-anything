@@ -163,7 +163,6 @@ function renderPersonActionUsage(verb: string, fields: readonly EntityActionInpu
 export function evaluatePersonActionCapability(input: {
   readonly action: EntityActionContract;
   readonly personId: string;
-  readonly actorPersonId: string;
   readonly evaluatedAt: string;
 }): readonly PersonActionCapabilityEvaluation[] {
   return input.action.criteria.map((criterion) => ({

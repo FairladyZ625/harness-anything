@@ -8,7 +8,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
+import { evaluateKeycloakPrincipal } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { TaskClaimableResult } from "./protocol/daemon-protocol-gui-types.ts";
@@ -32,21 +32,22 @@ export async function readClaimableTasks(input: {
       realm: center.realm,
       resourceServerClientId: center.clientId,
     }),
-    personId = binding.actor.principal.personId,
-    permission = await evaluateKeycloakPerson({
+    principal = binding.actor.principal,
+    permission = await evaluateKeycloakPrincipal({
       credential: binding.keycloakAuthorization!,
-      personId,
+      principal,
       action: "task-start",
       resource: { kind: "repository", repoId },
     });
   if (permission.reasonCode === "keycloak_unavailable")
     throw cellCodedError("keycloak_unavailable", "Cannot refresh task claim permissions.");
-  const teamIds = await adapter.readPersonTeams(center.accessToken, personId),
+  const teamIds =
+      principal.kind === "machine" ? [] : await adapter.readPersonTeams(center.accessToken, principal.personId),
     permitted = new Set<string>();
   if (permission.outcome !== "allowed") {
     // The same effective-permissions read as access management; never persisted or used to accept a write.
     const [userId, grants, groups] = await Promise.all([
-      adapter.findUserId(center.accessToken, personId),
+      principal.kind === "machine" ? principal.subject : adapter.findUserId(center.accessToken, principal.personId),
       adapter.readGrants(center.accessToken),
       adapter.readPolicyGroups(center.accessToken),
     ]);
@@ -63,7 +64,7 @@ export async function readClaimableTasks(input: {
       throw cellCodedError("authorization_denied", "No permission to start tasks in this repository.");
   }
   const scope = input.settings.fleet.claim.scope as TaskClaimScope,
-    claimant = { personId, nodeId: source.nodeId, teamIds },
+    claimant = { principal, nodeId: source.nodeId, teamIds },
     candidates: {
       taskId: string;
       title: string;
@@ -100,7 +101,8 @@ export async function readClaimableTasks(input: {
         taskId: task.taskId,
         title: task.title,
         assignment,
-        priority: assignee?.kind === "person" ? (assignee.nodeId ? 0 : 1) : assignee ? 2 : 3,
+        priority:
+          assignee?.kind === "node" ? 0 : assignee?.kind === "person" ? (assignee.nodeId ? 0 : 1) : assignee ? 2 : 3,
         urgency: task.metadata?.urgency === "high" ? 0 : task.metadata?.urgency === "medium" ? 1 : 2,
         createdAt: row.createdAt ?? "",
       });

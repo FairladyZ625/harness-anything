@@ -1,3 +1,4 @@
+import type { ActorPrincipal } from "../../api/renderer-dto.ts";
 import { t, type MessageKey } from "../i18n/index.tsx";
 
 /**
@@ -38,4 +39,9 @@ export function actorDisplayName(actor: string | { readonly kind: string; readon
   // 人:person id 的前缀是命名空间,不是名字本身。
   const name = body.replace(/^person\/|^person_/u, "");
   return { name: name === "" ? full : name, full };
+}
+
+/** Stable principal label shared by task, session and decision displays. */
+export function principalLabel(principal: ActorPrincipal): string {
+  return principal.kind === "machine" ? `machine:${principal.nodeId}:${principal.subject}` : principal.personId;
 }

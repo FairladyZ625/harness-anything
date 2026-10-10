@@ -45,7 +45,7 @@ export interface DaemonAuthenticationContext {
   /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
   readonly keycloakCenter?: KeycloakCenterAuthority;
   /** The authenticated node and its owner from the center node registry; never accepted from a fleet frame. */
-  readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string };
+  readonly nodePrincipal?: { readonly nodeId: string; readonly personId: string; readonly subject: string };
   /** Transient fleet credential, consumed by the center's online introspection, never action data. */
   readonly humanAccessToken?: string;
   /** Center-only admission context; never accepted from a client payload. */

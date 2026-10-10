@@ -1,3 +1,5 @@
+import { principalId } from "./actor-identity.ts";
+
 export const closeoutReadinesses = ["not_required", "missing", "incomplete", "ready", "passed", "failed"] as const;
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
@@ -305,14 +307,14 @@ export function judgeGateWitnesses(
       return {
         status: "waived",
         detail:
-          `receipt ${waivable.receiptId} waived by ${human!.actor.principal.personId} ` +
+          `receipt ${waivable.receiptId} waived by ${principalId(human!.actor.principal)} ` +
           `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
       };
     if (requirement?.allowOverride === true && humanOverride.waivedReceiptId === null && automated === undefined)
       return {
         status: "waived",
         detail:
-          `no automated witness on this cut; waived by ${human!.actor.principal.personId} ` +
+          `no automated witness on this cut; waived by ${principalId(human!.actor.principal)} ` +
           `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
       };
   }

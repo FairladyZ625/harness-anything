@@ -93,6 +93,7 @@ async function pushRejectionFixture() {
     cert,
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    nodeSubject: owners.nodeSubject,
     nodeOwner: async (nodeId) => {
       // Compare pull reads owner twice; the next metadata lookup precedes its cut capture.
       if (race !== null && nodeId === "node-one" && ++raceOwnerReads === 3) {

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import { beforeAll, describe, expect, it } from "vitest";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { actorDisplayName } from "../src/renderer/model/actor-name.ts";
+import { actorDisplayName, principalLabel } from "../src/renderer/model/actor-name.ts";
 
 beforeAll(() => setActiveLocale("zh-CN"));
 
@@ -30,4 +30,12 @@ describe("actorDisplayName（身份串 → 可读名字,视觉基线 v2）", () 
     expect(actorDisplayName({ kind: "agent", id: "claude-session:0e69" }).name).toBe("Claude 会话");
     expect(actorDisplayName({ kind: "human", id: "person_zeyu" }).name).toBe("zeyu");
   });
+});
+
+// dec_2665E58BA5AE42E37793193748/CH1: machine display preserves subject and node, never an owner person.
+it("preserves typed machine identity in display labels", () => {
+  expect(principalLabel({ kind: "machine", nodeId: "compute-one", subject: "service-one" })).toBe(
+    "machine:compute-one:service-one",
+  );
+  expect(principalLabel({ personId: "person_one" })).toBe("person_one");
 });

@@ -185,6 +185,9 @@ for (const explicit of [false, true])
       const duplicate = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(duplicate.code, 0, JSON.stringify(duplicate));
       fixture.owners.keycloak.revoke("person-node-one", "dual-repo", ["task-submit"]);
+      // dec_2665E58BA5AE42E37793193748/CH1: owner revocation cannot revoke the machine grant.
+      assert.equal((await invoke([])).code, 0);
+      fixture.owners.keycloak.revoke((await fixture.owners.nodeSubject("node-one"))!, "dual-repo", ["task-submit"]);
       const stale = await invoke([]);
       assert.equal(stale.code, 1, JSON.stringify(stale));
       assert.match(stale.stdout, /authorization_denied|access_denied/u);

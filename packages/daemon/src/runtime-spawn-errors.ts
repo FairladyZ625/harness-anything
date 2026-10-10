@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import type { AgentRuntimeEventV1, ReceiptDiagnostic, TaskProjection } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 
@@ -37,7 +38,7 @@ export function runtimeTaskLeaseRequiredMessage(
       ", then retry the task-bound runtime command.",
     ].join("");
   const executor = lease.actor.executor === null ? "none" : `${lease.actor.executor.kind}:${lease.actor.executor.id}`,
-    holder = `personId=${lease.actor.principal.personId}, executor=${executor}`;
+    holder = `principal=${principalId(lease.actor.principal)}, executor=${executor}`;
   if (lease.phase === "held")
     return [
       "Task-bound runtime spawn requires the caller's active execution lease; ",

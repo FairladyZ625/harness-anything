@@ -67,7 +67,7 @@ export function projectSquadRunEvent(db: DatabaseSync, event: AgentRuntimeEventV
       workerCallbackCount: 0,
       pendingLeaderCallbackCount: 0,
       synthesisReportPath: null,
-      owner: { source: event.source, personId: event.actor.principal.personId },
+      owner: { source: event.source, principal: event.actor.principal },
       acceptedRevision: event.workspaceRevision,
       acceptedAt: event.occurredAt,
     };

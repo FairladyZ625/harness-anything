@@ -252,7 +252,12 @@ export async function runFleetEdgeTask(
       const scan = cacheFleetMirrorDirtyBases(payload.viewRoot, payload.repoId, workspaceRoot, packagePath);
       if (!scan) throw new FleetEdgeTaskError("mirror_missing", "Task document scan is unavailable.");
       const changes = scan.changes.filter((change) => change.path.startsWith(`${packagePath}/`));
-      const admission = await readFleetRepositoryMetadataClient({ ...peer, taskId, actionKind: "doc-submit" });
+      const admission = await readFleetRepositoryMetadataClient({
+        ...peer,
+        accessToken: await readAccessToken?.(),
+        taskId,
+        actionKind: "doc-submit",
+      });
       if (admission.actionAllowed !== true)
         throw new FleetEdgeTaskError("authorization_denied", "Task document submission is not authorized.");
       const blocked = scan.blocked.filter(
@@ -304,13 +309,18 @@ export async function runFleetEdgeTask(
         nodeId: payload.nodeId,
         action,
         authorize: async () => {
-          const metadata = await readFleetRepositoryMetadataClient({ ...peer, actionKind: "task-submit", taskId });
+          const metadata = await readFleetRepositoryMetadataClient({
+            ...peer,
+            accessToken: await readAccessToken?.(),
+            actionKind: "task-submit",
+            taskId,
+          });
           if (metadata.actionAllowed !== true)
             throw new FleetEdgeTaskError(
               "authorization_denied",
               "Task submit permission is required before publishing delivery.",
             );
-          return metadata.personId;
+          return metadata.principal;
         },
         readTask: async () => {
           const pulled = await runFleetReplicaPullClient({

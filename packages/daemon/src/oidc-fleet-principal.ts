@@ -16,9 +16,12 @@ export async function verifyFleetHuman(input: {
     node = input.auth.nodePrincipal;
   if (!token) return input.auth;
   const reject = () =>
-    Object.assign(new Error("The command requires the current node owner's active interactive Keycloak session."), {
-      code: "human_confirmation_required",
-    });
+    Object.assign(
+      new Error("The command requires the actual signed-in person's active interactive Keycloak session."),
+      {
+        code: "human_confirmation_required",
+      },
+    );
   if (!node) throw reject();
   const realmPath = `/realms/${encodeURIComponent(input.realm)}`;
   const response = await input.fetch(`${input.url}${realmPath}/protocol/openid-connect/token/introspect`, {
@@ -35,7 +38,8 @@ export async function verifyFleetHuman(input: {
     claims.azp !== `harness-node-${node.nodeId}` ||
     ![claims.aud].flat().includes(input.clientId) ||
     typeof claims.sub !== "string" ||
-    claims.harness_person_id !== node.personId
+    typeof claims.harness_person_id !== "string" ||
+    !claims.harness_person_id
   )
     throw reject();
   const userResponse = await input.fetch(`${input.url}/admin${realmPath}/users/${encodeURIComponent(claims.sub)}`, {
@@ -47,12 +51,16 @@ export async function verifyFleetHuman(input: {
     readonly serviceAccountClientId?: string;
     readonly attributes?: Readonly<Record<string, readonly string[]>>;
   };
-  if (user.enabled !== true || user.serviceAccountClientId || user.attributes?.harness_person_id?.[0] !== node.personId)
+  if (
+    user.enabled !== true ||
+    user.serviceAccountClientId ||
+    user.attributes?.harness_person_id?.[0] !== claims.harness_person_id
+  )
     throw reject();
   return {
     ...input.auth,
     oidcPrincipal: {
-      personId: node.personId,
+      personId: claims.harness_person_id,
       subject: claims.sub,
       expiresAt,
       accessToken: token,

@@ -8,8 +8,8 @@ import test from "node:test";
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/fleet-task-delivery.ts";
 import { fetchWorkerDelivery, readWorkerRemoteCommit } from "../src/runtime-worker-push.ts";
 
-for (const denialMode of ["node", "owner", "permission", "cas"])
-  test(`delivery checks current node, owner, permission and remote CAS (${denialMode})`, async (t) => {
+for (const denialMode of ["node", "principal", "permission", "cas"])
+  test(`delivery checks current node, principal, permission and remote CAS (${denialMode})`, async (t) => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-cas-"));
     t.after(() => rmSync(root, { recursive: true, force: true }));
     const env = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
@@ -65,7 +65,7 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
       nodeId: "old",
       authorize: async () => {
         if (denialMode === "permission") throw new Error("authorization denied before push");
-        return denialMode === "owner" ? "changed-owner" : "owner";
+        return { personId: denialMode === "principal" ? "changed-principal" : "owner" };
       },
       action: { kind: "task-submit", taskId },
       readTask: async () => {
@@ -83,13 +83,13 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
         ? /authorization denied/u
         : denialMode === "cas"
           ? /stale info/u
-          : /current node, owner/u,
+          : /current node, principal/u,
     );
     await ready.promise;
     const accepted = await prepareEdgeTaskDelivery({
       workspaceRoot: second,
       nodeId: "new",
-      authorize: async () => "owner",
+      authorize: async () => ({ personId: "owner" }),
       action: { kind: "task-submit", taskId },
       readTask: async () => snapshot("new"),
     });

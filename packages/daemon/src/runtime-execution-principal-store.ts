@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
-import type { WriteSource } from "@harness-anything/kernel";
+import { validActorPrincipal, type ActorPrincipal, type WriteSource } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
 
 export interface PersistedRuntimeExecutionPrincipal {
-  readonly personId: string;
+  readonly principal: ActorPrincipal;
   readonly repoId: string;
   readonly runtimeSessionId: string;
   readonly dispatchId: string;
@@ -19,7 +19,7 @@ export function recordRuntimeExecutionPrincipal(
   repoId: string,
   runtimeSessionId: string,
   credential: string,
-  personId: string,
+  principal: ActorPrincipal,
   expiresAt: string,
 ): void {
   const header = readDispatchStreamHeaders(rootDir).find((entry) => entry.runtimeSessionId === runtimeSessionId);
@@ -28,7 +28,7 @@ export function recordRuntimeExecutionPrincipal(
   appendRuntimeWorkerRecord(rootDir, header.dispatchId, {
     kind: "execution_principal",
     grantFingerprint: executionCredentialDigest(credential),
-    personId,
+    principal,
     repoId,
     runtimeSessionId,
     dispatchId: header.dispatchId,
@@ -61,7 +61,7 @@ function isPersistedPrincipal(
   value: Record<string, unknown>,
 ): value is Record<string, unknown> & PersistedRuntimeExecutionPrincipal {
   return (
-    typeof value.personId === "string" &&
+    validActorPrincipal(value.principal) &&
     typeof value.repoId === "string" &&
     typeof value.runtimeSessionId === "string" &&
     typeof value.dispatchId === "string" &&

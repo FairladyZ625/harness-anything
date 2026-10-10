@@ -44,6 +44,26 @@ export async function waitForFleetPublication(
   assert.equal(receipt.wait?.state, "satisfied", JSON.stringify(receipt));
 }
 
+/** dec_2665E58BA5AE42E37793193748/CH1: a machine starts only an explicitly assigned task. */
+export async function assignFixtureTask(
+  host: DaemonHost,
+  subject: { repoId: string; taskId: string; nodeId: string },
+  auth: Parameters<DaemonHost["run"]>[2],
+): Promise<void> {
+  const shown = await host.run(subject.repoId, { kind: "task-show", taskId: subject.taskId }, auth);
+  const assigned = await host.run(
+    subject.repoId,
+    {
+      kind: "task-assign",
+      taskId: subject.taskId,
+      nodeId: subject.nodeId,
+      expectedVersion: JSON.parse(shown.evidence).revision,
+    },
+    auth,
+  );
+  assert.equal(assigned.outcome, "applied", JSON.stringify(assigned));
+}
+
 export function fleetLedgerRevision(rootInput: string, repoId: string): number {
   const reader = openSqliteEventStore({ rootInput, repoId, readOnly: true });
   try {
@@ -79,6 +99,14 @@ export async function fleetNodeOwners(input: {
           for (const repoId of input.repoIds) served.keycloak.permit(personId, repoId, everyAction);
       }
       served.keycloak.node(nodeId, personId);
+      // dec_2665E58BA5AE42E37793193748/CH1: provision independent machine grants explicitly.
+      if (input.grantAll !== false)
+        for (const repoId of input.repoIds)
+          served.keycloak.permit(
+            `${served.keycloak.nodeClients.get(`harness-node-${nodeId}`)!.id}-service`,
+            repoId,
+            everyAction,
+          );
     };
   for (const [nodeId, personId] of Object.entries(input.owners)) register(nodeId, personId);
   if (input.localPersonId !== undefined) {
@@ -97,6 +125,10 @@ export async function fleetNodeOwners(input: {
     url: served.url,
     close: served.close,
     nodeOwner: ownerOf,
+    nodeSubject: async (nodeId: string) => {
+      const client = served.keycloak.nodeClients.get(`harness-node-${nodeId}`);
+      return client ? `${client.id}-service` : null;
+    },
     /** Re-registers a node to another person, the way an administrator moves a machine between owners. */
     reassign: register,
     /** The authentication context the center derives for one authenticated node frame. */
@@ -105,7 +137,11 @@ export async function fleetNodeOwners(input: {
       assert.ok(personId, `fixture node ${node.nodeId} has no registered owner`);
       return {
         transportKind: "fleet-tls" as const,
-        nodePrincipal: { nodeId: node.nodeId, personId },
+        nodePrincipal: {
+          nodeId: node.nodeId,
+          personId,
+          subject: `${served.keycloak.nodeClients.get(`harness-node-${node.nodeId}`)!.id}-service`,
+        },
       };
     },
   };

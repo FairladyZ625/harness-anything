@@ -1,3 +1,4 @@
+import { validActorPrincipal, type ActorPrincipal } from "@harness-anything/kernel";
 import { TextDecoder } from "node:util";
 import {
   actionDeclarations,
@@ -69,7 +70,7 @@ export type FleetFrameV1 =
     >
   | Msg<
       "fleet.repo.metadata.get/v1",
-      { executionCredential?: string; repoId: string; actionKind?: string; taskId?: string }
+      { executionCredential?: string; accessToken?: string; repoId: string; actionKind?: string; taskId?: string }
     >
   | Msg<
       "fleet.repo.metadata.result/v1",
@@ -78,7 +79,7 @@ export type FleetFrameV1 =
         repoId: string;
         baseLedgerSha: LedgerCutIdentity;
         writerEpoch: number;
-        personId: string;
+        principal: ActorPrincipal;
         actionAllowed: boolean | null;
       }
     >
@@ -690,6 +691,7 @@ const schemas: Readonly<Record<string, Check>> = {
       ...common,
       repoId: id,
       executionCredential: text,
+      accessToken: text,
       actionKind: (value) => typeof value === "string" && actionDeclarations.some((action) => action.kind === value),
       taskId: id,
     },
@@ -697,7 +699,7 @@ const schemas: Readonly<Record<string, Check>> = {
   ),
   "fleet.repo.metadata.result/v1": shape({
     ...reply,
-    personId: id,
+    principal: validActorPrincipal,
     actionAllowed: nullable(boolean),
     repoId: id,
     baseLedgerSha: ledgerCut,

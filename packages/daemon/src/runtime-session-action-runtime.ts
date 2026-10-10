@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   attributeEntityActionCriterion,
   getExecutableEntityAction,
@@ -24,7 +25,7 @@ export function runtimeSessionActionPreparer(projection: () => TaskProjection): 
         dispatchSource.kind !== "node" ||
         typeof ingressSource !== "object" ||
         ingressSource.kind !== "node" ||
-        dispatch.actor.principal.personId !== binding.actor.principal.personId ||
+        !samePrincipal(dispatch.actor.principal, binding.actor.principal) ||
         dispatchSource.nodeId !== ingressSource.nodeId
       )
         invalidRuntimeSessionAction(
@@ -119,7 +120,7 @@ export function requireRuntimeDispatchOwner(
   if (
     !dispatch ||
     (!local && stableStringify(dispatch.source) !== stableStringify(binding.source)) ||
-    ((!local || strictLocalPrincipal) && dispatch.actor.principal.personId !== binding.actor.principal.personId)
+    ((!local || strictLocalPrincipal) && !samePrincipal(dispatch.actor.principal, binding.actor.principal))
   )
     invalidRuntimeSessionAction(
       "execution_scope_mismatch",
@@ -147,7 +148,7 @@ export function runtimeDispatchTaskMatches(input: {
         (interval) =>
           interval.executionId === executionId &&
           interval.holder.actor.executor?.id === `runtime-session:${runtimeSessionId}` &&
-          interval.holder.actor.principal.personId === binding.actor.principal.personId,
+          samePrincipal(interval.holder.actor.principal, binding.actor.principal),
       ) ||
     (dispatch?.payload.taskId === taskId &&
       dispatch.payload.executionId === executionId &&

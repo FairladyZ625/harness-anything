@@ -122,7 +122,7 @@ export function holder(lease: ReturnType<TaskProjection["currentLeaseForExecutio
     lease && {
       taskId: lease.taskId,
       executionId: lease.executionId,
-      personId: lease.actor.principal.personId,
+      principal: lease.actor.principal,
       executorId: lease.actor.executor?.id ?? null,
       source: lease.source,
       expiresAt: lease.expiresAt,

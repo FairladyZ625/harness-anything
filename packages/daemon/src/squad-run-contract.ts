@@ -1,3 +1,4 @@
+import { validActorPrincipal } from "@harness-anything/kernel/browser";
 import type { CanonicalSquadRun, SquadRunPhase } from "@harness-anything/kernel";
 export type { SquadRunPhase } from "@harness-anything/kernel";
 
@@ -411,8 +412,8 @@ function validObservationIdentity(value: Record<string, unknown>): boolean {
     squadRunCount(value.acceptedRevision) &&
     squadRunIso(value.acceptedAt) &&
     squadRunRecord(owner) &&
-    exactSquadRunFields(owner, ["source", "personId"]) &&
-    squadRunText(owner.personId) &&
+    exactSquadRunFields(owner, ["source", "principal"]) &&
+    validActorPrincipal(owner.principal) &&
     (owner.source === "local" ||
       (squadRunRecord(owner.source) &&
         exactSquadRunFields(owner.source, ["kind", "nodeId"]) &&

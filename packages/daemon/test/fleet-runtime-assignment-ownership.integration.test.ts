@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -42,6 +43,7 @@ for (const distinctNode of [false, true])
           (planPath) => fixture.host.run(second.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
           "Second",
         );
+        await assignFixtureTask(fixture.host, second, auth);
         const started = await fixture.host.run(
           second.repoId,
           { kind: "task-start", taskId: second.taskId, executionId: second.executionId },
@@ -99,6 +101,8 @@ for (const distinctNode of [false, true])
             authenticate: (nodeId, credential) =>
               [fixture.subject.nodeId, second.nodeId].includes(nodeId) && credential === "machine-secret",
             nodeOwner: fixture.owners.nodeOwner,
+
+            nodeSubject: fixture.owners.nodeSubject,
           }),
         );
         const workspaceRoot = path.join(fixture.root, "edge");

@@ -1,3 +1,4 @@
+import { principalId, type ActorIdentity } from "@harness-anything/kernel";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -691,8 +692,14 @@ export function makeTaskQueryReadModel(input: {
   /** 源实体的归属人:task 的创建者、decision 的提案者;「待你跟进」按它判定读者是不是提问方。 */
   function sourceOwnerOf(ref: string): string | undefined {
     const parsed = /^(task|decision)\/(.+)$/u.exec(ref);
-    if (parsed?.[1] === "task") return projection.read(parsed[2]!).snapshot.task?.createdBy.principal.personId;
-    if (parsed?.[1] === "decision") return projection.readDecision(parsed[2]!).decision?.proposer.principal.personId;
+    if (parsed?.[1] === "task") {
+      const principal = projection.read(parsed[2]!).snapshot.task?.createdBy.principal;
+      return principal ? principalId(principal) : undefined;
+    }
+    if (parsed?.[1] === "decision") {
+      const principal = projection.readDecision(parsed[2]!).decision?.proposer.principal;
+      return principal ? principalId(principal) : undefined;
+    }
     return undefined;
   }
   function resolvePinnedEntity(row: ReturnType<TaskProjection["listPinnedEntities"]>[number]): AgendaPinnedEntityRow {
@@ -963,11 +970,8 @@ type AgendaSourcePage = {
   readonly warnings: ReturnType<TaskProjection["list"]>["warnings"];
   readonly reads: readonly ProjectionCut[];
 };
-function actorLabel(actor: {
-  readonly principal: { readonly personId: string };
-  readonly executor: { readonly id: string } | null;
-}) {
-  return actor.executor?.id ?? actor.principal.personId;
+function actorLabel(actor: ActorIdentity) {
+  return actor.executor?.id ?? principalId(actor.principal);
 }
 function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   const task = row.snapshot.task!;

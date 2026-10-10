@@ -155,6 +155,19 @@ export async function fleetFixture(
     (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Fleet",
   );
+  // dec_2665E58BA5AE42E37793193748/CH1: the compute task is explicitly assigned.
+  const shown = await host.run(subject.repoId, { kind: "task-show", taskId: subject.taskId }, auth);
+  const assigned = await host.run(
+    subject.repoId,
+    {
+      kind: "task-assign",
+      taskId: subject.taskId,
+      nodeId: subject.nodeId,
+      expectedVersion: JSON.parse(shown.evidence).revision,
+    },
+    auth,
+  );
+  assert.equal(assigned.outcome, "applied");
   const started = await host.run(
     subject.repoId,
     { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
@@ -252,6 +265,7 @@ export async function fleetFixture(
             realm: "harness",
             clientId: `harness-node-${nodeId}`,
           }),
+          nodeSubject: owners.nodeSubject,
           nodeOwner: async (nodeId) => {
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             return owners.nodeOwner(nodeId);

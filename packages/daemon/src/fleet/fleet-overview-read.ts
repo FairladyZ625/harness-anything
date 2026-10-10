@@ -1,3 +1,4 @@
+import type { ActorPrincipal } from "@harness-anything/kernel";
 import type { FleetReplicaStatus } from "./center-types.ts";
 import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import type { RepoCell, RepoCellBinding } from "../repo-cell-types.ts";
@@ -48,7 +49,7 @@ export interface FleetLeaseFact {
   readonly coordinationStatus: string;
   readonly leasePhase: string | null;
   readonly leaseExpiresAt: string | null;
-  readonly personId: string | null;
+  readonly principal: ActorPrincipal;
   /** daemon 写侧 executor id(`runtime-session:<id>`);无执行会话为 null。 */
   readonly executorId: string | null;
   /** lease 来源节点;中心本机通道为 FLEET_CENTER_NODE_ID,无节点通道为 null。 */
@@ -103,7 +104,7 @@ export interface FleetTaskLeaseRow {
   readonly coordinationStatus: string;
   readonly phase: string | null;
   readonly expiresAt: string | null;
-  readonly personId: string | null;
+  readonly principal: ActorPrincipal;
   readonly runtimeSessionId: string | null;
   readonly dispatchId: string | null;
   readonly agentId: string | null;
@@ -329,7 +330,7 @@ function leaseRows(
       coordinationStatus: lease.coordinationStatus,
       phase: lease.leasePhase,
       expiresAt: lease.leaseExpiresAt,
-      personId: lease.personId,
+      principal: lease.principal,
       runtimeSessionId:
         lease.executorId !== null && lease.executorId.startsWith("runtime-session:")
           ? lease.executorId.slice("runtime-session:".length)
@@ -513,7 +514,7 @@ export async function readFleetOverviewFromHost(input: {
         coordinationStatus: String(row.coordinationStatus),
         leasePhase: lease.phase,
         leaseExpiresAt: lease.expiresAt,
-        personId: lease.actor.principal.personId,
+        principal: lease.actor.principal,
         executorId: lease.actor.executor?.id ?? null,
         nodeId,
       });

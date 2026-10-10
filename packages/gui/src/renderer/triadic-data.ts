@@ -1,3 +1,4 @@
+import { principalLabel as principalId } from "./model/actor-name.ts";
 import { useMemo } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import type {
@@ -550,6 +551,11 @@ const kernelDecisionStates: ReadonlySet<string> = new Set([
 function decisionState(value: string): DecisionState {
   return kernelDecisionStates.has(value) ? (value as DecisionState) : "unknown";
 }
-function actorRef(value: DecisionProjectionRow["proposer"]): { readonly kind: "agent" | "human"; readonly id: string } {
-  return value.executor ? { kind: "agent", id: value.executor.id } : { kind: "human", id: value.principal.personId };
+function actorRef(value: DecisionProjectionRow["proposer"]): {
+  readonly kind: "agent" | "human" | "machine";
+  readonly id: string;
+} {
+  return value.executor
+    ? { kind: "agent", id: value.executor.id }
+    : { kind: value.principal.kind === "machine" ? "machine" : "human", id: principalId(value.principal) };
 }

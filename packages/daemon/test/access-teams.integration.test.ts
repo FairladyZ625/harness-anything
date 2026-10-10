@@ -41,9 +41,9 @@ test("work teams use native membership, reject stale edits, and do not grant bus
   assert.equal(stale.code, "version_conflict");
   assert.equal(
     (
-      await adapter.authorizePerson({
+      await adapter.authorizePrincipal({
         adminAccessToken: "center-token",
-        personId: "alice",
+        principal: { personId: "alice" },
         action: "task-start",
         resource: { kind: "repository", repoId: "repo-a" },
       })

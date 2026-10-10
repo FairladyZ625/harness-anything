@@ -1,3 +1,4 @@
+import { principalId } from "../domain/actor-identity.ts";
 import { recordReplicaRevision } from "./replica-sequence.ts";
 import { projectArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
@@ -156,7 +157,7 @@ export function applyEvent(
         "INSERT INTO pinned_entities(entity_ref, pinned_at, pinned_by) VALUES (?, ?, ?) ON CONFLICT(entity_ref) DO UPDATE SET pinned_at=excluded.pinned_at, pinned_by=excluded.pinned_by",
         event.payload.entityRef,
         event.occurredAt,
-        event.actor.principal.personId,
+        principalId(event.actor.principal),
       );
     else runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", event.payload.entityRef);
     const taskId = event.payload.entityRef.match(/^task\/(.+)$/u)?.[1];
@@ -206,7 +207,7 @@ export function applyEvent(
       "INSERT OR IGNORE INTO pinned_entities(entity_ref, pinned_at, pinned_by) " +
         "SELECT 'task/' || task_id, ?, ? FROM task_snapshot WHERE pinned = 1",
       event.occurredAt,
-      event.actor.principal.personId,
+      principalId(event.actor.principal),
     );
     return;
   }
@@ -808,7 +809,7 @@ export function applyTaskEvent(
       "INSERT INTO pinned_entities(entity_ref, pinned_at, pinned_by) VALUES (?, ?, ?) ON CONFLICT(entity_ref) DO UPDATE SET pinned_at=excluded.pinned_at, pinned_by=excluded.pinned_by",
       `task/${event.taskId}`,
       event.occurredAt,
-      event.actor.principal.personId,
+      principalId(event.actor.principal),
     );
   else runSql(db, "DELETE FROM pinned_entities WHERE entity_ref = ?", `task/${event.taskId}`);
   applyEmbeddedRelationProjectionEvents(db, event);

@@ -278,7 +278,7 @@ for (const restart of [false, true])
           workspaceRoot,
           repoId: fixture.subject.repoId,
           nodeId: fixture.subject.nodeId,
-          principalId: "person-owner",
+          principalId: `machine:${fixture.subject.nodeId}:${await fixture.owners.nodeSubject(fixture.subject.nodeId)}`,
         },
         "repo.agentRuntime.overview",
         { limit: 1 },

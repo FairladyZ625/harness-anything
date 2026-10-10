@@ -803,7 +803,7 @@ function queryEvents(
   if (input.type !== undefined) equal("json_extract(event_json, '$.type')", input.type);
   if (input.actor !== undefined) {
     clauses.push(
-      "(json_extract(event_json, '$.actor.principal.personId')=? " +
+      "(CASE WHEN json_extract(event_json, '$.actor.principal.kind')='machine' THEN 'machine:' || json_extract(event_json, '$.actor.principal.nodeId') || ':' || json_extract(event_json, '$.actor.principal.subject') ELSE json_extract(event_json, '$.actor.principal.personId') END=? " +
         "OR json_extract(event_json, '$.actor.executor.id')=?)",
     );
     values.push(input.actor, input.actor);

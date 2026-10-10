@@ -1,3 +1,4 @@
+import { principalLabel as principalId } from "../../model/actor-name.ts";
 import { RuntimeHandoff } from "./RuntimeHandoff.tsx";
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import type { AgentRuntimeSessionDto, AgentRuntimeSessionResult } from "@harness-anything/daemon/protocol";
@@ -430,8 +431,8 @@ export function SessionDetailView({
               )}
             </KVRow>
             <KVRow name={t("agentRuntime.facts.holder")}>
-              {association?.holder?.personId
-                ? actorDisplayName(association.holder.personId).name
+              {association?.holder
+                ? actorDisplayName(principalId(association.holder.principal)).name
                 : t("agentRuntime.unheld")}
             </KVRow>
             <KVRow

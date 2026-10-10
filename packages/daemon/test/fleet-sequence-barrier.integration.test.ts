@@ -100,10 +100,16 @@ test(
         assert.ok(!frames.includes("fleet.snapshot.begin/v1"));
         assert.ok(pulled.current.cut.revision >= write.revision!);
         assert.equal(Atomics.load(control, 0), 1, "complete checkpoint remains blocked when write-through returns");
-        withEdgeReadModel({ ...options(nodeId), principalId: "person-owner" }, (queries) => {
-          for (let seen = 0; seen <= index; seen++)
-            assert.ok(queries.list().rows.some((row) => row.taskId === `task-interleaved-${seen}`));
-        });
+        withEdgeReadModel(
+          {
+            ...options(nodeId),
+            principalId: await f.owners.nodeSubject(nodeId).then((subject) => `machine:${nodeId}:${subject}`),
+          },
+          (queries) => {
+            for (let seen = 0; seen <= index; seen++)
+              assert.ok(queries.list().rows.some((row) => row.taskId === `task-interleaved-${seen}`));
+          },
+        );
       }
       const workspace = path.join(f.root, "command-workspace");
       applyFleetMirrorCut(options("node-two").viewRoot, f.subject.repoId, workspace, "pull");
@@ -125,9 +131,15 @@ test(
       assert.equal(commandResult.outcome, "applied", JSON.stringify(commandResult));
       assert.equal(commandResult.mirrorOutcome, "applied", JSON.stringify(commandResult));
       assert.equal(Atomics.load(control, 0), 1, "real edge command returns while full checkpoint is blocked");
-      withEdgeReadModel({ ...options("node-two"), principalId: "person-owner" }, (queries) => {
-        assert.ok(queries.list().rows.some((row) => row.taskId === "task-command-return"));
-      });
+      withEdgeReadModel(
+        {
+          ...options("node-two"),
+          principalId: await f.owners.nodeSubject("node-two").then((subject) => `machine:node-two:${subject}`),
+        },
+        (queries) => {
+          assert.ok(queries.list().rows.some((row) => row.taskId === "task-command-return"));
+        },
+      );
       const target = source.latest()!;
       for (const nodeId of ["node-one", "node-two"]) {
         const pulled = await runFleetReplicaPullClient({ ...options(nodeId), through: target.revision });

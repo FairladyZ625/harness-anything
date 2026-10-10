@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import type { RepoInFlightWork } from "./repo-cell-types.ts";
@@ -23,7 +24,7 @@ export function readRepoInFlightWork(input: {
       const lease = row.snapshot.lease;
       if (!lease || lease.phase === "released") return [];
       const executor = lease.actor.executor,
-        holder = executor ? `${executor.kind}:${executor.id}` : lease.actor.principal.personId;
+        holder = executor ? `${executor.kind}:${executor.id}` : principalId(lease.actor.principal);
       return [
         {
           kind: "task-lease" as const,

@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
@@ -141,7 +142,7 @@ export function createDaemonHostControlApi(
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId),
         serverBinding = await context.binding(cell.status().rootDir, auth);
       return cell.runtime.issueWitnessToken(runtimeSessionId, {
-        principalId: serverBinding.actor.principal.personId,
+        principalId: principalId(serverBinding.actor.principal),
         source: serverBinding.source,
       });
     },

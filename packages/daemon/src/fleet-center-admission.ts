@@ -14,7 +14,7 @@ import type { WriterEpochLease } from "./writer-epoch.ts";
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
   fetchPort?: typeof fetch,
-): Pick<FleetCenterOptions, "authenticate" | "nodeOwner"> {
+): Pick<FleetCenterOptions, "authenticate" | "nodeOwner" | "nodeSubject"> {
   const open = async () => {
     const authority = await center();
     return {
@@ -27,6 +27,10 @@ export function keycloakNodeRegistry(
   };
   return {
     authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
+    nodeSubject: async (nodeId) => {
+      const { adapter, token } = await open();
+      return adapter.nodeSubject(token, nodeId);
+    },
     nodeOwner: async (nodeId) => {
       const { adapter, token } = await open();
       return (await adapter.readNode(token, nodeId))?.personId || null;
@@ -40,7 +44,7 @@ export interface FleetCenterAdmissionRequest {
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
-    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
+    "authenticate" | "nodeOwner" | "nodeSubject" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
   >;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
@@ -134,7 +138,7 @@ export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<
           new Error(
             // The machine was recognized and its owner lacks the action; no credential change fixes that.
             error.code === "authorization_denied"
-              ? `${error.message} Ask a center administrator to grant the node's owner repository-read` +
+              ? `${error.message} Ask a center administrator to grant the node service account repository-read` +
                 " on this repository, then retry the edge sync."
               : error.code === "authentication_failed" || error.code === "node_owner_unregistered"
                 ? `${error.message} Register the node at the center and use the credential it issued,` +

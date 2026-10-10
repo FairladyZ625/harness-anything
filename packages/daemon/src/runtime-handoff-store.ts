@@ -1,3 +1,4 @@
+import { samePrincipal, type ActorPrincipal } from "@harness-anything/kernel";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import {
@@ -12,7 +13,8 @@ import { writeFileDurably, readFileWindow, removeFileDurably } from "./durable-f
 import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { validateHandoffRollout } from "./runtime-handoff-native.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
-import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { authorizeRuntimeRepoAction } from "./repo-cell-authorization.ts";
+import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetDescriptor } from "./fleet/contract.ts";
 
 export interface RuntimeHandoffCheckpoint {
@@ -20,7 +22,7 @@ export interface RuntimeHandoffCheckpoint {
   readonly taskId: string;
   readonly executionId: string;
   readonly runtimeSessionId: string;
-  readonly ownerPersonId: string;
+  readonly ownerPrincipal: ActorPrincipal;
   readonly source: WriteSource;
   readonly providerSessionId: string;
   readonly commit: string;
@@ -53,8 +55,21 @@ export function runRuntimeHandoffAction(
     location = directory(cell.rootDir, dispatchId),
     previous = readHandoffCheckpoint(cell.rootDir, dispatchId),
     source = cell.projection.readRuntimeDispatchById(dispatchId)?.event;
-  if (!source || source.actor.principal.personId !== binding.actor.principal.personId)
-    throw runtimeSpawnError("runtime_handoff_owner_mismatch", "The authenticated person must own the source dispatch.");
+  // dec_2665E58BA5AE42E37793193748: an opted-in machine export may be claimed by another machine.
+  // Export/revoke and human handoffs retain source-principal ownership.
+  if (
+    !source ||
+    (!samePrincipal(source.actor.principal, binding.actor.principal) &&
+      !(
+        action.kind === "runtime-handoff-claim" &&
+        source.actor.principal.kind === "machine" &&
+        binding.actor.principal.kind === "machine"
+      ))
+  )
+    throw runtimeSpawnError(
+      "runtime_handoff_owner_mismatch",
+      "The authenticated principal must own the source dispatch.",
+    );
   const payload = source.payload;
   const result = (value: object) => ({
     outcome: "no_changes" as const,
@@ -113,7 +128,7 @@ export function runRuntimeHandoffAction(
       taskId: payload.taskId,
       executionId: payload.executionId,
       runtimeSessionId: payload.runtimeSessionId,
-      ownerPersonId: binding.actor.principal.personId,
+      ownerPrincipal: binding.actor.principal,
       source: source.source,
       providerSessionId: session.providerSessionId,
       commit,
@@ -139,6 +154,7 @@ export function runRuntimeHandoffAction(
   if (
     successor &&
     action.idempotencyKey === successor.payload.idempotencyKey &&
+    samePrincipal(successor.actor.principal, binding.actor.principal) &&
     stableStringify(successor.source) === stableStringify(binding.source)
   ) {
     const receipt: WriteReceiptDraft = cell.receiptForOperation(successor.opId, binding);
@@ -178,8 +194,11 @@ export function assertHandoffClaim(
       "runtime_handoff_pending",
       "The export audit has not been accepted; retry export on the source.",
     );
-  if (checkpoint.ownerPersonId !== binding.actor.principal.personId)
-    throw runtimeSpawnError("runtime_handoff_owner_mismatch", "The checkpoint belongs to another person.");
+  if (
+    !samePrincipal(checkpoint.ownerPrincipal, binding.actor.principal) &&
+    !(checkpoint.ownerPrincipal.kind === "machine" && binding.actor.principal.kind === "machine")
+  )
+    throw runtimeSpawnError("runtime_handoff_owner_mismatch", "The checkpoint belongs to another principal.");
   if (checkpoint.revokedAt) throw runtimeSpawnError("runtime_handoff_revoked", "The checkpoint has been revoked.");
   if (stableStringify(checkpoint.source) === stableStringify(binding.source))
     throw runtimeSpawnError("runtime_handoff_target_same", "Claim on a different authenticated node.");
@@ -189,7 +208,7 @@ export function assertHandoffClaim(
   if (
     !held ||
     held.phase !== "held" ||
-    held.actor.principal.personId !== binding.actor.principal.personId ||
+    !samePrincipal(held.actor.principal, binding.actor.principal) ||
     stableStringify(held.source) !== stableStringify(binding.source)
   )
     throw runtimeSpawnError(
@@ -199,6 +218,28 @@ export function assertHandoffClaim(
   const status = cell.projection.read(checkpoint.taskId).snapshot.task?.status;
   if (status !== "active")
     throw runtimeSpawnError("runtime_task_execution_frozen", "Handoff requires an active execution.");
+}
+
+/** The consumption write must retain claim scope even when it follows a prior private download. */
+export async function authorizeHandoffDispatch(
+  cell: RepoCellActionContext,
+  action: RuntimeIngressAction,
+  binding: RepoCellBinding,
+): Promise<void> {
+  if (
+    action.kind === "event" &&
+    action.type === "runtime_dispatch_requested" &&
+    action.payload.handoffCheckpointId !== undefined
+  )
+    await authorizeRuntimeRepoAction({
+      action: { kind: "runtime-handoff-claim", dispatchId: action.payload.handoffCheckpointId },
+      binding,
+      actionId: action.opId,
+      repoId: cell.input.repoId,
+      revision: cell.store.readHead()?.revision ?? 0,
+      now: cell.now(),
+      projection: cell.projection,
+    });
 }
 
 export function admitHandoffDispatch(

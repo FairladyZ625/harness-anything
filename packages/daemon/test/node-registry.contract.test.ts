@@ -1,6 +1,6 @@
 // harness-test-tier: contract
-// dec_D60FAA451F24160E970323B6F3 CH1/CH2: a fleet connection authenticates a machine; the person it acts
-// for is center state in Keycloak, written through the access-admin queue and read for every frame.
+// dec_2665E58BA5AE42E37793193748/CH1: a node authenticates its independent service account;
+// owner metadata supplies accountability, while an actual human login supplies person identity.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -55,8 +55,8 @@ async function fixture(t: TestContext) {
   };
 }
 
-// The three entry points one person can act through: a signed-in local session, and two fleet nodes
-// registered to that person. Only the local one holds the person's own token.
+// Actual human session bindings use the same person on local and Fleet transports.
+// Machine-only connections are covered separately below.
 const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> => {
   const actor = { principal: { personId }, executor: null };
   return {
@@ -570,7 +570,7 @@ test("one person gets one answer for one action on one object, through a local s
   assert.deepEqual([...new Set(Object.values(table).flat())].sort(), ["allowed", "denied"]);
 });
 
-test("the answer follows the person a node is registered to, not the node", async (t) => {
+test("machine grants remain independent of both old and new node owner grants", async (t) => {
   const { keycloak, run, evaluate, nodes, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
@@ -586,17 +586,26 @@ test("the answer follows the person a node is registered to, not the node", asyn
   const through = async () => {
     const owner = await registry.nodeOwner("edge-a");
     assert.ok(owner);
-    return [owner, await evaluate(entries(owner)["edge-a"]!, { kind: "task-create" })];
+    const subject = await registry.nodeSubject("edge-a");
+    assert.ok(subject);
+    const bound = await deriveBinding(directory, {
+      transportKind: "fleet-tls",
+      nodePrincipal: { nodeId: "edge-a", personId: owner, subject },
+      keycloakCenter: centerAuthority,
+    });
+    return [owner, await evaluate(bound, { kind: "task-create" })];
   };
-  assert.deepEqual(await through(), ["alice", "allowed"]);
+  assert.deepEqual(await through(), ["alice", "denied"]);
   await run({
     operation: "node-register",
     nodeId: "edge-a",
     personId: "bob",
     expectedVersion: (await nodes())[0]!.version,
   });
-  assert.deepEqual(await through(), ["bob", "denied"], "the same node now carries bob, who holds no grant");
+  assert.deepEqual(await through(), ["bob", "denied"], "changing accountability cannot lend the new owner authority");
   await run({ operation: "grant", personId: "bob", groupId: "contributor", resource: "repo-a" });
+  assert.deepEqual(await through(), ["bob", "denied"]);
+  keycloak.permit((await registry.nodeSubject("edge-a"))!, "repo-a", ["task-create"]);
   assert.deepEqual(await through(), ["bob", "allowed"]);
 });
 
@@ -609,14 +618,17 @@ test("an actor reported by the frame never reaches the decision", async (t) => {
     derive = (extra: Readonly<Record<string, unknown>>) =>
       deriveBinding(root, {
         transportKind: "fleet-tls",
-        nodePrincipal: { nodeId: "edge-a", personId: "alice" },
+        nodePrincipal: { nodeId: "edge-a", personId: "alice", subject: "service-edge-a" },
         keycloakCenter: centerAuthority,
         ...extra,
       } as Parameters<typeof deriveBinding>[1]),
     plain = await derive({}),
     claimed = await derive({ actor: selfReported, personId: "root-admin" });
   assert.deepEqual(claimed, plain);
-  assert.deepEqual(claimed.actor, { principal: { personId: "alice" }, executor: null });
+  assert.deepEqual(claimed.actor, {
+    principal: { kind: "machine", nodeId: "edge-a", subject: "service-edge-a" },
+    executor: null,
+  });
   // root-admin holds the action; the node's owner does not, and the claim does not lend it to her.
   assert.equal(await evaluate(entries("root-admin")["edge-a"]!, { kind: "people-delegate" }), "allowed");
   assert.equal(await evaluate(claimed, { kind: "people-delegate" }), "denied");

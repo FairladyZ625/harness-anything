@@ -18,7 +18,7 @@ export function readEventList(db: DatabaseSync, query: EventListQuery): EventLis
   if (query.before !== undefined) add("json_extract(row_json, '$.occurredAt') <= ?", query.before);
   if (query.actor !== undefined)
     add(
-      "(json_extract(row_json, '$.actor.personId') = ? OR json_extract(row_json, '$.actor.executorId') = ?)",
+      "(CASE WHEN json_extract(row_json, '$.actor.principal.kind')='machine' THEN 'machine:' || json_extract(row_json, '$.actor.principal.nodeId') || ':' || json_extract(row_json, '$.actor.principal.subject') ELSE json_extract(row_json, '$.actor.principal.personId') END = ? OR json_extract(row_json, '$.actor.executorId') = ?)",
       query.actor,
       query.actor,
     );

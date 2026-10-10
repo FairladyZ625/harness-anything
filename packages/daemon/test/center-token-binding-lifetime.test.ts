@@ -9,13 +9,14 @@ import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { serializableRepoCellBinding } from "../src/repo-writer-protocol.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
-test("a retained node-owner binding uses current center authority after token rotation", async (t) => {
+// dec_2665E58BA5AE42E37793193748/CH1: evaluation uses the service account, never an owner lookup.
+test("a retained machine binding uses current center authority after token rotation", async (t) => {
   let currentToken = "token-A",
     centerCalls = 0;
   const requests: { readonly route: string; readonly bearer: string | null }[] = [],
     auth: DaemonAuthenticationContext = {
       transportKind: "fleet-tls",
-      nodePrincipal: { nodeId: "node-rotation", personId: "person_rotation" },
+      nodePrincipal: { nodeId: "node-rotation", personId: "person_rotation", subject: "user-rotation" },
       keycloakCenter: async () => {
         centerCalls += 1;
         return {
@@ -70,7 +71,7 @@ test("a retained node-owner binding uses current center authority after token ro
     assert.equal(centerCalls, 2);
     assert.deepEqual(
       requests.map(({ bearer }) => bearer),
-      [...Array<string>(4).fill("Bearer token-A"), ...Array<string>(4).fill("Bearer token-B")],
+      [...Array<string>(3).fill("Bearer token-A"), ...Array<string>(3).fill("Bearer token-B")],
     );
   });
 

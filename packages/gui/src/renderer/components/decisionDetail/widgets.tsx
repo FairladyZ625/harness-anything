@@ -35,7 +35,7 @@ export function ActorRef({
   actor,
   onNavigateEntity,
 }: {
-  actor: { kind: "agent" | "human" | "system"; id: string } | null | undefined;
+  actor: { kind: "agent" | "human" | "system" | "machine"; id: string } | null | undefined;
   onNavigateEntity: (ref: string) => void;
 }) {
   if (!actor) return <span className="text-text-muted">—</span>;

@@ -20,10 +20,10 @@ test(
     await replica.prepare();
     const firstCut = await replica.waitForCut(f.eventCount());
     const edges = Array.from({ length: 8 }, (_, index) => {
-      const nodeId = `eight-edge-${index}`,
-        principalId = `eight-owner-${index}`;
-      f.owners.reassign(nodeId, principalId);
-      const viewRoot = path.join(f.root, nodeId);
+      const nodeId = `eight-edge-${index}`;
+      f.owners.reassign(nodeId, `eight-owner-${index}`);
+      const principalId = `machine:${nodeId}:${f.owners.keycloak.nodeClients.get(`harness-node-${nodeId}`)!.id}-service`,
+        viewRoot = path.join(f.root, nodeId);
       return { nodeId, principalId, viewRoot, view: openFleetEdgeView(viewRoot, 64 * 1024 * 1024) };
     });
     // Each real TLS client materializes its own snapshot, then deliberately holds the ACK.

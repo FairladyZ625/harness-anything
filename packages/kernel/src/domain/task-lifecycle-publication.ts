@@ -1,3 +1,4 @@
+import { principalId } from "./actor-identity.ts";
 import type { ExecutionV1 } from "./execution.ts";
 import { consentedApprovedReviewForExecution, reviewsForExecution } from "./review.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
@@ -531,7 +532,7 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
           value.annotations
             .map(
               (annotation) =>
-                `- ${annotation.annotatedAt} ${annotation.kind} by ${annotation.actor.principal.personId}: ` +
+                `- ${annotation.annotatedAt} ${annotation.kind} by ${principalId(annotation.actor.principal)}: ` +
                 annotation.note,
             )
             .join("\n"),
@@ -560,7 +561,7 @@ function renderReview(
     `- Submission digest: ${value.submissionDigest ?? "legacy-unpinned"}\n`,
     `- Reviewed at: ${value.reviewedAt}\n`,
     `- Consent: ${consent ? consent.consentId : "pending"}\n`,
-    `- Consent actor: ${consent?.actor.principal.personId ?? "pending"}\n`,
+    `- Consent actor: ${consent ? principalId(consent.actor.principal) : "pending"}\n`,
     `- Consent source: ${consent ? stableStringify(consent.source) : "pending"}\n`,
     `- Disposed reviews: ${disposition?.disposedReviewIds.join(", ") ?? "none"}\n`,
     `- Disposition rationale: ${disposition?.rationale ?? "none"}\n`,

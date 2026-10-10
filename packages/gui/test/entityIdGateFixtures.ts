@@ -210,7 +210,7 @@ export const FIXTURE_SESSION_DTO: AgentRuntimeSessionDto = {
     {
       taskId: TASK_A_ID,
       executionId: "exec-g10",
-      holder: { personId: "person-zeyu", executorId: null },
+      holder: { principal: { personId: "person-zeyu" }, executorId: null },
       lease: { phase: "held", expiresAt: AT },
     },
   ],

@@ -1,3 +1,4 @@
+import { principalId } from "./actor-identity.ts";
 import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
   closeoutReadiness,
@@ -131,7 +132,7 @@ function evaluateCompletion(
           gate,
           next: {
             ...completionGuidance(snapshot, executionId, action, reason),
-            ...(gate === "consent" ? { authority: task?.createdBy.principal.personId ?? "task owner" } : {}),
+            ...(gate === "consent" ? { authority: task ? principalId(task.createdBy.principal) : "task owner" } : {}),
           },
         },
       ] as const;
@@ -147,7 +148,7 @@ function evaluateCompletion(
       "actor_unauthorized",
       "authority",
       `ha task complete ${task.taskId}`,
-      `Ask task owner ${task.createdBy.principal.personId} to run completion with the required authority.`,
+      `Ask task owner ${principalId(task.createdBy.principal)} to run completion with the required authority.`,
     );
   if (context.invalidDocument)
     return one(
@@ -210,7 +211,7 @@ function evaluateCompletion(
       task.status === "active" && execution ? `ha task submit ${task.taskId}` : `ha task start ${task.taskId}`,
       snapshot.lease
         ? `Fill harness/${context.closeoutPath} with the verified delivery before submitting execution ${executionId}; ` +
-            `the execution is held by ${snapshot.lease.actor.executor?.id ?? snapshot.lease.actor.principal.personId}.`
+            `the execution is held by ${snapshot.lease.actor.executor?.id ?? principalId(snapshot.lease.actor.principal)}.`
         : "The current execution has not been submitted.",
     );
   // The executor only matters for judging reviewer independence, so it is restored only while an
@@ -432,8 +433,8 @@ export function completionGuidance(
     action,
     authority:
       snapshot.lease?.actor.executor?.id ??
-      snapshot.lease?.actor.principal.personId ??
-      snapshot.task?.createdBy.principal.personId ??
+      (snapshot.lease ? principalId(snapshot.lease.actor.principal) : undefined) ??
+      (snapshot.task ? principalId(snapshot.task.createdBy.principal) : undefined) ??
       "task owner",
     readCut: {
       revision: snapshot.revision,

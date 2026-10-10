@@ -13,7 +13,7 @@ import { REPLAY_TASK_GRAPH } from "../src/domain/task-graph.ts";
 const now = "2026-10-03T12:00:00.000Z",
   expiresAt = "2026-10-04T12:00:00.000Z";
 const actor = { principal: { personId: "person-a" }, executor: null } as const;
-const claimant = { personId: "person-a", nodeId: "node-a", teamIds: ["team-a"] };
+const claimant = { principal: { personId: "person-a" }, nodeId: "node-a", teamIds: ["team-a"] };
 function command(intent: Parameters<typeof normalizeTaskLifecycleCommand>[1], revision: number) {
   return {
     ...normalizeTaskLifecycleCommand(
@@ -31,7 +31,7 @@ test("assignment eligibility distinguishes nodes, memberships, expiry and auto s
   const team = { assignee: { kind: "team", teamId: "team-a" }, expiresAt } as const;
   assert.equal(taskAssignmentMatches(node, claimant, now, "node"), true);
   assert.equal(taskAssignmentMatches(node, { ...claimant, nodeId: "node-b" }, now), false);
-  assert.equal(taskAssignmentMatches(node, { ...claimant, personId: "new-owner" }, now), false);
+  assert.equal(taskAssignmentMatches(node, { ...claimant, principal: { personId: "new-owner" } }, now), false);
   assert.equal(taskAssignmentMatches(person, claimant, now, "node"), false);
   assert.equal(taskAssignmentMatches(person, claimant, now, "reserved"), true);
   assert.equal(taskAssignmentMatches(team, claimant, now, "reserved"), true);

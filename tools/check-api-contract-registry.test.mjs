@@ -91,16 +91,19 @@ test("W3 API registry follows a renamed transport-authority module", () =>
 
 for (const [label, before, after] of [
   ["OIDC verification", "await oidc.bind(auth)", "auth"],
-  ["assignment binding call", "return nodeOwnerBinding(auth)", "return localDefaultBinding(auth, executor)"],
+  ["assignment binding call", "return nodePrincipalBinding(auth)", "return localDefaultBinding(auth, executor)"],
   ["local expiry guard", "auth.oidcPrincipal.expiresAt <= Date.now()", "false"],
   ["local person binding", "personId: auth.oidcPrincipal.personId", 'personId: "client-person"'],
   ["Keycloak session connection", "withSessionEnvironment({", "unboundSession({"],
   ["Keycloak session credential", "accessToken: auth.oidcPrincipal.accessToken", 'accessToken: "client-token"'],
-  ["registered owner guard", "!owner.nodeId", "false"],
-  ["authenticated owner source", "owner = auth.nodePrincipal", "owner = clientOwner"],
-  ["authenticated assignment source", "owner = auth.nodePrincipal", "owner = clientOwner"],
-  ["registered person binding", "personId: owner.personId", 'personId: "client-person"'],
-  ["assignment provenance", "nodeId: owner.nodeId", 'nodeId: "client-node"'],
+  ["registered owner guard", "!node.nodeId", "false"],
+  ["authenticated owner source", "node = auth.nodePrincipal", "node = clientOwner"],
+  ["authenticated assignment source", "node = auth.nodePrincipal", "node = clientOwner"],
+  // dec_2665E58BA5AE42E37793193748/CH1 preserves authenticated origin while replacing owner authority.
+  ["registered machine subject", "subject: node.subject", 'subject: "client-subject"'],
+  ["actual signed-in person", "? { personId: auth.oidcPrincipal.personId }", "? { personId: node.personId }"],
+  ["machine subject lookup", "adapter.nodeSubject(token, nodeId)", "clientSubject(nodeId)"],
+  ["assignment provenance", "nodeId: node.nodeId", 'nodeId: "client-node"'],
   ["node Keycloak connection", "center: auth.keycloakCenter }", "center: otherAuthority }"],
   ["center registry connection", "keycloakNodeRegistry(context.keycloakCenter)", "otherRegistry()"],
   ["node credential validation", "adapter.authenticateNode(nodeId, credential)", "adapter.acceptNode(nodeId)"],
@@ -231,15 +234,18 @@ export function localDefaultBinding(auth, executor) {
 function withSessionEnvironment(binding, auth) {
   return { ...binding, keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } };
 }
-function nodeOwnerBinding(auth) {
-  const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.keycloakCenter) throw new Error("authentication_required");
-  return { actor: { principal: { personId: owner.personId }, executor: null },
-    source: { kind: "node", nodeId: owner.nodeId },
+function nodePrincipalBinding(auth) {
+  const node = auth.nodePrincipal;
+  if (!node || !node.nodeId || !auth.keycloakCenter) throw new Error("authentication_required");
+  const principal = auth.oidcPrincipal
+    ? { personId: auth.oidcPrincipal.personId }
+    : { kind: "machine" as const, subject: node.subject, nodeId: node.nodeId };
+  return { actor: { principal, executor: null },
+    source: { kind: "node", nodeId: node.nodeId },
     keycloakAuthorization: { center: auth.keycloakCenter } };
 }
 export function binding(rootDir, auth, executor) {
-  if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
+  if (auth.transportKind === "fleet-tls") return nodePrincipalBinding(auth);
   return localDefaultBinding(auth, executor);
 }
 `;
@@ -249,6 +255,7 @@ function validNodeRegistry() {
     const open = async () => ({ adapter, token: (await center()).accessToken });
     return {
       authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
+      nodeSubject: async (nodeId) => { const { adapter, token } = await open(); return adapter.nodeSubject(token, nodeId); },
       nodeOwner: async (nodeId) => { const { adapter, token } = await open(); return (await adapter.readNode(token, nodeId))?.personId || null; }
     };
   }`;

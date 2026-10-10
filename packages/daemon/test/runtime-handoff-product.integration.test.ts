@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -130,6 +131,8 @@ for (const row of [{type:'thread.started',thread_id:id},
           replicaDiskQuotaBytes: 64 * 1024 * 1024,
           authenticate: (_node, credential) => credential === "machine-secret",
           nodeOwner: f.owners.nodeOwner,
+
+          nodeSubject: f.owners.nodeSubject,
         }),
       ),
       remote = path.join(f.root, "code.git");
@@ -338,6 +341,7 @@ for (const row of [{type:'thread.started',thread_id:id},
     const exportedNative = readFileSync(path.join(f.repo, ".harness/runtime-handoffs", dispatchId, "rollout.jsonl"));
     assert.deepEqual(exportedNative, sourceNative, "export preserves the settled source bytes");
     assert.equal(Number(((exported.checkpoint as JsonObject).blob as JsonObject).size), exportedNative.length);
+    await assignFixtureTask(f.host, { repoId, taskId, nodeId: "node-two" }, f.auth);
     const started = await f.host.run(
       repoId,
       { kind: "task-start", taskId },

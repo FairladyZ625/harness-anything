@@ -1,10 +1,10 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { requireSquadRuntimeOwner, requireSquadRuntimeAdmission } from "./squad-runtime-ingress.ts";
 import { admitHandoffDispatch } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
 import {
   canonicalEventWritePlan,
   currentSubmittedExecutions,
-  isSamePerson,
   runtimeEventContentClaims,
   stableStringify,
   submissionDigest,
@@ -109,7 +109,7 @@ export function appendAuxiliaryRuntimeIngress(
             !held ||
             held.phase !== "held" ||
             held.executionId !== dispatch.executionId ||
-            held.actor.principal.personId !== binding.actor.principal.personId ||
+            !samePrincipal(held.actor.principal, binding.actor.principal) ||
             stableStringify(held.source) !== stableStringify(binding.source)
           )
             throw cell.cellCodedError(
@@ -130,7 +130,13 @@ export function appendAuxiliaryRuntimeIngress(
           `Dispatch ${sourceId} has no provider session to resume.`,
         );
       if (
-        !isSamePerson(source.actor, binding.actor) ||
+        // admitHandoffDispatch already requires an accepted export and the target's active lease.
+        (!samePrincipal(source.actor.principal, binding.actor.principal) &&
+          !(
+            action.payload.handoffCheckpointId !== undefined &&
+            source.actor.principal.kind === "machine" &&
+            binding.actor.principal.kind === "machine"
+          )) ||
         source.payload.taskId !== action.payload.taskId ||
         (action.payload.handoffCheckpointId === undefined &&
           source.payload.executionId !== action.payload.executionId) ||

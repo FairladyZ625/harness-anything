@@ -114,7 +114,7 @@ test("a delegated executor claim crosses task bindings through a valid token", a
     {
       proof: "delegated-execution-token",
       tokenId: "det_ledger_ops_1",
-      issuerPersonId,
+      issuer: { personId: issuerPersonId },
       runtimeSessionId,
     },
   );

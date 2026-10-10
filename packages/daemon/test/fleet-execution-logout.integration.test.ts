@@ -206,9 +206,9 @@ test(
         : null,
     );
     assert.ok(env.HARNESS_EXECUTION_CREDENTIAL);
-    assert.equal(
-      readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL)?.personId,
-      "person-owner",
+    assert.deepEqual(
+      readRuntimeExecutionPrincipal(edgeRoot, env.HARNESS_EXECUTION_CREDENTIAL)?.principal,
+      { kind: "machine", nodeId: f.subject.nodeId, subject: await f.owners.nodeSubject(f.subject.nodeId) },
       JSON.stringify(readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records),
     );
     const executionPrincipalRecord = readDispatchStream(edgeRoot, String(spawned.dispatchId))?.records.find(
@@ -302,10 +302,10 @@ test(
       await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
       applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     };
-    f.owners.keycloak.revoke("person-owner", repoId, ["repository-read"]);
+    f.owners.keycloak.revoke((await f.owners.nodeSubject(f.subject.nodeId))!, repoId, ["repository-read"]);
     await assert.rejects(resync(), { code: "authorization_denied" });
     assert.equal((await cli(["task", "show", taskId])).code, "authorization_denied");
-    f.owners.keycloak.permit("person-owner", repoId, ["repository-read"]);
+    f.owners.keycloak.permit((await f.owners.nodeSubject(f.subject.nodeId))!, repoId, ["repository-read"]);
     await resync();
     const client = f.owners.keycloak.nodeClients.get(secret.split(":")[0]!)!;
     client.enabled = false;
@@ -343,10 +343,16 @@ test(
       { code: "execution_credential_rejected" },
     );
     client.attributes.harness_execution = JSON.stringify(principal);
-    // Reassigning the node voids the execution's authority at the center; reads stay local.
+    // dec_2665E58BA5AE42E37793193748/CH1: accountability changes do not revoke machine authority.
     f.setOwner("person-other");
     const reassigned = await cli(["task", "progress", "append", taskId, "--text", "Owner was reassigned."]);
-    assert.equal(reassigned.outcome, "op_rejected", JSON.stringify(reassigned));
+    assert.equal(reassigned.outcome, "applied", JSON.stringify(reassigned));
+    const nodeClient = f.owners.keycloak.nodeClients.get(`harness-node-${f.subject.nodeId}`)!;
+    const originalId = nodeClient.id;
+    nodeClient.id = "replacement-service-account-client";
+    const replaced = await cli(["task", "progress", "append", taskId, "--text", "Machine was replaced."]);
+    assert.equal(replaced.outcome, "op_rejected", JSON.stringify(replaced));
+    nodeClient.id = originalId;
     f.setOwner("person-owner");
     offline = true;
     const offlineShow = await cli(["task", "show", taskId]);
@@ -614,28 +620,33 @@ test(
         "Amended edge implementation evidence for S2.",
       ),
     );
-    const amendedCli = await spawnCli(
-      [
-        "--root",
-        worktree,
-        "--json",
-        "task",
-        "submit",
-        taskId,
-        "--execution-id",
-        f.subject.executionId,
-        "--amend",
-        "--as-owner",
-      ],
-      {
-        ...process.env,
-        ...env,
-        HARNESS_EXECUTION_CREDENTIAL: undefined,
-        HARNESS_ACTOR: undefined,
-        HARNESS_TASK_BOUND: undefined,
-      },
-    );
-    const amended = JSON.parse(amendedCli.stdout) as JsonObject;
+    const amend = () =>
+      spawnCli(
+        [
+          "--root",
+          worktree,
+          "--json",
+          "task",
+          "submit",
+          taskId,
+          "--execution-id",
+          f.subject.executionId,
+          "--amend",
+          "--as-owner",
+        ],
+        {
+          ...process.env,
+          ...env,
+          HARNESS_EXECUTION_CREDENTIAL: undefined,
+          HARNESS_ACTOR: undefined,
+          HARNESS_TASK_BOUND: undefined,
+        },
+      );
+    // The logged-in accountability owner cannot impersonate the machine task creator.
+    const humanAmend = JSON.parse((await amend()).stdout) as JsonObject;
+    assert.equal(humanAmend.code, "lease_required", JSON.stringify(humanAmend));
+    managedRbacSessionStore(userRoot).delete();
+    const amended = JSON.parse((await amend()).stdout) as JsonObject;
     assert.equal(amended.outcome, "applied", JSON.stringify(amended));
     const s2 = await show();
     assert.notDeepEqual(
@@ -643,7 +654,7 @@ test(
       s1.executions.find((execution) => execution.executionId === f.subject.executionId)?.submission,
       "the supported amendment must change the submitted cut",
     );
-    t.diagnostic("Owner CLI/Fleet TLS amended S1 to a distinct S2 submission.");
+    t.diagnostic("Machine creator CLI/Fleet TLS amended S1 to a distinct S2 submission.");
     // The stale credential still reads the local replica; the center refuses only its writes below.
     const staleRead = await reviewCli(["task", "show", taskId]);
     assert.equal(staleRead.outcome, "applied", JSON.stringify(staleRead));
@@ -838,6 +849,14 @@ test(
         f.auth,
       );
       return result.session.activity.outcome ? result.session : null;
+    }).catch((error) => {
+      t.diagnostic(
+        JSON.stringify({
+          terminalDiagnostic: readDispatchStream(edgeRoot, String(spawned.dispatchId)),
+          runtimeArchiveReceipts: f.runtimeArchiveReceipts,
+        }),
+      );
+      throw error;
     });
     assert.equal(settled.liveness, "exited");
     // Same edge honesty: no local delivery witness, so the session reports its settled unknown.

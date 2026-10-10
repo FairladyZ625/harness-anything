@@ -534,3 +534,30 @@ it("keeps completion guidance out of list adapters", () => {
   const [task] = adaptProjectionRows([row()], "repo-test");
   expect(task).not.toHaveProperty("completionNext");
 });
+
+// dec_2665E58BA5AE42E37793193748/CH1: task and lease identity must match CLI audit identity.
+it("keeps machine subject and node in task and lease display", () => {
+  const base = row();
+  const principal = { kind: "machine", nodeId: "compute", subject: "service" } as const;
+  const actor = { principal, executor: null };
+  const input = row({
+    snapshot: {
+      ...base.snapshot,
+      task: { ...base.snapshot.task!, createdBy: actor },
+      lease: {
+        executionId: "machine-execution",
+        actor,
+        source: { kind: "node", nodeId: "compute" },
+        phase: "held",
+        expiresAt: "2026-10-11T00:00:00.000Z",
+        ttlMs: 900000,
+        version: 1,
+      },
+    },
+  });
+  expect(adaptProjectionRows([input], "repo-test")[0]).toMatchObject({
+    createdBy: "machine:compute:service",
+    leaseHolder: "machine:compute:service",
+    leaseActor: actor,
+  });
+});

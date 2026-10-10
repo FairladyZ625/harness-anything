@@ -167,7 +167,7 @@ function ClaimList({
 
 /** 提议/批准者展示:agent 是可寻址实体 → 链接;human/system 无详情页 → 纯文本。 */
 function renderActor(
-  actor: { kind: "agent" | "human" | "system"; id: string } | undefined,
+  actor: { kind: "agent" | "human" | "system" | "machine"; id: string } | undefined,
   onNavigateEntity: (ref: string) => void,
 ): React.ReactNode {
   if (!actor) return <span className="font-mono text-text-muted">未知/—</span>;

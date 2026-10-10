@@ -26,6 +26,8 @@ test(
           authenticate: (nodeId, credential) =>
             [first.nodeId, second.nodeId].includes(nodeId) && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+
+          nodeSubject: fixture.owners.nodeSubject,
         }),
       ),
       peer = (assignment = first) => ({
@@ -97,8 +99,16 @@ test(
     });
     await reject("wrong-agent", "runtime_resume_agent_mismatch", { agentId: "another-agent" });
     await reject("wrong-execution", "runtime_scope_mismatch", { executionId: "another-execution" });
+    // dec_2665E58BA5AE42E37793193748/CH1: owner metadata is not execution authority.
     fixture.setOwner("other-owner");
-    await reject("wrong-owner", "runtime_task_lease_required");
+    const client = fixture.owners.keycloak.nodeClients.get(`harness-node-${first.nodeId}`)!;
+    const previousClientId = client.id;
+    client.id = "replacement-machine";
+    // Explicitly authorize the new subject so this negative reaches the existing lease-identity check.
+    fixture.owners.keycloak.node(first.nodeId, "other-owner");
+    fixture.owners.keycloak.permit("replacement-machine-service", first.repoId, ["runtime-run"]);
+    await reject("wrong-principal", "runtime_task_lease_required");
+    client.id = previousClientId;
     fixture.setOwner("person-owner");
     const before = fixture.eventCount();
     await assert.rejects(
@@ -133,5 +143,49 @@ test(
       ).length,
       1,
     );
+    // dec_2665E58BA5AE42E37793193748: cross-machine consent exists only for explicit handoff.
+    // A taskless resume reaches source ownership without being stopped by a task lease first.
+    const ordinarySource = dispatch("ordinary-source", undefined, { taskId: null, executionId: null });
+    const ordinaryContext = { role: null, taskId: null, executionId: null };
+    await runFleetRuntimeEventClient({ ...peer(), ...ordinarySource, dispatchContext: ordinaryContext });
+    await runFleetRuntimeEventClient({
+      ...peer(),
+      opId: "ordinary-start",
+      eventType: "runtime_session_started",
+      payload: {
+        runtimeSessionId: ordinarySource.payload.runtimeSessionId,
+        instanceId: definition.instanceId,
+        installationId: definition.installationId,
+        kindId: definition.kindId,
+        definitionSnapshotRef: ordinarySource.payload.definitionSnapshotRef,
+        launchGeneration: 1,
+        attachable: true,
+      },
+    });
+    await runFleetRuntimeEventClient({
+      ...peer(),
+      opId: "ordinary-provider",
+      eventType: "runtime_session_provider_bound",
+      payload: {
+        runtimeSessionId: ordinarySource.payload.runtimeSessionId,
+        providerSessionId: "ordinary-provider",
+        transcriptRef: "provider:ordinary",
+      },
+    });
+    const crossPrincipal = dispatch("ordinary-other-machine", ordinarySource.payload.dispatchId, {
+      taskId: null,
+      executionId: null,
+      resumeProviderSessionId: "ordinary-provider",
+    });
+    await assert.rejects(
+      runFleetRuntimeEventClient({ ...peer(second), ...crossPrincipal, dispatchContext: ordinaryContext }),
+      { code: "runtime_resume_binding_mismatch" },
+    );
+    const ordinaryResume = await runFleetRuntimeEventClient({
+      ...peer(),
+      ...crossPrincipal,
+      dispatchContext: ordinaryContext,
+    });
+    assert.equal(ordinaryResume.event.actor.principal.kind, "machine");
   },
 );

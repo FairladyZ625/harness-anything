@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { realpathSync } from "node:fs";
 import path from "node:path";
 import {
@@ -6,7 +7,6 @@ import {
   heldLeaseForExecutionActor,
   isNativeExecution,
   isSameExecution,
-  isSamePerson,
   isTaskEvent,
   resolveCompletionContract,
   submissionFromCloseout,
@@ -387,7 +387,7 @@ export async function submitTask(
     action.amend === true &&
     action.asOwner === true &&
     current.snapshot.task !== null &&
-    isSamePerson(current.snapshot.task.createdBy, binding.actor);
+    samePrincipal(current.snapshot.task.createdBy.principal, binding.actor.principal);
   // An owning principal who rejoined from a terminal holds the lease without an executor
   // descriptor; the execution still records the runtime that did the work. First submission
   // through that held lease is admitted on person identity alone — the ordinary lease, source,
@@ -397,8 +397,8 @@ export async function submitTask(
     selected !== undefined &&
     selected.submission === null &&
     current.snapshot.task !== null &&
-    isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
-    isSamePerson(selected.actor, binding.actor);
+    samePrincipal(current.snapshot.task.createdBy.principal, binding.actor.principal) &&
+    samePrincipal(selected.actor.principal, binding.actor.principal);
   // Recovery authority is the submission event caller, not the retained execution attribution.
   const submissionOpId =
       selected?.submission && action.amend !== true
@@ -424,7 +424,7 @@ export async function submitTask(
   const executionId = selected.executionId,
     amendCommand = `ha task submit --amend ${taskId}${
       current.snapshot.task &&
-      isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
+      samePrincipal(current.snapshot.task.createdBy.principal, binding.actor.principal) &&
       !isSameExecution(selected.actor, binding.actor)
         ? " --as-owner"
         : ""

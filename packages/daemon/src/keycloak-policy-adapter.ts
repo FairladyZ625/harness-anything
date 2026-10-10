@@ -6,6 +6,7 @@ import {
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
   type AuthorizationResource,
+  type ActorPrincipal,
   type PolicyGroup,
 } from "@harness-anything/kernel";
 import { keycloakLoginAttributes, keycloakLoginMappers } from "./keycloak-login-client.ts";
@@ -39,7 +40,7 @@ export interface KeycloakGrant {
   readonly userIds: readonly string[];
 }
 
-/** One fleet node: a confidential Keycloak client whose single owner attribute names the person it acts for. */
+/** One fleet node: a confidential Keycloak client whose owner attribute records accountability only. */
 export interface KeycloakNode {
   readonly nodeId: string;
   readonly personId: string;
@@ -455,6 +456,16 @@ export class KeycloakPolicyAdapter {
     if (current) await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
   }
 
+  async nodeSubject(adminAccessToken: string, nodeId: string): Promise<string | null> {
+    const client = await this.#nodeClient(adminAccessToken, nodeId);
+    if (!client) return null;
+    const account = await this.#json<{ readonly id: string }>(
+      adminAccessToken,
+      `/clients/${client.id}/service-account-user`,
+    );
+    return account.id;
+  }
+
   /** The machine proves itself to Keycloak; the center never holds a copy of the credential. */
   async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
     const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
@@ -498,13 +509,10 @@ export class KeycloakPolicyAdapter {
     return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
   }
 
-  /**
-   * The same grants evaluated for a person who holds no token here (a node's owner, the issuer behind an
-   * execution token): the center asks Keycloak's own policy evaluation on that person's behalf.
-   */
-  async authorizePerson(input: {
+  /** Current Keycloak grants for the authenticated principal or execution issuer. */
+  async authorizePrincipal(input: {
     readonly adminAccessToken: string;
-    readonly personId: string;
+    readonly principal: ActorPrincipal;
     readonly action: string;
     readonly resource: AuthorizationResource;
   }): Promise<KeycloakPermissionDecision> {
@@ -512,7 +520,10 @@ export class KeycloakPolicyAdapter {
       denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
         Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
     if (!this.#knownScopes.has(input.action)) return denied("unknown_scope");
-    const userId = await this.findUserId(input.adminAccessToken, input.personId);
+    const userId =
+      input.principal.kind === "machine"
+        ? input.principal.subject
+        : await this.findUserId(input.adminAccessToken, input.principal.personId);
     if (!userId) return denied("keycloak_denied");
     const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
     for (const candidate of coveringResources(input.resource)) {

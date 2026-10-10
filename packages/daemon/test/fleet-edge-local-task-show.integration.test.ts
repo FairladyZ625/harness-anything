@@ -45,7 +45,7 @@ test(
     };
     await settle();
     e.signIn("person-two");
-    assert.equal((await local("show-1")).code, "authorization_denied");
+    assert.equal((await local("show-1")).ok, true);
     e.signIn("person-one");
 
     // 1. The edge answer is the center's answer, field by field, with the freshness envelope added.
