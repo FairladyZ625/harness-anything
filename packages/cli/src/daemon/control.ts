@@ -35,13 +35,22 @@ import { assessDaemonStatus, status } from "./control-status.ts";
 import { runDaemonRepoControl } from "./repo-control.ts";
 import { runDaemonServiceControl } from "./service-control.ts";
 import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
-import { renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
+import { daemonMetricsArgsError, renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
 import { renderDaemonFleetStatus, runDaemonFleetStatus } from "./fleet-status.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
 export async function runDaemonControl(argv: readonly string[], renderReceipt: ReceiptEmitter): Promise<number> {
   const at = firstCliCommandIndex(argv);
+  const command = argv[at + 1];
+  const metricsValidationFailure = metricsValidationError(argv, command);
+  if (metricsValidationFailure) {
+    renderReceipt(
+      daemonFailure("daemon-metrics", "invalid_field", cliErrorMessage(metricsValidationFailure)),
+      argv.includes("--json"),
+    );
+    return 1;
+  }
   // A worker's execution authority never includes local service controls or their signal ladder.
   if (process.env.HARNESS_EXECUTION_CREDENTIAL) {
     renderReceipt(
@@ -55,8 +64,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
     return 1;
   }
   if (argv[at] === "gui") return runGuiLaunch(argv, {}, renderReceipt);
-  const command = argv[at + 1],
-    subcommand = argv[at + 2];
+  const subcommand = argv[at + 2];
   const json = argv.includes("--json"),
     userRoot = path.resolve(daemonOption(argv, "--user-root") ?? daemonUserRoot()),
     invokingRoot = path.resolve(daemonOption(argv, "--root") ?? process.cwd());
@@ -153,6 +161,11 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
   } catch (error) {
     return finish(daemonFailure(`daemon-${command ?? "unknown"}`, code(error), message(error)), 1);
   }
+}
+
+function metricsValidationError(argv: readonly string[], command: string | undefined): Error | undefined {
+  if (command !== "metrics") return undefined;
+  return daemonMetricsArgsError(argv);
 }
 
 // Only queued writes refuse a force: they are the work a forced stop destroys (2026-09-28 lost 1219

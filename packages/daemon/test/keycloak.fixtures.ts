@@ -433,8 +433,12 @@ export function fakeKeycloak() {
       return client.secret;
     },
     interactiveSession(personId: string, nodeId: string, issuer: string, token = `token-${personId}`): void {
-      if (!tokens.has(`token-${personId}`)) throw new Error(`unknown fixture account ${personId}`);
-      tokens.set(token, tokens.get(`token-${personId}`)!);
+      const subject =
+        tokens.get(`token-${personId}`) ??
+        [...users.values()].find((user) => user.attributes.harness_person_id?.[0] === personId)?.id;
+      if (!subject) throw new Error(`unknown fixture account ${personId}`);
+      tokens.set(`token-${personId}`, subject);
+      tokens.set(token, subject);
       interactiveSessions.set(token, { personId, nodeId, issuer });
     },
     endInteractiveSession(token: string): void {

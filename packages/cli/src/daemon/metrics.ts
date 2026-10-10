@@ -12,25 +12,36 @@ import { firstCliCommandIndex } from "../cli/thin-command-help.ts";
 
 const windows = { "15m": 900_000, "1h": 3_600_000, "24h": 86_400_000, "7d": 604_800_000 };
 
-export async function runDaemonMetrics(argv: readonly string[], userRoot: string, daemonId: string) {
-  const at = firstCliCommandIndex(argv);
-  const options = [...argv.slice(0, at), ...argv.slice(at + 2)];
+export function daemonMetricsArgsError(argv: readonly string[]): Error | undefined {
+  const at = firstCliCommandIndex(argv),
+    options = [...argv.slice(0, at), ...argv.slice(at + 2)];
   for (let index = 0; index < options.length; index += 1) {
     const flag = options[index];
     if (flag === "--json") continue;
     if (
-      !["--window", "--root", "--repo", "--user-root", "--daemon-id"].includes(flag) ||
+      !["--window", "--root", "--repo", "--user-root", "--daemon-id"].includes(flag!) ||
       !options[index + 1] ||
       options[index + 1]!.startsWith("--")
     )
-      throw Object.assign(new Error(`Invalid metrics option ${flag}; use ha daemon metrics --help.`), {
+      return Object.assign(new Error(`Invalid metrics option ${flag}; use ha daemon metrics --help.`), {
         code: "invalid_field",
       });
     index += 1;
   }
   const window = daemonOption(argv, "--window") ?? "24h";
   if (!Object.hasOwn(windows, window))
-    throw Object.assign(new Error("Use --window 15m|1h|24h|7d."), { code: "invalid_field" });
+    return Object.assign(new Error("Use --window 15m|1h|24h|7d."), { code: "invalid_field" });
+  return undefined;
+}
+
+export function validateDaemonMetricsArgs(argv: readonly string[]): void {
+  const error = daemonMetricsArgsError(argv);
+  if (error) throw error;
+}
+
+export async function runDaemonMetrics(argv: readonly string[], userRoot: string, daemonId: string) {
+  validateDaemonMetricsArgs(argv);
+  const window = daemonOption(argv, "--window") ?? "24h";
   const target = await resolveLocalDaemonTarget({
     rootDir: daemonOption(argv, "--root") ?? process.cwd(),
     repoIdOverride: daemonOption(argv, "--repo"),
