@@ -7,6 +7,7 @@ import {
   forgetEdgeContent,
   pruneEdgeManifests,
   readEdgeManifestHeader,
+  discardUnpublishedEdgeManifests,
 } from "./replica-read-model.ts";
 import { withFleetReplicaPullLock } from "../fleet-edge-mirror.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
@@ -58,6 +59,7 @@ export interface FleetEdgeView {
   readonly receive: (frame: FleetFrameV1) => FleetFrameV1 | null;
   readonly current: (repoId: string, viewId: string) => Current | null;
   readonly collect: (repoId: string, viewId: string, transferId: string) => void;
+  readonly discard: (repoId: string, viewId: string) => void;
 }
 export interface FleetEdgeChange {
   readonly path: string;
@@ -137,6 +139,27 @@ export function openFleetEdgeView(
       readJson(path.join(viewRoot(repoId, viewId), "current.json"));
   return {
     current,
+    discard: (repoId, viewId) => {
+      const root = viewRoot(repoId, viewId),
+        staging = path.join(root, ".staging");
+      if (!existsSync(staging) || readdirSync(staging).length === 0) return;
+      const published = current(repoId, viewId);
+      for (const identity of discardUnpublishedEdgeManifests(root, published?.cut ?? null))
+        rmSync(path.join(root, "cuts", identity), { recursive: true, force: true });
+      // Drop this view's in-flight pins before collecting shared orphan content.
+      for (const transferId of readdirSync(staging)) {
+        rmSync(path.join(staging, transferId), { recursive: true, force: true });
+        active.delete(transferId);
+        incomingSizes.delete(transferId);
+      }
+      collect(
+        root,
+        path.join(repoRoot(repoId), "cas", "sha256"),
+        published ? `${published.cut.revision}-g${published.schemaGeneration}` : null,
+        true,
+      );
+      knownDiskBytes = null;
+    },
     collect: (repoId, viewId, transferId) => {
       const root = viewRoot(repoId, viewId),
         published = current(repoId, viewId)!;
@@ -381,7 +404,7 @@ function finish(
   return ack(begin.transferId, cut, digest);
 }
 
-function collect(viewRoot: string, casRoot: string, currentIdentity: string): void {
+function collect(viewRoot: string, casRoot: string, currentIdentity: string | null, compact = false): void {
   const cutsRoot = path.join(viewRoot, "cuts"),
     revisions = existsSync(cutsRoot)
       ? readdirSync(cutsRoot)
@@ -397,14 +420,10 @@ function collect(viewRoot: string, casRoot: string, currentIdentity: string): vo
     rmSync(path.join(cutsRoot, String(revision)), { recursive: true, force: true });
   const viewsRoot = path.dirname(viewRoot),
     views = readdirSync(viewsRoot);
-  if (views.length > 64) return;
-  const released = pruneEdgeManifests(viewRoot);
   const referenced = referencedEdgeBlobs(viewsRoot, views);
-  for (const sha of released)
-    if (!referenced.has(sha)) {
-      rmSync(path.join(casRoot, sha.slice(0, 2), sha), { force: true });
-      forgetEdgeContent(viewRoot, sha);
-    }
+  const released = pruneEdgeManifests(viewRoot).filter((sha) => !referenced.has(sha));
+  for (const sha of released) rmSync(path.join(casRoot, sha.slice(0, 2), sha), { force: true });
+  forgetEdgeContent(viewRoot, released, compact);
 }
 
 function ack(
@@ -780,8 +799,10 @@ export async function runFleetReplicaPullClient(
   });
 }
 async function pullReplica(options: FleetReplicaPullClientOptions): Promise<FleetReplicaPullClientResult> {
-  const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint),
-    session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
+  const view = openFleetEdgeView(options.viewRoot, options.diskQuotaBytes, options.edgeKillpoint);
+  // The caller holds this view's pull lock: a prior process may have left staging behind.
+  view.discard(options.repoId, options.nodeId);
+  const session = options.sessionPool ? await options.sessionPool.acquire(options) : await openPeer(options);
   let failed = true;
   let target = typeof options.through === "number" ? options.through : null;
   const deadline = Date.now() + (options.timeoutMs ?? 5_000);
@@ -849,6 +870,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
     if (!options.sessionPool) session.close();
     else if (failed) options.sessionPool.discard(options, session);
     else options.sessionPool.release(options, session);
+    if (failed) view.discard(options.repoId, options.nodeId);
   }
 }
 export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {

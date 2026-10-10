@@ -568,3 +568,31 @@ test("sparse manifests preserve Unicode paths and reject duplicate or incomplete
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("discard preserves published and receiving views in a shared CAS with more than 64 views", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-discard-"));
+  try {
+    const shared = Buffer.from("shared"),
+      orphan = Buffer.from("orphan");
+    const sharedEntry = wireEntry("context/shared.md", shared),
+      orphanEntry = wireEntry("context/orphan.md", orphan);
+    const view = openFleetEdgeView(root, replicaQuota);
+    const published = snapshotFrames("published", "published", wireCut(1), [sharedEntry], [shared]);
+    for (const frame of published) view.receive(frame);
+    const incoming = snapshotFrames("incoming", "incoming", wireCut(1), [orphanEntry], [orphan]);
+    for (const frame of incoming.slice(0, -1)) view.receive(frame);
+    const failed = snapshotFrames("failed", "failed", wireCut(1), [sharedEntry, orphanEntry], [shared, orphan]);
+    for (const frame of failed.slice(0, -1)) view.receive(frame);
+    for (let index = 0; index < 65; index++) mkdirSync(path.join(root, "repos/repo/views", `idle-${index}`));
+    view.discard("repo", "failed");
+    const cas = (sha: string) => path.join(root, "repos/repo/cas/sha256", sha.slice(0, 2), sha);
+    assert.deepEqual(readFileSync(cas(sharedEntry.blob.sha256)), shared);
+    assert.deepEqual(readFileSync(cas(orphanEntry.blob.sha256)), orphan);
+    // The last receiving owner releases the orphan, independently of node count.
+    view.discard("repo", "incoming");
+    assert.equal(existsSync(cas(orphanEntry.blob.sha256)), false);
+    assert.deepEqual(fleetMirrorCutFile(locateFleetMirrorView(root, "repo", "published")!, sharedEntry.path), shared);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
