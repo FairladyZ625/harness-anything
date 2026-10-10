@@ -345,6 +345,7 @@ export async function runFleetEdgeTask(
         throw new FleetEdgeTaskError("artifact_too_large", "Artifact exceeds the content object limit.");
       [artifact] = await runFleetUploadClient({
         ...peer,
+        timeoutMs: 60_000,
         changes: [{ path: String(target.destination), body: file ? readFileSync(file) : Buffer.from(String(content)) }],
       });
       action = target as FleetTaskAction;
