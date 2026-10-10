@@ -429,6 +429,8 @@ function run(command, args, cwd, environment, input) {
     encoding: "utf8",
     env: environment,
     input,
+    // Task-show receipts can exceed spawnSync's 1 MiB default; maxBuffer caps collection only.
+    maxBuffer: 256 * 1024 * 1024,
     windowsHide: true,
   });
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };

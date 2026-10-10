@@ -23,6 +23,8 @@ function harness(entry, repo, env, args, input) {
     encoding: "utf8",
     env,
     input,
+    // Task-show receipts can exceed spawnSync's 1 MiB default; maxBuffer caps collection only.
+    maxBuffer: 256 * 1024 * 1024,
     timeout: STEP_TIMEOUT_MS,
     windowsHide: true,
   });
