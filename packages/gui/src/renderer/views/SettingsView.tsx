@@ -2,7 +2,6 @@ import { Toggle } from "../components/primitives/Toggle.tsx";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { useState } from "react";
-import { CloudSlash } from "@phosphor-icons/react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
@@ -65,8 +64,7 @@ type SettingsTab =
   | "shortcuts"
   | "notifications"
   | "data"
-  | "privacy"
-  | "sync";
+  | "privacy";
 const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKey }[] = [
   {
     id: "repositories",
@@ -89,13 +87,6 @@ const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKe
   },
   { id: "data", labelKey: "views.settingsView.tabData", descKey: "views.settingsView.tabDataDesc" },
   { id: "privacy", labelKey: "views.settingsView.tabPrivacy", descKey: "views.settingsView.tabPrivacyDesc" },
-  { id: "sync", labelKey: "views.settingsView.tabSync", descKey: "views.settingsView.tabSyncDesc" },
-];
-
-const SYNC_FEATURE_KEYS: readonly MessageKey[] = [
-  "views.settingsView.syncFeatureMultiDevice",
-  "views.settingsView.syncFeatureRemoteAccess",
-  "views.settingsView.syncFeatureMobileReview",
 ];
 
 export function SettingsView({
@@ -342,32 +333,6 @@ export function SettingsView({
             <Row label={t("views.settingsView.telemetryLabel")} desc={t("views.settingsView.telemetryDescription")}>
               <Toggle label={t("views.settingsView.telemetryLabel")} checked={false} disabled />
             </Row>
-          </Section>
-        );
-      case "sync":
-        return (
-          <Section variant="panel" title={t("views.settingsView.sectionSync")}>
-            <div className="flex items-center gap-3 border-b border-border px-3 py-2.5">
-              <CloudSlash weight="duotone" className="shrink-0 text-xl text-text-faint" />
-              <p className="ui-meta min-w-0 flex-1 text-text-muted">
-                {t("views.settingsView.syncLocalModeDescription")}
-              </p>
-              <Button disabled tip={t("views.settingsView.syncV2Title")}>
-                {t("views.settingsView.syncSignInAction")}
-              </Button>
-            </div>
-            {SYNC_FEATURE_KEYS.map((featureKey) => (
-              <div
-                key={featureKey}
-                className={[
-                  "ui-meta flex items-center gap-2 border-b border-border px-3 py-1.5",
-                  "text-text-faint last:border-b-0",
-                ].join(" ")}
-              >
-                <span className="font-mono ui-meta">·</span>
-                {t(featureKey)}
-              </div>
-            ))}
           </Section>
         );
     }

@@ -1,32 +1,5 @@
-import type { AccessAction, AccessPolicyGroup, AccessReceipt, AccessRejection } from "../api/access-admin-contract.ts";
-import { formatDuration } from "./model/time.ts";
+import type { AccessPolicyGroup, AccessReceipt, AccessRejection } from "../api/access-admin-contract.ts";
 import { t, type MessageKey } from "./i18n/index.tsx";
-
-/** The declaration facets the action picker can group by. */
-export const ACTION_FACETS = ["policyTier", "executionClass", "residencyScope"] as const;
-export type ActionFacet = (typeof ACTION_FACETS)[number];
-
-/** Narrowest to widest; a value the daemon adds later still gets its own section, after these. */
-const FACET_ORDER: Readonly<Record<ActionFacet, readonly string[]>> = {
-  policyTier: ["contributor", "maintainer", "admin"],
-  executionClass: ["repo-write", "arbiter", "admin"],
-  residencyScope: ["canonical", "runtime-local", "host-local"],
-};
-
-export function groupActionsByFacet(
-  actions: readonly AccessAction[],
-  facet: ActionFacet,
-): readonly { readonly value: string; readonly actions: readonly string[] }[] {
-  const sections = new Map<string, string[]>();
-  for (const action of actions) sections.set(action[facet], [...(sections.get(action[facet]) ?? []), action.action]);
-  const rank = (value: string) => {
-    const index = FACET_ORDER[facet].indexOf(value);
-    return index < 0 ? FACET_ORDER[facet].length : index;
-  };
-  return [...sections]
-    .sort(([left], [right]) => rank(left) - rank(right) || left.localeCompare(right))
-    .map(([value, names]) => ({ value, actions: names.sort() }));
-}
 
 /** Actions a group gets from the groups it inherits, as the daemon expanded them. */
 export function inheritedScopes(
@@ -102,6 +75,13 @@ const OPERATION_KEYS: Readonly<Record<string, MessageKey>> = {
   grant: "accessControl.operation.grant",
   revoke: "accessControl.operation.revoke",
   "session-lifetime-set": "accessControl.operation.sessionLifetimeSet",
+  "node-register": "accessControl.operation.nodeRegister",
+  "node-unregister": "accessControl.operation.nodeUnregister",
+  "team-create": "accessControl.operation.teamCreate",
+  "team-update": "accessControl.operation.teamUpdate",
+  "team-delete": "accessControl.operation.teamDelete",
+  "team-member-add": "accessControl.operation.teamMemberAdd",
+  "team-member-remove": "accessControl.operation.teamMemberRemove",
 };
 
 /** One line saying what an operation did and to what. */
@@ -110,8 +90,8 @@ export function receiptTitle(receipt: AccessReceipt): string {
     operation = key ? t(key) : receipt.operation,
     expect = receipt.expect;
   if (expect?.kind === "grant")
-    return `${operation}: ${expect.groupId} · ${expect.personId} · ${resourceLabel(expect.resource)}`;
-  if (expect?.kind === "session-lifetime") return `${operation}: ${formatDuration(expect.seconds * 1_000)}`;
+    return `${operation}: ${roleLabel(expect.groupId)} · ${expect.personId} · ${resourceLabel(expect.resource)}`;
+  if (expect?.kind === "session-lifetime") return `${operation}: ${sessionDuration(expect.seconds)}`;
   const groupId = expect?.groupId ?? receipt.groupId;
   return groupId ? `${operation}: ${groupId}` : operation;
 }
@@ -128,4 +108,30 @@ export function isRejection(reply: { readonly ok: boolean }): reply is AccessRej
  */
 export function isPermissionRefusal(rejection: AccessRejection): boolean {
   return rejection.code === "authorization_denied";
+}
+
+/** A row per known account, including accounts without a direct grant. */
+export function grantsByPerson(
+  people: readonly { readonly personId: string; readonly username: string }[],
+  grants: readonly import("../api/access-admin-contract.ts").AccessGrant[],
+  repoId = "",
+) {
+  return people.map((person) => ({
+    ...person,
+    grants: grants.filter((grant) => {
+      const scope = scopeOfResource(grant.resource);
+      return grant.personId === person.personId && (repoId === "" || scope.kind === "fleet" || scope.repoId === repoId);
+    }),
+  }));
+}
+
+export function roleLabel(id: string, displayName = id): string {
+  return ["viewer", "contributor", "maintainer", "admin"].includes(id)
+    ? t(`accessControl.role.${id}` as MessageKey)
+    : displayName;
+}
+
+export function sessionDuration(seconds: number): string {
+  const unit = seconds % 86400 === 0 ? 86400 : seconds % 3600 === 0 ? 3600 : 60;
+  return `${seconds / unit} ${t(unit === 86400 ? "accessControl.lifetime.days" : unit === 3600 ? "accessControl.lifetime.hours" : "accessControl.lifetime.minutes")}`;
 }

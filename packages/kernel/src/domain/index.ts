@@ -19,7 +19,7 @@ export type { DecisionCapabilityId, DecisionCapabilityReason } from "./decision-
 export { deriveActionReturnsContract } from "./entity-action-descriptor.ts";
 export type { ReceiptGuidanceArgument, ReceiptGuidanceContractEntry } from "./entity-action-descriptor.ts";
 export { evaluateTaskActionCapability, taskLifecycleNextActions } from "./task-action-capability.ts";
-export { actionDeclarations } from "./action-declaration.ts";
+export { actionDeclarations, actionPresentation } from "./action-declaration.ts";
 export {
   assertAcyclicPolicyGroups,
   decodeAuthorizationResource,

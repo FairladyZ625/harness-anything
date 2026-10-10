@@ -3,8 +3,9 @@ export const ACCESS_ADMIN_CHANNEL = "harness:access:admin";
 /** The facets of one declared action, as the daemon reads them from ActionDeclaration. */
 export interface AccessAction {
   readonly action: string;
-  readonly executionClass: "repo-write" | "arbiter" | "admin";
-  readonly policyTier: "contributor" | "maintainer" | "admin";
+  readonly presentation: { readonly domain: string; readonly name: string; readonly description: string };
+  readonly executionClass: "repo-read" | "repo-write" | "arbiter" | "admin";
+  readonly policyTier: "viewer" | "contributor" | "maintainer" | "admin";
   readonly residencyScope: "canonical" | "runtime-local" | "host-local";
 }
 

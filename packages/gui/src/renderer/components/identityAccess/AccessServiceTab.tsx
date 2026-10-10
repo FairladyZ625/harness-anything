@@ -5,7 +5,7 @@ import type {
   AccessSessionLifetimeReply,
 } from "../../../api/access-admin-contract.ts";
 import type { OidcAuthApi } from "../../../api/oidc-auth-contract.ts";
-import { isRejection } from "../../access-model.ts";
+import { isRejection, sessionDuration } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { BrowserView } from "../../views/BrowserView.tsx";
 import { formatTime } from "../../model/time.ts";
@@ -226,15 +226,6 @@ export function AccessServiceTab({
               footer={
                 <>
                   <span className="min-w-0 truncate">{t("identityAccess.description")}</span>
-                  <span className="ml-auto flex-none">
-                    <Button
-                      testId="access-open-console"
-                      disabled={busy || !ready}
-                      onClick={() => void run(() => auth.openConsole(repoId))}
-                    >
-                      {t("identityAccess.openConsole")}
-                    </Button>
-                  </span>
                 </>
               }
             >
@@ -308,7 +299,7 @@ export function AccessServiceTab({
       {binding !== undefined && !managedElsewhere ? (
         <BoardSide region="binding">
           <Region
-            title={t("identityAccess.externalTitle")}
+            title={t("accessControl.service.operations")}
             padded
             footer={
               <span className="ml-auto">
@@ -321,7 +312,20 @@ export function AccessServiceTab({
               </span>
             }
           >
-            <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId))} />
+            <p className="text-status-blocked ui-body">{t("accessControl.service.danger")}</p>
+            <details className="mt-3">
+              <summary className="cursor-pointer py-2 ui-body">{t("identityAccess.externalTitle")}</summary>
+              <ExternalBindingForm busy={busy} submit={(input) => run(() => auth.configure(input, repoId))} />
+            </details>
+            <div className="mt-3">
+              <Button
+                testId="access-open-console"
+                disabled={busy || !ready}
+                onClick={() => void run(() => auth.openConsole(repoId))}
+              >
+                {t("identityAccess.openConsole")}
+              </Button>
+            </div>
           </Region>
         </BoardSide>
       ) : null}
@@ -333,10 +337,14 @@ export function AccessServiceTab({
 function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
   const { data, rejection, reload } = useAccessRead<AccessSessionLifetimeReply>(access.sessionLifetime),
     [minutes, setMinutes] = useState(""),
+    [unit, setUnit] = useState(60),
     [busy, setBusy] = useState(false),
     [refusal, setRefusal] = useState<AccessRejection | null>(null);
   useEffect(() => {
-    if (data) setMinutes(String(Math.round(data.seconds / 60)));
+    if (data) {
+      setMinutes(String(data.seconds / 60));
+      setUnit(data.seconds % 86400 === 0 ? 86400 : data.seconds % 3600 === 0 ? 3600 : 60);
+    }
   }, [data]);
   const save = async () => {
     if (!data) return;
@@ -362,11 +370,37 @@ function SessionLifetime({ access }: { readonly access: AccessAdminApi }) {
                 type="number"
                 data-testid="access-lifetime-minutes"
                 className={`${INPUT} w-32 font-mono`}
-                min={Math.ceil(data.minimumSeconds / 60)}
-                max={Math.floor(data.maximumSeconds / 60)}
-                value={minutes}
-                onChange={(event) => setMinutes(event.currentTarget.value)}
+                min={data.minimumSeconds / unit}
+                max={data.maximumSeconds / unit}
+                value={minutes === "" ? "" : String((Number(minutes) * 60) / unit)}
+                onChange={(event) =>
+                  setMinutes(
+                    event.currentTarget.value === "" ? "" : String((Number(event.currentTarget.value) * unit) / 60),
+                  )
+                }
               />
+              <select
+                className={INPUT}
+                aria-label={t("accessControl.lifetime.label")}
+                value={unit}
+                onChange={(event) => setUnit(Number(event.currentTarget.value))}
+              >
+                <option value={60}>{t("accessControl.lifetime.minutes")}</option>
+                <option value={3600}>{t("accessControl.lifetime.hours")}</option>
+                <option value={86400}>{t("accessControl.lifetime.days")}</option>
+              </select>
+              {[1800, 3600, 28800, 86400, 604800].map((seconds) => (
+                <Button
+                  key={seconds}
+                  size="sm"
+                  onClick={() => {
+                    setMinutes(String(seconds / 60));
+                    setUnit(seconds % 86400 === 0 ? 86400 : seconds % 3600 === 0 ? 3600 : 60);
+                  }}
+                >
+                  {sessionDuration(seconds)}
+                </Button>
+              ))}
               <Button
                 testId="access-lifetime-save"
                 disabled={busy || minutes.trim() === "" || Number(minutes) * 60 === data.seconds}

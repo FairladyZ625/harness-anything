@@ -303,7 +303,13 @@ test("the read side lists every action facet, every held grant by person, and th
   );
   assert.deepEqual(
     catalog.find((item) => item.action === "task-create"),
-    { action: "task-create", executionClass: "repo-write", policyTier: "contributor", residencyScope: "canonical" },
+    {
+      action: "task-create",
+      presentation: { domain: "task", name: "创建任务", description: "登记新的任务及其合同。" },
+      executionClass: "repo-write",
+      policyTier: "contributor",
+      residencyScope: "canonical",
+    },
   );
 
   await run({ operation: "group-create", groupId: "release", composites: ["contributor"] });

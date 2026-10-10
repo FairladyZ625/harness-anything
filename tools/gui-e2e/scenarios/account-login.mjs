@@ -88,6 +88,7 @@ export default {
       const account = page.getByTestId("sidebar-account");
       await account.filter({ hasText: "person-gui" }).waitFor();
       await account.click();
+      await page.getByRole("tab", { name: /^(?:服务与会话|Service & session)$/u }).click();
       await page.getByTestId("identity-session").filter({ hasText: "person-gui" }).waitFor();
       assert.equal((await page.evaluate(() => window.harness.auth.status())).authenticated, true);
       const action = page.getByTestId("account-session-action");

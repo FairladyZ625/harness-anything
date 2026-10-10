@@ -3,6 +3,7 @@ import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
+import accessOverview from "./scenarios/access-overview.mjs";
 import workTeams from "./scenarios/work-teams.mjs";
 import externalKeycloak from "./scenarios/external-keycloak.mjs";
 import shellNavigation from "./scenarios/shell-navigation.mjs";
@@ -48,6 +49,7 @@ export const catalog = [
   deviceLoginApproval,
   taskAssignment,
   workTeams,
+  accessOverview,
   externalKeycloak,
   shellNavigation,
   overview,

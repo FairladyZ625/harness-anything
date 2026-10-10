@@ -1,64 +1,30 @@
-import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState } from "react";
 import type {
   AccessAdminApi,
   AccessEffectivePermissionsReply,
   AccessGrant,
-  AccessGrantsReply,
-  AccessGroupsReply,
   AccessRejection,
 } from "../../../api/access-admin-contract.ts";
-import { isRejection, resourceLabel, resourceOfScope, scopeOfResource, type AccessScope } from "../../access-model.ts";
+import {
+  grantsByPerson,
+  isRejection,
+  resourceLabel,
+  resourceOfScope,
+  roleLabel,
+  type AccessScope,
+} from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
-import { DenseRow } from "../primitives/DenseRow.tsx";
-import { ChainStrip } from "../primitives/ChainStrip.tsx";
-import { PillFlow } from "../primitives/PillFlow.tsx";
-import { Region } from "../primitives/Region.tsx";
-import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
+import { IdText } from "../IdText.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { AccessNotice, INPUT, ReceiptRows, asRejection, useAccessRead, type RefusalOrigin } from "./AccessParts.tsx";
+import { Modal } from "../primitives/Modal.tsx";
+import { Region } from "../primitives/Region.tsx";
+import { BoundedContent } from "../primitives/BoundedContent.tsx";
+import { SegCtl } from "../primitives/SegCtl.tsx";
+import { ActionDetails } from "./ActionDetails.tsx";
+import { AccessNotice, INPUT, asRejection, useAccessRead } from "./AccessParts.tsx";
 
-type ScopeKind = AccessScope["kind"];
+type Pending = { readonly operation: "grant" | "revoke"; readonly grant: AccessGrant };
 
-interface Target {
-  readonly personId: string;
-  readonly groupId: string;
-  readonly kind: ScopeKind;
-  readonly repoId: string;
-  readonly entityRef: string;
-}
-
-function targetResource(target: Target): string | null {
-  return resourceOfScope(
-    target.kind === "fleet"
-      ? { kind: "fleet" }
-      : target.kind === "repository"
-        ? { kind: "repository", repoId: target.repoId }
-        : { kind: "entity", repoId: target.repoId, entityRef: target.entityRef },
-  );
-}
-
-type Source = AccessEffectivePermissionsReply["actions"][number]["sources"][number];
-
-/** Allowed actions gathered under the grant and group each one comes from, so a source is stated once. */
-function actionsBySource(
-  effective: AccessEffectivePermissionsReply,
-): readonly { readonly source: Source; readonly actions: readonly string[] }[] {
-  const gathered = new Map<string, { readonly source: Source; readonly actions: string[] }>();
-  for (const item of effective.actions)
-    for (const source of item.sources) {
-      const key = `${source.sourceGroup} ${source.grantedGroup} ${source.resource}`;
-      if (!gathered.has(key)) gathered.set(key, { source, actions: [] });
-      gathered.get(key)!.actions.push(item.action);
-    }
-  return [...gathered.values()];
-}
-
-/**
- * Grants: a policy group given to a person on the fleet, a repository, or one object in a repository.
- * The strip on top names a person and a scope and grants on it; below, what that person can do there
- * and why, next to every grant held.
- */
 export function GrantsTab({
   access,
   repos,
@@ -66,301 +32,300 @@ export function GrantsTab({
   readonly access: AccessAdminApi;
   readonly repos: readonly { readonly repoId: string; readonly displayName: string }[];
 }) {
-  const held = useAccessRead<AccessGrantsReply>(access.grants),
-    catalog = useAccessRead<AccessGroupsReply>(access.groups),
-    [target, setTarget] = useState<Target>({
-      personId: "",
-      groupId: "",
-      kind: "repository",
-      repoId: repos[0]?.repoId ?? "",
-      entityRef: "",
-    }),
-    [effective, setEffective] = useState<AccessEffectivePermissionsReply | null>(null),
-    // The same slot answers for two origins: an inspect the page made, and a write the person asked
-    // for. Which one met the refusal decides how it may read, so it travels with the rejection.
-    [refusal, setRefusal] = useState<{ readonly rejection: AccessRejection; readonly origin: RefusalOrigin } | null>(
-      null,
-    ),
+  const held = useAccessRead(access.grants),
+    catalog = useAccessRead(access.groups),
+    nodes = useAccessRead(access.nodes);
+  const [repoFilter, setRepoFilter] = useState(""),
+    [search, setSearch] = useState("");
+  const [personId, setPersonId] = useState<string | null>(null),
+    [groupId, setGroupId] = useState("viewer");
+  const [scope, setScope] = useState<AccessScope>({ kind: "repository", repoId: repos[0]?.repoId ?? "" });
+  const [pending, setPending] = useState<Pending | null>(null),
     [busy, setBusy] = useState(false);
-  const resource = targetResource(target),
-    groupName = (id: string) => catalog.data?.groups.find((group) => group.id === id)?.displayName ?? id;
-
-  /** Reads what the person can do on the scope; a refusal clears the previous answer rather than leaving it up. */
-  const inspect = async (personId: string, onResource: string) => {
-      const reply = await access.effectivePermissions({ personId, resource: onResource }).catch(asRejection);
-      setEffective(isRejection(reply) ? null : reply);
-      if (isRejection(reply)) setRefusal({ rejection: reply, origin: "read" });
-    },
-    run = async (operation: () => Promise<{ readonly ok: boolean }>, personId: string, onResource: string) => {
-      setBusy(true);
-      setRefusal(null);
-      const reply = await operation().catch(asRejection);
-      if (isRejection(reply)) setRefusal({ rejection: reply, origin: "write" });
-      else {
-        await held.reload();
-        await inspect(personId, onResource);
-      }
-      setBusy(false);
-    },
-    look = (grant: AccessGrant) => {
-      const scope = scopeOfResource(grant.resource);
-      setTarget({
-        personId: grant.personId,
-        groupId: grant.groupId,
-        kind: scope.kind,
-        repoId: scope.kind === "fleet" ? target.repoId : scope.repoId,
-        entityRef: scope.kind === "entity" ? scope.entityRef : "",
-      });
-      setRefusal(null);
-      void inspect(grant.personId, grant.resource);
-    };
-
-  if (held.rejection)
-    return <AccessNotice rejection={held.rejection} origin="read" testId="access-grants-unavailable" />;
-  if (!held.data || !catalog.data) return <p className="text-text-muted ui-meta">{t("accessControl.loading")}</p>;
-
-  const allowed = new Set(effective?.actions.map((item) => item.action)),
-    denied = catalog.data.actions.map((item) => item.action).filter((action) => !allowed.has(action)),
-    field = "flex min-w-[11rem] flex-1 flex-col gap-1 ui-meta text-text-muted";
+  const [refusal, setRefusal] = useState<{
+    readonly rejection: AccessRejection;
+    readonly origin: "read" | "write";
+  } | null>(null);
+  const [effective, setEffective] = useState<AccessEffectivePermissionsReply | null>(null);
+  const resource = resourceOfScope(scope);
+  const name = (id: string) => roleLabel(id, catalog.data?.groups.find((group) => group.id === id)?.displayName);
+  const inspect = async (grant: AccessGrant) => {
+    setRefusal(null);
+    const reply = await access
+      .effectivePermissions({ personId: grant.personId, resource: grant.resource })
+      .catch(asRejection);
+    setEffective(isRejection(reply) ? null : reply);
+    if (isRejection(reply)) setRefusal({ rejection: reply, origin: "read" });
+  };
+  const confirm = async () => {
+    if (!pending) return;
+    setBusy(true);
+    setRefusal(null);
+    const reply = await access[pending.operation](pending.grant).catch(asRejection);
+    if (isRejection(reply)) setRefusal({ rejection: reply, origin: "write" });
+    else {
+      await held.reload();
+      setEffective(null);
+      setPersonId(null);
+    }
+    setPending(null);
+    setBusy(false);
+  };
+  const rejection = held.rejection ?? catalog.rejection;
+  if (rejection) return <AccessNotice rejection={rejection} origin="read" testId="access-grants-unavailable" />;
+  if (!held.data || !catalog.data) return <p role="status">{t("accessControl.loading")}</p>;
+  const people = grantsByPerson(held.data.people, held.data.grants, repoFilter).filter((person) =>
+    `${person.personId} ${person.username}`.toLocaleLowerCase().includes(search.toLocaleLowerCase()),
+  );
   return (
-    <>
-      <div className="glass flex flex-none flex-col gap-3 rounded-sm p-3" data-testid="access-grant-form">
-        {refusal && (
-          <AccessNotice rejection={refusal.rejection} origin={refusal.origin} testId="access-grant-refusal" />
-        )}
-        <div className="flex flex-wrap items-end gap-3">
-          <label className={field}>
-            {t("accessControl.grants.person")}
-            <select
-              data-testid="access-grant-person"
-              className={INPUT}
-              value={target.personId}
-              onChange={(event) => setTarget({ ...target, personId: event.currentTarget.value })}
+    <div className="flex min-h-0 flex-1 flex-col gap-3" data-testid="access-grants-board">
+      {refusal && <AccessNotice rejection={refusal.rejection} origin={refusal.origin} testId="access-grant-refusal" />}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 ui-meta">
+          {t("accessControl.members.filter")}
+          <select
+            className={INPUT}
+            data-testid="access-repo-filter"
+            value={repoFilter}
+            onChange={(event) => setRepoFilter(event.currentTarget.value)}
+          >
+            <option value="">{t("accessControl.members.allRepos")}</option>
+            {repos.map((repo) => (
+              <option key={repo.repoId} value={repo.repoId}>
+                {repo.displayName}
+              </option>
+            ))}
+          </select>
+        </label>
+        <input
+          className={INPUT}
+          aria-label={t("accessControl.members.search")}
+          placeholder={t("accessControl.members.search")}
+          value={search}
+          onChange={(event) => setSearch(event.currentTarget.value)}
+        />
+      </div>
+      {nodes.rejection && <AccessNotice rejection={nodes.rejection} origin="read" />}
+      <Region title={t("accessControl.members.title")}>
+        <BoundedContent>
+          <div data-testid="access-grant-list" className="divide-y divide-border">
+            {people.map((person) => {
+              const ownedNodes = nodes.data?.nodes.filter((node) => node.personId === person.personId) ?? [];
+              return (
+                <section
+                  key={person.personId}
+                  data-person-id={person.personId}
+                  className="flex flex-wrap gap-3 px-3.5 py-3"
+                >
+                  <div className="w-56 shrink-0">
+                    <h3 className="font-semibold ui-body">
+                      {person.username === person.personId ? (
+                        <IdText value={person.personId} className="text-text" />
+                      ) : (
+                        person.username
+                      )}
+                    </h3>
+                    {person.username !== person.personId && (
+                      <p className="text-text-muted ui-meta">
+                        <IdText value={person.personId} />
+                      </p>
+                    )}
+                    <p className="text-text-muted ui-meta">
+                      {ownedNodes.length > 0
+                        ? `${t("accessControl.members.node")} · ${ownedNodes.map((node) => node.nodeId).join(", ")}`
+                        : t("accessControl.members.person")}
+                    </p>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    {person.grants.length === 0 ? (
+                      <p className="text-text-muted ui-body">{t("accessControl.members.noGrant")}</p>
+                    ) : (
+                      person.grants.map((grant) => (
+                        <div
+                          key={`${grant.groupId} ${grant.resource}`}
+                          className="flex flex-wrap items-center gap-3 py-1.5 ui-body"
+                        >
+                          <span className="min-w-0 flex-1 break-words">
+                            {resourceLabel(grant.resource)} · <b>{name(grant.groupId)}</b>
+                          </span>
+                          <Button
+                            testId={`access-inspect-${person.personId}-${grant.groupId}`}
+                            disabled={busy}
+                            onClick={() => void inspect(grant)}
+                          >
+                            {t("accessControl.grants.inspect")}
+                          </Button>
+                          <Button
+                            testId={`access-revoke-${grant.groupId}`}
+                            disabled={busy}
+                            onClick={() => setPending({ operation: "revoke", grant })}
+                          >
+                            {t("accessControl.grants.revoke")}
+                          </Button>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                  <span className="self-start">
+                    <Button
+                      testId={`access-grant-open-${person.personId}`}
+                      disabled={busy}
+                      onClick={() => {
+                        setPersonId(person.personId);
+                        setGroupId("viewer");
+                        setScope({ kind: "repository", repoId: repoFilter || repos[0]?.repoId || "" });
+                      }}
+                    >
+                      {t("accessControl.members.openGrant")}
+                    </Button>
+                  </span>
+                </section>
+              );
+            })}
+          </div>
+        </BoundedContent>
+      </Region>
+      <p className="text-text-muted ui-meta">{t("accessControl.members.workPending")}</p>
+      {effective && (
+        <Region
+          title={t("accessControl.effective.title", {
+            personId: effective.personId,
+            scope: resourceLabel(effective.resource),
+          })}
+          padded
+        >
+          <div data-testid="access-effective">
+            {effective.grants.map((grant) => (
+              <p key={`${grant.groupId} ${grant.resource}`} className="ui-body">
+                {resourceLabel(grant.resource)}: {name(grant.groupId)} · {t("accessControl.effective.inherits")}{" "}
+                {grant.inheritedGroups.map((id) => name(id)).join(" → ")}
+              </p>
+            ))}
+            <ActionDetails
+              actions={catalog.data.actions.filter((action) =>
+                effective.actions.some((allowed) => allowed.action === action.action),
+              )}
+            />
+          </div>
+        </Region>
+      )}
+      {personId !== null && !pending && (
+        <Modal
+          title={t("accessControl.members.openGrant")}
+          testId="access-grant-form"
+          onClose={() => setPersonId(null)}
+          footer={
+            <Button
+              testId="access-grant-submit"
+              variant="primary"
+              disabled={busy || !groupId || resource === null}
+              onClick={() => setPending({ operation: "grant", grant: { personId, groupId, resource: resource! } })}
             >
-              <option value="">{t("accessControl.grants.choosePerson")}</option>
-              {held.data.people.map((person) => (
-                <option key={person.personId} value={person.personId}>
-                  {person.personId === person.username ? person.personId : `${person.personId} (${person.username})`}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div className="flex flex-col gap-1 ui-meta text-text-muted">
-            {t("accessControl.grants.scope")}
-            <SegCtl<ScopeKind>
-              value={target.kind}
-              onChange={(kind) => setTarget({ ...target, kind })}
+              {t("accessControl.grants.grant")}
+            </Button>
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <p className="ui-body">{personId}</p>
+            <label className="flex flex-col gap-1 ui-meta">
+              {t("accessControl.grants.group")}
+              <select
+                className={INPUT}
+                data-testid="access-grant-group"
+                value={groupId}
+                onChange={(event) => setGroupId(event.currentTarget.value)}
+              >
+                {catalog.data.groups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {name(group.id)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <SegCtl<AccessScope["kind"]>
+              value={scope.kind}
+              onChange={(kind) =>
+                setScope(
+                  kind === "fleet"
+                    ? { kind }
+                    : kind === "repository"
+                      ? { kind, repoId: repos[0]?.repoId ?? "" }
+                      : { kind, repoId: repos[0]?.repoId ?? "", entityRef: "" },
+                )
+              }
               options={[
                 { value: "repository", label: t("accessControl.scope.repository") },
                 { value: "entity", label: t("accessControl.scope.entity") },
                 { value: "fleet", label: t("accessControl.scope.fleet") },
               ]}
             />
+            {scope.kind !== "fleet" && (
+              <label className="flex flex-col gap-1 ui-meta">
+                {t("accessControl.grants.repository")}
+                <input
+                  className={INPUT}
+                  data-testid="access-grant-repo"
+                  value={scope.repoId}
+                  list="access-grant-repos"
+                  onChange={(event) => setScope({ ...scope, repoId: event.currentTarget.value })}
+                />
+                <datalist id="access-grant-repos">
+                  {repos.map((repo) => (
+                    <option key={repo.repoId} value={repo.repoId}>
+                      {repo.displayName}
+                    </option>
+                  ))}
+                </datalist>
+              </label>
+            )}
+            {scope.kind === "entity" && (
+              <label className="flex flex-col gap-1 ui-meta">
+                {t("accessControl.grants.entityRef")}
+                <input
+                  className={INPUT}
+                  data-testid="access-grant-entity"
+                  placeholder="task/task_…"
+                  value={scope.entityRef}
+                  onChange={(event) => setScope({ ...scope, entityRef: event.currentTarget.value })}
+                />
+                <span>{t("accessControl.members.workPending")}</span>
+              </label>
+            )}
           </div>
-          {target.kind !== "fleet" && (
-            <label className={field}>
-              {t("accessControl.grants.repository")}
-              <input
-                data-testid="access-grant-repo"
-                className={`${INPUT} font-mono`}
-                list="access-grant-repos"
-                value={target.repoId}
-                onChange={(event) => setTarget({ ...target, repoId: event.currentTarget.value })}
-              />
-              <datalist id="access-grant-repos">
-                {repos.map((repo) => (
-                  <option key={repo.repoId} value={repo.repoId}>
-                    {repo.displayName}
-                  </option>
-                ))}
-              </datalist>
-            </label>
+        </Modal>
+      )}
+      {pending && (
+        <Modal
+          title={t(
+            pending.operation === "grant"
+              ? "accessControl.members.confirmGrant"
+              : "accessControl.members.confirmRevoke",
           )}
-          {target.kind === "entity" && (
-            <label className={field}>
-              {t("accessControl.grants.entityRef")}
-              <input
-                data-testid="access-grant-entity"
-                className={`${INPUT} font-mono`}
-                placeholder="task/task_…"
-                value={target.entityRef}
-                onChange={(event) => setTarget({ ...target, entityRef: event.currentTarget.value })}
-              />
-            </label>
-          )}
-          <Button
-            testId="access-grant-inspect"
-            disabled={busy || target.personId === "" || resource === null}
-            onClick={() => {
-              setRefusal(null);
-              void inspect(target.personId, resource!);
-            }}
-          >
-            {t("accessControl.grants.inspect")}
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-end gap-3">
-          <label className={field}>
-            {t("accessControl.grants.group")}
-            <select
-              data-testid="access-grant-group"
-              className={INPUT}
-              value={target.groupId}
-              onChange={(event) => setTarget({ ...target, groupId: event.currentTarget.value })}
-            >
-              <option value="">{t("accessControl.grants.chooseGroup")}</option>
-              {catalog.data.groups.map((group) => (
-                <option key={group.id} value={group.id}>
-                  {group.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            testId="access-grant-submit"
-            variant="primary"
-            disabled={busy || target.personId === "" || target.groupId === "" || resource === null}
-            onClick={() =>
-              void run(
-                () => access.grant({ personId: target.personId, groupId: target.groupId, resource: resource! }),
-                target.personId,
-                resource!,
-              )
-            }
-          >
-            {t("accessControl.grants.grant")}
-          </Button>
-        </div>
-      </div>
-      <RegionBoard side="primary" data-testid="access-grants-board">
-        <BoardMain>
-          <BoardColumn>
-            <BoardRegion region="effective" fill data-testid="access-effective">
-              {effective ? (
-                <Region
-                  title={t("accessControl.effective.title", {
-                    personId: effective.personId,
-                    scope: resourceLabel(effective.resource),
-                  })}
-                  big={`${effective.actions.length}/${catalog.data.actions.length}`}
-                  bigTone={effective.actions.length > 0 ? "done" : "neutral"}
-                >
-                  {effective.grants.map((grant) => (
-                    <DenseRow
-                      key={`${grant.groupId} ${grant.resource}`}
-                      relaxed
-                      title={t("accessControl.effective.grantRow", {
-                        group: groupName(grant.groupId),
-                        scope: resourceLabel(grant.resource),
-                      })}
-                      reason={
-                        // 继承组链随组嵌套深度无界增长:不再整串截断(截断读不到全文),
-                        // 链进 ChainStrip 单行横滚,aria-label 带完整链,滚动/键盘可到末项。
-                        <span className="flex min-w-0 items-center gap-1">
-                          <span className="flex-none">{t("accessControl.effective.inherits")}</span>
-                          <ChainStrip
-                            testId="inherit-chain"
-                            label={`${t("accessControl.effective.inherits")} ${grant.inheritedGroups.join(" → ")}`}
-                          >
-                            <span className="whitespace-nowrap">{grant.inheritedGroups.join(" → ")}</span>
-                          </ChainStrip>
-                        </span>
-                      }
-                      time={
-                        <Button
-                          size="sm"
-                          disabled={busy}
-                          testId={`access-revoke-${grant.groupId}`}
-                          onClick={() =>
-                            void run(
-                              () =>
-                                access.revoke({
-                                  personId: effective.personId,
-                                  groupId: grant.groupId,
-                                  resource: grant.resource,
-                                }),
-                              effective.personId,
-                              effective.resource,
-                            )
-                          }
-                        >
-                          {t("accessControl.grants.revoke")}
-                        </Button>
-                      }
-                    />
-                  ))}
-                  {actionsBySource(effective).map(({ source, actions }) => (
-                    <div
-                      key={`${source.sourceGroup} ${source.grantedGroup} ${source.resource}`}
-                      data-testid={`access-source-${source.sourceGroup}`}
-                      className="flex flex-col gap-2 border-t border-border px-3.5 py-3"
-                    >
-                      <p className="ui-meta">
-                        <span className="font-semibold text-status-done">
-                          {t("accessControl.effective.allowedCount", { count: actions.length })}
-                        </span>
-                        <span className="ml-2 text-text-muted">
-                          {t("accessControl.effective.source", {
-                            source: groupName(source.sourceGroup),
-                            granted: groupName(source.grantedGroup),
-                            scope: resourceLabel(source.resource),
-                          })}
-                        </span>
-                      </p>
-                      <PillFlow items={actions.map((action) => ({ label: action }))} />
-                    </div>
-                  ))}
-                  <div className="flex flex-col gap-2 border-t border-border px-3.5 py-3" data-testid="access-denied">
-                    <p className="text-text-muted ui-meta">
-                      {t(
-                        effective.grants.length === 0
-                          ? "accessControl.effective.deniedNoGrant"
-                          : "accessControl.effective.deniedNotIncluded",
-                        { count: denied.length },
-                      )}
-                    </p>
-                    <PillFlow items={denied.map((action) => ({ label: action }))} />
-                  </div>
-                  {effective.receipts.length > 0 && (
-                    <div data-testid="access-effective-receipts">
-                      <p className="border-t border-border px-3.5 py-2.5 font-semibold ui-meta">
-                        {t("accessControl.effective.receipts")}
-                      </p>
-                      <ReceiptRows receipts={effective.receipts} busy={busy} />
-                    </div>
-                  )}
-                </Region>
-              ) : (
-                <Region title={t("accessControl.effective.emptyTitle")} padded>
-                  <p className="text-text-muted ui-body">{t("accessControl.effective.emptyHint")}</p>
-                </Region>
-              )}
-            </BoardRegion>
-          </BoardColumn>
-        </BoardMain>
-        <BoardSide region="held" data-testid="access-grant-list">
-          <Region
-            title={t("accessControl.grants.listTitle")}
-            big={held.data.grants.length}
-            footer={held.data.grants.length === 0 ? t("accessControl.grants.empty") : undefined}
-          >
-            {held.data.grants.map((grant) => (
-              <DenseRow
-                key={`${grant.personId} ${grant.groupId} ${grant.resource}`}
-                relaxed
-                selected={
-                  grant.personId === effective?.personId &&
-                  grant.resource === effective.resource &&
-                  grant.groupId === target.groupId
-                }
-                title={grant.personId}
-                reason={`${groupName(grant.groupId)} · ${resourceLabel(grant.resource)}`}
-                onClick={() => look(grant)}
-              />
-            ))}
-          </Region>
-        </BoardSide>
-      </RegionBoard>
-    </>
+          testId="access-grant-confirmation"
+          onClose={() => {
+            if (!busy) setPending(null);
+          }}
+          footer={
+            <div className="flex gap-2">
+              <Button testId="access-change-confirm" variant="primary" disabled={busy} onClick={() => void confirm()}>
+                {t(
+                  pending.operation === "grant"
+                    ? "accessControl.members.confirmGrant"
+                    : "accessControl.members.confirmRevoke",
+                )}
+              </Button>
+              <Button disabled={busy} onClick={() => setPending(null)}>
+                {t("accessControl.members.cancel")}
+              </Button>
+            </div>
+          }
+        >
+          <p className="ui-body">
+            {pending.grant.personId} · {name(pending.grant.groupId)} · {resourceLabel(pending.grant.resource)}
+          </p>
+          <p className="mt-2 text-text-muted ui-body">{t("accessControl.members.confirmHint")}</p>
+        </Modal>
+      )}
+    </div>
   );
 }
