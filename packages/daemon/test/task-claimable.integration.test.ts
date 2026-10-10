@@ -203,3 +203,50 @@ test("live node authorization reads claim candidates under all configured scopes
   f.owners.keycloak.revoke("person-one", "lease-repo", ["task-start"]);
   await assert.rejects(query(), /permission|denied/i);
 });
+
+test("task show states the expected-version assign accepts", { timeout: 60_000 }, async (t) => {
+  const { fleetNodeClaimFixture } = await import("./fleet-node-claim.fixtures.ts");
+  const { localAuthFixture } = await import("./fleet-runtime-recovery.fixtures.ts");
+  const f = await fleetNodeClaimFixture(t);
+  const taskId = "task-show-version";
+  assert.equal(
+    (await f.command("node-one", { kind: "task-create", taskId, title: "expected version visibility" })).outcome,
+    "applied",
+  );
+  // task-show is a center read, not a fleet-forwardable write, so the node reads it off the host.
+  const shown = (await f.host.run("lease-repo", { kind: "task-show", taskId }, localAuthFixture())) as {
+    readonly revision: number;
+    readonly expectedVersion?: number;
+    readonly evidence: string;
+  };
+  const snapshot = JSON.parse(shown.evidence) as { readonly revision: number };
+  // The receipt states the task's own projection revision at the top level — the exact value
+  // --expected-version validates — and it is not the ledger cut sitting beside it.
+  assert.equal(shown.expectedVersion, snapshot.revision);
+  assert.notEqual(shown.expectedVersion, shown.revision);
+  t.diagnostic(
+    `task-show ${taskId}: revision=${String(shown.revision)} (ledger cut) ` +
+      `expectedVersion=${String(shown.expectedVersion)} (task projection revision)`,
+  );
+  // Sending the ledger cut (the pre-fix trap: the only revision visible at top level) is rejected;
+  // sending the stated expectedVersion assigns.
+  const rejected = await f.command("node-one", {
+    kind: "task-assign",
+    taskId,
+    expectedVersion: shown.revision,
+    nodeId: "node-one",
+  });
+  assert.equal(rejected.outcome, "op_rejected");
+  t.diagnostic(
+    `task-assign --expected-version ${String(shown.revision)} (ledger cut): ` +
+      `${rejected.outcome} code=${String(rejected.code)}`,
+  );
+  const assigned = await f.command("node-one", {
+    kind: "task-assign",
+    taskId,
+    expectedVersion: shown.expectedVersion,
+    nodeId: "node-one",
+  });
+  assert.equal(assigned.outcome, "applied");
+  t.diagnostic(`task-assign --expected-version ${String(shown.expectedVersion)}: ${assigned.outcome}`);
+});

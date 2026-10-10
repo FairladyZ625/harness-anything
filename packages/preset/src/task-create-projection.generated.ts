@@ -13,6 +13,7 @@ export const taskCreateDescriptorProjection = {
     "replica",
     "wait",
     "revision",
+    "expectedVersion",
     "code",
     "origin",
     "evidence",

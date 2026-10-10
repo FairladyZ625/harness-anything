@@ -16,6 +16,7 @@ export const taskActionDescriptorProjection = {
     "replica",
     "wait",
     "revision",
+    "expectedVersion",
     "code",
     "origin",
     "evidence",

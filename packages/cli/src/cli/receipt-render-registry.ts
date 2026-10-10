@@ -169,6 +169,7 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   return [
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
+    `expected-version: ${String(receipt.expectedVersion)} (pass as --expected-version to assign/unassign/transition)`,
     `completion gates: ${
       [...gates, ...(typeof blocker?.gate === "string" ? [`${blocker.gate} (${String(blocker.code)})`] : [])].join(
         ", ",

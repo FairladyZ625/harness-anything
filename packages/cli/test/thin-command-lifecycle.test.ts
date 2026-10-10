@@ -1251,3 +1251,32 @@ test("task attest assembles approve and override into the closed task-attest act
     false,
   );
 });
+
+test("task assign states the whole person/node/team choice when the group rule is violated", () => {
+  // Two targets at once and no target at all violate the same exactly-one-of group; the remedy
+  // must name every alternative, not just the first declared flag.
+  for (const argv of [
+    ["task", "assign", "task-1", "--expected-version", "5", "--person", "person-1", "--node", "node-1"],
+    ["task", "assign", "task-1", "--expected-version", "5"],
+  ] as const) {
+    const parsed = parseThinCommand([...argv]);
+    assert.equal(parsed.ok, false, JSON.stringify(parsed));
+    if (!parsed.ok) {
+      assert.equal(parsed.code, "invalid_field");
+      assert.equal(
+        parsed.nextAction,
+        "Use exactly one of --person, --node, --team. Run ha task assign --help for accepted inputs.",
+      );
+    }
+  }
+  const assigned = parseThinCommand(["task", "assign", "task-1", "--expected-version", "5", "--node", "node-1"]);
+  assert.equal(assigned.ok, true, JSON.stringify(assigned));
+  if (assigned.ok)
+    assert.deepEqual(assigned.command.action, {
+      kind: "task-assign",
+      commandType: "AssignTask",
+      taskId: "task-1",
+      expectedVersion: 5,
+      nodeId: "node-1",
+    });
+});
