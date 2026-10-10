@@ -317,6 +317,12 @@ test("repository authorization fails before any preparing frame", async (t) => {
   t.after(() => f.close());
   f.owners.keycloak.account("person-denied");
   f.owners.keycloak.node(f.subject.nodeId, "person-denied");
+  f.owners.keycloak.interactiveSession(
+    "person-denied",
+    f.subject.nodeId,
+    f.owners.url,
+    `device-token-${f.subject.nodeId}`,
+  );
   const center = await f.center();
   const peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
   const response = await peer.request({

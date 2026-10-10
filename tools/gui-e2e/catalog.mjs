@@ -1,3 +1,4 @@
+import myDevices from "./scenarios/my-devices.mjs";
 import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
@@ -42,6 +43,7 @@ import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
 import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
 
 export const catalog = [
+  myDevices,
   ciObservations,
   edgeReadFreshness,
   runtimeHandoff,

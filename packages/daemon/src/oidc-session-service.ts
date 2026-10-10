@@ -4,6 +4,7 @@ import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/contract.ts";
@@ -114,7 +115,7 @@ export class OidcSessionService {
     // This daemon owns one browser login. Claim it before remote discovery can yield.
     const generation = ++this.#loginGeneration;
     this.#pending = undefined;
-    const authority = await this.#loginAuthority(loginTarget);
+    const authority = await this.#loginAuthority(loginTarget, true);
     this.#assertLoginGeneration(generation);
     const verifier = this.#ports.randomBytes(32).toString("base64url"),
       state = this.#ports.randomBytes(24).toString("base64url"),
@@ -136,7 +137,9 @@ export class OidcSessionService {
       client_id: authority.clientId,
       redirect_uri: redirect.toString(),
       response_type: "code",
-      scope: "openid profile email",
+      scope: authority.clientId.startsWith("harness-node-")
+        ? "openid profile email offline_access"
+        : "openid profile email",
       state,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -178,7 +181,7 @@ export class OidcSessionService {
   }
 
   async beginDevice(loginTarget?: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget),
+    const authority = await this.#loginAuthority(loginTarget, true),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
       response = await this.#ports.fetch(
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
@@ -186,7 +189,9 @@ export class OidcSessionService {
           method: "POST",
           body: new URLSearchParams({
             ...clientFields(authority),
-            scope: "openid profile email",
+            scope: authority.clientId.startsWith("harness-node-")
+              ? "openid profile email offline_access"
+              : "openid profile email",
             code_challenge: createHash("sha256").update(verifier).digest("base64url"),
             code_challenge_method: "S256",
           }),
@@ -220,6 +225,16 @@ export class OidcSessionService {
       interval,
       expiresAt,
     };
+  }
+
+  revokeDeviceSessions(nodeId: string): Promise<void> {
+    return this.serialize(async () => {
+      const center = await this.center();
+      await new KeycloakPolicyAdapter(
+        { ...center, resourceServerClientId: "harness-center" },
+        this.#ports.fetch,
+      ).revokeNodeConsent(center.accessToken, nodeId);
+    });
   }
 
   receiveDeviceNotice(nodeId: string, personId: string, notice: FleetDeviceLoginNotice): void {
@@ -355,7 +370,7 @@ export class OidcSessionService {
 
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget),
+    const authority = await this.#loginAuthority(loginTarget, true),
       response = await this.#ports.fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}`);
     return {
       source: "fleet-center",
@@ -481,6 +496,24 @@ export class OidcSessionService {
 
   async requireRole(role: string): Promise<StoredSession> {
     return this.#requireRole(role, await this.#live());
+  }
+
+  /** Device administration must observe external session revocation before using center Admin REST. */
+  async requireSession(): Promise<StoredSession> {
+    const session = await this.#live();
+    if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
+    const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
+      response = await this.#ports.fetch(
+        `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
+        {
+          headers: { authorization: `Bearer ${session.accessToken}` },
+        },
+      );
+    if (!response.ok) throw coded("authentication_required", "This device session has ended; sign in again.");
+    const identity = (await response.json()) as { sub?: string; harness_person_id?: string };
+    if (identity.sub !== session.subject || identity.harness_person_id !== session.personId)
+      throw coded("authentication_required", "This device session no longer identifies the signed-in person.");
+    return session;
   }
 
   #requireRole(role: string, session: StoredSession | undefined): StoredSession {
@@ -675,11 +708,12 @@ export class OidcSessionService {
     return JSON.parse(readFileSync(file, "utf8")) as RbacConfig;
   }
 
-  async #loginAuthority(target?: string): Promise<OidcLoginAuthority> {
+  async #loginAuthority(target?: string, resetSession = false): Promise<OidcLoginAuthority> {
     if (target && this.#ports.loginAuthority) return this.#ports.loginAuthority(target);
     const edge = target ? readFleetEdgeConfig(target) : null;
     if (edge) {
       const authority = await readFleetLoginAuthorityClient({
+        resetSession,
         hostname: edge.host,
         port: edge.port,
         ca: readFileSync(edge.caPath),

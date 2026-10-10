@@ -55,6 +55,7 @@ test("Device login without verification_uri_complete keeps secrets private and b
   assert.equal(JSON.stringify(begun).includes("private-device"), false);
   const request = new URLSearchParams(await calls[0]!.text());
   assert.equal(request.get("code_challenge_method"), "S256");
+  assert.equal(request.get("scope"), "openid profile email offline_access");
   assert.ok(request.get("code_challenge"));
   assert.equal((await service.pollDevice()).pending, true);
   assert.equal(polls, 0, "do not poll before the provider interval");

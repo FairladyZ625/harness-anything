@@ -5,7 +5,8 @@ import test from "node:test";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 
 function fixture(options: { consent?: boolean; reject?: string; missingUser?: boolean; missingNode?: boolean } = {}) {
-  const calls: string[] = [];
+  const calls: string[] = [],
+    updates: Record<string, unknown>[] = [];
   const fetchPort: typeof fetch = async (input, init) => {
     const url = new URL(String(input)),
       route = url.pathname.replace("/admin/realms/test", ""),
@@ -22,7 +23,20 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
               {
                 id: "uuid-A",
                 clientId: "harness-node-A",
-                attributes: { harness_person_id: "owner" },
+                attributes: {
+                  harness_person_id: "owner",
+                  harness_device: JSON.stringify({
+                    nodeId: "A",
+                    personId: "owner",
+                    systemName: "A",
+                    displayName: "A",
+                    platform: "test",
+                    registeredAt: "2026-10-10T00:00:00Z",
+                    state: "active",
+                    revision: 1,
+                    revocation: "complete",
+                  }),
+                },
               },
             ],
       );
@@ -36,12 +50,14 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
         { clientId: "harness-node-B" },
         ...(options.consent === false ? [] : [{ clientId: "harness-node-A" }]),
       ]);
-    if (call === "DELETE /users/user-id/consents/harness-node-A" || call === "DELETE /clients/uuid-A")
+    if (call === "PUT /clients/uuid-A") updates.push(JSON.parse(String(init!.body)));
+    if (call === "DELETE /users/user-id/consents/harness-node-A" || call === "PUT /clients/uuid-A")
       return new Response(null, { status: 204 });
     throw new Error(`Unexpected request: ${call}`);
   };
   return {
     calls,
+    updates,
     adapter: new KeycloakPolicyAdapter(
       { url: "https://keycloak.invalid", realm: "test", resourceServerClientId: "center" },
       fetchPort,
@@ -49,22 +65,45 @@ function fixture(options: { consent?: boolean; reject?: string; missingUser?: bo
   };
 }
 
-test("removal revokes only the registered owner's device consent before deleting its client", async () => {
-  const { adapter, calls } = fixture();
+test("removal revokes only the registered owner's device consent while retaining a disabled tombstone", async () => {
+  const { adapter, calls, updates } = fixture();
   await adapter.deleteNode("admin", "A");
   assert.deepEqual(calls, [
+    "GET /clients",
+    "GET /clients",
+    "PUT /clients/uuid-A",
     "GET /clients",
     "GET /users",
     "GET /users/user-id/consents",
     "DELETE /users/user-id/consents/harness-node-A",
-    "DELETE /clients/uuid-A",
+    "GET /clients",
+    "PUT /clients/uuid-A",
   ]);
+  assert.deepEqual(
+    updates.map((entry) => [
+      entry.enabled,
+      JSON.parse((entry.attributes as Record<string, string>).harness_device!).revocation,
+    ]),
+    [
+      [false, "pending"],
+      [false, "complete"],
+    ],
+  );
 });
 
 test("a device with no offline grant can be removed without inventing a session id", async () => {
   const { adapter, calls } = fixture({ consent: false });
   await adapter.deleteNode("admin", "A");
-  assert.deepEqual(calls, ["GET /clients", "GET /users", "GET /users/user-id/consents", "DELETE /clients/uuid-A"]);
+  assert.deepEqual(calls, [
+    "GET /clients",
+    "GET /clients",
+    "PUT /clients/uuid-A",
+    "GET /clients",
+    "GET /users",
+    "GET /users/user-id/consents",
+    "GET /clients",
+    "PUT /clients/uuid-A",
+  ]);
 });
 
 for (const reject of ["GET /users/user-id/consents", "DELETE /users/user-id/consents/harness-node-A"])
@@ -77,7 +116,7 @@ for (const reject of ["GET /users/user-id/consents", "DELETE /users/user-id/cons
 test("an unresolved owner cannot be reported as successfully revoked", async () => {
   const { adapter, calls } = fixture({ missingUser: true });
   await assert.rejects(adapter.deleteNode("admin", "A"), { code: "access_person_unknown" });
-  assert.deepEqual(calls, ["GET /clients", "GET /users"]);
+  assert.deepEqual(calls, ["GET /clients", "GET /clients", "PUT /clients/uuid-A", "GET /clients", "GET /users"]);
 });
 
 test("an already absent client does not revoke another device's consent", async () => {

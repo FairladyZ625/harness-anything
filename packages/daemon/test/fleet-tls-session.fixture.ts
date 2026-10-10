@@ -267,6 +267,12 @@ export async function fleetFixture(
           replicaDiskQuotaBytes: diskQuotaBytes,
           ...timing,
           verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
+          loginAuthority: (nodeId) => ({
+            url: "https://keycloak.example.invalid",
+            realm: "harness",
+            clientId: `harness-node-${nodeId}`,
+          }),
+          revokeDeviceSessions: (nodeId) => new OidcSessionService(userRoot).revokeDeviceSessions(nodeId),
           onError: (entry) => transportErrors.push(entry),
           authenticate: async (nodeId, credential) => {
             const barrier = authenticateBarrier;

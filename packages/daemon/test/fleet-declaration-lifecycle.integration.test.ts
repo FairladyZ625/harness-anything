@@ -8,7 +8,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { fleetFixture, git, initRepo, rawPeer } from "./fleet-tls-session.fixture.ts";
+import { fleetFixture, git, initRepo, rawPeer, localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { fleetLedgerRevision } from "./fleet-store.fixture.ts";
 import { runFleetUploadClient } from "../src/fleet/edge.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
@@ -315,7 +315,14 @@ test(
     assert.match(JSON.stringify(unsignedConsent), /authentication_required/u);
     fixture.owners.keycloak.interactiveSession("person-owner", "node-one", fixture.owners.url);
     signInAt(edgeUser, "person-owner");
-    await invoke(consent);
+    const unattendedConsent = await invoke(consent, 1);
+    assert.match(JSON.stringify(unattendedConsent), /human_confirmation_required/u);
+    const confirmed = await fixture.host.run(
+      repoId,
+      { kind: "task-review-consent", taskId, reviewId: "review-edge-cli" },
+      localAuthFixture(),
+    );
+    assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));
     await invoke(["task", "complete", taskId]);
     const completed = await fixture.host.run(repoId, { kind: "task-show", taskId }, fixture.auth);
     assert.equal(JSON.parse(String(completed.evidence)).task.status, "done");

@@ -38,6 +38,12 @@ export const accessAdminOperations = Object.freeze([
   "node-list",
   "node-register",
   "node-unregister",
+  "device-list",
+  "device-rename",
+  "device-pause",
+  "device-resume",
+  "device-remove",
+  "device-logout-all",
   "receipt-reconcile",
   "session-lifetime",
   "session-lifetime-set",
@@ -58,6 +64,8 @@ export interface AccessAdminRequest {
   readonly teamId?: string;
   readonly teamName?: string;
   readonly nodeId?: string;
+  readonly systemName?: string;
+  readonly platform?: string;
   /** Where a first node registration puts the machine credential instead of returning it. */
   readonly credentialFile?: string;
 }
@@ -82,7 +90,8 @@ type Expectation =
       readonly personId: string;
       readonly held: boolean;
     }
-  | { readonly kind: "node"; readonly nodeId: string; readonly version: string }
+  | { readonly kind: "node"; readonly nodeId: string; readonly version: string; readonly state?: KeycloakNode["state"] }
+  | { readonly kind: "devices"; readonly nodes: readonly { readonly nodeId: string; readonly version: string }[] }
   | { readonly kind: "session-lifetime"; readonly seconds: number };
 
 interface Plan {
@@ -131,7 +140,8 @@ export class AccessAdminService {
   }
 
   async run(request: AccessAdminRequest): Promise<Record<string, unknown>> {
-    const actor = (await this.#oidc.requireRole("access-admin")).personId;
+    const ownDevices = request.operation?.startsWith("device-") === true,
+      actor = (await (ownDevices ? this.#oidc.requireSession() : this.#oidc.requireRole("access-admin"))).personId;
     switch (request.operation as AccessAdminOperation) {
       case "group-list":
         return this.#listGroups();
@@ -151,6 +161,15 @@ export class AccessAdminService {
         return this.#mutate(request, actor, (session) => this.#planTeam(session, request));
       case "node-list":
         return this.#listNodes();
+      case "device-list":
+        return this.#listNodes(actor);
+      case "device-rename":
+      case "device-pause":
+      case "device-resume":
+      case "device-remove":
+        return this.#mutate(request, actor, (session) => this.#planDevice(session, request, actor));
+      case "device-logout-all":
+        return this.#logoutDevices(request, actor);
       case "node-register":
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "node-unregister":
@@ -278,11 +297,15 @@ export class AccessAdminService {
     };
   }
 
-  async #listNodes(): Promise<Record<string, unknown>> {
-    const session = await this.#session();
+  async #listNodes(personId?: string): Promise<Record<string, unknown>> {
+    const session = await this.#session(),
+      nodes = (await session.adapter.readNodes(session.token)).filter(
+        (node) => !personId || node.personId === personId,
+      );
     return {
       ok: true,
-      nodes: (await session.adapter.readNodes(session.token)).map((node) => ({ ...node, version: nodeVersion(node) })),
+      nodes: nodes.map((node) => ({ ...node, version: nodeVersion(node) })),
+      version: deviceListVersion(nodes),
     };
   }
 
@@ -422,8 +445,14 @@ export class AccessAdminService {
             (await session.adapter.findUserId(session.token, expect.personId)) ?? "",
           ) === expect.held
         );
-      case "node":
-        return nodeVersion(await session.adapter.readNode(session.token, expect.nodeId)) === expect.version;
+      case "node": {
+        const node = await session.adapter.readNode(session.token, expect.nodeId);
+        return nodeVersion(node) === expect.version && node?.revocation === "complete";
+      }
+      case "devices":
+        for (const expected of expect.nodes)
+          if (!(await this.#observed(session, { kind: "node", ...expected }))) return false;
+        return true;
       case "session-lifetime":
         return (await readSessionLifetime(session.realmAdmin, this.#ports.fetch)) === expect.seconds;
     }
@@ -569,16 +598,23 @@ export class AccessAdminService {
       throw coded("node_invalid", "A node id uses letters, digits, underscores, and hyphens.");
     if (!(await session.adapter.findUserId(session.token, personId)))
       throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
-    const currentVersion = nodeVersion(await session.adapter.readNode(session.token, nodeId)),
-      next = { nodeId, personId };
+    const current = await session.adapter.readNode(session.token, nodeId),
+      currentVersion = nodeVersion(current),
+      next = {
+        nodeId,
+        personId,
+        systemName: request.systemName,
+        displayName: request.displayName,
+        platform: request.platform,
+        registeredAt: this.#ports.now(),
+      };
     if ((request.expectedVersion ?? "") !== currentVersion)
       return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
-    if (currentVersion !== "")
-      return {
-        expect: { kind: "node", nodeId, version: nodeVersion(next) },
-        // The node already holds its credential; moving it to another owner never touches it.
-        apply: () => session.adapter.moveNode(session.token, next),
-      };
+    if (current)
+      throw coded(
+        "device_already_registered",
+        "Device identity and owner are immutable; use its versioned device controls.",
+      );
     // Only creating the node mints a credential, and a minted credential never travels in a
     // receipt: without a file to hold it the registration is refused before anything is reserved,
     // journaled, or written, so a first registration cannot end half-registered.
@@ -589,7 +625,7 @@ export class AccessAdminService {
       );
     const reserved = credentialReservation(request.credentialFile);
     return {
-      expect: { kind: "node", nodeId, version: nodeVersion(next) },
+      expect: { kind: "node", nodeId, version: "1" },
       abandon: () => reserved.discard(),
       apply: async () => {
         // The minted credential is 32 random bytes in the shape real Keycloak 26 was probed with
@@ -614,12 +650,68 @@ export class AccessAdminService {
   async #planNodeRemoval(session: Session, request: AccessAdminRequest): Promise<Plan | Conflict> {
     const nodeId = text(request.nodeId, "nodeId"),
       expectedVersion = text(request.expectedVersion, "expectedVersion"),
-      currentVersion = nodeVersion(await session.adapter.readNode(session.token, nodeId));
+      current = await session.adapter.readNode(session.token, nodeId),
+      currentVersion = nodeVersion(current);
     if (expectedVersion !== currentVersion) return { conflict: { nodeId, expectedVersion, currentVersion } };
     return {
-      expect: { kind: "node", nodeId, version: "" },
+      expect: { kind: "node", nodeId, version: String(current!.revision + 1), state: "removed" },
       apply: () => session.adapter.deleteNode(session.token, nodeId),
     };
+  }
+
+  async #planDevice(session: Session, request: AccessAdminRequest, actor: string): Promise<Plan | Conflict> {
+    const nodeId = text(request.nodeId, "nodeId"),
+      node = await session.adapter.readNode(session.token, nodeId);
+    if (!node || node.personId !== actor) throw coded("authorization_denied", "Only the device's owner may manage it.");
+    const expectedVersion = text(request.expectedVersion, "expectedVersion"),
+      currentVersion = nodeVersion(node);
+    if (expectedVersion !== currentVersion) return { conflict: { nodeId, expectedVersion, currentVersion } };
+    if (node.state === "removed" && !(node.revocation === "pending" && request.operation === "device-remove"))
+      throw coded("device_removed", "A removed device cannot be restored or registered again.");
+    if (node.revocation === "pending" && !["device-pause", "device-remove"].includes(request.operation!))
+      throw coded("access_operation_unsettled", "Finish the pending device revocation first.");
+    const state =
+        request.operation === "device-pause"
+          ? "paused"
+          : request.operation === "device-remove"
+            ? "removed"
+            : request.operation === "device-resume"
+              ? "active"
+              : node.state,
+      next: KeycloakNode = {
+        ...node,
+        state,
+        revision: node.revision + 1,
+        ...(request.operation === "device-rename" ? { displayName: text(request.displayName, "displayName") } : {}),
+      };
+    return {
+      expect: { kind: "node", nodeId, version: nodeVersion(next), state },
+      apply: () =>
+        request.operation === "device-pause" || request.operation === "device-remove"
+          ? session.adapter.revokeNode(session.token, { ...node, state })
+          : session.adapter.writeNode(session.token, next),
+    };
+  }
+
+  #logoutDevices(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
+    return this.#mutate(request, actor, async (session) => {
+      const nodes = (await session.adapter.readNodes(session.token)).filter((node) => node.personId === actor),
+        expectedVersion = text(request.expectedVersion, "expectedVersion"),
+        currentVersion = deviceListVersion(nodes);
+      if (expectedVersion !== currentVersion) return { conflict: { expectedVersion, currentVersion } };
+      const active = nodes.filter((node) => node.state !== "removed");
+      return {
+        expect: {
+          kind: "devices",
+          nodes: active.map((node) => ({ nodeId: node.nodeId, version: String(node.revision + 1) })),
+        },
+        apply: () =>
+          session.adapter.revokeNodes(
+            session.token,
+            active.map((node) => ({ ...node, state: "paused" })),
+          ),
+      };
+    });
   }
 
   async #grantHolders(session: Session, groupId: string, resource: string): Promise<readonly string[]> {
@@ -664,11 +756,11 @@ function groupVersion(group: KeycloakPolicyGroup): string {
 
 /** An unregistered node has the empty version, which is what a first registration expects. */
 function nodeVersion(node: KeycloakNode | undefined): string {
-  return node
-    ? createHash("sha256")
-        .update(stableStringify({ nodeId: node.nodeId, personId: node.personId }))
-        .digest("hex")
-    : "";
+  return node ? String(node.revision) : "";
+}
+
+function deviceListVersion(nodes: readonly KeycloakNode[]): string {
+  return JSON.stringify(nodes.map((node) => [node.nodeId, node.revision]));
 }
 
 function inheritedGroupIds(byId: ReadonlyMap<string, KeycloakPolicyGroup>, groupId: string): readonly string[] {
@@ -725,8 +817,8 @@ function credentialReservation(file: string): ReturnType<typeof reserveCredentia
 /** The one expectation a removal carries: an absent node, observed by its empty version. */
 function removedNode(expect: unknown): string | null {
   if (typeof expect !== "object" || expect === null || (expect as { kind?: unknown }).kind !== "node") return null;
-  const node = expect as { nodeId?: unknown; version?: unknown };
-  return typeof node.nodeId === "string" && node.version === "" ? node.nodeId : null;
+  const node = expect as { nodeId?: unknown; state?: unknown };
+  return typeof node.nodeId === "string" && node.state === "removed" ? node.nodeId : null;
 }
 
 function unsettled(operationId: string): Error {

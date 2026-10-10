@@ -43,6 +43,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       repoId: workspaceId("schedule-actions"),
       rootDir: canonicalRoot(root),
       ownerId: "schedule-test",
+      keycloakSession: async () => actor.keycloakAuthorization!.session!,
       runtimeDaemonRoute: {
         userRoot: path.join(root, ".daemon"),
         daemonId: "schedule-test",

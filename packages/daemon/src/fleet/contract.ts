@@ -54,6 +54,8 @@ export interface FleetDeviceLoginNotice {
 }
 
 export type FleetFrameV1 =
+  | Msg<"fleet.device.sessions.revoke/v1">
+  | Msg<"fleet.device.sessions.revoked/v1", { inReplyTo: string }>
   | Msg<"fleet.device.login/v1", FleetDeviceLoginNotice>
   | Msg<"fleet.device.login.result/v1", { inReplyTo: string }>
   | Msg<"fleet.session.hello/v1", { protocolVersion: ContractVersion; nodeId: string; credential: string }>
@@ -671,6 +673,8 @@ const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), po
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
+  "fleet.device.sessions.revoke/v1": shape(common),
+  "fleet.device.sessions.revoked/v1": shape(reply),
   "fleet.device.login/v1": shape({ ...common, userCode: text, createdAt: uint, expiresAt: uint, pending: boolean }),
   "fleet.device.login.result/v1": shape(reply),
   "fleet.session.hello/v1": shape({ ...common, protocolVersion: isContractVersion, nodeId: id, credential: text }),

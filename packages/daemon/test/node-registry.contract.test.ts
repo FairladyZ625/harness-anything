@@ -37,7 +37,12 @@ async function fixture(t: TestContext) {
     ...user,
     registry: keycloakNodeRegistry(async () => center, keycloak.fetch),
     nodes: async () =>
-      (await admin.run({ operation: "node-list" })).nodes as { nodeId: string; personId: string; version: string }[],
+      (await admin.run({ operation: "node-list" })).nodes as {
+        nodeId: string;
+        personId: string;
+        version: string;
+        state: string;
+      }[],
     journal: () => managedRbacReceiptJournal(user.root).read(),
     evaluate: async (binding: RepoCellBinding, action: RepoTaskAction) =>
       (
@@ -201,10 +206,11 @@ test("a first registration puts the credential in the caller's file and keeps it
   const unused = path.join(directory, "edge-a-again.credential"),
     version = (await nodes()).find(({ nodeId }) => nodeId === "edge-a")!.version,
     conflict = await run({ ...register, credentialFile: unused }),
-    moved = await run({ ...register, personId: "bob", expectedVersion: version, credentialFile: unused });
+    moved = run({ ...register, personId: "bob", expectedVersion: version, credentialFile: unused });
+  await assert.rejects(moved, { code: "device_already_registered" });
   assert.deepEqual(
-    [conflict.code, moved.ok, "credential" in moved, "credentialFile" in moved],
-    ["version_conflict", true, false, false],
+    [conflict.code, (await nodes())[0]!.personId, existsSync(unused), (await nodes())[0]!.version],
+    ["version_conflict", "alice", false, version],
   );
   assert.equal(existsSync(unused), false);
   assert.equal(readFileSync(file, "utf8"), credential);
@@ -357,7 +363,7 @@ test("a credential reservation discards cleanly however keep ended", () => {
   }
 });
 
-test("moving a node to another person applies to the next read and issues no second credential", async (t) => {
+test("a device owner is immutable and a refused transfer issues no second credential", async (t) => {
   const { keycloak, run, nodes, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     file = path.join(directory, "edge-a.credential");
@@ -367,11 +373,11 @@ test("moving a node to another person applies to the next read and issues no sec
   await run({ operation: "node-register", nodeId: "edge-a", personId: "alice", credentialFile: file });
   const credential = readFileSync(file, "utf8"),
     version = (await nodes())[0]!.version,
-    moved = await run({ operation: "node-register", nodeId: "edge-a", personId: "bob", expectedVersion: version });
-  assert.deepEqual([moved.ok, moved.outcome], [true, "applied"]);
-  assert.equal("credential" in moved, false);
-  assert.equal(await registry.nodeOwner("edge-a"), "bob");
-  assert.notEqual((await nodes())[0]!.version, version);
+    moved = run({ operation: "node-register", nodeId: "edge-a", personId: "bob", expectedVersion: version });
+  await assert.rejects(moved, { code: "device_already_registered" });
+  assert.equal("credential" in (await nodes())[0]!, false);
+  assert.equal(await registry.nodeOwner("edge-a"), "alice");
+  assert.equal((await nodes())[0]!.version, version);
   assert.equal(await registry.authenticate("edge-a", credential), true);
   assert.equal(readFileSync(file, "utf8"), credential, "moving never touches the credential's file");
 });
@@ -419,17 +425,17 @@ test("two registrations of one node from the same version: one applied, one vers
   assert.equal("credential" in results[1]!, false);
   assert.equal(keycloak.writes.filter((write) => write === "POST /clients").length, 1);
   // The loser re-reads and retries against the version it was told about.
-  const retried = await run({
+  const retried = run({
     operation: "node-register",
     nodeId: "edge-a",
     personId: "bob",
     expectedVersion: String(results[1]!.currentVersion),
   });
-  assert.deepEqual([retried.actor, retried.outcome], ["admin-two", "applied"]);
-  assert.equal((await nodes())[0]!.personId, "bob");
+  await assert.rejects(retried, { code: "device_already_registered" });
+  assert.equal((await nodes())[0]!.personId, "alice");
 });
 
-test("unregistering a node removes it from Keycloak, so its credential and its owner are gone", async (t) => {
+test("unregistering a device disables access and retains an immutable tombstone", async (t) => {
   const { keycloak, run, nodes, journal, registry } = await fixture(t),
     directory = mkdtempSync(path.join(tmpdir(), "ha-node-credential-")),
     fileFor = (name: string) => path.join(directory, `${name}.credential`);
@@ -465,11 +471,14 @@ test("unregistering a node removes it from Keycloak, so its credential and its o
       [false, "version_conflict", "person-admin"],
     ],
   );
-  assert.deepEqual([results[1]!.expectedVersion, results[1]!.currentVersion], [version, ""]);
-  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE /clients/")).length, 1);
+  assert.deepEqual([results[1]!.expectedVersion, results[1]!.currentVersion], [version, "2"]);
+  assert.equal(keycloak.writes.filter((write) => write.startsWith("DELETE /clients/")).length, 0);
   assert.deepEqual(
-    (await nodes()).map(({ nodeId }) => nodeId),
-    ["edge-b"],
+    (await nodes()).map(({ nodeId, state }) => [nodeId, state]),
+    [
+      ["edge-a", "removed"],
+      ["edge-b", "active"],
+    ],
     "only the named node is removed",
   );
   assert.equal(await registry.authenticate("edge-a", credential), false);
@@ -485,17 +494,20 @@ test("unregistering a node removes it from Keycloak, so its credential and its o
     ["settled", "applied"],
     ["settled", "version_conflict"],
   ]);
-  // Registering the node again mints a new credential; the removed one stays refused.
-  await run({
-    operation: "node-register",
-    nodeId: "edge-a",
-    personId: "alice",
-    credentialFile: fileFor("edge-a-again"),
-  });
-  const reminted = readFileSync(fileFor("edge-a-again"), "utf8");
-  assert.notEqual(reminted, credential);
+  // Removed IDs remain reserved; neither old nor newly supplied credentials resurrect the device.
+  await assert.rejects(
+    run({
+      operation: "node-register",
+      nodeId: "edge-a",
+      personId: "alice",
+      expectedVersion: "2",
+      credentialFile: fileFor("edge-a-again"),
+    }),
+    { code: "device_already_registered" },
+  );
+  assert.equal(existsSync(fileFor("edge-a-again")), false);
   assert.equal(await registry.authenticate("edge-a", credential), false);
-  assert.equal(await registry.authenticate("edge-a", reminted), true);
+  assert.equal(await registry.authenticate("edge-a", "replacement"), false);
 });
 
 // Wherever a node removal settles applied — the mutating run or a reconcile of an unsettled
@@ -524,7 +536,7 @@ test("offline revocation failure leaves removal unsettled and never reports comp
     { code: "keycloak_admin_rejected" },
   );
   assert.deepEqual(removed, []);
-  assert.equal(await registry.nodeOwner("edge-a"), "alice");
+  assert.equal(await registry.nodeOwner("edge-a"), null, "failed revocation has already blocked admission");
   assert.equal(await registry.nodeOwner("edge-b"), "alice");
   assert.deepEqual(
     journal()
@@ -566,13 +578,16 @@ test("a removal that settles applied reports the removed node, and nothing else 
     credentialFile: path.join(directory, "edge-b.credential"),
   });
   assert.deepEqual(removed, [], "a registration is not a removal");
-  const move = (await run({ operation: "node-list" })).nodes as { nodeId: string; version: string }[];
-  await run({
-    operation: "node-register",
-    nodeId: "edge-b",
-    personId: "bob",
-    expectedVersion: move.find((node) => node.nodeId === "edge-b")!.version,
-  });
+  const move = (await run({ operation: "node-list" })).nodes as { nodeId: string; version: string; state: string }[];
+  await assert.rejects(
+    run({
+      operation: "node-register",
+      nodeId: "edge-b",
+      personId: "bob",
+      expectedVersion: move.find((node) => node.nodeId === "edge-b")!.version,
+    }),
+    { code: "device_already_registered" },
+  );
   assert.deepEqual(removed, [], "moving a node to another owner is not a removal");
   const version = move.find((node) => node.nodeId === "edge-a")!.version,
     stale = await run({ operation: "node-unregister", nodeId: "edge-a", expectedVersion: "stale" });
@@ -642,15 +657,18 @@ test("the answer follows the person a node is registered to, not the node", asyn
     return [owner, await evaluate(entries(owner)["edge-a"]!, { kind: "task-create" })];
   };
   assert.deepEqual(await through(), ["alice", "allowed"]);
-  await run({
-    operation: "node-register",
-    nodeId: "edge-a",
-    personId: "bob",
-    expectedVersion: (await nodes())[0]!.version,
-  });
-  assert.deepEqual(await through(), ["bob", "denied"], "the same node now carries bob, who holds no grant");
-  await run({ operation: "grant", personId: "bob", groupId: "contributor", resource: "repo-a" });
-  assert.deepEqual(await through(), ["bob", "allowed"]);
+  await assert.rejects(
+    run({
+      operation: "node-register",
+      nodeId: "edge-a",
+      personId: "bob",
+      expectedVersion: (await nodes())[0]!.version,
+    }),
+    { code: "device_already_registered" },
+  );
+  assert.deepEqual(await through(), ["alice", "allowed"], "the refused transfer cannot change device authority");
+  await run({ operation: "revoke", personId: "alice", groupId: "contributor", resource: "repo-a" });
+  assert.deepEqual(await through(), ["alice", "denied"]);
 });
 
 test("an actor reported by the frame never reaches the decision", async (t) => {

@@ -34,7 +34,7 @@ export async function readTaskAssignmentDirectory(
   return {
     schema: "task-assignment-directory/v1",
     people: people.map(({ personId, username }) => ({ personId, username })),
-    nodes: nodes.map(({ nodeId, personId }) => ({ nodeId, personId })),
+    nodes: nodes.filter((node) => node.state === "active").map(({ nodeId, personId }) => ({ nodeId, personId })),
     teams: teams.map(({ id, name }) => ({ id, name })),
   };
 }

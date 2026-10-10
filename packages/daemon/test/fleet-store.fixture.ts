@@ -68,8 +68,12 @@ export async function fleetNodeOwners(input: {
 }) {
   const served = await serveKeycloak(),
     everyAction = actionDeclarations.map((declaration) => declaration.kind),
-    ownerOf = (nodeId: string): string | null =>
-      served.keycloak.nodeClients.get(`harness-node-${nodeId}`)?.attributes.harness_person_id ?? null;
+    ownerOf = (nodeId: string): string | null => {
+      const client = served.keycloak.nodeClients.get(`harness-node-${nodeId}`);
+      if (!client) return null;
+      const device = JSON.parse(client.attributes.harness_device);
+      return device.state === "active" && device.revocation === "complete" ? device.personId : null;
+    };
   served.bind(input.userRoot);
   const known = new Set<string>(),
     register = (nodeId: string, personId: string): void => {

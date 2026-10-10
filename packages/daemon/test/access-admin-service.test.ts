@@ -391,6 +391,10 @@ test("the session lifetime is read from and written to the realm, within bounds,
   assert.deepEqual(keycloak.realm, {
     ssoSessionIdleTimeout: 6 * 60 * 60,
     ssoSessionMaxLifespan: sessionLifetimeBounds.maximumSeconds,
+    offlineSessionIdleTimeout: 90 * 24 * 60 * 60,
+    offlineSessionMaxLifespanEnabled: false,
+    revokeRefreshToken: true,
+    refreshTokenMaxReuse: 0,
   });
   assert.deepEqual(await admin.run({ operation: "session-lifetime" }), {
     ok: true,

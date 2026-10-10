@@ -92,6 +92,12 @@ export function fakeKeycloak() {
       method = init?.method ?? "GET",
       body = typeof init?.body === "string" ? (JSON.parse(init.body) as Record<string, unknown>) : undefined,
       bearer = new Headers(init?.headers).get("authorization")?.replace("Bearer ", "");
+    if (url.pathname.endsWith("/protocol/openid-connect/userinfo")) {
+      const user = users.get(tokens.get(bearer ?? "") ?? "");
+      return user
+        ? json({ sub: user.attributes.harness_person_id[0], harness_person_id: user.attributes.harness_person_id[0] })
+        : json({}, 401);
+    }
     if (url.pathname.endsWith("/protocol/openid-connect/revoke")) return new Response(null, { status: 204 });
     if (method === "GET" && url.pathname === `/realms/${keycloakRealm}`) return json({ realm: keycloakRealm });
     if (url.pathname.endsWith("/protocol/openid-connect/token/introspect")) {
@@ -106,7 +112,7 @@ export function fakeKeycloak() {
       const token = (init?.body as URLSearchParams).get("token") ?? "",
         session = interactiveSessions.get(token);
       return json(
-        session
+        session && nodeClients.get(`harness-node-${session.nodeId}`)?.enabled !== false
           ? {
               active: true,
               exp: Math.floor(Date.now() / 1000) + 3600,
@@ -219,20 +225,31 @@ export function fakeKeycloak() {
       nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });
     }
-    if (route === `${server}/policy/evaluate`) {
-      const request = body as { userId: string; resources: { _id: string; scopes: { name: string }[] }[] },
-        results = request.resources.map((resource) => ({
-          status: resource.scopes.every((scope) => permits(request.userId, resource._id, scope.name))
-            ? "PERMIT"
-            : "DENY",
-        }));
-      return json({ status: results.every((result) => result.status === "PERMIT") ? "PERMIT" : "DENY", results });
-    }
     if (route === "/users/profile") {
       if (method === "PUT") profile.attributes = (body as typeof profile).attributes;
       return json(profile);
     }
-    if (/^\/users\/[^/]+\/consents$/u.test(route) && method === "GET") return json([]);
+    if (/^\/users\/[^/]+\/consents$/u.test(route) && method === "GET") {
+      const userId = decodeURIComponent(route.split("/")[2]!);
+      return json(
+        [
+          ...new Set(
+            [...interactiveSessions.entries()]
+              .filter(([token]) => tokens.get(token) === userId)
+              .map(([, session]) => `harness-node-${session.nodeId}`),
+          ),
+        ].map((clientId) => ({ clientId })),
+      );
+    }
+    if (/^\/users\/[^/]+\/consents\/[^/]+$/u.test(route) && method === "DELETE") {
+      const userId = decodeURIComponent(route.split("/")[2]!);
+      for (const [token, session] of interactiveSessions)
+        if (tokens.get(token) === userId && `harness-node-${session.nodeId}` === tail) {
+          interactiveSessions.delete(token);
+          tokens.delete(token);
+        }
+      return new Response(null, { status: 204 });
+    }
     if (/^\/users\/[^/]+$/u.test(route) && method === "GET") {
       const user = users.get(tail);
       return user ? json({ ...user, enabled: true }) : json({}, 404);
@@ -397,7 +414,21 @@ export function fakeKeycloak() {
           attributes: serverClientAttributes(),
           secret: `secret-${nodeId}`,
         };
-      client.attributes = { ...client.attributes, harness_person_id: personId };
+      client.attributes = {
+        ...client.attributes,
+        harness_person_id: personId,
+        harness_device: JSON.stringify({
+          nodeId,
+          personId,
+          systemName: nodeId,
+          displayName: nodeId,
+          platform: "test",
+          registeredAt: "2026-10-10T00:00:00Z",
+          state: "active",
+          revision: 1,
+          revocation: "complete",
+        }),
+      };
       nodeClients.set(clientId, client);
       return client.secret;
     },

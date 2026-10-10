@@ -642,14 +642,14 @@ test(
     assert.ok(Array.isArray(s1.reviews));
     const ownerSession = {
       schema: "harness-oidc-session/v2",
-      accessToken: "token-person-owner",
+      accessToken: "owner-return-node-one",
       subject: "person-owner",
       personId: "person-owner",
       expiresAt: Date.now() + 3_600_000,
       roles: [],
       loginTarget: edgeRoot,
     };
-    f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, loginAuthorityUrl);
+    f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, loginAuthorityUrl, ownerSession.accessToken);
     managedRbacSessionStore(userRoot).write(JSON.stringify(ownerSession));
     const closeout = path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md");
     writeFileSync(
@@ -750,8 +750,10 @@ test(
     assert.equal(beforeStaleExit.session.activity.outcome, null);
     t.diagnostic("S1 reviewer read and fixed receipt rejected; canonical reviews unchanged and report absent.");
     assert.equal(s2.task.status, "in_review", "amend preserves the already forwarded review stage");
-    f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl);
-    managedRbacSessionStore(reviewUser).write(JSON.stringify({ ...ownerSession, loginTarget: reviewRoot }));
+    f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl, "owner-return-node-slow");
+    managedRbacSessionStore(reviewUser).write(
+      JSON.stringify({ ...ownerSession, accessToken: "owner-return-node-slow", loginTarget: reviewRoot }),
+    );
     writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
     const staleSettled = await eventuallyValue(async () => {
       const result = await f.host.read(
