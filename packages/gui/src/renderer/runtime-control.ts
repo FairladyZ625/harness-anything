@@ -1,6 +1,6 @@
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { GuiActionResult } from "../api/renderer-dto.ts";
-import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
+import { isRendererRecord, rendererErrorHint, rendererReadError } from "./result-validation.ts";
 
 export interface RuntimeSpawnInput {
   readonly runtimeInstanceId?: string;
@@ -23,6 +23,7 @@ type RuntimeReceipt = GuiActionResult & {
   readonly proof?: { readonly durable?: boolean; readonly canonicalVisible?: boolean };
   readonly error?: { readonly code?: string; readonly hint?: string };
   readonly code?: string;
+  readonly rejectionExplanation?: string;
   readonly nextAction?: string | null;
 };
 
@@ -58,7 +59,10 @@ export function parseAgentDispatchPreview(value: unknown): AgentDispatchPreview 
     typeof value.prompt !== "string" ||
     typeof value.mission !== "string"
   )
-    throw new Error(rendererErrorHint(value, "Dispatch preview returned an invalid receipt."));
+    // A daemon rejection (op_rejected with code + rejectionExplanation) is a legitimate answer:
+    // rendererReadError carries its full text and the code, so the drain-window refusals surface
+    // as themselves instead of the generic invalid-receipt wording.
+    throw rendererReadError(value, "Dispatch preview returned an invalid receipt.");
   return {
     dispatchId: value.dispatchId,
     runtimeSessionId: value.runtimeSessionId,
@@ -131,7 +135,7 @@ export async function submitRuntimeSpawn(
     runtimeSessionId,
     dispatchId,
     code: current.error?.code ?? current.code ?? "runtime_spawn_rejected",
-    hint: current.error?.hint ?? current.nextAction ?? "Runtime spawn was rejected.",
+    hint: current.error?.hint ?? current.rejectionExplanation ?? current.nextAction ?? "Runtime spawn was rejected.",
   };
 }
 

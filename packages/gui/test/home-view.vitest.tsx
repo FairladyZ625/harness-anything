@@ -402,7 +402,9 @@ describe("HomeView 项目管理页", () => {
     await click(more(container.querySelector<HTMLElement>('[data-testid="home-repo-on"]')!));
     await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-disable"]')!);
     await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-confirm-ok"]')!);
-    expect(container.querySelector('[data-testid="home-entry-feedback"]')?.textContent).toBe("仓库有在飞写入");
+    expect(container.querySelector('[data-testid="home-entry-feedback"]')?.textContent).toBe(
+      "repo_busy: 仓库有在飞写入",
+    );
     // 只有 repoAdmin、没有选目录的 bridge:不给「添加项目」入口。
     expect(container.querySelector('[data-testid="home-add-project"]')).toBeNull();
   });

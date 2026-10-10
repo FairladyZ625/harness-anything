@@ -74,6 +74,7 @@ it("retains cuts through task parsing and named projection unwrapping, and rejec
     rejectionExplanation: "This cut cannot answer this query.",
     error: { code: "replica_unavailable" },
   };
+  // 读面走 repositoryReadFailure 的专用提取(repository-read-frame.ts),不在本次统一链内。
   await expect(harnessClient.getTasks({ repoId: "edge" })).rejects.toMatchObject({
     code: "replica_unavailable",
     message: "This cut cannot answer this query.",
@@ -81,7 +82,7 @@ it("retains cuts through task parsing and named projection unwrapping, and rejec
   vi.stubGlobal("harness", { listArtifacts: vi.fn(async () => result) });
   await expect(artifactsClient.list("edge", "all")).rejects.toMatchObject({
     code: "replica_unavailable",
-    message: "This cut cannot answer this query.",
+    message: "replica_unavailable: This cut cannot answer this query.",
   });
 });
 

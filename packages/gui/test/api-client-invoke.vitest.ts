@@ -72,15 +72,17 @@ describe("renderer rejection explanation", () => {
         },
         "Workspace summary bridge returned an invalid result.",
       ),
-    ).toBe("Credential is not bound to a person.");
+    ).toBe("credential_unknown: Credential is not bound to a person.");
   });
   it("retains hint support and ignores errors on successful responses", () => {
     expect(localErrorHint({ ok: false, error: { hint: "Reconnect" } }, "Invalid result")).toBe("Reconnect");
     expect(
       localErrorHint({ ok: true, rejectionExplanation: "Denied", error: { hint: "Denied" } }, "Invalid result"),
     ).toBe("Invalid result");
+    // A bare rejection code still names itself; the generic fallback is reserved for
+    // values with nothing to extract at all.
     expect(
       localErrorHint({ ok: false, rejectionExplanation: "  ", error: { code: "unknown" } }, "Invalid result"),
-    ).toBe("Invalid result");
+    ).toBe("unknown");
   });
 });
