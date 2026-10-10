@@ -1,5 +1,5 @@
 /** Presentation is declared beside the action; policy evaluation does not consume it. */
-const actionPresentation = {
+export const actionPresentation = {
   "repository-read": { domain: "repository", name: "读取仓库", description: "查看获授权仓库中的内容。" },
   "agent-delete": { domain: "agent", name: "删除代理", description: "删除已登记的代理配置。" },
   "agent-retire": { domain: "agent", name: "停用代理", description: "停止继续使用已登记的代理。" },
@@ -171,7 +171,6 @@ export type ReceiptSettlementClass = "canonical-acceptance" | "none";
 
 /** The authoritative facets shared by policy, protocol, receipt settlement, and entity catalogs. */
 export interface ActionDeclaration {
-  readonly presentation: { readonly domain: string; readonly name: string; readonly description: string };
   readonly kind: string;
   readonly catalogId: string | null;
   readonly executionClass: ActionExecutionClass;
@@ -205,7 +204,6 @@ const canonical = (
 ): ActionDeclaration =>
   Object.freeze({
     kind,
-    presentation: actionPresentation[kind],
     catalogId,
     executionClass,
     policyAction: kind,
@@ -229,7 +227,6 @@ const local = (
 ): ActionDeclaration =>
   Object.freeze({
     kind,
-    presentation: actionPresentation[kind],
     catalogId: null,
     executionClass,
     policyAction: kind,
@@ -244,7 +241,6 @@ const hostAdmin = (
 ): ActionDeclaration =>
   Object.freeze({
     kind,
-    presentation: actionPresentation[kind],
     catalogId: null,
     executionClass: "admin",
     policyAction: kind,
@@ -257,7 +253,6 @@ const hostAdmin = (
 const runtimeAdmin = (kind: keyof typeof actionPresentation): ActionDeclaration =>
   Object.freeze({
     kind,
-    presentation: actionPresentation[kind],
     catalogId: null,
     executionClass: "admin",
     policyAction: kind,

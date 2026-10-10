@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import {
   actionDeclarations,
+  actionPresentation,
   decodeAuthorizationResource,
   effectivePolicyGroupScopes,
   encodeAuthorizationResource,
@@ -186,7 +187,7 @@ export class AccessAdminService {
       // The facets an action picker groups by, read from the declarations the Base groups derive from.
       actions: actionDeclarations.map((declaration) => ({
         action: declaration.policyAction,
-        presentation: declaration.presentation,
+        presentation: actionPresentation[declaration.kind as keyof typeof actionPresentation],
         executionClass: declaration.executionClass,
         policyTier: declaration.policyTier,
         residencyScope: declaration.residency.scope,

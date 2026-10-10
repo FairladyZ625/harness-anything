@@ -9,7 +9,7 @@ import { inheritedScopes, isRejection, roleLabel } from "../../access-model.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
-import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
+import { BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { currentLocale } from "../../i18n/core.ts";
@@ -119,8 +119,8 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
   return (
     <RegionBoard data-testid="access-groups-board">
       <BoardMain>
-        <BoardColumn>
-          <BoardRegion region="group" fill data-testid="access-group-editor">
+        <div className={readOnly ? "grid min-w-0" : "flex min-h-0 flex-1 flex-col"}>
+          <BoardRegion region="group" fill={!readOnly} data-testid="access-group-editor">
             <Region
               title={creating ? t("accessControl.groups.newTitle") : roleLabel(draft.groupId, draft.displayName)}
               tag={
@@ -193,6 +193,7 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                   <div data-testid="access-group-base-rule">
                     <p className="ui-body">{t(`accessControl.role.${selected.id}.summary` as MessageKey)}</p>
                     <ActionDetails
+                      grouped
                       actions={data.actions.filter((action) => selected.effectiveScopes.includes(action.action))}
                     />
                   </div>
@@ -322,7 +323,7 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
               </div>
             </Region>
           </BoardRegion>
-        </BoardColumn>
+        </div>
       </BoardMain>
       <BoardSide region="groups" data-testid="access-group-list">
         <Region

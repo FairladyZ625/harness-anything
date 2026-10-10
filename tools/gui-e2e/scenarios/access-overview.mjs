@@ -38,6 +38,13 @@ export default {
         (size) => window.innerWidth === size[0] && window.innerHeight === size[1],
         [width, height],
       );
+      const controls = await ada.locator("button[data-control-size]").evaluateAll((buttons) =>
+        buttons.map((button) => {
+          const rect = button.getBoundingClientRect();
+          return { height: rect.height, width: rect.width, size: button.dataset.controlSize };
+        }),
+      );
+      assert.ok(controls.every(({ height, width, size }) => height >= 28 && width >= 28 && size === "md"));
       await shot(`members-${width}`);
       await ada.getByTestId("access-grant-open-person-ada").click();
       await page.getByTestId("access-grant-group").selectOption("maintainer");
@@ -55,7 +62,19 @@ export default {
         .click();
       await page.getByRole("tab", { name: /^(?:角色说明|Roles)$/u }).click();
       await page.getByTestId("access-group-base-rule").waitFor();
-      assert.equal(await page.getByTestId("access-group-editor").locator("details").getAttribute("open"), null);
+      await page
+        .getByTestId("access-group-list")
+        .getByRole("button", { name: /maintainer/u })
+        .click();
+      const editor = page.getByTestId("access-group-editor");
+      const domains = editor.locator("details > summary");
+      assert.ok((await domains.count()) >= 2);
+      assert.match(await domains.first().textContent(), /\(\d+\)/u);
+      assert.equal(await editor.locator("details").first().getAttribute("open"), null);
+      await domains.first().click();
+      assert.ok((await editor.locator("details[open] p").count()) > 0);
+      await shot(`role-actions-${width}`);
+      await domains.first().click();
       await shot(`roles-${width}`);
       await page.getByRole("tab", { name: /^(?:服务与会话|Service & session)$/u }).click();
       await page.getByTestId("access-session-lifetime").waitFor();
