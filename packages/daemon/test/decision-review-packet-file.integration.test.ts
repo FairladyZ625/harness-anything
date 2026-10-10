@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -27,8 +27,9 @@ const reviewer = withPolicyGroup(
 );
 const owner = withPolicyGroup({ ...proposer, actor: { ...proposer.actor, executor: null } }, "admin");
 
-test("respond-review and override-review read their packet from --from-file like review does", async () => {
+test("respond-review and override-review read their packet from --from-file like review does", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-decision-review-packet-file-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   const cell = await openRepoCell({
     repoId: workspaceId("decision-review-packet-file"),

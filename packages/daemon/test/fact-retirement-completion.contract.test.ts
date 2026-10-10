@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -23,11 +23,12 @@ const actor = { principal: { personId: "person-owner" }, executor: { kind: "agen
     "maintainer",
   );
 
-test("task complete rejects an undeclared upstream Fact and persists a still-holds disposition", async () => {
+test("task complete rejects an undeclared upstream Fact and persists a still-holds disposition", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-")),
     repoId = workspaceId("fact-retirement"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined,
     eventReader: ReturnType<typeof makeTaskEventReader> | undefined,
     completionReader: ReturnType<typeof makeTaskEventReader> | undefined;
@@ -98,11 +99,12 @@ test("task complete rejects an undeclared upstream Fact and persists a still-hol
   }
 });
 
-test("task complete needs no disposition for an upstream Fact that another Fact already superseded", async () => {
+test("task complete needs no disposition for an upstream Fact that another Fact already superseded", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-superseded-")),
     repoId = workspaceId("fact-retirement-superseded"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -130,10 +132,11 @@ test("task complete needs no disposition for an upstream Fact that another Fact 
   }
 });
 
-test("task complete rejects malformed and duplicate fact-holds dispositions", async () => {
+test("task complete rejects malformed and duplicate fact-holds dispositions", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-enum-")),
     repoId = workspaceId("fact-retirement-enum"),
     taskId = "task_fact_retirement_enum";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
@@ -175,11 +178,12 @@ test("task complete rejects malformed and duplicate fact-holds dispositions", as
   }
 });
 
-test("task complete enumerates every undischarged upstream Fact in the blocker", async () => {
+test("task complete enumerates every undischarged upstream Fact in the blocker", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-fact-retirement-list-")),
     repoId = workspaceId("fact-retirement-list"),
     taskId = "task_fact_retirement",
     executionId = "exe_fact_retirement";
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir);
