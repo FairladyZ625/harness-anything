@@ -59,6 +59,7 @@ test("an exactly full worktable rejects a new activation with the counting crite
     /TASK_WIP_LIMIT_REACHED: Execution worktable is full \(30\/30; settings\.tasks\.wipLimit=30\)/u,
   );
   assert.match(admission.message, /Suggested: task_BLOCKED "Blocked" \(blocked\)/u);
+  assert.doesNotMatch(admission.message.split("Suggested:")[1].split("Next:")[0], /task_OCC_/u);
   assert.match(admission.message, /ha task start task_NEW/u);
   assert.match(admission.message, /Derived root exemption applies only to pure containers/u);
 });
@@ -319,4 +320,25 @@ test("an invalid limit fails closed instead of disabling the gate", () => {
   assert.equal(admission.ok, false);
   if (admission.ok) return;
   assert.match(admission.message, /TASK_WIP_POLICY_INVALID/u);
+});
+
+test("suggestions rank inactive review leaves before blocked leaves and exclude containers and executing cuts", () => {
+  const admission = admitTaskExecutionWip({
+    limit: 1,
+    limitLabel: "test",
+    activatingTaskId: "task_NEW",
+    nextStatus: "active",
+    tasks: [
+      entry({ taskId: "task_NEW", status: "planned" }),
+      entry({ taskId: "task_ROOT", status: "in_review", directChildCount: 4, hasOwnExecution: true }),
+      entry({ taskId: "task_RUNNING", status: "in_review", hasOwnExecution: true }),
+      entry({ taskId: "task_BLOCKED", status: "blocked" }),
+      entry({ taskId: "task_REVIEW", status: "in_review" }),
+    ],
+  });
+  assert.equal(admission.ok, false);
+  if (admission.ok) return;
+  const suggestions = admission.message.split("Suggested:")[1].split("Next:")[0];
+  assert.match(suggestions, /task_REVIEW.*task_BLOCKED/u);
+  assert.doesNotMatch(suggestions, /task_ROOT|task_RUNNING/u);
 });

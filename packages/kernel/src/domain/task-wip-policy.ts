@@ -154,6 +154,12 @@ export function admitTaskExecutionWip(input: TaskWipAdmissionInput): TaskWipAdmi
     .sort(compareTaskWipSuggestions);
   if (occupying.length < input.limit) return { ok: true };
   const suggestions = occupying
+    .filter(
+      (task) =>
+        task.directChildCount === 0 &&
+        !task.hasOwnExecution &&
+        (task.status === "in_review" || task.status === "blocked"),
+    )
     .slice(0, 3)
     .map((task) => `${task.taskId} ${JSON.stringify(task.title)} (${task.status})`)
     .join(", ");
@@ -200,7 +206,7 @@ export function parseTaskWipLimit(value: unknown): number | undefined {
 }
 
 function compareTaskWipSuggestions(left: TaskWipSnapshotEntryV1, right: TaskWipSnapshotEntryV1): number {
-  const rank = { blocked: 0, active: 1, in_review: 2 } as const;
+  const rank = { in_review: 0, blocked: 1 } as const;
   const leftRank = left.status in rank ? rank[left.status as keyof typeof rank] : 3;
   const rightRank = right.status in rank ? rank[right.status as keyof typeof rank] : 3;
   return leftRank - rightRank || left.taskId.localeCompare(right.taskId);

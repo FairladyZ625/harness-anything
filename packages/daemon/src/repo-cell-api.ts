@@ -1,3 +1,4 @@
+import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -894,8 +895,8 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     const executorCell: BuiltinExecutorCell = {
       rootDir: context.rootDir,
       now: context.now,
-      observeCi: (schedule) =>
-        reconcileCiOccurrence({
+      observeCi: async (schedule) => {
+        const result = await reconcileCiOccurrence({
           cell: context.extracted,
           schedule,
           requests: () => ciRequests.splice(0),
@@ -917,7 +918,29 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
               throw context.cellCodedError("invalid_command", "CI acceptance requires a write receipt.");
             return receipt;
           },
-        }),
+        });
+        if (result.outcome !== "succeeded") return result;
+        for (const candidate of mergedCloseoutCandidates(context.extracted)) {
+          if (!candidate.consented || candidate.ci !== "pass") continue;
+          const completed = await run(
+            { kind: "task-complete", taskId: candidate.taskId },
+            {
+              ...binding,
+              withWriterEpochFence: writerFence ?? undefined,
+              writerEpochFence: writerDescriptor ?? undefined,
+            },
+          );
+          if (isSquadControlResult(completed))
+            throw context.cellCodedError("invalid_command", "CI closeout requires a write receipt.");
+          if (completed.outcome !== "applied" && completed.outcome !== "no_changes")
+            return {
+              ...result,
+              outcome: "failed",
+              detail: `CI closeout ${candidate.taskId}: ${completed.code ?? completed.outcome}: ${completed.rejectionExplanation ?? completed.evidence ?? ""}`,
+            };
+        }
+        return result;
+      },
       runSnapshot: <T>(work: () => T | PromiseLike<T>): Promise<T> => {
         context.queueDepth += 1;
         const snapshot = chainRepoCellWrite(context.tail, async () => {
