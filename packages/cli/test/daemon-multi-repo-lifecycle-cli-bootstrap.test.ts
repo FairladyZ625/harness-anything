@@ -30,8 +30,9 @@ import {
   stop,
   waitForRun,
 } from "./daemon-multi-repo-lifecycle-cli.fixtures.ts";
-test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", async () => {
+test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority parity, fixed receipt, and phantom-free Configure-Verify", async (t) => {
   const fixture = await setupEmpty();
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     assert.equal(existsSync(path.join(fixture.repo, "harness")), false);
     // No explicit daemon was started: init must auto-start the resident daemon
@@ -335,8 +336,9 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
   }
 });
 
-test("local init isolates the ledger from later project commits and removes tracked runtime paths", async (context) => {
+test("local init isolates the ledger from later project commits and removes tracked runtime paths", async (t) => {
   const fixture = await setupEmpty("local");
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     git(fixture.repo, "init", "--quiet");
     git(fixture.repo, "config", "user.name", "Project Owner");
@@ -394,7 +396,7 @@ test("local init isolates the ledger from later project commits and removes trac
       spawnSync("git", ["-C", fixture.repo, "rev-parse", "--verify", "refs/ha/canonical"], { encoding: "utf8" }).status,
       128,
     );
-    context.diagnostic(
+    t.diagnostic(
       `ledger.git=true\nouter.check-ignore harness=${harnessIgnored}\nouter.check-ignore .harness=${runtimeIgnored}\nouter.ls-files harness/=${harnessTracked}\nouter.ls-files .harness/=${runtimeTracked}\nproject.head.after=${projectHead}\nledger.head.before=${ledgerHead}\nledger.head.after=${ledgerAfter}\nwrite.outcome=${String(written.outcome)}`,
     );
   } finally {
@@ -403,8 +405,9 @@ test("local init isolates the ledger from later project commits and removes trac
   }
 });
 
-test("center registration keeps an external ledger repository readable and writable", async (context) => {
-  const fixture = await setup();
+test("center registration keeps an external ledger repository readable and writable", async (t) => {
+  const fixture = await setup(t);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     assert.equal(existsSync(path.join(fixture.alpha, "harness/.git")), false);
     const documentBody = readFileSync(path.join(fixture.alpha, "harness/harness.yaml"), "utf8"),
@@ -458,7 +461,7 @@ test("center registration keeps an external ledger repository readable and writa
         .some((target) => target.startsWith("harness/events/")),
       true,
     );
-    context.diagnostic(
+    t.diagnostic(
       `ledger.git=${fixture.alpha}\nledger.head.before=${before}\nledger.head.after=${after}\nledger.sqlite.revision=${String(written.revision)}\nwrite.outcome=${String(written.outcome)}\nread.task=Center ledger`,
     );
   } finally {
@@ -467,11 +470,12 @@ test("center registration keeps an external ledger repository readable and writa
   }
 });
 
-test("REQ-CLI-016 adds only missing npm script keys while preserving existing package bytes", async () => {
-  const fixture = await setup(),
+test("REQ-CLI-016 adds only missing npm script keys while preserving existing package bytes", async (t) => {
+  const fixture = await setup(t),
     packagePath = path.join(fixture.alpha, "package.json"),
     original =
       '{\n\t"name": "project-owned",\n\t"scripts": {\n\t\t"test": "node --test",\n\t\t"ha": "project-ha"\n\t},\n\t"marker": "keep exactly"\n}\n';
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     writeFileSync(packagePath, original);
     git(fixture.alpha, "add", "package.json");
@@ -511,12 +515,13 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
   }
 });
 
-test("init at a configured authored root writes the machine documents where every reader resolves them", async () => {
+test("init at a configured authored root writes the machine documents where every reader resolves them", async (t) => {
   const fixture = await setupEmpty("configured"),
     // The declaration has to sit at the fixed discovery anchor: `layout.authoredRoot` cannot be
     // read from a file whose own path depends on it. It names the authored root and nothing else.
     declarationPath = path.join(fixture.repo, "harness/harness.yaml"),
     declaration = "layout:\n  authoredRoot: ledger\n";
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     mkdirSync(path.dirname(declarationPath), { recursive: true });
     writeFileSync(declarationPath, declaration);
@@ -581,9 +586,10 @@ test("init at a configured authored root writes the machine documents where ever
   }
 });
 
-test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", async () => {
-  const fixture = await setup(),
+test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCell produce", async (t) => {
+  const fixture = await setup(t),
     source = makeCanary(fixture.root);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -686,9 +692,10 @@ test("real CLI dogfoods a user-layer v3 preset through daemon phases and RepoCel
   }
 });
 
-test("hard daemon crash projects an admitted child to outcome_unknown without respawn", async () => {
-  const fixture = await setup(),
+test("hard daemon crash projects an admitted child to outcome_unknown without respawn", async (t) => {
+  const fixture = await setup(t),
     source = makeCanary(fixture.root, "setTimeout(() => process.exit(0), 2_000);", []);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]);
     await register(fixture.alpha, fixture.userRoot, "alpha");
@@ -727,8 +734,9 @@ test("hard daemon crash projects an admitted child to outcome_unknown without re
   }
 });
 
-test("one RepoCell lock failure closes only that repo admission", async () => {
-  const fixture = await setup();
+test("one RepoCell lock failure closes only that repo admission", async (t) => {
+  const fixture = await setup(t);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   let held: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     held = await openRepoCell({
@@ -771,8 +779,9 @@ test("one RepoCell lock failure closes only that repo admission", async () => {
   }
 });
 
-test("one invalid registry entry stays visible and removable without blocking healthy repos", async () => {
-  const fixture = await setup();
+test("one invalid registry entry stays visible and removable without blocking healthy repos", async (t) => {
+  const fixture = await setup(t);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
     run(fixture.beta, fixture.userRoot, ["daemon", "start", "--service"]);
     await register(fixture.alpha, fixture.userRoot, "alpha");

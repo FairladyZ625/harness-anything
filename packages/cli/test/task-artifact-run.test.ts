@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -19,7 +19,7 @@ test("progress append remains text-only and cannot execute or freeze a command",
     });
 });
 
-test("task artifact add --run publishes the same-run transcript and preserves child exit", async () => {
+test("task artifact add --run publishes the same-run transcript and preserves child exit", async (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "ha-task-evidence-")),
     invocation = parseTaskArtifactRunInvocation(
       [
@@ -37,6 +37,7 @@ test("task artifact add --run publishes the same-run transcript and preserves ch
       ],
       root,
     );
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   assert.ok(invocation);
   let transcript: Record<string, unknown> | undefined;
   const receipt = await runTaskArtifactCommand(invocation, undefined, async (command) => {

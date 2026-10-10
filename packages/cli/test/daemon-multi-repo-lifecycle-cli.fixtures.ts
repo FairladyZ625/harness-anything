@@ -3,7 +3,7 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import { requestLocalDaemonJsonRpc } from "@harness-anything/daemon/internal/client/local-json-rpc-client";
@@ -25,13 +25,14 @@ async function authorize(userRoot: string, repoIds: readonly string[]): Promise<
   for (const resource of repoIds) await realm.control({ op: "permit", personId: "owner", resource, actions: scopes });
 }
 
-export async function setup(): Promise<{
+export async function setup(t?: TestContext): Promise<{
   root: string;
   userRoot: string;
   alpha: string;
   beta: string;
 }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-"));
+  t?.after(() => rmSync(root, { recursive: true, force: true }));
   const alpha = path.join(root, "alpha"),
     beta = path.join(root, "beta"),
     userRoot = path.join(root, "user");
@@ -255,3 +256,5 @@ export function git(root: string, ...args: string[]): string {
 export function gitLedgerWriter(root: string, ...args: string[]): string {
   return gitSpawn(root, args, { [HARNESS_LEDGER_WRITER_ENV]: "1" });
 }
+
+import type { TestContext } from "node:test";

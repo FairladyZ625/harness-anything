@@ -1349,7 +1349,7 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
   }
 });
 
-test("autostart readiness is independent of a simulated 32 second canonical repository attachment", async () => {
+test("autostart readiness is independent of a simulated 32 second canonical repository attachment", async (t) => {
   const simulatedCanonicalAttachMs = 32_000,
     parent = mkdtempSync(path.join(tmpdir(), "ha-daemon-autostart-attach-")),
     rootDir = path.join(parent, "repo"),
@@ -1360,6 +1360,7 @@ test("autostart readiness is independent of a simulated 32 second canonical repo
   let daemon: RunningDaemon | undefined,
     daemonStart: Promise<RunningDaemon> | undefined,
     attachmentCompleted = false;
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
   initializeRepo(rootDir, repoId);
   signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
   registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
@@ -1396,7 +1397,6 @@ test("autostart readiness is independent of a simulated 32 second canonical repo
     attachmentGate.resolve();
     if (!daemon && daemonStart) daemon = await daemonStart;
     await daemon?.stop();
-    rmSync(parent, { recursive: true, force: true });
   }
 });
 

@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { makeTaskEventReader, type TaskV2, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord, openDispatchStream } from "../src/dispatch-stream.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -194,8 +194,8 @@ async function lifecycle(
   return annotate(await applyTaskWorktreeLifecycle(input, action, source, async () => (options.write ?? applied)()));
 }
 
-test("the first start checks the bound worktree out once, from the default branch, and names both", async () => {
-  const fixture = repositoryFixture();
+test("the first start checks the bound worktree out once, from the default branch, and names both", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     let task = boundTask("active");
     const started = await lifecycle(fixture.root, () => task, { kind: "task-start", taskId }, {}),
@@ -225,8 +225,8 @@ test("the first start checks the bound worktree out once, from the default branc
   }
 });
 
-test("the base is the repository's own default branch: origin/HEAD, else the main checkout's branch", async () => {
-  const fixture = repositoryFixture();
+test("the base is the repository's own default branch: origin/HEAD, else the main checkout's branch", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     // A remote without origin/HEAD: the main checkout's branch, as its origin copy.
     assert.equal(repositoryBaseRef(fixture.root), "origin/main");
@@ -242,6 +242,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     rmSync(fixture.base, { recursive: true, force: true });
   }
   const local = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-master-"));
+  t.after(() => rmSync(local, { recursive: true, force: true }));
   try {
     // No remote at all, default branch master: the worktree starts from the local master.
     git(local, "init", "-q", "-b", "master");
@@ -259,8 +260,8 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
   }
 });
 
-test("setup steps run once in order inside the worktree with the Harness variables", async () => {
-  const fixture = repositoryFixture();
+test("setup steps run once in order inside the worktree with the Harness variables", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const record =
         'echo "$1 $HARNESS_TASK_ID $HARNESS_WORKTREE $HARNESS_REPO_ROOT" >> "$HARNESS_REPO_ROOT/../steps.txt"',
@@ -284,8 +285,8 @@ test("setup steps run once in order inside the worktree with the Harness variabl
   }
 });
 
-test("a failing setup step refuses the start, keeps the worktree, and a retry reruns only what failed", async () => {
-  const fixture = repositoryFixture();
+test("a failing setup step refuses the start, keeps the worktree, and a retry reruns only what failed", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const counter = path.join(fixture.base, "count.txt"),
       gate = path.join(fixture.base, "gate"),
@@ -320,8 +321,8 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
   }
 });
 
-test("a task read sees only the setup steps that succeeded in this worktree, not the ones Settings declares", async () => {
-  const fixture = repositoryFixture();
+test("a task read sees only the setup steps that succeeded in this worktree, not the ones Settings declares", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []);
     // Checked out before Settings declared anything: nothing has run here yet.
@@ -333,8 +334,8 @@ test("a task read sees only the setup steps that succeeded in this worktree, not
   }
 });
 
-test("a run step still going at the timeout fails like any other step and names the timeout and its log", async () => {
-  const fixture = repositoryFixture();
+test("a run step still going at the timeout fails like any other step and names the timeout and its log", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []),
       startedAt = Date.now(),
@@ -362,8 +363,8 @@ test("a run step still going at the timeout fails like any other step and names 
 test(
   "a run step stopped at the timeout takes the processes it started with it",
   { skip: process.platform === "win32" ? "POSIX process groups" : false },
-  async () => {
-    const fixture = repositoryFixture();
+  async (t) => {
+    const fixture = repositoryFixture(t);
     try {
       const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []),
         pidFile = path.join(fixture.base, "install.pid"),
@@ -398,8 +399,8 @@ function alive(pid: number): boolean {
   }
 }
 
-test("the node-modules adapter mirrors the root store and removes its mirror before the worktree is reclaimed", async () => {
-  const fixture = repositoryFixture();
+test("the node-modules adapter mirrors the root store and removes its mirror before the worktree is reclaimed", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     mkdirSync(path.join(fixture.root, "node_modules", "left-pad"), { recursive: true });
     // Without the ignore rule the mirror would read as uncommitted work; the adapter's cleanup is what removes it.
@@ -421,8 +422,8 @@ test("the node-modules adapter mirrors the root store and removes its mirror bef
   }
 });
 
-test("the node-modules adapter fails the step when the repository root has no store to share", async () => {
-  const fixture = repositoryFixture();
+test("the node-modules adapter fails the step when the repository root has no store to share", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     await assert.rejects(
       lifecycle(fixture.root, () => boundTask("active"), { kind: "task-start", taskId }, { setup: ["node-modules"] }),
@@ -433,8 +434,8 @@ test("the node-modules adapter fails the step when the repository root has no st
   }
 });
 
-test("a checkout whose directory was removed is restored onto its surviving branch", async () => {
-  const fixture = repositoryFixture();
+test("a checkout whose directory was removed is restored onto its surviving branch", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
     writeFileSync(path.join(cwd, "kept.txt"), "kept\n");
@@ -449,9 +450,9 @@ test("a checkout whose directory was removed is restored onto its surviving bran
   }
 });
 
-test("a node without a default branch has no worktree to give, and forwarded writes leave checkouts alone", async () => {
+test("a node without a default branch has no worktree to give, and forwarded writes leave checkouts alone", async (t) => {
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-gitless-")),
-    fixture = repositoryFixture();
+    fixture = repositoryFixture(t);
   try {
     assert.equal(await checkoutTaskWorktree(gitless, taskId, binding, []), null);
     const gitlessStart = await lifecycle(gitless, () => boundTask("active"), { kind: "task-start", taskId }, {});
@@ -474,8 +475,8 @@ test("a node without a default branch has no worktree to give, and forwarded wri
   }
 });
 
-test("a task that does not change repository files works in its own task package", () => {
-  const fixture = repositoryFixture();
+test("a task that does not change repository files works in its own task package", (t) => {
+  const fixture = repositoryFixture(t);
   try {
     assert.deepEqual(
       taskWorkspaceView(
@@ -542,7 +543,7 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
   ] as const;
   for (const scenario of cases)
     await t.test(scenario.name, async () => {
-      const fixture = repositoryFixture();
+      const fixture = repositoryFixture(t);
       try {
         let task = boundTask("active");
         const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
@@ -568,7 +569,7 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
 test("a worktree retained at close is reclaimed by a later close on this node once it is clean", async (t) => {
   for (const clean of [true, false])
     await t.test(clean ? "cleaned: reclaimed" : "still dirty: retained", async () => {
-      const fixture = repositoryFixture(),
+      const fixture = repositoryFixture(t),
         otherId = "task_87654321",
         tasks = new Map<string, TaskV2>([
           [taskId, boundTask("active")],
@@ -606,7 +607,7 @@ test("the standalone reconciliation reclaims what a failed close left behind onc
   // The daemon-start pass and the close pass run the same function; only the report differs.
   for (const clean of [true, false])
     await t.test(clean ? "cleaned: reclaimed with a note" : "still dirty: retained row only", async () => {
-      const fixture = repositoryFixture(),
+      const fixture = repositoryFixture(t),
         otherId = "task_87654321",
         openId = "task_55555555",
         tasks = new Map<string, TaskV2>([
@@ -664,8 +665,8 @@ test("the standalone reconciliation reclaims what a failed close left behind onc
     });
 });
 
-test("an applied write that leaves the task open does not touch its worktree", async () => {
-  const fixture = repositoryFixture();
+test("an applied write that leaves the task open does not touch its worktree", async (t) => {
+  const fixture = repositoryFixture(t);
   try {
     const task = boundTask("active"),
       cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
@@ -680,9 +681,9 @@ test("an applied write that leaves the task open does not touch its worktree", a
   }
 });
 
-test("a finished Squad run's worker checkout is reclaimed against the Commander branch", async () => {
+test("a finished Squad run's worker checkout is reclaimed against the Commander branch", async (t) => {
   for (const merged of [true, false]) {
-    const fixture = repositoryFixture();
+    const fixture = repositoryFixture(t);
     try {
       git(fixture.root, "switch", "-q", "-c", taskId);
       const baseSha = git(fixture.root, "rev-parse", "HEAD"),
@@ -710,7 +711,7 @@ test("a finished Squad run's worker checkout is reclaimed against the Commander 
 });
 
 test("handoff checkout uses the accepted SHA even when the published branch advances", async (t) => {
-  const fixture = repositoryFixture();
+  const fixture = repositoryFixture(t);
   t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
   const accepted = git(fixture.root, "rev-parse", "HEAD");
   git(fixture.root, "switch", "-qc", taskId);
@@ -725,7 +726,7 @@ test("handoff checkout uses the accepted SHA even when the published branch adva
 });
 
 test("handoff checkout rejects dirty, mismatched, missing and non-SHA anchors without changing the tree", async (t) => {
-  const fixture = repositoryFixture();
+  const fixture = repositoryFixture(t);
   t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
   const checkout = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!,
     accepted = git(checkout.cwd, "rev-parse", "HEAD");
@@ -786,10 +787,11 @@ function commit(cwd: string, file: string): void {
   git(cwd, "commit", "-qm", file);
 }
 
-function repositoryFixture(): { readonly base: string; readonly root: string } {
+function repositoryFixture(t: TestContext): { readonly base: string; readonly root: string } {
   const base = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-")),
     remote = path.join(base, "remote.git"),
     root = path.join(base, "canonical");
+  t.after(() => rmSync(base, { recursive: true, force: true }));
   git(base, "init", "--bare", "-q", remote);
   git(base, "init", "-q", "-b", "main", root);
   git(root, "config", "user.name", "Worktree Test");

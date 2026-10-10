@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import { READ_MODEL_META_PATH, READ_MODEL_SCHEMA_GENERATION, sha256Bytes } from "@harness-anything/kernel";
 import { fleetManifestDigest, type FleetBlob, type FleetEntry, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import { openReplicaAckStore, type ReplicaOffer } from "../src/fleet/replica-ack-store.ts";
@@ -12,10 +12,11 @@ import type { ReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { openFleetEdgeView } from "../src/fleet/edge.ts";
 
-function generationDeltaFixture(prefix: string) {
+function generationDeltaFixture(prefix: string, t: TestContext) {
   const root = mkdtempSync(path.join(tmpdir(), prefix)),
     key = { nodeId: "legacy-node", viewId: "legacy-node", repoId: "legacy-repo" },
     bytes = new Map<string, Buffer>();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const entry = (logicalPath: string, body: string): FleetEntry => {
       const content = Buffer.from(body),
         blob: FleetBlob = { sha256: sha256Bytes(content), size: content.length, mediaType: "application/json" };
@@ -112,8 +113,8 @@ function generationDeltaFixture(prefix: string) {
   return { root, key, cut1, cut2, source, edgeRoot, edge, deliver };
 }
 
-test("legacy revision-only cursor selects snapshot rather than retained delta", async () => {
-  const f = generationDeltaFixture("ha-negative-legacy-cursor-");
+test("legacy revision-only cursor selects snapshot rather than retained delta", async (t) => {
+  const f = generationDeltaFixture("ha-negative-legacy-cursor-", t);
   let store = openReplicaAckStore(path.join(f.root, "center"));
   try {
     store.register(f.key, 414);
@@ -145,8 +146,8 @@ test("legacy revision-only cursor selects snapshot rather than retained delta", 
   }
 });
 
-test("414-g6 delta fidelity survives unrelated legacy identity mutations", async () => {
-  const f = generationDeltaFixture("ha-negative-delta-fidelity-");
+test("414-g6 delta fidelity survives unrelated legacy identity mutations", async (t) => {
+  const f = generationDeltaFixture("ha-negative-delta-fidelity-", t);
   const store = openReplicaAckStore(path.join(f.root, "center"));
   try {
     for (const cut of [f.cut1, f.cut2]) {
@@ -184,7 +185,7 @@ test("414-g6 delta fidelity survives unrelated legacy identity mutations", async
 test("delta begin rejects generation alone with revision and digest held equal", async (t) => {
   for (const generation of [undefined, READ_MODEL_SCHEMA_GENERATION - 1]) {
     await t.test(generation === undefined ? "missing generation" : "mismatched generation", async () => {
-      const f = generationDeltaFixture("ha-negative-generation-only-");
+      const f = generationDeltaFixture("ha-negative-generation-only-", t);
       try {
         const snapshot = { ...f.key, ...(await makeOffer(f.key, null, f.cut1, f.source, "2026-10-08T00:00:00Z")) };
         await f.deliver(snapshot);
