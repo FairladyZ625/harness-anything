@@ -168,6 +168,14 @@ export function openFleetEdgeRuntime(input: {
       ...peer,
       ...(runtimeReadTimeoutMs === undefined ? {} : { timeoutMs: runtimeReadTimeoutMs }),
     },
+    // A mutating center round trip settles when the single-writer queue applies the operation,
+    // not within a read's transport bound: git materialization, durable state writes, or a
+    // latched cell's recovery can each hold the reply past any flat deadline. Write sessions
+    // carry the edge's configured center wait budget plus the transport margin the
+    // task-command client already applies (waitMs + 10s); inheriting the 5s read default
+    // turned every legitimately slow write into "Fleet response timeout".
+    centerWriteWaitMs = runtimeReadTimeoutMs ?? 30_000,
+    writePeer: FleetPeerOptions = { ...peer, timeoutMs: centerWriteWaitMs + 10_000 },
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never },
     // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
@@ -215,7 +223,9 @@ export function openFleetEdgeRuntime(input: {
         return { credential: execution.credential, expiresAt: execution.expiresAt };
       },
       existing: async (opId) => {
-        const receipt = await readFleetReceiptClient({ ...peer, opId });
+        // Idempotent-replay lookup rides the write preparation: a center busy applying the
+        // original operation must not fail the retrying dispatch's read of its receipt.
+        const receipt = await readFleetReceiptClient({ ...writePeer, opId });
         return receipt.opId === opId && ["applied", "pending"].includes(String(receipt.outcome))
           ? (receipt as JsonObject)
           : null;
@@ -333,7 +343,7 @@ export function openFleetEdgeRuntime(input: {
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
       publish: async (draft) => {
         const response = await runFleetRuntimeEventClient({
-          ...peer,
+          ...writePeer,
           repoId: request.repoId,
           opId: draft.opId,
           eventType: draft.type,
@@ -366,7 +376,7 @@ export function openFleetEdgeRuntime(input: {
       },
       archive: async (archive) =>
         (await runFleetRuntimeArchiveClient({
-          ...peer,
+          ...writePeer,
           repoId: request.repoId,
           archive: archive as unknown as Readonly<Record<string, unknown>>,
         })) as { readonly outcome: string },
@@ -400,14 +410,13 @@ export function openFleetEdgeRuntime(input: {
       ),
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) {
-        const waitMs = runtimeReadTimeoutMs ?? 30_000,
-          { taskId, executionId } = terminal.task,
+        const { taskId, executionId } = terminal.task,
           settled = await runFleetTaskCommandClient({
-            ...peer,
+            ...writePeer,
             repoId: request.repoId,
             taskId,
             opId: `runtime-terminal-${terminal.runtimeSessionId}`,
-            waitMs,
+            waitMs: centerWriteWaitMs,
             action: {
               kind: "task-release",
               taskId,
@@ -430,7 +439,7 @@ export function openFleetEdgeRuntime(input: {
       const scheduled = terminal.schedule;
       if (!scheduled) return;
       const linked = await runFleetScheduleCommandClient({
-        ...peer,
+        ...writePeer,
         repoId: request.repoId,
         scheduleId: scheduled.scheduleId,
         opId: `${terminal.runtimeSessionId}-schedule-terminal-link`,
@@ -446,7 +455,7 @@ export function openFleetEdgeRuntime(input: {
         throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule terminal link was ${linked.outcome}.`);
       const detail = await scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.reason);
       const response = await runFleetScheduleCommandClient({
-        ...peer,
+        ...writePeer,
         repoId: request.repoId,
         scheduleId: scheduled.scheduleId,
         opId: `${terminal.runtimeSessionId}-schedule-attempt-terminal`,
@@ -467,7 +476,7 @@ export function openFleetEdgeRuntime(input: {
   });
   const squad = makeFleetSquadCoordinator({
     request,
-    peer,
+    peer: writePeer,
     spawner,
     controlBinding: edgeBinding(request),
     sync: async () => {
@@ -550,11 +559,11 @@ export function openFleetEdgeRuntime(input: {
           payload: action,
           command: async (command, body) => {
             const result = await runFleetTaskCommandClient({
-              ...peer,
+              ...writePeer,
               repoId: request.repoId,
               taskId: null,
               opId: `handoff_${Date.now()}`,
-              waitMs: 0,
+              waitMs: centerWriteWaitMs,
               action: command as { kind: string },
               ...(body ? { privatePayload: body } : {}),
             });
@@ -580,14 +589,14 @@ export function openFleetEdgeRuntime(input: {
 
   async function runSchedule(action: JsonObject): Promise<JsonObject> {
     const actionKind = requiredScheduleText(action.kind, "kind"),
-      assigned = await readFleetRepositoryMetadataClient(peer),
+      assigned = await readFleetRepositoryMetadataClient(writePeer),
       scheduleId = typeof action.scheduleId === "string" ? action.scheduleId : request.repoId;
     const operationKey =
         typeof action.idempotencyKey === "string" && action.idempotencyKey
           ? action.idempotencyKey
           : `${actionKind}:${scheduleId}:${Date.now().toString(36)}`,
       command = await runFleetScheduleCommandClient({
-        ...peer,
+        ...writePeer,
         repoId: request.repoId,
         scheduleId,
         opId: fleetScheduleOpId(request.repoId, request.nodeId, operationKey),
@@ -651,7 +660,7 @@ export function openFleetEdgeRuntime(input: {
       },
       linkDispatch: ({ idempotencyKey, ...linked }) =>
         runFleetScheduleCommandClient({
-          ...peer,
+          ...writePeer,
           repoId: request.repoId,
           scheduleId,
           opId: fleetScheduleOpId(request.repoId, request.nodeId, idempotencyKey),
@@ -659,7 +668,7 @@ export function openFleetEdgeRuntime(input: {
         }),
       settleFailure: ({ idempotencyKey, ...failed }) =>
         runFleetScheduleCommandClient({
-          ...peer,
+          ...writePeer,
           repoId: request.repoId,
           scheduleId,
           opId: fleetScheduleOpId(request.repoId, request.nodeId, idempotencyKey),
@@ -684,7 +693,7 @@ export function openFleetEdgeRuntime(input: {
   async function pullRuntimeReplica() {
     const pulled = await runFleetReplicaPullClient({
       through: "known-head",
-      ...peer,
+      ...writePeer,
       viewRoot: request.viewRoot,
       diskQuotaBytes: request.quotaBytes,
     });
