@@ -4,8 +4,6 @@
  * while adding one requires an explicit governance change.
  */
 export const TASK_EVENT_CONSTRUCTION_ALLOWLIST = Object.freeze({
-  // dec_5EC2631352B17EE2BF4979E37E: offline completion-generation retirement only.
-  "packages/kernel/src/domain/task-completion-generation-retirement.ts|envelope-call|task_completion_generation_retired": 1,
   // dec_CDDCFA8BB91A47BCE07B229E93 CH2; exact registration authorized by task_979e2b2f67da905e550059992a.
   "packages/kernel/src/domain/task-assignment-transitions.ts|envelope-call|task_assigned": 1,
   "packages/kernel/src/domain/task-assignment-transitions.ts|envelope-call|task_unassigned": 1,

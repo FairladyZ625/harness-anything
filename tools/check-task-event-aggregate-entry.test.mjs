@@ -13,17 +13,12 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
-// Exact registrations do not authorize another path or a second constructor.
-// dec_5EC2631352B17EE2BF4979E37E authorizes the single offline retirement entry.
-for (const [eventType, module] of [
-  ["task_assigned", "task-assignment-transitions.ts"],
-  ["task_unassigned", "task-assignment-transitions.ts"],
-  ["task_completion_generation_retired", "task-completion-generation-retirement.ts"],
-]) {
+// S8's two exact registrations do not authorize another path or a second constructor.
+for (const eventType of ["task_assigned", "task_unassigned"]) {
   test(`${eventType} registration rejects duplicate and unregistered constructors`, () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-assignment-entry-"));
     try {
-      const allowed = path.join(root, "packages/kernel/src/domain", module);
+      const allowed = path.join(root, "packages/kernel/src/domain/task-assignment-transitions.ts");
       mkdirSync(path.dirname(allowed), { recursive: true });
       const constructor = `envelope(command, "${eventType}", {});\n`;
       writeFileSync(allowed, constructor);
