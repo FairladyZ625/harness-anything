@@ -33,6 +33,7 @@ export async function fleetNodeClaimFixture(
   seedCenterSettings = false,
   runtimeOptions: Pick<Parameters<typeof openDaemonHost>[0], "runtimeDiscover" | "runtimeLaunch"> = {},
   seedRepository?: (rootDir: string) => Promise<void>,
+  revokeDeviceSessions?: Parameters<typeof listenFleetTls>[0]["revokeDeviceSessions"],
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -101,6 +102,7 @@ export async function fleetNodeClaimFixture(
       nodeOwner: owners.nodeOwner,
       verifyHuman: verifyHuman ?? owners.verifyHuman,
       ...(loginAuthority ? { loginAuthority } : {}),
+      ...(revokeDeviceSessions ? { revokeDeviceSessions } : {}),
     });
     centers.push(center);
     return center;

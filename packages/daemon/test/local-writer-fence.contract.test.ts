@@ -19,7 +19,6 @@ test("every production local binding is covered by a request or cell-default wri
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
     [
       ["daemon-host-binding.ts", 2],
-      ["daemon-host-open.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],
       ["task-witness-runner.ts", 2],
     ],
@@ -48,10 +47,9 @@ test("every production local binding is covered by a request or cell-default wri
   assert.match(host, /if \(action\.kind === "schedule-list"\) return system/u);
   assert.match(host, /cell\.run\(\{ kind: "schedule-show", scheduleId: action\.scheduleId \}, system\)/u);
   assert.match(host, /if \(!schedule \|\| validateScheduleV1\(schedule\)\.length\)\s*throw hostCodedError/u);
-  assert.match(
-    host,
-    /return daemonWriterBinding\(repoId, \{\s*actor: \{ principal: schedule\.createdBy\.principal, executor: null \},\s*source: "local",\s*keycloakAuthorization: \{ center: keycloakCenter \},\s*\}\)/u,
-  );
+  assert.match(host, /const current = await hostBinding\(rootDir, \{ transportKind: "unix-socket" \}\)/u);
+  assert.match(host, /current\.actor\.principal\.personId !== schedule\.createdBy\.principal\.personId/u);
+  assert.match(host, /return daemonWriterBinding\(repoId, current\)/u);
   assert.match(
     source("daemon-host-binding.ts"),
     /writerEpoch: descriptor\.epoch,[\s\S]*?withWriterEpochFence: <T>\(operation: \(\) => T\) => withWriterEpochFenceDescriptor\(descriptor, operation\),\s*writerEpochFence: descriptor/u,
