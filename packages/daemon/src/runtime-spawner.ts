@@ -22,12 +22,13 @@ import {
 } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
+import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -73,7 +74,7 @@ import {
   publishExit as publishExitImpl,
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
-import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
+import { runtimeAllowlistReceipt, runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
 import { conventionalWorkerGitEnvironment } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
@@ -115,7 +116,6 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   exitNotificationTimeoutMs = 30_000;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
-
 /** A read-only attach reads the frozen round from the repository root — the reviewer dispatch's
  *  working-directory discipline — so its dispatch never checks out or advances the round's worktree.
  *  Resolution failures surface here exactly as they would in spawn: an Agent identity that does not
@@ -131,7 +131,6 @@ function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject)
     ? input.resolveAgent(agentId)?.permissionMode === "read-only"
     : false;
 }
-
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -383,10 +382,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         squadId,
         targetAgentId,
       ),
-      runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
-      localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
-      runtimeInstances = input.runtimeInstances?.() ?? [],
-      allowedInstanceIds = input.readSettings?.().runtime?.allowedInstances,
+      [localRuntimeSessions, runtimeInstances, allowlistInitialization, allowedInstanceIds] =
+        await resolveRuntimeDispatchResources(input, input.remote, projection!, processes, dryRun, binding),
       initialFallback =
         inheritedFallback ??
         initialFallbackAttempt(
@@ -410,7 +407,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           agent,
           model,
           instances: runtimeInstances,
-          ...(allowedInstanceIds === undefined ? {} : { allowedInstanceIds }),
+          allowedInstanceIds,
           sessions: localRuntimeSessions,
         },
         async (runtimeInstanceId) => {
@@ -833,6 +830,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         ...requested.receipt,
         runtimeSessionId,
         dispatchId: newDispatchId,
+        ...runtimeAllowlistReceipt(allowlistInitialization),
         authorizationDecision: authorizationDecision as unknown as JsonObject | null,
       };
     }
@@ -933,11 +931,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ...requested.receipt,
           runtimeSessionId,
           dispatchId: newDispatchId,
+          ...runtimeAllowlistReceipt(allowlistInitialization),
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         }
       : {
           ...applied(requested.event, requested.publication!, runtimeSessionId, newDispatchId),
+          ...runtimeAllowlistReceipt(allowlistInitialization),
           ...(readOnlyDispatch ? { ledgerAccess: "unavailable", reportDelivery: "stdout" } : {}),
           authorizationDecision: authorizationDecision as unknown as JsonObject | null,
         };

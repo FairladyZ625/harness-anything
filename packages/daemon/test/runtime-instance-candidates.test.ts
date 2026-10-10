@@ -37,11 +37,12 @@ const agent = (providerPriority?: readonly string[]): RuntimeAgent => ({
 
 test("runtime candidates use runtimes row order only when providerPriority is absent", () => {
   const instances = [
-    instance("aaa-devin", "devin", "provider-devin"),
-    instance("zzz-codex", "codex", "provider-codex"),
-  ];
+      instance("aaa-devin", "devin", "provider-devin"),
+      instance("zzz-codex", "codex", "provider-codex"),
+    ],
+    allowedInstanceIds = instances.map((row) => row.instanceId);
 
-  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: agent(), instances, sessions: [] }), [
+  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: agent(), instances, sessions: [], allowedInstanceIds }), [
     "zzz-codex",
     "aaa-devin",
   ]);
@@ -50,13 +51,14 @@ test("runtime candidates use runtimes row order only when providerPriority is ab
       agent: agent(["provider-devin", "provider-codex"]),
       instances,
       sessions: [],
+      allowedInstanceIds,
     }),
     ["aaa-devin", "zzz-codex"],
   );
-  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: agent([]), instances, sessions: [] }), [
-    "aaa-devin",
-    "zzz-codex",
-  ]);
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({ agent: agent([]), instances, sessions: [], allowedInstanceIds }),
+    ["aaa-devin", "zzz-codex"],
+  );
 });
 
 test("repository allowlist filters automatic candidates and reports the blocked instance", () => {
@@ -104,16 +106,18 @@ test("an empty repository allowlist rejects every automatic dispatch with action
 
 test("runtime candidates retain live-load and instance-id ordering within one runtime kind", () => {
   const instances = [
-    instance("codex-b", "codex", "provider-b"),
-    instance("codex-a", "codex", "provider-a"),
-    instance("devin-a", "devin", "provider-devin"),
-  ];
+      instance("codex-b", "codex", "provider-b"),
+      instance("codex-a", "codex", "provider-a"),
+      instance("devin-a", "devin", "provider-devin"),
+    ],
+    allowedInstanceIds = instances.map((row) => row.instanceId);
 
   assert.deepEqual(
     resolveRuntimeInstanceCandidates({
       agent: agent(),
       instances,
       sessions: [{ instanceId: "codex-a", liveness: "live" } as never],
+      allowedInstanceIds,
     }),
     ["codex-b", "codex-a", "devin-a"],
   );
@@ -121,18 +125,20 @@ test("runtime candidates retain live-load and instance-id ordering within one ru
 
 test("runtime row ranking retains explicit instance, model, and auth filtering", () => {
   const instances = [
-    instance("codex-unready", "codex", "provider-codex", ["model-a"], {
-      status: "unavailable",
-      code: "runtime_credential_unavailable",
-      hint: "Log in.",
-    }),
-    instance("codex-ready", "codex", "provider-codex", ["model-a"]),
-    instance("devin-ready", "devin", "provider-devin", ["model-b"]),
-  ];
+      instance("codex-unready", "codex", "provider-codex", ["model-a"], {
+        status: "unavailable",
+        code: "runtime_credential_unavailable",
+        hint: "Log in.",
+      }),
+      instance("codex-ready", "codex", "provider-codex", ["model-a"]),
+      instance("devin-ready", "devin", "provider-devin", ["model-b"]),
+    ],
+    allowedInstanceIds = instances.map((row) => row.instanceId);
 
-  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: agent(), model: "model-a", instances, sessions: [] }), [
-    "codex-ready",
-  ]);
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({ agent: agent(), model: "model-a", instances, sessions: [], allowedInstanceIds }),
+    ["codex-ready"],
+  );
   assert.deepEqual(
     resolveRuntimeInstanceCandidates({
       requested: "devin-ready",
@@ -140,6 +146,7 @@ test("runtime row ranking retains explicit instance, model, and auth filtering",
       model: "model-a",
       instances,
       sessions: [],
+      allowedInstanceIds,
     }),
     ["devin-ready"],
   );
@@ -152,8 +159,15 @@ test("all unavailable reports each declared runtime and local instance reason", 
     code: "runtime_subscription_required",
     hint: "Sign in.",
   });
+  const instances = [disabled, signedOut];
   assert.throws(
-    () => resolveRuntimeInstanceCandidates({ agent: agent(), instances: [disabled, signedOut], sessions: [] }),
+    () =>
+      resolveRuntimeInstanceCandidates({
+        agent: agent(),
+        instances,
+        sessions: [],
+        allowedInstanceIds: instances.map((row) => row.instanceId),
+      }),
     (error: unknown) =>
       error instanceof Error &&
       /codex-disabled.*runtime_instance_disabled/u.test(error.message) &&
@@ -169,6 +183,7 @@ for (const firstReady of [true, false]) {
         agent: agent(),
         instances: [instance("codex-first", "codex", "openai"), instance("devin-second", "devin", "devin")],
         sessions: [],
+        allowedInstanceIds: ["codex-first", "devin-second"],
       },
       async (id) => {
         attempts.push(id);
@@ -187,6 +202,7 @@ test("prepare exhaustion lists every attempted instance, and unknown errors prop
     agent: agent(),
     instances: [instance("codex-first", "codex", "openai"), instance("devin-second", "devin", "devin")],
     sessions: [],
+    allowedInstanceIds: ["codex-first", "devin-second"],
   };
   await assert.rejects(
     prepareRuntimeInstance(input, async (id) => {
@@ -222,6 +238,7 @@ for (const code of [
             agent: null,
             instances: [],
             sessions: [{ providerSessionId: "resume", instanceId: "missing" } as never],
+            allowedInstanceIds: ["missing"],
           },
           async () => {
             throw original;

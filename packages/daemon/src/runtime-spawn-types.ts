@@ -71,6 +71,21 @@ export type RuntimeBinding = {
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
+export interface RuntimeAllowlistInitializationReceipt {
+  readonly source: "automatic";
+  readonly instanceIds: readonly string[];
+  readonly settingsReceipt: {
+    readonly opId: string;
+    readonly outcome: string;
+    readonly revision?: number;
+    readonly summary?: string;
+  };
+}
+
+export function runtimeAllowlistReceipt(initialization: RuntimeAllowlistInitializationReceipt | null): JsonObject {
+  return initialization ? { allowlistInitialization: initialization as unknown as JsonObject } : {};
+}
+
 /** Persist only the runtime binding contract; RepoCell transport fences never cross a daemon restart. */
 export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBinding {
   return {
@@ -293,6 +308,11 @@ export interface RuntimeSpawnerInput {
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;
   readonly readSettings?: () => SettingsV1;
+  /** Initializes a missing repository allowlist through the caller's settings action before resolution. */
+  readonly initializeAllowedInstances?: (
+    binding: RuntimeBinding,
+    instances: readonly RuntimeInstanceSummary[],
+  ) => Promise<RuntimeAllowlistInitializationReceipt | null>;
   readonly remote?: RemoteRuntimePersistence;
   /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
   readonly commitRuntimeEvent?: (
