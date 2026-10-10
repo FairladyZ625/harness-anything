@@ -63,6 +63,52 @@ test("ten thousand tree targets use one Git process", (t) => {
   assert.equal(localGitObjectRefStore.processCount() - before, 1);
 });
 
+test("tree scopes preserve exact files, directory prefixes and absent paths", (t) => {
+  const rootDir = fixture("baseline-scopes", t);
+  initRepo(rootDir);
+  const names = [
+    "root.md",
+    "tasks/selected/INDEX.md",
+    "tasks/selected/artifacts/说明 note.md",
+    "tasks/selected-extra/INDEX.md",
+    "tasks/unrelated/INDEX.md",
+  ];
+  for (const name of names) {
+    mkdirSync(path.dirname(path.join(rootDir, name)), { recursive: true });
+    writeFileSync(path.join(rootDir, name), name);
+  }
+  git(rootDir, "add", ".");
+  git(rootDir, "commit", "-qm", "seed scoped tree");
+  const targets = localGitObjectRefStore
+    .listTree(rootDir, "HEAD", ["tasks/selected", "tasks/selected/INDEX.md", "root.md", "absent/file.md"])
+    .map((entry) => entry.target)
+    .sort();
+  assert.deepEqual(targets, ["root.md", "tasks/selected/INDEX.md", "tasks/selected/artifacts/说明 note.md"].sort());
+  const before = localGitObjectRefStore.processCount();
+  assert.deepEqual(localGitObjectRefStore.listTree(rootDir, "HEAD", []), []);
+  assert.equal(localGitObjectRefStore.processCount(), before);
+});
+
+test("large distinct tree scopes are batched without dropping or duplicating entries", (t) => {
+  const rootDir = fixture("baseline-many-scopes", t);
+  initRepo(rootDir);
+  const targets = Array.from(
+    { length: 600 },
+    (_, index) => `tasks/distinct-long-directory-${String(index).padStart(5, "0")}/INDEX.md`,
+  );
+  for (const target of targets) {
+    mkdirSync(path.dirname(path.join(rootDir, target)), { recursive: true });
+    writeFileSync(path.join(rootDir, target), "scoped baseline");
+  }
+  git(rootDir, "add", ".");
+  git(rootDir, "commit", "-qm", "seed many scopes");
+  const before = localGitObjectRefStore.processCount(),
+    entries = localGitObjectRefStore.listTree(rootDir, "HEAD", targets);
+  assert.deepEqual(entries.map((entry) => entry.target).sort(), [...targets].sort());
+  assert.ok(localGitObjectRefStore.processCount() - before > 1, "distinct argv scopes exceed one bounded batch");
+  assert.ok(entries.every((entry) => entry.mode === "100644" && entry.size === 15));
+});
+
 test("before_event_write and after_event_write bound one atomic SQLite acceptance", async (t) => {
   const rootDir = fixture("atomic", t);
   initRepo(rootDir);
