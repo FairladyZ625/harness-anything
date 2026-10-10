@@ -1349,3 +1349,31 @@ test("frozen public-parser mutations kill every canonical input facet", () => {
     }
   }
 });
+
+test("gate rerun projects the declared Task action and rejects missing identity", () => {
+  const args = [
+    "task",
+    "witness-rerun",
+    "task-1",
+    "--execution-id",
+    "execution-1",
+    "--gate",
+    "ci",
+    "--run-id",
+    "run-1",
+    "--reason",
+    "Repeat observation",
+  ];
+  const parsed = parseThinCommand(args);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (!parsed.ok) return;
+  assert.deepEqual(parsed.command.action, {
+    kind: "task-witness-rerun",
+    taskId: "task-1",
+    executionId: "execution-1",
+    gateId: "ci",
+    runId: "run-1",
+    reason: "Repeat observation",
+  });
+  assert.equal(parseThinCommand(args.slice(0, 3)).ok, false);
+});

@@ -25,6 +25,10 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
     assert.deepEqual(
       plannedOwner.subjects[0]!.actions.map(({ action }) => action.id),
       [
+        "witness-claim",
+        "witness-settle",
+        "witness-revoke",
+        "witness-rerun",
         "assign",
         "unassign",
         "create",

@@ -28,7 +28,21 @@ test(
       edgeUser = path.join(fixture.root, "cli-user"),
       remote = path.join(fixture.root, "origin.git"),
       daemonId = "s9-edge";
-    git(fixture.root, "clone", "--bare", "--no-local", fixture.repo, remote);
+    // The edge clones code; accepted ledger documents arrive through the fleet mirror.
+    const codeBaseline = git(fixture.repo, "log", "--format=%H", "--grep=^harness$");
+    assert.match(codeBaseline, /^[0-9a-f]{40}$/u);
+    git(fixture.repo, "branch", "edge-code", codeBaseline);
+    git(
+      fixture.root,
+      "clone",
+      "--bare",
+      "--no-local",
+      "--branch",
+      "edge-code",
+      "--single-branch",
+      fixture.repo,
+      remote,
+    );
     git(fixture.repo, "remote", "add", "origin", remote);
     git(fixture.repo, "fetch", "origin");
     git(fixture.root, "clone", "--no-local", remote, edgeRoot);

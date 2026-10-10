@@ -1,7 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
-import { makeSqliteTaskEventStore } from "../../kernel/test/store/canonical-generation.fixtures.ts";
+import {
+  makeOfflineCompletionChain,
+  makeSqliteTaskEventStore,
+} from "../../kernel/test/store/canonical-generation.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -417,7 +420,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
       false,
     );
     const objectDigest = sqlite.contentObjectDigests()[0]!,
-      objectPath = sqliteContentObjectPath(root, objectDigest),
+      objectPath = sqliteContentObjectPath(root, objectDigest, 1),
       objectBytes = sqlite.readContentObject(objectDigest)!;
     writeFileSync(objectPath, Buffer.alloc(objectBytes.byteLength, 0x78));
     assert.equal(
@@ -1386,7 +1389,7 @@ test("submission amendments translate the previous content id, including a froze
   }
 });
 
-test("pre-freeze gate evidence keeps its observed provenance and updates only a valid basis pin", () => {
+test("generation 1 pre-freeze gate evidence keeps provenance as historical acceptance and updates only a valid basis pin", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-generation-gate-basis-"));
   try {
     initRepo(root);
@@ -1445,8 +1448,19 @@ test("pre-freeze gate evidence keeps its observed provenance and updates only a 
         workspaceRevision: events.length + 1,
         payload: { task: last.payload.task, execution, witness, documentClaims: [] },
       } as CanonicalEventV1,
-      plan = planLegacyGenerationConversion({ rootDir: root, store: arrayStore([...events, event], () => null) }),
-      rewritten = plan.events.at(-1)!;
+      convert = (source: readonly CanonicalEventV1[]) => {
+        // dec_5EC2631352B17EE2BF4979E37E: old receipts use the gen1→gen3 offline mapper;
+        // no live reducer infers a current witness from a pre-freeze receipt.
+        const mapper = makeOfflineCompletionChain({
+          generation: 1,
+          snapshots: new Map(),
+          missingSnapshots: new Set([last.payload.task.presetSnapshotDigest!]),
+          readContent: () => null,
+        });
+        return source.map((value) => mapper.convert(value).event);
+      },
+      rewritten = convert([...events, event]).at(-1)!;
+    assert.equal(rewritten.payload.witness.schema, "completion-gate-acceptance/v1");
     assert.equal(
       rewritten.payload.witness.basis.submissionDigest,
       submissionDigest(rewritten.payload.execution.submission),
@@ -1460,10 +1474,7 @@ test("pre-freeze gate evidence keeps its observed provenance and updates only a 
         witness: { ...witness, basis: { ...witness.basis, submissionDigest: `sha256:${"f".repeat(64)}` } },
       },
     } as CanonicalEventV1;
-    assert.throws(
-      () => planLegacyGenerationConversion({ rootDir: root, store: arrayStore([...events, broken], () => null) }),
-      /invalid source submission digest/u,
-    );
+    assert.throws(() => convert([...events, broken]), /submission reference .* has no preceding accepted cut/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

@@ -8,6 +8,8 @@ import {
   type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
 
+import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+
 const actor = { principal: { personId: "owner" }, executor: { kind: "agent" as const, id: "worker" } };
 
 function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
@@ -36,6 +38,7 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
         claimedAt: "2026-09-14T00:00:00.000Z",
         submittedAt: "2026-09-14T00:01:00.000Z",
         closedAt: null,
+        gateRuns: [],
         submission: {
           commitSha,
           ...(commitSha === null
@@ -52,12 +55,14 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
           knownGaps: [],
           residualRisks: [],
           completionContract: {
+            ...emptyCompletionContract,
             gates: [
               {
                 gateId: "ci",
                 appliesTo: "code",
                 witness: {
                   adapterId: "github-actions",
+                  ...completionSnapshot.completion.sources["github-actions"],
                   adapterOptions: {
                     workflows: ["rewrite-ci"],
                     branch: "main",
@@ -70,7 +75,7 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
               {
                 gateId: "code-doc-reconciliation",
                 appliesTo: "code",
-                witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+                witness: { adapterId: "code-doc-reconciliation", kind: "internal", adapterOptions: {} },
               },
             ],
           },

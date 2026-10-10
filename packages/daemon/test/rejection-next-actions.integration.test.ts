@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test, { after, before } from "node:test";
-import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { makeTaskEventReader, makeTaskProjection, currentGateRun } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -315,11 +315,17 @@ test("executor declaration and completion context refusals name projection rebui
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
     const retry = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(retry.code, "ci_missing", JSON.stringify(retry));
+    const runReader = makeTaskEventReader({ repoId, rootDir });
+    const runProjection = makeTaskProjection({ rootDir, eventStore: runReader });
+    const currentRun = currentGateRun(runProjection.read(taskId).snapshot!.executions.at(-1)!, "ci");
+    runProjection.close();
+    await runReader.drain();
+    assert.equal(currentRun?.state, "running");
     assert.deepEqual((retry as Record<string, unknown>).next, [
       {
         action:
           "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.",
-        reason: "Publish a passing canonical ci checker witness for this execution cut.",
+        reason: `Gate run ${currentRun!.runId} is running.`,
         authority: "person-owner",
         readCut: { revision: submittedRevision, iteration: 0, executionId },
       },

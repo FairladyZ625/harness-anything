@@ -194,7 +194,7 @@ test("the frozen contract schema fails closed on unknown fields and foreign adap
   );
   assert.equal(
     validateFrozenCompletionContract(withOptions({ ...ci.witness.adapterOptions, cancel: "skip" }), true).length,
-    1,
+    0,
   );
   assert.equal(
     validateFrozenCompletionContract(withOptions({ workflows: [], branch: "main", event: "push" })).length,

@@ -371,11 +371,11 @@ export const declarations: readonly Declaration[] = Object.freeze([
         taskId,
         cli("executionId", "string", true, "--execution-id"),
         cli("gateId", "string", true, "--gate"),
-        cli("runId", "string", operation !== "claim", "--run-id"),
-        field("claimFence", "number"),
-        cli("reason", "string", operation === "revoke" || operation === "rerun", "--reason"),
-        field("diagnostic"),
-        field("evidence", "json-object"),
+        ...(operation === "claim" ? [] : [cli("runId", "string", true, "--run-id")]),
+        ...(operation === "settle"
+          ? [field("claimFence", "number"), field("diagnostic"), field("evidence", "json-object")]
+          : []),
+        ...(operation === "revoke" || operation === "rerun" ? [cli("reason", "string", true, "--reason")] : []),
       ]),
       "gate_run_stale",
       "The current submission, run identity, central source authority and claim fence agree.",

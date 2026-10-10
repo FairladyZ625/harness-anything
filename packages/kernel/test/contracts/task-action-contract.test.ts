@@ -385,3 +385,20 @@ test("entity explain reports all runtime-local bounded-context Action exceptions
     ["daemon-user-root", "preset-library", "daemon-user-root", "terminal-host"],
   );
 });
+
+// dec_4190D5EA63D9DD208CE946F133: each run action declares only the input it consumes.
+test("GateRun actions expose operation-specific fields without unrelated result payloads", () => {
+  const actions = getEntityKindContract("task")!.actionCatalog!.actions;
+  for (const [id, extra] of [
+    ["claim", []],
+    ["settle", ["runId", "claimFence", "diagnostic", "evidence"]],
+    ["revoke", ["runId", "reason"]],
+    ["rerun", ["runId", "reason"]],
+  ] as const) {
+    const action = actions.find((value) => value.id === `witness-${id}`)!;
+    assert.deepEqual(
+      action.input.fields.map(({ field }) => field),
+      ["taskId", "executionId", "gateId", ...extra],
+    );
+  }
+});

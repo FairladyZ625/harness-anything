@@ -3,7 +3,7 @@ import { spawnKeycloak, signInAt } from "../../daemon/test/keycloak.fixtures.ts"
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
@@ -84,6 +84,13 @@ test("ha explain and Task help overlay share one typed read, renderer, cut, and 
         index % 2 === 0 ? "task/task-planned" : "task/task-active",
       ),
       batch = requireSuccess(runJson(root, userRoot, ["explain", ...refs]));
+    console.log(
+      `500 refs action bytes: ${JSON.stringify(
+        Object.fromEntries(
+          batch.subjects[0]!.actions.map((row) => [row.action.id, Buffer.byteLength(JSON.stringify(row))]),
+        ),
+      )}`,
+    );
     assert.equal(batch.subjects.length, 500);
     assert.deepEqual(
       batch.subjects.map(({ ref }) => ref),
@@ -298,13 +305,27 @@ function runText(
   json = false,
   actor?: string,
 ): { readonly status: number | null; readonly stdout: string; readonly stderr: string } {
-  const result = spawnSync(process.execPath, [cli, "--root", root, ...(json ? ["--json"] : []), ...args], {
-    encoding: "utf8",
-    env: { ...environment(root, userRoot), ...(actor ? { HARNESS_ACTOR: actor } : {}) },
-    maxBuffer: 32 * 1024 * 1024,
-  });
-  assert.ifError(result.error);
-  return { status: result.status, stdout: result.stdout.trim(), stderr: result.stderr.trim() };
+  const output = mkdtempSync(path.join(tmpdir(), "ha-explain-output-")),
+    stdoutPath = path.join(output, "stdout"),
+    stderrPath = path.join(output, "stderr"),
+    stdoutFd = openSync(stdoutPath, "w"),
+    stderrFd = openSync(stderrPath, "w");
+  try {
+    const result = spawnSync(process.execPath, [cli, "--root", root, ...(json ? ["--json"] : []), ...args], {
+      stdio: ["ignore", stdoutFd, stderrFd],
+      env: { ...environment(root, userRoot), ...(actor ? { HARNESS_ACTOR: actor } : {}) },
+    });
+    assert.ifError(result.error);
+    const stdout = readFileSync(stdoutPath, "utf8"),
+      stderr = readFileSync(stderrPath, "utf8");
+    if (args[0] === "explain" && args.length === 501)
+      console.log(`500 refs explain stdout bytes: ${Buffer.byteLength(stdout)}`);
+    return { status: result.status, stdout: stdout.trim(), stderr: stderr.trim() };
+  } finally {
+    closeSync(stdoutFd);
+    closeSync(stderrFd);
+    rmSync(output, { recursive: true, force: true });
+  }
 }
 
 function requireSuccess(result: ReturnType<typeof runJson>): Explanation {

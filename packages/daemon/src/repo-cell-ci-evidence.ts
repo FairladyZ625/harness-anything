@@ -3,7 +3,6 @@ import {
   currentGateRun,
   completionEvidenceResults,
   consumeKnownError,
-  inferLegacyGateRequirements,
   localGitObjectRefStore,
   resolveHarnessLayout,
   type CiObservationRead,
@@ -46,17 +45,26 @@ export function strandedDelivery(rootDir: string, submission: SubmissionV1 | nul
  */
 export function submittedGithubActionsRequirement(
   snapshot: Snapshot,
-  workflows: readonly string[],
 ): { readonly requirement: FrozenGateRequirement; readonly execution: Snapshot["executions"][number] } | null {
   const execution = snapshot.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
     ),
     submission = execution?.submission,
-    requirement = (
-      submission?.completionContract?.gates ??
-      inferLegacyGateRequirements(snapshot.task?.completionGateIds ?? [], workflows)
-    ).find((gate) => gate.witness.adapterId === "github-actions");
+    requirement = submission?.completionContract.gates.find((gate) => gate.witness.kind === "github-actions");
   return execution && submission && requirement ? { requirement, execution } : null;
+}
+
+/** A terminal run keeps its verdict until an explicit rerun; observations only judge a running run. */
+export function githubActionsGateResult(
+  cell: Parameters<typeof githubActionsWitnessEvidence>[0],
+  requirement: FrozenGateRequirement,
+  execution: Snapshot["executions"][number],
+): CompletionEvidenceResult | null {
+  if (!execution.submission?.commitSha) return null;
+  const run = currentGateRun(execution, requirement.gateId);
+  return run?.state === "completed"
+    ? run.result
+    : (githubActionsWitnessEvidence(cell, requirement, execution)?.result ?? null);
 }
 
 /**

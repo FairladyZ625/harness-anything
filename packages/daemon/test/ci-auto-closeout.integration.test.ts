@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { currentGateRun, makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -165,13 +165,45 @@ else throw new Error('unexpected provider call '+args.join(' '));
         await center.run({ kind: "task-review-consent", taskId, executionId, reviewId: "review-approved" }, binding),
       );
       const red = await center.run({ kind: "task-complete", taskId }, binding);
-      assert.equal(red.code, "invalid_proof", JSON.stringify(red));
+      assert.equal(red.code, "ci_missing", JSON.stringify(red));
       t.diagnostic(`red complete: ${red.code} ${red.rejectionExplanation}`);
+      // dec_4190D5EA63D9DD208CE946F133: new CI observations cannot overwrite a terminal run.
+      await run(3, "success");
+      const unchanged = await center.run({ kind: "task-complete", taskId }, binding);
+      assert.equal(unchanged.code, "ci_missing", JSON.stringify(unchanged));
+      const runReader = makeTaskEventReader({ rootDir, repoId }),
+        projection = makeTaskProjection({ rootDir, eventStore: runReader });
+      let failedRunId: string;
+      try {
+        projection.rebuild();
+        const execution = projection
+          .read(taskId)
+          .snapshot.executions.find((value) => value.executionId === executionId)!;
+        const failedRun = currentGateRun(execution, "ci")!;
+        assert.equal(failedRun.result, "fail");
+        failedRunId = failedRun.runId;
+      } finally {
+        projection.close();
+        await runReader.drain();
+      }
+      applied(
+        await center.run(
+          {
+            kind: "task-witness-rerun",
+            taskId,
+            executionId,
+            gateId: "ci",
+            runId: failedRunId,
+            reason: "Owner requests the new CI observation for this submitted cut.",
+          },
+          binding,
+        ),
+      );
       const contenders = await Promise.all([run(3, "success"), center.run({ kind: "task-complete", taskId }, binding)]);
       assert.ok(
         contenders[1].outcome === "applied" ||
           contenders[1].outcome === "no_changes" ||
-          contenders[1].code === "invalid_proof",
+          contenders[1].code === "ci_missing",
         JSON.stringify(contenders[1]),
       );
       await run(3, "success");

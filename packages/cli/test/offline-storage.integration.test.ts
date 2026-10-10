@@ -13,7 +13,6 @@ import { event } from "../../kernel/test/store/task-event-store.fixtures.ts";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskEventStore,
-  openSqliteEventStore,
   registerDaemonRepo,
   taskLifecycleWritePlan,
 } from "@harness-anything/kernel";
@@ -22,7 +21,7 @@ import { openPersistentWriterEpoch, readLedgerWriterEpoch } from "@harness-anyth
 const realm = await spawnKeycloak();
 after(() => realm.close());
 await realm.control({ op: "account", personId: "backup-owner" });
-for (const resource of ["offline-spawn", "restore-fence", "retention"])
+for (const resource of ["offline-spawn", "restore-fence", "retention", "content-check"])
   await realm.control({
     op: "permit",
     personId: "backup-owner",
@@ -34,7 +33,7 @@ const cli = fileURLToPath(new URL("../src/index.ts", import.meta.url));
 
 function invokeCli(argv: readonly string[], userRoot?: string): Record<string, unknown> {
   const result = invokeCliResult(argv, userRoot);
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   return JSON.parse(result.stdout.trim()) as Record<string, unknown>;
 }
 function invokeCliResult(argv: readonly string[], userRoot?: string) {
@@ -88,7 +87,7 @@ test("restore help describes both the daemon drill and offline recovery forms", 
     ["restore", "--help", "--json"],
   ]) {
     const result = invokeCliResult(argv);
-    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
     assert.match(result.stdout, /ha restore --drill <backup-directory>/u);
     assert.match(result.stdout, /ha restore <backup-directory> --to <absolute-directory>/u);
   }
@@ -202,22 +201,17 @@ test("real CLI refuses a backup whose accepted content is absent or has the wron
     } as const;
   try {
     register(userRoot, root, "content-check");
-    const store = openSqliteEventStore({ repoId: "content-check", rootInput: root, generation: 2 }),
+    const store = makeTaskEventStore({
+        repoId: "content-check",
+        rootDir: root,
+        activationPreflight: activateEmptyCanonicalGeneration,
+      }),
       claimedEvent = { ...event, payload: { ...event.payload, documentClaims: [claim] } },
-      object = path.join(path.dirname(store.databasePath), "objects/sha256", sha256.slice(0, 2), sha256.slice(2));
+      object = path.join(root, ".harness/store/generations/3/objects/sha256", sha256.slice(0, 2), sha256.slice(2));
     try {
-      store.appendCommand({
-        fence: { repoId: "content-check", holder: "test", epoch: 1 },
-        intent: {
-          opId: event.opId,
-          intentDigest: `sha256:${createHash("sha256").update(JSON.stringify(claimedEvent)).digest("hex")}`,
-          summary: event.type,
-        },
-        events: [claimedEvent],
-        blobs: [{ ...claim, body }],
-      });
+      store.append({ event: claimedEvent, plan: taskLifecycleWritePlan(claimedEvent), blobs: [{ ...claim, body }] });
     } finally {
-      store.close();
+      await store.drain();
     }
     invokeCli(["backup", backupDir, "--root", root], userRoot);
     invokeCli(["restore", backupDir, "--to", path.join(parent, "healthy")], userRoot);

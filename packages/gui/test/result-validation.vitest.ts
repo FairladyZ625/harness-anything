@@ -1,5 +1,8 @@
 // harness-test-tier: contract
 import { describe, expect, it } from "vitest";
+import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
+import { daemonSettingsRead } from "../../daemon/src/protocol/daemon-settings-read-types.ts";
+import { isSettingsSuccess } from "../src/renderer/settings-payload.ts";
 import { localErrorHint, rendererErrorHint, rendererReadError } from "../src/renderer/result-validation.ts";
 
 // daemonProtocolError() 的真实拒绝形状(packages/daemon/src/protocol/daemon-protocol-validate-results.ts:599):
@@ -53,4 +56,14 @@ describe("renderer rejection hint extraction", () => {
     expect(error.message).toBe("daemon_stopping: The daemon is draining before it exits.");
     expect((error as { readonly code?: string }).code).toBe("daemon_stopping");
   });
+});
+
+// dec_4190D5EA63D9DD208CE946F133: omitted defaults remain omitted at the renderer boundary.
+it("accepts unset closeout settings and rejects malformed declared profiles", () => {
+  const response = daemonSettingsRead(INITIAL_SETTINGS_V1, "initial");
+  expect(isSettingsSuccess(response)).toBe(true);
+  for (const closeout of [{}, { profile: "standard" }, { profile: "strict" }])
+    expect(isSettingsSuccess({ ...response, settings: { ...response.settings, closeout } })).toBe(true);
+  for (const closeout of [null, [], "strict", { profile: "unknown" }])
+    expect(isSettingsSuccess({ ...response, settings: { ...response.settings, closeout } })).toBe(false);
 });
