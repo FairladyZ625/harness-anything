@@ -1,3 +1,4 @@
+import { ciRunObservationV3Migration, ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { serializePersistedCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
@@ -48,7 +49,13 @@ export function planCompletionGeneration(source: SqliteEventStore, approvedSnaps
     // Cursor increases with every yielded revision; eventRowPage.done ends the stream.
     for (const row of completionSourceRows(source)) {
       const original = JSON.parse(row.eventJson) as CanonicalEventV1;
-      const converted = mapper.convert(original),
+      // Generation 1's CI shapes use their existing offline rewrite functions. Completion
+      // events go directly through this mapper so missing new fields cannot erase a Task.
+      const verified =
+        metadata.generation === 1 ? (ciWorkflowVerificationMigration.rewrite(original)?.event ?? original) : original;
+      const canonical =
+        metadata.generation === 1 ? (ciRunObservationV3Migration.rewrite(verified)?.event ?? verified) : verified;
+      const converted = mapper.convert(canonical),
         rendered = documents(converted.event);
       // Validate newly produced bytes before accepting them in the target ledger.
       const eventJson = serializePersistedCanonicalEvent(rendered.event);

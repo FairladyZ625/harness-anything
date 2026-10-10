@@ -1,3 +1,5 @@
+import { completionRetirementExecutions } from "../domain/task-completion-generation-retirement.ts";
+import { retireCompletionExecutions } from "./completion-generation-retirement.ts";
 import path from "node:path";
 import { stableStringify, sha256Bytes } from "../integrity/stable-hash.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
@@ -64,6 +66,15 @@ export function writeCompletionGeneration(
   } finally {
     destination.close();
   }
+  // Imported timestamps belong only to the prefix. Retirement is a newly accepted Task action.
+  const current = openSqliteEventStore({ repoId: plan.sourceCut.repoId, rootInput: root, generation: 3 });
+  try {
+    current.claimWriter(fence);
+    retireCompletionExecutions(current, root, plan, fence);
+    current.releaseWriter(fence);
+  } finally {
+    current.close();
+  }
 }
 
 /** Offline verification checks the converter's first write, never the normal read path. */
@@ -78,6 +89,11 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
     let count = 0;
     const entries = plan.entries();
     for (const row of completionSourceRows(destination)) {
+      if (row.revision > plan.sourceEvents) {
+        const event = JSON.parse(row.eventJson) as PersistedCanonicalEventV1;
+        if (event.type !== "task_completion_generation_retired") throw new Error("unexpected converted suffix event");
+        continue;
+      }
       const expected = entries.next().value;
       count++;
       if (
@@ -98,7 +114,8 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
     }
     if (count !== plan.sourceEvents || !entries.next().done) throw new Error("converted prefix is incomplete");
     const outcomes = source.outcomes();
-    if (outcomes.length !== destination.outcomes().length) throw new Error("command outcome count differs");
+    if (outcomes.length + destination.revision() - plan.sourceEvents !== destination.outcomes().length)
+      throw new Error("command outcome count differs");
     for (const outcome of outcomes)
       if (stableStringify(outcome) !== stableStringify(destination.outcome(outcome.opId)))
         throw new Error(`command outcome differs: ${outcome.opId}`);
@@ -110,8 +127,16 @@ export function verifyCompletionGeneration(source: SqliteEventStore, root: strin
     try {
       const first = projection.rebuild(),
         second = projection.rebuild();
-      if (first.stateDigest !== second.stateDigest || second.watermark !== count)
+      if (first.stateDigest !== second.stateDigest || second.watermark !== destination.revision())
         throw new Error("generation 3 cold replay differs");
+      let cursor: string | null = null;
+      do {
+        const page = projection.list({ limit: 500, ...(cursor === null ? {} : { cursor }) });
+        for (const row of page.rows)
+          if (completionRetirementExecutions(projection.read(row.taskId).snapshot).length)
+            throw new Error(`completion retirement is incomplete for ${row.taskId}`);
+        cursor = page.page!.nextCursor;
+      } while (cursor !== null);
       return { events: count, commandOutcomes: outcomes.length, projection: second };
     } finally {
       projection.close();

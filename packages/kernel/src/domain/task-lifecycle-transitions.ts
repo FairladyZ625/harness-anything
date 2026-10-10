@@ -1,3 +1,4 @@
+import { retireCompletionGeneration } from "./task-completion-generation-retirement.ts";
 import { assignTask, unassignTask } from "./task-assignment-transitions.ts";
 import type { Transition } from "./task-lifecycle-contract-internal-types.ts";
 import {
@@ -17,6 +18,7 @@ import { repoint } from "./task-lifecycle-code-doc-repoint.ts";
 // Ordered lifecycle transition registry.
 export const TASK_LIFECYCLE_TRANSITIONS: readonly Transition[] = Object.freeze([
   create,
+  retireCompletionGeneration,
   assignTask,
   unassignTask,
   start,

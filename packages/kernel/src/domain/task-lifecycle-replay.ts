@@ -375,7 +375,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
         },
       ],
     };
-  else if (event.type === "submission_returned")
+  else if (event.type === "submission_returned" || event.type === "task_completion_generation_retired")
     next = {
       ...snapshot,
       revision: event.workspaceRevision,

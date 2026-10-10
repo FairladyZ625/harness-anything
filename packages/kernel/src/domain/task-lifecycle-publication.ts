@@ -210,7 +210,8 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
     targets.push(lease(event.taskId, "reserve"), lease(event.taskId, "activate"), lease(event.taskId, "release"));
   if (
     (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
-    event.type === "lease_released"
+    event.type === "lease_released" ||
+    event.type === "task_completion_generation_retired"
   )
     targets.push(lease(event.taskId, "release"));
   return freezeDeclaredWritePlan({ commandType: event.type, targets }, [event.type]);

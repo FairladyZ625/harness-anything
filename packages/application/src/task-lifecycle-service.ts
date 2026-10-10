@@ -568,6 +568,8 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
       reason: command.reason,
       ...(command.reviewId === undefined ? {} : { reviewId: command.reviewId }),
     };
+  if (command.type === "RetireCompletionGeneration")
+    return { ...common, executionId: command.executionId, sourceGeneration: command.sourceGeneration };
   if (command.type === "RepointCodeDoc")
     return {
       ...common,
@@ -588,31 +590,33 @@ function operationIdentityFromCommand<C extends TaskLifecycleCommand>(command: C
 }
 function operationIdentityFromEvent(event: TaskEventV1): unknown {
   const type =
-    event.type === "task_assigned"
-      ? "AssignTask"
-      : event.type === "task_unassigned"
-        ? "UnassignTask"
-        : event.type === "task_created"
-          ? "CreateReplayTask"
-          : event.type === "execution_started"
-            ? "StartExecution"
-            : event.type === "lease_renewed"
-              ? "RenewLease"
-              : event.type === "task_transitioned"
-                ? "TransitionTask"
-                : event.type === "execution_submitted"
-                  ? "SubmitExecution"
-                  : event.type === "submission_forwarded" || event.type === "submission_returned"
-                    ? "AdjudicateSubmission"
-                    : event.type === "review_recorded"
-                      ? "RecordReview"
-                      : event.type === "review_consent_recorded" || event.type === "review_consent_overridden"
-                        ? "RecordReviewConsent"
-                        : event.type === "code_doc_reconciled"
-                          ? "ReconcileCodeDoc"
-                          : event.type === "code_doc_repointed"
-                            ? "RepointCodeDoc"
-                            : "CompleteTask";
+    event.type === "task_completion_generation_retired"
+      ? "RetireCompletionGeneration"
+      : event.type === "task_assigned"
+        ? "AssignTask"
+        : event.type === "task_unassigned"
+          ? "UnassignTask"
+          : event.type === "task_created"
+            ? "CreateReplayTask"
+            : event.type === "execution_started"
+              ? "StartExecution"
+              : event.type === "lease_renewed"
+                ? "RenewLease"
+                : event.type === "task_transitioned"
+                  ? "TransitionTask"
+                  : event.type === "execution_submitted"
+                    ? "SubmitExecution"
+                    : event.type === "submission_forwarded" || event.type === "submission_returned"
+                      ? "AdjudicateSubmission"
+                      : event.type === "review_recorded"
+                        ? "RecordReview"
+                        : event.type === "review_consent_recorded" || event.type === "review_consent_overridden"
+                          ? "RecordReviewConsent"
+                          : event.type === "code_doc_reconciled"
+                            ? "ReconcileCodeDoc"
+                            : event.type === "code_doc_repointed"
+                              ? "RepointCodeDoc"
+                              : "CompleteTask";
   const common = {
     type,
     taskId: event.taskId,
@@ -622,6 +626,12 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
     source: event.source,
     occurredAt: event.occurredAt,
   };
+  if (event.type === "task_completion_generation_retired")
+    return {
+      ...common,
+      executionId: event.payload.execution.executionId,
+      sourceGeneration: event.payload.sourceGeneration,
+    };
   if (event.type === "task_assigned") return { ...common, assignment: event.payload.task.assignment };
   if (event.type === "task_unassigned") return common;
   if (event.type === "task_created")

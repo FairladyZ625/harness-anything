@@ -14,11 +14,17 @@ import {
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
 // S8's two exact registrations do not authorize another path or a second constructor.
-for (const eventType of ["task_assigned", "task_unassigned"]) {
+for (const eventType of ["task_assigned", "task_unassigned", "task_completion_generation_retired"]) {
   test(`${eventType} registration rejects duplicate and unregistered constructors`, () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-assignment-entry-"));
     try {
-      const allowed = path.join(root, "packages/kernel/src/domain/task-assignment-transitions.ts");
+      const allowed = path.join(
+        root,
+        "packages/kernel/src/domain",
+        eventType === "task_completion_generation_retired"
+          ? "task-completion-generation-retirement.ts"
+          : "task-assignment-transitions.ts",
+      );
       mkdirSync(path.dirname(allowed), { recursive: true });
       const constructor = `envelope(command, "${eventType}", {});\n`;
       writeFileSync(allowed, constructor);

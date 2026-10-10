@@ -17,7 +17,7 @@ export interface ReplicaTransferMetrics {
 /** Transport coordination lives beside ACKs, never in the canonical writer queue. */
 export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync) {
   const initialized = new WeakSet<DatabaseSync>();
-  const db = (key: ReplicaDeliveryKey) => {
+  const db = (key: Pick<ReplicaDeliveryKey, "repoId">) => {
     const store = database(key.repoId);
     if (!initialized.has(store)) {
       store.exec(`CREATE TABLE IF NOT EXISTS delivery_lease (
@@ -165,5 +165,12 @@ export function replicaDeliveryLeases(database: (repoId: string) => DatabaseSync
     store.prepare("DELETE FROM delivery_lease WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
     store.prepare("DELETE FROM delivery_metrics WHERE node_id=? AND view_id<>?").run(key.nodeId, key.viewId);
   };
-  return { active, claim, renew, inspect, release, record, metrics, retire };
+  // Retain the fence counter so the same holder/view cannot revive a pre-upgrade lease.
+  const invalidateOffline = (repoId: string): void => {
+    const store = db({ repoId });
+    store.exec(
+      "UPDATE delivery_lease SET holder_id=NULL, expires_at=0, claim_fence=claim_fence+1; DELETE FROM delivery_metrics",
+    );
+  };
+  return { active, claim, renew, inspect, release, record, metrics, retire, invalidateOffline };
 }

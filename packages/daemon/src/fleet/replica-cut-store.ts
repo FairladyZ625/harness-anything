@@ -1,4 +1,5 @@
-import { mkdirSync } from "node:fs";
+import { syncDirectory } from "../durable-file.ts";
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import {
@@ -87,6 +88,18 @@ export interface ReplicaCutSourceOptions {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly readEvent?: (opId: string) => CanonicalEventV1 | null;
   readonly readApplied?: (opId: string) => { readonly event: CanonicalEventV1; readonly watermark: number } | null;
+}
+
+/** Offline upgrade only: all center/cut-worker handles must already be closed. */
+export function invalidateReplicaCutsOffline(localRoot: string, repoId: string): void {
+  if (!/^[A-Za-z0-9_-]{1,96}$/u.test(repoId)) throw new Error("replica repo id is invalid");
+  const root = path.join(localRoot, "replica", "repos", repoId);
+  if (!existsSync(root)) return;
+  // These directories contain only rebuildable cuts, manifests, deltas and pins.
+  // ack.sqlite is a sibling and owns durable registration, so it is never removed.
+  for (const entry of readdirSync(root, { withFileTypes: true }))
+    if (entry.isDirectory() && /^g[0-9]+$/u.test(entry.name)) rmSync(path.join(root, entry.name), { recursive: true });
+  syncDirectory(root);
 }
 
 export function openReplicaCutSource(options: ReplicaCutSourceOptions): ReplicaCutSource {

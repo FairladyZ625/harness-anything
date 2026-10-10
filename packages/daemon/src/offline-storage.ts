@@ -1,20 +1,23 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   readOfflineLedgerEvents,
   restoreLedgerBackup,
   resolveActiveGeneration,
-  runGenerationTwoConversion,
+  runCompletionGenerationConversion,
 } from "@harness-anything/kernel";
+import { canonicalRoot } from "./protocol/daemon-protocol-identifiers.ts";
+import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
+import { openReplicaAckStore } from "./fleet/replica-ack-store.ts";
+import { invalidateReplicaCutsOffline } from "./fleet/replica-cut-store.ts";
 import { generationMigrationCommand } from "./offline-storage-command.ts";
 
-export function runOfflineStorageCommand(argv: readonly string[]): number {
+export async function runOfflineStorageCommand(argv: readonly string[]): Promise<number> {
   try {
     const generationOption = option(argv, "--generation");
     if (generationOption !== undefined && generationOption !== "1" && generationOption !== "2")
       throw new Error("--generation must be 1 or 2");
     const rootInput = option(argv, "--root") ?? process.cwd();
-    const generation =
-      generationOption === undefined ? resolveActiveGeneration({ rootInput }) : (Number(generationOption) as 1 | 2);
     const commandIndex = firstCommandIndex(argv);
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
@@ -22,11 +25,35 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         return 0;
       }
       const flags = migrationFlags(argv.slice(commandIndex + 2));
-      const result = runGenerationTwoConversion({
-        backupDir: flags.source,
-        mode: flags.mode,
-        ...(flags.destination ? { destinationRoot: flags.destination } : {}),
-      });
+      if (flags.mode === "activate" && !flags.fleetStateRoot)
+        throw new Error("activation requires --fleet-state-root for the stopped center's copied replica state");
+      const approvedSnapshotGaps = flags.snapshotGaps ? JSON.parse(readFileSync(flags.snapshotGaps, "utf8")) : [];
+      if (
+        !Array.isArray(approvedSnapshotGaps) ||
+        approvedSnapshotGaps.some((value) => typeof value !== "string" || !/^sha256:[0-9a-f]{64}$/u.test(value))
+      )
+        throw new Error("--snapshot-gaps must contain the operator-approved JSON array of missing snapshot digests");
+      const lock = flags.destination ? await acquireWorkspaceLock(canonicalRoot(flags.destination, true)) : null;
+      let result;
+      try {
+        result = runCompletionGenerationConversion({
+          backupDir: flags.source,
+          mode: flags.mode,
+          approvedSnapshotGaps: new Set<string>(approvedSnapshotGaps),
+          ...(flags.destination ? { destinationRoot: flags.destination } : {}),
+          invalidateDerivedState: (repoId, root) => {
+            invalidateReplicaCutsOffline(path.join(root, ".harness"), repoId);
+            const acknowledgements = openReplicaAckStore(flags.fleetStateRoot!);
+            try {
+              acknowledgements.invalidateOffline(repoId);
+            } finally {
+              acknowledgements.close();
+            }
+          },
+        });
+      } finally {
+        await lock?.close();
+      }
       const exitCode = result.plan.ready ? 0 : 1;
       emitReceipt({ ok: result.plan.ready, exitCode, schema: "generation-conversion-receipt/v1", ...result });
       return exitCode;
@@ -55,7 +82,10 @@ export function runOfflineStorageCommand(argv: readonly string[]): number {
         numeric = since === undefined ? undefined : Number(since),
         events = readOfflineLedgerEvents({
           rootInput,
-          generation,
+          generation:
+            generationOption === undefined
+              ? resolveActiveGeneration({ rootInput })
+              : (Number(generationOption) as 1 | 2),
           ...(since !== undefined && Number.isSafeInteger(numeric) ? { sinceRevision: numeric } : {}),
           ...(since !== undefined && !Number.isSafeInteger(numeric) ? { sinceTime: since } : {}),
           ...(option(argv, "--grep") ? { grep: option(argv, "--grep") } : {}),
@@ -115,6 +145,8 @@ function migrationFlags(argv: readonly string[]): {
   readonly source: string;
   readonly mode: "dry-run" | "convert" | "verify" | "activate";
   readonly destination?: string;
+  readonly fleetStateRoot?: string;
+  readonly snapshotGaps?: string;
 } {
   const inputs = new Set<string>(generationMigrationCommand.inputs.map((input) => input.name)),
     values = new Map<string, string>();
@@ -139,5 +171,7 @@ function migrationFlags(argv: readonly string[]): {
     source,
     mode: mode as (typeof modes)[number],
     ...(values.has("--destination") ? { destination: values.get("--destination")! } : {}),
+    ...(values.has("--fleet-state-root") ? { fleetStateRoot: values.get("--fleet-state-root")! } : {}),
+    ...(values.has("--snapshot-gaps") ? { snapshotGaps: values.get("--snapshot-gaps")! } : {}),
   };
 }

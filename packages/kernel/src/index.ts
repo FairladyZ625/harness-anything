@@ -312,7 +312,7 @@ export {
   readOfflineLedgerEvents,
   resolveActiveGeneration,
   restoreDrillRetentionFor,
-  runGenerationTwoConversion,
+  runCompletionGenerationConversion,
   readCertifiedGitFollower,
   sqliteLedgerPath,
   reconcileSqliteEvents,

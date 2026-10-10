@@ -64,6 +64,10 @@ export interface AssignTaskIntent extends Intent<"AssignTask"> {
   readonly assignment: TaskAssignment;
 }
 export type UnassignTaskIntent = Intent<"UnassignTask">;
+export interface RetireCompletionGenerationIntent extends Intent<"RetireCompletionGeneration"> {
+  readonly executionId: string;
+  readonly sourceGeneration: 1 | 2;
+}
 export interface StartExecutionIntent extends Intent<"StartExecution"> {
   readonly executionId: string;
   readonly ttlMs?: number;
@@ -130,6 +134,7 @@ export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
   readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
 }
 export type TaskLifecycleCommandIntent =
+  | RetireCompletionGenerationIntent
   | CreateReplayTaskIntent
   | AssignTaskIntent
   | UnassignTaskIntent
@@ -149,6 +154,7 @@ type Meta = {
   readonly workspaceRevision: number;
   readonly occurredAt: string;
 };
+export type RetireCompletionGenerationCommand = NormalizedTaskLifecycleCommand<RetireCompletionGenerationIntent> & Meta;
 export type CreateReplayTaskCommand = NormalizedTaskLifecycleCommand<CreateReplayTaskIntent> & Meta;
 export type AssignTaskCommand = NormalizedTaskLifecycleCommand<AssignTaskIntent> & Meta;
 export type UnassignTaskCommand = NormalizedTaskLifecycleCommand<UnassignTaskIntent> & Meta;
@@ -162,6 +168,7 @@ export type ReconcileCodeDocCommand = NormalizedTaskLifecycleCommand<ReconcileCo
 export type RepointCodeDocCommand = NormalizedTaskLifecycleCommand<RepointCodeDocIntent> & Meta;
 export type CompleteTaskCommand = NormalizedTaskLifecycleCommand<CompleteTaskIntent> & Meta;
 export type TaskLifecycleCommand =
+  | RetireCompletionGenerationCommand
   | CreateReplayTaskCommand
   | AssignTaskCommand
   | UnassignTaskCommand
@@ -246,7 +253,7 @@ export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTas
     ? TransitionTaskProof
     : C extends StartExecutionCommand
       ? StartExecutionProof
-      : C extends TransitionTaskCommand
+      : C extends TransitionTaskCommand | RetireCompletionGenerationCommand
         ? TransitionTaskProof
         : C extends SubmitExecutionCommand
           ? SubmitExecutionProof
@@ -268,6 +275,7 @@ export interface TransitionResult {
   readonly event: TaskEventV1;
 }
 export interface Transition {
+  readonly offline?: true;
   readonly actionId: string;
   readonly matches: (command: TaskLifecycleCommand, snapshot: TaskLifecycleSnapshot) => boolean;
   readonly validate: (

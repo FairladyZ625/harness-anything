@@ -30,7 +30,7 @@ export const factLivenessWords = ["standing", "superseded_fact"] as const;
 
 // daemon-status-vocabulary:generated:end
 
-export const executionV1StateWords = ["active", "submitted", "changes_requested", "accepted"] as const;
+export const executionV1StateWords = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;
 
 export const executionStateWords = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;
 

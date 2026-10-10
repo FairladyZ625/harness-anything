@@ -917,7 +917,8 @@ export function applyTaskEvent(
   if (event.type === "lease_renewed") replayRenew(db, event);
   if (
     (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
-    event.type === "lease_released"
+    event.type === "lease_released" ||
+    event.type === "task_completion_generation_retired"
   )
     replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
 }

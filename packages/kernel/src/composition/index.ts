@@ -41,7 +41,6 @@ export {
   restoreLedgerBackup,
   readOfflineLedgerEvents,
   restoreDrillRetentionFor,
-  runGenerationTwoConversion,
 } from "../store/ledger-backup.ts";
 export { applyLedgerBackupRetention, type LedgerBackupRetentionPolicyV1 } from "../store/ledger-backup-retention.ts";
 export {
@@ -110,3 +109,5 @@ export {
 } from "../store/legacy-generation-conversion.ts";
 export { sqliteContentObjectPath } from "../store/sqlite-event-store.ts";
 export { assertNoPendingHistoricalRewrites, planLegacyGenerationConversion } from "../store/event-shape-migration.ts";
+
+export { runCompletionGenerationConversion } from "../store/completion-generation-conversion.ts";

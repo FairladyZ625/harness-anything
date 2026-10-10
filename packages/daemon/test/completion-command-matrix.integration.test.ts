@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { currentGateRun, isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
+import { currentGateRun, isTaskEvent, makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -98,6 +98,7 @@ async function fixture(script: string, metadata: unknown, mixed = false) {
         .filter((e) => e.taskId === taskId);
     return {
       root,
+      repoId,
       cell,
       worker,
       owner,
@@ -203,3 +204,97 @@ test("mixed code and artifacts freeze both inputs; a new artifact cut invalidate
     await f.close();
   }
 });
+
+for (const order of ["old-first", "new-first"] as const) {
+  test(`amend and complete race with source execution: ${order} arrival retains one current run after cold replay`, async () => {
+    const f = await fixture(
+      frame +
+        `await new Promise(resolve=>setTimeout(resolve,metadata.seed===42?${order === "old-first" ? 1000 : 3000}:${order === "old-first" ? 2000 : 0}));` +
+        output,
+      { seed: 42 },
+    );
+    const waiting: Promise<unknown>[] = [];
+    const started = async (seed: number) => {
+      const deadline = Date.now() + 4000,
+        count = seed === 42 ? 1 : 2;
+      while (
+        !f
+          .events()
+          .some(
+            (event) =>
+              event.type === "gate_run_changed" &&
+              event.payload.operation === "claim" &&
+              event.payload.execution.gateRuns.length === count,
+          )
+      ) {
+        assert.ok(Date.now() < deadline, `source ${seed} never claimed`);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+    };
+    try {
+      const first = f.applied(f.submit);
+      waiting.push(first);
+      await started(42);
+      const blocked = await f.cell.run(
+        { kind: "task-complete", taskId: f.taskId, executionId: f.executionId },
+        f.owner,
+      );
+      assert.equal(blocked.outcome, "op_rejected", JSON.stringify(blocked));
+      writeFileSync(f.artifact, JSON.stringify({ seed: 43 }));
+      await f.applied({ kind: "doc-submit", taskId: f.taskId });
+      const second = f.applied({ ...f.submit, amend: true });
+      waiting.push(second);
+      await started(43);
+      if (order === "old-first") {
+        await first;
+        await second;
+      } else {
+        await second;
+      }
+      const complete = await f.cell.run(
+        { kind: "task-complete", taskId: f.taskId, executionId: f.executionId },
+        f.owner,
+      );
+      assert.equal(complete.outcome, "applied", JSON.stringify(complete));
+      await waitForFixturePublication(f.cell, complete.opId, f.owner);
+      if (order === "new-first") {
+        await first;
+      }
+      const witnesses = f.events().filter((event) => event.type === "completion_gate_verified");
+      assert.equal(witnesses.length, 1);
+      assert.deepEqual(witnesses[0]!.payload.witness.predicate, { seed: 43 });
+      await f.cell.close();
+      const reader = makeTaskEventReader({ repoId: f.repoId, rootDir: f.root });
+      const projection = makeTaskProjection({ rootDir: f.root, eventStore: reader });
+      try {
+        const once = projection.rebuild(),
+          twice = projection.rebuild();
+        assert.equal(once.stateDigest, twice.stateDigest);
+        const snapshot = projection.read(f.taskId).snapshot,
+          execution = snapshot.executions[0]!;
+        assert.equal(snapshot.task?.status, "done");
+        assert.equal(execution.schema, "execution/v1");
+        if (execution.schema !== "execution/v1") throw new Error("expected native execution");
+        const current = currentGateRun(execution, "version-pinned")!;
+        assert.equal(current.result, "pass");
+        assert.equal(execution.gateRuns.length, 2);
+        assert.equal(execution.gateRuns.filter((run) => run.submissionDigest === current.submissionDigest).length, 1);
+        console.log(
+          "AMEND_COMPLETE_RACE=" +
+            JSON.stringify({
+              order,
+              currentRun: current.runId,
+              result: current.result,
+              historicalRuns: execution.gateRuns.length,
+              coldDigest: twice.stateDigest,
+            }),
+        );
+      } finally {
+        projection.close();
+      }
+    } finally {
+      await Promise.allSettled(waiting);
+      await f.close();
+    }
+  });
+}

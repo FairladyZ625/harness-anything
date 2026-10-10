@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { contentClaims, objectPath } from "./task-event-store-claims-layout.ts";
+import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/settings.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -370,7 +371,13 @@ function inspectSqlite(databasePath: string): {
     for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").iterate()) {
       if (Number(metadata.generation) === 1) decodeLegacyEventBytes(String(row.event_json), "generation 1 backup");
       else {
-        const event = parseCanonicalEvent(String(row.event_json));
+        // Generation 2 is an offline conversion input. Its completion fields predate
+        // the current schema; the converter validates the produced generation 3 event.
+        // Inventory hashes, SQLite integrity and every referenced object's size still apply.
+        const event =
+          Number(metadata.generation) === 2
+            ? (JSON.parse(String(row.event_json)) as CanonicalEventV1)
+            : parseCanonicalEvent(String(row.event_json));
         for (const claim of contentClaims(event)) {
           const stat = fileSystem.stat(objectPath(objectRoot, claim.sha256), { throwIfNoEntry: false });
           if (stat === undefined) throw new Error(`event content object ${claim.sha256} is missing`);
