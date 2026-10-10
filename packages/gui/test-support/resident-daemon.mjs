@@ -33,22 +33,33 @@ export async function startGuiResidentDaemonFixture({
         },
       ]
     : undefined;
-  const realm = await serveKeycloak();
-  realm.keycloak.account("person-gui");
-  realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
-  realm.bind(userRoot);
-  signInAt(userRoot, "person-gui");
-  // 场景自备的额外账号/节点(如协作种子的指派对象)在 daemon 起来前登记。
-  if (keycloakSetup) keycloakSetup(realm.keycloak);
+  let realm;
+  let daemon;
+  try {
+    realm = await serveKeycloak();
+    realm.keycloak.account("person-gui");
+    realm.keycloak.permit("person-gui", repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+    realm.bind(userRoot);
+    signInAt(userRoot, "person-gui");
+    // 场景自备的额外账号/节点(如协作种子的指派对象)在 daemon 起来前登记。
+    if (keycloakSetup) keycloakSetup(realm.keycloak);
+  } catch (error) {
+    await realm?.close().catch(() => undefined);
+    rmSync(parent, { recursive: true, force: true });
+    throw error;
+  }
   // 夹具是封闭的抛弃型 daemon:外层运行时注入的任务执行凭据与本夹具无关,留着会被
   // executionCredentialParams 附到每个请求上,被夹具 daemon 按「超出派工作用域」拒绝
   // (bootstrap 即 execution_credential_rejected)。夹具存续期间摘掉,stop 时恢复。
   const ambientExecutionCredential = process.env.HARNESS_EXECUTION_CREDENTIAL;
   delete process.env.HARNESS_EXECUTION_CREDENTIAL;
-  let daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover }).catch(async (error) => {
-    await realm.close();
+  try {
+    daemon = await startDaemon({ daemonId, userRoot, runtimeDiscover });
+  } catch (error) {
+    await realm.close().catch(() => undefined);
+    rmSync(parent, { recursive: true, force: true });
     throw error;
-  });
+  }
   let stopped = false;
   const pauseDaemon = async () => {
     await daemon.stop();

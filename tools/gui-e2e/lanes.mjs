@@ -174,12 +174,18 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   // 会把它附到每个请求上而被夹具 daemon 拒绝(canonical lane 面向真实 daemon,不动)。
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
   delete isolatedEnv.HARNESS_EXECUTION_CREDENTIAL;
-  const driver = await startDriver({
-    workspaceRoot,
-    rootDir: fixture.rootDir,
-    env: isolatedEnv,
-    runRoot,
-  });
+  let driver;
+  try {
+    driver = await startDriver({
+      workspaceRoot,
+      rootDir: fixture.rootDir,
+      env: isolatedEnv,
+      runRoot,
+    });
+  } catch (error) {
+    await fixture.stop();
+    throw error;
+  }
   driver.runRoot = runRoot;
   driver.fixture = fixture;
   return {
