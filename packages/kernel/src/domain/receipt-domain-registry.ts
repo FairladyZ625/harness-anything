@@ -163,6 +163,13 @@ export interface WriteReceiptDraft extends Partial<Omit<ReceiptAcceptanceFields,
   readonly outcome: "applied" | "pending" | "no_changes" | "indeterminate" | "op_rejected";
   readonly opId: string;
   readonly revision?: number;
+  /**
+   * The entity projection revision an optimistic-concurrency command must resend as
+   * `--expected-version`. Read receipts (task-show) state it so the value a mutation needs is
+   * visible at the receipt top level instead of buried in the evidence snapshot, where the
+   * aggregate revision is indistinguishable from the global ledger `revision` beside it.
+   */
+  readonly expectedVersion?: number;
   readonly code?: string;
   readonly origin?: string;
   readonly evidence?: string;
@@ -216,6 +223,7 @@ export const WRITE_RECEIPT_SCHEMA = Object.freeze({
   optional: Object.freeze([
     "wait",
     "revision",
+    "expectedVersion",
     "code",
     "origin",
     "evidence",
@@ -250,6 +258,8 @@ export function validateWriteReceipt(value: unknown): readonly string[] {
     errors.push("receipt outcome is invalid");
   if (!isNonEmptyString(value.opId)) errors.push("opId is required");
   if ("revision" in value && !cut(value.revision)) errors.push("revision must be a non-negative integer");
+  if ("expectedVersion" in value && !cut(value.expectedVersion))
+    errors.push("expectedVersion must be a non-negative integer");
   for (const field of ["code", "origin", "evidence"] as const)
     if (field in value && !isNonEmptyString(value[field])) errors.push(`${field} must be a non-empty string`);
   if ("nextAction" in value && !isNonEmptyString(value.nextAction))

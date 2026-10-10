@@ -121,8 +121,20 @@ export function parseProjected(
     );
   if (conditionalViolation) return rejectInput(inputs, commandId, conditionalViolation.name, json);
   if (invalidGroup) {
-    const input = declaration?.inputs.find((candidate) => invalidGroup.includes(candidate.field ?? ""));
-    return rejectInput(inputs, commandId, input?.name ?? invalidGroup[0] ?? "input", json);
+    // The constraint is on the whole group, so the remedy must name every flag in it, not just
+    // the first declared one — "Use one non-empty value for --person" hides that --node/--team
+    // are the alternatives.
+    const flags = invalidGroup.map(
+      (field) =>
+        declaration?.inputs.find(
+          (candidate) => (candidate.field ?? projectedField(commandId, candidate.name)) === field,
+        )?.name ?? field,
+    );
+    return rejected(
+      "invalid_field",
+      `Use exactly one of ${flags.join(", ")}. Run ${declaration?.helpCommand ?? `ha ${commandId} --help`} for accepted inputs.`,
+      json,
+    );
   }
   return accepted(rootDir, repoId, json, action as { readonly kind: string }, method);
 }

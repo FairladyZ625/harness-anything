@@ -46,3 +46,18 @@ test("without a checkout on this node the setup record is unknown, not guessed",
   assert.match(workspaceLine({ declared: [], succeeded: null }), /; setup: none; /u);
   assert.match(workspaceLine({ declared: [], succeeded: [] }), /; setup: none; /u);
 });
+
+test("task show states the expected-version optimistic-concurrency commands resend", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    outcome: "applied",
+    expectedVersion: 161594,
+    summary: "task-show: applied",
+    evidence: JSON.stringify({ task: { status: "active", currentNode: "execute", completionGateIds: [] } }),
+  });
+  assert.match(
+    rendered.text,
+    /^expected-version: 161594 \(pass as --expected-version to assign\/unassign\/transition\)$/mu,
+  );
+});

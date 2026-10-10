@@ -276,3 +276,15 @@ test("a draft that wrote nothing settles as settled_no_write instead of unknown,
     /unaccepted receipt must not carry committed proof/u,
   );
 });
+
+test("expectedVersion states the projection revision an optimistic-concurrency command resends", () => {
+  const receipt = { outcome: "no_changes", opId: "command", evidence: "same-result:command" } as const;
+  assert.doesNotMatch(validateWriteReceipt({ ...receipt, expectedVersion: 161594 }).join("\n"), /expectedVersion/u);
+  for (const invalid of [-1, 1.5, "161594"]) {
+    assert.match(
+      validateWriteReceipt({ ...receipt, expectedVersion: invalid }).join("\n"),
+      /expectedVersion must be a non-negative integer/u,
+      String(invalid),
+    );
+  }
+});

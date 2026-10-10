@@ -791,7 +791,7 @@ const receiptFields: readonly EntityActionInputField[] = Object.freeze(
     if (name !== "proof")
       return field(
         name,
-        name === "revision"
+        name === "revision" || name === "expectedVersion"
           ? "number"
           : name === "outcome" || name === "opId" || name === "status"
             ? "string"
