@@ -19,10 +19,12 @@ import { t } from "../../i18n/index.tsx";
 import { Region } from "../primitives/Region.tsx";
 
 /**
- * 页首结论区:两个并列主指标(左 token 量、右 API 折算计价,同为 44px 主数字,各自带环比),
- * 下面是四类 token 的构成条,再下四个关键数字(会话、缓存命中率、白花、未上报)。金额侧写明
- * 口径:按 API 公开价折算、非实际花费、价格表版本随行、未计价用量占比注明,以及哪些场景是
- * 下界(基础档单价、阶梯加价未计入)。有派工未上报用量时明说总量是下界。
+ * 页首结论区:两个对称主指标(左 token 量、右 API 折算计价)是同一网格行里的两列——
+ * 同 44px 主数字、同基线、同列宽,各自的环比徽章与一行说明落在同一位置;金额侧的口径
+ * (公开价折算、非实际花费、价格表版本、未计价占比、下界说明)与缓存写口径收进两列下方
+ * 一处可折叠的「口径」说明,不再把任何一侧撑高。整卡共用一组分栏线:主指标两列、构成
+ * 图例四格、关键数字四栏在 ≥560px 容器下同 breakpoint 同 gap,分栏线互相重合。有派工
+ * 未上报用量时明说总量是下界。
  */
 export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageResult }) {
   const { totals, previous } = data,
@@ -35,8 +37,8 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
     unpriced = unpricedShare(totals);
   return (
     <Region title={t("agentRuntime.tokenUsageHeadlineTitle")} padded>
-      <div className="flex flex-wrap items-end gap-x-10 gap-y-4 pt-1">
-        <div className="min-w-0" data-testid="token-usage-totals">
+      <div className="grid grid-cols-2 gap-x-6 pt-1 @[560px]:grid-cols-4">
+        <div className="col-span-2 min-w-0 @[560px]:col-span-2" data-testid="token-usage-totals">
           <p
             className="font-mono text-[44px] font-semibold leading-none tracking-[-0.01em] tabular-nums text-text"
             title={exactTokens(totals.totalTokens)}
@@ -65,7 +67,7 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
             )}
           </p>
         </div>
-        <div className="min-w-0" data-testid="token-usage-cost">
+        <div className="col-span-2 min-w-0 @[560px]:col-span-2" data-testid="token-usage-cost">
           <p
             className="font-mono text-[44px] font-semibold leading-none tracking-[-0.01em] tabular-nums text-text"
             title={usageIsUnpriced(totals) ? undefined : `$${totals.costUsd.toFixed(4)}`}
@@ -104,25 +106,8 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               </>
             )}
           </p>
-          <p className="mt-1.5 flex flex-wrap items-baseline gap-x-1.5 ui-meta">
-            <span className="text-text-muted">{t("agentRuntime.tokenUsageCostConverted")}</span>
-            <span className="text-text-faint">
-              {t("agentRuntime.tokenUsageCostVersion", { version: data.pricing.version })}
-            </span>
-            {unpriced !== null && unpriced > 0 ? (
-              <span className="text-status-submitted">
-                {t("agentRuntime.tokenUsageCostUnpriced", {
-                  share: percentText(unpriced),
-                  tokens: preciseTokens(totals.unpricedTokens),
-                })}
-              </span>
-            ) : null}
-          </p>
-          <p data-testid="token-usage-cost-precision" className="mt-1 ui-meta text-text-faint">
-            {t("agentRuntime.tokenUsageCostPrecision")}
-          </p>
         </div>
-        <div className="w-full min-w-[280px]" data-testid="token-usage-composition">
+        <div className="col-span-2 mt-4 @[560px]:col-span-4" data-testid="token-usage-composition">
           <div className="flex h-3 gap-0.5 overflow-hidden rounded-xs bg-text/8" aria-hidden="true">
             {tokenKinds.map((kind) =>
               parts[kind] > 0 ? (
@@ -134,7 +119,7 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               ) : null,
             )}
           </div>
-          <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-2 @[560px]:grid-cols-4">
+          <dl className="mt-2.5 grid grid-cols-2 gap-x-6 gap-y-2 @[560px]:grid-cols-4">
             {tokenKinds.map((kind) => (
               <div key={kind} className="min-w-0">
                 <dt className="flex items-center gap-1.5 ui-meta text-text-muted">
@@ -156,24 +141,46 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
               </div>
             ))}
           </dl>
-          <p data-testid="token-usage-cache-write-note" className="mt-2 ui-meta text-text-faint">
-            {t("agentRuntime.tokenUsageCacheWriteNote")}
-            {totals.cacheWriteUnreportedDispatches > 0 ? (
-              <span className="ml-1">
-                {t("agentRuntime.tokenUsageCacheWriteUnreportedCount", {
-                  count: String(totals.cacheWriteUnreportedDispatches),
-                })}
-              </span>
-            ) : null}
-            {totals.cacheWriteUnitemizedDispatches > 0 ? (
-              <span className="ml-1">
-                {t("agentRuntime.tokenUsageCacheWriteUnitemizedCount", {
-                  count: String(totals.cacheWriteUnitemizedDispatches),
-                })}
-              </span>
-            ) : null}
-          </p>
         </div>
+        {/* 口径收进一处:可见摘要保留「非实际花费」与价格表版本(以及数据驱动的未计价
+            占比),长说明(下界、缓存写口径与实测计数)默认折叠,展开体限 88ch 阅读宽。 */}
+        <details data-testid="token-usage-methodology" className="col-span-2 mt-2.5 ui-meta @[560px]:col-span-4">
+          <summary className="flex flex-wrap items-baseline gap-x-1.5 text-text-faint">
+            <span className="font-semibold text-text-muted">{t("agentRuntime.tokenUsageMethodologyLabel")}</span>
+            <span className="text-text-muted">{t("agentRuntime.tokenUsageCostConverted")}</span>
+            <span>{t("agentRuntime.tokenUsageCostVersion", { version: data.pricing.version })}</span>
+            {unpriced !== null && unpriced > 0 ? (
+              <span className="text-status-submitted">
+                {t("agentRuntime.tokenUsageCostUnpriced", {
+                  share: percentText(unpriced),
+                  tokens: preciseTokens(totals.unpricedTokens),
+                })}
+              </span>
+            ) : null}
+          </summary>
+          <div className="mt-1.5 grid max-w-[88ch] gap-1.5">
+            <p data-testid="token-usage-cost-precision" className="text-text-faint">
+              {t("agentRuntime.tokenUsageCostPrecision")}
+            </p>
+            <p data-testid="token-usage-cache-write-note" className="text-text-faint">
+              {t("agentRuntime.tokenUsageCacheWriteNote")}
+              {totals.cacheWriteUnreportedDispatches > 0 ? (
+                <span className="ml-1">
+                  {t("agentRuntime.tokenUsageCacheWriteUnreportedCount", {
+                    count: String(totals.cacheWriteUnreportedDispatches),
+                  })}
+                </span>
+              ) : null}
+              {totals.cacheWriteUnitemizedDispatches > 0 ? (
+                <span className="ml-1">
+                  {t("agentRuntime.tokenUsageCacheWriteUnitemizedCount", {
+                    count: String(totals.cacheWriteUnitemizedDispatches),
+                  })}
+                </span>
+              ) : null}
+            </p>
+          </div>
+        </details>
       </div>
       {totals.usageUnavailableDispatches > 0 ? (
         <p data-testid="token-usage-conclusion" className="mt-3 ui-meta text-status-submitted">
@@ -182,7 +189,10 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
           })}
         </p>
       ) : null}
-      <div className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-border pt-3 @[720px]:grid-cols-4">
+      <div
+        data-testid="token-usage-figures"
+        className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 border-t border-border pt-3 @[560px]:grid-cols-4"
+      >
         <Figure
           label={t("agentRuntime.tokenUsageTotalsSessions")}
           value={String(totals.sessionCount)}
