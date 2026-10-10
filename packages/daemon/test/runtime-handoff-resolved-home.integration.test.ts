@@ -123,6 +123,7 @@ for (const row of [{type:'thread.started',thread_id:id},
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (_node, credential) => credential === "machine-secret",
         nodeOwner: f.owners.nodeOwner,
+        verifyHuman: f.owners.verifyHuman,
       }),
     ),
     remote = path.join(f.root, "code.git");
@@ -147,6 +148,7 @@ for (const row of [{type:'thread.started',thread_id:id},
     const userRoot = path.join(f.root, `${nodeId}-user`),
       viewRoot = path.join(f.root, `${nodeId}-view`);
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId,

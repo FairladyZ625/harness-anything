@@ -399,7 +399,8 @@ test("retained revision 415 replay remains stale until the center confirms its h
       ),
       entries = [wireEntry(READ_MODEL_META_PATH, meta)],
       owner = "person-one",
-      authorizationShapeDigest = edgeReadAuthorizationShapeDigest({ repoId: "repo", owner }),
+      authorizationShapeDigest = (nodeId: string) =>
+        edgeReadAuthorizationShapeDigest({ repoId: "repo", readerProfile: { personId: owner, nodeId } }),
       read = (nodeId: string) =>
         withEdgeReadModel({ viewRoot: root, repoId: "repo", nodeId, principalId: owner }, (projection, frame) => ({
           list: projection.list({}),
@@ -411,7 +412,11 @@ test("retained revision 415 replay remains stale until the center confirms its h
         for (const frame of snapshotFrames(transferId, nodeId, cut, entries, [meta]))
           response = view.receive(
             frame.schema === "fleet.snapshot.begin/v1"
-              ? { ...frame, authorizationOwner: owner, authorizationShapeDigest }
+              ? {
+                  ...frame,
+                  readerProfile: { personId: owner, nodeId },
+                  authorizationShapeDigest: authorizationShapeDigest(nodeId),
+                }
               : frame,
           );
         return response;

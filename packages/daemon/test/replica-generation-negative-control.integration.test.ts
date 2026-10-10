@@ -199,7 +199,7 @@ test("delta begin rejects generation alone with revision and digest held equal",
           toCut: { revision: 415, headDigest: f.cut2.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
           changeCount: 2,
           resultManifestDigest: f.cut2.manifest.digest,
-          authorizationOwner: "person-one",
+          readerProfile: { personId: "person-one", nodeId: "node-one" },
           authorizationShapeDigest: "a".repeat(64),
         } as unknown as FleetFrameV1;
         assert.throws(() => f.edge.receive(begin), /snapshot_required: delta base cut is not current/u);

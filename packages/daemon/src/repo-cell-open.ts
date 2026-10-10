@@ -115,6 +115,9 @@ export interface RepoCellOpenInput {
   readonly runtimeLaunch?: RuntimeLauncher;
   readonly runtimeDaemonRoute?: RuntimeDaemonRoute;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
+  readonly keycloakSession?: () => Promise<
+    Omit<NonNullable<NonNullable<RepoCellBinding["keycloakAuthorization"]>["session"]>, "currentAccessToken">
+  >;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch?: (
     instanceId: string,
@@ -426,10 +429,15 @@ export async function openRepoWriterCell(
   let handoffTaskLease: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["handoffTaskLease"]> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell task lease handoff is not ready.");
   };
-  const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => ({
-    ...binding,
-    ...(input.keycloakCenter ? { keycloakAuthorization: { center: input.keycloakCenter } } : {}),
-  });
+  // A runtime outlives its initiating RPC. Resolve the daemon's current local session at acceptance;
+  // a device request must keep its own verified session and can never borrow this local one.
+  const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => {
+    if (binding.source !== "local" || !input.keycloakSession) return binding;
+    const session = await input.keycloakSession();
+    if (session.personId !== binding.actor.principal.personId)
+      throw cellCodedError("authentication_required", "The original runtime owner must sign in on this device.");
+    return { ...binding, keycloakAuthorization: { ...binding.keycloakAuthorization, session } };
+  };
   const authorizeRuntimeAction = async (
     action: RepoTaskAction,
     binding: RuntimeAttemptTerminal["binding"],

@@ -51,9 +51,11 @@ test(
           replicaDiskQuotaBytes: 64 * 1024 * 1024,
           authenticate: (_node, credential) => credential === "machine-secret",
           nodeOwner: f.owners.nodeOwner,
+          verifyHuman: f.owners.verifyHuman,
         }),
       ),
       peer = (nodeId = source.nodeId) => ({
+        readAccessToken: async () => `device-token-${nodeId}`,
         port: center.port,
         ca: f.cert,
         nodeId,

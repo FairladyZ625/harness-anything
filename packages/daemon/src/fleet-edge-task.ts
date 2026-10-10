@@ -144,6 +144,7 @@ export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
 export async function runFleetEdgeRepositoryRead(
   input: FleetEdgeTaskRequest,
   readLocal: () => Promise<Record<string, unknown>>,
+  readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   const payload = input.payload,
     minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
@@ -158,6 +159,7 @@ export async function runFleetEdgeRepositoryRead(
     () =>
       runFleetReplicaPullClient({
         through: minCut?.revision,
+        readAccessToken,
         hostname: payload.host,
         port: payload.port,
         ca: readFileSync(payload.caPath, "utf8"),
@@ -195,6 +197,7 @@ export async function runFleetEdgeTask(
       : 60_000;
   const opId = randomUUID(),
     peer = {
+      readAccessToken,
       hostname: payload.host,
       port: payload.port,
       ca: readFileSync(payload.caPath, "utf8"),
@@ -313,7 +316,7 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          const pulled = await runFleetReplicaPullClient({
+          await runFleetReplicaPullClient({
             through: "known-head",
             ...peer,
             viewRoot: payload.viewRoot,
@@ -325,7 +328,7 @@ export async function runFleetEdgeTask(
               repoId: payload.repoId,
               nodeId: payload.nodeId,
               workspaceRoot,
-              principalId: pulled.current.authorizationOwner,
+              principalId: payload.principalId,
             },
             "repo.tasks.runtimeContext.read",
             { taskId },
@@ -359,7 +362,6 @@ export async function runFleetEdgeTask(
       try {
         const next = await runFleetTaskCommandClient({
           ...peer,
-          accessToken: await readAccessToken?.(),
           opId,
           repoId: payload.repoId,
           taskId,

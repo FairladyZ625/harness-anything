@@ -1,6 +1,5 @@
 // harness-test-tier: contract
-// dec_D60FAA451F24160E970323B6F3 CH1/CH2: a fleet connection authenticates a machine; the person it acts
-// for is center state in Keycloak, written through the access-admin queue and read for every frame.
+// dec_F01770FD0DCF72683B7C4C7A47: each device presents its owner's verified user session.
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
@@ -56,7 +55,7 @@ async function fixture(t: TestContext) {
 }
 
 // The three entry points one person can act through: a signed-in local session, and two fleet nodes
-// registered to that person. Only the local one holds the person's own token.
+// registered to that person. Each entry holds a user session.
 const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> => {
   const actor = { principal: { personId }, executor: null };
   return {
@@ -76,12 +75,28 @@ const entries = (personId: string): Readonly<Record<string, RepoCellBinding>> =>
     "edge-a": {
       actor,
       source: { kind: "node", nodeId: "edge-a" },
-      keycloakAuthorization: { center: centerAuthority },
+      keycloakAuthorization: {
+        session: {
+          personId,
+          accessToken: `token-${personId}`,
+          url: keycloakUrl,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+        },
+      },
     },
     "edge-b": {
       actor,
       source: { kind: "node", nodeId: "edge-b" },
-      keycloakAuthorization: { center: centerAuthority },
+      keycloakAuthorization: {
+        session: {
+          personId,
+          accessToken: `token-${personId}`,
+          url: keycloakUrl,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+        },
+      },
     },
   };
 };
@@ -649,6 +664,13 @@ test("an actor reported by the frame never reaches the decision", async (t) => {
         transportKind: "fleet-tls",
         nodePrincipal: { nodeId: "edge-a", personId: "alice" },
         keycloakCenter: centerAuthority,
+        oidcPrincipal: {
+          personId: "alice",
+          subject: "alice-user",
+          expiresAt: Date.now() + 60_000,
+          accessToken: "token-alice",
+          authority: { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center" },
+        },
         ...extra,
       } as Parameters<typeof deriveBinding>[1]),
     plain = await derive({}),
@@ -669,13 +691,13 @@ test("an actor reported by the frame never reaches the decision", async (t) => {
   );
 });
 
-test("a person evaluated through the center needs a center credential and a Keycloak account", async (t) => {
+test("a device action needs its own user session and a Keycloak account", async (t) => {
   const { keycloak, run, evaluate } = await fixture(t);
   keycloak.account("alice");
   await run({ operation: "grant", personId: "alice", groupId: "contributor", resource: "repo-a" });
   const edge = entries("alice")["edge-a"]!;
   assert.equal(await evaluate(edge, { kind: "task-create" }), "allowed");
-  // A session that belongs to someone else does not speak for alice, and without the center nothing does.
+  // A session that belongs to someone else does not speak for alice.
   assert.equal(
     await evaluate(
       { ...edge, keycloakAuthorization: { session: { ...entries("bob").local!.keycloakAuthorization!.session! } } },

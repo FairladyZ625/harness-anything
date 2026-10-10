@@ -104,31 +104,29 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
 }
 
 /**
- * A fleet connection authenticates a machine only. The person it acts for is the node's registered
- * owner, and that person answers to the same Keycloak grants as when signed in locally.
+ * A Fleet action requires the independently verified user session of the registered device owner.
+ * The login client authenticates transport; it cannot supply the owner's action authority.
  */
 async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
   const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.keycloakCenter)
+  if (!owner || !owner.nodeId || !auth.oidcPrincipal)
     throw hostCodedError(
       "authentication_required",
-      "Fleet ingress requires a registered node owner and center authority.",
+      "Fleet ingress requires the registered device owner's user session.",
     );
-  if (auth.oidcPrincipal && auth.oidcPrincipal.personId !== owner.personId)
+  if (auth.oidcPrincipal.personId !== owner.personId)
     throw hostCodedError("human_confirmation_required", "The interactive session belongs to a different node owner.");
   return {
     actor: { principal: { personId: owner.personId }, executor: null },
     source: { kind: "node", nodeId: owner.nodeId },
-    keycloakAuthorization:
-      auth.oidcPrincipal?.personId === owner.personId
-        ? {
-            session: {
-              personId: owner.personId,
-              accessToken: auth.oidcPrincipal.accessToken,
-              ...auth.oidcPrincipal.authority,
-            },
-          }
-        : { center: auth.keycloakCenter },
+    keycloakAuthorization: {
+      session: {
+        personId: owner.personId,
+        accessToken: auth.oidcPrincipal.accessToken,
+        ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
+        ...auth.oidcPrincipal.authority,
+      },
+    },
     ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
     ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
     ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),

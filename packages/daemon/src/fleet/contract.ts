@@ -44,7 +44,7 @@ export interface FleetRuntimeDispatchContext {
   readonly executionId: string | null;
 }
 type Msg<S extends string, P extends object = object> = S extends string
-  ? Readonly<{ schema: S; messageId: string }> & Readonly<P>
+  ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
   : never;
 export interface FleetDeviceLoginNotice {
   readonly userCode: string;
@@ -129,7 +129,6 @@ export type FleetFrameV1 =
         action: FleetTaskAction;
         docChanges: readonly FleetDocChange[] | null;
         mirrorBaseCut: FleetMirrorBaseCut | null;
-        accessToken?: string;
       }
     >
   | Msg<"fleet.task.evidence/v1", { inReplyTo: string; dataBase64: string }>
@@ -214,7 +213,7 @@ export type FleetFrameV1 =
         cut: FleetCut;
         knownHead: FleetCut;
         manifestDigest: string;
-        authorizationOwner: string;
+        readerProfile: import("@harness-anything/kernel").EdgeReaderProfile;
         authorizationShapeDigest: string;
       }
     >
@@ -226,7 +225,7 @@ export type FleetFrameV1 =
         viewId: string;
         cut: FleetCut;
         manifest: FleetManifest;
-        authorizationOwner: string;
+        readerProfile: import("@harness-anything/kernel").EdgeReaderProfile;
         authorizationShapeDigest: string;
       }
     >
@@ -243,7 +242,7 @@ export type FleetFrameV1 =
         toCut: FleetCut;
         changeCount: number;
         resultManifestDigest: string;
-        authorizationOwner: string;
+        readerProfile: import("@harness-anything/kernel").EdgeReaderProfile;
         authorizationShapeDigest: string;
       }
     >
@@ -746,7 +745,6 @@ const schemas: Readonly<Record<string, Check>> = {
       artifact: descriptor,
       docChanges: nullable(array(docChange, 128)),
       mirrorBaseCut: nullable(mirrorBaseCutShape),
-      accessToken,
       executionCredential: text,
     },
     ["schema", "messageId", "writerEpoch", "opId", "repoId", "taskId", "action", "docChanges", "mirrorBaseCut"],
@@ -827,7 +825,7 @@ const schemas: Readonly<Record<string, Check>> = {
     cut,
     knownHead: cut,
     manifestDigest: sha64,
-    authorizationOwner: text,
+    readerProfile: shape({ personId: text, nodeId: id }),
     authorizationShapeDigest: sha64,
   }),
   "fleet.replica.checkpoint/v1": shape({
@@ -837,7 +835,7 @@ const schemas: Readonly<Record<string, Check>> = {
     cut,
     knownHead: cut,
     manifestDigest: sha64,
-    authorizationOwner: text,
+    readerProfile: shape({ personId: text, nodeId: id }),
     authorizationShapeDigest: sha64,
   }),
   "fleet.snapshot.begin/v1": shape({
@@ -847,7 +845,7 @@ const schemas: Readonly<Record<string, Check>> = {
     viewId: id,
     cut,
     manifest,
-    authorizationOwner: text,
+    readerProfile: shape({ personId: text, nodeId: id }),
     authorizationShapeDigest: sha64,
   }),
   "fleet.snapshot.page/v1": shape({ ...common, transferId: id, pageIndex: uint, entries: array(entry) }),
@@ -862,7 +860,7 @@ const schemas: Readonly<Record<string, Check>> = {
     toCut: cut,
     changeCount: uint,
     resultManifestDigest: sha64,
-    authorizationOwner: text,
+    readerProfile: shape({ personId: text, nodeId: id }),
     authorizationShapeDigest: sha64,
   }),
   "fleet.delta.page/v1": shape({
@@ -899,7 +897,15 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
   } catch {
     throw new FleetContractError("Fleet frame is not valid JSON");
   }
-  if (!record(value) || typeof value.schema !== "string" || !schemas[value.schema]?.(value))
+  const payload = record(value)
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken"))
+    : value;
+  if (
+    !record(value) ||
+    (value.accessToken !== undefined && !accessToken(value.accessToken)) ||
+    typeof value.schema !== "string" ||
+    !schemas[value.schema]?.(payload)
+  )
     throw new FleetContractError(
       `Fleet frame violates closed schema ${record(value) ? String(value.schema) : "unknown"}`,
     );

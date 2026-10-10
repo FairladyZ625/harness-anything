@@ -245,6 +245,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await rbacResumed;
     return { ...(await oidc.center()), clientId: "harness-center" };
   };
+  const keycloakSession = async () => {
+    await rbacResumed;
+    const principal = (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal;
+    if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
+    return { personId: principal.personId, accessToken: principal.accessToken, ...principal.authority };
+  };
   const hostBinding: DaemonHostApiContext["binding"] = async (
       rootDir,
       auth,
@@ -272,7 +278,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             "execution_credential_rejected",
             "Execution credential belongs to a different repository.",
           );
-        // An edge holds no center authority; its reads authorize against the replica owner instead.
+        const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth));
+        if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
         const base = {
           actor: runtimeExecutionActor(execution),
           source: execution.source,
@@ -280,7 +287,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           writerEpoch: auth.writerEpoch,
           withWriterEpochFence: auth.withWriterEpochFence,
           writerEpochFence: auth.writerEpochFence,
-          ...(cell.status().mode === "remote-edge" ? {} : { keycloakAuthorization: { center: keycloakCenter } }),
+          ...(cell.status().mode === "remote-edge"
+            ? {}
+            : {
+                keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
+              }),
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
       }
@@ -311,6 +322,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           fleetEdgeRuntimes.get(key) ??
           openFleetEdgeRuntime({
             request,
+            readBinding: async () => {
+              const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
+              return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+            },
             daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
             daemonRoute: runtimeDaemonRoute,
             ports: runtimePorts,
@@ -333,11 +348,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             .schedule;
         if (!schedule || validateScheduleV1(schedule).length)
           throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
-        return daemonWriterBinding(repoId, {
-          actor: { principal: schedule.createdBy.principal, executor: null },
-          source: "local",
-          keycloakAuthorization: { center: keycloakCenter },
-        });
+        const current = await hostBinding(rootDir, { transportKind: "unix-socket" });
+        if (current.actor.principal.personId !== schedule.createdBy.principal.personId)
+          throw hostCodedError("authentication_required", "The schedule creator must sign in on this device.");
+        return daemonWriterBinding(repoId, current);
       },
       remoteEdgeAction: async (repoId, rootDir, action) => {
         const config = readFleetEdgeConfig(rootDir);
@@ -450,6 +464,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimePorts,
     runtimeDaemonRoute,
     keycloakCenter,
+    keycloakSession,
     scheduleScheduler,
     edgeRuntimeFor,
     invalidRepoId,
@@ -610,6 +625,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     hostCodedError,
     binding: hostBinding,
     keycloakCenter,
+    keycloakSession,
     oidc,
     writerEpochFence,
     writerEpochLease,
@@ -797,6 +813,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         : path.resolve(repo.canonicalRoot, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(repo.canonicalRoot, config.caPath);
       void runFleetReplicaSync({
+        readAccessToken: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal?.accessToken,
         hostname: config.host,
         port: config.port,
         ca: readFileSync(caPath),

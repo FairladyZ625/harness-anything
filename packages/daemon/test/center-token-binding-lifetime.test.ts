@@ -2,28 +2,32 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { binding as bindDaemonPrincipal } from "../src/daemon-host-binding.ts";
+import { evaluateFleetAction } from "../src/host-action-authorization.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
+import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { fatalCellError } from "../src/repo-cell-errors.ts";
 import { causeClassOf } from "../src/repo-cell-lock.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { serializableRepoCellBinding } from "../src/repo-writer-protocol.ts";
 import type { DaemonAuthenticationContext } from "../src/transport/auth-context.ts";
 
-test("a retained node-owner binding uses current center authority after token rotation", async (t) => {
+test("a retained user-device binding uses its current session after token rotation", async (t) => {
   let currentToken = "token-A",
     centerCalls = 0;
   const requests: { readonly route: string; readonly bearer: string | null }[] = [],
     auth: DaemonAuthenticationContext = {
       transportKind: "fleet-tls",
       nodePrincipal: { nodeId: "node-rotation", personId: "person_rotation" },
-      keycloakCenter: async () => {
+      oidcPrincipal: {
+        personId: "person_rotation",
+        subject: "user-rotation",
+        expiresAt: Date.now() + 60_000,
+        accessToken: currentToken,
+        authority: { url: "https://keycloak.invalid", realm: "harness", clientId: "harness-center" },
+      },
+      localSessionAccessToken: async () => {
         centerCalls += 1;
-        return {
-          url: "https://keycloak.invalid",
-          realm: "harness",
-          clientId: "harness-center",
-          accessToken: currentToken,
-        };
+        return currentToken;
       },
     },
     fetchPort: typeof fetch = async (input, init) => {
@@ -32,20 +36,10 @@ test("a retained node-owner binding uses current center authority after token ro
         bearer = new Headers(init?.headers).get("authorization");
       requests.push({ route, bearer });
       if (bearer !== `Bearer ${currentToken}`) return new Response(null, { status: 401 });
-      switch (route) {
-        case "/users?q=harness_person_id%3Aperson_rotation&exact=true":
-          return Response.json([{ id: "user-rotation" }]);
-        case "/clients?clientId=harness-center":
-          return Response.json([{ id: "center-client" }]);
-        case "/clients/center-client/authz/resource-server/resource?name=repo-rotation&exactName=true":
-          return Response.json([{ _id: "repo-resource", name: "repo-rotation" }]);
-        case "/clients/center-client/authz/resource-server/policy/evaluate":
-          assert.equal(init?.method, "POST");
-          assert.equal(JSON.parse(String(init.body)).userId, "user-rotation");
-          return Response.json({ status: "PERMIT", results: [{ status: "PERMIT" }] });
-        default:
-          throw new Error(`Unexpected fixture request: ${route}`);
-      }
+      assert.equal(route, "/realms/harness/protocol/openid-connect/token");
+      assert.equal(init?.method, "POST");
+      assert.equal((init?.body as URLSearchParams).get("grant_type"), "urn:ietf:params:oauth:grant-type:uma-ticket");
+      return Response.json({ result: true });
     },
     evaluate = (binding: RepoCellBinding) =>
       evaluateRepoCellAction({
@@ -59,8 +53,10 @@ test("a retained node-owner binding uses current center authority after token ro
       }),
     retained = await bindDaemonPrincipal("/unused", auth);
 
-  assert.equal(typeof retained.keycloakAuthorization?.center, "function");
-  assert.deepEqual(serializableRepoCellBinding(retained).keycloakAuthorization, { center: true });
+  assert.equal(typeof retained.keycloakAuthorization?.session?.currentAccessToken, "function");
+  assert.deepEqual(serializableRepoCellBinding(retained).keycloakAuthorization, {
+    session: { ...retained.keycloakAuthorization?.session, currentAccessToken: true },
+  });
 
   await t.test("the same action allows A before rotation and a fresh binding allows B after rotation", async () => {
     assert.equal((await evaluate(retained)).outcome, "allowed");
@@ -70,7 +66,7 @@ test("a retained node-owner binding uses current center authority after token ro
     assert.equal(centerCalls, 2);
     assert.deepEqual(
       requests.map(({ bearer }) => bearer),
-      [...Array<string>(4).fill("Bearer token-A"), ...Array<string>(4).fill("Bearer token-B")],
+      ["Bearer token-A", "Bearer token-B"],
     );
   });
 
@@ -93,20 +89,54 @@ test("a retained node-owner binding uses current center authority after token ro
         );
         throw error;
       }
-    }, "a long-lived binding must consult current center authority at authorization time");
+    }, "a long-lived binding must consult its current user session at authorization time");
+  });
+
+  await t.test("center authority cannot replace a missing or mismatched user session", async () => {
+    let borrowed = 0;
+    const center = async () => {
+      borrowed += 1;
+      throw new Error("must not borrow center authority");
+    };
+    assert.equal((await evaluate({ ...retained, keycloakAuthorization: { center } })).outcome, "denied");
+    assert.equal(
+      (
+        await evaluate({
+          ...retained,
+          keycloakAuthorization: {
+            center,
+            session: { ...retained.keycloakAuthorization!.session!, personId: "another-person" },
+          },
+        })
+      ).outcome,
+      "denied",
+    );
+    assert.equal(
+      (
+        await evaluateFleetAction({
+          kind: "daemon-repo-register",
+          binding: { ...retained, keycloakAuthorization: { center } },
+          actionId: "host-no-session",
+          evaluatedAtCut: "test",
+          fetchPort,
+        })
+      ).outcome,
+      "denied",
+    );
+    assert.equal(borrowed, 0);
   });
 
   await t.test("an Admin 401 is coded, non-fatal, and not a data-shape failure", async () => {
     let rejection: unknown;
     try {
-      await evaluateRepoCellAction({
-        action: { kind: "task-create", title: "Rejected authorization" },
-        binding: retained,
-        actionId: "op-rejected",
-        repoId: "repo-rotation",
-        revision: 2,
-        now: "2026-10-09T00:00:01.000Z",
-        fetchPort: async () => new Response(null, { status: 401 }),
+      await new KeycloakPolicyAdapter(
+        { url: "https://keycloak.invalid", realm: "harness", resourceServerClientId: "harness-center" },
+        async () => new Response(null, { status: 401 }),
+      ).authorizePerson({
+        adminAccessToken: "infrastructure-token",
+        personId: "person_rotation",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-rotation" },
       });
     } catch (error) {
       rejection = error;

@@ -101,7 +101,12 @@ for (const [label, before, after] of [
   ["authenticated assignment source", "owner = auth.nodePrincipal", "owner = clientOwner"],
   ["registered person binding", "personId: owner.personId", 'personId: "client-person"'],
   ["assignment provenance", "nodeId: owner.nodeId", 'nodeId: "client-node"'],
-  ["node Keycloak connection", "center: auth.keycloakCenter }", "center: otherAuthority }"],
+  [
+    "node Keycloak connection",
+    "session: { accessToken: auth.oidcPrincipal.accessToken }",
+    "session: { accessToken: clientToken }",
+  ],
+  ["device session owner", "auth.oidcPrincipal.personId !== owner.personId", "false"],
   ["center registry connection", "keycloakNodeRegistry(context.keycloakCenter)", "otherRegistry()"],
   ["node credential validation", "adapter.authenticateNode(nodeId, credential)", "adapter.acceptNode(nodeId)"],
   ["registered owner lookup", "adapter.readNode(token, nodeId)", "adapter.readClientOwner(nodeId)"],
@@ -233,10 +238,11 @@ function withSessionEnvironment(binding, auth) {
 }
 function nodeOwnerBinding(auth) {
   const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.keycloakCenter) throw new Error("authentication_required");
+  if (!owner || !owner.nodeId || !auth.oidcPrincipal) throw new Error("authentication_required");
+  if (auth.oidcPrincipal.personId !== owner.personId) throw new Error("human_confirmation_required");
   return { actor: { principal: { personId: owner.personId }, executor: null },
     source: { kind: "node", nodeId: owner.nodeId },
-    keycloakAuthorization: { center: auth.keycloakCenter } };
+    keycloakAuthorization: { session: { accessToken: auth.oidcPrincipal.accessToken } } };
 }
 export function binding(rootDir, auth, executor) {
   if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);

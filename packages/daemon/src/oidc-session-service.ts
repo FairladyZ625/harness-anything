@@ -418,7 +418,10 @@ export class OidcSessionService {
    */
   async bind(auth: DaemonAuthenticationContext, replicaRead = false): Promise<DaemonAuthenticationContext> {
     if (auth.transportKind === "fleet-tls") {
-      if (!auth.humanAccessToken) return auth;
+      if (!auth.humanAccessToken)
+        throw Object.assign(new Error("Sign in on this device before using Fleet."), {
+          code: "authentication_required",
+        });
       const config = this.#config();
       return verifyFleetHuman({
         auth,

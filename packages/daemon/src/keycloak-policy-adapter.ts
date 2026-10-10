@@ -470,13 +470,13 @@ export class KeycloakPolicyAdapter {
     await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
   }
 
-  /** The machine proves itself to Keycloak; the center never holds a copy of the credential. */
+  /** Authenticate the confidential login client without minting a service-account token. */
   async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
-    const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
+    const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token/introspect"), {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: "client_credentials",
+        token: "harness-client-authentication",
         client_id: `${nodeClientPrefix}${nodeId}`,
         client_secret: credential,
       }),
@@ -660,7 +660,7 @@ function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode)
     clientId: `${nodeClientPrefix}${node.nodeId}`,
     enabled: true,
     publicClient: false,
-    serviceAccountsEnabled: true,
+    serviceAccountsEnabled: false,
     standardFlowEnabled: true,
     directAccessGrantsEnabled: false,
     redirectUris: ["http://127.0.0.1/*"],

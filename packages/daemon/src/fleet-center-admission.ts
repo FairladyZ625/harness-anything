@@ -115,9 +115,13 @@ export interface FleetEdgeSyncRequest {
     readonly timeoutMs?: number;
   };
 }
-export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<Record<string, unknown>> {
+export async function syncFleetEdgeMirror(
+  input: FleetEdgeSyncRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const pulled = await runFleetReplicaPullClient({
+      readAccessToken,
       hostname: input.payload.host,
       port: input.payload.port,
       ca: material(input.payload.caPath, "--ca").toString("utf8"),

@@ -57,7 +57,7 @@ function fixture(t: import("node:test").TestContext, count: number) {
     schemaGeneration: 1,
     headDigest: "a".repeat(64),
     manifestDigest: "b".repeat(64),
-    authorizationOwner: null,
+    readerProfile: null,
     authorizationShapeDigest: "c".repeat(64),
     get entries() {
       entryAccesses++;

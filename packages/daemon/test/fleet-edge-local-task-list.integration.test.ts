@@ -51,7 +51,7 @@ test(
     e.signIn("person-one");
     const currentPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
     const currentWithoutAuthorization = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
-    delete currentWithoutAuthorization.authorizationOwner;
+    delete currentWithoutAuthorization.readerProfile;
     delete currentWithoutAuthorization.authorizationShapeDigest;
     writeFileSync(currentPath, JSON.stringify(currentWithoutAuthorization));
     assert.equal((await local()).code, "authorization_denied", "a view without authorization metadata is not readable");
@@ -155,8 +155,8 @@ test("same repository pulls keep per-node authorization metadata independent", {
   await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: second, diskQuotaBytes: quota });
   const one = locateFleetMirrorView(first, "lease-repo")!,
     two = locateFleetMirrorView(second, "lease-repo")!;
-  assert.equal(one.authorizationOwner, "person-one");
-  assert.equal(two.authorizationOwner, "person-two");
+  assert.deepEqual(one.readerProfile, { personId: "person-one", nodeId: "node-one" });
+  assert.deepEqual(two.readerProfile, { personId: "person-two", nodeId: "node-two" });
   assert.notEqual(one.authorizationShapeDigest, two.authorizationShapeDigest);
   f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
   await assert.rejects(runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota }), {
@@ -216,13 +216,13 @@ test(
     );
     assert.equal(write.code, "repo_mode_read_only");
     rejected = true;
-    assert.equal((await e.command({ kind: "task-list" })).code, "authentication_required");
+    assert.equal((await e.command({ kind: "task-list" })).code, "authorization_denied");
     assert.equal(store.read(), undefined);
     e.signIn("person-one");
     store.write(
       JSON.stringify({ ...JSON.parse(store.read()!), expiresAt: Date.now() - 1000, sessionExpiresAt: Date.now() - 1 }),
     );
     rejected = false;
-    assert.equal((await e.command({ kind: "task-list" })).code, "authentication_required");
+    assert.equal((await e.command({ kind: "task-list" })).code, "authorization_denied");
   },
 );
