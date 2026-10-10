@@ -20,15 +20,24 @@ const certificate: GenerationThreeActivation = {
   acceptedCut: { repoId: "certificate-fixture", revision: 5, headDigest: `sha256:${"b".repeat(64)}` },
 };
 
-for (const interrupt of ["before-link", "after-link", "after-directory-sync", "none"] as const) {
+for (const interrupt of ["during-write", "before-link", "after-link", "after-directory-sync", "none"] as const) {
   test(`activation exposes complete bytes only, including interruption ${interrupt}`, () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-gen3-certificate-"));
     const finalPath = `${sqliteLedgerPath(root, 3)}.activation.json`;
     mkdirSync(path.dirname(finalPath), { recursive: true });
-    const link = files.linkExclusive,
+    const create = files.createExclusiveText,
+      link = files.linkExclusive,
       sync = files.syncDirectory;
     const seen: string[] = [];
     try {
+      files.createExclusiveText = (file, bytes, sync) => {
+        if (interrupt === "during-write") {
+          create(file, bytes.slice(0, Math.floor(bytes.length / 2)), sync);
+          seen.push("during-write");
+          throw new Error("injected-during-write");
+        }
+        return create(file, bytes, sync);
+      };
       files.linkExclusive = (temporary, final) => {
         assert.equal(path.dirname(temporary), path.dirname(final));
         assert.equal(existsSync(final), false);
@@ -48,23 +57,27 @@ for (const interrupt of ["before-link", "after-link", "after-directory-sync", "n
       if (interrupt === "none") publishGenerationThreeActivation(root, certificate);
       else
         assert.throws(() => publishGenerationThreeActivation(root, certificate), new RegExp(`injected-${interrupt}`));
-      assert.equal(existsSync(finalPath), interrupt !== "before-link");
+      assert.equal(existsSync(finalPath), !["during-write", "before-link"].includes(interrupt));
       if (existsSync(finalPath)) assert.deepEqual(JSON.parse(readFileSync(finalPath, "utf8")), certificate);
       assert.deepEqual(
         seen,
-        ["before-link", "after-link", "after-directory-sync"].slice(
-          0,
-          interrupt === "before-link" ? 1 : interrupt === "after-link" ? 2 : 3,
-        ),
+        interrupt === "during-write"
+          ? ["during-write"]
+          : ["before-link", "after-link", "after-directory-sync"].slice(
+              0,
+              interrupt === "before-link" ? 1 : interrupt === "after-link" ? 2 : 3,
+            ),
       );
+      files.createExclusiveText = create;
       files.linkExclusive = link;
       files.syncDirectory = sync;
-      if (interrupt === "before-link") publishGenerationThreeActivation(root, certificate);
+      if (["during-write", "before-link"].includes(interrupt)) publishGenerationThreeActivation(root, certificate);
       assert.throws(() => publishGenerationThreeActivation(root, { ...certificate, repoId: "different" }), {
         code: "EEXIST",
       });
       assert.deepEqual(JSON.parse(readFileSync(finalPath, "utf8")), certificate);
     } finally {
+      files.createExclusiveText = create;
       files.linkExclusive = link;
       files.syncDirectory = sync;
       rmSync(root, { recursive: true, force: true });

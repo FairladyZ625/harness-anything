@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -58,6 +58,17 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     await applied({ kind: "preset-install", packageSource: source });
     const validated = await cell.run({ kind: "vertical-validate", presetId: "research-checks" }, worker);
     assert.equal(JSON.parse(String(validated.evidence)).valid, true, JSON.stringify(validated));
+    const invalidAssets = path.join(root, "source", "undeclared-source");
+    cpSync(new URL("../../preset/assets/software-coding", import.meta.url), invalidAssets, { recursive: true });
+    const verticalPath = path.join(invalidAssets, "vertical.json"),
+      vertical = JSON.parse(readFileSync(verticalPath, "utf8"));
+    vertical.completion.gates.ci.source = "research/undeclared";
+    writeFileSync(verticalPath, JSON.stringify(vertical));
+    const unknown = await cell.run({ kind: "vertical-validate", verticalSource: invalidAssets }, worker);
+    const unknownReport = JSON.parse(String(unknown.evidence));
+    assert.equal(unknownReport.valid, false, JSON.stringify(unknownReport));
+    assert.match(JSON.stringify(unknownReport), /research\/undeclared/);
+    console.log("W1_UNKNOWN_SOURCE_VALIDATE=" + JSON.stringify(unknownReport));
     const created = await applied({
         kind: "task-create",
         taskId,
@@ -98,6 +109,7 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     assert.match(JSON.stringify(red), /gates\.version-pinned\.predicate\.seed/);
     const failed = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(failed.outcome, "op_rejected", JSON.stringify(failed));
+    console.log("W1_SEED_MISSING_RECEIPT=" + JSON.stringify({ submit: red, complete: failed }));
     const events = () =>
       makeTaskEventReader({ repoId, rootDir: root })
         .read()
@@ -159,6 +171,7 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     assert.deepEqual(green.payload.execution.submission!.completionContract, frozen);
     assert.equal(currentGateRun(green.payload.execution, "version-pinned")?.result, "pass");
     assert.equal(green.payload.execution.gateRuns.length, 3);
+    console.log("W1_SEED_REPAIRED_WITNESS=" + JSON.stringify(green.payload.witness));
     // This edit never enters doc-submit: an explicit owner rerun must still read accepted seed 42.
     writeFileSync(path.join(ledger, packagePath, "artifacts/experiment.json"), '{"seed":"mutable-workspace"}\n');
     const greenRun = currentGateRun(green.payload.execution, "version-pinned")!;
@@ -193,6 +206,7 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "completion-restarted" });
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    console.log("W1_COLD_RESTART_COMPLETION=" + JSON.stringify(completed));
     await waitForFixturePublication(cell, completed.opId, owner);
     const final = events().findLast((e) => e.type === "task_completed")!;
     assert.equal(final.payload.execution.gateRuns.length, 4);

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { localRuntimeStateFileSystem as files } from "../../src/local/local-layout-file-system.ts";
 import { createLedgerBackup } from "../../src/store/ledger-backup.ts";
 import { DatabaseSync } from "node:sqlite";
 import assert from "node:assert/strict";
@@ -171,6 +172,30 @@ test("offline backup accepts the retired shape but conversion rejects an invalid
     );
     assert.equal(existsSync(`${sqliteLedgerPath(f.destinationRoot, 3)}.activation.json`), false);
   } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("resuming a complete certificate linked before directory fsync finishes its durability boundary", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-link-before-sync-"));
+  const sync = files.syncDirectory;
+  try {
+    const f = completionActivationFixture(parent),
+      input = { ...f, invalidateDerivedState: () => {} };
+    runCompletionGenerationConversion({ ...input, mode: "convert" });
+    let syncs = 0;
+    files.syncDirectory = (directory) => {
+      if (directory === path.dirname(sqliteLedgerPath(f.destinationRoot, 3)) && ++syncs === 1)
+        throw new Error("linked-before-fsync");
+      sync(directory);
+    };
+    assert.throws(() => runCompletionGenerationConversion({ ...input, mode: "activate" }), /linked-before-fsync/);
+    assert.equal(existsSync(`${sqliteLedgerPath(f.destinationRoot, 3)}.activation.json`), true);
+    assert.equal(existsSync(sqliteLedgerPath(f.destinationRoot, 2)), false);
+    assert.equal(runCompletionGenerationConversion({ ...input, mode: "activate" }).active, true);
+    assert.equal(syncs, 2);
+  } finally {
+    files.syncDirectory = sync;
     rmSync(parent, { recursive: true, force: true });
   }
 });
