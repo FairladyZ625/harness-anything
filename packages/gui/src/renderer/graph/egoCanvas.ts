@@ -23,9 +23,11 @@ import { STATUS_META } from "../components/badges";
  *   egoNeighborsOf   — 某节点经轴过滤的一跳邻居(expandNode 长出下一环用)。
  *   layoutEgoCanvas  — 给定 (focusId, shown, expanded, filters) → 节点位置 + 边。
  *
- * 不变量:布局接续宿主保存的中心。初次摆放保留焦点两侧走线通道,邻居按 chip 排布;展开卡片覆盖邻居、
- * 收起只从 expanded 里减 —— 已铺开的邻居永不撤回,画布永不因节点交互重排
- * (换焦点/跳数步进/分层开关这些显式视图切换才重铺)。
+ * 不变量:初次摆放保留焦点两侧走线通道,邻居按 chip 排布;展开卡片按真实尺寸让开
+ * 同伴与 chip、收起只从 expanded 里减 —— 已铺开的邻居永不撤回,列结构永不因节点交互
+ * 重排(换焦点/跳数步进/分层开关这些显式视图切换才重铺)。摆放是
+ * (焦点, 铺开集, 展开集, 尺寸) 的纯函数:位置可从状态确定复算,不需要增量中心记忆
+ * (2026-10-10 业主反馈:展开卡片互相重叠遮挡,旧「卡片覆盖邻居」语义随之废止)。
  */
 
 /** 图节点的 kind:内建五类 + 已注册 kind 读面上声明出来的 kind(见 graph/endpoint.ts)。 */
@@ -302,10 +304,8 @@ export interface EgoCanvasInput {
   filters: EgoFilters;
   /** 累积可见集:node id → 距焦点跳数。 */
   shown: ReadonlyMap<string, number>;
-  /** 渲染为原位卡片的 node id(其余为紧凑 chip)。 */
+  /** 渲染为原位卡片的 node id(其余为紧凑 chip);迭代序即展开先后。 */
   expanded: ReadonlySet<string>;
-  /** 已摆放的中心,显式重铺时由宿主清空。 */
-  centers?: ReadonlyMap<string, { x: number; y: number }>;
   /** Shared long-content cap resolved against the actual graph viewport. */
   cardHeightCap?: number;
 }
@@ -415,24 +415,42 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     }
   }
 
-  // 邻居只按 chip 尺寸摆放;展开卡片以更高层级覆盖邻居,不预留邻居阅读态空间。
-  // 已有节点锁定中心;新邻居只寻找空位,不会推走旧列。每次碰撞把候选 y
-  // 推到冲突节点的下边界之后,单调向下且已占用集合有限。
-  const placed = new Map<string, { x: number; y: number }>();
+  // ── 摆放:真实尺寸碰撞消解(2026-10-10 业主反馈,展开卡片不得互相重叠) ──
+  // 列基准(上面的 pos)只按 chip 排布,不随展开态变化;摆放时每个节点按真实当前
+  // 尺寸(chip 或展开卡片)让开已落位者。落位顺序:焦点(钉在原点,相机不动)→
+  // 已展开卡片按展开先后(先读的先落位,后展开的找空位)→ 其余 chip 按列内自上
+  // 而下。被挡住的一方沿 y 向下让到清除冲突为止;已落位集合有限且 y 单调增,
+  // 必然终止。摆放是状态的纯函数:收起卡片障碍消失,节点回到列内原位(回收)。
+  const dims = new Map<string, { w: number; h: number }>();
   for (const id of vis) {
-    const center = input.centers?.get(id);
-    if (center) placed.set(id, center);
+    const meta = byId.get(id)!;
+    dims.set(id, egoNodeDims(meta.entity, expanded.has(id), meta.row, id === focusId, input.cardHeightCap));
   }
-  for (const id of vis) {
-    if (placed.has(id)) continue;
+  const chips = [...vis]
+    .filter((id) => id !== focusId && !expanded.has(id))
+    .sort((a, b) => pos.get(a)!.y - pos.get(b)!.y || pos.get(a)!.x - pos.get(b)!.x);
+  const order = [focusId, ...[...expanded].filter((id) => id !== focusId && vis.has(id)), ...chips];
+  const placed = new Map<string, { x: number; y: number }>();
+  for (const id of order) {
     const center = { ...pos.get(id)! };
+    const self = dims.get(id)!;
     let conflicts: string[];
     do {
       conflicts = [...placed.keys()].filter((other) => {
         const at = placed.get(other)!;
-        return Math.abs(center.x - at.x) < CHIP_W + GAP_X && Math.abs(center.y - at.y) < CHIP_H + GAP_Y;
+        const size = dims.get(other)!;
+        return (
+          Math.abs(center.x - at.x) < (self.w + size.w) / 2 + GAP_X &&
+          Math.abs(center.y - at.y) < (self.h + size.h) / 2 + GAP_Y
+        );
       });
-      if (conflicts.length) center.y = Math.max(...conflicts.map((other) => placed.get(other)!.y + CHIP_H + GAP_Y));
+      if (conflicts.length)
+        center.y = Math.max(
+          ...conflicts.map((other) => {
+            const at = placed.get(other)!;
+            return at.y + (self.h + dims.get(other)!.h) / 2 + GAP_Y;
+          }),
+        );
     } while (conflicts.length > 0);
     placed.set(id, center);
   }
@@ -444,7 +462,7 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     if (!meta) continue;
     const center = placed.get(id)!;
     const isExpanded = expanded.has(id);
-    const { w, h } = egoNodeDims(meta.entity, isExpanded, meta.row, id === focusId, input.cardHeightCap);
+    const { w, h } = dims.get(id)!;
     // 「还有多少邻居没铺开」—— chip 上的 +N 徽章,点开这张卡片会长出它们。
     let hiddenCount = 0;
     for (const entry of adj.get(id) ?? []) {

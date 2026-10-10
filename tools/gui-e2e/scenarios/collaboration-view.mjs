@@ -114,7 +114,10 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
     replica = openReplicaCutSource({
       repoId,
       localRoot: path.dirname(path.dirname(projection.path)),
-      readBasis: (afterRevision) => projection.readReplicaBasis(afterRevision),
+      // 与 repo-cell 同款读序列适配(readSequence/readRevision 口径,a310599ca 起
+      // publish 必经 readSequence;旧的 readBasis 选项已不在接口上)。
+      readSequence: (from, read) => projection.readReplicaSequence(from, read),
+      readRevision: (revision) => projection.readReplicaRevision(revision),
       readLedgerCut: () => store.currentCut(),
       readContentBlob: (sha256) => store.readContentBlob(sha256),
       readEvent: (opId) => store.readEvent(opId),

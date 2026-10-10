@@ -37,6 +37,7 @@ import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
 import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-default.mjs";
 import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
+import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
 
 export const catalog = [
   ciObservations,
@@ -78,6 +79,7 @@ export const catalog = [
   overviewArtifactsShelf,
   taskDetailExplainerDefault,
   tokenUsageCosts,
+  graphSpotlightCards,
 ];
 
 export function selectScenarios({ lane, ids }) {

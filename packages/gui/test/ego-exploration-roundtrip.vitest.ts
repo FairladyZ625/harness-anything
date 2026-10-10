@@ -142,19 +142,45 @@ describe("主图探索的所有权与节点中心", () => {
     expect(readEgoSessionFor("repo-a", "task/a")?.expanded).toContain("fact/F-B");
   });
 
-  it("展开/收起和长出新邻居保持所有已有节点中心,显式换焦点才重排", async () => {
+  it("展开/收起让被挡节点让位且任意两卡不相交,显式换焦点才重排列结构", async () => {
     const before = centers();
     await click(nodeElement("fact/F-B", "ego-chip"));
     expect(flow.nodes!.some((node) => node.id === "d")).toBe(true);
-    for (const [id, center] of before) expect(centers().get(id), id).toEqual(center);
-    const expanded = centers();
-    for (const id of ["c", "d"]) {
-      await click(nodeElement(id, "ego-chip"));
-      expect(centers()).toEqual(expanded);
-    }
+    // F-B 展开:焦点 a 钉在原点不动;F-B 卡片与更宽的焦点卡真实相交,沿本列
+    // 向下让位(列 x 不变),而不是叠在焦点卡上。
+    expect(centers().get("a")).toEqual(before.get("a"));
+    const fbCard = centers().get("fact/F-B")!;
+    expect(fbCard.x).toEqual(before.get("fact/F-B")!.x);
+    expect(fbCard.y).toBeGreaterThan(before.get("fact/F-B")!.y);
+    for (const id of ["c", "d"]) await click(nodeElement(id, "ego-chip"));
+    // 每一步之后任意两盒(含间距)两两不相交 —— 2026-10-10 业主反馈的核心契约。
+    const disjoint = () => {
+      const boxes = flow.nodes!.map((node) => ({
+        id: node.id,
+        cx: node.position.x + Number(node.width) / 2,
+        cy: node.position.y + Number(node.height) / 2,
+        w: Number(node.width),
+        h: Number(node.height),
+      }));
+      for (let i = 0; i < boxes.length; i += 1)
+        for (let j = i + 1; j < boxes.length; j += 1) {
+          const a = boxes[i]!;
+          const b = boxes[j]!;
+          expect(
+            Math.abs(a.cx - b.cx) >= (a.w + b.w) / 2 + 72 || Math.abs(a.cy - b.cy) >= (a.h + b.h) / 2 + 36,
+            `${a.id} overlaps ${b.id}`,
+          ).toBe(true);
+        }
+    };
+    disjoint();
     for (const node of flow.nodes!.filter((node) => node.data.expanded)) expect(node.zIndex).toBeGreaterThan(1);
-    await click(nodeElement("fact/F-B", "ego-card-collapse"));
-    expect(centers()).toEqual(expanded);
+    // 全部收起:障碍消失,所有节点回到从未展开时的 chip 位置(完整回收)。
+    for (const id of ["fact/F-B", "c", "d"]) {
+      const card = div.querySelector<HTMLElement>(`.react-flow__node[data-id='${id}'] [data-testid='ego-card']`);
+      if (card) await click(card.querySelector<HTMLElement>("[data-testid='ego-card-collapse']")!);
+    }
+    disjoint();
+    for (const [id, center] of before) expect(centers().get(id), id).toEqual(center);
     await click(nodeElement("fact/F-B", "ego-chip"));
     await click(nodeElement("fact/F-B", "ego-card-refocus"));
     expect(flow.nodes!.find((node) => node.data.focus)?.id).toBe("fact/F-B");

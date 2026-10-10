@@ -10,7 +10,8 @@ import { egoFocusIdOf } from "./egoCanvas";
  * 与既有 graph-territory/graph-density 的持久偏好不同类,不做跨会话恢复)。
  *
  * 归属主图导航上下文:GraphView 显式启用 rememberSession,其 useEgoCanvas 写
- * 焦点/铺开/展开、EgoNeighborhood 写中心/viewport、GraphView 写 hops。
+ * 焦点/铺开/展开、EgoNeighborhood 写 viewport、GraphView 写 hops。节点位置不进
+ * 会话 —— 布局是状态的纯函数,焦点/铺开/展开原样接续即可复算原位置。
  * 详情页与工作页的嵌入邻域不接入此槽,它们的探索态只随组件存活。
  * 归属键是仓 + 焦点引用(CEO 返修 2026-10-02):ref 只在仓内唯一,两个项目可以有
  * 完全相同的 `task/...`/`decision/...`,因此跨项目绝不互读 —— 换仓的写入把槽重置为
@@ -32,8 +33,6 @@ export interface EgoSessionEntry {
   expanded?: ReadonlyArray<string>;
   /** 用户最后的平移/缩放。 */
   viewport?: { x: number; y: number; zoom: number };
-  /** 本次探索已摆放的节点中心;详情往返不根据展开态重新分列。 */
-  centers?: ReadonlyArray<[string, { x: number; y: number }]>;
 }
 
 let entry: EgoSessionEntry | null = null;
