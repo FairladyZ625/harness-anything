@@ -9,7 +9,8 @@ let held = false;
 function hold(): void {
   if (held) return;
   held = true;
-  Atomics.store(control, 0, 1);
+  // A teardown release can arrive before the worker reaches this phase.
+  Atomics.compareExchange(control, 0, 0, 1);
   parentPort!.postMessage({ backupHeld: true });
   Atomics.wait(control, 0, 1);
 }
