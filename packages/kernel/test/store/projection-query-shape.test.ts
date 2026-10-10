@@ -671,6 +671,35 @@ test("decision collection read uses one statement and indexed owner lookups", (c
   }
 });
 
+test("batched entity witnesses materialize request fields before joining projected rows", (context) => {
+  const counted = countingDatabase(),
+    { db } = counted;
+  try {
+    db.exec(
+      "CREATE TABLE entity_projection (entity_kind TEXT, task_id TEXT, entity_id TEXT, " +
+        "freshness TEXT, current_version INTEGER, PRIMARY KEY(entity_kind, task_id, entity_id))",
+    );
+    const insert = db.prepare("INSERT INTO entity_projection VALUES ('runtime-session', '', ?, 'current', ?)");
+    for (let index = 0; index < 1_000; index += 1) insert.run(`runtime_${index}`, index);
+    const refs = ["runtime-session/runtime_10", "runtime-session/runtime_999", "runtime-session/runtime_missing"],
+      witnesses = readEntityVersionWitnesses(db, [...refs, refs[0]!]);
+    assert.deepEqual(
+      [...witnesses.values()].map((row) => row.currentVersion),
+      [10, 999, null],
+    );
+    assert.equal(witnesses.get(refs[2]!)?.freshness, "unknown");
+    const read = counted.reads().find(({ sql }) => sql.includes("WITH requested AS"))!,
+      plan = queryPlan(db, read);
+    context.diagnostic(`entity witness plan: ${plan}`);
+    assert.match(plan, /MATERIALIZE requested/u);
+    // Request materialization is local to one statement, never a cache of entity versions.
+    db.prepare("UPDATE entity_projection SET current_version = 1001 WHERE entity_id = 'runtime_10'").run();
+    assert.equal(readEntityVersionWitnesses(db, refs).get(refs[0]!)?.currentVersion, 1001);
+  } finally {
+    db.close();
+  }
+});
+
 test("a projection connection prepares each statement once and reads its table set once", () => {
   const counted = countingDatabase(),
     { db } = counted;

@@ -206,12 +206,13 @@ export function classifyFactAnomaly(
   return "normal";
 }
 
-/** fact 的宿主 task:produces 边(task → fact)的起点;standalone fact 没有宿主。 */
-function factHostTaskId(factRef: string, relations: ReadonlyArray<RelationEdge>): string | undefined {
-  const canonicalRef = factRef.startsWith("fact/") ? factRef : `fact/${factRef}`;
-  return relations
-    .find((edge) => edge.kind === "produces" && edge.to === canonicalRef && edge.from.startsWith("task/"))
-    ?.from.slice("task/".length);
+/** 每批关系遍历一次,保留首条 produces 边的 task 宿主;standalone fact 没有宿主。 */
+export function factHostTaskIds(relations: ReadonlyArray<RelationEdge>): ReadonlyMap<string, string> {
+  const hosts = new Map<string, string>();
+  for (const edge of relations)
+    if (edge.kind === "produces" && edge.from.startsWith("task/") && !hosts.has(edge.to))
+      hosts.set(edge.to, edge.from.slice("task/".length));
+  return hosts;
 }
 
 /**
@@ -222,9 +223,9 @@ export function isFactVisibleWithHost(
   factRef: string,
   visibleTaskIds: ReadonlySet<string>,
   allTaskIds: ReadonlySet<string>,
-  relations: ReadonlyArray<RelationEdge>,
+  hosts: ReadonlyMap<string, string>,
 ): boolean {
-  const ownerTaskId = factHostTaskId(factRef, relations);
+  const ownerTaskId = hosts.get(factRef.startsWith("fact/") ? factRef : `fact/${factRef}`);
   if (!ownerTaskId || !allTaskIds.has(ownerTaskId)) return true;
   return visibleTaskIds.has(ownerTaskId);
 }
@@ -237,6 +238,7 @@ function factWorkIndex(
   tasks: ReadonlyArray<TaskRow>,
   relations: ReadonlyArray<RelationEdge>,
 ): { workOf: (factRef: string) => string; titleOf: (work: string) => string } {
+  const hosts = factHostTaskIds(relations);
   const workById = new Map<string, string>();
   const titles = new Map<string, string>();
   for (const task of tasks) {
@@ -246,7 +248,7 @@ function factWorkIndex(
   }
   return {
     workOf: (factRef) => {
-      const hostTaskId = factHostTaskId(factRef, relations);
+      const hostTaskId = hosts.get(factRef.startsWith("fact/") ? factRef : `fact/${factRef}`);
       return (hostTaskId && workById.get(hostTaskId)) || NO_WORK;
     },
     titleOf: (work) => (work === NO_WORK ? NO_WORK_TITLE : (titles.get(work) ?? work)),

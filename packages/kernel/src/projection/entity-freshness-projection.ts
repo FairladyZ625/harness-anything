@@ -54,7 +54,9 @@ export function readEntityVersionWitnesses(
       : "NULL",
     rows = prepareQuery(
       db,
-      `WITH requested AS (
+      // Keep JSON extraction outside the joins: a kind can have thousands of projected
+      // rows, and an inlined CTE would re-extract each requested field for every match.
+      `WITH requested AS MATERIALIZED (
           SELECT CAST(key AS INTEGER) AS position,
             json_extract(value, '$.ref') AS ref,
             json_extract(value, '$.kind') AS kind,
