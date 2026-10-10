@@ -83,6 +83,16 @@ export function createDaemonHostRepositoryApi(
           `This repository is already registered as ${registeredRoot.repoId}; ` +
             `rerun without --repo-id or with --repo-id ${registeredRoot.repoId}.`,
         );
+      // dec_D60FAA451F24160E970323B6F3: even a single-user machine authorizes through the Keycloak that
+      // ha bootstrap installs. Without that authority init cannot publish its first ledger event, so it
+      // stops here rather than scaffolding the workspace and failing the ledger authorization afterwards.
+      if (!request.configureOnly && !context.oidc.configured())
+        throw context.hostCodedError(
+          "rbac_not_configured",
+          "This daemon has no Keycloak authority. Run ha bootstrap once on this machine to install it, create the " +
+            "first administrator with ha bootstrap --operation bootstrap-admin, sign in with ha bootstrap " +
+            "--operation login, then rerun ha init.",
+        );
       const registeredPersonId =
         reusedRegistration && request.personId === undefined
           ? (await context.binding(requestedRoot, auth)).actor.principal.personId
