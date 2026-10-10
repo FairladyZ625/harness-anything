@@ -1,12 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { recordE2EProbeFailure, runCliJsonForTest } from "./e2e-probe.mjs";
 
-test("a rejected artifact attach keeps the closure's taskId and still records the first-triage fact", async (context) => {
+test("a rejected artifact attach fails the probe closure with its original error", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "e2e-probe-closure-")),
     bundlePath = path.join(root, "failure.json");
   context.after(() => rmSync(root, { recursive: true, force: true }));
@@ -22,29 +23,46 @@ test("a rejected artifact attach keeps the closure's taskId and still records th
       failureSignature: "0123456789abcdef0123",
     })}\n`,
   );
-  const rejections = [];
+  const rejection = Object.assign(new Error("content_not_ready · exit 1"), { code: "probe_closure_rejected" }),
+    calls = [];
   const runCli = async (_workspaceRoot, _rootDir, args) => {
+    calls.push(args.slice(0, 3).join(" "));
     if (args[0] === "task" && args[1] === "list") return { ok: true, outcome: "applied", evidence: '{"rows":[]}' };
     if (args[0] === "task" && args[1] === "create")
       return { ok: true, outcome: "applied", taskId: "task-e2eclosurefake" };
     if (args[0] === "task" && args[1] === "artifact" && args[2] === "add") {
-      const rejection = Object.assign(new Error("content_not_ready · exit 1"), { code: "probe_closure_rejected" });
-      rejections.push(rejection);
       throw rejection;
     }
     if (args[0] === "fact" && args[1] === "record") return { ok: true, outcome: "applied" };
     throw new Error(`unexpected CLI invocation: ${args.join(" ")}`);
   };
 
-  const closure = await recordE2EProbeFailure({ bundlePath, runCli });
+  await assert.rejects(recordE2EProbeFailure({ bundlePath, runCli }), (error) => {
+    assert.equal(error, rejection, "the attachment error must propagate unchanged");
+    assert.equal(error.code, "probe_closure_rejected");
+    assert.equal(error.message, "content_not_ready · exit 1", "the original error text must remain visible");
+    return true;
+  });
+  assert.deepEqual(calls, ["task list --search", "task create --title", "task artifact add"]);
 
-  assert.equal(rejections.length, 1, "the artifact attach must have been attempted exactly once");
-  assert.equal(closure.taskId, "task-e2eclosurefake", "a rejected artifact attach must not mask the taskId");
-  assert.equal(closure.deduplicated, false);
-  assert.equal(closure.artifactAttached, false);
-  assert.equal(closure.artifactError, rejections[0].message);
-  assert.equal(closure.factRecorded, true, "the first-triage fact must still be recorded after a rejected attach");
-  assert.equal(closure.factError, null);
+  const child = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "--eval",
+      `import { recordE2EProbeFailure } from ${JSON.stringify(new URL("./e2e-probe.mjs", import.meta.url).href)};
+       import { withStdoutReservedForJson } from ${JSON.stringify(new URL("./gui-e2e/emit-json.mjs", import.meta.url).href)};
+       const rejection = Object.assign(new Error("content_not_ready · exit 1"), { code: "probe_closure_rejected" });
+       const calls = [], runCli = ${runCli.toString()};
+       await withStdoutReservedForJson(
+         () => recordE2EProbeFailure({ bundlePath: ${JSON.stringify(bundlePath)}, runCli }),
+         (error) => ({ outcome: "failed", message: error.message }),
+       );`,
+    ],
+    { encoding: "utf8" },
+  );
+  assert.equal(child.status, 1, `the probe JSON entry must exit with failure: ${child.stderr}`);
+  assert.deepEqual(JSON.parse(child.stdout), { outcome: "failed", message: rejection.message });
 });
 
 test("a rejected CLI receipt surfaces a non-empty message carrying its code and exit status", async () => {

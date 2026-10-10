@@ -213,9 +213,7 @@ export async function recordE2EProbeFailure({
   // The closure runs as agent:e2e-probe — the task creator — so it can attach the probe's own
   // first-triage evidence to the task it opened. The schedule-bound runtime doing the deeper
   // diagnosis stays bound to its dispatch and cannot write here; its findings live in the
-  // schedule receipt. A failed evidence step (artifact attach, fact write) must never mask the
-  // task-closure result: the task already exists, and the daemon can reject the attach while
-  // its projection is still catching up with the just-created task.
+  // schedule receipt. A failed fact write must never mask the task-closure result.
   const recordFailureFact = async (taskId) => {
     try {
       await runCli(
@@ -240,19 +238,6 @@ export async function recordE2EProbeFailure({
       return { factRecorded: true, factError: null };
     } catch (error) {
       return { factRecorded: false, factError: error instanceof Error ? error.message : String(error) };
-    }
-  };
-  const attachFailureArtifact = async (taskId, destination) => {
-    try {
-      await runCli(
-        workspaceRoot,
-        rootDir,
-        ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
-        env,
-      );
-      return { artifactAttached: true, artifactError: null };
-    } catch (error) {
-      return { artifactAttached: false, artifactError: error instanceof Error ? error.message : String(error) };
     }
   };
   if (existing)
@@ -290,6 +275,12 @@ export async function recordE2EProbeFailure({
     ),
     taskId = requiredText(created.taskId, "taskId"),
     destination = `artifacts/e2e-probe/${path.basename(bundlePath)}`;
+  await runCli(
+    workspaceRoot,
+    rootDir,
+    ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
+    env,
+  );
   return {
     schema: "e2e-probe-result/v1",
     outcome: "failed",
@@ -297,7 +288,6 @@ export async function recordE2EProbeFailure({
     failureSignature: journey.failureSignature,
     taskId,
     deduplicated: false,
-    ...(await attachFailureArtifact(taskId, destination)),
     ...(await recordFailureFact(taskId)),
   };
 }
