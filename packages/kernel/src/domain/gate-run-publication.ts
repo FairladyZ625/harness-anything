@@ -1,3 +1,4 @@
+import { isSamePerson } from "./actor-domain-services.ts";
 import { claimGateRun, currentGateRun, gateRunError, replaceGateRun, settleGateRun, type GateRun } from "./gate-run.ts";
 import { envelope, execution } from "./task-lifecycle-contract-support.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
@@ -25,6 +26,19 @@ export function replayGateRunChange(
     throw gateRunError("gate_run_stale", "Gate run action requires the current submitted Task and Execution.");
   const requirement = current.submission.completionContract.gates.find((gate) => gate.gateId === run.gateId);
   if (!requirement) throw gateRunError("gate_run_stale", "Run gate is absent from the frozen contract.");
+  const ownerAction =
+    event.payload.operation === "revoke" || (event.payload.operation === "claim" && run.supersedesRunId !== null);
+  if (ownerAction) {
+    if (event.actor.executor !== null || !isSamePerson(snapshot.task.createdBy, event.actor))
+      throw gateRunError("actor_unauthorized", "Only the task owner may revoke or rerun a gate.");
+  } else if (
+    event.payload.operation === "claim" &&
+    (stableStringify(event.actor) !== stableStringify(run.actor) ||
+      event.actor.executor?.id !== `completion-source:${requirement.witness.adapterId}` ||
+      !isSamePerson(snapshot.task.createdBy, event.actor))
+  ) {
+    throw gateRunError("actor_unauthorized", "A local source claim must bind its source host and task owner.");
+  }
   let expected: GateRun;
   if (event.payload.operation === "claim") {
     expected = claimGateRun({

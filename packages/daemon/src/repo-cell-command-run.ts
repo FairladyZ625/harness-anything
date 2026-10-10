@@ -363,7 +363,8 @@ export function makeRepoCellCommandRunner(
       typeof action.taskId === "string" &&
       !isSquadControlCommand(action.kind) &&
       "outcome" in receipt &&
-      receipt.outcome === "applied"
+      (receipt.outcome === "applied" ||
+        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"))
     ) {
       const warnings = await runCompletionSources(
         context,

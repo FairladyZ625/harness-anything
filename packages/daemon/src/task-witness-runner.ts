@@ -83,8 +83,9 @@ export async function runCompletionSources(
           )) as CompletionEvidenceV1)
         : adapter.evaluate(context.extracted, requirement, claimedExecution, undefined);
     } catch (error) {
+      if (!(error instanceof Error) || !("code" in error) || error.code !== "witness_unavailable") throw error;
       consumeKnownError(error);
-      unavailable = error instanceof Error ? error.message : String(error);
+      unavailable = error.message;
     }
     if (!evidence && unavailable === undefined) continue;
     const settled = await accept(

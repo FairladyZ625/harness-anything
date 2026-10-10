@@ -3,7 +3,6 @@ import {
   claimGateRun,
   compileGateRunChange,
   currentGateRun,
-  isSamePerson,
   settleGateRun,
   type CompletionEvidenceV1,
   type GateRun,
@@ -35,12 +34,7 @@ export function runTaskWitnessAction(
     !["submitted", "in_review"].includes(task.status)
   )
     throw cell.cellCodedError("gate_run_stale", "Gate actions require a current submitted execution.");
-  if (
-    !center &&
-    (!(action.kind === "task-witness-revoke" || action.kind === "task-witness-rerun") ||
-      binding.actor.executor !== null ||
-      !isSamePerson(task.createdBy, binding.actor))
-  )
+  if (!center && !(action.kind === "task-witness-revoke" || action.kind === "task-witness-rerun"))
     throw cell.cellCodedError(
       "actor_unauthorized",
       "Task execution credentials cannot claim or publish completion witnesses; only the center source host can do so.",
@@ -80,15 +74,20 @@ export function runTaskWitnessAction(
     });
     operation = "claim";
   } else if (action.kind === "task-witness-settle") {
-    if (action.evidence !== undefined)
-      return cell.publishGateWitness(
-        taskId,
-        execution.executionId,
-        snapshot,
-        read.packagePath,
-        binding,
-        action.evidence as CompletionEvidenceV1,
-      );
+    if (action.evidence !== undefined) {
+      const evidence = action.evidence as CompletionEvidenceV1;
+      if (
+        evidence.gateId !== gateId ||
+        evidence.basis.executionId !== execution.executionId ||
+        evidence.provenance.runId !== action.runId ||
+        evidence.provenance.claimFence !== action.claimFence
+      )
+        throw cell.cellCodedError(
+          "invalid_proof",
+          "Settlement and evidence must identify the same gate run and fence.",
+        );
+      return cell.publishGateWitness(taskId, execution.executionId, snapshot, read.packagePath, binding, evidence);
+    }
     run = settleGateRun({
       execution,
       runId: cell.requiredCellText(action.runId, "runId"),

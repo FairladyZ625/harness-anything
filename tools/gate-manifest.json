@@ -264,7 +264,7 @@
       "tier": "pr-required",
       "tierReason": null,
       "localPathGlobs": ["packages/**/src/**","tools/**"],
-      "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH4"],
+      "authoritySource": ["dec_EF5F3820E81FB8A5266F1F3342#CH4", "dec_4190D5EA63D9DD208CE946F133#CH1"],
       "consumerScope": ["consumeKnownError, catch substitution, and online full-history reads"],
       "githubContext": { "requiredContexts": ["boundaries"], "workflowJobs": ["boundaries"], "nodeVersions": [24] },
       "allowlistPolicy": {
@@ -1601,13 +1601,14 @@
       "category": "boundary",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/store/**","packages/kernel/src/local/**","packages/kernel/src/projection/**","packages/adapters/local/src/**","packages/cli/src/**","tools/check-bypass-write-boundary.mjs","tools/gate-allowlists/source-identity.mjs","tools/gate-allowlists/check-bypass-write-boundary.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
+      "localPathGlobs": ["packages/kernel/src/store/**","packages/kernel/src/local/**","packages/kernel/src/projection/**","packages/adapters/local/src/**","packages/cli/src/**","tools/check-bypass-write-boundary.mjs","tools/check-bypass-write-boundary.test.mjs","tools/gates/test/bypass-write-boundary-allowlist-sync.test.mjs","tools/gate-allowlists/source-identity.mjs","tools/gate-allowlists/check-bypass-write-boundary.json","tools/gate-allowlists/load-gate-allowlist.mjs"],
       "authoritySource": [
         "harness/adr/ADR-0016-write-coordinator-scope-authored-markdown-boundary.md",
         "task_01KWW58383X74ZK28Y068CQ2TG",
         "dec_mr9acuxm",
         "dec_GATE_DEFENSE_ROOT_CAUSE",
-        "tools/migrate-bypass-write-anchors.mjs"
+        "tools/migrate-bypass-write-anchors.mjs",
+        "dec_5EC2631352B17EE2BF4979E37E#CH2"
       ],
       "consumerScope": [
         "AST-classified fs write calls in packages/kernel/src/store, packages/adapters/local/src, and packages/cli/src",

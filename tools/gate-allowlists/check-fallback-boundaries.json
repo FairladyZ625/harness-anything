@@ -3,6 +3,12 @@
  "gateId": "check-fallback-boundaries",
  "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
  "rationales": {
+  "packages/daemon/src/task-witness-runner.ts#runCompletionSources": {
+   "task": "task_78620217fb13cc168530d09bb6",
+   "decision": "dec_4190D5EA63D9DD208CE946F133",
+   "errors": "witness_unavailable",
+   "reason": "A source process can fail, time out, or return no admitted protocol result after its package was accepted. Its current claimed GateRun is explicitly settled unavailable with no verdict; every other error propagates. Owner iteration-1 authorization; no replacement result or retry."
+  },
   "packages/daemon/src/runtime-spawn-mission.ts#prepareRuntimeInstance": {
    "task": "task_1103403e13bb17aa06cc3ebb10",
    "errors": "runtime_instance_disabled, runtime_instance_not_found, runtime_installation_not_found, runtime_credential_unavailable, runtime_subscription_required, runtime_auth_in_progress, runtime_auth_probe_failed, invalid_runtime_model",
@@ -188,6 +194,7 @@
    "packages/daemon/src/task-index-query.ts#decodeCursor",
    "packages/daemon/src/task-review-dispatch.ts#dispatchTaskReview",
    "packages/daemon/src/task-review-dispatch.ts#spawnCutReviewDispatch",
+   "packages/daemon/src/task-witness-runner.ts#runCompletionSources",
    "packages/daemon/src/terminal-environment.ts#terminalEnvironment",
    "packages/daemon/src/terminal-spawn-helper.ts#ensurePtySpawnHelperExecutable",
    "packages/daemon/src/writer-epoch.ts#withImmediateTransaction",

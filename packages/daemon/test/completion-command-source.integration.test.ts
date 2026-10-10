@@ -4,7 +4,13 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { currentGateRun, isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
+import {
+  currentGateRun,
+  isTaskEvent,
+  makeTaskEventReader,
+  emptyTaskLifecycleSnapshot,
+  reduceTaskEvent,
+} from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -18,7 +24,7 @@ const experiment = input.subjects.find(s => s.path.endsWith("/experiment.json"))
 const metadata = JSON.parse(readFileSync(experiment.file, "utf8"));
 const csv = input.subjects.find(s => s.path.endsWith("/data.csv"));
 const png = input.subjects.find(s => s.path.endsWith("/chart.png"));
-if (readFileSync(csv.file, "utf8") !== "x,y\\n1,2\\n" || readFileSync(png.file)[0] !== 137) throw new Error("Submitted bytes changed");
+if (readFileSync(csv.file, "utf8") !== "x,y\\n1,2\\n" || readFileSync(png.file).toString("base64") !== "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==") throw new Error("Submitted bytes changed");
 const subjects = input.subjects.map(({file, ...anchor}) => anchor);
 console.log(JSON.stringify({schema:"preset-script-result/v1", produces:[{capabilityId:"completion-witness",payload:{
 result: Number.isInteger(metadata.seed) ? "pass" : "fail", subjects, predicateType:"research/version-pinned/v1",
@@ -183,6 +189,48 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     assert.equal(first.payload.execution.submission?.commitSha, null);
     assert.equal(currentGateRun(first.payload.execution, "version-pinned")?.result, "fail");
     const frozen = first.payload.execution.submission!.completionContract;
+    const failedRun = currentGateRun(first.payload.execution, "version-pinned")!;
+    for (const kind of ["task-witness-claim", "task-witness-settle", "task-witness-rerun", "task-witness-revoke"]) {
+      const denied = await cell.run(
+        {
+          kind,
+          taskId,
+          executionId,
+          gateId: "version-pinned",
+          runId: failedRun.runId,
+          reason: "Task executor cannot act as the source or owner",
+        },
+        worker,
+      );
+      assert.equal(denied.outcome, "op_rejected", JSON.stringify(denied));
+    }
+    await applied(
+      {
+        kind: "task-witness-revoke",
+        taskId,
+        executionId,
+        gateId: "version-pinned",
+        runId: failedRun.runId,
+        reason: "Owner withdraws this observation",
+      },
+      owner,
+    );
+    const revoked = events().findLast((e) => e.type === "gate_run_changed")!;
+    assert.equal(currentGateRun(revoked.payload.execution, "version-pinned")?.state, "cancelled");
+    await applied(
+      {
+        kind: "task-witness-rerun",
+        taskId,
+        executionId,
+        gateId: "version-pinned",
+        runId: failedRun.runId,
+        reason: "Owner requests a second observation",
+      },
+      owner,
+    );
+    const repeated = events().findLast((e) => e.type === "completion_gate_verified")!;
+    assert.equal(currentGateRun(repeated.payload.execution, "version-pinned")?.result, "fail");
+    assert.equal(repeated.payload.execution.gateRuns.length, 2);
     // Both current package code and mutable authored bytes disagree with the accepted input cut.
     writeFileSync(path.join(source, "scripts/anchors.mjs"), "throw new Error('Current package must not run');");
     await applied({ kind: "preset-install", packageSource: source });
@@ -192,14 +240,44 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     const green = events().findLast((e) => e.type === "completion_gate_verified")!;
     assert.deepEqual(green.payload.execution.submission!.completionContract, frozen);
     assert.equal(currentGateRun(green.payload.execution, "version-pinned")?.result, "pass");
-    assert.equal(green.payload.execution.gateRuns.length, 2);
+    assert.equal(green.payload.execution.gateRuns.length, 3);
+    // This edit never enters doc-submit: an explicit owner rerun must still read accepted seed 42.
+    writeFileSync(path.join(ledger, packagePath, "artifacts/experiment.json"), '{"seed":"mutable-workspace"}\n');
+    const greenRun = currentGateRun(green.payload.execution, "version-pinned")!;
+    await applied(
+      {
+        kind: "task-witness-rerun",
+        taskId,
+        executionId,
+        gateId: "version-pinned",
+        runId: greenRun.runId,
+        reason: "Verify the frozen input independently of the workspace",
+      },
+      owner,
+    );
+    const frozenAgain = events().findLast((e) => e.type === "completion_gate_verified")!;
+    assert.equal(currentGateRun(frozenAgain.payload.execution, "version-pinned")?.result, "pass");
+    assert.deepEqual(frozenAgain.payload.witness.predicate, { seed: 42 });
+    assert.throws(
+      () =>
+        reduceTaskEvent(
+          {
+            ...emptyTaskLifecycleSnapshot(first.workspaceRevision),
+            task: first.payload.task,
+            executions: [first.payload.execution],
+          },
+          { ...revoked, actor: worker.actor },
+        ),
+      /Only the task owner/,
+    );
+    writeFileSync(path.join(ledger, packagePath, "artifacts/experiment.json"), '{"seed":42}\n');
     await cell.close();
     cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "completion-restarted" });
     const completed = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     await waitForFixturePublication(cell, completed.opId, owner);
     const final = events().findLast((e) => e.type === "task_completed")!;
-    assert.equal(final.payload.execution.gateRuns.length, 2);
+    assert.equal(final.payload.execution.gateRuns.length, 4);
     assert.equal(currentGateRun(final.payload.execution, "version-pinned")?.result, "pass");
   } finally {
     await cell.close();
