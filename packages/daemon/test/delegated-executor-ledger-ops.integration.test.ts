@@ -93,7 +93,7 @@ test("a delegated RuntimeSession runs lifecycle Actions on a task it is not boun
       {
         proof: "delegated-execution-token",
         tokenId: "det_ledger_ops_1",
-        issuerPersonId,
+        issuer: { personId: issuerPersonId },
         runtimeSessionId,
       },
     );

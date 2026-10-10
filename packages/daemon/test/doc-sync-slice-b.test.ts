@@ -345,7 +345,7 @@ test("doc submit returns holder and scope detail for wrong role, another holder,
     assert.equal(existsSync(claimPath(fixture.rootDir, sha(body))), false);
     const other = await host.run("rbac", action, auth(fixture.ids.otherWriter));
     assert.equal(other.code, "lease_conflict");
-    assert.equal(other.detail?.holder?.personId, "writer");
+    assert.deepEqual(other.detail?.holder?.principal, { personId: "writer" });
     assert.deepEqual(other.detail?.currentLedgerSha, before);
     assert.equal((await host.run("rbac", action, auth(fixture.ids.writer))).outcome, "applied");
     const shown = await host.run("rbac", { kind: "doc-show", path: relativePath }, auth(fixture.ids.reader));

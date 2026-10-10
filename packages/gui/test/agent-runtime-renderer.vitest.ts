@@ -49,7 +49,7 @@ const session = {
     {
       taskId: "task-runtime",
       executionId: "execution-runtime",
-      holder: { personId: "person-owner", executorId: "runtime-session:runtime-session" },
+      holder: { principal: { personId: "person-owner" }, executorId: "runtime-session:runtime-session" },
       lease: { phase: "held", expiresAt: "2026-08-13T01:00:00.000Z" },
     },
   ],

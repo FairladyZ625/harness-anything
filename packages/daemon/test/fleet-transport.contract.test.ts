@@ -108,7 +108,7 @@ const frames = [
     schema: "fleet.repo.metadata.result/v1",
     messageId: "m4",
     inReplyTo: "m3",
-    personId: "person-owner",
+    principal: { kind: "machine", subject: "service-node-1", nodeId: "node-1" },
     actionAllowed: null,
     repoId: "repo",
     baseLedgerSha: ledgerCut,

@@ -595,7 +595,7 @@ test("event list renders revision-descending rows and event show renders the ful
           schema: "settings-event/v1",
           type: "settings_changed",
           occurredAt: "2026-09-01T00:00:07.000Z",
-          actor: { personId: "person-a", executorId: "codex" },
+          actor: { principal: { personId: "person-a" }, executorId: "codex" },
           entityRefs: [],
         },
       ],

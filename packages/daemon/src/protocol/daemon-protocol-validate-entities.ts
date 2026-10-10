@@ -101,11 +101,13 @@ export function actor(value: unknown): boolean {
   return (
     exactRecord(value, ["principal", "executor"]) &&
     (exactRecord(value.principal, ["personId"])
-      ? nonEmpty(value.principal.personId)
+      ? nonEmpty(value.principal.personId) && value.principal.personId.trim().length > 0
       : exactRecord(value.principal, ["kind", "subject", "nodeId"]) &&
         value.principal.kind === "machine" &&
         nonEmpty(value.principal.subject) &&
-        nonEmpty(value.principal.nodeId)) &&
+        value.principal.subject.trim().length > 0 &&
+        nonEmpty(value.principal.nodeId) &&
+        value.principal.nodeId.trim().length > 0) &&
     (value.executor === null ||
       (exactRecord(value.executor, ["kind", "id"]) && value.executor.kind === "agent" && nonEmpty(value.executor.id)))
   );

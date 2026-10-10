@@ -650,6 +650,7 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner,
+        nodeSubject: owners.nodeSubject,
       });
       const terminalCallbacks: Array<(() => void) | undefined> = [],
         settlementErrors = t.mock.method(Object, "assign"),

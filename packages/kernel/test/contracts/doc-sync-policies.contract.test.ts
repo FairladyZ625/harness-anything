@@ -46,7 +46,7 @@ test("stale ledger and stale blob reject the entire batch with current holder an
   assert.equal(staleLedger.accepted, false);
   if (staleLedger.accepted) return;
   assert.equal(staleLedger.code, "base_ledger_changed");
-  assert.equal(staleLedger.detail.holder?.personId, "person-owner");
+  assert.deepEqual(staleLedger.detail.holder?.principal, { personId: "person-owner" });
   assert.equal(staleLedger.detail.paths[0]?.currentBlobSha256, sha256Text(body));
   assert.deepEqual(
     validateWriteReceipt({

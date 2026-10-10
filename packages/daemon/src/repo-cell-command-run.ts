@@ -370,8 +370,8 @@ async function bindCurrentPersonIdentityWitnesses(
     action.verdict === "changes_requested" &&
     typeof action.decisionId === "string"
   ) {
-    const proposer = projection.readDecision(action.decisionId).decision?.proposer.principal.personId;
-    if (proposer) ids.add(proposer);
+    const proposer = projection.readDecision(action.decisionId).decision?.proposer.principal;
+    if (proposer?.kind !== "machine" && proposer?.personId) ids.add(proposer.personId);
   }
   if (ids.size === 0) return binding;
   const credential = binding.keycloakAuthorization;

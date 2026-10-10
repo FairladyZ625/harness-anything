@@ -48,10 +48,12 @@ test("event list filters by type and actor against the canonical event table", a
     assert.ok(taskRows.length >= 2);
     const actorRows = await rows(cell, { actor: "person-surface" });
     assert.ok(actorRows.length >= 2);
-    for (const row of actorRows) assert.equal((row.actor as Record<string, unknown>).personId, "person-surface");
+    for (const row of actorRows)
+      assert.deepEqual((row.actor as Record<string, unknown>).principal, { personId: "person-surface" });
     const fixtureRows = await rows(cell, { actor: "fixture" });
     assert.ok(fixtureRows.length >= 1);
-    for (const row of fixtureRows) assert.notEqual((row.actor as Record<string, unknown>).personId, "person-surface");
+    for (const row of fixtureRows)
+      assert.notDeepEqual((row.actor as Record<string, unknown>).principal, { personId: "person-surface" });
     const entityRows = await rows(cell, { entity: "task/task_alpha" });
     assert.ok(entityRows.length >= 1);
     for (const row of entityRows) assert.ok((row.entityRefs as readonly string[]).includes("task/task_alpha"));

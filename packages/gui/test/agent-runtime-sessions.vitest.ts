@@ -51,7 +51,7 @@ const sessionDto = {
     {
       taskId: "task-assoc",
       executionId: "execution-1",
-      holder: { personId: "person-owner", executorId: null },
+      holder: { principal: { personId: "person-owner" }, executorId: null },
       lease: { phase: "held", expiresAt: "2026-08-23T01:00:00.000Z" },
     },
   ],

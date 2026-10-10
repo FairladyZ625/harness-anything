@@ -85,7 +85,7 @@ test("Task execution rejects with the exact Action criterion and performs no rej
       kind: "validation",
       entity: `task ${taskId} execution ${executionId}`,
       field: "lease",
-      actual: "held by personId=person-failure-owner, executor=agent:failure-owner",
+      actual: "held by principal=person-failure-owner, executor=agent:failure-owner",
       expectation:
         "The actor owns the active lease or the submitted execution being amended, or owns the task with --as-owner. " +
         "When no lease is held, ha task start reconnects to the active execution first. " +

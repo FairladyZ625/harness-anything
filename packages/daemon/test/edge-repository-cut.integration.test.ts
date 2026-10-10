@@ -21,7 +21,7 @@ import { repositoryCutFixture, seedRepositoryFamilies } from "./edge-repository-
 test("repository families survive real snapshot and delta update/delete with center query parity", async (t) => {
   const f = repositoryCutFixture(t);
   seedRepositoryFamilies(f.db);
-  // Schema generation 8 binds the canonical serializer and sparse manifest identity.
+  // dec_2665E58BA5AE42E37793193748/CH1: generation 9 carries typed event principals.
   f.center.readEdgeReadModel(({ rows }) => {
     const entries = [...edgeReadModelEntries({ sourceRevision: 100, rootThreshold: 10, rows })];
     assert.equal(entries.length, 20);
@@ -32,7 +32,7 @@ test("repository families survive real snapshot and delta update/delete with cen
           blob: { sha256: sha256Text(text), size: Buffer.byteLength(text), mediaType: "application/json" },
         })),
       ),
-      "5338c4a717353217e5717f248ab0b28f23e4413545393d7fcaaedabac5654f2e",
+      "54260d2edca148e36670fbb46ad51ada1a7e13141879f4d56b1ed22257e00a8d",
     );
   });
   await f.transfer("snapshot");

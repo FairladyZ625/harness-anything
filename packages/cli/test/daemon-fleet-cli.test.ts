@@ -61,6 +61,13 @@ test(
         nodeId: "edge-one",
         personId: "edge-operator",
       });
+      // dec_2665E58BA5AE42E37793193748/CH1: the node service account needs its own read grant.
+      await realm.control({
+        op: "permit",
+        personId: await realm.control<string>({ op: "nodeSubject", nodeId: "edge-one" }),
+        resource: "fleet-demo",
+        actions: ["repository-read"],
+      });
       const capabilities = JSON.parse(
         spawnSync(process.execPath, [cli, "capabilities", "--json"], { encoding: "utf8" }).stdout,
       ) as Record<string, string[]>;
@@ -539,20 +546,20 @@ test(
       assert.equal((nodes() as { nodeId: string }[])[0]?.nodeId, "edge-one");
       signOutAt(fixture.centerUser);
 
-      // 3. The right credential authenticates the machine; its owner holds no grant yet, so the center
+      // 3. The right credential authenticates the machine; its service account holds no grant yet, so the center
       //    denies the action. Three different answers for three different conditions.
       const ungranted = sync(credential);
       assert.equal(ungranted.status, 1);
       assert.equal(ungranted.receipt.code, "authorization_denied", JSON.stringify(ungranted.receipt));
       // What the operator is told to do differs with the cause: a grant, not another credential.
-      assert.match(String(ungranted.receipt.rejectionExplanation), /grant the node's owner/u);
+      assert.match(String(ungranted.receipt.rejectionExplanation), /grant the node service account/u);
       assert.doesNotMatch(String(ungranted.receipt.rejectionExplanation), /credential/u);
       assert.equal(existsSync(path.join(fixture.edgeRepo, "harness", planPath)), false, "nothing was mirrored");
 
       // 4. With repository-read granted the same command completes the first sync, no center restart in between.
       await realm.control({
         op: "permit",
-        personId: "edge-operator",
+        personId: await realm.control<string>({ op: "nodeSubject", nodeId: "edge-one" }),
         resource: "fleet-demo",
         actions: ["repository-read"],
       });

@@ -92,9 +92,9 @@ export async function evaluateRepoCellAction(input: {
 }
 
 /**
- * One evaluation for every entry point: the acting person's Keycloak grants on one action and one
- * resource. A signed-in person presents their own token; a node's owner or the issuer behind an
- * execution token holds none here, so the center asks Keycloak about that person by id.
+ * One evaluation for every entry point: the actual principal's Keycloak grants on an action and resource.
+ * Signed-in people present their own tokens; machine and delegated principals use center evaluation.
+ * Node ownership supplies accountability only and never substitutes for the acting principal.
  */
 export async function evaluateKeycloakPrincipal(input: {
   readonly credential: NonNullable<RepoCellBinding["keycloakAuthorization"]>;
@@ -780,8 +780,8 @@ function invalidExecutorBindingFor(
               ? `Expected the claimed RuntimeSession to have canonical Task/Execution binding ` +
                 `${taskId}/${executionId ?? "<execution-id>"}; retry ${retry} from that bound session`
               : principalMismatch
-                ? `Expected principal ${lease.actor.principal.personId} from the held execution lease; received ` +
-                  `principal ${input.binding.actor.principal.personId}`
+                ? `Expected principal ${principalId(lease.actor.principal)} from the held execution lease; received ` +
+                  `principal ${principalId(input.binding.actor.principal)}`
                 : sourceMismatch
                   ? `Expected write source ${stableStringify(lease.source)} from the held execution lease; received ` +
                     `write source ${stableStringify(input.binding.source)}`

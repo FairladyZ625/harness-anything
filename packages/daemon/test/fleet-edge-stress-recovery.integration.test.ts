@@ -33,9 +33,9 @@ async function settledCenter(t: Parameters<typeof fleetNodeClaimFixture>[0], tas
 }
 
 /** The daemon-free read face: the same kernel query body the edge cell answers through. */
-function localRowCounts(viewRoot: string): number {
+async function localRowCounts(viewRoot: string, principalId: string): Promise<number> {
   return withEdgeReadModel(
-    { viewRoot, repoId: "lease-repo", nodeId: "node-one", principalId: "person-one" },
+    { viewRoot, repoId: "lease-repo", nodeId: "node-one", principalId },
     (projection) => projection.list().rows.length,
   );
 }
@@ -48,7 +48,7 @@ test(
     const viewRoot = path.join(f.root, "retention-view");
     await pull(viewRoot);
     const behindAt = f.eventCount();
-    assert.equal(localRowCounts(viewRoot), 3);
+    assert.equal(await localRowCounts(viewRoot, `machine:node-one:${await f.owners.nodeSubject("node-one")}`), 3);
 
     // Push the center past its 64-cut retention so the edge's acked cut is no longer addressable.
     let created = 3,
@@ -143,7 +143,7 @@ test(
     const { f, pull } = await settledCenter(t, ["crash-0", "crash-1", "crash-2"]);
     const viewRoot = path.join(f.root, "crash-view");
     await pull(viewRoot);
-    assert.equal(localRowCounts(viewRoot), 3);
+    assert.equal(await localRowCounts(viewRoot, `machine:node-one:${await f.owners.nodeSubject("node-one")}`), 3);
     const create = async (taskId: string) => {
       assert.equal(
         (await f.command("center-node", { kind: "task-create", taskId, title: `Crash ${taskId}` })).outcome,
@@ -166,16 +166,24 @@ test(
     // 1. Crash while pages are still arriving: staging is durable, current is untouched.
     await create("crash-3");
     await assert.rejects(crashPull("after_page"), /simulated materializer crash after_page/u);
-    assert.equal(localRowCounts(viewRoot), 3, "the previous cut keeps answering");
+    assert.equal(
+      await localRowCounts(viewRoot, `machine:node-one:${await f.owners.nodeSubject("node-one")}`),
+      3,
+      "the previous cut keeps answering",
+    );
     await pull(viewRoot);
-    assert.equal(localRowCounts(viewRoot), 4);
+    assert.equal(await localRowCounts(viewRoot, `machine:node-one:${await f.owners.nodeSubject("node-one")}`), 4);
 
     // 2. Crash after the result cut exists but before the current pointer moves.
     await create("crash-4");
     await assert.rejects(crashPull("before_current_rename"), /simulated materializer crash before_current_rename/u);
-    assert.equal(localRowCounts(viewRoot), 4, "an unpublished cut is never answered");
+    assert.equal(
+      await localRowCounts(viewRoot, `machine:node-one:${await f.owners.nodeSubject("node-one")}`),
+      4,
+      "an unpublished cut is never answered",
+    );
     await pull(viewRoot);
-    assert.equal(localRowCounts(viewRoot), 5);
+    assert.equal(await localRowCounts(viewRoot, `machine:node-one:${await f.owners.nodeSubject("node-one")}`), 5);
 
     // The real daemon entry answers the recovered view end to end.
     const e = await fleetEdgeHostFixture(t, f, { viewRoot });

@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -143,7 +144,9 @@ export function settingsLastChanged(
     occurredAt: event.occurredAt,
     actor:
       event.actor.executor === null
-        ? `person:${event.actor.principal.personId}`
+        ? event.actor.principal.kind === "machine"
+          ? principalId(event.actor.principal)
+          : `person:${event.actor.principal.personId}`
         : `${event.actor.executor.kind}:${event.actor.executor.id}`,
     revision: event.workspaceRevision,
   };

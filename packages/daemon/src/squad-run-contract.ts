@@ -1,4 +1,4 @@
-import { validActorPrincipal } from "@harness-anything/kernel";
+import { validActorPrincipal } from "@harness-anything/kernel/browser";
 import type { CanonicalSquadRun, SquadRunPhase } from "@harness-anything/kernel";
 export type { SquadRunPhase } from "@harness-anything/kernel";
 

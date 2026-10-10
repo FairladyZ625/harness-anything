@@ -1,4 +1,4 @@
-import { validateActorIdentity, validActorPrincipal, type ActorPrincipal } from "@harness-anything/kernel";
+import { validateActorIdentity, validActorPrincipal, type ActorPrincipal } from "@harness-anything/kernel/browser";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,

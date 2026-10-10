@@ -191,6 +191,11 @@ export async function fleetFixture(
     hold: owned.hold,
     userRoot,
     owners,
+    machinePrincipal: async (nodeId: string) => {
+      const subject = await owners.nodeSubject(nodeId);
+      if (subject === null) throw new Error(`fixture node ${nodeId} has no machine subject`);
+      return `machine:${nodeId}:${subject}`;
+    },
     setOwnerLookupDelay: (value: number) => {
       ownerLookupDelayMs = value;
     },
