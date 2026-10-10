@@ -28,8 +28,8 @@ Vertical-specific behavior belongs in vertical assets, template catalogs, preset
 5. Register those assets in `template-catalog/v2` with `bodyPath`; do not use inline `body`.
 6. Define required documents as `templateSelections` that point at catalog refs.
 7. Choose the checker profile and projection schemas.
-8. Define applicable presets separately as `preset-manifest/v2`; do not bury preset behavior in the vertical.
-9. Run `ha vertical validate <path>` before publishing the vertical.
+8. Define applicable presets separately as `preset-manifest/v3`; do not bury preset behavior in the vertical.
+9. Run `ha vertical validate --source <package-directory>` before publishing the vertical.
 10. Add validation tests for schema shape, materialized paths, catalog body paths, and default preset/profile behavior.
 11. Add integration tests only for real CLI/filesystem behavior.
 
@@ -47,7 +47,7 @@ Lifecycle entities must have both a `packageScaffolds` entry and a `repositorySc
 
 ## Vertical Definition Pattern
 
-This minimal shape was validated with `ha vertical validate vertical.json`.
+A vertical package contains `vertical.json` and its catalog/assets. Validate the package directory with `ha vertical validate --source <package-directory>`; this fragment illustrates the declaration shape.
 
 ```json
 {
@@ -98,7 +98,7 @@ This minimal shape was validated with `ha vertical validate vertical.json`.
 Validate it:
 
 ```sh
-ha vertical validate vertical.json
+ha vertical validate --source <package-directory>
 ```
 
 ## Template Catalog v2
@@ -169,7 +169,7 @@ Describe the target outcome.
 List the validation steps.
 ```
 
-Preset overlays should reference the same catalog documents from `preset-manifest/v2` profiles:
+Preset overlays should reference the same catalog documents from `preset-manifest/v3` profiles:
 
 ```json
 {
@@ -192,7 +192,7 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 
 - Use templates for document structure, not ad hoc file writes.
 - Use presets for optional process or content overlays.
-- Use `preset-manifest/v2` for all new preset examples.
+- Use `preset-manifest/v3` for all new preset examples.
 - Use `template-catalog/v2` with `bodyPath`; never teach inline template `body`.
 - Keep project/user overrides additive and fail closed on invalid active overrides.
 - Do not promise unattended conversion when the system supports Legacy Intake plus explicit rebuild only.
@@ -200,16 +200,16 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 
 ## Review Checklist
 
-- `ha vertical validate <path>` passes.
+- `ha vertical validate --source <package-directory>` passes.
 - Entity kinds declare `entityType` and exactly one of `packageKind` or `schemaRef`.
 - Every lifecycle entity has a package scaffold and repository root.
 - Schema entities do not declare package scaffolds or repository roots.
 - Template refs exist in `template-catalog/v2` and use asset-backed `bodyPath`.
 - Required anchors match locale anchors and appear in each body asset.
-- Presets shipped with the vertical use `preset-manifest/v2`, `profiles`, and
-  `defaultProfile`; every v2 profile explicitly declares `completionGates`, even
+- Presets shipped with the vertical use `preset-manifest/v3`, `profiles`, and
+  `defaultProfile`; every v3 profile explicitly declares `completionGates`, even
   when empty (ADR-0027 D7).
-- Preset manifests pass `ha preset validate <manifest>`.
+- Preset manifests pass `ha preset validate --source <package-directory>`.
 - The vertical works without CLI branches keyed by vertical id.
 - Template refs exist in the catalog and materialize to stable paths.
 - Default preset/profile behavior is explicit.

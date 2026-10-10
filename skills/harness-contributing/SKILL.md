@@ -111,13 +111,20 @@ migration, or other slower behavior. The rules are enforced by
 [`tools/test-tier-manifest.mjs`](../../tools/test-tier-manifest.mjs); there is no
 central file list to edit.
 
-Run each changed or newly added Node test through the repository runner:
+Run changed or newly added fast tests through the repository runner:
 
 ```bash
 node tools/run-node-tests.mjs --file <repo-relative-test-file>
 ```
 
-Repeat `--file` for multiple exact files when they form one test surface. For a
+Run affected integration tests through the isolated dispatcher, which uses a
+fresh target directory and dependency cache without using the production daemon:
+
+```bash
+node tools/dispatch-isolated-test.mjs --file <repo-relative-test-file>
+```
+
+Repeat `--file` for multiple exact fast files when they form one test surface. For a
 docs-only change, run the closest docs checker or checker test if one exists;
 do not invent a meaningless test. Always inspect the patch:
 
@@ -354,9 +361,14 @@ with a shorter hand-written summary when later commits change scope or delta.
 Watch the protected checks and read the actual failure output:
 
 ```bash
+gh pr view <pr-number> --repo FairladyZ625/harness-anything --json mergeable,mergeStateStatus
 gh pr checks <pr-number> --repo FairladyZ625/harness-anything --watch
 gh pr view <pr-number> --repo FairladyZ625/harness-anything --comments
 ```
+
+Resolve a `DIRTY`/`CONFLICTING` merge state before waiting for checks: GitHub
+does not run pull_request workflows for a conflicting PR, so no checks is not
+evidence of a pending run.
 
 Triage every concrete reviewer or bot finding. Before merge, each P0/P1/P2
 finding must be fixed, explained as a false positive, deferred with an owner and

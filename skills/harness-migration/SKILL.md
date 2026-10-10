@@ -7,7 +7,10 @@ description: Diagnose and migrate a Harness Anything ledger from a machine that 
 
 First confirm a broken `harness/` ledger actually has a generation mismatch
 rather than some other fault. If it does, replay it into a freshly initialized
-current-format repository; the source is never written to. Replay is the only
+current-format repository; the source is never written to. New destination
+initialization has the identity prerequisites documented in
+[harness-install](../harness-install/SKILL.md#2-确认身份与初始-owner); an isolated
+daemon root does not provide a signed-in identity. Replay is the only
 supported migration path — there is no in-place repair tool.
 
 **This skill assumes nothing is installed.** It fetches the current source into
@@ -451,7 +454,8 @@ needed.
 Only a genuine scalar or role-authority contradiction produces a `required`
 row. For that row, ask which side to retain with the explicit flag and record
 the losing declaration in the hand-over. After migration, reconcile individual
-entries only through `ha people add` and `ha people remove`; never commit a
+entries through the current identity and access management surface. `ha people`
+now exposes delegation and revocation, not roster add/remove. Never commit a
 manual edit to the ledger.
 
 **Do the merge edits after the final apply in step 8, not now.** Step 8
@@ -926,7 +930,7 @@ not canonical prose`. `--path` converts silence into a stated reason, which is
   cure is worse than the disease.
 - **Route blocked** (`people.yaml`, `harness.yaml`, anything under `events/` or
   `objects/`, task-package files) — the block reason names the owning command.
-  For `people.yaml`, use `ha people add|remove`; step 5 covers migration
+  For `people.yaml`, use identity and access management; step 5 covers migration
   conflicts.
 
 So keep the step 5 merge column to prose files wherever you have the choice. A
@@ -949,7 +953,7 @@ Then tell them:
 - their existing Harness installation was not modified;
 - **which CLI now serves this ledger, spelled out as a command they can run** — whatever the probe at the top of this step settled on: their existing `ha` if it accepted `--version`, otherwise the newly installed one or the durable checkout, in which case say that their old `ha` will not work against this ledger;
 - **any dirty file left in the ledger tree that has no write road** — name each one and what it contains, because a later `git checkout` there would erase it silently;
-- **never `git commit` inside the ledger directory**, and what to do if they already have (the `git reset` above);
+- **never `git commit` inside the ledger directory**, and what to do if they already have (preserve the discrepancy and use the receipt/reconcile flow above);
 - the ledger is a git repository of its own, and the project must never track it;
 - the migration daemon lives under the migration `HARNESS_DAEMON_USER_ROOT` and can be removed with the work directory;
 - the previous ledger's git history is not carried forward — this migration rebuilds the ledger from its events, and the old history remains in the step 2 archive and in the `harness.pre-migration-*` directory beside the new one;
@@ -1064,12 +1068,10 @@ success and failure paths.
   discriminates is whether `--version` is _accepted_ at all: the previous
   generation rejects it with `unknown_option` and a nonzero exit. Never compare
   version numbers to decide which build you are talking to.
-- **`ha people` is the only roster write road.** `ha people add` and
-  `ha people remove` publish canonical People Actions.
-  `doc sync` still refuses `harness/people.yaml` because the path is owned by
-  `people-registry`; compatible migration rosters are unioned through that same
-  Action contract, while genuine contradictions use the explicit choice in
-  step 5.
+- **Roster changes belong to identity and access management.** `ha people`
+  exposes execution delegation and revocation; `add/remove` are retired. Do not
+  use `doc sync` to replace roster authorization. Resolve migration roster
+  conflicts through the importer’s explicit choices in step 5.
 - **`doc status` and `doc sync --dry-run` under-report dirty files.** With no
   `--path` they list only prose files and route-blocked paths, so a dirty
   non-prose authored file is silently absent. Take the list from
@@ -1081,24 +1083,10 @@ success and failure paths.
   to a file: once the process is reaped, the exit status cannot be recovered from
   another shell, and "apply exited zero" is a sign-off condition. A half-imported
   target cannot be repaired, only discarded.
-- **The importer never packs.** It commits once per event, so the delivered
-  ledger is entirely loose objects: 218,213 of them and an 18 GB `.git` in one
-  real migration; 10,332 and 104 MB in a small one. `git gc` is a required step,
-  not an optimization.
-- **`git commit` inside the ledger wedges every write** with
-  `publication_indeterminate`, and the hint's word "reconcile" corresponds to no
-  command. Recovery is `git reset` to the sha the message calls `expected`
-  followed by retrying the write; the repository recovery path clears the latch
-  after it verifies the repaired refs, without restarting the daemon. See step 9.
-- **The expected first read after an import is `status: "ready"` with a
-  plausible row count.** Two real migrations of 695 and 963 events both answered
-  immediately; treat a normal answer as normal and move on. The exception is
-  large ledgers: the projection catches up 64 events per read call with no
-  background driver, and the scan walks `events/<opId>.json` in filename order
-  while the reducer needs contiguous revisions, so a large ledger can sit at a
-  near-zero watermark for most of the catch-up and then complete all at once. A
-  read in that state reports `outcome: "pending"` with `status`, `watermark` and
-  `sourceRevision` in its evidence, and a `nextAction` naming the two revisions.
-  **That is the import working, not failing** — keep issuing read commands, they
-  are what drives it. Measured at ~193 ms per event, so 21k events is about an
-  hour. Do not wait for a `pending` that is not going to come.
+- **Do not substitute Git edits for accepted ledger commands.** Inspect an
+  accepted operation’s publication with the receipt/reconcile flow in step 9;
+  preserve concurrent edits and repair the reported follower discrepancy.
+- **Read the actual projection status after import.** A normal ready response
+  is a result, not a reason to rebuild. Pending status and revision gaps must be
+  reported from current output; historical batch sizes and per-event timings
+  are not current performance guarantees.

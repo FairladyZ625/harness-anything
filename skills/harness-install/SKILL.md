@@ -42,22 +42,20 @@ description: 将已经可用的 Harness Anything 接入一个尚无台账的目�
 
 检查目标是否已有中心注册和在飞初始化，使用正常的服务根。不要通过 `HARNESS_DAEMON_USER_ROOT` 为正式安装切换到测试根；若发现现有环境指向隔离根，先核实用途，明确选择正式入口，不能静默把用户已有配置清掉。
 
-## 2. 确认初始 owner
+## 2. 确认身份与初始 owner
 
-读取当前 `ha init --help`。向用户展示将写入的人员标识、显示名和当前传输身份绑定，再取得明确答复。已对同一内容确认过就复用，不能从 `git config user.name` 猜出 owner 并直接写入。
+读取当前 `ha init --help`。向用户展示将写入的人员标识、显示名及实际登录身份，取得明确答复；已确认的内容直接复用，不能从 Git 配置猜 owner。
 
-例如本地 Unix socket 传输可能使用以下绑定；实际字段由当前初始化能力提供：
+当前纯本地路径也要求 Keycloak 登录及适用的策略组。全新用户在没有身份服务与登录会话的独立 daemon 根中直接执行下一节的 `init`，会退出 1：
 
-```json
-{
-  "personId": "<用户确认的标识>",
-  "displayName": "<用户确认的显示名>",
-  "roles": ["owner"],
-  "credentials": [{ "kind": "unix-socket-owner-boundary", "issuer": "host:<主机>", "subject": "<uid>" }]
-}
+```text
+configure_verify_failed
+init Configure-Verify smoke failed: Sign in with Keycloak and request an applicable policy group.
 ```
 
-说明一个系统账号与一个人类身份的对应边界；改环境变量不会变成另一位用户。后续人员变更走 `ha people` 的现有写入入口，不手改 `people.yaml`，也不用通用文档同步绕过人员注册契约。
+因此，下载和本地 Unix socket 可用不等于已能初始化项目；不能承诺未登录的新用户直接走通。先按公开[服务端运维的首次管理员与登录流程](../../docs-release/operations-server-daemon.md#headless-center-first-administrator)配置身份、登录并取得适用权限，再继续。`--person-id` 是初始化输入，不能替代认证，也不再使用 `unix-socket-owner-boundary` 凭据示例。缺少前提时记录该阶段的原始错误及已完成的写入，不删台账重来。
+
+人员与策略组由身份管理入口办理；当前 `ha people` 只提供执行委托与撤销委托，不提供 `add/remove`。不手改人员文件，也不用通用文档同步替代身份管理。
 
 ## 3. 初始化并回读
 
@@ -160,31 +158,22 @@ ha --root "<目标仓库绝对路径>" settings update --worktree-setup none    
 
 `decisionClass` 常用 `ordinary` 或 `standing_policy`；不编造替代方案。输入文件放在工作区允许的任务产物位置。遇到 `fromFile must stay inside the workspace` 时修正输入落点，不能把临时目录当成有效来源。
 
-原始观察先记录，再按当前 `ha relation` 契约将决策声明关联证据，选择关联派生任务。不要复制退役的 `decision relate` 命令。用户需要裁决时展示问题、选择、替代和证据后取得批准，由真实有权身份办理；不通过更换环境变量代替用户。一时答不了的问题、上手验收或同意请求，用 `ha relation relate --type awaits` 把任务或决策挂到该人名下（理由写 `<question|acceptance|consent|reopen>: <问的是什么>`），它会出现在对方的 `ha agenda`「等你处理」和图形界面总览「等你答复」里；对方可在图形界面就地答复，或让 Agent 执行 `ha relation unrelate <relation-id> --reason "<答复>"`，答复后回到提问方的「已答复，待你跟进」。
+原始观察先记录，再按当前 `ha relation` 契约将决策声明关联证据，选择关联派生任务。不要复制退役的 `decision relate` 命令。用户需要裁决时展示问题、选择、替代和证据后取得批准，由真实有权身份办理；不通过更换环境变量代替用户。一时答不了的问题、上手验收或同意请求，在明确具有关系写权时，用 `ha relation relate --type awaits` 把任务或决策挂到该人名下（理由写 `<question|acceptance|consent|reopen>: <问的是什么>`），只有文档或 fact 写权时，把具体问题写进获准报告并请 owner 登记关系。它会出现在对方的 `ha agenda`「等你处理」和图形界面总览「等你答复」里；对方可在图形界面就地答复，或让 Agent 执行 `ha relation unrelate <relation-id> --reason "<答复>"`，答复后回到提问方的「已答复，待你跟进」。
 
 ### 提交、独立评审、同意和完成
 
 把收口材料写实，先 `doc status` 检查候选，再通过受支持的 `doc sync --submit` 登记本任务文档。不要提交无关候选；路径限定与执行身份的组合以当前能力为准。
 
-提交材料示例：
-
-```json
-{
-  "completionClaim": "<已成立的结果>",
-  "deliverables": ["<真实产物>"],
-  "outputs": ["<收口记录>"],
-  "verificationNotes": ["<实际执行和结果>"],
-  "knownGaps": [],
-  "residualRisks": [],
-  "commitSha": "<实际源码提交>"
-}
-```
+收口声明、交付物、验证与风险写入任务包的 `closeout.md`，通过文档同步接受；`task submit` 从已接受的文档与本地提交冻结交付，不再接收 JSON 提交文件：
 
 ```bash
-ha --root "<目标仓库绝对路径>" task submit <任务标识> --execution-id <执行标识> --from-file "<工作区内提交材料>"
+ha --root "<目标仓库绝对路径>" doc sync --submit --task <任务标识>
+ha --root "<目标仓库绝对路径>" task submit <任务标识>
 ```
 
-代码文档锚通过当前 `task code-doc reconcile` 在所需阶段产生，不手写机器文件。由真实独立评审者提交评审，其材料包含：
+需要显式指定交付提交时，使用当前帮助中的 `--commit <40 位 SHA>`；不要用已退役的 `--from-file`。
+
+代码文档锚通过当前 `task code-doc reconcile` 在所需阶段产生，不手写机器文件。由真实独立评审者通过 `task review-execution` 提交评审（参数与文件路径约束先读其 `--help`）；`task review` 只检查旧评审契约，不能批准完成。评审材料包含：
 
 ```json
 { "verdict": "approved", "reason": "<依据>", "evidenceChecked": ["<实际检查的证据>"] }
@@ -192,9 +181,31 @@ ha --root "<目标仓库绝对路径>" task submit <任务标识> --execution-id
 
 `verdict` 使用当前合法值，如 `approved`、`changes_requested`、`dismissed`。owner 的同意绑定实际已记录评审与内容版本，不把工作者的报告当作同意。使用当前 `task review-consent` 和 `task complete` 契约完成；不添加过期的提交版本参数或自己制造摘要。
 
-`--ci passed` 是声明，不会替你运行 CI。没有真实证据就不能据此声称检查通过。所选任务无需 CI 时按实际契约处理；无法满足必需门时交付具体缺口，不伪造完成。
+`task complete` 不接受已退役的 `--ci passed`。CI 证据由完成契约要求的见证来源提供，不能用参数代替运行结果。所选任务无需 CI 时按实际契约处理；无法满足必需门时交付具体缺口，不伪造完成。
 
 最后回读任务是否真的到 `done`，并检查原始目标确实实现。独立评审尚缺时，准确报告“环境和仓库已就绪，首任务待评审”，不能把整个引导说成已验证。
+
+## 接入已有 Fleet 中心的边缘节点
+
+这是已有中心的接入路线，不能在边缘重新 `init` 同一个逻辑工作区。先取得中心提供的仓库标识、项目 Git remote、TLS 地址、CA、已注册的节点标识与机器凭据、镜像存放位置及配额；身份与节点注册沿用上面的运维文档。
+
+1. Clone **目标项目**（工具源码下载仍只由 harness-download 维护），确认 Git remote 与中心项目一致。
+2. 在 clone 目录注册已有仓库的本地边缘模式：
+
+   ```bash
+   ha daemon repo register --repo-id <中心仓库标识> --root "<项目 clone 绝对路径>" --mode remote-edge
+   ```
+
+3. 在同一目录做首次同步，参数使用中心给出的真实值：
+
+   ```bash
+   ha daemon fleet edge sync --host <中心地址> --port <TLS端口> --ca "<CA文件>" --node-id <节点标识> --credential <机器凭据> --view-root "<本地镜像目录>" --quota-bytes <配额字节数>
+   ```
+
+   凭据不写入报告或共享 shell 历史；已有受保护的 `fleet-edge.json` 配置时可省略 `--credential`，由 CLI 读取。同步要求匹配的已启用 `remote-edge` 注册，不是把 ledger 当成另一个 Git remote 来拉取。
+4. 回读 `daemon status` 与 `task list`，确认中心任务在本地可见。后续任务命令使用项目根下的受保护 `fleet-edge.json` 选择通道；该文件按 `packages/daemon/src/client/fleet-edge-config.ts` 的 `fleet-edge-config/v1` 契约准备，不把含机器凭据的文件纳入项目 Git。首次同步成功后仍须确认该配置可用，再按正常任务认领与派工入口工作。注册或同步失败时保留原始错误，不切换为本地初始化。
+
+此入口的命令形状已按 CLI 帮助和路由核对；真实中心、TLS、节点授权与首任务仍须在用户的已授权部署中验收，不能把帮助通过当成 Fleet 已接通。
 
 ## 7. 交接
 

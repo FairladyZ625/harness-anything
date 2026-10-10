@@ -46,6 +46,7 @@ ha agenda --work <work-id>                                # the agenda narrowed 
 - `create-work`: The root of a work; its `task_plan.md` is the work map. Start it with `ha work create --title "<name>"`.
 - `decision-conformance`: Prove implementation alignment with accepted decisions.
 - `docs-task`: Plan design, documentation, or chore work without a code commit.
+- `gui-development`: GUI pages, shared components, and GUI acceptance using the existing product design system.
 - `github-issue-repair`: Repair an existing GitHub issue with evidence.
 - `legacy-migration`: Run generation replay of a previous-generation Harness repository, resolve reported conflicts, and rebuild legacy presets as v3 packages.
 - `standard-task`: General implementation or maintenance task; the default starting point.
@@ -58,5 +59,6 @@ ha agenda --work <work-id>                                # the agenda narrowed 
 - Do not hand-create task package directories.
 - Do not skip preset selection for software/coding work; use `standard-task` when no narrower preset fits.
 - Use `legacy-migration` only for `ha migrate import` generation replay; do not turn it into manual legacy-material classification.
-- Do not edit task markdown directly when a `ha task create` path is available.
+- Create packages through `ha task create`; then edit the generated plan and closeout within the task’s authorized document surface.
+- For a small low-risk `standard-task`, select `--profile lightweight` at creation. It uses minimal plan/closeout templates and no review, consent, or Fact requirement; it retains applicable CI. The profile is frozen at creation.
 - Group tasks only through works. There is no module, milestone, or epic grouping; do not invent one in task titles or directories.
