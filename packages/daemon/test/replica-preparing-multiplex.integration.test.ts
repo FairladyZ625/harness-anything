@@ -10,13 +10,14 @@ test("a preparing pull does not block other replies on the same TLS session", { 
   f.host.replica(f.subject.repoId).prepare = () => new Promise(() => {});
   const center = await f.center();
   const peer = await openPeer({
+    readAccessToken: async () => `device-token-${f.subject.nodeId}`,
     port: center.port,
     ca: f.cert,
     nodeId: f.subject.nodeId,
     credential: "machine-secret",
   });
   t.after(() => peer.close());
-  peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: f.subject.repoId });
+  await peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: f.subject.repoId });
   assert.equal((await peer.next()).schema, "fleet.replica.preparing/v1");
   const metadata = await peer.request({
     schema: "fleet.repo.metadata.get/v1",

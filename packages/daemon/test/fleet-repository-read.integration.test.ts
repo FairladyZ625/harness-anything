@@ -39,6 +39,9 @@ test(
       undefined,
       (nodeId) => ({ url: "https://keycloak.example", realm: "harness", clientId: `harness-node-${nodeId}` }),
       true,
+      {},
+      undefined,
+      (nodeId) => new OidcSessionService(path.join(f.root, "user")).revokeDeviceSessions(nodeId),
     );
     const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, auth);
     assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
@@ -246,6 +249,9 @@ test(
       status: 200,
       required: false,
     });
+    // bootstrap-status asks the edge to reset the device session before reporting the
+    // center authority. Model the required human re-approval explicitly for the next read.
+    f.owners.keycloak.interactiveSession("person-one", "node-one", f.owners.url, "device-token-node-one");
     const lifetime = await rpc.handle({
       jsonrpc: "2.0",
       id: 4,
@@ -255,17 +261,18 @@ test(
     assert.match(JSON.stringify(lifetime), /authorization_denied/);
     const before = f.eventCount();
     for (const nodeId of ["node-one", "node-two"]) {
-      // task list and task show are answered from the edge replica; forwarding either is not a
+      // Task list and task show are answered from the edge replica; forwarding either is not a
       // fleet frame at all anymore.
       await assert.rejects(
         f.command(nodeId, { kind: "task-show", taskId: "task-read-052" }),
-        /violates closed schema fleet\.task\.command\/v1/u,
+        /(?:violates closed schema fleet\.task\.command\/v1|human_confirmation_required)/u,
       );
       await assert.rejects(
         f.command(nodeId, { kind: "task-list", cursor: first.page.nextCursor }),
-        /violates closed schema fleet\.task\.command\/v1/u,
+        /(?:violates closed schema fleet\.task\.command\/v1|human_confirmation_required)/u,
       );
     }
+    assert.equal(f.eventCount(), before, "unsupported direct task reads do not write to the fleet ledger");
     for (const method of [
       "repo.tasks.wip",
       "repo.works.index",
@@ -282,8 +289,12 @@ test(
       );
     }
     // Owned entity content now has a shared projection; offline files and empty directories are
-    // covered by fleet-edge-gui-content.integration.test.ts instead of an unavailable assertion.
-    await assert.rejects(f.command("node-one", { kind: "work-show", taskId: "task-read-000" }), /closed schema/);
+    // covered by fleet-edge-gui-content.integration.test.ts. Direct fleet reads remain rejected
+    // either by the closed action schema or by the interactive-session boundary.
+    await assert.rejects(
+      f.command("node-one", { kind: "work-show", taskId: "task-read-000" }),
+      /(?:closed schema|human_confirmation_required)/u,
+    );
     const { schema: _configSchema, ...cliConfig } = config;
     const cli = await rpc.handle({
       jsonrpc: "2.0",
@@ -385,7 +396,7 @@ test(
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
       }),
-      { code: "authorization_denied" },
+      { code: "human_confirmation_required" },
     );
     f.owners.keycloak.node("node-two", "person-one");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);

@@ -4,6 +4,7 @@ import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/contract.ts";
@@ -61,8 +62,8 @@ interface StoredSession {
   readonly personId: string;
   /** When the access token lapses; a use at or near this moment renews it first. */
   readonly expiresAt: number;
-  /** When Keycloak ends the session unless it is used again: one session lifetime after its last renewal. */
-  readonly sessionExpiresAt: number;
+  /** Ordinary SSO expiry; offline sessions have no locally inferred deadline. Keycloak decides on refresh. */
+  readonly sessionExpiresAt: number | null;
   readonly roles: readonly string[];
   readonly loginTarget?: string;
   /** The Keycloak issuer this session was issued by; binding a request reads it instead of asking the center. */
@@ -90,8 +91,8 @@ export interface OidcSessionPorts {
 /**
  * Daemon-owned PKCE and Device session. Refresh tokens stay here; a short-lived access token may
  * accompany a fleet request as transient authentication metadata.
- * The access token stays short-lived; every use renews it with the refresh token, so the session
- * ends only after it sat unused for the realm's session lifetime.
+ * Access tokens stay short-lived. Ordinary SSO and offline idle limits are separate provider
+ * policies; an offline token's refresh_expires_in does not set a local session deadline.
  */
 export class OidcSessionService {
   readonly #rbacRoot: string;
@@ -114,7 +115,7 @@ export class OidcSessionService {
     // This daemon owns one browser login. Claim it before remote discovery can yield.
     const generation = ++this.#loginGeneration;
     this.#pending = undefined;
-    const authority = await this.#loginAuthority(loginTarget);
+    const authority = await this.#loginAuthority(loginTarget, true);
     this.#assertLoginGeneration(generation);
     const verifier = this.#ports.randomBytes(32).toString("base64url"),
       state = this.#ports.randomBytes(24).toString("base64url"),
@@ -136,7 +137,9 @@ export class OidcSessionService {
       client_id: authority.clientId,
       redirect_uri: redirect.toString(),
       response_type: "code",
-      scope: "openid profile email",
+      scope: authority.clientId.startsWith("harness-node-")
+        ? "openid profile email offline_access"
+        : "openid profile email",
       state,
       code_challenge: challenge,
       code_challenge_method: "S256",
@@ -178,7 +181,7 @@ export class OidcSessionService {
   }
 
   async beginDevice(loginTarget?: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget),
+    const authority = await this.#loginAuthority(loginTarget, true),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
       response = await this.#ports.fetch(
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
@@ -186,7 +189,9 @@ export class OidcSessionService {
           method: "POST",
           body: new URLSearchParams({
             ...clientFields(authority),
-            scope: "openid profile email",
+            scope: authority.clientId.startsWith("harness-node-")
+              ? "openid profile email offline_access"
+              : "openid profile email",
             code_challenge: createHash("sha256").update(verifier).digest("base64url"),
             code_challenge_method: "S256",
           }),
@@ -220,6 +225,16 @@ export class OidcSessionService {
       interval,
       expiresAt,
     };
+  }
+
+  revokeDeviceSessions(nodeId: string): Promise<void> {
+    return this.serialize(async () => {
+      const center = await this.center();
+      await new KeycloakPolicyAdapter(
+        { ...center, resourceServerClientId: "harness-center" },
+        this.#ports.fetch,
+      ).revokeNodeConsent(center.accessToken, nodeId);
+    });
   }
 
   receiveDeviceNotice(nodeId: string, personId: string, notice: FleetDeviceLoginNotice): void {
@@ -336,7 +351,7 @@ export class OidcSessionService {
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
-  /** `expiresAt` is when the session ends if it is not used again. */
+  /** `expiresAt` is the SSO deadline, or null when Keycloak decides offline validity on refresh. */
   async status(): Promise<Record<string, unknown>> {
     const session = await this.#live();
     if (!session) return { ok: true, authenticated: false };
@@ -355,7 +370,7 @@ export class OidcSessionService {
 
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget),
+    const authority = await this.#loginAuthority(loginTarget, true),
       response = await this.#ports.fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}`);
     return {
       source: "fleet-center",
@@ -418,7 +433,10 @@ export class OidcSessionService {
    */
   async bind(auth: DaemonAuthenticationContext, replicaRead = false): Promise<DaemonAuthenticationContext> {
     if (auth.transportKind === "fleet-tls") {
-      if (!auth.humanAccessToken) return auth;
+      if (!auth.humanAccessToken)
+        throw Object.assign(new Error("Sign in on this device before using Fleet."), {
+          code: "authentication_required",
+        });
       const config = this.#config();
       return verifyFleetHuman({
         auth,
@@ -435,9 +453,10 @@ export class OidcSessionService {
     const generation = this.#loginGeneration;
     const { session, unavailable } = await this.#use();
     if (!session || generation !== this.#loginGeneration) return auth;
-    if (replicaRead && session.sessionExpiresAt <= this.#ports.now()) return auth;
+    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
     if (unavailable) {
-      if (!replicaRead || !(session.sessionExpiresAt > this.#ports.now())) return auth;
+      if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
+        return auth;
       return {
         ...auth,
         replicaReadPrincipal: { personId: session.personId, sessionExpiresAt: session.sessionExpiresAt },
@@ -477,6 +496,24 @@ export class OidcSessionService {
 
   async requireRole(role: string): Promise<StoredSession> {
     return this.#requireRole(role, await this.#live());
+  }
+
+  /** Device administration must observe external session revocation before using center Admin REST. */
+  async requireSession(): Promise<StoredSession> {
+    const session = await this.#live();
+    if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
+    const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
+      response = await this.#ports.fetch(
+        `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
+        {
+          headers: { authorization: `Bearer ${session.accessToken}` },
+        },
+      );
+    if (!response.ok) throw coded("authentication_required", "This device session has ended; sign in again.");
+    const identity = (await response.json()) as { sub?: string; harness_person_id?: string };
+    if (identity.sub !== session.subject || identity.harness_person_id !== session.personId)
+      throw coded("authentication_required", "This device session no longer identifies the signed-in person.");
+    return session;
   }
 
   #requireRole(role: string, session: StoredSession | undefined): StoredSession {
@@ -671,11 +708,12 @@ export class OidcSessionService {
     return JSON.parse(readFileSync(file, "utf8")) as RbacConfig;
   }
 
-  async #loginAuthority(target?: string): Promise<OidcLoginAuthority> {
+  async #loginAuthority(target?: string, resetSession = false): Promise<OidcLoginAuthority> {
     if (target && this.#ports.loginAuthority) return this.#ports.loginAuthority(target);
     const edge = target ? readFleetEdgeConfig(target) : null;
     if (edge) {
       const authority = await readFleetLoginAuthorityClient({
+        resetSession,
         hostname: edge.host,
         port: edge.port,
         ca: readFileSync(edge.caPath),
@@ -742,7 +780,8 @@ export class OidcSessionService {
     if (generation !== this.#loginGeneration) return { session: undefined };
     if (response instanceof Error)
       return {
-        session: session.sessionExpiresAt > this.#ports.now() ? session : undefined,
+        session:
+          session.sessionExpiresAt === null || session.sessionExpiresAt > this.#ports.now() ? session : undefined,
         unavailable: response,
       };
     // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
@@ -757,7 +796,7 @@ export class OidcSessionService {
       };
     const tokens = (await response.json()) as Record<string, unknown>;
     if (generation !== this.#loginGeneration) return { session: undefined };
-    if (session.sessionExpiresAt <= this.#ports.now()) {
+    if (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) {
       this.#ports.sessionStore.delete();
       return { session: undefined };
     }
@@ -780,7 +819,10 @@ export class OidcSessionService {
       subject: identity.subject,
       personId: identity.personId,
       expiresAt: now + requiredNumber(tokens.expires_in, "expires_in") * 1_000,
-      sessionExpiresAt: now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
+      sessionExpiresAt:
+        typeof tokens.scope === "string" && tokens.scope.split(" ").includes("offline_access")
+          ? null
+          : now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
       roles: realmRoles(decodeJwtPayload(accessToken)),
       ...(identity.loginTarget ? { loginTarget: identity.loginTarget } : {}),
       authority: { url: authority.url, realm: authority.realm },

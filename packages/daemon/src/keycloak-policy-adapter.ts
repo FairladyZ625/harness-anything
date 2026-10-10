@@ -43,7 +43,17 @@ export interface KeycloakGrant {
 export interface KeycloakNode {
   readonly nodeId: string;
   readonly personId: string;
+  readonly systemName: string;
+  readonly displayName: string;
+  readonly platform: string;
+  readonly registeredAt: string;
+  readonly state: "active" | "paused" | "removed";
+  readonly revision: number;
+  readonly revocation: "complete" | "pending";
 }
+
+type NodeRegistration = Pick<KeycloakNode, "nodeId" | "personId"> &
+  Partial<Pick<KeycloakNode, "systemName" | "displayName" | "platform" | "registeredAt">>;
 
 type FetchPort = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 type NodeClient = {
@@ -157,14 +167,30 @@ export class KeycloakPolicyAdapter {
     for (const client of await this.#pages<NodeClient>(adminAccessToken, "/clients", "")) {
       if (client.clientId !== "harness-gui" && !client.clientId.startsWith(nodeClientPrefix)) continue;
       const current = await this.#json<Record<string, unknown>>(adminAccessToken, `/clients/${client.id}`);
+      // Migrate the existing registry at its write boundary; business readers only consume device records.
+      const device = client.clientId.startsWith(nodeClientPrefix)
+        ? (client.attributes?.harness_device ??
+          JSON.stringify({
+            ...newDevice({
+              nodeId: client.clientId.slice(nodeClientPrefix.length),
+              personId: client.attributes![personAttribute]!,
+            }),
+            state: current.enabled === false ? "paused" : "active",
+          }))
+        : undefined;
       await this.#request(adminAccessToken, `/clients/${client.id}`, {
         method: "PUT",
         body: JSON.stringify({
           ...current,
           standardFlowEnabled: true,
           directAccessGrantsEnabled: false,
+          serviceAccountsEnabled: false,
           redirectUris: ["http://127.0.0.1/*"],
-          attributes: { ...client.attributes, ...keycloakLoginAttributes },
+          attributes: {
+            ...client.attributes,
+            ...keycloakLoginAttributes,
+            ...(device ? { harness_device: device } : {}),
+          },
           protocolMappers: keycloakLoginMappers(this.#config.resourceServerClientId),
         }),
       });
@@ -432,15 +458,16 @@ export class KeycloakPolicyAdapter {
    * Creates the node's client in one POST carrying the machine credential the center minted for
    * it, so no read-back can fail between the client existing and its holder knowing the credential.
    */
-  async createNode(adminAccessToken: string, node: KeycloakNode, secret: string): Promise<void> {
+  async createNode(adminAccessToken: string, registration: NodeRegistration, secret: string): Promise<void> {
+    const node = newDevice(registration);
     await this.#request(adminAccessToken, "/clients", {
       method: "POST",
       body: JSON.stringify({ ...nodeClientBody(this.#config, node), secret }),
     });
   }
 
-  /** Moves a registered node to another owner; its machine credential is never touched here. */
-  async moveNode(adminAccessToken: string, node: KeycloakNode): Promise<void> {
+  /** The center's serialized device write retains its immutable owner and login client. */
+  async writeNode(adminAccessToken: string, node: KeycloakNode): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, node.nodeId);
     if (!current) throw new Error(`Keycloak has no client for node ${node.nodeId}; it was removed.`);
     await this.#request(adminAccessToken, `/clients/${current.id}`, {
@@ -449,19 +476,53 @@ export class KeycloakPolicyAdapter {
     });
   }
 
-  /** Deletes the node's client, so Keycloak refuses its machine credential from then on. */
+  /** Keep a disabled tombstone: removing a device never makes its id available for registration. */
   async deleteNode(adminAccessToken: string, nodeId: string): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, nodeId);
-    if (current) await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
+    if (!current) return;
+    await this.revokeNode(adminAccessToken, { ...nodeOf(current), state: "removed" });
   }
 
-  /** The machine proves itself to Keycloak; the center never holds a copy of the credential. */
+  /** Disable admission before revoking consent; a failed revoke remains visibly pending. */
+  async revokeNode(adminAccessToken: string, node: KeycloakNode): Promise<void> {
+    await this.revokeNodes(adminAccessToken, [node]);
+  }
+
+  async revokeNodes(adminAccessToken: string, nodes: readonly KeycloakNode[]): Promise<void> {
+    const pending = nodes.map((node) => ({ ...node, revision: node.revision + 1, revocation: "pending" as const }));
+    for (const node of pending) await this.writeNode(adminAccessToken, node);
+    for (const node of pending) {
+      await this.revokeNodeConsent(adminAccessToken, node.nodeId);
+      await this.writeNode(adminAccessToken, { ...node, revocation: "complete" });
+    }
+  }
+
+  async revokeNodeConsent(adminAccessToken: string, nodeId: string): Promise<void> {
+    const current = await this.#nodeClient(adminAccessToken, nodeId);
+    if (!current) throw new Error(`Keycloak has no client for node ${nodeId}.`);
+    const personId = nodeOf(current).personId,
+      userId = await this.findUserId(adminAccessToken, personId);
+    if (!userId)
+      throw Object.assign(new Error(`No Keycloak account carries Harness person ${personId}.`), {
+        code: "access_person_unknown",
+      });
+    const consentPath = `/users/${encodeURIComponent(userId)}/consents`,
+      consents = await this.#json<readonly { readonly clientId: string }[]>(adminAccessToken, consentPath);
+    // Keycloak lists offline grants here even when the client never requested browser consent.
+    // An absent grant needs no deletion; a failed DELETE is still an error, including HTTP 404.
+    if (consents.some((consent) => consent.clientId === current.clientId))
+      await this.#request(adminAccessToken, `${consentPath}/${encodeURIComponent(current.clientId)}`, {
+        method: "DELETE",
+      });
+  }
+
+  /** Authenticate the confidential login client without minting a service-account token. */
   async authenticateNode(nodeId: string, credential: string): Promise<boolean> {
-    const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
+    const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token/introspect"), {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
       body: new URLSearchParams({
-        grant_type: "client_credentials",
+        token: "harness-client-authentication",
         client_id: `${nodeClientPrefix}${nodeId}`,
         client_secret: credential,
       }),
@@ -496,54 +557,6 @@ export class KeycloakPolicyAdapter {
         return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
     }
     return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
-  }
-
-  /**
-   * The same grants evaluated for a person who holds no token here (a node's owner, the issuer behind an
-   * execution token): the center asks Keycloak's own policy evaluation on that person's behalf.
-   */
-  async authorizePerson(input: {
-    readonly adminAccessToken: string;
-    readonly personId: string;
-    readonly action: string;
-    readonly resource: AuthorizationResource;
-  }): Promise<KeycloakPermissionDecision> {
-    const resource = encodeAuthorizationResource(input.resource),
-      denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
-        Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
-    if (!this.#knownScopes.has(input.action)) return denied("unknown_scope");
-    const userId = await this.findUserId(input.adminAccessToken, input.personId);
-    if (!userId) return denied("keycloak_denied");
-    const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
-    for (const candidate of coveringResources(input.resource)) {
-      const found = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
-          input.adminAccessToken,
-          `${server}/resource?name=${encodeURIComponent(candidate)}&exactName=true`,
-        ),
-        resourceId = found.find((item) => item.name === candidate)?._id;
-      // A resource nobody was ever granted on has no permission to evaluate.
-      if (!resourceId) continue;
-      const evaluation = (await (
-        await this.#request(input.adminAccessToken, `${server}/policy/evaluate`, {
-          method: "POST",
-          body: JSON.stringify({
-            userId,
-            roleIds: [],
-            entitlements: false,
-            context: { attributes: {} },
-            resources: [{ _id: resourceId, scopes: [{ name: input.action }] }],
-          }),
-        })
-      ).json()) as { readonly status?: unknown; readonly results?: readonly { readonly status?: unknown }[] };
-      if (
-        evaluation.status === "PERMIT" &&
-        Array.isArray(evaluation.results) &&
-        evaluation.results.length > 0 &&
-        evaluation.results.every((result) => result.status === "PERMIT")
-      )
-        return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
-    }
-    return denied("keycloak_denied");
   }
 
   async #nodeClient(token: string, nodeId: string): Promise<NodeClient | undefined> {
@@ -643,22 +656,33 @@ function coveringResources(resource: AuthorizationResource): readonly string[] {
 function nodeClientBody(config: KeycloakPolicyAdapterConfig, node: KeycloakNode): Readonly<Record<string, unknown>> {
   return {
     clientId: `${nodeClientPrefix}${node.nodeId}`,
-    enabled: true,
+    enabled: node.state === "active" && node.revocation === "complete",
     publicClient: false,
-    serviceAccountsEnabled: true,
+    serviceAccountsEnabled: false,
     standardFlowEnabled: true,
     directAccessGrantsEnabled: false,
     redirectUris: ["http://127.0.0.1/*"],
-    attributes: { [personAttribute]: node.personId, ...keycloakLoginAttributes },
+    attributes: { [personAttribute]: node.personId, harness_device: JSON.stringify(node), ...keycloakLoginAttributes },
     protocolMappers: keycloakLoginMappers(config.resourceServerClientId),
   };
 }
 
 function nodeOf(client: NodeClient): KeycloakNode {
-  return Object.freeze({
-    nodeId: client.clientId.slice(nodeClientPrefix.length),
-    personId: client.attributes?.[personAttribute] ?? "",
-  });
+  return Object.freeze(JSON.parse(client.attributes!.harness_device!) as KeycloakNode);
+}
+
+function newDevice(node: NodeRegistration): KeycloakNode {
+  return {
+    nodeId: node.nodeId,
+    personId: node.personId,
+    systemName: node.systemName ?? node.nodeId,
+    displayName: node.displayName ?? node.nodeId,
+    platform: node.platform ?? "unknown",
+    registeredAt: node.registeredAt ?? new Date().toISOString(),
+    state: "active",
+    revision: 1,
+    revocation: "complete",
+  };
 }
 
 function requiredId(value: unknown, name: string, field = "id"): string {

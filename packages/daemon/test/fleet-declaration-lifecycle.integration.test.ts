@@ -8,7 +8,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
-import { fleetFixture, git, initRepo, rawPeer } from "./fleet-tls-session.fixture.ts";
+import { fleetFixture, git, initRepo, rawPeer, localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { fleetLedgerRevision } from "./fleet-store.fixture.ts";
 import { runFleetUploadClient } from "../src/fleet/edge.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
@@ -55,6 +55,7 @@ test(
         path.join(edgeUser, "rbac/config.json"),
         readFileSync(path.join(fixture.userRoot, "rbac/config.json")),
       );
+      signInAt(edgeUser, fixture.owners.nodeOwner(nodeId)!, [], `device-token-${nodeId}`);
       const oidc = new OidcSessionService(edgeUser);
       writeFileSync(
         path.join(edgeRoot, "fleet-edge.json"),
@@ -125,16 +126,8 @@ test(
       t.diagnostic(`${args.slice(0, 3).join(" ")}: exit=${code}`);
       return JSON.parse(stdout) as Record<string, unknown>;
     };
-    // A local edge read needs the node owner's identity (dec_8DC9 CH2); edge writes stay on the machine path.
-    const readAsOwner = async (userRoot: string, personId: string, args: string[]) => {
-      signInAt(userRoot, personId);
-      try {
-        return await invoke(args);
-      } finally {
-        signOutAt(userRoot);
-      }
-    };
-    await readAsOwner(edgeUser, "person-owner", ["doc", "sync", "--dry-run"]);
+    // dec_F01770FD0DCF72683B7C4C7A47: reads and writes use this device's user session.
+    await invoke(["doc", "sync", "--dry-run"]);
     const initialPull = applyFleetMirrorCut(path.join(edgeUser, "view"), repoId, edgeRoot, "pull", {
       kind: "task-docs",
       taskId,
@@ -142,7 +135,7 @@ test(
     assert.equal(initialPull.outcome, "applied", JSON.stringify(initialPull));
     const started = await invoke(["task", "start", taskId, "--execution-id", executionId]);
     assert.notEqual(started.code, "no_changes", "the edge must acquire the initial execution itself");
-    const shown = await readAsOwner(edgeUser, "person-owner", ["task", "show", taskId]);
+    const shown = await invoke(["task", "show", taskId]);
     const snapshot = JSON.parse(String(shown.evidence)) as { workspace: { path: string } };
     const cwd = path.join(edgeRoot, snapshot.workspace.path);
     mkdirSync(path.dirname(cwd), { recursive: true });
@@ -184,16 +177,22 @@ test(
     await openEdge("node-two", reviewerRoot, reviewerUser);
     activeRoot = reviewerRoot;
     activeUser = reviewerUser;
-    await readAsOwner(reviewerUser, "person-reviewer", ["doc", "sync", "--dry-run"]);
+    await invoke(["doc", "sync", "--dry-run"]);
     const reviewerPull = applyFleetMirrorCut(path.join(reviewerUser, "view"), repoId, reviewerRoot, "pull", {
       kind: "task-docs",
       taskId,
     });
     assert.equal(reviewerPull.outcome, "applied", JSON.stringify(reviewerPull));
-    await readAsOwner(reviewerUser, "person-reviewer", ["task", "show", taskId]);
+    await invoke(["task", "show", taskId]);
     const reviewerView = locateFleetMirrorView(path.join(reviewerUser, "view"), repoId)!;
     fixture.owners.keycloak.account("person-denied");
     fixture.owners.keycloak.node("node-slow", "person-denied");
+    fixture.owners.keycloak.interactiveSession(
+      "person-denied",
+      "node-slow",
+      fixture.owners.url,
+      "device-token-node-slow",
+    );
     for (const [negative, code] of [
       ["wrong-path", "review_report_invalid"],
       ["wrong-digest", "claim_not_owned"],
@@ -208,6 +207,7 @@ test(
         carriedPath = negative === "wrong-path" ? `${fixture.packagePath}/closeout.md` : reportPath,
         nodeId = negative === "self-review" ? "node-one" : negative === "unauthorized" ? "node-slow" : "node-two",
         descriptors = await runFleetUploadClient({
+          readAccessToken: async () => `device-token-${nodeId}`,
           port: center.port,
           ca: fixture.cert,
           nodeId,
@@ -310,11 +310,19 @@ test(
     const selfReview = await invoke(review, 1);
     assert.match(JSON.stringify(selfReview), /actor_unauthorized/u);
     const consent = ["task", "review-consent", taskId, "--review-id", "review-edge-cli"];
-    const machineConsent = await invoke(consent, 1);
-    assert.match(JSON.stringify(machineConsent), /human_confirmation_required/u);
+    signOutAt(edgeUser);
+    const unsignedConsent = await invoke(consent, 1);
+    assert.match(JSON.stringify(unsignedConsent), /authentication_required/u);
     fixture.owners.keycloak.interactiveSession("person-owner", "node-one", fixture.owners.url);
     signInAt(edgeUser, "person-owner");
-    await invoke(consent);
+    const unattendedConsent = await invoke(consent, 1);
+    assert.match(JSON.stringify(unattendedConsent), /human_confirmation_required/u);
+    const confirmed = await fixture.host.run(
+      repoId,
+      { kind: "task-review-consent", taskId, reviewId: "review-edge-cli" },
+      localAuthFixture(),
+    );
+    assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));
     await invoke(["task", "complete", taskId]);
     const completed = await fixture.host.run(repoId, { kind: "task-show", taskId }, fixture.auth);
     assert.equal(JSON.parse(String(completed.evidence)).task.status, "done");

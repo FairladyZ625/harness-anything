@@ -256,6 +256,7 @@ export function createDaemonHostRuntimeApi(
             nodes: {
               ...keycloakNodeRegistry(context.keycloakCenter),
               loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
+              revokeDeviceSessions: (nodeId) => context.oidc.revokeDeviceSessions(nodeId),
               deviceLoginNotice: (nodeId, personId, notice) =>
                 context.oidc.receiveDeviceNotice(nodeId, personId, notice),
               verifyHuman: (auth) => context.oidc.bind(auth),
@@ -328,9 +329,10 @@ export function createDaemonHostRuntimeApi(
           );
         // The edge only relays its machine credential; the center decides whether the node's owner may sync.
         context.localOnly(auth);
-        const receipt = await syncFleetEdgeMirror({
-          payload: request,
-        });
+        const receipt = await syncFleetEdgeMirror(
+          { payload: request },
+          async () => (await context.oidc.bind(auth)).oidcPrincipal?.accessToken,
+        );
         await context.edgeRuntimeFor({ ...request, method: "repo.squad.control", action: {} }).reconcile();
         await context.scheduleScheduler.refresh();
         return receipt;

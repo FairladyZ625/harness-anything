@@ -26,9 +26,11 @@ test(
           authenticate: (nodeId, credential) =>
             [first.nodeId, second.nodeId].includes(nodeId) && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+          verifyHuman: fixture.owners.verifyHuman,
         }),
       ),
       peer = (assignment = first) => ({
+        readAccessToken: async () => `device-token-${assignment.nodeId}`,
         port: center.port,
         ca: fixture.cert,
         nodeId: assignment.nodeId,

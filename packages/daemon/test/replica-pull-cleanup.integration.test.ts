@@ -16,6 +16,7 @@ for (const phase of ["after_page", "after_chunk", "before_current_rename"] as co
     const center = await f.center();
     const viewRoot = path.join(f.root, "edge");
     const options = {
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,
@@ -57,6 +58,7 @@ test("a center delivery error cleans received content and preserves its error co
   const viewRoot = path.join(f.root, "remote-error");
   await assert.rejects(
     runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,
@@ -80,6 +82,7 @@ test("lost ACK preserves the published cut while removing transfer staging", asy
   const viewRoot = path.join(f.root, "lost-ack");
   await assert.rejects(
     runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,
@@ -111,6 +114,7 @@ test("the next pull removes staging left by a stopped receiver before accepting 
   };
   const frames: FleetFrameV1[] = [];
   await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${f.peerSubject.nodeId}`,
     ...options,
     nodeId: f.peerSubject.nodeId,
     viewRoot: path.join(f.root, "source"),
@@ -128,6 +132,7 @@ test("the next pull removes staging left by a stopped receiver before accepting 
   }, /stopped receiver/u);
   let begins = 0;
   const result = await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${f.subject.nodeId}`,
     ...options,
     nodeId: f.subject.nodeId,
     viewRoot,

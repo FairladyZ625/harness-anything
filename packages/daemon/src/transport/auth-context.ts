@@ -41,7 +41,7 @@ export interface DaemonAuthenticationContext {
   /** Resolves the bound local login token at use time; never supplied by a fleet client. */
   readonly localSessionAccessToken?: () => Promise<string>;
   /** Daemon-owned identity for an unreachable renewal, usable only in a server-selected edge replica read. */
-  readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number };
+  readonly replicaReadPrincipal?: { readonly personId: string; readonly sessionExpiresAt: number | null };
   /** Center service authority for evaluating a person who holds no token here; attached by the host only. */
   readonly keycloakCenter?: KeycloakCenterAuthority;
   /** The authenticated node and its owner from the center node registry; never accepted from a fleet frame. */

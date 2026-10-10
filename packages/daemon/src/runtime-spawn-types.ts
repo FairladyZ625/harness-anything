@@ -68,6 +68,8 @@ export interface RuntimeCallbackRelay {
 export type RuntimeBinding = {
   readonly actor: ActorIdentity;
   readonly source: WriteSource;
+  /** A local daemon admission was already verified before this runtime was persisted. */
+  readonly daemonSocketOwner?: true;
   readonly authorizationDecision?: AuthorizationDecision;
 };
 
@@ -76,6 +78,7 @@ export function runtimeBindingForDispatch(binding: RuntimeBinding): RuntimeBindi
   return {
     actor: binding.actor,
     source: binding.source,
+    ...(binding.source === "local" ? { daemonSocketOwner: true as const } : {}),
   };
 }
 

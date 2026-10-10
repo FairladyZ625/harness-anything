@@ -307,6 +307,7 @@ async function replicaFixture(t: TestContext) {
     documentPath: `${String((created as Record<string, unknown>).packagePath)}/notes.md`,
     preRegistrationOpId: created.opId,
     peer: (port: number, a: typeof subject) => ({
+      readAccessToken: async () => `device-token-${a.nodeId}`,
       port,
       ca: cert,
       nodeId: a.nodeId,
@@ -324,6 +325,7 @@ async function replicaFixture(t: TestContext) {
         authenticate: (nodeId, credential) =>
           [subject.nodeId, otherSubject.nodeId].includes(nodeId) && credential === "machine-secret",
         nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
       }),
     close: async () => {
       await host.close();

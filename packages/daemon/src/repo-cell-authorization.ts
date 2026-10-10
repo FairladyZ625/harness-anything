@@ -48,6 +48,11 @@ export async function evaluateRepoCellAction(input: {
       idempotencyKey: typeof input.action.idempotencyKey === "string" ? input.action.idempotencyKey : input.actionId,
     });
   const credential = input.binding.keycloakAuthorization;
+  if (input.binding.source === "local" && input.binding.daemonSocketOwner === true)
+    return {
+      ...keycloakDecision(envelope, `canonical:${input.revision}`, "allowed", "daemon_socket_owner"),
+      bindingsUsed: [{ proof: "unix-socket-owner-boundary", scope: input.action.kind }],
+    };
   if (!credential)
     return authorizeDurableRepoCellAction({
       ...input,
@@ -87,8 +92,8 @@ export async function evaluateRepoCellAction(input: {
 
 /**
  * One evaluation for every entry point: the acting person's Keycloak grants on one action and one
- * resource. A signed-in person presents their own token; a node's owner or the issuer behind an
- * execution token holds none here, so the center asks Keycloak about that person by id.
+ * resource. Every caller evaluates its acting person, so center administration cannot substitute
+ * for a missing or mismatched user session.
  */
 export async function evaluateKeycloakPerson(input: {
   readonly credential: NonNullable<RepoCellBinding["keycloakAuthorization"]>;
@@ -97,7 +102,7 @@ export async function evaluateKeycloakPerson(input: {
   readonly resource: AuthorizationResource;
   readonly fetchPort?: typeof fetch;
 }): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
-  const { session, center } = input.credential;
+  const { session } = input.credential;
   if (session?.personId === input.personId)
     return new KeycloakPolicyAdapter(
       { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
@@ -107,17 +112,7 @@ export async function evaluateKeycloakPerson(input: {
       action: input.action,
       resource: input.resource,
     });
-  if (!center) return { outcome: "denied", reasonCode: "keycloak_denied" };
-  const currentCenter = await center();
-  return new KeycloakPolicyAdapter(
-    { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
-    input.fetchPort,
-  ).authorizePerson({
-    adminAccessToken: currentCenter.accessToken,
-    personId: input.personId,
-    action: input.action,
-    resource: input.resource,
-  });
+  return { outcome: "denied", reasonCode: "keycloak_denied" };
 }
 
 export function authorizeRepoCellAction(input: {

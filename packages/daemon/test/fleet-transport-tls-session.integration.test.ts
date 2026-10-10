@@ -84,6 +84,7 @@ test(
 
 async function runFleetRoundTrip(options: RoundTripOptions) {
   const peer = {
+    readAccessToken: async () => `device-token-${options.nodeId}`,
     hostname: options.hostname,
     port: options.port,
     ca: options.ca,
@@ -115,6 +116,7 @@ test(
     const firstBody = `# Fleet\n\n${"a".repeat(300 * 1024)}\n`,
       edgeRoot = path.join(fixture.root, "edge");
     const first = await runFleetRoundTrip({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -146,6 +148,7 @@ test(
     assert.equal(JSON.stringify(durable).includes(firstBody), false);
     const secondBody = `${firstBody}delta\n`,
       second = await runFleetRoundTrip({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: center.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,
@@ -484,6 +487,7 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
   if (!address || typeof address === "string") throw new Error("scripted TLS server did not bind");
   await assert.rejects(
     runFleetWriteClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: address.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -541,6 +545,7 @@ test("failed Fleet hello closes the socket before session ownership transfers", 
     if (!address || typeof address === "string") throw new Error("hello test server did not bind");
     await assert.rejects(
       readFleetRepositoryMetadataClient({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: address.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,
@@ -643,6 +648,7 @@ test(
     fixture.setOwnerLookupDelay(50);
     await assert.rejects(
       runFleetRoundTrip({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: center.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,

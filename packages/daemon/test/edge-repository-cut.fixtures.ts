@@ -92,8 +92,11 @@ export function repositoryCutFixture(t: TestContext) {
       assert.equal(offer.kind, kind);
       const frames = [];
       for await (const frame of offerFrames(offer, source, {
-        owner: "owner",
-        digest: edgeReadAuthorizationShapeDigest({ repoId: "families", owner: "owner" }),
+        readerProfile: { personId: "owner", nodeId: "edge" },
+        digest: edgeReadAuthorizationShapeDigest({
+          repoId: "families",
+          readerProfile: { personId: "owner", nodeId: "edge" },
+        }),
       })) {
         frames.push(frame);
         if (
@@ -278,8 +281,8 @@ export async function materializeCellReplica(
   const receiver = openFleetEdgeView(viewRoot, 64 * 1024 * 1024),
     offer = { ...key, ...(await makeOffer(key, null, cut, source, new Date().toISOString())) };
   for await (const frame of offerFrames(offer, source, {
-    owner,
-    digest: edgeReadAuthorizationShapeDigest({ repoId, owner }),
+    readerProfile: { personId: owner, nodeId: key.nodeId },
+    digest: edgeReadAuthorizationShapeDigest({ repoId, readerProfile: { personId: owner, nodeId: key.nodeId } }),
   }))
     receiver.receive(frame);
   writeFileSync(

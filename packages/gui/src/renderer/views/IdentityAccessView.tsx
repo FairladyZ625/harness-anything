@@ -1,3 +1,4 @@
+import { DevicesTab } from "../components/identityAccess/DevicesTab.tsx";
 import { TeamsTab } from "../components/identityAccess/TeamsTab.tsx";
 import { useEffect, useState } from "react";
 import { AccessServiceTab } from "../components/identityAccess/AccessServiceTab.tsx";
@@ -11,7 +12,7 @@ import { IdText } from "../components/IdText.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { t } from "../i18n/index.tsx";
 
-type AccessTab = "service" | "teams" | "groups" | "grants" | "receipts";
+type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "receipts";
 
 /**
  * Accounts and access control. Every tab is a region board whose ruler is the tab panel: at 900px
@@ -66,6 +67,7 @@ export function IdentityAccessView({
           tabs={[
             ...(access
               ? [
+                  { key: "devices" as const, label: t("devices.title") },
                   { key: "grants" as const, label: t("accessControl.tab.grants") },
                   { key: "groups" as const, label: t("accessControl.tab.groups") },
                   { key: "teams" as const, label: t("accessControl.teams.title") },
@@ -89,6 +91,8 @@ export function IdentityAccessView({
             repoId={repoId}
             repoMode={repos.find((repo) => repo.repoId === repoId)?.mode}
           />
+        ) : tab === "devices" ? (
+          <DevicesTab access={access} />
         ) : tab === "teams" ? (
           <TeamsTab access={access} />
         ) : tab === "groups" ? (

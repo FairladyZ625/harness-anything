@@ -83,46 +83,34 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return lease;
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
-    // The owner is read from the registry for each use, so re-registering a node changes who its next
-    // frame acts for; nothing a frame carries can name the person.
-    readerAuth = async (node: { nodeId: string; repoId: string }) => {
+    // dec_F01770FD0DCF72683B7C4C7A47: each request presents this device owner's user session.
+    readerAuth = async (node: { nodeId: string; repoId: string; accessToken?: string }) => {
       const personId = await options.nodeOwner(node.nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
-      return {
-        transportKind: "fleet-tls" as const,
-        nodePrincipal: { nodeId: node.nodeId, personId },
-      };
+      if (!node.accessToken || !options.verifyHuman)
+        throw new FleetFault("authentication_required", "Sign in on this device before using Fleet.");
+      try {
+        return await options.verifyHuman({
+          transportKind: "fleet-tls",
+          nodePrincipal: { nodeId: node.nodeId, personId },
+          humanAccessToken: node.accessToken,
+        });
+      } catch (error) {
+        if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
+          throw new FleetFault(error.code, error instanceof Error ? error.message : "Device session was rejected.");
+        throw error;
+      }
     },
     principalAuth = async (
-      node: { nodeId: string; repoId: string },
+      node: { nodeId: string; repoId: string; accessToken?: string },
       accessToken?: string,
       executionCredential?: string,
-    ) => {
-      const machine = await readerAuth(node);
-      if (accessToken && !options.verifyHuman)
-        throw new FleetFault("human_confirmation_required", "Human sessions are unavailable at this center.");
-      if (executionCredential && accessToken)
-        throw new FleetFault("execution_credential_rejected", "Execution authentication cannot carry a human session.");
-      let principal: DaemonAuthenticationContext = {
-        ...machine,
-        ...(executionCredential ? { executionCredential } : {}),
-      };
-      if (accessToken) {
-        try {
-          principal = await options.verifyHuman!({ ...machine, humanAccessToken: accessToken });
-        } catch (error) {
-          if (typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
-            throw new FleetFault(
-              error.code,
-              error instanceof Error ? error.message : "Human authentication was rejected.",
-            );
-          throw error;
-        }
-      }
-      return principal;
-    },
+    ): Promise<DaemonAuthenticationContext> => ({
+      ...(await readerAuth({ ...node, accessToken: accessToken ?? node.accessToken })),
+      ...(executionCredential ? { executionCredential } : {}),
+    }),
     writerAuth = async (
-      node: { nodeId: string; repoId: string },
+      node: { nodeId: string; repoId: string; accessToken?: string },
       accessToken?: string,
       executionCredential?: string,
     ) => {
@@ -180,10 +168,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const persist = () => writeCenterDurableJson(stateFile, state),
     keyId = (key: ReplicaDeliveryKey) => `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
     auth = writerAuth;
-  const nodeContext = async (nodeId: string, repoId: string) => {
-    const node = { nodeId, repoId };
+  const nodeContext = async (nodeId: string, repoId: string, accessToken?: string) => {
+    const node = { nodeId, repoId, accessToken };
     repoRoot(repoId);
-    await readerAuth(node);
     return node;
   };
   const repoRoot = (repoId: string) => {
@@ -221,22 +208,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!upload) throw new FleetFault("upload_unknown", "Upload metadata is missing.");
       return path.join(safeLocal(upload.repoId, "fleet-uploads"), `${uploadId}.part`);
     };
-  const admitReplica = async (nodeId: string, repoId: string) => {
+  const admitReplica = async (nodeId: string, repoId: string, accessToken?: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
-    const a = await nodeContext(nodeId, repoId),
+    const a = await nodeContext(nodeId, repoId, accessToken),
       owner = await options.nodeOwner(nodeId);
     if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
     const replica = options.host.replica(a.repoId),
       // The node owner's repository-read authority admits the replica
       // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
-      decision = await options.host.authorize(a.repoId, "repository-read", {
-        transportKind: "fleet-tls" as const,
-        nodePrincipal: { nodeId, personId: owner },
-      });
+      decision = await options.host.authorize(a.repoId, "repository-read", await readerAuth(a));
     if (decision.outcome !== "allowed")
       throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
-    return { a, replica, owner };
+    return { a, replica, readerProfile: { personId: owner, nodeId } };
   };
   const handle = async (
     nodeId: string,
@@ -246,6 +230,18 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     connectionSignal: AbortSignal,
     progress: (frame: FleetFrameV1) => Promise<void>,
   ): Promise<Delivery> => {
+    if (frame.schema === "fleet.device.sessions.revoke/v1") {
+      if (!(await options.nodeOwner(nodeId)))
+        throw new FleetFault("node_owner_unregistered", `Node ${nodeId} is not active.`);
+      if (!options.revokeDeviceSessions)
+        throw new FleetFault("device_login_unavailable", "Device session revocation is unavailable.");
+      await options.revokeDeviceSessions(nodeId);
+      return immediate({
+        schema: "fleet.device.sessions.revoked/v1",
+        messageId: mid(frame.messageId, "device"),
+        inReplyTo: frame.messageId,
+      });
+    }
     if (frame.schema === "fleet.device.login/v1") {
       const personId = await options.nodeOwner(nodeId);
       if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
@@ -259,9 +255,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.repo.metadata.get/v1") {
-      const a = await nodeContext(nodeId, frame.repoId),
-        baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
         principal = await readerAuth(a),
+        baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
         actionAllowed =
           frame.actionKind === undefined
             ? null
@@ -279,7 +275,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (!baseLedgerSha) throw new FleetFault("projection_pending", "Current ledger cut is unavailable.", true);
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
-        personId: principal.nodePrincipal.personId,
+        personId: principal.nodePrincipal!.personId,
         actionAllowed,
         messageId: mid(frame.messageId, "metadata"),
         inReplyTo: frame.messageId,
@@ -289,7 +285,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {
-      const a = await nodeContext(nodeId, frame.repoId),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
         receipt = await options.host.run(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
@@ -300,7 +296,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.upload.begin/v1") {
-      const a = await nodeContext(nodeId, frame.repoId),
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
         uploadId = digestId(
           nodeId,
           a.repoId,
@@ -308,6 +304,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           String(frame.content.size),
           frame.content.mediaType,
         );
+      await readerAuth(a);
       let upload = state.uploads[uploadId];
       if (upload && JSON.stringify(upload.content) !== JSON.stringify(frame.content))
         throw new FleetFault("upload_conflict", "Upload identity conflicts with persisted metadata.");
@@ -349,7 +346,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.upload.chunk/v1") {
-      ownedUpload(state, nodeId, frame.uploadId);
+      const upload = ownedUpload(state, nodeId, frame.uploadId);
+      await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
       const file = uploadPath(frame.uploadId),
         bytes = Buffer.from(frame.dataBase64, "base64"),
         length = existsSync(file) ? statSync(file).size : 0;
@@ -377,9 +375,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       const upload = state.uploads[frame.uploadId];
       if (!upload || upload.nodeId !== nodeId)
         throw new FleetFault("upload_unknown", "Upload is unknown or belongs to another node.");
+      await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
       const wasStaged = upload.descriptor !== null,
         file = uploadPath(frame.uploadId, upload),
-        a = await nodeContext(nodeId, upload.repoId),
+        a = await nodeContext(nodeId, upload.repoId, frame.accessToken),
         descriptor = upload.descriptor ?? {
           ref: `doc-sync-claims/${frame.uploadId}`,
           ...upload.content,
@@ -415,7 +414,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.doc.submit/v1") {
-      const a = await nodeContext(nodeId, frame.repoId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const completed: string[] = [];
       for (const change of frame.changes) {
@@ -475,7 +474,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     )
       throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
     if (frame.schema === "fleet.replica.watch/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId);
+      const { replica } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
       if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
       const signal = AbortSignal.any([connectionSignal, closing.signal]);
       const latest = replica.latest(),
@@ -498,7 +497,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.ci-detail.get/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId);
+      const { replica } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
       if (replica.cut(frame.revision)?.headDigest !== frame.headDigest)
         throw new FleetFault("not_in_cut", "CI detail cut identity is unavailable.");
       const entry = replica.manifestEntry(frame.revision, `.read-model/ci-details/${frame.eventId}.json`);
@@ -525,7 +524,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.replica.pull/v1") {
-      const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
+      const { a, replica, readerProfile } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
       const preparation = new AbortController();
       const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
       const preparationDeadlineAt = Date.now() + (options.replicaPreparationTimeoutMs ?? 60_000);
@@ -608,8 +607,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             cut: wireCut(latest),
             knownHead: wireCut(ledgerCut),
             manifestDigest: latest.manifest.digest,
-            authorizationOwner: owner,
-            authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }),
+            readerProfile,
+            authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, readerProfile }),
           });
         }
         if (
@@ -633,7 +632,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           quotaBytes: options.replicaDiskQuotaBytes!,
           stateRoot: options.stateRoot,
           issuedAt: now(),
-          authorization: { owner, digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, owner }) },
+          authorization: {
+            readerProfile,
+            digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, readerProfile }),
+          },
         });
       } finally {
         clearTimeout(deadline);
@@ -642,7 +644,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
 
     if (frame.schema === "fleet.task.command/v1") {
-      const a = await nodeContext(nodeId, frame.repoId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       try {
         assertFrameEpoch(a.repoId, frame.writerEpoch);
       } catch (error) {
@@ -689,7 +691,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
             const executionId = assertFleetDeliveryHolder(snapshot, {
               nodeId,
-              personId: (await readerAuth(a)).nodePrincipal.personId,
+              personId: (await readerAuth(a)).nodePrincipal!.personId,
               ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
             });
             const commitSha = await fetchWorkerDelivery(
@@ -774,7 +776,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return immediate(response);
     }
     if (frame.schema === "fleet.schedule.command/v1") {
-      const a = await nodeContext(nodeId, frame.repoId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.scheduleId !== frame.action.scheduleId)
         throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
       assertFrameEpoch(a.repoId, frame.writerEpoch);
@@ -797,7 +799,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.runtime.event/v1") {
-      const a = await nodeContext(nodeId, frame.repoId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
           "execution_scope_mismatch",
@@ -856,7 +858,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.runtime.archive/v1") {
-      const a = await nodeContext(nodeId, frame.repoId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
           "execution_scope_mismatch",
@@ -886,7 +888,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.runtime.await/v1") {
-      const a = await nodeContext(nodeId, frame.repoId);
+      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
           "execution_scope_mismatch",
@@ -922,6 +924,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         key = delivery?.key;
       if (!key || !delivery || key.nodeId !== nodeId)
         throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
+      await readerAuth({ nodeId, repoId: key.repoId, accessToken: frame.accessToken });
       let acknowledged = false;
       try {
         delivery.renewalFailure.throwIfAborted();

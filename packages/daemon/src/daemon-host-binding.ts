@@ -26,13 +26,9 @@ export async function localSystemActionBinding(
   const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
   if (!declaration || declaration.residency.scope === "canonical")
     throw hostCodedError("authentication_required", `Action ${kind} requires an authenticated repository principal.`);
-  const daemonUid = process.getuid?.(),
-    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid,
-    isDaemonSocketOwner =
-      auth.transportKind === "unix-socket" &&
-      typeof ownerUid === "number" &&
-      (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0);
-  return isDaemonSocketOwner ? defaultLocalBinding(ownerUid!, null) : principalBinding();
+  return isLocalSocketOwner(auth)
+    ? defaultLocalBinding(auth.unixSocketOwnerBoundary!.ownerUid, null)
+    : principalBinding();
 }
 
 export function withDaemonWriterEpochFence(
@@ -56,20 +52,41 @@ function defaultLocalBinding(ownerUid: number, executor: RepoCellBinding["actor"
   };
 }
 
+export function isLocalSocketOwner(auth: DaemonAuthenticationContext): boolean {
+  const daemonUid = process.getuid?.(),
+    ownerUid = auth.unixSocketOwnerBoundary?.ownerUid;
+  return (
+    auth.transportKind === "unix-socket" &&
+    typeof ownerUid === "number" &&
+    (typeof daemonUid === "number" ? ownerUid === daemonUid : process.platform === "win32" && ownerUid === 0)
+  );
+}
+
 /** Bind daemon-global local actions when no repository exists to provide an authored RBAC projection. */
 export function localDefaultBinding(
   auth: DaemonAuthenticationContext,
   executor: RepoCellBinding["actor"]["executor"] = null,
   replicaRead = false,
 ): RepoCellBinding {
+  if (!replicaRead && isLocalSocketOwner(auth)) {
+    const binding = defaultLocalBinding(auth.unixSocketOwnerBoundary!.ownerUid, executor),
+      principal = auth.oidcPrincipal && auth.oidcPrincipal.expiresAt > Date.now() ? auth.oidcPrincipal : undefined;
+    return {
+      ...binding,
+      ...(principal ? { actor: { principal: { personId: principal.personId }, executor } } : {}),
+      ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
+    };
+  }
   const replicaPrincipal =
-    replicaRead && auth.replicaReadPrincipal && auth.replicaReadPrincipal.sessionExpiresAt > Date.now()
+    replicaRead &&
+    auth.replicaReadPrincipal &&
+    (auth.replicaReadPrincipal.sessionExpiresAt === null || auth.replicaReadPrincipal.sessionExpiresAt > Date.now())
       ? auth.replicaReadPrincipal
       : undefined;
   if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };
   else if (!auth.oidcPrincipal || auth.oidcPrincipal.expiresAt <= Date.now())
     throw hostCodedError("authentication_required", "Sign in with Keycloak before performing this action.");
-  return withSessionEnvironment(
+  const binding = withSessionEnvironment(
     {
       ...(auth.oidcPrincipal
         ? { actor: { principal: { personId: auth.oidcPrincipal.personId }, executor } }
@@ -78,6 +95,7 @@ export function localDefaultBinding(
     },
     auth,
   );
+  return binding;
 }
 
 function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthenticationContext): RepoCellBinding {
@@ -102,31 +120,29 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
 }
 
 /**
- * A fleet connection authenticates a machine only. The person it acts for is the node's registered
- * owner, and that person answers to the same Keycloak grants as when signed in locally.
+ * A Fleet action requires the independently verified user session of the registered device owner.
+ * The login client authenticates transport; it cannot supply the owner's action authority.
  */
 async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
   const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.keycloakCenter)
+  if (!owner || !owner.nodeId || !auth.oidcPrincipal)
     throw hostCodedError(
       "authentication_required",
-      "Fleet ingress requires a registered node owner and center authority.",
+      "Fleet ingress requires the registered device owner's user session.",
     );
-  if (auth.oidcPrincipal && auth.oidcPrincipal.personId !== owner.personId)
+  if (auth.oidcPrincipal.personId !== owner.personId)
     throw hostCodedError("human_confirmation_required", "The interactive session belongs to a different node owner.");
   return {
     actor: { principal: { personId: owner.personId }, executor: null },
     source: { kind: "node", nodeId: owner.nodeId },
-    keycloakAuthorization:
-      auth.oidcPrincipal?.personId === owner.personId
-        ? {
-            session: {
-              personId: owner.personId,
-              accessToken: auth.oidcPrincipal.accessToken,
-              ...auth.oidcPrincipal.authority,
-            },
-          }
-        : { center: auth.keycloakCenter },
+    keycloakAuthorization: {
+      session: {
+        personId: owner.personId,
+        accessToken: auth.oidcPrincipal.accessToken,
+        ...(auth.localSessionAccessToken ? { currentAccessToken: auth.localSessionAccessToken } : {}),
+        ...auth.oidcPrincipal.authority,
+      },
+    },
     ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
     ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
     ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),

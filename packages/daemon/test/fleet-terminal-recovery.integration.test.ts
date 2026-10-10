@@ -23,6 +23,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
   await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
     port: center.port,
     ca: fixture.cert,
     nodeId: fixture.subject.nodeId,
@@ -34,6 +35,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
   let terminal: (() => void) | undefined;
   const runtime = openFleetEdgeRuntime({
+    readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
     request: {
       host: "127.0.0.1",
       port: center.port,
@@ -179,6 +181,7 @@ for (const restart of [false, true])
         "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
       );
       await runFleetReplicaPullClient({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: center.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,
@@ -191,6 +194,7 @@ for (const restart of [false, true])
       let terminal: (() => void) | undefined;
       const createRuntime = () =>
         openFleetEdgeRuntime({
+          readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
           request: {
             host: "127.0.0.1",
             port: center.port,

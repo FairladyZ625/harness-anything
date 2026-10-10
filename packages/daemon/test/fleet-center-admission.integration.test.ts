@@ -169,6 +169,7 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => nodeId === "node-one" && credential === "machine-secret",
     nodeOwner: owners.nodeOwner,
+    verifyHuman: owners.verifyHuman,
   });
   centers.push(center);
   return {
@@ -210,7 +211,7 @@ async function uploadBegin(fixture: AdmissionFixture, probe: number): Promise<Fl
   });
   try {
     const request = async (frame: FleetFrameV1): Promise<FleetFrameV1> => {
-      socket.write(serializeFleetFrame(frame));
+      socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${fixture.subject.nodeId}` }));
       return replies.length ? replies.shift()! : new Promise((resolve) => waiters.push(resolve));
     };
     const hello = await request({

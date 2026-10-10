@@ -18,6 +18,7 @@ test(
     const config = fixture.channel("node-one");
     let launches = 0;
     const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding("node-one"),
       request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
       daemonGeneration: 1,
       daemonRoute: {

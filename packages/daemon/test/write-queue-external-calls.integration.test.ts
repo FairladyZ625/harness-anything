@@ -198,7 +198,8 @@ test("a Keycloak authorization that never answers times out and releases the rep
   }
 });
 
-test("a Keycloak Admin 401 rejects one action without latching the repository", async () => {
+// dec_F01770FD0DCF72683B7C4C7A47: infrastructure authority alone is no acting user.
+test("a center-only binding rejects one action without latching the repository", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-keycloak-admin-rejected-")),
     rootDir = path.join(parent, "repo"),
     rejected = createServer((_request, response) => {
@@ -239,7 +240,7 @@ test("a Keycloak Admin 401 rejects one action without latching the repository", 
         state: cell.status().state,
         causeClass: cell.status().causeClass,
       },
-      { outcome: "op_rejected", code: "keycloak_admin_rejected", state: "attached", causeClass: null },
+      { outcome: "op_rejected", code: "authorization_denied", state: "attached", causeClass: null },
     );
   } finally {
     rejected.closeAllConnections();

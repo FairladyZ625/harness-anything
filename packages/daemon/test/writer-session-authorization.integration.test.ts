@@ -42,6 +42,7 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
     authority.close();
     let token = scenario === "init" ? "old-token" : "live-token",
       calls = 0,
+      currentPerson: string | null = "person-session",
       release!: () => void,
       requested!: () => void;
     const requestedToken = new Promise<void>((resolve) => {
@@ -52,7 +53,10 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
       }),
       auth: DaemonAuthenticationContext = {
         transportKind: "unix-socket",
-        unixSocketOwnerBoundary: { ownerUid: 501, source: "unix-socket-filesystem-owner-boundary" },
+        unixSocketOwnerBoundary: {
+          ownerUid: (process.getuid?.() ?? 0) + 1_000,
+          source: "unix-socket-filesystem-owner-boundary",
+        },
         oidcPrincipal: {
           personId: "person-session",
           subject: "subject-session",
@@ -81,6 +85,11 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
           ownerId: "session-test",
           bootstrap,
           defaultWriterEpochFence: fence,
+          keycloakSession: async () => {
+            if (currentPerson === null)
+              throw Object.assign(new Error("session ended"), { code: "authentication_required" });
+            return { ...auth.oidcPrincipal!.authority, personId: currentPerson, accessToken: token };
+          },
         });
       if (scenario === "init") {
         await Promise.race([
@@ -146,6 +155,57 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
           assert.equal(seen.length, umaBefore + 1, "one UMA call without retry");
         }
         assert.equal(calls, initCalls + 1);
+      }
+      if (scenario === "delayed-write") {
+        // A public runtime ingress cannot borrow the daemon session for an identity-only caller.
+        const runtimeBinding = {
+          actor: { principal: { personId: "person-session" }, executor: null },
+          source: "local" as const,
+        };
+        const action = {
+          kind: "event",
+          type: "runtime_dispatch_requested",
+          opId: "runtime-session-continued",
+          dispatchContext: { role: null, taskId: null, executionId: null },
+          payload: {
+            dispatchId: "dispatch_session_continued",
+            runtimeSessionId: "runtime_session_continued",
+            instanceId: "instance-session",
+            installationId: "installation-session",
+            kindId: "codex",
+            idempotencyKey: "session-continued",
+            definitionSnapshotRef: "artifact:runtime-definition/session",
+            definitionSnapshot: {
+              schema: "agent-definition-snapshot/v1",
+              configVersion: 1,
+              instanceId: "instance-session",
+              installationId: "installation-session",
+              kindId: "codex",
+              providerId: "openai",
+              model: "gpt-5.6-sol",
+              reasoningEffort: "high",
+              baseUrl: null,
+              authMode: "subscription",
+            },
+          },
+        };
+        await assert.rejects(supervisor.request("runtimeIngress", { action }, runtimeBinding), {
+          code: "authorization_denied",
+        });
+        const acceptedUma = seen.length;
+        currentPerson = "another-person";
+        await assert.rejects(supervisor.request("runtimeIngress", { action }, runtimeBinding), {
+          code: "authorization_denied",
+        });
+        currentPerson = null;
+        await assert.rejects(supervisor.request("runtimeIngress", { action }, runtimeBinding), {
+          code: "authorization_denied",
+        });
+        assert.equal(
+          seen.length,
+          acceptedUma,
+          "changed or ended host sessions cannot borrow the original runtime owner's authority",
+        );
       }
       assert.ok(seen.every((authorization) => authorization === "Bearer live-token"));
     } finally {

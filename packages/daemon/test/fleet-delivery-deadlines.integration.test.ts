@@ -139,6 +139,7 @@ for (const phase of ["makeOffer", "iterator", "preparation-budget", "before-drai
       return;
     }
     const next = await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       credential: "machine-secret",

@@ -33,7 +33,12 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
+import {
+  binding as deriveBinding,
+  isLocalSocketOwner,
+  localSystemBinding,
+  withDaemonWriterEpochFence,
+} from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -272,15 +277,27 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             "execution_credential_rejected",
             "Execution credential belongs to a different repository.",
           );
-        // An edge holds no center authority; its reads authorize against the replica owner instead.
+        const localExecution =
+          cell.status().mode !== "remote-edge" &&
+          execution.source === "local" &&
+          !auth.nodePrincipal &&
+          isLocalSocketOwner(auth);
+        const deviceSession = localExecution ? undefined : await deriveBinding(rootDir, await oidc.bind(auth));
+        if (deviceSession && deviceSession.actor.principal.personId !== execution.personId)
+          throw executionCredentialRejected();
         const base = {
           actor: runtimeExecutionActor(execution),
           source: execution.source,
+          ...(localExecution ? { daemonSocketOwner: true as const } : {}),
           executionPrincipal: execution,
           writerEpoch: auth.writerEpoch,
           withWriterEpochFence: auth.withWriterEpochFence,
           writerEpochFence: auth.writerEpochFence,
-          ...(cell.status().mode === "remote-edge" ? {} : { keycloakAuthorization: { center: keycloakCenter } }),
+          ...(cell.status().mode === "remote-edge" || localExecution
+            ? {}
+            : {
+                keycloakAuthorization: { ...deviceSession!.keycloakAuthorization, center: keycloakCenter },
+              }),
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
       }
@@ -291,12 +308,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           edge && replicaRead
             ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, true)), keycloakCenter }, executor, true)
             : await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
-        base = edge
-          ? principal
-          : {
-              ...principal,
-              keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
-            };
+        base =
+          edge || principal.daemonSocketOwner
+            ? principal
+            : {
+                ...principal,
+                keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
+              };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {
@@ -311,6 +329,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           fleetEdgeRuntimes.get(key) ??
           openFleetEdgeRuntime({
             request,
+            readBinding: async () => {
+              const binding = await hostBinding(request.workspaceRoot, { transportKind: "unix-socket" });
+              return { ...binding, source: { kind: "node", nodeId: request.nodeId } };
+            },
             daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
             daemonRoute: runtimeDaemonRoute,
             ports: runtimePorts,
@@ -336,7 +358,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         return daemonWriterBinding(repoId, {
           actor: { principal: schedule.createdBy.principal, executor: null },
           source: "local",
-          keycloakAuthorization: { center: keycloakCenter },
+          daemonSocketOwner: true,
         });
       },
       remoteEdgeAction: async (repoId, rootDir, action) => {
@@ -797,6 +819,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         : path.resolve(repo.canonicalRoot, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(repo.canonicalRoot, config.caPath);
       void runFleetReplicaSync({
+        readAccessToken: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal?.accessToken,
         hostname: config.host,
         port: config.port,
         ca: readFileSync(caPath),
@@ -851,6 +874,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
+            revokeDeviceSessions: (nodeId) => oidc.revokeDeviceSessions(nodeId),
             deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),
             verifyHuman: (auth) => oidc.bind(auth),
           },

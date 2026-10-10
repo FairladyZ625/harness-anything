@@ -522,6 +522,7 @@ export function createJsonRpcProtocolServer(options: {
               { payload: { ...params.payload, action: fleetAction as DaemonFleetTaskAction } as never },
               async () =>
                 (await options.host.run(String(fleetPayload.repoId), fleetAction as never, readAuth)) as never,
+              async () => (await options.sessionPrincipal?.())?.accessToken,
             ),
           );
         }
@@ -543,7 +544,7 @@ export function createJsonRpcProtocolServer(options: {
                 action: fleetAction as DaemonFleetTaskAction,
               },
             },
-            executionCredential ? undefined : async () => (await options.sessionPrincipal?.())?.accessToken,
+            async () => (await options.sessionPrincipal?.())?.accessToken,
           ),
         );
       } catch (error) {
@@ -560,10 +561,16 @@ export function createJsonRpcProtocolServer(options: {
         return reply(
           method,
           await (method === "daemon.fleet.doc.sync"
-            ? runFleetEdgeDocSync({ payload: params.payload })
-            : runFleetEdgeConflictExit({
-                payload: params.payload,
-              })),
+            ? runFleetEdgeDocSync(
+                { payload: params.payload },
+                async () => (await options.sessionPrincipal?.())?.accessToken,
+              )
+            : runFleetEdgeConflictExit(
+                {
+                  payload: params.payload,
+                },
+                async () => (await options.sessionPrincipal?.())?.accessToken,
+              )),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));

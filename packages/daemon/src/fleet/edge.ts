@@ -1,3 +1,4 @@
+import type { EdgeReaderProfile } from "@harness-anything/kernel";
 import { uploadFleetChange } from "./upload-client.ts";
 import { referencedEdgeBlobs } from "./edge-view-references.ts";
 import {
@@ -53,7 +54,7 @@ type Current = {
   cut: FleetCut;
   schemaGeneration: number;
   manifestDigest: string;
-  authorizationOwner: string;
+  readerProfile: EdgeReaderProfile;
   authorizationShapeDigest: string;
 };
 export interface FleetEdgeView {
@@ -70,6 +71,7 @@ export interface FleetEdgeChange {
   readonly mediaType?: string;
 }
 export interface FleetPeerOptions {
+  readonly readAccessToken?: () => Promise<string | undefined>;
   readonly executionCredential?: string;
   readonly hostname?: string;
   readonly port: number;
@@ -398,7 +400,7 @@ function finish(
     cut,
     schemaGeneration,
     manifestDigest: digest,
-    authorizationOwner: begin.authorizationOwner,
+    readerProfile: begin.readerProfile,
     authorizationShapeDigest: begin.authorizationShapeDigest,
   });
 
@@ -793,7 +795,15 @@ export async function runFleetReplicaPullClient(
       return await pullReplica(options);
     } catch (error) {
       recordReplicaHealth(viewDir, { syncFailure: replicaFailure(error, "replica_pull_failed") });
-      if (error instanceof FleetRemoteError && error.code === "authorization_denied")
+      if (
+        error instanceof FleetRemoteError &&
+        [
+          "authorization_denied",
+          "authentication_required",
+          "human_confirmation_required",
+          "node_owner_unregistered",
+        ].includes(error.code)
+      )
         recordNodeReadDenied(options.viewRoot, options.repoId, options.nodeId);
       throw error;
     }
@@ -810,7 +820,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
   try {
     for (;;) {
       let result: FleetReplicaPullClientResult;
-      session.send({
+      await session.send({
         schema: "fleet.replica.pull/v1",
         messageId: session.messageId(),
         repoId: options.repoId,
@@ -832,7 +842,7 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
               cut: inbound.cut,
               schemaGeneration: current.schemaGeneration,
               manifestDigest: inbound.manifestDigest,
-              authorizationOwner: inbound.authorizationOwner,
+              readerProfile: inbound.readerProfile,
               authorizationShapeDigest: inbound.authorizationShapeDigest,
             },
           );
@@ -886,9 +896,17 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
       if (frame.schema === "fleet.error/v1") throw new FleetRemoteError(frame);
       return frame;
     },
-    send = (frame: FleetFrameV1) => socket.write(serializeFleetFrame(frame)),
+    send = async (frame: FleetFrameV1) => {
+      const token =
+        frame.schema === "fleet.session.hello/v1" ||
+        frame.schema === "fleet.device.login/v1" ||
+        frame.schema === "fleet.device.sessions.revoke/v1"
+          ? undefined
+          : await options.readAccessToken?.();
+      return socket.write(serializeFleetFrame({ ...frame, ...(token ? { accessToken: token } : {}) }));
+    },
     request = async (frame: FleetFrameV1, responseTimeoutMs?: number | null) => {
-      send(frame);
+      await send(frame);
       return next(responseTimeoutMs);
     };
   try {
@@ -920,7 +938,9 @@ export async function reportFleetDeviceLogin(
   }
 }
 
-export async function readFleetLoginAuthorityClient(options: Omit<FleetPeerOptions, "repoId">) {
+export async function readFleetLoginAuthorityClient(
+  options: Omit<FleetPeerOptions, "repoId"> & { readonly resetSession?: boolean },
+) {
   const peer = await openPeer(options);
   try {
     if (
@@ -931,6 +951,11 @@ export async function readFleetLoginAuthorityClient(options: Omit<FleetPeerOptio
       throw Object.assign(new Error("The center has no external HTTPS Keycloak login authority for this node."), {
         code: "oidc_listener_required",
       });
+    if (options.resetSession) {
+      const reply = await peer.request({ schema: "fleet.device.sessions.revoke/v1", messageId: peer.messageId() });
+      if (reply.schema !== "fleet.device.sessions.revoked/v1")
+        throw new Error("Device session revocation acknowledgement expected.");
+    }
     return peer.loginAuthority;
   } finally {
     peer.close();
