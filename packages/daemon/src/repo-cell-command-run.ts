@@ -335,27 +335,29 @@ export function makeRepoCellCommandRunner(
             ),
           async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
-    const read = async () => {
-      if (action.kind === "task-complete" && typeof action.taskId === "string") {
-        const authorization = await authorizeAtCurrentCut();
-        if (authorization?.outcome === "allowed") await runCompletionSources(context, action.taskId, binding);
-      }
-      return readBeforeWriteQueue(context, action, binding, context.refreshCi);
-    };
-    return read()
-      .then((publish) =>
-        enqueuePublication(
-          (authorizationDecision) =>
-            (publish ?? context.executeAction)(
-              action,
-              authorizationDecision ? { ...binding, authorizationDecision } : binding,
-            ),
-          publish?.ingest &&
-            ((authorizationDecision) =>
-              publish.ingest!(authorizationDecision ? { ...binding, authorizationDecision } : binding)),
-        ),
-      )
-      .catch(async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined));
+    const externalRead: ReturnType<typeof readBeforeWriteQueue> =
+      action.kind === "task-complete" && typeof action.taskId === "string"
+        ? authorizeAtCurrentCut()!.then(async (authorization) => {
+            if (authorization.outcome === "allowed")
+              await runCompletionSources(context, action.taskId as string, binding);
+            return (nextAction, nextBinding) => context.executeAction(nextAction, nextBinding);
+          })
+        : readBeforeWriteQueue(context, action, binding, context.refreshCi);
+    if (externalRead)
+      return externalRead
+        .then((publish) =>
+          enqueuePublication(
+            (authorizationDecision) =>
+              publish(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+            publish.ingest &&
+              ((authorizationDecision) =>
+                publish.ingest!(authorizationDecision ? { ...binding, authorizationDecision } : binding)),
+          ),
+        )
+        .catch(async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined));
+    return enqueuePublication((authorizationDecision) =>
+      context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
+    );
   };
   return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
     const receipt = await run(action, binding, signal);
