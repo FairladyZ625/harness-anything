@@ -288,11 +288,11 @@
       "slot": "repository.claude.entry",
       "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
       "frontmatterSchema": "none",
-      "requiredAnchors": ["## Read First", "## Standards Routing"],
+      "requiredAnchors": ["@AGENTS.md"],
       "fallbackLocale": "en-US",
       "locales": [
-        { "locale": "zh-CN", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.claude.entry/zh-CN.md" },
-        { "locale": "en-US", "anchors": ["## Read First", "## Standards Routing"], "bodyPath": "templates/repository.claude.entry/en-US.md" }
+        { "locale": "zh-CN", "anchors": ["@AGENTS.md"], "bodyPath": "templates/repository.claude.entry/zh-CN.md" },
+        { "locale": "en-US", "anchors": ["@AGENTS.md"], "bodyPath": "templates/repository.claude.entry/en-US.md" }
       ]
     },
     {

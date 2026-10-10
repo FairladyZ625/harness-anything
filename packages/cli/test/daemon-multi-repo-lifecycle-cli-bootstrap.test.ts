@@ -126,7 +126,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       readFileSync(path.join(fixture.repo, "AGENTS.md"), "utf8"),
       /harness\/governance\/standards\/repository-governance\.md/u,
     );
-    assert.match(readFileSync(path.join(fixture.repo, "CLAUDE.md"), "utf8"), /harness\/context\/README\.md/u);
+    assert.equal(readFileSync(path.join(fixture.repo, "CLAUDE.md"), "utf8"), "@AGENTS.md\n");
     assert.equal(
       readFileSync(path.join(fixture.repo, "package.json"), "utf8"),
       `${JSON.stringify({ private: true, scripts: { "harness-anything": "harness-anything", ha: "ha", "harness-anything:check": "harness-anything check" } }, null, 2)}\n`,
