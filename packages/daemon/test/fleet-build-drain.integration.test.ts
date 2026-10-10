@@ -10,6 +10,8 @@ import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import type { FleetFrameV1 } from "../src/fleet/contract.ts";
 
+const realSetTimeout = setTimeout;
+
 for (const ending of ["ack", "disconnect", "deadline", "preparation-failure"] as const) {
   test(`build handoff drains three admitted TLS deliveries: ${ending}`, { timeout: 30_000 }, async (t) => {
     const fixture = await fleetFixture(t, undefined, "standard", false);
@@ -97,8 +99,40 @@ for (const ending of ["ack", "disconnect", "deadline", "preparation-failure"] as
       assert.equal(rejected.code, "daemon_build_draining");
       assert.equal(rejected.retryable, true);
     }
+    if (ending === "ack") {
+      const arrivals = await Promise.all(
+        nodes.map((node) => rawPeer(fixture.track, port, fixture.cert, node, `secret-${node}`)),
+      );
+      const arrivedAt = Date.now();
+      await Promise.all(
+        arrivals.map(async (peer, index) => {
+          const response = await peer.request({
+            schema: "fleet.replica.watch/v1",
+            messageId: `watch-${index}`,
+            repoId: fixture.subject.repoId,
+            afterRevision: Number.MAX_SAFE_INTEGER - 1,
+          });
+          assert.equal(response.schema, "fleet.error/v1", "new watches must reject instead of waiting for progress");
+          if (response.schema === "fleet.error/v1") {
+            assert.equal(response.code, "daemon_build_draining");
+            assert.equal(response.retryable, true);
+          }
+        }),
+      );
+      assert.ok(Date.now() - arrivedAt < 2_000, "new watches must not spend the 20-second progress interval");
+      assert.equal(exited, false, "rejected arrivals must neither settle nor extend admitted work");
+    }
     if (ending === "deadline") {
-      t.mock.timers.tick(2 * 60 * 60 * 1_000);
+      t.mock.timers.tick(30 * 60_000);
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      await Promise.race([
+        superseded.promise,
+        new Promise<void>((resolve) => {
+          deadline = realSetTimeout(resolve, 2_000);
+        }),
+      ]);
+      clearTimeout(deadline);
+      assert.equal(exited, true, "fleet drain must not outlive the existing 30-minute delivery bound");
       await superseded.promise;
       assert.equal(exited, true, "the absolute deadline must hand off even when preparation never finishes");
       t.mock.timers.reset();

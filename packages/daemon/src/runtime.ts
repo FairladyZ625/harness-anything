@@ -229,15 +229,12 @@ export async function startDaemon(input: {
           onBuildDriftObserved: () => {
             if (buildSupersessionObserved || input.buildSupersessionEnabled === false) return;
             buildSupersessionObserved = true;
-            // A cold fleet sync takes tens of minutes; two hours lets it finish while bounding
-            // the time a stalled peer can keep an obsolete build resident. Expiry uses normal teardown.
-            fleetDrainDeadline = setTimeout(
-              () => {
-                fleetDrainExpired = true;
-                requestDrainCheck();
-              },
-              2 * 60 * 60 * 1_000,
-            );
+            // Admitted deliveries already have a 30-minute total deadline. Preparation can
+            // stall before that deadline starts, so build drain uses the same bound.
+            fleetDrainDeadline = setTimeout(() => {
+              fleetDrainExpired = true;
+              requestDrainCheck();
+            }, 30 * 60_000);
             fleetDrainDeadline.unref();
           },
           onRequestSettled: () => {

@@ -457,6 +457,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         code: receipt.code ?? null,
       });
     }
+    if (
+      (frame.schema === "fleet.replica.watch/v1" || frame.schema === "fleet.replica.pull/v1") &&
+      options.buildDraining?.()
+    )
+      throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
     if (frame.schema === "fleet.replica.watch/v1") {
       const { replica } = await admitReplica(nodeId, frame.repoId);
       if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
@@ -508,8 +513,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.replica.pull/v1") {
-      if (options.buildDraining?.())
-        throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
       const { a, replica, owner } = await admitReplica(nodeId, frame.repoId);
       const preparation = new AbortController();
       const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
