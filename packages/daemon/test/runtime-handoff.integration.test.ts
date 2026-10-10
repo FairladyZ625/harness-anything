@@ -9,6 +9,7 @@ import { openDaemonHost } from "../src/daemon-host.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { runFleetRuntimeEventClient, runFleetTaskCommandClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
 
@@ -184,6 +185,14 @@ test(
       f.auth,
     );
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    // dec_2665E58BA5AE42E37793193748: independent target machines need their own assignment.
+    const unassigned = await f.host.run(
+      source.repoId,
+      { kind: "task-start", taskId: source.taskId },
+      f.owners.auth(target),
+    );
+    assert.equal(unassigned.code, "task_assignee_mismatch", JSON.stringify(unassigned));
+    await assignFixtureTask(f.host, target, f.auth);
     const started = await f.host.run(
       source.repoId,
       { kind: "task-start", taskId: source.taskId },
@@ -193,6 +202,22 @@ test(
     assert.equal(typeof started.executionId, "string");
     context.executionId = String(started.executionId);
     assert.notEqual(context.executionId, source.executionId);
+    const targetSubject = (await f.owners.nodeSubject(target.nodeId))!;
+    assert.notEqual(targetSubject, await f.owners.nodeSubject(source.nodeId));
+    f.owners.keycloak.revoke(targetSubject, source.repoId, ["runtime-handoff-claim"]);
+    const deniedClaim = await command(target.nodeId, claim);
+    assert.equal(deniedClaim.receipt?.code, "authorization_denied", JSON.stringify(deniedClaim));
+    const deniedChunk = await command(target.nodeId, { ...claim, offset: 0 });
+    assert.equal(deniedChunk.receipt?.code, "authorization_denied", JSON.stringify(deniedChunk));
+    f.owners.keycloak.permit(targetSubject, source.repoId, ["runtime-handoff-claim"]);
+    for (const kind of ["runtime-handoff-export", "runtime-handoff-revoke"]) {
+      const denied = await command(
+        target.nodeId,
+        kind === exportAction.kind ? exportAction : { kind, dispatchId },
+        kind === exportAction.kind ? body : undefined,
+      );
+      assert.equal(denied.receipt?.code, "runtime_handoff_owner_mismatch", JSON.stringify(denied));
+    }
     const ready = await command(target.nodeId, claim);
     assert.equal(ready.outcome, "applied", JSON.stringify(ready));
     assert.equal(ready.receipt?.outcome, "no_changes");
@@ -215,7 +240,14 @@ test(
     assert.equal(otherNode.receipt?.code, "runtime_task_lease_required");
     await f.owners.reassign(target.nodeId, "person-other");
     const otherOwner = await command(target.nodeId, claim);
-    assert.equal(otherOwner.receipt?.code, "runtime_handoff_owner_mismatch", JSON.stringify(otherOwner));
+    assert.equal(otherOwner.outcome, "applied", "accountability owner is not the machine principal");
+    const client = f.owners.keycloak.nodeClients.get(`harness-node-${target.nodeId}`)!;
+    const originalClientId = client.id;
+    client.id = "replacement-target";
+    f.owners.reassign(target.nodeId, "person-other");
+    const otherPrincipal = await command(target.nodeId, claim);
+    assert.equal(otherPrincipal.receipt?.code, "runtime_task_lease_required", JSON.stringify(otherPrincipal));
+    client.id = originalClientId;
     await f.owners.reassign(target.nodeId, "person-owner");
     await assert.rejects(
       runFleetRuntimeEventClient({
@@ -251,6 +283,13 @@ test(
       resumeProviderSessionId: nativeId,
       acceptedCommit: "a".repeat(40),
     };
+    // The final consumption is a separate write: revoking claim scope after download must still deny it.
+    f.owners.keycloak.revoke(targetSubject, source.repoId, ["runtime-handoff-claim"]);
+    await assert.rejects(
+      runFleetRuntimeEventClient({ ...peer(target.nodeId), ...dispatch("claim-scope-revoked", resumed) }),
+      { code: "authorization_denied" },
+    );
+    f.owners.keycloak.permit(targetSubject, source.repoId, ["runtime-handoff-claim"]);
     await assert.rejects(
       runFleetRuntimeEventClient({
         ...peer(target.nodeId),
@@ -272,6 +311,12 @@ test(
     const acceptedReplay = await command(target.nodeId, { ...claim, idempotencyKey: acceptedKey });
     assert.equal(acceptedReplay.receipt?.replayed, true, JSON.stringify(acceptedReplay));
     assert.equal(acceptedReplay.receipt?.handoffResumed, false, "admission alone does not confirm provider resume");
+    client.id = "replacement-target";
+    f.owners.reassign(target.nodeId, "person-other");
+    const wrongReplay = await command(target.nodeId, { ...claim, idempotencyKey: acceptedKey });
+    assert.equal(wrongReplay.receipt?.code, "runtime_dispatch_already_resumed", JSON.stringify(wrongReplay));
+    client.id = originalClientId;
+    f.owners.reassign(target.nodeId, "person-owner");
     const repeated = await command(target.nodeId, claim);
     assert.equal(repeated.receipt?.code, "runtime_dispatch_already_resumed", JSON.stringify(repeated));
     await center.close();

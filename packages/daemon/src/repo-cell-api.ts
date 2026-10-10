@@ -1,3 +1,4 @@
+import { authorizeHandoffDispatch } from "./runtime-handoff-store.ts";
 import { principalId } from "@harness-anything/kernel";
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
@@ -743,6 +744,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           }
         : { ...action, kind: "runtime-run", executionRuntimeIngress: action };
     return enqueueRuntimePublication(context, "runtime-run", policyAction, binding, async (authorizedBinding) => {
+      await authorizeHandoffDispatch(context.extracted, action, authorizedBinding);
       const runtimeSessionId =
         action.kind === "archive" ? action.archive.runtimeSessionId : action.payload.runtimeSessionId;
       const dispatch =

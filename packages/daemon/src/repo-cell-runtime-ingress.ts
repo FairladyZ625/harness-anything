@@ -130,7 +130,13 @@ export function appendAuxiliaryRuntimeIngress(
           `Dispatch ${sourceId} has no provider session to resume.`,
         );
       if (
-        !samePrincipal(source.actor.principal, binding.actor.principal) ||
+        // admitHandoffDispatch already requires an accepted export and the target's active lease.
+        (!samePrincipal(source.actor.principal, binding.actor.principal) &&
+          !(
+            action.payload.handoffCheckpointId !== undefined &&
+            source.actor.principal.kind === "machine" &&
+            binding.actor.principal.kind === "machine"
+          )) ||
         source.payload.taskId !== action.payload.taskId ||
         (action.payload.handoffCheckpointId === undefined &&
           source.payload.executionId !== action.payload.executionId) ||
