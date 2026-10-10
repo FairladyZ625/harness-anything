@@ -298,7 +298,6 @@
    "packages/kernel/src/store/sqlite-event-store.ts#transaction",
    "packages/kernel/src/store/sqlite-ledger-reconcile.ts#reconcileSqliteEvents",
    "packages/kernel/src/store/sqlite-task-event-publication.ts#decodeFollowerManifest",
-   "packages/kernel/src/store/sqlite-task-event-publication.ts#physicalWorktreeRevision",
    "packages/kernel/src/store/sqlite-task-event-store.ts#scheduleFollower",
    "packages/preset/src/preset-installation.ts#activeDigest",
    "packages/preset/src/preset-process-service.ts#complete",

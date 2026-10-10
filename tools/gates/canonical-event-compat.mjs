@@ -1,3 +1,4 @@
+import { completionGenerationFixtures, convertFrozenCompletionSample } from "./completion-generation-fixtures.mjs";
 import { readOnlyGenerationOneFixtures } from "./canonical-event-generations.mjs";
 import { decodeLegacyEventBytes } from "../../packages/kernel/src/store/legacy-generation-source.ts";
 import { validateCurrentCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
@@ -139,7 +140,7 @@ function frozenCanonicalEventCount(rootDir, schemas) {
 
 export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEvent) {
   const errors = [];
-  for (const relativePath of readOnlyGenerationOneFixtures.keys())
+  for (const relativePath of [...readOnlyGenerationOneFixtures.keys(), ...completionGenerationFixtures.keys()])
     if (
       schemas.some((entry) => relativePath.startsWith(`${FIXTURE_ROOT}/${fixtureDirectory(entry.schema)}/`)) &&
       !existsSync(path.join(rootDir, relativePath))
@@ -186,6 +187,17 @@ export function validateFrozenCanonicalEvents(rootDir, schemas, parseCanonicalEv
         } catch (error) {
           consumeKnownError(error);
           errors.push(`${relativePath}: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        continue;
+      }
+      if (completionGenerationFixtures.has(relativePath)) {
+        try {
+          convertFrozenCompletionSample(body, relativePath);
+        } catch (error) {
+          consumeKnownError(error);
+          errors.push(
+            `${relativePath}: offline completion conversion failed: ${error instanceof Error ? error.message : String(error)}`,
+          );
         }
         continue;
       }

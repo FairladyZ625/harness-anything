@@ -1,3 +1,4 @@
+import { validateCompletionGateWitnessV1 } from "@harness-anything/kernel";
 import {
   executionStateWords,
   executionV1StateWords,
@@ -520,59 +521,10 @@ export function codeDocRepoint(value: unknown): boolean {
 export const codeDocRecord = (value: unknown): boolean => codeDoc(value) || codeDocRepoint(value);
 
 export function gate(value: unknown): boolean {
-  const required = [
-      "schema",
-      "witnessId",
-      "receiptId",
-      "checkerId",
-      "gateId",
-      "result",
-      "taskId",
-      "executionId",
-      "commitSha",
-      "iteration",
-      "actor",
-      "source",
-      "verifiedAt",
-    ],
-    optional = ["observed", "basis", "provenance", "override"];
   return (
-    recordWith(value, required) &&
-    Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
-    value.schema === "completion-gate-witness/v1" &&
-    [
-      value.witnessId,
-      value.receiptId,
-      value.checkerId,
-      value.gateId,
-      value.taskId,
-      value.executionId,
-      value.verifiedAt,
-    ].every(nonEmpty) &&
+    isJsonObject(value) &&
     (value.result === "pass" || value.result === "fail") &&
-    (value.commitSha === null || sha(value.commitSha)) &&
-    iteration(value.iteration) &&
-    actor(value.actor) &&
-    source(value.source) &&
-    (value.observed === undefined || typeof value.observed === "boolean") &&
-    (value.basis === undefined ||
-      (recordWith(value.basis, ["executionId", "iteration", "submissionDigest"]) &&
-        nonEmpty(value.basis.executionId) &&
-        iteration(value.basis.iteration) &&
-        digest(value.basis.submissionDigest) &&
-        (value.basis.codeCommit === undefined || sha(value.basis.codeCommit)) &&
-        (value.basis.ledgerCut === undefined || (integer(value.basis.ledgerCut) && value.basis.ledgerCut >= 0)))) &&
-    (value.provenance === undefined ||
-      (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&
-        (value.provenance.source === "runner" || value.provenance.source === "human") &&
-        (value.provenance.adapterId === undefined || nonEmpty(value.provenance.adapterId)) &&
-        nonEmpty(value.provenance.runId) &&
-        nonEmpty(value.provenance.rawResult))) &&
-    // Envelope only: the rationale length and the waived receipt stay judged on the kernel write path.
-    (value.override === undefined ||
-      (exactRecord(value.override, ["rationale", "waivedReceiptId"]) &&
-        nonEmpty(value.override.rationale) &&
-        (value.override.waivedReceiptId === null || nonEmpty(value.override.waivedReceiptId))))
+    validateCompletionGateWitnessV1(value, value.schema === "completion-gate-acceptance/v1").length === 0
   );
 }
 

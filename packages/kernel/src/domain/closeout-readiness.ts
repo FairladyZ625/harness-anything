@@ -308,9 +308,6 @@ export function judgeGateWitnesses(
   const activeRun = currentGateRun(execution, gateId);
   if (requirement?.witness.kind === "historical")
     return judge(cut.filter((value) => isPreservedVerdictWitness(value)).at(-1));
-  if (activeRun && activeRun.state !== "completed")
-    return { status: "missing", detail: `Gate run ${activeRun.runId} is ${activeRun.state}.` };
-  if (activeRun?.availability === "unavailable") return { status: "missing", detail: activeRun.diagnostic };
   const automated = cut
       .filter((value) => !isHumanAttestationWitness(value) && value.provenance?.runId === activeRun?.runId)
       .at(-1),
@@ -328,7 +325,15 @@ export function judgeGateWitnesses(
           `receipt ${waivable.receiptId} waived by ${human!.actor.principal.personId} ` +
           `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
       };
-    if (requirement?.allowOverride === true && humanOverride.waivedReceiptId === null && automated === undefined)
+    if (
+      requirement?.allowOverride === true &&
+      humanOverride.waivedReceiptId === null &&
+      !cut.some(
+        (value) =>
+          !isHumanAttestationWitness(value) &&
+          value.basis?.submissionDigest === submissionDigest(execution.submission!),
+      )
+    )
       return {
         status: "waived",
         detail:
@@ -336,6 +341,9 @@ export function judgeGateWitnesses(
           `at ${human!.verifiedAt}: ${humanOverride.rationale}`,
       };
   }
+  if (activeRun && activeRun.state !== "completed")
+    return { status: "missing", detail: `Gate run ${activeRun.runId} is ${activeRun.state}.` };
+  if (activeRun?.availability === "unavailable") return { status: "missing", detail: activeRun.diagnostic };
   if (machine.status !== "passed" || requirement?.mandatorySignoff !== true) return machine;
   // An override is never a signoff: only a plain human attestation satisfies dual control.
   const signoff = human !== undefined && humanOverride === undefined ? judge(human) : { status: "missing" as const };

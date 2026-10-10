@@ -73,8 +73,8 @@ test("G4 catch-and-substitute rejects another producer unless baselined", () => 
 });
 
 // dec_4190D5EA63D9DD208CE946F133: precise source-process unavailability consumption.
-test("G4 command witness registration authorizes only its named consumer and detects removal", () => {
-  const root = fixture();
+test("G4 command witness registration authorizes only its named consumer and detects removal", (t) => {
+  const root = fixture(t);
   try {
     const source = "packages/daemon/src/task-witness-runner.ts";
     const key = `${source}#runCompletionSources`;
@@ -104,4 +104,34 @@ test("G4 command witness registration authorizes only its named consumer and det
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+// dec_5EC2631352B17EE2BF4979E37E: same-generation corruption must surface unchanged.
+test("G4 rejects restoring the retired physical worktree error consumer", (t) => {
+  const root = fixture(t);
+  const source = "packages/kernel/src/store/sqlite-task-event-publication.ts";
+  const key = `${source}#physicalWorktreeRevision`;
+  const production = JSON.parse(
+    readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-fallback-boundaries.json"), "utf8"),
+  );
+  assert.equal(production.entries.consumeKnownError.includes(key), false);
+  mkdirSync(path.dirname(path.join(root, source)), { recursive: true });
+  writeFileSync(path.join(root, source), "export function physicalWorktreeRevision() { return readManifest(); }\n");
+  writeFileSync(
+    path.join(root, "tools/gate-allowlists/check-fallback-boundaries.json"),
+    JSON.stringify({
+      schema: production.schema,
+      gateId: production.gateId,
+      entries: { consumeKnownError: [], fullHistoryScans: [], catchSubstitutions: [] },
+    }),
+  );
+  const accepted = run("tools/check-fallback-boundaries.mjs", root);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  writeFileSync(
+    path.join(root, source),
+    "export function physicalWorktreeRevision() { try { return readManifest(); } catch(error) { consumeKnownError(error); return 0; } }\n",
+  );
+  const rejected = run("tools/check-fallback-boundaries.mjs", root);
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /unlisted: .*#physicalWorktreeRevision/u);
 });

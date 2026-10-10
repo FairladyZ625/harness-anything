@@ -17,7 +17,8 @@ import {
   type TaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
 import type { ActorAxes } from "../../src/domain/task.ts";
-import type { FrozenGateRequirement } from "../../src/domain/completion-contract.ts";
+import { emptyCompletionContract } from "../domain/completion.fixtures.ts";
+import type { FrozenCompletionContract, FrozenGateRequirement } from "../../src/domain/completion-contract.ts";
 
 export const implementer: ActorAxes = {
   principal: { personId: "person-owner" },
@@ -27,6 +28,11 @@ export const reviewer: ActorAxes = {
   principal: { personId: "person-reviewer" },
   executor: { kind: "agent", id: "reviewer" },
 };
+const fixtureCompletionContract: FrozenCompletionContract = {
+  ...emptyCompletionContract,
+  closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+};
+
 export const commitSha = "a".repeat(40);
 
 function command<C extends Parameters<typeof normalizeTaskLifecycleCommand>[1]>(
@@ -62,7 +68,7 @@ export function lifecycleFixture(
   const taskId = options.taskId ?? "task-1",
     executionId = options.executionId ?? "execution-1",
     reviewId = options.reviewId ?? "review-execution",
-    completionContract = { gates: options.gates ?? [] };
+    completionContract = { ...fixtureCompletionContract, gates: options.gates ?? [] };
   const events: TaskEventV1[] = [];
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (
@@ -87,7 +93,7 @@ export function lifecycleFixture(
       taskClass: "standard",
       graph: REPLAY_TASK_GRAPH,
       completionGateIds: completionContract.gates.map((gate) => gate.gateId),
-      presetSnapshotDigest: null,
+      presetSnapshotDigest: fixtureCompletionContract.presetSnapshotDigest,
     }),
     { taskIdUnique: true, actorBinding: implementer },
   );
@@ -191,7 +197,7 @@ export function twoRoundLifecycleEvents(
       taskClass: "standard",
       graph: REPLAY_TASK_GRAPH,
       completionGateIds: [],
-      presetSnapshotDigest: null,
+      presetSnapshotDigest: fixtureCompletionContract.presetSnapshotDigest,
     }),
     { taskIdUnique: true, actorBinding: implementer },
   );
@@ -228,7 +234,7 @@ export function twoRoundLifecycleEvents(
         knownGaps: [],
         residualRisks: [],
         commitSha,
-        completionContract: { gates: [] },
+        completionContract: fixtureCompletionContract,
       },
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
@@ -303,7 +309,7 @@ function reviewCommand(
   executionId: string,
   verdict: "approved" | "changes_requested",
   reviewId: string,
-  completionContract: { readonly gates: readonly FrozenGateRequirement[] } = { gates: [] },
+  completionContract: FrozenCompletionContract = fixtureCompletionContract,
 ): RecordReviewCommand {
   const submission = {
     completionClaim: "implemented",

@@ -3565,7 +3565,7 @@
       "category": "local-consistency",
       "tier": "pr-required",
       "tierReason": null,
-      "localPathGlobs": ["packages/kernel/src/**","packages/daemon/src/**","packages/kernel/fixtures/canonical-events/**","packages/daemon/fixtures/readside-responses/**","tools/gates/canonical-event-compat.mjs","tools/gates/canonical-event-generations.mjs","tools/gates/git.mjs"],
+      "localPathGlobs": ["packages/kernel/src/**","packages/daemon/src/**","packages/kernel/fixtures/canonical-events/**","packages/daemon/fixtures/readside-responses/**","tools/gates/canonical-event-compat.mjs","tools/gates/canonical-event-generations.mjs","tools/gates/completion-generation-fixtures.*","tools/gates/git.mjs"],
       "authoritySource": [
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH1",
         "decision/dec_3CA0514AF96C0E8C1AE555A513#CH3",

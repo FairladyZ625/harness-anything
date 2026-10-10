@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import {
   canonicalGateReceipts,
+  claimGateRun,
   compileCompletionGateWitness,
   completionBlockers,
   gateResults,
@@ -19,6 +20,8 @@ import {
   type FrozenGateRequirement,
 } from "@harness-anything/kernel";
 import type { TaskLifecycleSnapshot } from "@harness-anything/kernel";
+import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import { replaceGateRun } from "../../kernel/src/domain/gate-run.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness, witnessAdapters } from "../src/repo-cell-witness-adapters.ts";
@@ -40,28 +43,41 @@ function git(root: string, ...args: string[]): string {
   }).trim();
 }
 
-const localRequirement = (command: string, gateId = "lint"): FrozenGateRequirement => ({
+const commandRequirement = (gateId = "lint"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
-  witness: { adapterId: "local-command", adapterOptions: { command } },
+  witness: {
+    ...completionSnapshot.completion.sources["research/check"],
+    adapterId: "research/check",
+    adapterOptions: {},
+  },
 });
 
 const manualRequirement = (gateId = "signoff"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
-  witness: { adapterId: "manual-attest", adapterOptions: {} },
+  witness: {
+    ...completionSnapshot.completion.sources["manual-attest"],
+    adapterId: "manual-attest",
+    adapterOptions: {},
+  },
 });
 
 const artifactRequirement = (gateId = "signoff"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "artifacts",
-  witness: { adapterId: "manual-attest", adapterOptions: {} },
+  witness: {
+    ...completionSnapshot.completion.sources["manual-attest"],
+    adapterId: "manual-attest",
+    adapterOptions: {},
+  },
 });
 
 const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
   gateId,
   appliesTo: "code",
   witness: {
+    ...completionSnapshot.completion.sources["github-actions"],
     adapterId: "github-actions",
     adapterOptions: {
       workflows: ["rewrite-ci"],
@@ -89,6 +105,7 @@ function submittedExecution(
     claimedAt: "2026-09-12T00:00:00.000Z",
     submittedAt: "2026-09-12T00:01:00.000Z",
     closedAt: null,
+    gateRuns: [],
     submission: {
       completionClaim: "Done",
       commitSha,
@@ -98,7 +115,7 @@ function submittedExecution(
       knownGaps: [],
       residualRisks: [],
       evidenceRefs: [],
-      completionContract: { gates: [...requirements] },
+      completionContract: { ...emptyCompletionContract, gates: [...requirements] },
       ...overrides,
     },
   } as Snapshot["executions"][number];
@@ -135,72 +152,7 @@ function cellStub(rootDir: string, execution: Snapshot["executions"][number]) {
   } as unknown as RepoCellOperationalContext;
 }
 
-test("local-command collects evidence at the frozen cut and nonzero exit is fail evidence", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-local-witness-"));
-  try {
-    git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Test");
-    git(root, "config", "user.email", "test@example.com");
-    writeFileSync(path.join(root, "marker.txt"), "cut-one\n");
-    git(root, "add", "marker.txt");
-    git(root, "commit", "-qm", "cut one");
-    const cutSha = git(root, "rev-parse", "HEAD");
-    writeFileSync(path.join(root, "marker.txt"), "amended\n");
-    git(root, "commit", "-a", "-q", "-m", "amended");
-
-    const requirement = localRequirement("cat marker.txt"),
-      execution = submittedExecution(cutSha, [requirement]),
-      cell = cellStub(root, execution),
-      collected = await witnessAdapters["local-command"].collect!(cell, requirement, execution);
-    // The command ran on the archived submitted commit, not the amended working tree.
-    const evidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, collected);
-    assert.equal(evidence?.result, "pass", evidence?.provenance.rawResult);
-    assert.equal(evidence?.provenance.adapterId, "local-command");
-    assert.equal(evidence?.basis.codeCommit, cutSha);
-    assert.match(evidence?.provenance.rawResult ?? "", /exit 0/u);
-    assert.match(evidence?.provenance.rawResult ?? "", /cut-one/u);
-
-    const failing = localRequirement("exit 7", "lint"),
-      failCollected = await witnessAdapters["local-command"].collect!(cell, failing, execution);
-    const failEvidence = witnessAdapters["local-command"].evaluate(cell, failing, execution, failCollected);
-    assert.equal(failEvidence?.result, "fail");
-    assert.match(failEvidence?.provenance.rawResult ?? "", /exit 7/u);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-test("local-command refuses stale collections after the submitted cut is amended", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-local-stale-"));
-  try {
-    git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Test");
-    git(root, "config", "user.email", "test@example.com");
-    git(root, "commit", "--allow-empty", "-qm", "cut one");
-    const cutSha = git(root, "rev-parse", "HEAD"),
-      requirement = localRequirement("exit 0"),
-      execution = submittedExecution(cutSha, [requirement]),
-      cell = cellStub(root, execution),
-      collected = await witnessAdapters["local-command"].collect!(cell, requirement, execution);
-
-    const amended = submittedExecution(cutSha, [requirement], { completionClaim: "Amended." });
-    assert.notEqual(submissionDigest(amended.submission as never), submissionDigest(execution.submission as never));
-    assert.equal(witnessAdapters["local-command"].evaluate(cell, requirement, amended, collected), null);
-
-    const amendedContract = submittedExecution(cutSha, [requirement, manualRequirement()]);
-    assert.equal(witnessAdapters["local-command"].evaluate(cell, requirement, amendedContract, collected), null);
-
-    await assert.rejects(
-      () =>
-        witnessAdapters["local-command"].collect!(cell, requirement, submittedExecution("f".repeat(40), [requirement])),
-      { code: "witness_unavailable" },
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
-// local-command's verdict comes from runProcessExitAsync: a real exit resolves with its code
+// The process port resolves only a real exit with its code
 // (0 → pass, nonzero → fail), while termination paths — spawn failure, signal, timeout, abort —
 // produce no verdict and must reject. The timeout case is the sharp edge: a child that catches
 // SIGTERM and exits 7 on its own still reports a numeric error.code, so the killed/signal
@@ -234,47 +186,6 @@ test(
   },
 );
 
-// A merged-to:<branch> declaration resolves to an ordinary local-command requirement whose
-// command observes ancestry in the source repository through HARNESS_WITNESS_REPO: the verdict is
-// fail while the branch lacks the cut and flips to pass once the branch contains it — completion
-// reads the later observation, never a submit-time verdict.
-test("a merged-to ancestry observation fails until the target branch contains the cut", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-merged-to-"));
-  try {
-    git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Test");
-    git(root, "config", "user.email", "test@example.com");
-    writeFileSync(path.join(root, "file.txt"), "base\n");
-    git(root, "add", "file.txt");
-    git(root, "commit", "-qm", "base");
-    git(root, "checkout", "-qb", "delivery");
-    writeFileSync(path.join(root, "delivered.txt"), "delivered\n");
-    git(root, "add", "delivered.txt");
-    git(root, "commit", "-qm", "delivery");
-    const cutSha = git(root, "rev-parse", "HEAD");
-    git(root, "checkout", "-q", "main");
-
-    const requirement = localRequirement(
-        'git -C "$HARNESS_WITNESS_REPO" merge-base --is-ancestor "$HARNESS_WITNESS_CUT" refs/heads/main',
-        "merged-to:main",
-      ),
-      execution = submittedExecution(cutSha, [requirement]),
-      cell = cellStub(root, execution);
-
-    const before = await witnessAdapters["local-command"].collect!(cell, requirement, execution),
-      beforeEvidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, before);
-    assert.equal(beforeEvidence?.result, "fail");
-    assert.match(beforeEvidence?.provenance.rawResult ?? "", /exit [1-9]/u);
-
-    git(root, "merge", "-qm", "merge delivery", cutSha);
-    const after = await witnessAdapters["local-command"].collect!(cell, requirement, execution),
-      afterEvidence = witnessAdapters["local-command"].evaluate(cell, requirement, execution, after);
-    assert.equal(afterEvidence?.result, "pass", afterEvidence?.provenance.rawResult);
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
-
 test("a delivery is stranded only when no run on the frozen CI branch can ever cover it", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-stranded-"));
   try {
@@ -301,7 +212,7 @@ test("a delivery is stranded only when no run on the frozen CI branch can ever c
     git(root, "cherry-pick", cutSha);
     git(root, "update-ref", "refs/remotes/origin/main", "main");
     assert.equal(stranded(cutSha), true, "its change landed under another SHA");
-    assert.equal(stranded(cutSha, localRequirement("true")), false, "no github-actions gate is frozen");
+    assert.equal(stranded(cutSha, commandRequirement()), false, "no github-actions gate is frozen");
     assert.equal(stranded("f".repeat(40)), true, "the commit is gone from the repository");
     git(root, "merge", "-qm", "merge delivery", cutSha);
     git(root, "update-ref", "refs/remotes/origin/main", "main");
@@ -337,7 +248,7 @@ function admissionFixture(requirement: FrozenGateRequirement) {
     execution = snapshot.executions.find((value) => value.state === "submitted")!;
   execution.submission = {
     ...execution.submission!,
-    completionContract: { gates: [requirement] },
+    completionContract: { ...emptyCompletionContract, gates: [requirement] },
   };
   return { snapshot, execution };
 }
@@ -356,6 +267,10 @@ function humanEvidence(
   const submission = execution.submission!;
   return {
     schema: "completion-evidence/v1",
+    subjects: "artifacts" in submission ? (submission.artifacts as never) : [],
+    predicateType: adapterId === "github-actions" ? "ci/v1" : "human/v1",
+    predicate: {},
+    diagnostic: "human attestation",
     checkerId: gateId,
     gateId,
     result: "pass",
@@ -479,6 +394,10 @@ test("manual attest evidence carries human provenance and the gate it names", ()
 test("the wire validator admits pass/fail witnesses only with a mapped adapter id in provenance", () => {
   const witness = {
     schema: "completion-gate-witness/v1",
+    subjects: [],
+    predicateType: "human/v1",
+    predicate: {},
+    diagnostic: "human attestation",
     witnessId: "witness-1",
     receiptId: "receipt-1",
     checkerId: "signoff",
@@ -508,13 +427,13 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
   assert.equal(validateGateWitnessWire(witness), true);
   assert.equal(validateGateWitnessWire({ ...witness, result: "fail" }), true);
   assert.equal(validateGateWitnessWire({ ...witness, result: "advisory" }), false);
-  // Witnesses recorded before the adapter registry carry no adapterId and stay readable as history.
+  // Unconverted witnesses without the frozen source identity are rejected.
   assert.equal(
     validateGateWitnessWire({
       ...witness,
       provenance: { source: "runner", runId: "12345", rawResult: "event:op_legacy" },
     }),
-    true,
+    false,
   );
   assert.equal(
     validateGateWitnessWire({
@@ -616,6 +535,10 @@ test("a mixed commit+artifact cut carries both scopes: each gate judges its own 
 test("the wire validator admits a null-commit witness for artifact-scoped gates", () => {
   const witness = {
     schema: "completion-gate-witness/v1",
+    subjects: [],
+    predicateType: "human/v1",
+    predicate: {},
+    diagnostic: "human attestation",
     witnessId: "witness-artifact",
     receiptId: "receipt-artifact",
     checkerId: "signoff",
@@ -650,6 +573,19 @@ test("the wire validator admits a null-commit witness for artifact-scoped gates"
 /** The admission fixture with the governed gate also declared on the task, as replay requires. */
 function governedFixture(requirement: FrozenGateRequirement) {
   const fixture = admissionFixture(requirement);
+  if (requirement.witness.kind === "command") {
+    const run = claimGateRun({
+      execution: fixture.execution,
+      repoId: "repo",
+      requirement,
+      runId: "local-run-1",
+      claimFence: 1,
+      actor,
+      occurredAt: "2026-09-17T00:00:00.000Z",
+      expiresAt: "2026-09-17T01:00:00.000Z",
+    });
+    fixture.execution.gateRuns = [run];
+  }
   return {
     ...fixture,
     snapshot: {
@@ -668,21 +604,29 @@ function automatedEvidence(
   return {
     ...humanEvidence(execution, gateId, "manual-attest"),
     result,
-    provenance: { source: "runner", adapterId: "local-command", runId, rawResult: `exit ${result === "pass" ? 0 : 1}` },
+    predicateType: "research/v1",
+    provenance: {
+      source: "runner",
+      adapterId: "research/check",
+      runId,
+      claimFence: runId === "local-run-1" ? 1 : 2,
+      rawResult: `exit ${result === "pass" ? 0 : 1}`,
+    },
   };
 }
 
-test("submission preparation reconciles code-doc before deferring gate publication until owner forward", async () => {
-  const { snapshot, execution } = governedFixture(localRequirement("true"));
+test("submission preparation reconciles code-doc without publishing source results in the task queue", async () => {
+  const { snapshot, execution } = governedFixture(commandRequirement());
   execution.submission = {
     ...execution.submission!,
     completionContract: {
+      ...emptyCompletionContract,
       gates: [
-        localRequirement("true"),
+        commandRequirement(),
         {
           gateId: "code-doc-reconciliation",
           appliesTo: "code",
-          witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+          witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
         },
       ],
     },
@@ -692,54 +636,27 @@ test("submission preparation reconciles code-doc before deferring gate publicati
     status: "submitted",
     currentNode: "implementation",
     completionGateIds: ["lint", "code-doc-reconciliation"],
-    closeoutOverrides: { review: true },
   };
   const read = { snapshot, packagePath: null },
-    published: CompletionEvidenceV1[] = [],
     reconciled: unknown[] = [],
     cell = {
       service: { read: async () => read },
-      projection: { read: () => read, getEntity: () => undefined },
       lifecycleAction: async (action: unknown) => {
         reconciled.push(action);
         return { outcome: "applied", opId: "code-doc" };
       },
-      publishGateWitness: (
-        _taskId: string,
-        _executionId: string,
-        current: Snapshot,
-        _packagePath: unknown,
-        _binding: unknown,
-        evidence: CompletionEvidenceV1,
-      ) => {
-        compileWitness(current, execution, evidence);
-        published.push(evidence);
-        return { outcome: "applied", opId: "witness" };
-      },
-    } as unknown as RepoCellOperationalContext,
-    collections = new Map([
-      [
-        "lint",
-        {
-          kind: "local-command",
-          submissionDigest: submissionDigest(execution.submission!),
-          cutSha: execution.submission!.commitSha,
-          exitCode: 0,
-          outputDigest: `sha256:${"a".repeat(64)}`,
-          outputTail: "passed",
-        },
-      ],
+      publishGateWitness: () => assert.fail("sources publish only through their claimed run"),
+    } as unknown as RepoCellOperationalContext;
+  for (const status of ["submitted", "in_review"] as const) {
+    snapshot.task = { ...snapshot.task!, status };
+    assert.deepEqual(await prepareSubmissionEvidence(cell, "task", execution.executionId, binding), [
+      { outcome: "applied", opId: "code-doc" },
     ]);
-  assert.deepEqual(await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections), [
-    { outcome: "applied", opId: "code-doc" },
-  ]);
-  assert.deepEqual(reconciled, [
-    { kind: "task-code-doc-reconcile", taskId: "task", paths: execution.submission!.deliverables },
-  ]);
-  assert.equal(published.length, 0);
-  snapshot.task = { ...snapshot.task!, status: "in_review", currentNode: "review" };
-  assert.equal((await prepareSubmissionEvidence(cell, "task", execution.executionId, binding, collections)).length, 2);
-  assert.equal(published.length, 1);
+  }
+  assert.deepEqual(
+    reconciled,
+    Array(2).fill({ kind: "task-code-doc-reconcile", taskId: "task", paths: execution.submission!.deliverables }),
+  );
 });
 
 function overrideEvidence(
@@ -781,6 +698,28 @@ function record(snapshot: TaskLifecycleSnapshot, evidence: CompletionEvidenceV1,
   return reduceTaskEvent(snapshot, compiled.event);
 }
 
+/** A terminal run can be replaced only by an explicit owner rerun and a higher fence. */
+function rerun(snapshot: TaskLifecycleSnapshot): TaskLifecycleSnapshot {
+  const execution = snapshot.executions.find((value) => value.state === "submitted")!;
+  const run = claimGateRun({
+    execution,
+    repoId: "repo",
+    requirement: execution.submission!.completionContract.gates[0]!,
+    runId: "local-run-2",
+    claimFence: 2,
+    actor,
+    occurredAt: "2026-09-17T00:01:00.000Z",
+    expiresAt: "2026-09-17T01:00:00.000Z",
+    rerun: { runId: "local-run-1", reason: "Owner requested a fresh observation" },
+  });
+  return {
+    ...snapshot,
+    executions: snapshot.executions.map((value) =>
+      value.executionId === execution.executionId ? replaceGateRun(value, run) : value,
+    ),
+  };
+}
+
 function gateStatus(snapshot: TaskLifecycleSnapshot, gateId: string): string | undefined {
   const execution = snapshot.executions.find((value) => value.state === "submitted")!;
   return gateResults(snapshot, undefined, execution.executionId, execution.submission, execution.iteration).find(
@@ -789,7 +728,7 @@ function gateStatus(snapshot: TaskLifecycleSnapshot, gateId: string): string | u
 }
 
 test("automated-only and manual-attest gates keep one lane and admit no signoff or override", () => {
-  const automated = governedFixture(localRequirement("exit 0")),
+  const automated = governedFixture(commandRequirement()),
     failed = record(automated.snapshot, automatedEvidence(automated.execution, "lint", "fail"), "op-fail");
   assert.equal(gateStatus(failed, "lint"), "failed");
   assert.throws(() => record(failed, humanEvidence(automated.execution, "lint", "manual-attest"), "op-signoff"), {
@@ -808,7 +747,7 @@ test("automated-only and manual-attest gates keep one lane and admit no signoff 
 });
 
 test("dual control needs the automated pass and a human signoff, kept as separate witnesses", () => {
-  const { snapshot, execution } = governedFixture({ ...localRequirement("exit 0"), mandatorySignoff: true }),
+  const { snapshot, execution } = governedFixture({ ...commandRequirement(), mandatorySignoff: true }),
     machinePassed = record(snapshot, automatedEvidence(execution, "lint", "pass"), "op-pass");
   assert.equal(gateStatus(machinePassed, "lint"), "signoff_missing");
   const blocker = completionBlockers(machinePassed, execution.executionId, {
@@ -842,7 +781,7 @@ test("dual control needs the automated pass and a human signoff, kept as separat
 });
 
 test("break-glass override waives only the recorded automated fail it names and never erases it", () => {
-  const { snapshot, execution } = governedFixture({ ...localRequirement("exit 1"), allowOverride: true }),
+  const { snapshot, execution } = governedFixture({ ...commandRequirement(), allowOverride: true }),
     failed = record(snapshot, automatedEvidence(execution, "lint", "fail"), "op-fail");
   assert.equal(gateStatus(failed, "lint"), "failed");
   assert.equal(waivableAutomatedFail(failed.gateWitnesses, execution as never, "lint")?.receiptId, "op-fail");
@@ -878,11 +817,14 @@ test("break-glass override waives only the recorded automated fail it names and 
     "failed",
   );
   assert.equal(
-    gateStatus(record(waived, automatedEvidence(execution, "lint", "fail", "local-run-2"), "op-fail-2"), "lint"),
+    gateStatus(record(rerun(waived), automatedEvidence(execution, "lint", "fail", "local-run-2"), "op-fail-2"), "lint"),
     "failed",
   );
   // An automated pass supersedes the need for the waiver.
-  assert.equal(gateStatus(record(waived, automatedEvidence(execution, "lint", "pass"), "op-pass"), "lint"), "passed");
+  assert.equal(
+    gateStatus(record(rerun(waived), automatedEvidence(execution, "lint", "pass", "local-run-2"), "op-pass"), "lint"),
+    "passed",
+  );
 
   // Evidence-level fences: only a human pass with a real rationale can carry an override.
   const override = overrideEvidence(execution, "lint", "op-fail"),
@@ -909,7 +851,7 @@ function attestCell(snapshot: TaskLifecycleSnapshot) {
 }
 
 test("attest admission: human principal, closed fields, owner-only override over recorded evidence", () => {
-  const overridable = governedFixture({ ...localRequirement("exit 1"), allowOverride: true }),
+  const overridable = governedFixture({ ...commandRequirement(), allowOverride: true }),
     owner = {
       actor: { principal: overridable.snapshot.task!.createdBy.principal, executor: null },
       source: "local",
@@ -986,14 +928,14 @@ test("attest admission: human principal, closed fields, owner-only override over
   assert.equal(gateStatus(record(failed, published[0]!, "op-override"), "lint"), "waived");
 
   // A gate without allowOverride refuses override; a gate without mandatorySignoff refuses approve.
-  const plain = governedFixture(localRequirement("exit 1")),
+  const plain = governedFixture(commandRequirement()),
     plainFailed = record(plain.snapshot, automatedEvidence(plain.execution, "lint", "fail"), "op-fail");
   assert.throws(() => attest(plainFailed, override), { code: "invalid_command" });
   assert.throws(() => attest(plain.snapshot, override), { code: "invalid_command" });
   assert.throws(() => attest(plainFailed, {}), { code: "invalid_command" });
 
   // Dual control: signoff only over the recorded automated pass of this cut.
-  const dual = governedFixture({ ...localRequirement("exit 0"), mandatorySignoff: true });
+  const dual = governedFixture({ ...commandRequirement(), mandatorySignoff: true });
   assert.throws(() => attest(dual.snapshot, { note: "looked at the diff" }), { code: "invalid_transition" });
   const dualPassed = record(dual.snapshot, automatedEvidence(dual.execution, "lint", "pass"), "op-pass"),
     signoff = attest(dualPassed, { note: "looked at the diff" });
@@ -1003,7 +945,7 @@ test("attest admission: human principal, closed fields, owner-only override over
 });
 
 test("an override with no automated receipt is waived until any automated receipt lands", () => {
-  const requirement = { ...localRequirement("exit 1"), allowOverride: true } as const,
+  const requirement = { ...commandRequirement(), allowOverride: true } as const,
     { snapshot, execution } = governedFixture(requirement),
     waived = record(snapshot, overrideEvidence(execution, "lint", null), "op-override");
   assert.equal(gateStatus(waived, "lint"), "waived");
@@ -1018,13 +960,16 @@ test("an override with no automated receipt is waived until any automated receip
   assert.match(detail?.detail ?? "", /no automated witness.*waived by owner/u);
 
   // Any automated receipt that lands voids the null waiver and the gate is re-judged on it.
-  assert.equal(
-    gateStatus(record(waived, automatedEvidence(execution, "lint", "fail", "run-2"), "op-fail"), "lint"),
-    "failed",
-  );
+  assert.equal(gateStatus(record(waived, automatedEvidence(execution, "lint", "fail"), "op-fail"), "lint"), "failed");
   assert.equal(gateStatus(record(waived, automatedEvidence(execution, "lint", "pass"), "op-pass"), "lint"), "passed");
+  const failedOnce = record(waived, automatedEvidence(execution, "lint", "fail"), "op-fail");
+  assert.equal(
+    gateStatus(rerun(failedOnce), "lint"),
+    "missing",
+    "a rerun cannot revive a null waiver invalidated by an earlier receipt on this cut",
+  );
   // A new pass under dual control still needs a plain approve — the override is not a signoff.
-  const dualRequirement = { ...localRequirement("exit 0"), allowOverride: true, mandatorySignoff: true } as const,
+  const dualRequirement = { ...commandRequirement(), allowOverride: true, mandatorySignoff: true } as const,
     dual = governedFixture(dualRequirement),
     dualWaived = record(dual.snapshot, overrideEvidence(dual.execution, "lint", null), "op-override");
   assert.equal(gateStatus(dualWaived, "lint"), "waived");
