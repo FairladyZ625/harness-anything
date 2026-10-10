@@ -449,10 +449,25 @@ export class KeycloakPolicyAdapter {
     });
   }
 
-  /** Deletes the node's client, so Keycloak refuses its machine credential from then on. */
+  /** Revoke the owner's offline consent for this device before deleting its client. */
   async deleteNode(adminAccessToken: string, nodeId: string): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, nodeId);
-    if (current) await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
+    if (!current) return;
+    const personId = nodeOf(current).personId,
+      userId = await this.findUserId(adminAccessToken, personId);
+    if (!userId)
+      throw Object.assign(new Error(`No Keycloak account carries Harness person ${personId}.`), {
+        code: "access_person_unknown",
+      });
+    const consentPath = `/users/${encodeURIComponent(userId)}/consents`,
+      consents = await this.#json<readonly { readonly clientId: string }[]>(adminAccessToken, consentPath);
+    // Keycloak lists offline grants here even when the client never requested browser consent.
+    // An absent grant needs no deletion; a failed DELETE is still an error, including HTTP 404.
+    if (consents.some((consent) => consent.clientId === current.clientId))
+      await this.#request(adminAccessToken, `${consentPath}/${encodeURIComponent(current.clientId)}`, {
+        method: "DELETE",
+      });
+    await this.#request(adminAccessToken, `/clients/${current.id}`, { method: "DELETE" });
   }
 
   /** The machine proves itself to Keycloak; the center never holds a copy of the credential. */

@@ -486,6 +486,44 @@ test("unregistering a node removes it from Keycloak, so its credential and its o
 // Wherever a node removal settles applied — the mutating run or a reconcile of an unsettled
 // receipt — the composition root is told which node went, so the center can cut its sessions.
 // Nothing else reports: registrations, moves, and refused removals leave the live sessions alone.
+test("offline revocation failure leaves removal unsettled and never reports completion", async (t) => {
+  const { keycloak, root, nodes, journal, registry } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.node("edge-a", "alice");
+  keycloak.node("edge-b", "alice");
+  const removed: string[] = [],
+    operationId = randomUUID(),
+    version = (await nodes()).find((node) => node.nodeId === "edge-a")!.version;
+  const rejecting: typeof fetch = async (input, init) => {
+    const route = new URL(String(input)).pathname;
+    if (route.endsWith("/consents")) return Response.json([{ clientId: "harness-node-edge-a" }]);
+    if (route.endsWith("/consents/harness-node-edge-a")) return new Response(null, { status: 503 });
+    return keycloak.fetch(input, init);
+  };
+  const admin = new AccessAdminService(new OidcSessionService(root, { fetch: keycloak.fetch }), root, {
+    fetch: rejecting,
+    onNodeRemoved: (nodeId) => removed.push(nodeId),
+  });
+  await assert.rejects(
+    admin.run({ operation: "node-unregister", operationId, nodeId: "edge-a", expectedVersion: version }),
+    { code: "keycloak_admin_rejected" },
+  );
+  assert.deepEqual(removed, []);
+  assert.equal(await registry.nodeOwner("edge-a"), "alice");
+  assert.equal(await registry.nodeOwner("edge-b"), "alice");
+  assert.deepEqual(
+    journal()
+      .map((line) => JSON.parse(line))
+      .filter((row) => row.operationId === operationId)
+      .map((row) => row.phase),
+    ["intent"],
+  );
+  const reconciled = await admin.run({ operation: "receipt-reconcile", operationId });
+  assert.equal(reconciled.ok, false);
+  assert.equal(reconciled.outcome, "failed");
+  assert.deepEqual(removed, []);
+});
+
 test("a removal that settles applied reports the removed node, and nothing else does", async (t) => {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
