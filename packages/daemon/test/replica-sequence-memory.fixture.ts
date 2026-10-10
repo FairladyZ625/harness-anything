@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import path from "node:path";
 import { DatabaseSync, StatementSync } from "node:sqlite";
-import { parentPort, workerData } from "node:worker_threads";
 import {
   createReplicaSequence,
   readReplicaSequence,
@@ -12,7 +11,8 @@ import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture
 import { makeOffer, offerFrames } from "../src/fleet/center-replica-offer.ts";
 import { openReplicaCutSource } from "../src/fleet/replica-cut-store.ts";
 
-const { root, count } = workerData as { root: string; count: number };
+const root = process.argv[2]!,
+  count = Number(process.argv[3]);
 const db = new DatabaseSync(path.join(root, "sequence.sqlite"));
 createReplicaSequence(db);
 const event = lifecycleFixture().events[0]!;
@@ -22,15 +22,21 @@ db.exec("BEGIN");
 for (let i = 0; i < count; i++)
   insert.run(`.read-model/rows/${String(i).padStart(8, "0")}`, `${String(i).padStart(8, "0")}${"x".repeat(6136)}`);
 db.exec("COMMIT");
-parentPort!.postMessage({ phase: "seeded", count, textBytes: count * 6144 });
+process.send!({ phase: "seeded", count, textBytes: count * 6144 });
 let peakHeap = 0,
   peakRss = 0,
+  peakRetainedHeap = 0,
   reads = 0;
 const started = performance.now();
-const sample = () => {
+const sample = (collect = false) => {
   const memory = process.memoryUsage();
   peakHeap = Math.max(peakHeap, memory.heapUsed);
   peakRss = Math.max(peakRss, memory.rss);
+  if (collect) {
+    // Compare live data, not garbage awaiting V8's load-dependent collection schedule.
+    global.gc!({ type: "major", execution: "sync" });
+    peakRetainedHeap = Math.max(peakRetainedHeap, process.memoryUsage().heapUsed);
+  }
 };
 const iterate = StatementSync.prototype.iterate;
 StatementSync.prototype.iterate = function (...args) {
@@ -39,8 +45,8 @@ StatementSync.prototype.iterate = function (...args) {
   cursor.next = (...input) => {
     const result = next(...input);
     if (!result.done && ++reads % 4096 === 0) {
-      sample();
-      parentPort!.postMessage({ phase: "reading", count, reads, peakHeap, peakRss });
+      sample(true);
+      process.send!({ phase: "reading", count, reads, peakHeap, peakRss, peakRetainedHeap });
     }
     return result;
   };
@@ -55,6 +61,7 @@ const source = openReplicaCutSource({
 });
 try {
   const cut = source.activate()!;
+  sample(true);
   assert.equal(cut.manifest.entryCount, count);
   assert.equal(cut.manifest.totalBytes, count * 6144);
   const publishedMs = performance.now() - started;
@@ -68,11 +75,12 @@ try {
     assert.ok(performance.now() - deliveryStarted < 60_000, "complete delivery must fit the center work budget");
     if (frame.schema === "fleet.snapshot.page/v1") {
       pages++;
-      sample();
+      sample(pages % 32 === 0);
     }
     if (frame.schema === "fleet.snapshot.chunk/v1") {
       chunks++;
       bytes += Buffer.from(frame.dataBase64, "base64").length;
+      if (chunks % 4096 === 0) sample(true);
     }
   }
   assert.equal(pages, Math.ceil(count / 128));
@@ -97,14 +105,14 @@ try {
     deltaPages++;
     deltaCount += page.changes.length;
     assert.ok(performance.now() - deltaStarted < 60_000, "large deltas must seek without rescanning earlier pages");
-    sample();
+    sample(deltaPages % 32 === 0);
     if (page.done) break;
     cursor = page.cursor;
   }
   assert.equal(deltaCount, count);
   assert.equal(deltaPages, Math.ceil(count / 128));
-  sample();
-  parentPort!.postMessage({
+  sample(true);
+  process.send!({
     phase: "complete",
     deltaMs: performance.now() - deltaStarted,
     deltaPages,
@@ -117,6 +125,7 @@ try {
     reads,
     peakHeap,
     peakRss,
+    peakRetainedHeap,
     elapsedMs: performance.now() - started,
   });
 } finally {
