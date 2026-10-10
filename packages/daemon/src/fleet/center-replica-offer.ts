@@ -224,8 +224,8 @@ export async function deliverReplicaOffer(input: {
   let deadline: ReturnType<typeof setTimeout> | undefined;
   let preparing = true,
     awaitingAck = false,
-    expiresAt = 0;
-  let drainedAtRenewal = window.drainedBytes();
+    progressedAt = Date.now();
+  let drainedAtProgress = window.drainedBytes();
   const release = (acknowledged = false) => {
     clearInterval(renewalTimer);
     clearTimeout(deadline);
@@ -244,17 +244,18 @@ export async function deliverReplicaOffer(input: {
   };
   const guard = () => {
     signal.throwIfAborted();
-    if (!replica.pinActive(lease!))
-      throw fenced(lease!, "Delivery", false, ackStore.delivery.inspect(lease!, Date.now()));
     const at = Date.now(),
       drained = window.drainedBytes();
-    // Queuing a frame is not transport progress. An idle sender keeps the last expiry;
-    // when it arrives the original conditional renewal supplies the fenced failure.
-    if (!preparing && !awaitingAck && drained <= drainedAtRenewal && at < expiresAt) return;
+    if (preparing || awaitingAck || drained > drainedAtProgress) progressedAt = at;
+    // Keep ownership alive while the peer is allowed to wait. Expiring the lease to
+    // detect a stall races progress observed at the next (possibly delayed) check.
+    if (at - progressedAt >= ttlMs)
+      throw new FleetFault("replica_delivery_stalled", `Replica peer made no transport progress for ${ttlMs} ms.`);
+    drainedAtProgress = drained;
+    if (!replica.pinActive(lease!))
+      throw fenced(lease!, "Delivery", false, ackStore.delivery.inspect(lease!, Date.now()));
     const renewal = ackStore.delivery.renew(lease!, at, ttlMs);
     if (!renewal.renewed) throw fenced(lease!, "Delivery", true, renewal.evidence);
-    expiresAt = at + ttlMs;
-    drainedAtRenewal = drained;
   };
   input.connectionSignal.addEventListener("abort", disconnected, { once: true });
   try {
@@ -267,7 +268,6 @@ export async function deliverReplicaOffer(input: {
       input.stateRoot,
     );
     lease = pinned.lease;
-    expiresAt = lease.expiresAt;
     input.signal.throwIfAborted();
     deadline = setTimeout(
       () => fail(new FleetFault("replica_delivery_fenced", "Replica delivery deadline exceeded.")),
@@ -320,6 +320,7 @@ export async function deliverReplicaOffer(input: {
           next = await untilAborted(() => iterator.next(), signal);
         } finally {
           preparing = false;
+          progressedAt = Date.now();
         }
         if (next.done) return;
         yield next.value;
