@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -33,7 +33,7 @@ function agentUpsert() {
   });
 }
 
-test("a generation-1 ledger holding a pre-manifest entity declaration still certifies its Git follower", async () => {
+test("a generation-1 ledger holding a pre-manifest entity declaration still certifies its Git follower", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-legacy-entity-")),
     databasePath = sqliteLedgerPath(rootDir, 1),
     current = agentUpsert(),
@@ -43,6 +43,7 @@ test("a generation-1 ledger holding a pre-manifest entity declaration still cert
     // history, so a ledger holding one has to stay readable — materializing it is how the repository opens.
     { ownedContent, ...legacyPayload } = current.event.payload,
     legacyEvent = { ...current.event, payload: legacyPayload } as unknown as CanonicalEventV1;
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
   // The recovered manifest is the one the writer of that same claim recorded, not a fresh reading of today's
   // registry: a derived manifest that differed here would be describing a different event.

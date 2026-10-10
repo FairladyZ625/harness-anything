@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import fs, { mkdtempSync, readFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,6 +13,7 @@ test("a content-object batch fsyncs every file and each shared directory once", 
     first = path.join(directory, "first"),
     second = path.join(directory, "second"),
     original = fs.fsyncSync;
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   let syncs = 0;
   const spy = t.mock.method(fs, "fsyncSync", (descriptor) => {
     syncs += 1;
