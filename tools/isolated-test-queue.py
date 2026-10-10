@@ -10,8 +10,8 @@ import subprocess
 import sys
 import time
 
-# 32 GiB target: measured 2.44 GiB/job, allow 6 GiB/job and retain 8 GiB.
-CAPACITY = 4
+# Reserve CPU headroom on the four-core target; each test runner can use two workers.
+CAPACITY = 2
 
 
 def emit(event, **fields):

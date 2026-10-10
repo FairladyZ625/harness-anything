@@ -224,11 +224,14 @@ for (const transport of ["tar", "rsync"]) {
 test("remote scripts preflight before executing tests with a dedicated root and id", () => {
   const options = { tier: "integration", file: undefined };
   const posix = posixTestScript("/tmp/run", "/tmp/run/.test-isolation-state", options);
-  assert.match(posix, /npm ci --no-audit --no-fund/u);
+  assert.match(posix, /node tools\/isolated-test-dependencies\.mjs/u);
   assert.match(posix, /test-hermetic-preflight\.mjs --user-root '\/tmp\/run\/.test-isolation-state'/u);
   assert.match(posix, /HARNESS_DAEMON_USER_ROOT='\/tmp\/run\/.test-isolation-state'/u);
 
   const powerShell = powerShellTestScript("C:\\Temp\\run", "C:\\Temp\\run\\.test-isolation-state", options);
+  assert.match(powerShell, /node tools\/isolated-test-dependencies\.mjs/u);
+  assert.doesNotMatch(posix, /npm ci/u);
+  assert.doesNotMatch(powerShell, /npm ci/u);
   assert.match(powerShell, /\$ProgressPreference = 'SilentlyContinue'/u);
   assert.match(powerShell, /test-hermetic-preflight\.mjs --user-root 'C:\\Temp\\run\\\.test-isolation-state'/u);
   assert.match(powerShell, /\$env:HARNESS_DAEMON_USER_ROOT = 'C:\\Temp\\run\\\.test-isolation-state'/u);
@@ -361,15 +364,15 @@ test(
       return job;
     }
     try {
-      for (let index = 0; index < 4; index++) {
+      for (let index = 0; index < 2; index++) {
         const job = start(index);
-        assert.equal((await job.observe("admitted")).capacity, 4);
+        assert.equal((await job.observe("admitted")).capacity, 2);
         job.child.stdin.write(`${JSON.stringify("sleep 1000")}\n`);
         await job.observe("running");
       }
-      const queued = start(4);
+      const queued = start(2);
       assert.equal((await queued.observe("waiting")).position, 1);
-      const cancelled = start(5);
+      const cancelled = start(3);
       assert.equal((await cancelled.observe("waiting")).position, 2);
       cancelled.child.stdin.end();
       assert.equal((await cancelled.closed).code, 130);
@@ -384,7 +387,7 @@ test(
       assert.equal((await queued.observe("finished")).code, 7);
       queued.child.stdin.end();
       assert.equal((await queued.closed).code, 7);
-      for (const job of jobs.slice(1, 4)) {
+      for (const job of jobs.slice(1, 2)) {
         job.child.stdin.end();
         assert.equal((await job.closed).code, 130);
         assert.equal(existsSync(job.workspace), false);

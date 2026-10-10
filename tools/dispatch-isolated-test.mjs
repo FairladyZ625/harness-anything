@@ -144,7 +144,7 @@ export function posixTestScript(workspaceRoot, stateRoot, options) {
   return [
     "set -eu",
     `cd ${shellQuote(workspaceRoot)}`,
-    "npm ci --no-audit --no-fund",
+    "node tools/isolated-test-dependencies.mjs",
     `node tools/test-hermetic-preflight.mjs --user-root ${shellQuote(stateRoot)}`,
     `HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} ${command}`,
   ].join("\n");
@@ -161,7 +161,7 @@ export function powerShellTestScript(workspaceRoot, stateRoot, options) {
     "$ErrorActionPreference = 'Stop'",
     "$ProgressPreference = 'SilentlyContinue'",
     `Set-Location -LiteralPath ${powerShellLiteral(workspaceRoot)}`,
-    "& npm ci --no-audit --no-fund",
+    "& node tools/isolated-test-dependencies.mjs",
     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
     `& node tools/test-hermetic-preflight.mjs --user-root ${powerShellLiteral(stateRoot)}`,
     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
