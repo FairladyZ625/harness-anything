@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { sha256Bytes, submissionDigest } from "@harness-anything/kernel";
@@ -49,6 +50,7 @@ function derive(summary: string, carried?: Parameters<typeof deriveCloseoutSubmi
   const { cell } = fixture();
   const body = `## Summary\n${summary}\n## Verification\nRead evidence.\n## Residual Risk\nNone identified.\n## Same Mechanism Elsewhere\nChecked sibling.\n`;
   const projection = {
+    readPresetSnapshot: () => ({ snapshot: completionSnapshot }),
     readDocuments: () => ({ documents: [{ path }, { path: cjkPath }] }),
     readRuntimeDispatchesByTaskExecution: () => [],
     read: () => ({ watermark: 7, sourceRevision: 7, snapshot: { task: {} }, packagePath }),
@@ -76,7 +78,11 @@ function derive(summary: string, carried?: Parameters<typeof deriveCloseoutSubmi
     { ...cell, rootDir: "/nonexistent", projection, settings: repositorySettingsStub },
     "task-artifact",
     "execution",
-    { executions: [], reviews: [] } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
+    {
+      task: { presetSnapshotDigest: completionSnapshot.digest, completionGateIds: [] },
+      executions: [],
+      reviews: [],
+    } as unknown as Parameters<typeof deriveCloseoutSubmission>[3],
     carried ? new Map(carried.changes.map((change) => [change.path, "Carried evidence.\n"])) : undefined,
     undefined,
     undefined,

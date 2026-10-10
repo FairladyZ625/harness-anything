@@ -135,11 +135,11 @@ test("catalog and object modes share one strict schema with four honest criterio
   assert.deepEqual(validateEntityActionExplanationSet(object), []);
   assert.deepEqual(
     object.subjects[0]!.actions[0]!.unmetCriteria.map(({ ref: criterionRef }) => criterionRef),
-    ["task-lifecycle-contract-support/revisionIssues"],
+    ["repo-cell-task-mutation/witness-claim"],
   );
   assert.equal(
     actions.reduce((count, action) => count + action.criteria.length, 0),
-    37, // S8 CH2: revision and idle-lease criteria for assign and unassign.
+    41, // dec_4190D5EA63D9DD208CE946F133: four GateRun criteria, alongside S8 assignment criteria.
   );
 
   const dishonestAvailability = structuredClone(object) as unknown as {

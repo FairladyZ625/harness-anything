@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -194,7 +195,7 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
-              completionContract: { gates },
+              completionContract: { ...emptyCompletionContract, gates },
             },
           },
           opId,
@@ -226,7 +227,7 @@ export function lifecycleHarness() {
               knownGaps: [],
               residualRisks: [],
               commitSha: submittedCommitSha,
-              completionContract: { gates: [] },
+              completionContract: { ...emptyCompletionContract, gates: [] },
             },
           },
           opId,

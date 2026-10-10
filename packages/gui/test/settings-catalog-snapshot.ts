@@ -23,3 +23,22 @@ export const settingsGroupsFace = () =>
     id: group.id,
     ...("advanced" in group && group.advanced ? { advanced: true } : {}),
   }));
+
+// Domain source declarations supply the catalog; source IDs are not a kernel enum.
+export const completionSources = {
+  "github-actions": { kind: "github-actions" },
+  "research/check": { kind: "command" },
+  "manual-attest": { kind: "manual" },
+};
+export const mappedSourceIds = Object.keys(completionSources);
+export const sourceFields = Object.fromEntries(
+  Object.entries(completionSources)
+    .map(([id, source]) => [
+      id,
+      source.kind === "github-actions" ? ["appliesTo", "branch", "event", "coverage", "selection"] : ["appliesTo"],
+    ])
+    .concat([["none", []]]),
+);
+export const governableSourceIds = Object.entries(completionSources)
+  .filter(([, source]) => source.kind !== "manual")
+  .map(([id]) => id);

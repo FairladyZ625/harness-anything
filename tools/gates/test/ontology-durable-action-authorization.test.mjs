@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { cpSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -204,12 +204,40 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 142 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 146 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
-  assert.equal(result.rows.length, 142); // agent-retire adds one executable durable write.
+  // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
+  assert.equal(result.rows.length, 146);
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });
+
+// Each declared Task action must retain its own authorization route.
+for (const operation of ["claim", "settle", "revoke", "rerun"]) {
+  const kind = `task-witness-${operation}`;
+  test(`G0-2 traces ${kind} through the Task authorization path`, (t) => {
+    const result = auditDurableActionAuthorization(taskSnapshot(t), [kind]);
+    assert.deepEqual(result.findings, []);
+    assert.equal(result.rows[0].authorizationPort, true);
+    assert.equal(result.rows[0].receiptAuthorizationDecision, true);
+  });
+  test(`G0-2 rejects ${kind} when its daemon ingress is disconnected`, (t) => {
+    const root = taskSnapshot(t);
+    const directory = path.join(root, "packages/daemon/src");
+    let removed = 0;
+    for (const file of readdirSync(directory, { recursive: true }).filter((file) => file.endsWith(".ts"))) {
+      const relative = `packages/daemon/src/${file}`;
+      const source = readFileSync(path.join(root, relative), "utf8");
+      const literal = JSON.stringify(kind);
+      removed += source.split(literal).length - 1;
+      writeRepoFile(root, relative, source.replaceAll(literal, JSON.stringify(`disconnected-${kind}`)));
+    }
+    assert.ok(removed > 0, kind);
+    const result = auditDurableActionAuthorization(root, [kind]);
+    assert.equal(result.rows[0].authorizationPort, false);
+    assert.ok(result.findings.some((finding) => finding.startsWith(`${kind}:`)));
+  });
+}
 
 const queuedWriteMutations = [
   {

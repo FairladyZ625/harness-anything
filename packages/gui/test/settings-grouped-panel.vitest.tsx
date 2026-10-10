@@ -16,15 +16,14 @@ import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { CODE_DOC_GATE_ID, gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
 import {
-  CODE_DOC_GATE_ID,
-  gateAppliesTo,
-  gateGovernanceFields,
-  gateMappingAdapterFields,
-  governableWitnessAdapterIds,
-  mappedWitnessAdapterIds,
-} from "@harness-anything/kernel";
-import { settingsFieldsFace, settingsGroupsFace } from "./settings-catalog-snapshot.ts";
+  mappedSourceIds,
+  sourceFields,
+  governableSourceIds,
+  settingsFieldsFace,
+  settingsGroupsFace,
+} from "./settings-catalog-snapshot.ts";
 
 const REPO_ID = "settings-grouped-probe";
 const AT = "2026-10-01T00:00:00.000Z";
@@ -106,11 +105,11 @@ const SNAPSHOT = {
   bundledAgents: ["closeout-reviewer"],
   adapters: [],
   gateMappings: {
-    adapters: [...mappedWitnessAdapterIds, "none"],
+    adapters: [...mappedSourceIds, "none"],
     appliesTo: [...gateAppliesTo],
-    adapterFields: gateMappingAdapterFields,
+    adapterFields: sourceFields,
     governanceFields: [...gateGovernanceFields],
-    governableAdapters: [...governableWitnessAdapterIds],
+    governableAdapters: [...governableSourceIds],
     internalGateId: CODE_DOC_GATE_ID,
   },
 };

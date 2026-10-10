@@ -1478,7 +1478,7 @@
   "views.settingsView.taskScaffoldEffect": "之后新建的任务按这份文件来补充和替换文档。",
   "views.settingsView.repositoryScaffoldEffect": "之后生成的仓库公共文档按这份文件来补充和替换。",
   "views.settingsView.ciWorkflowsEffect": "只有勾选的工作流算数；一个都不勾，就不检查任务有没有过 CI。",
-  "views.settingsView.closeoutProfileEffect": "选 standard：四道检查默认关闭，可以在下面逐个打开。选 strict：四道检查对所有任务全部打开。",
+  "views.settingsView.closeoutProfileEffect": "未设置时沿用冻结的领域默认值；standard 关闭四道检查，strict 打开全部四道检查。",
   "views.settingsView.closeoutReviewEffect": "打开：没有通过的独立评审，任务不能完成。关闭：任务可以不经评审就完成。恢复默认则跟随上面的收口严格度。",
   "views.settingsView.closeoutConsentEffect": "打开：任务要等负责人确认后才能完成。关闭：不用确认就能完成。恢复默认则跟随上面的收口严格度。",
   "views.settingsView.closeoutFactDispositionEffect": "打开：还有没处理的事实时，任务不能完成。关闭：没处理的事实原样留着。恢复默认则跟随上面的收口严格度。",

@@ -22,6 +22,10 @@ test("all public Task writes are complete executable Action contracts", () => {
   assert.deepEqual(
     actions.map(({ id }) => id),
     [
+      "witness-claim",
+      "witness-settle",
+      "witness-revoke",
+      "witness-rerun",
       "assign",
       "unassign",
       "create",
@@ -61,6 +65,10 @@ test("all public Task writes are complete executable Action contracts", () => {
     assert.ok(action.explain.length > 0);
   }
   assert.deepEqual(explainEntityKind("task").transitions.available, [
+    "witness-claim",
+    "witness-settle",
+    "witness-revoke",
+    "witness-rerun",
     "assign",
     "unassign",
     "create",
