@@ -368,6 +368,10 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "task-artifact-add":
       return authorizeRepoCellAction(input);
+    case "task-witness-claim":
+    case "task-witness-settle":
+    case "task-witness-revoke":
+    case "task-witness-rerun":
     case "task-attest":
       return authorizeRepoCellAction(input);
     case "task-code-doc-reconcile":

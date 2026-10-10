@@ -202,6 +202,7 @@ export const start: Transition = {
           }
         : {
             schema: "execution/v1",
+            gateRuns: [],
             executionId: command.executionId,
             taskId: command.taskId,
             nodeId: "implementation",

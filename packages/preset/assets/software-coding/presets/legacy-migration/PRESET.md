@@ -134,7 +134,7 @@ mapping:
   otherwise ask the user to choose the observable result shape.
 - Keep `kernelVersionRange`. Make every top-level `capabilityImports` item
   exactly `{id, kind, version, required}`.
-- Make every profile exactly `id`, `title`, optional `checkerProfile`, a string
+- Make every profile exactly `id`, `title`, a string
   array `completionGates`, a `templateSelections` array, and optional
   profile-local `capabilityImports`. Each template selection is exactly
   `{slot, templateRef, materializeAs, localePolicy:{prefer,fallback}}`.

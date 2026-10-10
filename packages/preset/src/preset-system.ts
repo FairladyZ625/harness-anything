@@ -54,7 +54,12 @@ export async function runPresetAction(input: {
   const action = input.action,
     dryRun = action.dryRun === true;
   if (action.kind === "vertical-validate")
-    return validateVerticalSource({ source: optionalActionText(action.verticalSource), rootDir: input.rootDir });
+    return validateVerticalSource({
+      source: optionalActionText(action.verticalSource),
+      rootDir: input.rootDir,
+      presetId: optionalActionText(action.presetId),
+      userRoot: presetUserRoot(input.rootDir),
+    });
   if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind))
     return runVerticalDiscoveryAction(action);
   if (action.kind === "preset-validate")

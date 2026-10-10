@@ -9,6 +9,24 @@ import {
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
 export const taskSurfaceProtocolCommands = Object.freeze([
+  ...["claim", "settle", "revoke", "rerun"].map((operation) =>
+    defineLedgerWriteCommand({
+      id: `task-witness-${operation}`,
+      phase: "W3",
+      path: ["task", `witness-${operation}`, "<task-id>"],
+      summary:
+        operation === "claim" || operation === "settle"
+          ? "Completion source host action; task execution credentials cannot claim or publish witnesses."
+          : `The task owner may ${operation} the current gate run with an explicit reason.`,
+      method: "repo.task.run",
+      inputs: [
+        cliInput("--execution-id", "single", true, { code: "missing_field" }),
+        cliInput("--gate", "single", true, { code: "missing_field" }, { field: "gateId" }),
+        cliInput("--run-id", "single", operation === "revoke" || operation === "rerun", { code: "missing_field" }),
+        cliInput("--reason", "single", operation === "revoke" || operation === "rerun", { code: "missing_field" }),
+      ],
+    }),
+  ),
   defineRepoReadCommand({
     id: "task-dispatches",
     repositoryRead: true,

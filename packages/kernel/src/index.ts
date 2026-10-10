@@ -223,17 +223,13 @@ export {
   gateAppliesTo,
   gateAppliesToSubmission,
   gateGovernanceFields,
-  gateMappingAdapterFields,
   gateWitnessMappingIssues,
-  governableWitnessAdapterIds,
-  inferLegacyGateRequirements,
-  mappedWitnessAdapterIds,
   resolveCompletionContract,
 } from "./domain/completion-contract.ts";
 export type {
+  GithubWitnessOptions,
   FrozenGateRequirement,
   GateWitnessMappingV1,
-  MappedWitnessAdapterId,
 } from "./domain/completion-contract.ts";
 export { isHumanAttestationWitness } from "./domain/completion-gate-witness.ts";
 export { sha256Bytes, sha256Text, stableStringify } from "./integrity/stable-hash.ts";
@@ -289,6 +285,12 @@ export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts"
 export { docByteLength } from "./domain/doc-sync-codec.ts";
 export type { DocumentState } from "./domain/doc-sync-types.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
+export type {
+  WitnessSourceDefinition,
+  CompletionGateDeclaration,
+  VerticalCompletionDeclaration,
+} from "./domain/completion-source.ts";
+export { VerticalCompletionDeclarationSchema } from "./schemas/completion-source.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {
   decodeVerticalDefinition,
@@ -404,3 +406,9 @@ export {
   type ReplicaSequenceRead,
   type ReplicaRevision,
 } from "./projection/replica-sequence.ts";
+
+export { currentGateRun, claimGateRun, settleGateRun, validCompletionWitnessResult } from "./domain/gate-run.ts";
+export type { GateRun, CompletionWitnessResult } from "./domain/gate-run.ts";
+export { completionPredicateIssues } from "./schemas/completion-predicate.ts";
+
+export { compileGateRunChange } from "./domain/gate-run-publication.ts";

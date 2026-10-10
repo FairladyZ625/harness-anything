@@ -135,7 +135,7 @@ export function RepositorySettingsPanel({
         ? gatesDraftValue(settingsQuery.data.settings.gates ?? [], gateDrafts)
         : undefined,
     // closeout 门覆写的生效默认值随 profile 走:strict 基线全开,standard 全关。
-    closeoutOverrideDefault = settingsQuery.data?.settings.closeout.profile === "strict";
+    closeoutOverrideDefault = settingsQuery.data?.settings.closeout?.profile === "strict";
 
   const updateDraft = (field: string, value: SettingsFieldValue | undefined) =>
     setDraft((current) => ({ ...current, [field]: value }));

@@ -44,6 +44,7 @@ export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lif
 export type { DomainStatus } from "./lifecycle-status.ts";
 
 export {
+  type CloseoutSnapshot,
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,

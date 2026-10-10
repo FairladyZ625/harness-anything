@@ -10,6 +10,6 @@
   "capabilityImports": [
     { "id": "task-parent-relation", "kind": "command", "version": "1", "required": true }
   ],
-  "profiles": [{ "id": "baseline", "title": "Baseline", "checkerProfile": "software-coding-standard", "completionGates": [], "templateSelections": [] }],
+  "profiles": [{ "id": "baseline", "title": "Baseline", "completionGates": [], "templateSelections": [] }],
   "defaultProfile": "baseline"
 }

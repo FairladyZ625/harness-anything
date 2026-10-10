@@ -1,5 +1,4 @@
 import {
-  inferLegacyGateRequirements,
   localGitObjectRefStore,
   type CiObserveProgress,
   type ScheduleV1,
@@ -151,10 +150,9 @@ export async function reconcileCiOccurrence(input: {
           (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
         );
         const submission = execution?.submission;
-        const requirement = (
-          submission?.completionContract?.gates ??
-          inferLegacyGateRequirements(snapshot.task?.completionGateIds ?? [], workflows)
-        ).find((gate) => gate.witness.adapterId === "github-actions");
+        const requirement = (submission?.completionContract.gates ?? []).find(
+          (gate) => gate.witness.kind === "github-actions",
+        );
         if (
           !submission ||
           !requirement ||

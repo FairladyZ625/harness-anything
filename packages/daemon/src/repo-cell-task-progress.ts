@@ -9,11 +9,8 @@ import {
   completionGuidance,
   completionGateIds,
   currentSubmittedExecutions,
-  effectiveCloseoutGates,
   currentCodeDocWitness,
   consumeKnownError,
-  gateAppliesToSubmission,
-  inferLegacyGateRequirements,
   isTaskProgressEvent,
   requireTransitionDocumentKind,
   resolveTaskBoundRuntimeBinding,
@@ -25,12 +22,8 @@ import {
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
   type TaskProgressEventV1,
-  type CompletionEvidenceV1,
-  type FrozenGateRequirement,
-  type MappedWitnessAdapterId,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import { compileRepoTaskPackage } from "@harness-anything/preset";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
@@ -41,66 +34,12 @@ import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
-import {
-  acceptedGateWitness,
-  actionWitnessCollections,
-  gateWaived,
-  recordedGateEvidence,
-  witnessAdapters,
-  type PendingWitnessCollections,
-} from "./repo-cell-witness-adapters.ts";
-
-/**
- * Judge each declared gate's witness adapter against the frozen cut. A `fail` verdict stops the
- * write unless the gate allows override, whose fail is kept as canonical evidence the owner can
- * waive; a `pass` becomes a published gate witness. A gate already waived on the cut is not
- * re-observed. Internal checkers such as code-doc-reconciliation are not in the adapter table.
- */
-function evaluateGateEvidence(
-  cell: RepoCellOperationalContext,
-  snapshot: Snapshot,
-  requirements: readonly FrozenGateRequirement[],
-  execution: Snapshot["executions"][number] | undefined,
-  collections: PendingWitnessCollections | undefined,
-  failStops = true,
-): ReadonlyMap<string, CompletionEvidenceV1> {
-  const evidenceByGate = new Map<string, CompletionEvidenceV1>();
-  for (const requirement of requirements) {
-    const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
-    if (!adapter || !execution?.submission || !gateAppliesToSubmission(requirement, execution.submission)) continue;
-    // A waived gate is never re-collected, but its already-recorded observations are still
-    // re-judged so a newer automated receipt voids the waiver and re-decides the gate.
-    const waived = gateWaived(snapshot, execution, requirement),
-      evidence = adapter.evaluate(
-        cell,
-        requirement,
-        execution,
-        waived ? undefined : collections?.get(requirement.gateId),
-      );
-    if (waived && (!evidence || recordedGateEvidence(snapshot, evidence))) continue;
-    // Submit-time preparation runs after the submission is durable and attaches only passing
-    // evidence: a gate's verdict is judged at completion, so a not-yet-satisfied observation must
-    // never bounce an already-accepted cut. Completion rejects a real red on a gate without an
-    // override lane, and records an override-allowed fail as the receipt the owner can waive.
-    if (evidence?.result === "fail" && !(failStops && requirement.allowOverride)) {
-      if (!failStops) continue;
-      throw cell.cellCodedError(
-        "invalid_proof",
-        `Gate ${requirement.gateId} receipt ${evidence.provenance.rawResult} reported fail.`,
-      );
-    }
-    if (evidence) evidenceByGate.set(requirement.gateId, evidence);
-  }
-  return evidenceByGate;
-}
-
 /** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
 export async function prepareSubmissionEvidence(
   cell: RepoCellOperationalContext,
   taskId: string,
   executionId: string,
   binding: RepoCellBinding,
-  collections?: PendingWitnessCollections,
 ): Promise<readonly WriteReceipt[]> {
   const current = await cell.service.read(taskId),
     snapshot = current.snapshot,
@@ -111,15 +50,6 @@ export async function prepareSubmissionEvidence(
     throw cell.cellCodedError("invalid_transition", "Evidence preparation requires a submitted execution.");
   const steps: WriteReceipt[] = [],
     gates = completionGateIds(snapshot.task?.completionGateIds ?? [], execution.submission),
-    evidenceByGate = evaluateGateEvidence(
-      cell,
-      snapshot,
-      execution.submission.completionContract?.gates ??
-        inferLegacyGateRequirements(gates, cell.settings.read().ci.workflows),
-      execution,
-      collections,
-      false,
-    ),
     witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
   if (
     gates.includes("code-doc-reconciliation") &&
@@ -139,18 +69,6 @@ export async function prepareSubmissionEvidence(
     steps.push(step);
     if (step.outcome !== "applied") return steps;
   }
-  // Code-doc preparation belongs to submit; gate publication waits for owner forward.
-  if (
-    snapshot.task?.status === "submitted" &&
-    readEffectiveCloseoutGates(cell.projection, snapshot.task.completionGateIds, snapshot.task.closeoutOverrides).review
-  )
-    return steps;
-  const refreshed = cell.projection.read(taskId);
-  for (const [gateId, evidence] of evidenceByGate)
-    if (!acceptedGateWitness(refreshed.snapshot, execution, gateId))
-      steps.push(
-        cell.publishGateWitness(taskId, executionId, refreshed.snapshot, refreshed.packagePath, binding, evidence),
-      );
   return steps;
 }
 
@@ -302,23 +220,12 @@ export async function completeTask(
       );
     return archive.warning ? { ...receipt, warnings: [...(receipt.warnings ?? []), archive.warning] } : receipt;
   }
-  const evidenceByGate = evaluateGateEvidence(
-      cell,
-      initial.snapshot,
-      submittedExecution?.submission?.completionContract?.gates ??
-        inferLegacyGateRequirements(initial.snapshot.task?.completionGateIds ?? [], cell.settings.read().ci.workflows),
-      submittedExecution,
-      actionWitnessCollections(action),
-    ),
-    steps: WriteReceipt[] = [],
+  const steps: WriteReceipt[] = [],
     facadeOpId = cell.operationId(
       {
         kind: "task-complete",
         taskId,
         executionId,
-        ...Object.fromEntries(
-          [...evidenceByGate.values()].map((evidence) => [evidence.gateId, evidence.provenance.rawResult]),
-        ),
         ...(paths.length ? { paths } : {}),
         ...(factRetirementAttestations.length ? { factHolds: factRetirementAttestations } : {}),
       },
@@ -326,57 +233,13 @@ export async function completeTask(
       cell.input.repoId,
       initial.snapshot.revision,
     );
-  // An automated fail on a gate that allows override is recorded first, so the owner has a canonical
-  // receipt to waive; the preparation below then stops on that failed gate. A waived gate's fresh
-  // verdict is likewise recorded first — a newer receipt voids the waiver.
-  const recordedWitnesses: WriteReceipt[] = [],
-    gates = submittedExecution?.submission?.completionContract?.gates ?? [];
-  for (const evidence of evidenceByGate.values()) {
-    const current = cell.projection.read(taskId),
-      requirement = gates.find((gate) => gate.gateId === evidence.gateId),
-      waived =
-        requirement !== undefined &&
-        submittedExecution !== undefined &&
-        gateWaived(current.snapshot, submittedExecution, requirement);
-    if (!recordedGateEvidence(current.snapshot, evidence) && (evidence.result === "fail" || waived))
-      recordedWitnesses.push(
-        cell.publishGateWitness(taskId, executionId, current.snapshot, current.packagePath, binding, evidence),
-      );
-  }
-  const prepared = recordedWitnesses.length ? await cell.service.read(taskId) : initial;
-  // A preset catalog that moved since the task was packaged used to bounce the whole completion
-  // on preset_snapshot_mismatch and make the agent run ha preset upgrade by hand. Re-running that
-  // same atomic upgrade here is safe, not a digest forgery: it recompiles the package against the
-  // live catalog, refuses added document slots, and writes a real preset_snapshot_upgraded event.
-  // When the upgrade itself cannot compile (contract drift, added documents) its own coded error
-  // stops the write and names the real blocker.
-  const upgraded = upgradeDriftedPresetSnapshot(
-    cell,
-    taskId,
-    prepared.snapshot,
-    prepared.packagePath,
-    binding,
-    cell.completeRetryCommand(taskId, executionId, action),
-  );
-  if (upgraded !== null) {
-    steps.push(upgraded);
-    if (upgraded.outcome !== "applied")
-      return cell.completionSettlement(upgraded, prepared.snapshot, executionId, steps, "preset-upgrade-settlement");
-  }
-  const refreshed = upgraded === null ? prepared : await cell.service.read(taskId);
-  // Read through every remaining preparation before publishing any witness or document; snapshots stay authoritative.
+  const refreshed = initial;
   const preparedContext = cell.completionContext(
     taskId,
     refreshed.snapshot,
     refreshed.packagePath,
     binding,
-    currentPresetSnapshotDigest(
-      cell,
-      taskId,
-      refreshed.snapshot,
-      refreshed.packagePath,
-      cell.completeRetryCommand(taskId, executionId, action),
-    ),
+    refreshed.snapshot.task!.presetSnapshotDigest!,
   );
   const closeoutGates = preparedContext.closeoutGates!,
     codeDoc =
@@ -385,10 +248,7 @@ export async function completeTask(
         : null;
   const remaining = completionPreparationBlockers(refreshed.snapshot, executionId, {
     ...preparedContext,
-    preparedGateIds: [
-      ...[...evidenceByGate.values()].flatMap((evidence) => (evidence.result === "pass" ? [evidence.gateId] : [])),
-      ...(codeDoc?.ok ? ["code-doc-reconciliation"] : []),
-    ],
+    preparedGateIds: [...(codeDoc?.ok ? ["code-doc-reconciliation"] : [])],
     ...(codeDoc && !codeDoc.ok
       ? {
           invalidDocument: {
@@ -400,7 +260,7 @@ export async function completeTask(
       : {}),
   })[0];
   if (remaining && remaining.code !== "doc_sync_required")
-    return cell.completionStopped(facadeOpId, refreshed.snapshot, executionId, remaining, recordedWitnesses);
+    return cell.completionStopped(facadeOpId, refreshed.snapshot, executionId, remaining, []);
   const retirement = factRetirementAssessment(cell.projection, taskId, factRetirementAttestations);
   if (closeoutGates.factDisposition && !retirement.ready)
     return cell.completionStopped(
@@ -410,7 +270,6 @@ export async function completeTask(
       factRetirementBlocker(initial.snapshot, executionId, retirement),
       [],
     );
-  let presetSnapshotDigest: string | null = null;
   for (let dispatch = 0; dispatch < 5; dispatch += 1) {
     const current = await cell.service.read(taskId),
       completed = cell.projection.readTaskCompletion(taskId, executionId);
@@ -423,21 +282,12 @@ export async function completeTask(
         steps,
       );
     }
-    // The package digest is stable for the whole request; per-retry compilation re-hashes the catalog identically.
-    if (presetSnapshotDigest === null)
-      presetSnapshotDigest = currentPresetSnapshotDigest(
-        cell,
-        taskId,
-        current.snapshot,
-        current.packagePath,
-        cell.completeRetryCommand(taskId, executionId, action),
-      );
     const completion = cell.completionContext(
       taskId,
       current.snapshot,
       current.packagePath,
       binding,
-      presetSnapshotDigest,
+      current.snapshot.task!.presetSnapshotDigest!,
     );
     const blocker = completionBlockers(current.snapshot, executionId, completion)[0];
     if (!blocker) {
@@ -493,22 +343,6 @@ export async function completeTask(
     // review_missing and consent_missing are hard stops (owner adjudication 2026-09-19): the
     // verdict and consent belong to the owner's explicit actions, never to a complete that
     // would otherwise dispatch reviewers or write consent inline on someone's behalf.
-    if (
-      (blocker.code === "ci_missing" || blocker.code === "gate_witness_missing") &&
-      evidenceByGate.has(blocker.gate) &&
-      !recordedGateEvidence(current.snapshot, evidenceByGate.get(blocker.gate)!)
-    ) {
-      const step = cell.publishGateWitness(
-        taskId,
-        executionId,
-        current.snapshot,
-        current.packagePath,
-        binding,
-        evidenceByGate.get(blocker.gate)!,
-      );
-      steps.push(step);
-      continue;
-    }
     // A missing code/doc witness stops completion with the reconcile command; complete never
     // writes another Action's witness under its own declaration.
     if (blocker.code === "doc_sync_required") {
@@ -589,74 +423,6 @@ function factRetirementBlocker(snapshot: Snapshot, executionId: string, assessme
   } as const;
 }
 
-function currentPresetSnapshotDigest(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  snapshot: Snapshot,
-  packagePath: string | null,
-  retryCommand: string,
-): string {
-  if (!packagePath || !snapshot.task?.presetSnapshotDigest)
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} package metadata is not ready; run ha daemon projection rebuild, then retry ${retryCommand}.`,
-    );
-  const contractDocument = cell.projection.readDocument(`${packagePath}/task-contract.json`).document;
-  if (!contractDocument)
-    throw cell.cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} contract projection is not ready; run ha daemon projection rebuild, then retry ${retryCommand}.`,
-    );
-  const contract = JSON.parse(contractDocument.body) as Record<string, unknown>,
-    current = compileRepoTaskPackage({
-      rootDir: cell.rootDir,
-      settings: cell.settings.read(),
-      taskId,
-      action: {
-        kind: "task-create",
-        title: contract.title,
-        presetId: contract.presetId,
-        verticalId: contract.verticalId,
-        profileId: contract.profileId,
-        locale: contract.locale,
-        taskClass: contract.taskClass,
-        workKind: (contract.metadata as Record<string, unknown> | undefined)?.workKind,
-      },
-    });
-  return current.snapshot.digest;
-}
-
-export function upgradeDriftedPresetSnapshot(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  snapshot: Snapshot,
-  packagePath: string | null,
-  binding: RepoCellBinding,
-  retryCommand: string,
-): WriteReceipt | null {
-  if (!snapshot.task?.presetSnapshotDigest) return null;
-  const live = currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand);
-  if (live === snapshot.task.presetSnapshotDigest) return null;
-  // An upgrade that cannot compile — contract drift, an added document slot — raises its own coded
-  // error, and that error is the honest stop: it names what actually blocks the task. Falling back
-  // to preset_snapshot_mismatch would tell the agent to run `ha preset upgrade`, which is the same
-  // compilation and would fail with the same code one step later.
-  return cell.upgradePresetSnapshot({ kind: "preset-upgrade", taskId }, binding);
-}
-
-export function isPresetSnapshotCurrent(
-  cell: RepoCellOperationalContext,
-  taskId: string,
-  snapshot: Snapshot,
-  packagePath: string | null,
-  retryCommand: string,
-): boolean {
-  return (
-    currentPresetSnapshotDigest(cell, taskId, snapshot, packagePath, retryCommand) ===
-    snapshot.task?.presetSnapshotDigest
-  );
-}
-
 export function completionContext(
   cell: RepoCellOperationalContext,
   taskId: string,
@@ -690,11 +456,7 @@ export function completionContext(
     invalid = scan.rows.find((row) => row.state === "blocked" || row.state === "conflict" || row.state === "deletion");
   return {
     ...canonical,
-    closeoutGates: effectiveCloseoutGates(
-      cell.settings.readRepository().closeout,
-      snapshot.task?.completionGateIds,
-      snapshot.task?.closeoutOverrides,
-    ),
+    closeoutGates: readEffectiveCloseoutGates(cell.projection, snapshot),
     ...(assessment
       ? {
           closeout: assessment.ready ? ("ready" as const) : ("placeholder" as const),

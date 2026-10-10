@@ -2,6 +2,7 @@ export type StatusEntity =
   | "Task"
   | "Decision"
   | "Execution"
+  | "GateRun"
   | "Agent"
   | "Schedule"
   | "Policy"
@@ -80,6 +81,30 @@ import { statusWordRegister } from "./status-word-register.ts";
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  {
+    id: "gate-run.state",
+    entity: "GateRun",
+    field: "state",
+    module: "packages/kernel/src/domain/gate-run.ts",
+    anchor: "gateRunStates",
+    words: ["running", "completed", "cancelled"],
+  },
+  {
+    id: "gate-run.result",
+    entity: "GateRun",
+    field: "result",
+    module: "packages/kernel/src/domain/gate-run.ts",
+    anchor: "gateRunVerdicts",
+    words: ["pass", "fail"],
+  },
+  {
+    id: "gate-run.availability",
+    entity: "GateRun",
+    field: "availability",
+    module: "packages/kernel/src/domain/gate-run.ts",
+    anchor: "gateRunAvailabilityStates",
+    words: ["available", "unavailable"],
+  },
   // dec_605F9FBF CH1: v4 observations distinguish test termination, file outcomes and measurement coverage.
   {
     id: "ci-test.v4.status",

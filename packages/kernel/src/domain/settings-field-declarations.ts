@@ -1,6 +1,6 @@
 import type { EntityActionInputField } from "./entity-kind-registry.ts";
 import type { GateWitnessMappingV1 } from "./completion-contract.ts";
-import { closeoutProfiles, DEFAULT_CLOSEOUT_SETTINGS } from "./settings-closeout.ts";
+import { closeoutProfiles } from "./settings-closeout.ts";
 import { DEFAULT_TASK_ROOT_THRESHOLD, DEFAULT_TASK_WIP_LIMIT } from "./task-wip-policy.ts";
 
 export type SettingsFieldOwnership = "repository" | "local";
@@ -330,10 +330,12 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     path: ["closeout", "profile"],
     ownership: repository,
     valueKind: "enum",
-    defaultValue: DEFAULT_CLOSEOUT_SETTINGS.profile,
+    optional: true,
+    defaultValue: undefined,
     allowedValues: closeoutProfiles,
     description: "How strict closeout is. Closeout is the final set of checks before a task is marked complete.",
-    effect: "standard leaves the four closeout checks off unless switched on one by one; strict turns all four on.",
+    effect:
+      "Unset follows the frozen domain defaults; standard turns the four checks off and strict turns all four on.",
     group: "review-closeout",
     action: { field: "closeoutProfile", type: "string" },
     cli: { name: "--closeout-profile", kind: "single", enum: closeoutProfiles },

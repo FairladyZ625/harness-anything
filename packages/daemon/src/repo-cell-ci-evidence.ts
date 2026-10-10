@@ -1,5 +1,6 @@
 import {
   completionEvidenceBasis,
+  currentGateRun,
   completionEvidenceResults,
   consumeKnownError,
   inferLegacyGateRequirements,
@@ -25,7 +26,7 @@ import type { Snapshot } from "./repo-cell-types.ts";
 export function strandedDelivery(rootDir: string, submission: SubmissionV1 | null | undefined): boolean {
   const commitSha = submission?.commitSha,
     branch = submission?.completionContract?.gates.flatMap(({ witness }) =>
-      witness.adapterId === "github-actions" ? [witness.adapterOptions.branch] : [],
+      witness.kind === "github-actions" ? [witness.adapterOptions.branch] : [],
     )[0];
   if (!commitSha || branch === undefined) return false;
   const git = makeGitReadinessSource(),
@@ -69,7 +70,9 @@ export function githubActionsWitnessEvidence(
   requirement: FrozenGateRequirement,
   execution: Snapshot["executions"][number] | undefined,
 ): CompletionEvidenceV1 | null {
-  if (requirement.witness.adapterId !== "github-actions" || !execution?.submission?.commitSha) return null;
+  if (requirement.witness.kind !== "github-actions" || !execution?.submission?.commitSha) return null;
+  const gateRun = currentGateRun(execution, requirement.gateId);
+  if (!gateRun || gateRun.state !== "running") return null;
   const options = requirement.witness.adapterOptions;
   // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
@@ -137,12 +140,17 @@ export function githubActionsWitnessEvidence(
       },
       provenance: CompletionEvidenceProvenance = {
         source: "runner",
-        adapterId: "github-actions",
-        runId: event.payload.run.runId,
+        adapterId: requirement.witness.adapterId,
+        runId: gateRun.runId,
+        claimFence: gateRun.claimFence,
         rawResult: `event:${event.opId}`,
       };
     return {
       schema: "completion-evidence/v1",
+      subjects: [],
+      predicateType: requirement.witness.predicateType,
+      predicate: {},
+      diagnostic: `CI ${event.payload.run.runId}: ${result}`,
       evidenceId: `ci-${event.opId}`,
       checkerId: requirement.gateId,
       gateId: requirement.gateId,

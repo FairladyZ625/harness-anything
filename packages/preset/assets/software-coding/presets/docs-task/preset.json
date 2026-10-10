@@ -14,14 +14,12 @@
     {
       "id": "baseline",
       "title": "Baseline",
-      "checkerProfile": "standard",
       "completionGates": [],
       "templateSelections": []
     },
     {
       "id": "lightweight",
       "title": "Lightweight",
-      "checkerProfile": "standard",
       "completionGates": [],
       "capabilityImports": [
         { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },

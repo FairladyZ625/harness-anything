@@ -1,3 +1,4 @@
+import { currentGateRun } from "./gate-run.ts";
 export const closeoutReadinesses = ["not_required", "missing", "incomplete", "ready", "passed", "failed"] as const;
 
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
@@ -43,6 +44,7 @@ export interface CloseoutSnapshot {
     readonly iteration: number;
     readonly completionGateIds: readonly string[];
     readonly closeoutOverrides?: CloseoutOverridesV1;
+    readonly presetSnapshotDigest?: string | null;
     readonly taskId?: string;
     readonly taskClass?: string;
   } | null;
@@ -229,6 +231,7 @@ export function waivableAutomatedFail(
         value.executionId === execution.executionId &&
         value.commitSha === execution.submission?.commitSha &&
         value.iteration === execution.iteration &&
+        value.provenance?.runId === currentGateRun(execution, gateId)?.runId &&
         !isHumanAttestationWitness(value),
     )
     .at(-1);
@@ -289,11 +292,17 @@ export function judgeGateWitnesses(
             };
       if (judgment.accepted) return { status: "passed" };
       return witness.result === "fail"
-        ? { status: "failed", detail: judgment.reason ?? "current execution cut did not pass" }
+        ? { status: "failed", detail: witness.diagnostic || judgment.reason || "current execution cut did not pass" }
         : { status: "missing", detail: judgment.reason ?? "current execution cut has no gate witness" };
     };
-  if (requirement?.witness.adapterId === "manual-attest") return judge(cut.at(-1));
-  const automated = cut.filter((value) => !isHumanAttestationWitness(value)).at(-1),
+  if (requirement?.witness.kind === "manual") return judge(cut.at(-1));
+  const activeRun = currentGateRun(execution, gateId);
+  if (activeRun && activeRun.state !== "completed")
+    return { status: "missing", detail: `Gate run ${activeRun.runId} is ${activeRun.state}.` };
+  if (activeRun?.availability === "unavailable") return { status: "missing", detail: activeRun.diagnostic };
+  const automated = cut
+      .filter((value) => !isHumanAttestationWitness(value) && value.provenance?.runId === activeRun?.runId)
+      .at(-1),
     human = cut.filter(isHumanAttestationWitness).at(-1),
     machine = judge(automated),
     waivable = requirement?.allowOverride === true ? waivableAutomatedFail(witnesses, execution, gateId) : undefined,
@@ -334,10 +343,7 @@ export function completionGateIds(taskGateIds: readonly string[], submission?: S
   const contract = submission?.completionContract;
   if (contract)
     return contract.gates.flatMap((gate) => (gateAppliesToSubmission(gate, submission!) ? [gate.gateId] : []));
-  // Pre-freeze cuts keep the rule in force when they were judged: artifact-only delivery skipped the code gates.
-  return submission?.commitSha === null
-    ? taskGateIds.filter((gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation")
-    : taskGateIds;
+  return taskGateIds;
 }
 
 export function closeoutGateOk(status: CloseoutGateStatus): boolean | null {

@@ -1,5 +1,5 @@
+import type { ArtifactDelivery } from "./execution.ts";
 import { validateActorAxes, type ActorAxes, type ContractValidationIssue } from "./task.ts";
-import { mappedWitnessAdapterIds } from "./completion-contract.ts";
 import { isNativeCommitSha } from "./execution.ts";
 import {
   validCompletionEvidenceOverride,
@@ -11,6 +11,10 @@ import { hasRequiredFields, isNonEmptyString, validateWriteSource, type WriteSou
 
 export interface CompletionGateWitnessV1 {
   readonly schema: "completion-gate-witness/v1";
+  readonly subjects: readonly ArtifactDelivery[];
+  readonly predicateType: string;
+  readonly predicate: Readonly<Record<string, unknown>>;
+  readonly diagnostic: string;
   readonly witnessId: string;
   readonly receiptId: string;
   readonly checkerId: string;
@@ -48,6 +52,10 @@ export function validateCompletionGateWitnessV1(
       "actor",
       "source",
       "verifiedAt",
+      "subjects",
+      "predicateType",
+      "predicate",
+      "diagnostic",
     ],
     optionalFields = ["observed", "basis", "provenance", "override"],
     hasFields = allowUnknownFields
@@ -89,7 +97,7 @@ export function validateCompletionGateWitnessV1(
         // (dec_D23B9787328EF7E0FACB70F9FE) while every new witness must name a mapped adapter.
         !(
           (allowUnknownFields && record.provenance.adapterId === undefined) ||
-          (mappedWitnessAdapterIds as readonly string[]).includes(record.provenance.adapterId as string)
+          isNonEmptyString(record.provenance.adapterId)
         ) ||
         !isNonEmptyString(record.provenance.runId) ||
         !isNonEmptyString(record.provenance.rawResult))) ||
@@ -109,16 +117,7 @@ export function validateCompletionGateWitnessV1(
  * other, so an automated fail stays on the cut after it is waived. A manual-attest gate has one lane.
  */
 export function isHumanAttestationWitness(witness: Pick<CompletionGateWitnessV1, "provenance">): boolean {
-  return witness.provenance?.source === "human" && witness.provenance.adapterId === "manual-attest";
-}
-
-/** Snapshot replacement key: a newer witness replaces the older one only within its own lane. */
-export function sameGateWitnessLane(left: CompletionGateWitnessV1, right: CompletionGateWitnessV1): boolean {
-  return (
-    left.executionId === right.executionId &&
-    left.gateId === right.gateId &&
-    isHumanAttestationWitness(left) === isHumanAttestationWitness(right)
-  );
+  return witness.provenance?.source === "human";
 }
 
 /**

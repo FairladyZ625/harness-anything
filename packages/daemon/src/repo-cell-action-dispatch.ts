@@ -1,3 +1,4 @@
+import { runTaskWitnessAction } from "./task-witness-action.ts";
 import { runRuntimeHandoffAction } from "./runtime-handoff-store.ts";
 import { settleTask, submitTask } from "./repo-cell-submit.ts";
 import { adjudicateTask } from "./repo-cell-task-progress.ts";
@@ -231,6 +232,8 @@ export function executeRepoAction(
           if (Array.isArray(catalogAction.docChanges))
             return cell.runTaskCommandWithDocs(catalogAction as TaskCommandWithDocsAction, catalogBinding);
           if (contract.execution?.implementation === "catalog-runtime") {
+            if (catalogAction.kind.startsWith("task-witness-"))
+              return runTaskWitnessAction(cell, catalogAction, catalogBinding);
             if (catalogAction.kind === "task-contract-migrate")
               return cell.migrateTaskContracts(catalogAction, catalogBinding);
             if (

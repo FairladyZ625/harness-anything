@@ -56,6 +56,10 @@ const revisionCurrent: Evaluation = ({ snapshot }) =>
 
 const taskCapabilityEvaluators = Object.freeze(
   new Map<string, Evaluation>([
+    ...["claim", "settle", "revoke", "rerun"].map((operation): [string, Evaluation] => [
+      key(`witness-${operation}`, `repo-cell-task-mutation/witness-${operation}`),
+      mutationInvocation,
+    ]),
     [key("create", "task-lifecycle-contract-support/revisionIssues"), revisionCurrent],
     [key("create", "preset-bootstrap/compileTaskPackage"), mutationInvocation],
     [key("create", "task-graph/validateTaskGraphV1"), mutationInvocation],

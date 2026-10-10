@@ -1,12 +1,7 @@
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { isMap, isSeq, parseDocument } from "yaml";
 import type { EntityDocumentJsonSchema, EntityJsonSchemaNode } from "./entity-json-schema.ts";
-import {
-  gateAppliesTo,
-  gateWitnessMappingIssues,
-  mappedWitnessAdapterIds,
-  type GateWitnessMappingV1,
-} from "./completion-contract.ts";
+import { gateAppliesTo, gateWitnessMappingIssues, type GateWitnessMappingV1 } from "./completion-contract.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   DEFAULT_CI_WORKFLOWS,
@@ -325,11 +320,10 @@ function gateSettingsSchema() {
       type: "object" as const,
       properties: {
         gateId: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
-        adapter: { type: "string" as const, enum: ["none", ...mappedWitnessAdapterIds] },
+        adapter: { type: "string" as const, minLength: 1 },
         appliesTo: { type: "string" as const, enum: gateAppliesTo },
         branch: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
         event: { type: "string" as const, pattern: settingValuePattern, minLength: 1 },
-        command: { type: "string" as const, minLength: 1 },
         coverage: { type: "string" as const, enum: ["exact", "descendant"] },
         selection: { type: "string" as const, enum: ["newest"] },
         mandatorySignoff: { type: "boolean" as const },

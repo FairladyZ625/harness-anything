@@ -51,11 +51,7 @@ export function readCompletionContext(
   const closeout = taskTransitionDocumentState({ projection, taskId, slot: "task.closeout" }),
     facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" }),
     common = {
-      closeoutGates: readEffectiveCloseoutGates(
-        projection,
-        snapshot.task?.completionGateIds ?? [],
-        snapshot.task?.closeoutOverrides,
-      ),
+      closeoutGates: readEffectiveCloseoutGates(projection, snapshot),
       eligibleDirtyPaths: [],
       producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
       projectionStatus: facts.status,

@@ -31,7 +31,10 @@ export function emptyTaskLifecycleSnapshot(revision = 0): TaskLifecycleSnapshot 
   };
 }
 export function envelope<E extends TaskEventV1>(
-  command: TaskLifecycleCommand,
+  command: Pick<
+    TaskLifecycleCommand,
+    "eventId" | "workspaceRevision" | "opId" | "taskId" | "actor" | "source" | "occurredAt"
+  >,
   type: E["type"],
   payload: Omit<E["payload"], "documentClaims">,
 ): E {

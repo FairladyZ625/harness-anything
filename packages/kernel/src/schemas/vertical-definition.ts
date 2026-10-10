@@ -1,4 +1,5 @@
 import { Schema } from "effect";
+import { VerticalCompletionDeclarationSchema } from "./completion-source.ts";
 import { RelationTypeSchema } from "./entity-relations.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import type { VerticalDeclarationDocumentV1 } from "../domain/vertical-declaration.ts";
@@ -223,7 +224,7 @@ export const VerticalDefinitionSchema = Schema.Struct({
   repositoryScaffold: RepositoryScaffoldSchema,
   scripts: Schema.Array(VerticalScriptSchema),
   templateSelections: Schema.Array(TemplateSelectionSchema),
-  checkerProfile: Schema.String,
+  completion: VerticalCompletionDeclarationSchema,
   projectionSchemas: Schema.Array(
     Schema.Struct({
       id: Schema.String,

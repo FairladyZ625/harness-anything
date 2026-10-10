@@ -1,9 +1,4 @@
-import {
-  gateAppliesToSubmission,
-  inferLegacyGateRequirements,
-  type MappedWitnessAdapterId,
-  type WriteReceiptDraft,
-} from "@harness-anything/kernel";
+import { type WriteReceiptDraft } from "@harness-anything/kernel";
 import { ingestCiObservations, preparedCiObservation, type CiObservationFetch } from "./ci-observation-actions.ts";
 import type { ScheduleV1 } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
@@ -12,7 +7,6 @@ import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree } from "./task-worktree.ts";
-import { acceptedGateWitness, gateWaived, witnessAdapters, witnessCollections } from "./repo-cell-witness-adapters.ts";
 
 type QueuedPublication = ((
   action: RepoTaskAction,
@@ -76,75 +70,6 @@ export function readBeforeWriteQueue(
         return ingestCiObservations(context.extracted, binding, fetched);
       });
     return refreshCi(action, binding).then((receipt) => () => receipt);
-  }
-  if ((action.kind === "task-submit" || action.kind === "task-complete") && typeof action.taskId === "string") {
-    const snapshot = context.projection.read(action.taskId).snapshot,
-      execution = snapshot.executions.find(
-        (candidate) =>
-          candidate.iteration === snapshot.task?.iteration &&
-          candidate.submission &&
-          (action.executionId === undefined || action.executionId === candidate.executionId),
-      );
-    if (execution && context.projection.readTaskCompletion(action.taskId, execution.executionId)) return null;
-    if (!execution?.submission) return null;
-    // Every adapter that can collect its own observations runs here, outside the queue; inside the
-    // queue the collected values are re-judged against the frozen cut before any canonical write.
-    // Cuts frozen before the contract carry no requirement list; their effective gates are
-    // inferred from the rules in force at the time (ci -> github-actions, code-doc -> checker).
-    const pending = (
-      execution.submission.completionContract?.gates ??
-      inferLegacyGateRequirements(
-        snapshot.task?.completionGateIds ?? [],
-        context.extracted.settings.read().ci.workflows,
-      )
-    ).flatMap((requirement) => {
-      // GitHub observation belongs to the independent center occurrence. Submission and
-      // completion judge its recorded witnesses without starting or awaiting a scan.
-      if (requirement.witness.adapterId === "github-actions") return [];
-      const adapter = witnessAdapters[requirement.witness.adapterId as MappedWitnessAdapterId];
-      return adapter?.collect &&
-        gateAppliesToSubmission(requirement, execution.submission!) &&
-        !acceptedGateWitness(snapshot, execution, requirement.gateId) &&
-        !gateWaived(snapshot, execution, requirement) &&
-        // A recorded red verdict still collects: a newer run or rerun attempt may supersede it.
-        adapter.evaluate(context.extracted, requirement, execution, undefined)?.result !== "pass"
-        ? [{ requirement, adapter }]
-        : [];
-    });
-    if (pending.length)
-      return Promise.all(
-        pending.map(async ({ requirement, adapter }) => {
-          const collected = await adapter.collect!(context.extracted, requirement, execution).catch(
-            (error: unknown) => {
-              if (requirement.allowOverride !== true) throw error;
-              throw context.extracted.cellCodedError(
-                (error as { readonly code?: string }).code ?? "witness_unavailable",
-                `${error instanceof Error ? error.message : String(error)} ` +
-                  `The task owner may still break-glass this gate: ha task attest ${execution.taskId} ` +
-                  `--gate ${requirement.gateId} --result pass --mode override ` +
-                  "--rationale <why-no-automated-witness-is-acceptable>.",
-              );
-            },
-          );
-          return [requirement.gateId, { adapter, collected }] as const;
-        }),
-      ).then((entries) =>
-        Object.assign(
-          (action: RepoTaskAction, binding: RepoCellBinding) =>
-            context.executeAction(
-              {
-                ...action,
-                [witnessCollections]: new Map(entries.map(([gateId, { collected }]) => [gateId, collected])),
-              },
-              binding,
-            ),
-          {
-            ingest: (binding: RepoCellBinding) => {
-              for (const [, { adapter, collected }] of entries) adapter.ingest?.(context.extracted, binding, collected);
-            },
-          },
-        ),
-      );
   }
   return null;
 }

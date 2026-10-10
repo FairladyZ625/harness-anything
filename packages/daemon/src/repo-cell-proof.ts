@@ -5,7 +5,6 @@ import {
   consumeKnownError,
   consentedApprovedReviewForExecution,
   currentCodeDocWitness,
-  effectiveCloseoutGates,
   evaluateTaskActionCapability,
   gateResults,
   heldLeaseForExecutionActor,
@@ -462,7 +461,7 @@ export async function proofFor(
   }
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
-  return completeProof(command, snapshot, binding, getSettings) as TaskLifecycleServiceProof<typeof command>;
+  return completeProof(command, snapshot, binding) as TaskLifecycleServiceProof<typeof command>;
 }
 
 function codeDocVerificationDiagnostic(
@@ -538,7 +537,6 @@ export function completeProof(
   command: CompleteTaskCommand,
   snapshot: Snapshot,
   binding: RepoCellBinding,
-  getSettings: () => SettingsV1,
 ): ProofFor<CompleteTaskCommand> & { readonly authorizationDecision: AuthorizationDecision } {
   if (snapshot.lease !== null)
     throw cellCriterionError(
@@ -578,11 +576,7 @@ export function completeProof(
     capabilityRef: authorizationDecision.policyRef,
     actorRole: "owner",
     noActiveLease: true,
-    closeoutGates: effectiveCloseoutGates(
-      getSettings().closeout,
-      snapshot.task.completionGateIds,
-      snapshot.task.closeoutOverrides,
-    ),
+    closeoutGates: execution.submission!.completionContract!.closeoutGates,
     gateReceipts: supplied,
     authorizationDecision,
   };

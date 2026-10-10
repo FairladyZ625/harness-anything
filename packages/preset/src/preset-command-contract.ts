@@ -413,9 +413,12 @@ export const presetCommands = Object.freeze([
     id: "vertical-validate",
     phase: "Preset-A",
     path: ["vertical", "validate"],
-    summary: "Validate the builtin software/coding declaration and its catalog closure.",
+    summary: "Validate a vertical and an installed preset completion source catalog.",
     method: "repo.vertical.validate",
-    inputs: [cliInput("--source", "single", false, { code: "invalid_field" }, { field: "verticalSource" })],
+    inputs: [
+      cliInput("--source", "single", false, { code: "invalid_field" }, { field: "verticalSource" }),
+      cliInput("--preset", "single", false, { code: "invalid_field" }, { field: "presetId" }),
+    ],
   }),
   defineRepoReadCommand({
     id: "template-list",

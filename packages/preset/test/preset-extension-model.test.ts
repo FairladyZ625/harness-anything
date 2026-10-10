@@ -189,7 +189,7 @@ test("vertical validation rejects lifecycle status mapping ownership", async () 
   const vertical = compileVerticalSource(await readFixture(verticalDefinitionUrl)).definition;
   const contaminated: VerticalDefinition = {
     ...vertical,
-    checkerProfile: `status${"Mapping"}`,
+    title: `status${"Mapping"}`,
   };
   const result = validateVerticalDefinition(contaminated);
 

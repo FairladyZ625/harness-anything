@@ -5,6 +5,7 @@ import {
   consumeKnownError,
   DEFAULT_CLOSEOUT_SETTINGS,
   effectiveCloseoutGates,
+  currentExecutionCuts,
   INITIAL_SETTINGS_V1,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
@@ -16,7 +17,7 @@ import {
   validateRepositorySettings,
   writeRepositorySettingsFacet,
   type CloseoutGate,
-  type CloseoutOverridesV1,
+  type CloseoutSnapshot,
   type CloseoutSettingsV1,
   type RepositorySettingsV1,
   type SettingsLocale,
@@ -26,6 +27,7 @@ import {
 import { writeFileDurably } from "./durable-file.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellActionContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
+import type { PresetSnapshotV1 } from "@harness-anything/preset";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonSettingsLastChange } from "./protocol/daemon-settings-read-types.ts";
 
@@ -155,12 +157,21 @@ export function settingsLastChanged(
  * (or a pre-closeout settings event) reads the same standard default bootstrap would mint.
  */
 export function readEffectiveCloseoutGates(
-  projection: Pick<TaskProjectionQueries, "getEntity">,
-  taskGateIds: readonly string[],
-  taskOverrides?: CloseoutOverridesV1,
+  projection: Pick<TaskProjectionQueries, "getEntity" | "readPresetSnapshot">,
+  snapshot: CloseoutSnapshot,
 ): Readonly<Record<CloseoutGate, boolean>> {
+  const cuts = currentExecutionCuts(snapshot);
+  if (cuts.length === 1) return cuts[0]!.submission!.completionContract!.closeoutGates;
+  const preset = snapshot.task?.presetSnapshotDigest
+    ? (projection.readPresetSnapshot(snapshot.task.presetSnapshotDigest).snapshot as PresetSnapshotV1)
+    : undefined;
   const projected = projection.getEntity("settings", "repository")?.value as
     | { readonly closeout?: CloseoutSettingsV1 }
     | undefined;
-  return effectiveCloseoutGates(projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS, taskGateIds, taskOverrides);
+  return effectiveCloseoutGates(
+    projected?.closeout ?? DEFAULT_CLOSEOUT_SETTINGS,
+    snapshot.task?.completionGateIds,
+    snapshot.task?.closeoutOverrides,
+    preset?.completion.closeoutDefaults,
+  );
 }

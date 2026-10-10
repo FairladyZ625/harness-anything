@@ -18,6 +18,7 @@ import {
   canonicalPresetBytes,
   consumeKnownError,
   validatePresetRunReceiptV1,
+  type FrozenCompletionPackage,
   type PresetRunOutcomeV1,
   type PresetRunPhaseV1,
   type PresetRunReceiptV1,
@@ -45,7 +46,18 @@ export interface PresetProcessExecutionPort {
   ) => Promise<PresetProducedReceipt>;
   readonly admitProduce?: (actionKind: string) => boolean;
 }
+export interface FrozenPresetRun {
+  readonly package: FrozenCompletionPackage;
+  readonly snapshotDigest: `sha256:${string}`;
+  readonly inputFiles: Readonly<Record<string, Uint8Array>>;
+  readonly codeRoot?: string;
+}
 export interface PresetProcessService {
+  readonly startFrozen: (
+    input: PresetRunStartInput,
+    frozen: FrozenPresetRun,
+    port: PresetProcessExecutionPort,
+  ) => Promise<PresetRunReceiptV1>;
   readonly start: (input: PresetRunStartInput, port?: PresetProcessExecutionPort) => Promise<PresetRunReceiptV1>;
   readonly status: (runId: string) => PresetRunReceiptV1;
   readonly close: () => Promise<void>;
@@ -138,12 +150,13 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
   const start = async (
     input: PresetRunStartInput,
     executionPort?: PresetProcessExecutionPort,
+    frozen?: FrozenPresetRun,
   ): Promise<PresetRunReceiptV1> => {
     if (!isNonEmptyRunText(input.idempotencyKey)) {
       executionPort?.onSettled?.();
       return rejection("run_invalid", "invalid_idempotency_key", "idempotencyKey is required.");
     }
-    const requestDigest = digest(input),
+    const requestDigest = digest({ ...input, ...(frozen ? { snapshotDigest: frozen.snapshotDigest } : {}) }),
       runId = `run_${digest(input.idempotencyKey).slice(7, 33)}`,
       priorRunId = runIdByKey.get(input.idempotencyKey),
       prior = priorRunId === undefined ? undefined : witnesses.get(priorRunId);
@@ -164,20 +177,27 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
           "invalid_input",
           "Run input must contain presetId, entrypoint, optional taskId, object inputs, and idempotencyKey.",
         );
-      const defaults = presetRuntimeDefaults(options.readSettings()),
-        resolved = createRuntime({ userRoot: options.userRoot, ciWorkflows: defaults.ciWorkflows }).resolveInternal({
-          presetId: input.presetId,
-          entrypoint: input.entrypoint,
-          verticalId: defaults.verticalId,
-          profileId: defaults.profileId,
-          locale: defaults.locale,
-          purpose: "script-run",
-        }),
-        entrypoint = resolved.snapshot.entrypoints[input.entrypoint]!;
+      const resolved = frozen
+        ? undefined
+        : (() => {
+            const defaults = presetRuntimeDefaults(options.readSettings());
+            return createRuntime({ userRoot: options.userRoot, ciWorkflows: defaults.ciWorkflows }).resolveInternal({
+              presetId: input.presetId,
+              entrypoint: input.entrypoint,
+              verticalId: defaults.verticalId,
+              profileId: defaults.profileId,
+              locale: defaults.locale,
+              purpose: "script-run",
+            });
+          })();
+      const entrypoint = frozen
+          ? { ...frozen.package.entrypoint, commandRef: frozen.package.entrypoint.command }
+          : resolved!.snapshot.entrypoints[input.entrypoint]!,
+        produceActions = frozen?.package.produceActions ?? resolved!.produceActions;
       const port = executionPort ?? (options as PresetProcessExecutionPort);
       validateInputs(entrypoint.inputs, input.inputs ?? {});
       for (const capability of entrypoint.produces) {
-        const provider = resolved.produceActions[capability.id];
+        const provider = produceActions[capability.id];
         if (!provider || !port.admitProduce?.(provider.actionKind) || typeof port.publish !== "function")
           throw presetProcessError(
             "produce_not_admitted",
@@ -192,10 +212,10 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
         outcome: "started",
         phase: "admitted",
         phases: ["admitted"],
-        snapshotDigest: resolved.snapshot.digest,
+        snapshotDigest: frozen?.snapshotDigest ?? resolved!.snapshot.digest,
       });
       if (port.onSettled) settlements.set(runId, port.onSettled);
-      setImmediate(() => void execute(witness, resolved, entrypoint, input.inputs ?? {}, input.taskId, port));
+      setImmediate(() => void execute(witness, resolved, entrypoint, input.inputs ?? {}, input.taskId, port, frozen));
       return receipt(witness);
     } catch (error) {
       executionPort?.onSettled?.();
@@ -227,7 +247,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
         "outcome_unknown",
       );
   };
-  return { start, status, close };
+  return { start, startFrozen: (input, frozen, port) => start(input, port, frozen), status, close };
 
   function save(witness: Witness): Witness {
     witnesses.set(witness.runId, witness);
@@ -277,15 +297,16 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
   }
   async function execute(
     witness: Witness,
-    resolved: InternalPresetResolution,
+    resolved: InternalPresetResolution | undefined,
     entrypoint: {
       readonly commandRef: string;
-      readonly commandSha256: string;
+      readonly commandSha256?: string;
       readonly produces: readonly { readonly id: string }[];
     },
     inputs: Readonly<Record<string, unknown>>,
     taskId: string | undefined,
     port: PresetProcessExecutionPort,
+    frozen?: FrozenPresetRun,
   ): Promise<void> {
     if (closed) {
       fail(witness.runId, "daemon_stopped", "The daemon stopped before spawn.");
@@ -295,9 +316,25 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
       packageRoot = path.join(stage, "package");
     try {
       mkdirSync(stage, { mode: 0o700 });
-      cpSync(resolved.packageRoot, packageRoot, { recursive: true, errorOnExist: true });
-      if (decodePresetPackageV3(packageRoot).packageDigest !== resolved.packageDigest)
-        throw presetProcessError("package_changed", "Preset package changed after admission.");
+      if (frozen) {
+        if (frozen.codeRoot)
+          cpSync(frozen.codeRoot, path.join(stage, "input", "code"), { recursive: true, errorOnExist: true });
+        mkdirSync(path.join(stage, "output"), { mode: 0o700 });
+        for (const [name, body] of Object.entries(frozen.package.files)) {
+          const target = path.join(packageRoot, name);
+          mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+          writeFileSync(target, body, { mode: 0o600 });
+        }
+        for (const [name, body] of Object.entries(frozen.inputFiles)) {
+          const target = path.join(stage, "input", name);
+          mkdirSync(path.dirname(target), { recursive: true, mode: 0o700 });
+          writeFileSync(target, body, { mode: 0o400 });
+        }
+      } else {
+        cpSync(resolved!.packageRoot, packageRoot, { recursive: true, errorOnExist: true });
+        if (decodePresetPackageV3(packageRoot).packageDigest !== resolved!.packageDigest)
+          throw presetProcessError("package_changed", "Preset package changed after admission.");
+      }
     } catch (error) {
       const known = consumeKnownError(error);
       fail(witness.runId, known.code, known.message);
@@ -308,7 +345,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
       command = path.resolve(spawnPackage, entrypoint.commandRef);
     if (
       !isWithinPresetRunRoot(spawnPackage, command) ||
-      digest(readFileSync(command, "utf8")) !== `sha256:${entrypoint.commandSha256}`
+      (!frozen && digest(readFileSync(command, "utf8")) !== `sha256:${entrypoint.commandSha256}`)
     ) {
       fail(witness.runId, "package_changed", "Entrypoint bytes changed after admission.");
       return;
@@ -321,13 +358,18 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
       diagnostic = "";
     const child = spawn(
       process.execPath,
-      ["--permission", `--allow-fs-read=${spawnStage}`, `--allow-fs-write=${spawnStage}`, command],
+      [
+        "--permission",
+        `--allow-fs-read=${spawnStage}`,
+        `--allow-fs-write=${frozen ? path.join(spawnStage, "output") : spawnStage}`,
+        command,
+      ],
       {
         cwd: spawnStage,
         env: {
           PATH: process.env.PATH,
-          HOME: spawnStage,
-          TMPDIR: spawnStage,
+          HOME: frozen ? path.join(spawnStage, "output") : spawnStage,
+          TMPDIR: frozen ? path.join(spawnStage, "output") : spawnStage,
           HA_PRESET_INPUT: JSON.stringify(inputs),
           ...(taskId ? { HA_PRESET_TASK_ID: taskId } : {}),
           HA_PRESET_RESULT_PROTOCOL: "preset-script-result/v1",
@@ -382,7 +424,11 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
     async function complete(code: number | null, signal: NodeJS.Signals | null): Promise<void> {
       if (settled) return;
       if (signal) return stop("child_signal", `Child exited on ${signal}.`);
-      if (code !== 0) return stop("child_exit", `Child exited with code ${code ?? "unknown"}.`);
+      if (code !== 0)
+        return stop(
+          "child_exit",
+          `Child exited with code ${code ?? "unknown"}.${diagnostic ? ` ${diagnostic.trim()}` : ""}`,
+        );
       if (frame === undefined)
         return stop(disconnected ? "missing_result" : "missing_result", "Child exited without a result frame.");
       let result: ScriptResult;
@@ -400,7 +446,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
           return stop("duplicate_produce", `Produce ${produce.capabilityId} appears more than once.`);
         seen.add(produce.capabilityId);
         const declared = entrypoint.produces.find(({ id }) => id === produce.capabilityId),
-          provider = resolved.produceActions[produce.capabilityId];
+          provider = (frozen?.package.produceActions ?? resolved!.produceActions)[produce.capabilityId];
         if (!declared || !provider || !exactFields(produce.payload, provider.payloadFields))
           return stop("invalid_produce", `Produce ${produce.capabilityId} is not declared or has invalid fields.`);
         let published: PresetProducedReceipt;

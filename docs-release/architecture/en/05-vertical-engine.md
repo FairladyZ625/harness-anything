@@ -30,7 +30,6 @@ required member of the struct (except where noted):
 | `repositoryScaffold` | The top-level directory layout, seeded docs, and agents entry |
 | `scripts[]` | Declarative script entries the vertical ships |
 | `templateSelections[]` | Vertical-wide template selections outside any package |
-| `checkerProfile` | The name of the checker profile that guards this vertical |
 | `projectionSchemas[]` | The frontmatter schemas the projection validates rows against |
 
 The engine never invents any of these; it reads exactly what the JSON declares.
@@ -198,8 +197,7 @@ never validates, and a seeded doc whose template body is missing surfaces an
 error rather than writing an empty file.
 
 **Declared — intent.** What no filesystem reveals must be stated, and only
-that: whether a kind is a load-bearing `contractEntity`, which `checkerProfile`
-guards the vertical, how to degrade when a locale is missing
+that: whether a kind is a load-bearing `contractEntity`, which completion gates the task requires, how to degrade when a locale is missing
 (`localePolicy.fallback`), whether a directory is created eagerly or lazily
 (`create`), and how the agents entry layers (`baseRef`, `overlayRef`,
 `repoSpecificsAnchor`). These are handfuls of fields, not paragraphs of
