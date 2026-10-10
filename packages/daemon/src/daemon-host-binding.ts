@@ -63,7 +63,9 @@ export function localDefaultBinding(
   replicaRead = false,
 ): RepoCellBinding {
   const replicaPrincipal =
-    replicaRead && auth.replicaReadPrincipal && auth.replicaReadPrincipal.sessionExpiresAt > Date.now()
+    replicaRead &&
+    auth.replicaReadPrincipal &&
+    (auth.replicaReadPrincipal.sessionExpiresAt === null || auth.replicaReadPrincipal.sessionExpiresAt > Date.now())
       ? auth.replicaReadPrincipal
       : undefined;
   if (replicaPrincipal) auth = { ...auth, oidcPrincipal: undefined };

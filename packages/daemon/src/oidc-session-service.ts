@@ -61,8 +61,8 @@ interface StoredSession {
   readonly personId: string;
   /** When the access token lapses; a use at or near this moment renews it first. */
   readonly expiresAt: number;
-  /** When Keycloak ends the session unless it is used again: one session lifetime after its last renewal. */
-  readonly sessionExpiresAt: number;
+  /** Ordinary SSO expiry; offline sessions have no locally inferred deadline. Keycloak decides on refresh. */
+  readonly sessionExpiresAt: number | null;
   readonly roles: readonly string[];
   readonly loginTarget?: string;
   /** The Keycloak issuer this session was issued by; binding a request reads it instead of asking the center. */
@@ -90,8 +90,8 @@ export interface OidcSessionPorts {
 /**
  * Daemon-owned PKCE and Device session. Refresh tokens stay here; a short-lived access token may
  * accompany a fleet request as transient authentication metadata.
- * The access token stays short-lived; every use renews it with the refresh token, so the session
- * ends only after it sat unused for the realm's session lifetime.
+ * Access tokens stay short-lived. Ordinary SSO and offline idle limits are separate provider
+ * policies; an offline token's refresh_expires_in does not set a local session deadline.
  */
 export class OidcSessionService {
   readonly #rbacRoot: string;
@@ -336,7 +336,7 @@ export class OidcSessionService {
     return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
-  /** `expiresAt` is when the session ends if it is not used again. */
+  /** `expiresAt` is the SSO deadline, or null when Keycloak decides offline validity on refresh. */
   async status(): Promise<Record<string, unknown>> {
     const session = await this.#live();
     if (!session) return { ok: true, authenticated: false };
@@ -435,9 +435,10 @@ export class OidcSessionService {
     const generation = this.#loginGeneration;
     const { session, unavailable } = await this.#use();
     if (!session || generation !== this.#loginGeneration) return auth;
-    if (replicaRead && session.sessionExpiresAt <= this.#ports.now()) return auth;
+    if (replicaRead && session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) return auth;
     if (unavailable) {
-      if (!replicaRead || !(session.sessionExpiresAt > this.#ports.now())) return auth;
+      if (!replicaRead || (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()))
+        return auth;
       return {
         ...auth,
         replicaReadPrincipal: { personId: session.personId, sessionExpiresAt: session.sessionExpiresAt },
@@ -742,7 +743,8 @@ export class OidcSessionService {
     if (generation !== this.#loginGeneration) return { session: undefined };
     if (response instanceof Error)
       return {
-        session: session.sessionExpiresAt > this.#ports.now() ? session : undefined,
+        session:
+          session.sessionExpiresAt === null || session.sessionExpiresAt > this.#ports.now() ? session : undefined,
         unavailable: response,
       };
     // Keycloak answers 400 once the session sat idle past its lifetime, was signed out, or had its token revoked.
@@ -757,7 +759,7 @@ export class OidcSessionService {
       };
     const tokens = (await response.json()) as Record<string, unknown>;
     if (generation !== this.#loginGeneration) return { session: undefined };
-    if (session.sessionExpiresAt <= this.#ports.now()) {
+    if (session.sessionExpiresAt !== null && session.sessionExpiresAt <= this.#ports.now()) {
       this.#ports.sessionStore.delete();
       return { session: undefined };
     }
@@ -780,7 +782,10 @@ export class OidcSessionService {
       subject: identity.subject,
       personId: identity.personId,
       expiresAt: now + requiredNumber(tokens.expires_in, "expires_in") * 1_000,
-      sessionExpiresAt: now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
+      sessionExpiresAt:
+        typeof tokens.scope === "string" && tokens.scope.split(" ").includes("offline_access")
+          ? null
+          : now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
       roles: realmRoles(decodeJwtPayload(accessToken)),
       ...(identity.loginTarget ? { loginTarget: identity.loginTarget } : {}),
       authority: { url: authority.url, realm: authority.realm },
