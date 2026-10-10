@@ -616,7 +616,7 @@ function wireConsumerCut(value: unknown): value is JsonObject {
   return (
     exactRecord(value, ["repoId", "generation", "revision", "headDigest"]) &&
     wireText(value.repoId) &&
-    (value.generation === 1 || value.generation === 2) &&
+    (value.generation === 1 || value.generation === 2 || value.generation === 3) &&
     wireRevision(value.revision) &&
     digest(value.headDigest)
   );

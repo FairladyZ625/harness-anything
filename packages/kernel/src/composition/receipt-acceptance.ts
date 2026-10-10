@@ -63,7 +63,7 @@ export function attachReceiptAcceptance<R extends WriteReceiptDraft>(
   if (!event) throw new Error("committed command outcome has no final event");
   const { repoId, revision, headDigest } = store.publication(event).cut,
     generation = store.ledgerMetadata().generation;
-  if (generation !== 1 && generation !== 2) throw new Error("store generation is invalid");
+  if (generation !== 1 && generation !== 2 && generation !== 3) throw new Error("store generation is invalid");
   const acceptedCut: ReceiptConsumerCut = { repoId, revision, headDigest, generation };
   const follower = store.followerStatus();
   const facet = (value: typeof follower.worktree, coversAcceptance: boolean): ReceiptFacet => ({
