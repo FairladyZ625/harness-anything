@@ -407,7 +407,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_CDDCFA8BB91A47BCE07B229E93 CH2 adds task-assign and task-unassign.
   // F-8E80EE50 adds the independent viewer repository-read permission.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: the three handoff actions are owner-approved.
-  assert.equal(actionDeclarations.length, 143);
+  // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four GateRun Task actions.
+  assert.equal(actionDeclarations.length, 147);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
