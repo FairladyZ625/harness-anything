@@ -104,7 +104,7 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
         toolCallCount: 1,
         usageReported: true,
         compacted: false,
-        rawUsage: {},
+        rawUsage: { cache_creation_input_tokens: 10 },
         stream: {
           ref: "runtime-stream:dispatch-settlement-metrics-copy",
           appendAttemptOutcome: () => undefined,
@@ -152,7 +152,7 @@ test("settlement keeps the cache-write counter out of the kernel event metrics c
       toolCallCount: 1,
       usageUnavailable: false,
       compacted: false,
-      raw: {},
+      raw: { cache_creation_input_tokens: 10 },
     });
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
@@ -1051,6 +1051,8 @@ test("terminal settlement refuses to publish a worker commit outside the convent
 
 function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
   return {
+    rawUsage: {},
+    cacheWriteTokens: 0,
     dispatchId: "dispatch_0123456789abcdef01234567",
     instanceId: "provider-a",
     model: "model-a",

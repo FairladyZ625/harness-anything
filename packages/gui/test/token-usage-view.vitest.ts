@@ -4,6 +4,7 @@ import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { execFileSync } from "node:child_process";
 import { TokenUsageView } from "../src/renderer/views/TokenUsageView.tsx";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import type {
@@ -687,6 +688,18 @@ describe("TokenUsageView", () => {
     expect(terra).toContain("<$0.01");
     // 还没有会话结束的成员没有成功率,不写成 0%。
     expect(byTestId(container, "token-usage-row-sol").textContent).toContain("—");
+  });
+
+  it("renders settled devin usage without a cache-write field as Not reported, preserving explicit zero", async () => {
+    const result = JSON.parse(
+      execFileSync(process.execPath, ["test/fixtures/token-usage-settlement.ts"], { encoding: "utf8" }),
+    ) as AgentRuntimeTokenUsageResult;
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(result);
+    const container = await renderView();
+    act(() => findButton(container, "Model").click());
+    act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
+    expect(byTestId(container, "token-usage-row-devin-neutral").textContent).toContain("Not reported");
+    expect(byTestId(container, "token-usage-row-codex-real-zero").textContent).not.toContain("Not reported");
   });
 
   it("labels cache-write cells that are not real zeros: not reported, not itemized", async () => {
