@@ -1,37 +1,50 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { fork } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { Worker } from "node:worker_threads";
+
+interface MemorySample {
+  phase: string;
+  peakHeap: number;
+  peakRss: number;
+  peakRetainedHeap: number;
+}
 
 test("replica publication remains bounded for 40,000 and 400,000 inline entries", { timeout: 240_000 }, async (t) => {
-  const samples: { peakHeap: number; peakRss: number }[] = [];
+  const samples: MemorySample[] = [];
   for (const count of [400_000, 40_000]) {
     const root = mkdtempSync(path.join(tmpdir(), "ha-replica-memory-"));
-    const worker = new Worker(new URL("./replica-sequence-memory.fixture.ts", import.meta.url), {
-      workerData: { root, count },
-      resourceLimits: { maxOldGenerationSizeMb: 256 },
+    // A process can expose GC and gives RSS the same scope as the measured heap.
+    const child = fork(new URL("./replica-sequence-memory.fixture.ts", import.meta.url), [root, String(count)], {
+      execArgv: ["--expose-gc", "--max-old-space-size=256"],
+      signal: t.signal,
     });
-    let result: { peakHeap: number; peakRss: number } | undefined;
+    const closed = new Promise<void>((resolve) => child.once("close", () => resolve()));
+    let result: MemorySample | undefined;
     try {
       await new Promise<void>((resolve, reject) => {
-        worker.on("message", (message) => {
+        child.on("message", (message: MemorySample) => {
           t.diagnostic(JSON.stringify(message));
           if (message.phase === "complete") result = message;
         });
-        worker.once("error", reject);
-        worker.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`memory fixture exited ${code}`))));
+        child.once("error", reject);
+        child.once("exit", (code) => (code === 0 ? resolve() : reject(new Error(`memory fixture exited ${code}`))));
       });
-      assert.ok(result, "publication must complete below the fixed worker heap limit");
+      assert.ok(result, "publication must complete below the fixed process heap limit");
       assert.ok(result.peakHeap < 192 * 1024 ** 2, `peak heap ${result.peakHeap}`);
       assert.ok(result.peakRss < 768 * 1024 ** 2, `peak RSS ${result.peakRss}`);
       samples.push(result);
     } finally {
-      await worker.terminate();
+      child.kill();
+      await closed;
       rmSync(root, { recursive: true, force: true });
     }
   }
-  assert.ok(samples[0]!.peakHeap <= samples[1]!.peakHeap + 64 * 1024 ** 2, "10x entries must not retain 10x heap");
+  assert.ok(
+    samples[0]!.peakRetainedHeap <= samples[1]!.peakRetainedHeap + 64 * 1024 ** 2,
+    "10x entries must not retain 10x heap",
+  );
 });
