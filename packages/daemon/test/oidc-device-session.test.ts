@@ -1,13 +1,14 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 
-test("Device login keeps device/verifier/refresh private and honors pending/slow-down before binding the person", async () => {
+test("Device login keeps device/verifier/refresh private and honors pending/slow-down before binding the person", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-session-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "rbac"));
   writeFileSync(
     path.join(root, "rbac/config.json"),

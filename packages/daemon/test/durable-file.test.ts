@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -16,8 +16,9 @@ function sourceFiles(directory: string): string[] {
   });
 }
 
-test("a durable write lands the whole body and leaves no temporary behind", () => {
+test("a durable write lands the whole body and leaves no temporary behind", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const target = path.join(root, "nested", "state.json");
   writeFileDurably(target, `${JSON.stringify({ revision: 1 })}\n`);
   assert.equal(readFileSync(target, "utf8"), '{"revision":1}\n');
@@ -33,8 +34,9 @@ test("a durable write lands the whole body and leaves no temporary behind", () =
 // (F-FAED015B: one such file survived 7h46m under a fleet edge .staging/, its pid long gone).
 // Occupying the destination with a non-empty directory makes renameSync fail after the
 // temporary is already on disk, which is the same shape as a failing write.
-test("a durable write that cannot rename takes its own temporary with it", () => {
+test("a durable write that cannot rename takes its own temporary with it", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const target = path.join(root, "state.json");
   mkdirSync(target, { recursive: true });
   writeFileSync(path.join(target, "occupant"), "x");
@@ -61,8 +63,9 @@ test("#1586: a read-only handle is opened for flushing in exactly one module", (
   assert.deepEqual(offenders, ["durable-file.ts"]);
 });
 
-test("#1586: flushing a file uses a writable handle, which Windows requires", () => {
+test("#1586: flushing a file uses a writable handle, which Windows requires", (t) => {
   const root = mkdtempSync(path.join(os.tmpdir(), "durable-file-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
   const target = path.join(root, "chunk.bin");
   writeFileDurably(target, new Uint8Array([1, 2, 3]));
   syncFile(target);

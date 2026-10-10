@@ -1,10 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { open as openFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import test from "node:test";
+import test, { type TestContext } from "node:test";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import {
   daemonLifecycleLogPath,
@@ -22,8 +22,10 @@ import {
   type DaemonRequestLogRecord,
 } from "../src/request-log.ts";
 
-function tempRoot(): string {
-  return mkdtempSync(path.join(os.tmpdir(), "harness-request-log-"));
+function tempRoot(t: TestContext): string {
+  const root = mkdtempSync(path.join(os.tmpdir(), "harness-request-log-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  return root;
 }
 
 function stubHost(rootDir: string): DaemonHost {
@@ -80,8 +82,8 @@ function openServerWithLog(rootDir: string, host: DaemonHost = stubHost(rootDir)
   return Object.assign(server, { requestLog: log });
 }
 
-test("a repo-scoped read request is recorded in the repository local root", async () => {
-  const rootDir = tempRoot(),
+test("a repo-scoped read request is recorded in the repository local root", async (t) => {
+  const rootDir = tempRoot(t),
     server = openServerWithLog(rootDir);
   await handshake(server);
   await server.handle({
@@ -117,8 +119,8 @@ test("a repo-scoped read request is recorded in the repository local root", asyn
   assert.ok(daemonRequestLogPath(rootDir).startsWith(path.join(rootDir, ".harness")));
 });
 
-test("only repo-log history diagnostics skip request recording, including failed reads", async () => {
-  const rootDir = tempRoot();
+test("only repo-log history diagnostics skip request recording, including failed reads", async (t) => {
+  const rootDir = tempRoot(t);
   let rejectRead = false;
   const host = {
     ...stubHost(rootDir),
@@ -191,8 +193,8 @@ test("only repo-log history diagnostics skip request recording, including failed
   assert.equal(traffic.length, 20);
 });
 
-test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async () => {
-  const rootDir = tempRoot(),
+test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {
+  const rootDir = tempRoot(t),
     server = openServerWithLog(rootDir);
   await handshake(server);
   // The CLI puts the declared executor inside payload.action for repo.task.read; that is the shape
@@ -218,8 +220,8 @@ test("the declared agent executor is recorded so a request can be attributed to 
   assert.deepEqual(readRecords(rootDir)[0].executor, { kind: "agent", id: "codex-worker" });
 });
 
-test("requests from one connection share a connection id", async () => {
-  const rootDir = tempRoot(),
+test("requests from one connection share a connection id", async (t) => {
+  const rootDir = tempRoot(t),
     server = openServerWithLog(rootDir);
   await handshake(server);
   const payload = {
@@ -237,8 +239,8 @@ test("requests from one connection share a connection id", async () => {
   assert.ok(records[0].connectionId.length > 0);
 });
 
-test("a rejected request is recorded with its error code", async () => {
-  const rootDir = tempRoot(),
+test("a rejected request is recorded with its error code", async (t) => {
+  const rootDir = tempRoot(t),
     host = stubHost(rootDir);
   const rejecting = {
     ...host,
@@ -270,8 +272,8 @@ test("a rejected request is recorded with its error code", async () => {
   assert.equal(records[0].outcome, "op_rejected");
 });
 
-test("a rejected request records the daemon's failure message as its detail", async () => {
-  const rootDir = tempRoot(),
+test("a rejected request records the daemon's failure message as its detail", async (t) => {
+  const rootDir = tempRoot(t),
     host = stubHost(rootDir),
     message = "CI receipt cannot support completion: evidence executionId is not the current execution.";
   const rejecting = {
@@ -306,8 +308,8 @@ test("a rejected request records the daemon's failure message as its detail", as
   assert.equal(records[0].detail, message);
 });
 
-test("a request that binds no repository is not recorded", async () => {
-  const rootDir = tempRoot(),
+test("a request that binds no repository is not recorded", async (t) => {
+  const rootDir = tempRoot(t),
     server = openServerWithLog(rootDir);
   await handshake(server);
   await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} });
@@ -318,8 +320,8 @@ test("a request that binds no repository is not recorded", async () => {
   assert.equal(readdirSync(rootDir).length, 0);
 });
 
-test("rotation holds the log to a bounded number of files", async () => {
-  const rootDir = tempRoot();
+test("rotation holds the log to a bounded number of files", async (t) => {
+  const rootDir = tempRoot(t);
   const log = openDaemonRequestLog({ resolveRootDir: () => rootDir, maxBytes: 512, keptFiles: 2 });
   for (let index = 0; index < 400; index += 1) log.record(entry({ opId: `op_${index}` }));
   await log.settle();
@@ -334,8 +336,8 @@ test("rotation holds the log to a bounded number of files", async () => {
   assert.equal(live.at(-1)?.opId, "op_399");
 });
 
-test("a repository sink keeps one descriptor for many records and closes it on settle", async () => {
-  const rootDir = tempRoot();
+test("a repository sink keeps one descriptor for many records and closes it on settle", async (t) => {
+  const rootDir = tempRoot(t);
   const counts = { open: 0, write: 0, close: 0 };
   const log = openDaemonRequestLog({
     resolveRootDir: () => rootDir,
@@ -363,9 +365,9 @@ test("a repository sink keeps one descriptor for many records and closes it on s
   assert.equal(counts.close, 1);
 });
 
-test("each repository's requests land in that repository's own log, and a record after settle is still written", async () => {
-  const first = tempRoot(),
-    second = tempRoot(),
+test("each repository's requests land in that repository's own log, and a record after settle is still written", async (t) => {
+  const first = tempRoot(t),
+    second = tempRoot(t),
     roots: Record<string, string> = { first, second };
   const log = openDaemonRequestLog({ resolveRootDir: (repoId) => roots[repoId] });
   log.record(entry({ repoId: "first", opId: "op_first" }));
@@ -384,8 +386,8 @@ test("each repository's requests land in that repository's own log, and a record
   );
 });
 
-test("a sink that cannot write neither throws nor keeps reporting", async () => {
-  const rootDir = tempRoot();
+test("a sink that cannot write neither throws nor keeps reporting", async (t) => {
+  const rootDir = tempRoot(t);
   // A file where the log directory must be: mkdir fails for every record.
   mkdirSync(path.join(rootDir, ".harness"), { recursive: true });
   writeFileSync(path.join(rootDir, ".harness", "requests"), "not a directory", "utf8");
@@ -402,8 +404,8 @@ test("a sink that cannot write neither throws nor keeps reporting", async () => 
   assert.equal(failures.length, 1);
 });
 
-test("daemon lifecycle records are structured and roll before an unbounded next generation", () => {
-  const userRoot = tempRoot(),
+test("daemon lifecycle records are structured and roll before an unbounded next generation", (t) => {
+  const userRoot = tempRoot(t),
     logPath = daemonLifecycleLogPath(userRoot, "availability");
   mkdirSync(path.dirname(logPath), { recursive: true });
   for (let generation = 0; generation < 3; generation += 1) {
@@ -439,8 +441,8 @@ test("daemon lifecycle records are structured and roll before an unbounded next 
 
 // The mixed-write defect: structured records and the child's raw stdio shared one inode, so the
 // JSONL sink held lines no JSONL reader can parse. The sinks must never resolve to one path.
-test("the structured lifecycle sink and the daemon stdio sink are separate files", () => {
-  const userRoot = tempRoot();
+test("the structured lifecycle sink and the daemon stdio sink are separate files", (t) => {
+  const userRoot = tempRoot(t);
   assert.notEqual(daemonLifecycleLogPath(userRoot, "split"), daemonStdioLogPath(userRoot, "split"));
   assert.equal(path.basename(daemonLifecycleLogPath(userRoot, "split")), "daemon-split-lifecycle.jsonl");
   assert.equal(path.basename(daemonStdioLogPath(userRoot, "split")), "daemon-split.log");
