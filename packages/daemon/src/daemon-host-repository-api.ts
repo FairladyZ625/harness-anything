@@ -107,32 +107,54 @@ export function createDaemonHostRepositoryApi(
           : request,
         await context.oidc.bind(auth),
       );
-      await context.waitForWarming(prepared.repoId);
-      if (context.warming.has(prepared.repoId))
-        throw context.hostCodedError("repo_warming", context.warmingMessage(prepared.repoId));
+      const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
+        allowedInstances = [
+          ...new Set(
+            context.runtimePorts
+              .runtimeInstances()
+              .filter((row) => row.enabled)
+              .map((row) => row.instanceId),
+          ),
+        ],
+        bootstrap =
+          bootstrapSettings.runtime?.allowedInstances === undefined
+            ? {
+                ...prepared,
+                settingsBootstrap: [
+                  {
+                    ...bootstrapSettings,
+                    runtime: { ...bootstrapSettings.runtime, allowedInstances },
+                  },
+                  bootstrapDocumentBody,
+                ] as const,
+              }
+            : prepared;
+      await context.waitForWarming(bootstrap.repoId);
+      if (context.warming.has(bootstrap.repoId))
+        throw context.hostCodedError("repo_warming", context.warmingMessage(bootstrap.repoId));
       context.markWarming(
-        prepared.repoId,
+        bootstrap.repoId,
         context.warmingStatus({
-          repoId: prepared.repoId,
-          canonicalRoot: prepared.rootDir,
+          repoId: bootstrap.repoId,
+          canonicalRoot: bootstrap.rootDir,
           mode: "local",
         }),
       );
       try {
-        await context.cells.get(prepared.repoId)?.close();
-        context.cells.delete(prepared.repoId);
-        context.unavailable.delete(prepared.repoId);
+        await context.cells.get(bootstrap.repoId)?.close();
+        context.cells.delete(bootstrap.repoId);
+        context.unavailable.delete(bootstrap.repoId);
         let published: RepoBootstrapReceipt | undefined, cell: RepoCell;
         try {
           cell = await context.openCell({
-            repoId: prepared.repoId,
-            rootDir: prepared.rootDir,
+            repoId: bootstrap.repoId,
+            rootDir: bootstrap.rootDir,
             mode: "local",
             ownerId: context.input.daemonId,
-            defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
+            defaultWriterEpochFence: context.writerEpochFence(bootstrap.repoId, bootstrap.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
-            bootstrap: prepared,
+            bootstrap,
             onBootstrap: (receipt) => {
               published = receipt;
             },

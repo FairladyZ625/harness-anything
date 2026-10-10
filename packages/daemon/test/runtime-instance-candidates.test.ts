@@ -104,6 +104,22 @@ test("an empty repository allowlist rejects every automatic dispatch with action
   );
 });
 
+test("an uninitialized repository allowlist never falls back to machine-enabled instances", () => {
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "machine-codex",
+        agent: null,
+        instances: [instance("machine-codex", "codex", "provider-codex")],
+        sessions: [],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code?: string }).code === "runtime_instance_allowlist_uninitialized" &&
+      /ha init|repository settings/u.test(error.message),
+  );
+});
+
 test("runtime candidates retain live-load and instance-id ordering within one runtime kind", () => {
   const instances = [
       instance("codex-b", "codex", "provider-b"),

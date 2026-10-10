@@ -157,7 +157,11 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
-  await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
+  await settleSettingsEvent({
+    ...input,
+    ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances() } : {}),
+    writerEpochFence: defaultWriterEpochFence,
+  });
   const cell = await openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
   try {
     await cell.read("repo.settings.read");
@@ -174,6 +178,7 @@ async function settleSettingsEvent(input: {
   readonly rootDir: string;
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
+  readonly runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[];
 }): Promise<void> {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
@@ -192,12 +197,18 @@ async function settleSettingsEvent(input: {
     stream = store.read();
   if (!stream.events.some((event) => event.schema === "settings-event/v1")) {
     const documentBody = settingsBase(rootDir),
+      parsed = readSettingsFacet(documentBody),
+      allowedInstances = input.runtimeInstances
+        ? [...new Set(input.runtimeInstances.filter((row) => row.enabled).map((row) => row.instanceId))]
+        : parsed.runtime?.allowedInstances,
+      seededSettings =
+        allowedInstances === undefined ? parsed : { ...parsed, runtime: { ...parsed.runtime, allowedInstances } },
       digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
     store.append(
       compileSettingsChangedEvent({
-        settings: readSettingsFacet(documentBody),
+        settings: seededSettings,
         baseDocumentBody: documentBody,
-        candidateDocumentBody: writeRepositorySettingsFacet(documentBody, readSettingsFacet(documentBody)),
+        candidateDocumentBody: writeRepositorySettingsFacet(documentBody, seededSettings),
         eventId: `event-settings-fixture-${digest}`,
         opId: `settings-fixture-${digest}`,
         workspaceRevision: stream.revision + 1,

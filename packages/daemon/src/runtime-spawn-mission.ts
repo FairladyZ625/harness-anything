@@ -102,14 +102,18 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly sessions: readonly RuntimeSessionSelection[];
 }): string[] {
   const configured = input.allowedInstanceIds !== undefined,
-    allowed =
-      input.allowedInstanceIds ??
-      input.instances.filter((instance) => instance.enabled).map((instance) => instance.instanceId),
+    allowed = input.allowedInstanceIds ?? [],
     allowedNames = allowed.length ? allowed.join(", ") : "none";
   const assertAllowed = (instanceId: string): void => {
-    if (allowed.includes(instanceId) || (!configured && input.instances.length === 0)) return;
+    if (configured && allowed.includes(instanceId)) return;
     if (!input.instances.some((instance) => instance.instanceId === instanceId))
       throw runtimeSpawnError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    if (!configured)
+      throw runtimeSpawnError(
+        "runtime_instance_allowlist_uninitialized",
+        "This repository has no runtime instance allowlist. Run ha init or enable the instance in repository settings before dispatching.",
+      );
+    if (allowed.includes(instanceId)) return;
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
       `Runtime instance ${instanceId} is not allowed for this repository. ` +
@@ -132,10 +136,13 @@ export function resolveRuntimeInstanceCandidates(input: {
   const declaredModel = input.model,
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
+  if (!configured && input.instances.length > 0)
+    throw runtimeSpawnError(
+      "runtime_instance_allowlist_uninitialized",
+      "This repository has no runtime instance allowlist. Run ha init or enable an instance in repository settings before dispatching.",
+    );
   const unavailable = input.unavailableReasons ?? [],
-    instances = configured
-      ? input.instances.filter((instance) => allowed.includes(instance.instanceId))
-      : input.instances.filter((instance) => instance.enabled);
+    instances = input.instances.filter((instance) => allowed.includes(instance.instanceId));
   for (const instance of input.instances)
     if (!allowed.includes(instance.instanceId))
       unavailable.push(

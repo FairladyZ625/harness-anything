@@ -365,8 +365,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         input.remote,
         projection!,
         processes,
-        dryRun,
-        binding,
       ),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,

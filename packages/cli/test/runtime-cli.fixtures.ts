@@ -169,7 +169,6 @@ export function createRuntimeFixture(context: TestContext) {
   realm.bind(userRoot);
   signInAt(userRoot, "owner");
   assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
-  run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
   run(root, env, [
     "runtime",
     "instance",
@@ -187,6 +186,24 @@ export function createRuntimeFixture(context: TestContext) {
     "--auth",
     "subscription",
   ]);
+  run(root, env, [
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "claude-worker",
+    "--name",
+    "Claude Worker",
+    "--kind",
+    "claude",
+    "--provider",
+    "anthropic",
+    "--model",
+    "runtime-test-model",
+    "--auth",
+    "subscription",
+  ]);
+  run(root, env, ["init", "--repo-id", "runtime-cli", "--person-id", "owner", "--display-name", "Owner"]);
   return { parent, root, userRoot, daemonId, env, version };
 }
 
@@ -208,23 +225,6 @@ export function installIdentities(parent: string, root: string, env: NodeJS.Proc
     path.join(root, "harness", "skills", "review", "SKILL.md"),
     "---\nname: review\ndescription: Review\n---\nReview fixture.\n",
   );
-  run(root, env, [
-    "runtime",
-    "instance",
-    "create",
-    "--id",
-    "claude-worker",
-    "--name",
-    "Claude Worker",
-    "--kind",
-    "claude",
-    "--provider",
-    "anthropic",
-    "--model",
-    "runtime-test-model",
-    "--auth",
-    "subscription",
-  ]);
   const identities = [
       {
         id: "fable",

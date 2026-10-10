@@ -452,10 +452,6 @@ export async function openRepoWriterCell(
     store: () => store,
     projection: () => projection,
     readSettings: () => readSettings(),
-    initializeAllowedInstances: async (binding, runtimeInstances) => {
-      const instanceIds = [...new Set(runtimeInstances.filter((row) => row.enabled).map((row) => row.instanceId))];
-      settings.initializeAllowedInstances(instanceIds, binding);
-    },
     stream: runtimeStream,
     now,
     schedule,

@@ -293,11 +293,6 @@ export interface RuntimeSpawnerInput {
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;
   readonly readSettings?: () => SettingsV1;
-  /** Mints a missing repository allowlist inside the admitted dispatch's writer queue before resolution. */
-  readonly initializeAllowedInstances?: (
-    binding: RuntimeBinding,
-    instances: readonly RuntimeInstanceSummary[],
-  ) => Promise<void>;
   readonly remote?: RemoteRuntimePersistence;
   /** Local runtime event commit; the caller already owns the RepoCell writer queue. */
   readonly commitRuntimeEvent?: (

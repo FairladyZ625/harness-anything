@@ -7,7 +7,11 @@ import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
-import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
+import {
+  openRuntimeInstanceStore,
+  type RuntimeInstallationWitness,
+  type RuntimeInstanceSummary,
+} from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { validateRuntimeSpawnReceipt } from "../src/gui-s3-control.ts";
@@ -62,12 +66,29 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
       version: "1.0.0",
       observedAt: "2026-08-14T00:00:00.000Z",
     };
+    const claudeInstance: RuntimeInstanceSummary = {
+      schemaVersion: 2,
+      instanceId: claudeDefinition.instanceId,
+      name: "Claude Review",
+      kindId: "claude",
+      installationId: claudeDefinition.installationId,
+      providerId: claudeDefinition.providerId,
+      models: [claudeDefinition.model],
+      defaultModel: claudeDefinition.model,
+      enabled: true,
+      permissionMode: "workspace-write",
+      authMode: "subscription",
+      authState: "authenticated",
+      authReadiness: { status: "ready", code: null, hint: null },
+      isolationState: "enforced",
+      configuration: {},
+    };
     let executablePath: string | undefined, launchedPrompt: string | undefined;
     const cell = await openRepoCell({
       repoId: workspaceId("runtime-spawn-claude"),
       rootDir: canonicalRoot(root),
       ownerId: "spawn-test",
-      runtimeInstances: () => [],
+      runtimeInstances: () => [claudeInstance],
       prepareRuntimeLaunch: (_instanceId, request) => ({
         ...((launchedPrompt = request.prompt), {}),
         definition: claudeDefinition,
@@ -703,6 +724,24 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
     repoId: workspaceId("runtime-squad-worker"),
     rootDir: canonicalRoot(root),
     ownerId: "squad-worker-test",
+    runtimeInstances: () =>
+      kinds.map((kindId) => ({
+        schemaVersion: 2,
+        instanceId: `${kindId}-squad`,
+        name: `${kindId} Squad`,
+        kindId,
+        installationId: `installation-${kindId}-squad`,
+        providerId: kindId === "claude" ? "anthropic" : kindId === "agy" ? "google" : "openai",
+        models: [`${kindId}-model`],
+        defaultModel: `${kindId}-model`,
+        enabled: true,
+        permissionMode: "read-only",
+        authMode: "subscription",
+        authState: "authenticated",
+        authReadiness: { status: "ready", code: null, hint: null },
+        isolationState: "enforced",
+        configuration: {},
+      })),
     prepareRuntimeLaunch: (instanceId, request) => {
       const kindId = instanceId.replace(/-squad$/u, "") as "claude" | "codex" | "agy",
         preparedDefinition = {
@@ -884,6 +923,12 @@ test("Agent skill is really read by the provider from the absolute path in its f
     });
   await host.attachmentsSettled();
   try {
+    const settings = await host.run(
+      repoId,
+      { kind: "settings-update", runtimeAllowedInstances: ["codex-skill"], idempotencyKey: "allow-codex-skill" },
+      auth,
+    );
+    assert.equal(settings.outcome, "applied", JSON.stringify(settings));
     host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {

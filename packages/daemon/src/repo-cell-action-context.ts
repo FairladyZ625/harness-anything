@@ -110,10 +110,6 @@ export interface RepoCellSettingsState {
   readonly initializeFromAuthoredDocument: (
     binding: RepoCellBinding,
   ) => ReturnType<CanonicalEventStore["append"]> | null;
-  readonly initializeAllowedInstances: (
-    instanceIds: readonly string[],
-    binding: RepoCellBinding,
-  ) => ReturnType<CanonicalEventStore["append"]> | null;
   readonly read: () => SettingsV1;
   readonly readRepository: () => RepositorySettingsV1;
   readonly writeLocal: (locale: SettingsV1["locale"]) => boolean;
