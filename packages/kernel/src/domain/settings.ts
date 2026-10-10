@@ -482,7 +482,6 @@ function writeDeclaredValue(
     return;
   }
   if (!exists && stableStringify(value) === stableStringify(declaration.defaultValue)) return;
-  if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
   ensureSettingsMap(document);
   const authoredValue =
     declaration.valueKind === "gate-mappings"

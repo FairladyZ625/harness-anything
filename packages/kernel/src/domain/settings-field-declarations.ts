@@ -451,8 +451,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     pattern: settingValuePattern,
     uniqueItems: true,
     description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
-    effect:
-      "When set, only enabled machine instances in this list can receive dispatches; an explicit empty list blocks every instance.",
+    effect: "Only enabled instances in this list can receive dispatches; an explicit empty list blocks all instances.",
     group: "schedules-nodes",
     action: { field: "runtimeAllowedInstances", type: "string-array" },
     cli: {

@@ -96,15 +96,18 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly model?: string;
   /** The concrete kind selected for an unbound runtime dispatch. */
   readonly runtimeKind?: string;
-  /** Repository-scoped allowlist; machine instances remain the source of credentials and readiness. */
-  readonly allowedInstanceIds: readonly string[];
+  /** Repository-scoped allowlist; undefined means the repository has not been initialized yet. */
+  readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
 }): string[] {
-  const allowed = input.allowedInstanceIds,
+  const configured = input.allowedInstanceIds !== undefined,
+    allowed =
+      input.allowedInstanceIds ??
+      input.instances.filter((instance) => instance.enabled).map((instance) => instance.instanceId),
     allowedNames = allowed.length ? allowed.join(", ") : "none";
   const assertAllowed = (instanceId: string): void => {
-    if (allowed.includes(instanceId)) return;
+    if (allowed.includes(instanceId) || (!configured && input.instances.length === 0)) return;
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
       `Runtime instance ${instanceId} is not allowed for this repository. ` +
@@ -128,7 +131,9 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
   const unavailable = input.unavailableReasons ?? [],
-    instances = input.instances.filter((instance) => allowed.includes(instance.instanceId));
+    instances = configured
+      ? input.instances.filter((instance) => allowed.includes(instance.instanceId))
+      : input.instances.filter((instance) => instance.enabled);
   for (const instance of input.instances)
     if (!allowed.includes(instance.instanceId))
       unavailable.push(
