@@ -36,6 +36,7 @@ import { runDaemonRepoControl } from "./repo-control.ts";
 import { runDaemonServiceControl } from "./service-control.ts";
 import { assertCanonicalCliEntry } from "./cli-entry-guard.ts";
 import { renderDaemonMetrics, runDaemonMetrics } from "./metrics.ts";
+import { renderDaemonFleetStatus, runDaemonFleetStatus } from "./fleet-status.ts";
 const fleetNumber = { port: /^(?:0|[1-9][0-9]{0,4})$/u, quota: /^[1-9][0-9]{0,15}$/u };
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
 type ControlFinisher = (receipt: Record<string, unknown>, exitCode: number) => number;
@@ -143,7 +144,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
         "unsupported_command",
         [
           "Use daemon projection rebuild, daemon repo register|update,",
-          "daemon connection add|update|remove|probe, fleet center start, fleet edge sync,",
+          "daemon connection add|update|remove|probe, fleet status, fleet center start, fleet edge sync,",
           "service install|uninstall|status, start --service, status, metrics, or stop.",
         ].join(" "),
       ),
@@ -224,6 +225,32 @@ async function startDaemonService(
     ? finish(await status(userRoot, daemonId, argv), 0)
     : finish(daemonFailure("daemon-start", started.code ?? "daemon_start_failed", started.hint), 1);
 }
+async function fleetStatusControl(
+  argv: readonly string[],
+  userRoot: string,
+  daemonId: string,
+  finish: ControlFinisher,
+): Promise<number> {
+  // Transport and flag errors propagate to runDaemonControl's catch, which converts them
+  // into the daemon-fleet failure receipt; only the read's own rejection is handled here.
+  const result = await runDaemonFleetStatus(argv, userRoot, daemonId);
+  if (result.ok !== true) {
+    const errorCode = typeof result.code === "string" ? result.code : "fleet_status_failed";
+    return finish(
+      daemonFailure(
+        "daemon-fleet-status",
+        errorCode,
+        typeof result.rejectionExplanation === "string"
+          ? result.rejectionExplanation
+          : "The daemon rejected the fleet overview read; rerun with --json for the full receipt.",
+      ),
+      1,
+    );
+  }
+  if (argv.includes("--json")) return finish(result, 0);
+  console.log(renderDaemonFleetStatus(result));
+  return 0;
+}
 async function fleetControl(
   argv: readonly string[],
   at: number,
@@ -231,13 +258,24 @@ async function fleetControl(
   daemonId: string,
   finish: ControlFinisher,
 ): Promise<number> {
-  const center = argv[at + 2] === "center" && argv[at + 3] === "start",
+  const status = argv[at + 2] === "status",
+    center = argv[at + 2] === "center" && argv[at + 3] === "start",
     edge = argv[at + 2] === "edge" && argv[at + 3] === "sync",
-    command = center ? "daemon-fleet-center-start" : edge ? "daemon-fleet-edge-sync" : "daemon-fleet";
+    command = status
+      ? "daemon-fleet-status"
+      : center
+        ? "daemon-fleet-center-start"
+        : edge
+          ? "daemon-fleet-edge-sync"
+          : "daemon-fleet";
   const flag = (name: string) => daemonOption(argv, name),
     reject = (errorCode: string, nextAction: string) => finish(daemonFailure(command, errorCode, nextAction), 2);
+  if (status) return await fleetStatusControl(argv, userRoot, daemonId, finish);
   if (!center && !edge)
-    return reject("unsupported_command", "Use daemon fleet center start or daemon fleet edge sync.");
+    return reject(
+      "unsupported_command",
+      "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
+    );
   const required = center
       ? ["--port", "--key", "--cert", "--repo", "--quota-bytes"]
       : ["--host", "--port", "--ca", "--node-id", "--view-root", "--quota-bytes"],
