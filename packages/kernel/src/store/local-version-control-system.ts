@@ -33,7 +33,8 @@ import { makeLocalVersionControlCommands } from "./local-version-control-command
 
 const gitMaxBuffer = 256 * 1024 * 1024,
   gitBatchChunkBytes = 64 * 1024 * 1024,
-  gitBatchChunkEntries = 4_096;
+  gitBatchChunkEntries = 4_096,
+  gitTreeArgumentBytes = 8 * 1024;
 
 export function makeLocalVersionControlSystem(): VersionControlSystem {
   return makeLocalVersionControlCommands({
@@ -451,27 +452,56 @@ export const localGitObjectRefStore = Object.freeze({
   }[] => {
     const scopes = new Set(targets);
     if (scopes.size === 0) return [];
-    const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit]),
+    // Read only the containing directories. Shared parents keep large target sets small;
+    // the exact scope filter below preserves file/prefix semantics, including missing paths.
+    const parents = new Set(
+        [...scopes].map((target) => {
+          const slash = target.lastIndexOf("/");
+          return slash < 0 ? target : target.slice(0, slash);
+        }),
+      ),
+      traversal = [...parents].filter((target) => {
+        for (let slash = target.lastIndexOf("/"); slash >= 0; slash = target.lastIndexOf("/", slash - 1))
+          if (parents.has(target.slice(0, slash))) return false;
+        return true;
+      }),
       entries: { mode: "100644" | "120000"; oid: string; size: number; target: string }[] = [];
-    let offset = 0;
-    while (offset < output.length) {
-      const end = output.indexOf(0, offset);
-      if (end < 0) throw new Error("Git ls-tree output is not NUL terminated");
-      const record = output.subarray(offset, end).toString("utf8"),
-        tab = record.indexOf("\t"),
-        header = tab < 0 ? "" : record.slice(0, tab),
-        target = tab < 0 ? "" : record.slice(tab + 1),
-        [mode, type, oid, size] = header.trim().split(/\s+/u);
-      if (
-        treeTargetIsScoped(target, scopes) &&
-        (mode === "100644" || mode === "120000") &&
-        type === "blob" &&
-        /^[0-9a-f]{40}$/u.test(oid ?? "") &&
-        /^\d+$/u.test(size ?? "")
-      )
-        entries.push({ mode, oid: oid!, size: Number(size), target });
-      offset = end + 1;
+    // ls-tree has no stdin path list. Bound argv bytes rather than imposing a target-count cap:
+    // each authored path is valid on its own, but a publication may contain thousands of them.
+    let batch: string[] = [],
+      bytes = 0;
+    const flush = () => {
+      if (batch.length === 0) return;
+      const output = localGitBytes(repoRoot, ["ls-tree", "-r", "-l", "-z", commit, "--", ...batch]);
+      let offset = 0;
+      while (offset < output.length) {
+        const end = output.indexOf(0, offset);
+        if (end < 0) throw new Error("Git ls-tree output is not NUL terminated");
+        const record = output.subarray(offset, end).toString("utf8"),
+          tab = record.indexOf("\t"),
+          header = tab < 0 ? "" : record.slice(0, tab),
+          target = tab < 0 ? "" : record.slice(tab + 1),
+          [mode, type, oid, size] = header.trim().split(/\s+/u);
+        if (
+          treeTargetIsScoped(target, scopes) &&
+          (mode === "100644" || mode === "120000") &&
+          type === "blob" &&
+          /^[0-9a-f]{40}$/u.test(oid ?? "") &&
+          /^\d+$/u.test(size ?? "")
+        )
+          entries.push({ mode, oid: oid!, size: Number(size), target });
+        offset = end + 1;
+      }
+      batch = [];
+      bytes = 0;
+    };
+    for (const target of traversal) {
+      const size = Buffer.byteLength(target) + 1;
+      if (bytes + size > gitTreeArgumentBytes) flush();
+      batch.push(target);
+      bytes += size;
     }
+    flush();
     return entries;
   },
   importCommit: (repoRoot: string, input: Iterable<string | Uint8Array>) =>
