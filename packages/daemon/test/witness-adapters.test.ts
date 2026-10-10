@@ -441,6 +441,39 @@ test("the wire validator admits pass/fail witnesses only with a mapped adapter i
     }),
     false,
   );
+  for (const field of ["subjects", "predicateType", "predicate", "diagnostic", "observed", "basis", "provenance"]) {
+    const incomplete: Record<string, unknown> = { ...witness };
+    delete incomplete[field];
+    assert.equal(validateGateWitnessWire(incomplete), false, field);
+  }
+  assert.equal(
+    validateGateWitnessWire({ ...witness, subjects: [{ path: "artifact.csv", revision: 0, blobSha256: "bad" }] }),
+    false,
+  );
+  const historical: Record<string, unknown> = {
+    ...witness,
+    schema: "completion-gate-acceptance/v1",
+    historicalAcceptance: { sourceGeneration: 2, sourceRevision: 12, submissionDigest: witness.basis.submissionDigest },
+  };
+  for (const field of ["subjects", "predicateType", "predicate", "diagnostic", "observed", "basis", "provenance"])
+    delete historical[field];
+  assert.equal(validateGateWitnessWire(historical), true);
+  assert.equal(
+    validateGateWitnessWire({ ...historical, subjects: [] }),
+    false,
+    "history must not invent measured subjects",
+  );
+  assert.equal(
+    validateGateWitnessWire({
+      ...historical,
+      historicalAcceptance: {
+        sourceGeneration: 2,
+        sourceRevision: 0,
+        submissionDigest: witness.basis.submissionDigest,
+      },
+    }),
+    false,
+  );
   // An override rides the wire as an envelope: a named receipt or null (no automated receipt), nothing else.
   const override = (value: unknown) => validateGateWitnessWire({ ...witness, override: value });
   assert.equal(override({ rationale: "Runner host lost network", waivedReceiptId: "op-fail" }), true);
