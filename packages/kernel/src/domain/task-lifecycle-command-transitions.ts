@@ -202,6 +202,7 @@ export const start: Transition = {
           }
         : {
             schema: "execution/v1",
+            gateRuns: [],
             executionId: command.executionId,
             taskId: command.taskId,
             nodeId: "implementation",
@@ -453,6 +454,13 @@ export const submit: Transition = {
       )
         issues.push(lifecycleContractIssue("invalid_proof", "submit must own and atomically release the active lease"));
     }
+    if (task?.presetSnapshotGap)
+      issues.push(
+        lifecycleContractIssue(
+          "invalid_submission",
+          `Historical snapshot bytes are unavailable: ${task.presetSnapshotDigest}. Upgrade the task snapshot before a new submission.`,
+        ),
+      );
     issues.push(...validateSubmissionV1(command.submission));
     return issues;
   },

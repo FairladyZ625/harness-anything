@@ -248,6 +248,41 @@ test("bypass write anchor migration converts legacy positions mechanically", () 
   assert.equal(source.entries.coordinatedCore[0].value, "a.ts#writeFileSync@4:3");
 });
 
+// dec_5EC2631352B17EE2BF4979E37E: certificate publication uses hard-link create-if-absent.
+for (const [api, declaration, call] of [
+  ["linkSync", "import { linkSync as publish } from 'node:fs';", "publish('temp', 'final');"],
+  ["link", "import { link as publish } from 'node:fs/promises';", "publish('temp', 'final');"],
+  ["linkSync", "import * as fs from 'node:fs';", "fs.linkSync('temp', 'final');"],
+  ["link", "import fs from 'node:fs/promises';", "fs.link('temp', 'final');"],
+]) {
+  test(`hard-link publication requires a unique identity and the exact ${api} API: ${declaration}`, () => {
+    const root = makeFixtureRoot();
+    const policyRoot = mkdtempSync(path.join(tmpdir(), "ha-w8-policy-"));
+    try {
+      writeAllowlist(policyRoot, []);
+      writeStore(root, [declaration, call]);
+      const ungoverned = runChecker(root, policyRoot);
+      assert.notEqual(ungoverned.status, 0, "unregistered hard links must be detected");
+      assert.match(ungoverned.stderr, new RegExp(api));
+      writeAllowlist(policyRoot, [`fixture-${api.toLowerCase()}`]);
+      const governedCall = `/* @gate-identity check-bypass-write-boundary/fixture-${api.toLowerCase()} */ ${call}`;
+      writeStore(root, [declaration, governedCall]);
+      const governed = runChecker(root, policyRoot);
+      assert.equal(governed.status, 0, governed.stderr);
+      writeStore(root, [declaration, governedCall, governedCall]);
+      assert.match(runChecker(root, policyRoot).stderr, /attached to more than one governed call/u);
+      writeStore(root, [
+        "import { renameSync } from 'node:fs';",
+        `/* @gate-identity check-bypass-write-boundary/fixture-${api.toLowerCase()} */ renameSync('temp', 'final');`,
+      ]);
+      assert.match(runChecker(root, policyRoot).stderr, /changed API/u);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(policyRoot, { recursive: true, force: true });
+    }
+  });
+}
+
 const requiredRoots = [
   "packages/kernel/src/store",
   "packages/kernel/src/local",
@@ -309,6 +344,8 @@ function writeStore(root, lines) {
 
 function writeAllowlist(policyRoot, allowedValue = []) {
   const apiByIdentity = {
+    "fixture-link": "link",
+    "fixture-linksync": "linkSync",
     "fixture-close": "closeSync",
     "fixture-fsync": "fsyncSync",
     "fixture-mkdir": "mkdirSync",

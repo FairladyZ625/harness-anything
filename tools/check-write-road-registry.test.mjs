@@ -79,6 +79,30 @@ test("write-road registry does not flag a file whose sqlite sites are all read-o
     assert.doesNotMatch(findWriteRoadRegistryViolations(root).join("\n"), /read-only-projection\.ts/u);
   }));
 
+// dec_4190D5EA63D9DD208CE946F133: command input staging replaces the shell adapter's sink.
+test("command witness staging replaces the retired adapter physical-write registration", () =>
+  withFixture((root) => {
+    const oldPath = "packages/daemon/src/repo-cell-witness-adapters.ts";
+    const newPath = "packages/daemon/src/repo-cell-command-witness.ts";
+    write(root, oldPath, "export {};\n");
+    write(root, newPath, 'import { mkdirSync } from "node:fs"; mkdirSync("frozen-input");\n');
+    const file = path.join(root, "tools/write-road-registry.json");
+    const registry = JSON.parse(readFileSync(file, "utf8"));
+    registry.physicalWriteFiles.push(oldPath);
+    writeFileSync(file, JSON.stringify(registry));
+    const before = findWriteRoadRegistryViolations(root).join("\n");
+    assert.match(before, /repo-cell-witness-adapters\.ts: stale physicalWriteFiles/u);
+    assert.match(before, /repo-cell-command-witness\.ts: physical write sink is not declared/u);
+    registry.physicalWriteFiles[registry.physicalWriteFiles.indexOf(oldPath)] = newPath;
+    writeFileSync(file, JSON.stringify(registry));
+    assert.deepEqual(findWriteRoadRegistryViolations(root), []);
+    write(root, newPath, "export {};\n");
+    assert.match(
+      findWriteRoadRegistryViolations(root).join("\n"),
+      /repo-cell-command-witness\.ts: stale physicalWriteFiles/u,
+    );
+  }));
+
 test("write-road registry rejects stale legacy rows", () =>
   withFixture((root) => {
     const file = path.join(root, "tools/write-road-registry.json"),

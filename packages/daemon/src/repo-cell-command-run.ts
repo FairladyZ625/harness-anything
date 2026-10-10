@@ -1,3 +1,4 @@
+import { runCompletionSources } from "./task-witness-runner.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
@@ -334,7 +335,14 @@ export function makeRepoCellCommandRunner(
             ),
           async (error) => failAction(error, durable ? await authorizeAtCurrentCut()! : undefined),
         );
-    const externalRead = readBeforeWriteQueue(context, action, binding, context.refreshCi);
+    const externalRead: ReturnType<typeof readBeforeWriteQueue> =
+      action.kind === "task-complete" && typeof action.taskId === "string"
+        ? authorizeAtCurrentCut()!.then(async (authorization) => {
+            if (authorization.outcome === "allowed")
+              await runCompletionSources(context, action.taskId as string, binding);
+            return (nextAction, nextBinding) => context.executeAction(nextAction, nextBinding);
+          })
+        : readBeforeWriteQueue(context, action, binding, context.refreshCi);
     if (externalRead)
       return externalRead
         .then((publish) =>
@@ -351,7 +359,27 @@ export function makeRepoCellCommandRunner(
       context.executeAction(action, authorizationDecision ? { ...binding, authorizationDecision } : binding),
     );
   };
-  return run;
+  return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
+    const receipt = await run(action, binding, signal);
+    if (
+      (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
+      typeof action.taskId === "string" &&
+      !isSquadControlCommand(action.kind) &&
+      "outcome" in receipt &&
+      (receipt.outcome === "applied" ||
+        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"))
+    ) {
+      const warnings = await runCompletionSources(
+        context,
+        action.taskId,
+        binding,
+        action.kind === "task-witness-rerun" ? `gate-${receipt.opId}` : undefined,
+      );
+      if (warnings.length)
+        return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings] };
+    }
+    return receipt;
+  };
 }
 
 async function bindCurrentPersonIdentityWitnesses(

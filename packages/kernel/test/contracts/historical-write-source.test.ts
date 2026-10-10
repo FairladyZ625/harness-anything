@@ -1,4 +1,8 @@
 // harness-test-tier: fast
+import {
+  completionGenerationFixtures,
+  convertFrozenCompletionSample,
+} from "../../../../tools/gates/completion-generation-fixtures.mjs";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
@@ -36,12 +40,16 @@ test("immutable canonical event families retain historical assignment identities
   for (const entry of canonicalEventSchemas) {
     const directory = path.join(root, entry.schema.replaceAll("/", "-"));
     for (const name of readdirSync(directory).filter((name) => name.endsWith(".json"))) {
-      const original = JSON.parse(readFileSync(path.join(directory, name), "utf8"));
+      const body = readFileSync(path.join(directory, name), "utf8");
+      const file = path.relative(path.resolve(import.meta.dirname, "../../../.."), path.join(directory, name));
+      const original = completionGenerationFixtures.has(file)
+        ? convertFrozenCompletionSample(body, file)
+        : JSON.parse(body);
       // Import events have a fixed migration provenance, independent of node identities.
       if (original.source === "migration-import/v1") continue;
       const historical = historicalSources(original) as typeof original;
-      const body = serializeCanonicalEventUnchecked(historical);
-      assert.deepEqual(parseCanonicalEvent(body), historical, `${entry.schema}:${name}`);
+      const serialized = serializeCanonicalEventUnchecked(historical);
+      assert.deepEqual(parseCanonicalEvent(serialized), historical, `${entry.schema}:${name}`);
       assert.ok(validateCurrentCanonicalEvent(historical).length > 0, `${entry.schema}:${name}: current write`);
       assert.throws(() => serializeEventEnvelope(historical), /identity is invalid/u);
       probes += 1;
@@ -82,14 +90,11 @@ test("historical source requires both identity axes without making assignment a 
 });
 
 test("historical completion receipts remain bound to both assignment identity axes", () => {
-  const original = JSON.parse(
-    readFileSync(
-      new URL(
-        "../../fixtures/canonical-events/task-event-v1/accepted-completion-gate-verified-0187036fd590.json",
-        import.meta.url,
-      ),
-      "utf8",
-    ),
+  const file =
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-completion-gate-verified-0187036fd590.json";
+  const original = convertFrozenCompletionSample(
+    readFileSync(path.resolve(import.meta.dirname, "../../../..", file), "utf8"),
+    file,
   );
   const event = historicalSources(original) as typeof original;
   assert.deepEqual(parseCanonicalEvent(serializeCanonicalEventUnchecked(event)), event);

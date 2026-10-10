@@ -1,3 +1,4 @@
+import { createRuntime } from "./preset-runtime.ts";
 import { loadCanonicalAssets } from "./preset-assets.ts";
 import { decodePackage, parsePresetJson, presetDocumentValue, scan } from "./preset-package.ts";
 import { asFailure, defaultAssets, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
@@ -82,7 +83,13 @@ export function validatePresetPackage(input: { readonly source: string }) {
 }
 
 export function validateVerticalSource(
-  input: { readonly source?: string; readonly assetsRoot?: string; readonly rootDir?: string } = {},
+  input: {
+    readonly source?: string;
+    readonly assetsRoot?: string;
+    readonly rootDir?: string;
+    readonly presetId?: string;
+    readonly userRoot?: string;
+  } = {},
 ) {
   const requested = input.source ?? "software/coding",
     builtin = ["software/coding", "builtin:software/coding"].includes(requested),
@@ -113,6 +120,14 @@ export function validateVerticalSource(
         .map(({ templateRef }) =>
           presetFailure("missing_template", `Vertical references unavailable template ${templateRef}.`),
         );
+    const resolved = input.presetId
+      ? createRuntime({ assetsRoot: source, userRoot: input.userRoot! }).resolveInternal({
+          presetId: input.presetId,
+          verticalId: vertical.id,
+          locale: "en-US",
+          purpose: "inspect",
+        })
+      : undefined;
     return {
       schema: "vertical-validate-report/v1" as const,
       source: builtin ? `builtin:${vertical.id}` : source,
@@ -122,6 +137,7 @@ export function validateVerticalSource(
         id: vertical.id,
         title: vertical.title,
         version: vertical.version,
+        completion: resolved?.snapshot.completion ?? vertical.completion,
       },
       issues,
     };

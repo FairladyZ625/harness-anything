@@ -50,6 +50,10 @@ export function parseTask(
   if (
     id === "task-assign" ||
     id === "task-unassign" ||
+    id === "task-witness-claim" ||
+    id === "task-witness-settle" ||
+    id === "task-witness-revoke" ||
+    id === "task-witness-rerun" ||
     id === "task-start" ||
     id === "task-submit" ||
     id === "task-adjudicate" ||

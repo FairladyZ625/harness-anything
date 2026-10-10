@@ -4,7 +4,7 @@ import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { builtinCiObserveScheduleId } from "./schedule-builtin-executor.ts";
 import { isSquadControlResult, type SquadControlResult } from "./squad-control-result.ts";
-import { githubActionsWitnessEvidence, submittedGithubActionsRequirement } from "./repo-cell-ci-evidence.ts";
+import { githubActionsGateResult, submittedGithubActionsRequirement } from "./repo-cell-ci-evidence.ts";
 
 type RefreshContext = Pick<
   RepoCellApiContext,
@@ -41,19 +41,15 @@ export function makeCiRefreshQueue(input: {
     >();
   let ciRefresh: Promise<WriteReceipt> | null = null;
   const recordedWitnessReceipt = (taskId: string): WriteReceipt | null => {
-    const target = submittedGithubActionsRequirement(
-      context.projection.read(taskId).snapshot,
-      context.extracted.settings.read().ci.workflows,
-    );
+    const target = submittedGithubActionsRequirement(context.projection.read(taskId).snapshot);
     if (!target) return null;
-    const evidence = githubActionsWitnessEvidence(context.extracted, target.requirement, target.execution);
-    if (evidence?.result !== "pass") return null;
+    if (githubActionsGateResult(context.extracted, target.requirement, target.execution) !== "pass") return null;
     return {
       outcome: "no_changes",
       opId: `ci-observe-pull:${taskId}`,
       revision: context.store.readHead()?.revision ?? 0,
-      evidence: `CI witness of ${taskId} is already recorded (${evidence.provenance.runId}); nothing to pull.`,
-      summary: `CI witness of ${taskId} is already recorded (${evidence.provenance.runId}); nothing to pull.`,
+      evidence: `CI witness of ${taskId} is already recorded; nothing to pull.`,
+      summary: `CI witness of ${taskId} is already recorded; nothing to pull.`,
     } as unknown as WriteReceipt;
   };
   const refreshCi = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {

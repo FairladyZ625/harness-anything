@@ -306,6 +306,7 @@ export function execution(value: unknown): boolean {
       "submittedAt",
       "closedAt",
       "submission",
+      "gateRuns",
     ],
     executionV1Optional = ["deliveryBaseline", "amendedBy", "annotations"];
   if (
@@ -321,6 +322,7 @@ export function execution(value: unknown): boolean {
       actor(value.actor) &&
       (value.submittedAt === null || nonEmpty(value.submittedAt)) &&
       (value.closedAt === null || nonEmpty(value.closedAt)) &&
+      Array.isArray(value.gateRuns) &&
       (value.submission === null || validateGuiSubmission(value.submission).length === 0)
     );
   const fields = [
@@ -520,6 +522,7 @@ export function codeDocRepoint(value: unknown): boolean {
 export const codeDocRecord = (value: unknown): boolean => codeDoc(value) || codeDocRepoint(value);
 
 export function gate(value: unknown): boolean {
+  const historical = isJsonObject(value) && value.schema === "completion-gate-acceptance/v1";
   const required = [
       "schema",
       "witnessId",
@@ -534,12 +537,34 @@ export function gate(value: unknown): boolean {
       "actor",
       "source",
       "verifiedAt",
+      ...(historical
+        ? ["historicalAcceptance"]
+        : ["subjects", "predicateType", "predicate", "diagnostic", "observed", "basis", "provenance"]),
     ],
     optional = ["observed", "basis", "provenance", "override"];
   return (
     recordWith(value, required) &&
     Object.keys(value).every((field) => required.includes(field) || optional.includes(field)) &&
-    value.schema === "completion-gate-witness/v1" &&
+    (historical
+      ? recordWith(value.historicalAcceptance, ["sourceGeneration", "sourceRevision", "submissionDigest"]) &&
+        (value.historicalAcceptance.sourceGeneration === 1 || value.historicalAcceptance.sourceGeneration === 2) &&
+        Number.isSafeInteger(value.historicalAcceptance.sourceRevision) &&
+        Number(value.historicalAcceptance.sourceRevision) > 0 &&
+        digest(value.historicalAcceptance.submissionDigest)
+      : value.schema === "completion-gate-witness/v1" &&
+        Array.isArray(value.subjects) &&
+        value.subjects.every(
+          (subject) =>
+            exactRecord(subject, ["path", "revision", "blobSha256"]) &&
+            nonEmpty(subject.path) &&
+            Number.isSafeInteger(subject.revision) &&
+            Number(subject.revision) > 0 &&
+            typeof subject.blobSha256 === "string" &&
+            /^[a-f0-9]{64}$/u.test(subject.blobSha256),
+        ) &&
+        nonEmpty(value.predicateType) &&
+        isJsonObject(value.predicate) &&
+        typeof value.diagnostic === "string") &&
     [
       value.witnessId,
       value.receiptId,
@@ -549,7 +574,9 @@ export function gate(value: unknown): boolean {
       value.executionId,
       value.verifiedAt,
     ].every(nonEmpty) &&
-    (value.result === "pass" || value.result === "fail") &&
+    (value.result === "pass" ||
+      value.result === "fail" ||
+      (historical && (value.result === "advisory" || value.result === "not_run"))) &&
     (value.commitSha === null || sha(value.commitSha)) &&
     iteration(value.iteration) &&
     actor(value.actor) &&
@@ -565,7 +592,7 @@ export function gate(value: unknown): boolean {
     (value.provenance === undefined ||
       (recordWith(value.provenance, ["source", "runId", "rawResult"]) &&
         (value.provenance.source === "runner" || value.provenance.source === "human") &&
-        (value.provenance.adapterId === undefined || nonEmpty(value.provenance.adapterId)) &&
+        ((historical && value.provenance.adapterId === undefined) || nonEmpty(value.provenance.adapterId)) &&
         nonEmpty(value.provenance.runId) &&
         nonEmpty(value.provenance.rawResult))) &&
     // Envelope only: the rationale length and the waived receipt stay judged on the kernel write path.
@@ -616,7 +643,7 @@ function wireConsumerCut(value: unknown): value is JsonObject {
   return (
     exactRecord(value, ["repoId", "generation", "revision", "headDigest"]) &&
     wireText(value.repoId) &&
-    (value.generation === 1 || value.generation === 2) &&
+    (value.generation === 1 || value.generation === 2 || value.generation === 3) &&
     wireRevision(value.revision) &&
     digest(value.headDigest)
   );

@@ -870,7 +870,8 @@ export const settingsFieldProtocolProjection = {
       field: "closeoutProfile",
       description: "How strict closeout is. Closeout is the final set of checks before a task is marked complete.",
       group: "review-closeout",
-      effect: "standard leaves the four closeout checks off unless switched on one by one; strict turns all four on.",
+      effect:
+        "Unset follows the frozen domain defaults; standard turns the four checks off and strict turns all four on.",
       name: "--closeout-profile",
       kind: "single",
       enum: ["standard", "strict"],

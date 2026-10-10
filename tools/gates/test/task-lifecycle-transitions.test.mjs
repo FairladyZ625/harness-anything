@@ -1,4 +1,6 @@
 // harness-test-tier: contract
+// Frozen input update authorized by dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E; judgment assertions unchanged.
+import { emptyCompletionContract } from "../../../packages/kernel/test/domain/completion.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
@@ -87,7 +89,7 @@ function submission(commitSha = commit0) {
     knownGaps: [],
     residualRisks: [],
     commitSha,
-    completionContract: { gates: [] },
+    completionContract: { ...emptyCompletionContract, gates: [] },
   };
 }
 function submit(revision, executionId = "execution-0", commitSha = commit0) {

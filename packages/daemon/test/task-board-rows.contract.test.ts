@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import test from "node:test";
 import {
   blockingOf,
@@ -328,6 +329,7 @@ function submittedExecution() {
     nodeId: "implementation",
     iteration: 0,
     state: "submitted",
+    gateRuns: [],
     actor: { principal: { personId: "person-owner" }, executor: null },
     claimedAt: "2026-09-01T00:00:00.000Z",
     submittedAt: "2026-09-01T01:00:00.000Z",
@@ -340,7 +342,7 @@ function submittedExecution() {
       knownGaps: [],
       residualRisks: [],
       commitSha: "a".repeat(40),
-      completionContract: { gates: [] },
+      completionContract: emptyCompletionContract,
     },
   };
 }

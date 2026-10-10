@@ -12,7 +12,6 @@
     {
       "id": "baseline",
       "title": "Baseline",
-      "checkerProfile": "software-coding-standard",
       "completionGates": [],
       "templateSelections": []
     }

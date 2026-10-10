@@ -7,20 +7,22 @@ import { getTaskActionForTransition } from "./entity-kind-registry.ts";
 
 // CLI-facing catalog, projection fields, and contract descriptor.
 export const TASK_LIFECYCLE_COMMAND_CATALOG = Object.freeze(
-  [...new Set(TASK_LIFECYCLE_TRANSITIONS.map((value) => value.actionId))].map((actionId) => {
-    const action = getTaskActionForTransition(actionId),
-      lifecycle = action?.execution?.lifecycle;
-    if (!action || !lifecycle) throw new Error(`Task lifecycle transition references undeclared action ${actionId}.`);
-    return Object.freeze({
-      id: lifecycle.transitionId,
-      actionId,
-      commandType: lifecycle.commandType,
-      from: action.stateTransition?.from ?? [],
-      proof: lifecycle.proof,
-      eventType: lifecycle.eventType,
-      returns: action.returns,
-    });
-  }),
+  [...new Set(TASK_LIFECYCLE_TRANSITIONS.filter((value) => !value.offline).map((value) => value.actionId))].map(
+    (actionId) => {
+      const action = getTaskActionForTransition(actionId),
+        lifecycle = action?.execution?.lifecycle;
+      if (!action || !lifecycle) throw new Error(`Task lifecycle transition references undeclared action ${actionId}.`);
+      return Object.freeze({
+        id: lifecycle.transitionId,
+        actionId,
+        commandType: lifecycle.commandType,
+        from: action.stateTransition?.from ?? [],
+        proof: lifecycle.proof,
+        eventType: lifecycle.eventType,
+        returns: action.returns,
+      });
+    },
+  ),
 );
 export type TaskLifecycleCliCatalogEntry = (typeof TASK_LIFECYCLE_COMMAND_CATALOG)[number];
 export const TASK_LIFECYCLE_PROJECTION_FIELDS = Object.freeze({

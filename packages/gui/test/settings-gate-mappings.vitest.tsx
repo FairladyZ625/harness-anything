@@ -10,15 +10,14 @@ import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { gateMappingRowIssues } from "../src/renderer/gate-mapping-form.ts";
+import { CODE_DOC_GATE_ID, gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
 import {
-  CODE_DOC_GATE_ID,
-  gateAppliesTo,
-  gateGovernanceFields,
-  gateMappingAdapterFields,
-  governableWitnessAdapterIds,
-  mappedWitnessAdapterIds,
-} from "@harness-anything/kernel";
-import { settingsFieldsFace, settingsGroupsFace } from "./settings-catalog-snapshot.ts";
+  mappedSourceIds,
+  sourceFields,
+  governableSourceIds,
+  settingsFieldsFace,
+  settingsGroupsFace,
+} from "./settings-catalog-snapshot.ts";
 
 const REPO_ID = "settings-gates-probe";
 const GATES = [
@@ -64,11 +63,11 @@ const SNAPSHOT = {
   bundledAgents: [],
   adapters: [],
   gateMappings: {
-    adapters: [...mappedWitnessAdapterIds, "none"],
+    adapters: [...mappedSourceIds, "none"],
     appliesTo: [...gateAppliesTo],
-    adapterFields: gateMappingAdapterFields,
+    adapterFields: sourceFields,
     governanceFields: [...gateGovernanceFields],
-    governableAdapters: [...governableWitnessAdapterIds],
+    governableAdapters: [...governableSourceIds],
     internalGateId: CODE_DOC_GATE_ID,
   },
 };
@@ -229,8 +228,7 @@ describe("Settings 门映射编辑面", () => {
     expect(row.querySelector('[data-testid="gate-mapping-0-mandatorySignoff"]')).toBeNull();
     expect(row.querySelector('[data-testid="gate-mapping-0-allowOverride"]')).toBeNull();
     // 打开治理修饰再切回 manual-attest:草稿里的修饰被剥离,提交载荷不会携带非法键。
-    await choose(row.querySelector('[data-testid="gate-mapping-0-adapter"]') as HTMLSelectElement, "local-command");
-    await type(row.querySelector('[data-testid="gate-mapping-0-command"]') as HTMLInputElement, "make attest");
+    await choose(row.querySelector('[data-testid="gate-mapping-0-adapter"]') as HTMLSelectElement, "research/check");
     await act(async () => {
       (row.querySelector('[data-testid="gate-mapping-0-mandatorySignoff"] button') as HTMLElement).click();
     });

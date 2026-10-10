@@ -5,7 +5,6 @@ import path from "node:path";
 import {
   ciRunObservationWritePlan,
   consumeKnownError,
-  inferLegacyGateRequirements,
   isNativeCommitSha,
   validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV4,
@@ -81,7 +80,7 @@ export type CiObservationFetch = {
 };
 type GithubActionsOptions = Extract<
   FrozenGateRequirement["witness"],
-  { readonly adapterId: "github-actions" }
+  { readonly kind: "github-actions" }
 >["adapterOptions"];
 
 // Every gh call finishes before the pull enters the repository write queue: GitHub can stall
@@ -115,7 +114,7 @@ export async function fetchCiObservations(
     throw cell.cellCodedError("invalid_command", "Use --run <run-id> or --task <task-id>, not both.");
   if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
     throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
-  const witness = taskId === null ? null : taskWitnessContract(cell, taskId, workflows);
+  const witness = taskId === null ? null : taskWitnessContract(cell, taskId);
   const owner = createHash("sha256")
     .update(JSON.stringify([cell.rootDir, action.occurrenceId, action.claimFence]))
     .digest("hex")
@@ -546,7 +545,7 @@ export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: n
 type TaskWitness = { readonly taskId: string; readonly delivery: string; readonly options: GithubActionsOptions };
 
 // --task resolves the submitted execution's delivery commit and the github-actions options its
-// completion contract froze (cuts frozen before the contract infer them as completion does).
+// completion contract froze.
 function taskWitnessContract(
   cell: {
     readonly rootDir: string;
@@ -554,7 +553,6 @@ function taskWitnessContract(
     readonly projection?: Pick<TaskProjection, "read">;
   },
   taskId: string,
-  workflows: readonly string[],
 ): TaskWitness {
   const snapshot = cell.projection?.read(taskId).snapshot,
     submission = snapshot?.executions.find(
@@ -574,11 +572,10 @@ function taskWitnessContract(
         "landed under another commit. next: the task owner returns the cut with " +
         `ha task adjudicate ${taskId} --return --review-id <review-id> --note <reason>, then resubmits the landed commit.`,
     );
-  const witness = (
-    submission?.completionContract?.gates ??
-    inferLegacyGateRequirements(snapshot?.task?.completionGateIds ?? [], workflows)
-  ).find((requirement) => requirement.witness.adapterId === "github-actions")?.witness;
-  if (witness?.adapterId !== "github-actions")
+  const witness = submission!.completionContract.gates.find(
+    (requirement) => requirement.witness.kind === "github-actions",
+  )?.witness;
+  if (witness?.kind !== "github-actions")
     throw cell.cellCodedError(
       "invalid_command",
       `Task ${taskId} has no github-actions gate in its completion contract; no CI run witnesses it.`,

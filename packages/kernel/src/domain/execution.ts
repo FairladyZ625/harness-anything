@@ -1,3 +1,4 @@
+import { validGateRun, type GateRun } from "./gate-run.ts";
 import { hasOnlyFields, isNonEmptyString, isRecord, validateActorAxes } from "./task.ts";
 import type { ActorAxes, ContractValidationIssue } from "./task.ts";
 import type { TaskNodeId } from "./task-graph.ts";
@@ -12,7 +13,7 @@ export type ExecutionState = (typeof executionStates)[number];
 export const leasePhases = ["reserving", "held", "orphaned", "released"] as const;
 export type LeasePhase = (typeof leasePhases)[number];
 
-export const executionV1States = ["active", "submitted", "changes_requested", "accepted"] as const;
+export const executionV1States = ["active", "submitted", "changes_requested", "accepted", "abandoned"] as const;
 export type ExecutionV1State = (typeof executionV1States)[number];
 export const executionAnnotationKinds = ["correction", "superseded-by"] as const;
 export type ExecutionAnnotationKind = (typeof executionAnnotationKinds)[number];
@@ -79,6 +80,7 @@ export type ExecutionDeliveryBaseline =
 
 export interface ExecutionV1 {
   readonly schema: "execution/v1";
+  readonly gateRuns: readonly GateRun[];
   readonly executionId: string;
   readonly taskId: string;
   readonly nodeId: TaskNodeId;
@@ -156,6 +158,7 @@ export const EXECUTION_V1_SCHEMA = Object.freeze({
     "submittedAt",
     "closedAt",
     "submission",
+    "gateRuns",
   ]),
   states: executionV1States,
 });
@@ -221,14 +224,7 @@ export function validExecutionDeliveryBaseline(value: unknown): value is Executi
 }
 
 export function validateSubmissionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
-  // Submissions written before the contract freeze carry no completionContract; they stay readable
-  // as history (dec_D23B9787328EF7E0FACB70F9FE), but every new submission must freeze one.
-  const frozen = isRecord(value) && Object.hasOwn(value, "completionContract");
-  if (isRecord(value) && !frozen && !allowUnknownFields)
-    return [{ code: "invalid_submission", message: "Submission lacks the completion contract frozen at submit" }];
-  const required = frozen
-    ? SUBMISSION_V1_SCHEMA.required
-    : SUBMISSION_V1_SCHEMA.required.filter((field) => field !== "completionContract");
+  const required = SUBMISSION_V1_SCHEMA.required;
   if (
     !isRecord(value) ||
     !(allowUnknownFields ? hasRequiredFields : hasOnlyFields)(value, [
@@ -245,7 +241,7 @@ export function validateSubmissionV1(value: unknown, allowUnknownFields = false)
   ) {
     return [{ code: "invalid_submission", message: "Submission must name a commit or accepted artifact revisions" }];
   }
-  return frozen ? validateFrozenCompletionContract(value.completionContract, allowUnknownFields) : [];
+  return validateFrozenCompletionContract(value.completionContract, allowUnknownFields);
 }
 export function validateExecutionV1(value: unknown, allowUnknownFields = false): readonly ContractValidationIssue[] {
   if (
@@ -259,6 +255,19 @@ export function validateExecutionV1(value: unknown, allowUnknownFields = false):
   )
     return [{ code: "invalid_execution", message: "Execution/v1 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
+  if (
+    !Array.isArray(value.gateRuns) ||
+    !value.gateRuns.every(validGateRun) ||
+    value.gateRuns.some(
+      (run) =>
+        run.taskId !== value.taskId || run.executionId !== value.executionId || run.iteration !== value.iteration,
+    ) ||
+    new Set(value.gateRuns.map((run) => run.runId)).size !== value.gateRuns.length
+  )
+    issues.push({
+      code: "invalid_execution",
+      message: "execution gate runs must have unique identities bound to their execution",
+    });
   if (value.schema !== "execution/v1")
     issues.push({ code: "invalid_schema", message: "Execution must use execution/v1" });
   if (!isNonEmptyString(value.executionId) || !isNonEmptyString(value.taskId) || value.nodeId !== "implementation")

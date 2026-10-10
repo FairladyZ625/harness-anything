@@ -4,6 +4,7 @@ import {
   cpSync,
   existsSync,
   fsyncSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -99,6 +100,10 @@ export const localRuntimeStateFileSystem = {
   mkdirp: (inputPath: string) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-056 */
     mkdirSync(inputPath, { recursive: true }),
+  linkExclusive: (fromPath: string, toPath: string): void => {
+    /* @gate-identity check-bypass-write-boundary/generation-three-certificate-link */
+    linkSync(fromPath, toPath);
+  },
   modifiedAtMs: (inputPath: string) => statSync(inputPath).mtimeMs,
   readText: (inputPath: string) => readFileSync(inputPath, "utf8"),
   rename: (fromPath: string, toPath: string) =>

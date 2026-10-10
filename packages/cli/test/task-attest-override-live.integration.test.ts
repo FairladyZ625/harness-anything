@@ -242,6 +242,26 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
     // The null waiver satisfies the gate judgment (readback above); do not run complete here —
     // a waived gate lets completion settle, and the voiding proof below needs a live execution.
 
+    const rerunCi = () => {
+      const snapshot = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId]));
+      const previous = snapshot.executions[0]!.gateRuns.findLast((gate) => gate.gateId === "ci")!;
+      const receipt = run(root, userRoot, daemonId, [
+        "task",
+        "witness-rerun",
+        taskId,
+        "--execution-id",
+        executionId,
+        "--gate",
+        "ci",
+        "--run-id",
+        previous.runId,
+        "--reason",
+        "Owner requests a new CI observation for this submission",
+      ]);
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      published(root, userRoot, daemonId, receipt);
+    };
+    // dec_4190D5EA63D9DD208CE946F133: terminal runs change only by explicit rerun.
     // Phase B: a completed red run lands; the new automated receipt voids the null waiver.
     writeFileSync(
       stubFile,
@@ -285,6 +305,7 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
     } finally {
       await reader.drain();
     }
+    rerunCi();
     const redComplete = runMaybe(root, userRoot, daemonId, ["task", "complete", taskId]);
     const redReceipt = JSON.parse(redComplete.stdout) as Record<string, unknown>;
     const redWitnesses = taskSnapshot(run(root, userRoot, daemonId, ["task", "show", taskId])).gateWitnesses;
@@ -352,6 +373,7 @@ test("an owner break-glasses a gate with no automated receipt; a later receipt v
       }),
     );
     assert.equal(run(root, userRoot, daemonId, ["ci", "observe", "pull"]).outcome, "applied");
+    rerunCi();
     const greenComplete = runMaybe(root, userRoot, daemonId, ["task", "complete", taskId]),
       greenReceipt = JSON.parse(greenComplete.stdout) as Record<string, unknown>;
     assert.equal(greenReceipt.stoppedAt, "ci_missing", greenComplete.stdout);
@@ -437,6 +459,7 @@ type WitnessRow = {
 };
 type TaskSnapshot = {
   readonly executions: readonly {
+    readonly gateRuns: readonly { readonly gateId: string; readonly runId: string }[];
     readonly submission: { readonly commitSha: string | null } | null;
   }[];
   readonly gateWitnesses: readonly WitnessRow[];

@@ -157,7 +157,8 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     const beforeReviewBlock = store().read().revision,
       missingReview = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code }, { outcome: "op_rejected", code: "review_missing" });
-    assert.deepEqual((missingReview.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type), ["completion_gate_verified"]);
+    assert.deepEqual(store().read().events.filter((event) => event.workspaceRevision > beforeReviewBlock).map((event) => event.type), ["completion_gate_verified"]);
+    assert.deepEqual(missingReview.steps, []);
     assert.equal(store().read().revision, beforeReviewBlock + 1);
     const reviewBinding = (id: string) => withPolicyGroup({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "maintainer");
     const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const reportPath = `${packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`; mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true }); writeFileSync(path.join(rootDir, "harness", reportPath), `# Review ${reviewId}\n\nPhysical review findings.\n`); assert.equal((await cell!.run({ kind: "doc-submit", paths: [reportPath] }, binding)).outcome, "applied"); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
@@ -935,8 +936,8 @@ test(
       const attempt = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
       assert.equal(attempt.outcome, "op_rejected", JSON.stringify(attempt));
       assert.equal(attempt.status, "rejected", JSON.stringify(attempt));
-      assert.equal(attempt.code, "invalid_proof", JSON.stringify(attempt));
-      assert.match(String(attempt.rejectionExplanation), /Gate ci receipt event:ci-observation-.* reported fail/u);
+      assert.equal(attempt.code, "ci_missing", JSON.stringify(attempt));
+      assert.match(String(attempt.rejectionExplanation), /CI 36464979857\.1: fail/u);
       const after = reader.read().events;
       assert.equal(
         after.some((event) => event.type === "ci_run_observed" && event.payload.run.runId === "36464979857.1"),
@@ -956,6 +957,26 @@ test(
       // the independent collector from observing again: the newest attempt is the contract's verdict.
       writeFileSync(path.join(ghBin, "rerun"), "");
       await cell.run({ kind: "ci-observe-pull", taskId }, repoWriteBinding);
+      const unchanged = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
+      assert.equal(unchanged.code, "ci_missing", "terminal fail cannot be replaced by an observation");
+      const failedRun = (
+        JSON.parse(String(shown.evidence)) as { executions: { gateRuns: { gateId: string; runId: string }[] }[] }
+      ).executions[0]!.gateRuns.findLast((run) => run.gateId === "ci")!;
+      const restarted = await cell.run(
+        {
+          kind: "task-witness-rerun",
+          taskId,
+          executionId,
+          gateId: "ci",
+          runId: failedRun.runId,
+          reason: "Owner requests the independently collected second attempt",
+        },
+        withPolicyGroup(
+          { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
+          "admin",
+        ),
+      );
+      assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
       const rerun = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
       assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
       assert.equal(
@@ -1325,6 +1346,7 @@ async function publishCiObservation(
         },
       };
       store.append({ event, plan: ciRunObservationWritePlan(event), blobs: [] });
+      projection.apply(event);
       await store.drain();
       return `event:${event.opId}`;
     }

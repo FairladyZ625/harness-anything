@@ -1,8 +1,8 @@
 import {
   completionEvidenceBasis,
+  currentGateRun,
   completionEvidenceResults,
   consumeKnownError,
-  inferLegacyGateRequirements,
   localGitObjectRefStore,
   resolveHarnessLayout,
   type CiObservationRead,
@@ -25,7 +25,7 @@ import type { Snapshot } from "./repo-cell-types.ts";
 export function strandedDelivery(rootDir: string, submission: SubmissionV1 | null | undefined): boolean {
   const commitSha = submission?.commitSha,
     branch = submission?.completionContract?.gates.flatMap(({ witness }) =>
-      witness.adapterId === "github-actions" ? [witness.adapterOptions.branch] : [],
+      witness.kind === "github-actions" ? [witness.adapterOptions.branch] : [],
     )[0];
   if (!commitSha || branch === undefined) return false;
   const git = makeGitReadinessSource(),
@@ -45,17 +45,26 @@ export function strandedDelivery(rootDir: string, submission: SubmissionV1 | nul
  */
 export function submittedGithubActionsRequirement(
   snapshot: Snapshot,
-  workflows: readonly string[],
 ): { readonly requirement: FrozenGateRequirement; readonly execution: Snapshot["executions"][number] } | null {
   const execution = snapshot.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
     ),
     submission = execution?.submission,
-    requirement = (
-      submission?.completionContract?.gates ??
-      inferLegacyGateRequirements(snapshot.task?.completionGateIds ?? [], workflows)
-    ).find((gate) => gate.witness.adapterId === "github-actions");
+    requirement = submission?.completionContract.gates.find((gate) => gate.witness.kind === "github-actions");
   return execution && submission && requirement ? { requirement, execution } : null;
+}
+
+/** A terminal run keeps its verdict until an explicit rerun; observations only judge a running run. */
+export function githubActionsGateResult(
+  cell: Parameters<typeof githubActionsWitnessEvidence>[0],
+  requirement: FrozenGateRequirement,
+  execution: Snapshot["executions"][number],
+): CompletionEvidenceResult | null {
+  if (!execution.submission?.commitSha) return null;
+  const run = currentGateRun(execution, requirement.gateId);
+  return run?.state === "completed"
+    ? run.result
+    : (githubActionsWitnessEvidence(cell, requirement, execution)?.result ?? null);
 }
 
 /**
@@ -69,7 +78,9 @@ export function githubActionsWitnessEvidence(
   requirement: FrozenGateRequirement,
   execution: Snapshot["executions"][number] | undefined,
 ): CompletionEvidenceV1 | null {
-  if (requirement.witness.adapterId !== "github-actions" || !execution?.submission?.commitSha) return null;
+  if (requirement.witness.kind !== "github-actions" || !execution?.submission?.commitSha) return null;
+  const gateRun = currentGateRun(execution, requirement.gateId);
+  if (!gateRun || gateRun.state !== "running") return null;
   const options = requirement.witness.adapterOptions;
   // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
@@ -137,12 +148,17 @@ export function githubActionsWitnessEvidence(
       },
       provenance: CompletionEvidenceProvenance = {
         source: "runner",
-        adapterId: "github-actions",
-        runId: event.payload.run.runId,
+        adapterId: requirement.witness.adapterId,
+        runId: gateRun.runId,
+        claimFence: gateRun.claimFence,
         rawResult: `event:${event.opId}`,
       };
     return {
       schema: "completion-evidence/v1",
+      subjects: [],
+      predicateType: requirement.witness.predicateType,
+      predicate: {},
+      diagnostic: `CI ${event.payload.run.runId}: ${result}`,
       evidenceId: `ci-${event.opId}`,
       checkerId: requirement.gateId,
       gateId: requirement.gateId,

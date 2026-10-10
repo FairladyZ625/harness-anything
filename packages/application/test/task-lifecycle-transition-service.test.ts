@@ -5,8 +5,11 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import {
   openSqliteEventStore,
+  activateEmptyCanonicalGeneration,
+  claimGateRun,
   applyTransition,
   canonicalGateReceipts,
   compileCompletionGateWitness,
@@ -72,15 +75,19 @@ test("completion blocker matrix returns one canonical next for every substantive
                 },
               }
             : gateId === "code-doc-reconciliation"
-              ? { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} }
-              : { adapterId: "manual-attest" as const, adapterOptions: {} },
+              ? { kind: "internal" as const, adapterId: "code-doc-reconciliation" as const, adapterOptions: {} }
+              : {
+                  ...completionSnapshot.completion.sources["manual-attest"],
+                  adapterId: "manual-attest" as const,
+                  adapterOptions: {},
+                },
       }),
       withGates = (gateIds: readonly string[]) => {
         const execution = {
             ...consented.snapshot.executions.find((value) => value.executionId === "execution-1")!,
             submission: {
               ...consented.snapshot.executions.find((value) => value.executionId === "execution-1")!.submission!,
-              completionContract: { gates: gateIds.map(requirement) },
+              completionContract: { ...emptyCompletionContract, gates: gateIds.map(requirement) },
             },
           },
           // The Review and consent pin the submission by digest; repin them to the patched cut.
@@ -220,6 +227,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
           gateId: "ci",
           appliesTo: "code",
           witness: {
+            ...completionSnapshot.completion.sources["github-actions"],
             adapterId: "github-actions",
             adapterOptions: {
               workflows: ["rewrite-ci"],
@@ -239,6 +247,24 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       ...consented.snapshot,
       task: { ...consented.snapshot.task!, completionGateIds: ["ci"] },
     };
+    const execution = snapshot.executions[0]!;
+    snapshot.executions = [
+      {
+        ...execution,
+        gateRuns: [
+          claimGateRun({
+            repoId: "repo",
+            execution,
+            requirement: execution.submission!.completionContract.gates[0]!,
+            runId: "run-ci",
+            claimFence: 1,
+            actor,
+            occurredAt: "2026-08-11T00:09:00.000Z",
+            expiresAt: "2026-08-11T01:00:00.000Z",
+          }),
+        ],
+      },
+    ];
     const input = {
       snapshot,
       taskId: "task-1",
@@ -263,6 +289,10 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
         checkerId: "standard",
         gateId: "ci",
         result: "pass" as const,
+        subjects: [],
+        predicateType: "ci/v1",
+        predicate: {},
+        diagnostic: "CI passed",
         observed: true,
         basis: completionEvidenceBasis(
           snapshot.executions.find((execution) => execution.executionId === "execution-1")!,
@@ -271,6 +301,7 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
           source: "runner" as const,
           adapterId: "github-actions" as const,
           runId: "run-ci",
+          claimFence: 1,
           rawResult: "event:op-ci",
         },
       },
@@ -290,9 +321,19 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       actor,
       source: "local",
       verifiedAt: "2026-08-11T00:10:00.000Z",
+      subjects: [],
+      predicateType: "ci/v1",
+      predicate: {},
+      diagnostic: "CI passed",
       observed: true,
       basis: completionEvidenceBasis(snapshot.executions.find((execution) => execution.executionId === "execution-1")!),
-      provenance: { source: "runner", adapterId: "github-actions", runId: "run-ci", rawResult: "event:op-ci" },
+      provenance: {
+        source: "runner",
+        adapterId: "github-actions",
+        runId: "run-ci",
+        claimFence: 1,
+        rawResult: "event:op-ci",
+      },
     });
     const verified = reduceTaskEvent(snapshot, compiled.event),
       complete = command(
@@ -348,9 +389,9 @@ test("canonical checker receipt becomes a content-cut gate witness before Comple
       /canonical event receipt/u,
     );
     assert.throws(() => compileCompletionGateWitness({ ...input, commitSha: "b".repeat(40) }), /execution cut/u);
-    // A submitted cut binds a witness only when its review gate is lifted: that cut completes straight off submitted.
+    // dec_4190D5EA63D9DD208CE946F133: runs may witness a submitted cut before independent review.
     const atTriage = { ...input, snapshot: { ...snapshot, task: { ...snapshot.task, status: "submitted" as const } } };
-    assert.throws(() => compileCompletionGateWitness(atTriage), /execution cut/u);
+    assert.doesNotThrow(() => compileCompletionGateWitness(atTriage));
     assert.doesNotThrow(() => compileCompletionGateWitness({ ...atTriage, reviewGate: false }));
   } finally {
     await harness.cleanup();
@@ -944,7 +985,8 @@ function seedOldEvents(rootDir: string, count: number): void {
 }
 
 function seedAcceptedEvents(rootDir: string, repoId: string, events: readonly TaskEventV1[]): void {
-  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 1 });
+  activateEmptyCanonicalGeneration({ repoId, rootInput: rootDir });
+  const store = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 3 });
   try {
     for (const event of events)
       store.appendCommand({

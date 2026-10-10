@@ -86,7 +86,7 @@
     }
   ],
   "templateSelections": [],
-  "checkerProfile": "software-coding-standard",
+  "completion": { "sources": {}, "gates": {}, "closeoutDefaults": {} },
   "projectionSchemas": [
     {
       "id": "task-frontmatter",

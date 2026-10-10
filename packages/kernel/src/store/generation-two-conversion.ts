@@ -246,7 +246,7 @@ function planConversion(source: SqliteEventStore) {
   return { plan, events, rows };
 }
 
-function historicalWitness(
+export function historicalWitness(
   original: CanonicalEventV1,
   row: SqliteEventRow,
   source: SqliteEventStore,

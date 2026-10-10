@@ -1,4 +1,5 @@
 // harness-test-tier: contract
+import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { GeneratedTaskActionProtocolProjection } from "../src/preset-command-contract-support.ts";
@@ -152,6 +153,8 @@ test("preset snapshot codec rejects nested field deletion and unknown aliases", 
         },
       ],
       entrypoints: {},
+      completionPackages: {},
+      completion: completionSnapshot.completion,
       provenance: {
         manifestSha256: hash,
         packageSha256: hash,

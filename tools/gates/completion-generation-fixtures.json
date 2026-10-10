@@ -1,0 +1,197 @@
+{
+  "schema": "completion-generation-fixtures/v1",
+  "samples": {
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-code-doc-reconciled-0866c53aecbf.json": {
+      "sha256": "cec637c60675a260899d309fb94a2f0762fdef1a50e7d3435dec002949868a30"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-code-doc-reconciled-2bc226736714.json": {
+      "sha256": "7badde89c3f569207350d5d74388336ba02e49020b8ea8fb7a4aaa7816acff55"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-code-doc-reconciled-790f67caedf2.json": {
+      "sha256": "93e885fd4b5b38e75eedd5515b682f43ab468e095d5fcec9a7d1fa58d1c99e5e"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-code-doc-reconciled-80159bf5d2fb.json": {
+      "sha256": "5436da1a8a5d3d509ebce366db87723a6b12940b230946f4dc5e801eea4afe55"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-code-doc-reconciled-fdc84fbf1178.json": {
+      "sha256": "68fce36044405881b4ca829d7c8db440ae17d36e47527dc9da8ee34979ab8983"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-completion-gate-verified-0187036fd590.json": {
+      "sha256": "fb1e0c44fb431d7d5057875149f1148a91fdca627c843e19ac893dd841d5b01d"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-completion-gate-verified-1c4e41bd1a55.json": {
+      "sha256": "f974b29b8939564597e5c634a30bed4232d61b062327a1ea305dd19bdb69f0b0"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-completion-gate-verified-268c810e4426.json": {
+      "sha256": "fc0a20bf63a6c07e819105f725ab0c58eafb7d95e2848f3c360ab73dbd9ca9af"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-completion-gate-verified-43aebcfd0c8f.json": {
+      "sha256": "cdd9724119bccd858ba0399c17495cb958ea044bd34ba23aac54b5e946b0907b"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-executor-declared-1179603237a3.json": {
+      "sha256": "aabcf764ca138f04b04932ee662f7e8004ac891ab04a3ba16ec894c061f603fb"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-executor-declared-14092f61020c.json": {
+      "sha256": "3eb130ea49b1e1afadb602001ca9fad42da4e37e4e5ec90c14d0f8e6bc5c91a7"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-executor-declared-4cfd518bfba6.json": {
+      "sha256": "fc430b7a3975d3dc77965aef90797099198c8e6a77b342346cb3bf5cf099fc16"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-executor-declared-acbb07828c0a.json": {
+      "sha256": "3a9222908ea62d4a0a1b77abf220ea54b70c2e6fba3440ac508493c8900c233b"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-executor-declared-ae10621d8ef4.json": {
+      "sha256": "8b2b482d8f62805f50620773a21f6d61dde27af0465142b1a110d1febdc6ee3f"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-2990bf1930a0.json": {
+      "sha256": "baa99394472cdf1b2b64246cf53373057eb0f9a649c06b79efb870097bc7b79c"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-49e18e973e0e.json": {
+      "sha256": "dd6daa1b36ba7d53b0d6f99ff5b9d9a5ebb7aa954ee236b959215358de7f4ebc"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-4ae0cee5afdb.json": {
+      "sha256": "53cf6465ad44c2fe10beea7d5222f7a4826c8746947b67faa2d1df931f950388"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-563a70339f17.json": {
+      "sha256": "b20156c06e7c9d3c52f73b81c8fb403e99188efa8bcb8a32dc1f7603f57bc00c"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-73c4948b2f0b.json": {
+      "sha256": "8f00b4505b538d3a009e9c57250f756b2e177d12cc812ee051e9bebf8184edf0"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-79f70e21711f.json": {
+      "sha256": "641cbf1ce928d9fd09e8834f837600e8d3fa922392de54d2ea2a9f37d090fca8"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-94ad137c5b55.json": {
+      "sha256": "0c12636cb2acd5d59c09bf4333f2f11409b300f3e14392fcac42120c2ec89dea"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-99a9a7eec75b.json": {
+      "sha256": "246f1392b85f554c616ef3d7c7c153d079c7d2541f6e79ba75ef520a7d7cda25"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-c00df193c7c8.json": {
+      "sha256": "ece4552c66d4137e73a8981f520db8780a8c0660df19469a8a1b9e10c492bd36"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-c8a5b7ecda26.json": {
+      "sha256": "5d9c280a39a15079d5f0572ba69dd134d7cf10703890fe08bdbda7eea4b5a5a7"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-d6e9134c6754.json": {
+      "sha256": "2a13ec9946347d1d527e23b44a270dc7430e280a3273120271e4da2d027d9916"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-decbbea8f5fb.json": {
+      "sha256": "2474fbc30d2c8e2dd5ad6cc9b29137a4863d350e41a080422939a4b3dfa67f79"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-dedb480df0cd.json": {
+      "sha256": "6f93e778f7bbde51d53d60f13d8d7cc18e0a5eb63e236b482de50d56d676a7a2"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-e5b9bd18d84b.json": {
+      "sha256": "95de889a30d435150ca07b6cc82a44dc7f7203c742bf1b8d18561e9532449d50"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-e960dee06323.json": {
+      "sha256": "6db01cd02b9e8b38f160579fbdada3b0a87c46b35dcfbf983fca6e71f57e6f3f"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-ef79156a767d.json": {
+      "sha256": "2f775af05bc7f2dfac8a9d647aa8979a34aac5ffce9d57e5175ffd271573ba4b"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-started-f5a266baf335.json": {
+      "sha256": "358791991d3208f73fec0db513764b3ce49a93f705159e4eb0c862b8544f02d3"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-submitted-135bf288c482.json": {
+      "sha256": "478ef3d957826ff75a850af3ea66ec67a2f174e49c8d07cfe4bd7c5d4faf2f04"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-submitted-340f2172d481.json": {
+      "sha256": "a4d9c3c1f2eb46acd7a6840cf5287dfb09b8a895e72308eeb6bf481783fc4640"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-submitted-cc09aa0f5337.json": {
+      "sha256": "0afc8d7506b7c366f7a265d25c51fddffb98361e37026bb367796cd36b51409e"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-execution-submitted-f24408479887.json": {
+      "sha256": "dd09d4ae40d7bb6aaece6ace0c0571865c78c14f8dfc5fef76655859015c1e5e"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-lease-released-0011159ec298.json": {
+      "sha256": "7832b38fdc05d27947558935a32a58b56d05feaebc16b84c2f1295f4b088b4fb"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-lease-released-30a0da7385c0.json": {
+      "sha256": "b168c35689f1d218c03ac05a5edac8cca62fee89e4aaddbba495a2c190b1fde1"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-lease-released-43afa4fb3cc4.json": {
+      "sha256": "fee481d24e7bfcd952c9851e42d79892b88db50fa11cab861f69efd5f64dba34"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-lease-released-552558f3d59e.json": {
+      "sha256": "d80356d5c619e083efbc873188643509ed33d298bc5c871e7bad6f40ce1dcc67"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-lease-released-c26cfdc2f4bf.json": {
+      "sha256": "29656b123007cf2a421992d8836370a1ccf2ebf2dfa010079fb0c22da0695e0e"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-lease-released-e3c16b3a3ffc.json": {
+      "sha256": "d8cddd964b5b488d0844d8dcc74315aa980e48fd84b105cf0e38c7f55bcd323e"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-consent-recorded-11faaf5c5e82.json": {
+      "sha256": "936776cd19573014f004d9db8cfc162d54c3927822fa7664cfdc948196e7008d",
+      "privacyReviewReference": true
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-consent-recorded-197984f63b9f.json": {
+      "sha256": "37475547a61ec507c7f8cf29a8f2272b89b7842f32f06874926ba36373e5e5de",
+      "privacyReviewReference": true
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-consent-recorded-26945a69b305.json": {
+      "sha256": "62dc67f24916ff5a4883c8170c38bc5979c603b12832d4d16da70f69f047ba44",
+      "privacyReviewReference": true
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-consent-recorded-5f60368e8fb5.json": {
+      "sha256": "78d25492e02f972b777fdd9ababee93ff56dc546e3ab10749f79171c287f5d87",
+      "privacyReviewReference": true
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-consent-recorded-9190b635bbc7.json": {
+      "sha256": "e768ce7cb237613c168f7646291ce7083408e7a777c6a426cd6c1490e3249cd1",
+      "privacyReviewReference": true
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-consent-recorded-de396ca24c83.json": {
+      "sha256": "3b3ea08c2ce3266fab8c8051f0b18f307f684f840fcce9ec0633703199a507c5",
+      "privacyReviewReference": true
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-1b7c2ad56a0d.json": {
+      "sha256": "b61a1fd3816a5722c0d7442673f9e3fd0d4914f115f84e56e619bfca6cafbe18"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-1e3923662ed7.json": {
+      "sha256": "6969d1a1cab6e415851a6cd2bfb03a45aae0d640c648ef82d9d64daf0eb9b40c"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-558f910aa70c.json": {
+      "sha256": "f0bf97af7d309d4ed43129509020279817c3ab2282559b1b53600792e1a18fba"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-59446692aa71.json": {
+      "sha256": "994428d3a0be02d5d19e3df0feae0c193aede3a4a4a17059d65994ab3706d948"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-91a4022abdc3.json": {
+      "sha256": "fd01d323d3fa922e1fcb9b7e556ccbb3d032bd3cc1f4a2b5fe515a0052df6f55"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-a6a834c830a8.json": {
+      "sha256": "2d24c3d55120651a7b95b440ef85135711ebdebe2bf9369a17fefe983fe77a58"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-review-recorded-a89def6abcad.json": {
+      "sha256": "bd6e1a5c697cea99dcd7dce1dff03e7ef29d3eb594b428c62555fa6a485fc250"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-0269bfbfcf4f.json": {
+      "sha256": "0541d570d1dc6e88e2bc659539e02b901d623c54cbb11756faa19285c6f07c09"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-1c014c6f8ab3.json": {
+      "sha256": "8ba0b839b778166dca4b2fc297247dd47fbb5e6168fc404f5dd71661a9b0095e"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-31719a09ba19.json": {
+      "sha256": "46d6a4d2feca4ced61ee2b3147ee87fddc816d683c8f4ad3c434750dab4b31b7"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-4f5836624da9.json": {
+      "sha256": "2e9f60b9494bfab44440446b608ccb40c903c6fb374a3a1bcb26aa7a6b2cf191"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-8bb0315554ad.json": {
+      "sha256": "b91d854ae109a765a5aa1b589819d2fe32f2f467cdab58c4358a7aa977e1bbbd"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-d799ac4b24f4.json": {
+      "sha256": "8161edfe941994974f341839b76969c3c91bc42468dc28dee20bc76c5f915dd4"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-task-completed-e2b5d4379f0c.json": {
+      "sha256": "57950e2713c631b0c47f4549bbedf0db09299420c99b4a0a9ee0f860223179d3"
+    },
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json": {
+      "sha256": "66b3f13593d9c8588a36a5ef7e44d260846880a8171f75ad7785cc9583fd12d1"
+    }
+  }
+}

@@ -1,12 +1,15 @@
 // harness-test-tier: contract
 import type { CiRunObservationEventV3 } from "../../kernel/test/fixtures/ci-observation.ts";
 import assert from "node:assert/strict";
+import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after } from "node:test";
 import {
+  claimGateRun,
+  settleGateRun,
   getExecutableEntityAction,
   localGitObjectRefStore,
   readSettingsFacet,
@@ -50,6 +53,7 @@ const ciRequirement = (workflows: readonly string[] = ["rewrite-ci"]): FrozenGat
     gateId: "ci",
     appliesTo: "code",
     witness: {
+      ...completionSnapshot.completion.sources["github-actions"],
       adapterId: "github-actions",
       adapterOptions: {
         workflows,
@@ -63,7 +67,7 @@ const ciRequirement = (workflows: readonly string[] = ["rewrite-ci"]): FrozenGat
   codeDocRequirement: FrozenGateRequirement = {
     gateId: "code-doc-reconciliation",
     appliesTo: "code",
-    witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+    witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
   },
   ci = (cell: RepoCellOperationalContext, current: Snapshot["executions"][number], workflows?: readonly string[]) =>
     githubActionsWitnessEvidence(cell, ciRequirement(workflows), current);
@@ -72,7 +76,7 @@ function execution(
   deliverables: string[] = [],
   requirements: readonly FrozenGateRequirement[] = [ciRequirement(), codeDocRequirement],
 ): Snapshot["executions"][number] {
-  return {
+  const current = {
     schema: "execution/v1",
     executionId: "execution",
     taskId: "task",
@@ -83,6 +87,7 @@ function execution(
     claimedAt: "2026-09-12T00:00:00.000Z",
     submittedAt: "2026-09-12T00:01:00.000Z",
     closedAt: null,
+    gateRuns: [],
     submission: {
       completionClaim: "Done",
       commitSha,
@@ -92,9 +97,26 @@ function execution(
       knownGaps: [],
       residualRisks: [],
       evidenceRefs: [],
-      completionContract: { gates: [...requirements] },
+      completionContract: { ...emptyCompletionContract, gates: [...requirements] },
     },
   } as Snapshot["executions"][number];
+  return {
+    ...current,
+    gateRuns: requirements
+      .filter(({ witness }) => witness.kind === "github-actions")
+      .map((requirement) =>
+        claimGateRun({
+          execution: current,
+          requirement,
+          repoId: "repo",
+          runId: `run-${requirement.gateId}`,
+          claimFence: 1,
+          actor,
+          occurredAt: current.submittedAt!,
+          expiresAt: "2026-09-13T00:00:00.000Z",
+        }),
+      ),
+  };
 }
 function observation(
   sha: string,
@@ -422,7 +444,7 @@ test("pure deletion reconciles empty paths and surviving deliverables reconcile 
     assert.deepEqual(prepared.calls[0], { kind: "task-code-doc-reconcile", taskId: "task", paths });
     assert.deepEqual(
       steps.map((step) => step.opId),
-      ["reconcile", "witness"],
+      ["reconcile"],
     );
   }
 });
@@ -895,6 +917,21 @@ async function completeOverRedCi(
         lifecycleAction: async () => assert.fail("completion must stop before any lifecycle write"),
         publishGateWitness: (...args: unknown[]) => {
           const evidence = args[5] as CompletionEvidenceV1;
+          const run = submitted.gateRuns[0]!;
+          (submitted as { gateRuns: typeof submitted.gateRuns }).gateRuns = [
+            settleGateRun({
+              execution: submitted,
+              runId: run.runId,
+              claimFence: run.claimFence,
+              actor,
+              occurredAt: "2026-09-12T00:06:00.000Z",
+              outcome: {
+                availability: "available",
+                result: evidence.result as "pass" | "fail",
+                diagnostic: evidence.diagnostic,
+              },
+            }),
+          ];
           published.push(evidence);
           // The canonical write is durable before the read below re-judges the refreshed snapshot.
           (snapshot.gateWitnesses as Snapshot["gateWitnesses"][number][]).push({
@@ -919,6 +956,9 @@ async function completeOverRedCi(
           return { outcome: "applied", opId: "witness-fail" };
         },
       } as unknown as RepoCellOperationalContext;
+    // The source host settles the run before the completion facade reads its canonical evidence.
+    const evidence = githubActionsWitnessEvidence(cell, requirement, submitted);
+    if (evidence) cell.publishGateWitness("task", "execution", snapshot, packagePath, binding, evidence);
     const receipt = (await completeTask(cell, { kind: "task-complete", taskId: "task", executionId: "execution" }, {
       ...binding,
       authorizationDecision: { outcome: "allowed" },
@@ -938,7 +978,7 @@ test("complete records the automated fail of an override-allowed gate and stops;
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "ci_missing");
   // Without allowOverride the automated fail still rejects the completion outright.
-  await assert.rejects(completeOverRedCi(ciRequirement()), { code: "invalid_proof" });
+  assert.equal((await completeOverRedCi(ciRequirement())).receipt.code, "ci_missing");
 
   // No covering CI observation at all: nothing is recorded, and the blocker offers the owner's
   // break-glass override over the absent receipt.

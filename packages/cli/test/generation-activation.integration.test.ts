@@ -10,7 +10,6 @@ import { DatabaseSync } from "node:sqlite";
 import { docSyncWritePlan, makeTaskEventReader, makeTaskEventStore } from "@harness-anything/kernel";
 import {
   createLedgerBackup,
-  generationTwoActivationPath,
   openSqliteEventStore,
   resolveActiveGeneration,
   sqliteLedgerPath,
@@ -80,7 +79,7 @@ function fixture() {
     blobs: [{ sha256: hash, size: body.length, mediaType: "text/plain", body }],
   });
   store.close();
-  createLedgerBackup({ rootInput: root, backupDir });
+  createLedgerBackup({ rootInput: root, backupDir, generation: 1 });
   return { parent, root, backupDir, destination, body, hash };
 }
 
@@ -89,39 +88,58 @@ test("a destination that fails verification is left without an activation certif
   try {
     assert.equal(migrate(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]).status, 0);
     // The candidate is altered after conversion; activation must refuse it and leave nothing selectable.
-    const db = new DatabaseSync(sqliteLedgerPath(f.destination, 2));
+    const db = new DatabaseSync(sqliteLedgerPath(f.destination, 3));
     db.prepare("UPDATE event SET recorded_at=? WHERE revision=1").run("2000-01-01T00:00:00.000Z");
     db.close();
-    const refused = migrate(["--source", f.backupDir, "--mode", "activate", "--destination", f.destination]);
+    const refused = migrate([
+      "--source",
+      f.backupDir,
+      "--mode",
+      "activate",
+      "--destination",
+      f.destination,
+      "--fleet-state-root",
+      path.join(f.parent, "fleet"),
+    ]);
     assert.equal(refused.status, 1);
-    assert.match(refused.receipt.hint, /timestamps differ/u);
-    assert.equal(existsSync(generationTwoActivationPath(f.destination)), false);
-    assert.equal(resolveActiveGeneration({ rootInput: f.destination }), 1);
-    // A repository whose activation was refused still answers as generation 1 to every reader.
-    assert.equal(run(["events", "tail", "--root", f.destination]).receipt.events.length, 2);
-    console.log("GEN2_REFUSED_ACTIVATION_EVIDENCE=" + JSON.stringify(refused.receipt));
+    assert.match(refused.receipt.hint, /converted event differs/u);
+    assert.equal(existsSync(`${sqliteLedgerPath(f.destination, 3)}.activation.json`), false);
+    assert.throws(() => resolveActiveGeneration({ rootInput: f.destination }), /upgrade is incomplete/u);
+    // dec_5EC2631352B17EE2BF4979E37E: failed activation cannot attach an old or staged generation.
+    assert.equal(run(["events", "tail", "--root", f.destination]).status, 1);
+    console.log("GEN3_REFUSED_ACTIVATION_EVIDENCE=" + JSON.stringify(refused.receipt));
   } finally {
     rmSync(f.parent, { recursive: true, force: true });
   }
 });
 
-test("activation reports the real state and writer, reader, offline commands and restarts all select generation 2", () => {
+test("activation reports the real state and writer, reader, offline commands and restarts all select generation 3", () => {
   const f = fixture();
   try {
     assert.equal(migrate(["--source", f.backupDir, "--mode", "convert", "--destination", f.destination]).status, 0);
     const verified = migrate(["--source", f.backupDir, "--mode", "verify", "--destination", f.destination]);
     assert.equal(verified.status, 0);
     assert.equal(verified.receipt.active, false, "verification alone never activates");
-    assert.equal(resolveActiveGeneration({ rootInput: f.destination }), 1);
+    assert.throws(() => resolveActiveGeneration({ rootInput: f.destination }), /upgrade is incomplete/u);
 
-    const activated = migrate(["--source", f.backupDir, "--mode", "activate", "--destination", f.destination]);
+    const activated = migrate([
+      "--source",
+      f.backupDir,
+      "--mode",
+      "activate",
+      "--destination",
+      f.destination,
+      "--fleet-state-root",
+      path.join(f.parent, "fleet"),
+    ]);
     assert.equal(activated.status, 0, JSON.stringify(activated.receipt));
     assert.equal(activated.receipt.active, true, "an activated destination must not report active:false");
-    assert.equal(existsSync(generationTwoActivationPath(f.destination)), true);
-    assert.equal(resolveActiveGeneration({ rootInput: f.destination }), 2);
-    console.log("GEN2_ACTIVATION_EVIDENCE=" + JSON.stringify(activated.receipt));
+    assert.equal(existsSync(`${sqliteLedgerPath(f.destination, 3)}.activation.json`), true);
+    assert.equal(resolveActiveGeneration({ rootInput: f.destination }), 3);
+    console.log("GEN3_ACTIVATION_EVIDENCE=" + JSON.stringify(activated.receipt));
 
-    const retainedBefore = readFileSync(sqliteLedgerPath(f.destination, 1));
+    const retired = path.join(f.destination, ".harness/store/retired/1/ledger.sqlite");
+    const retainedBefore = readFileSync(retired);
     // An ordinary writer, with no generation option, must accept into the activated generation.
     const event = docEvent(3, f.hash, f.body.length),
       writer = makeTaskEventStore({ repoId, rootDir: f.destination });
@@ -134,7 +152,7 @@ test("activation reports the real state and writer, reader, offline commands and
     } finally {
       void writer.drain();
     }
-    assert.deepEqual(readFileSync(sqliteLedgerPath(f.destination, 1)), retainedBefore, "generation 1 stayed frozen");
+    assert.deepEqual(readFileSync(retired), retainedBefore, "generation 1 stayed frozen");
 
     // An ordinary reader in this process follows the same certificate.
     const reader = makeTaskEventReader({ repoId, rootDir: f.destination });
@@ -143,11 +161,19 @@ test("activation reports the real state and writer, reader, offline commands and
       ["op-1", "op-2", "op-3"],
     );
     // The retained generation stays explicitly auditable and unchanged.
-    const audit = makeTaskEventReader({ repoId, rootDir: f.destination, generation: 1 });
-    assert.deepEqual(
-      audit.read().events.map((value) => value.opId),
-      ["op-1", "op-2"],
+    assert.throws(
+      () => makeTaskEventReader({ repoId, rootDir: f.destination, generation: 1 }),
+      /require generation 3/u,
     );
+    const audit = openSqliteEventStore({ databasePath: retired, generation: 1, readOnly: true });
+    try {
+      assert.deepEqual(
+        audit.eventRows().map((value) => value.opId),
+        ["op-1", "op-2"],
+      );
+    } finally {
+      audit.close();
+    }
 
     // A separate process proves restart selection through the real CLI ingress.
     const tail = run(["events", "tail", "--root", f.destination]);
@@ -155,18 +181,13 @@ test("activation reports the real state and writer, reader, offline commands and
       tail.receipt.events.map((value: { opId: string }) => value.opId),
       ["op-1", "op-2", "op-3"],
     );
-    assert.deepEqual(
-      run(["events", "tail", "--root", f.destination, "--generation", "1"]).receipt.events.map(
-        (value: { opId: string }) => value.opId,
-      ),
-      ["op-1", "op-2"],
-    );
+    assert.equal(run(["events", "tail", "--root", f.destination, "--generation", "1"]).status, 1);
     const backupDir = path.join(f.parent, "post-activation-backup"),
       backup = run(["backup", backupDir, "--root", f.destination]);
     assert.equal(backup.status, 0, JSON.stringify(backup.receipt));
-    assert.equal(backup.receipt.sqlite.generation, 2);
+    assert.equal(backup.receipt.sqlite.generation, 3);
     assert.equal(backup.receipt.accepted.revision, 3);
-    console.log("GEN2_RESTART_EVIDENCE=" + JSON.stringify({ tail: tail.receipt, backup: backup.receipt }));
+    console.log("GEN3_RESTART_EVIDENCE=" + JSON.stringify({ tail: tail.receipt, backup: backup.receipt }));
   } finally {
     rmSync(f.parent, { recursive: true, force: true });
   }

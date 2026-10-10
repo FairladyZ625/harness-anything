@@ -44,6 +44,7 @@ export { explainStatusTransition, isDomainStatus, isTerminalStatus } from "./lif
 export type { DomainStatus } from "./lifecycle-status.ts";
 
 export {
+  type CloseoutSnapshot,
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,
@@ -278,7 +279,7 @@ export type {
   SettingsV1,
 } from "./settings.ts";
 export { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "./settings-closeout.ts";
-export type { CloseoutGate, CloseoutOverridesV1, CloseoutSettingsV1 } from "./settings-closeout.ts";
+export type { CloseoutGate, CloseoutSettingsV1 } from "./settings-closeout.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";
 export {
   applyVerticalKindCommand,

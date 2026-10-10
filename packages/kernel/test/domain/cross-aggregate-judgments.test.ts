@@ -6,25 +6,42 @@ import { closeoutGateOk, closeoutReadiness, type CloseoutSnapshot } from "../../
 import { coverageOf, freshnessReasonOf } from "../../src/domain/decision-coverage.ts";
 import { factLiveness } from "../../src/domain/fact-liveness.ts";
 import { consentedApprovedReviewForExecution, reviewDigest } from "../../src/domain/review.ts";
-import { submissionDigest } from "../../src/domain/execution.ts";
+import { submissionDigest, type ExecutionV1 } from "../../src/domain/execution.ts";
 import { statusWordRegister } from "../../src/domain/status-word-register.ts";
+
+import { emptyCompletionContract } from "./completion.fixtures.ts";
+import { claimGateRun, settleGateRun } from "../../src/domain/gate-run.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const commitSha = "a".repeat(40);
 
 function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
-  const execution = {
+  // dec_5EC2631352B17EE2BF4979E37E: current native cuts carry their frozen contract and run.
+  const requirement = {
+    gateId: "ci",
+    appliesTo: "code",
+    witness: {
+      kind: "github-actions",
+      adapterId: "github-actions",
+      predicateType: "ci/v1",
+      resultSchema: { type: "object" },
+      adapterOptions: { workflows: ["checks"], branch: "main", event: "push", coverage: "exact", selection: "newest" },
+    },
+  } as const;
+  const execution: ExecutionV1 = {
     schema: "execution/v1",
     executionId: "exe-1",
     taskId: "task-1",
     state: "submitted",
     iteration: 0,
     actor,
-    source: "local",
+    nodeId: "implementation",
+    gateRuns: [],
     claimedAt: "2026-08-18T00:00:00.000Z",
     submittedAt: "2026-08-18T00:01:00.000Z",
     closedAt: null,
     submission: {
+      completionContract: { ...emptyCompletionContract, gates: [requirement] },
       completionClaim: "done",
       deliverables: ["packages/kernel/src/domain/task.ts"],
       outputs: [],
@@ -33,7 +50,29 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
       residualRisks: [],
       commitSha,
     },
-  } as unknown as CloseoutSnapshot["executions"][number];
+  };
+  const claimed = claimGateRun({
+    execution,
+    repoId: "repo",
+    requirement,
+    runId: "run-1",
+    claimFence: 1,
+    actor,
+    occurredAt: "2026-08-18T00:03:00.000Z",
+    expiresAt: "2026-08-18T01:00:00.000Z",
+  });
+  const settled = settleGateRun({
+    execution: { ...execution, gateRuns: [claimed] },
+    runId: "run-1",
+    claimFence: 1,
+    actor,
+    occurredAt: "2026-08-18T00:04:00.000Z",
+    outcome: {
+      availability: "available",
+      result: gateResult,
+      diagnostic: gateResult === "fail" ? "checker reported fail" : "",
+    },
+  });
   const review = {
     schema: "review/v1",
     reviewId: "review-1",
@@ -52,7 +91,7 @@ function closeout(gateResult: "pass" | "fail" = "pass"): CloseoutSnapshot {
   } as const;
   return {
     task: { status: "in_review", iteration: 0, completionGateIds: ["ci"] },
-    executions: [execution],
+    executions: [{ ...execution, gateRuns: [settled] }],
     reviews: [review],
     consents: [
       {
@@ -180,7 +219,26 @@ test("code-doc reconciliation depends only on an explicit witness, never deliver
     withDeliverables = (deliverables: readonly string[]) => {
       const executions = base.executions.map((execution) => ({
         ...execution,
-        submission: execution.submission ? { ...execution.submission, deliverables } : null,
+        submission: execution.submission
+          ? {
+              ...execution.submission,
+              deliverables,
+              completionContract: {
+                ...execution.submission.completionContract,
+                gates: [
+                  {
+                    gateId: "code-doc-reconciliation",
+                    appliesTo: "code" as const,
+                    witness: {
+                      kind: "internal" as const,
+                      adapterId: "code-doc-reconciliation" as const,
+                      adapterOptions: {},
+                    },
+                  },
+                ],
+              },
+            }
+          : null,
       }));
       const reviews = base.reviews.map((review) => ({
         ...review,

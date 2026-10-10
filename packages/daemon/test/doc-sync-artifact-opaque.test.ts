@@ -9,6 +9,8 @@ import {
   decideDocWrite,
   createImmutableLegacyGenerationSnapshot,
   convertLegacyGeneration,
+  createLedgerBackup,
+  runCompletionGenerationConversion,
   legacyGenerationSnapshotPath,
   docSyncWritePlan,
   makeTaskEventReader,
@@ -356,7 +358,9 @@ test("authored architecture C4 files travel from dry-run through opaque submit",
 });
 
 test("a historical opaque Markdown claim is restamped through the prose channel", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-opaque-prose-restamp-"));
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-opaque-prose-restamp-"));
+  let rootDir = path.join(parent, "source");
+  mkdirSync(rootDir);
   initRepo(rootDir);
   const sourceRoot = path.join(rootDir, "inactive-source");
   mkdirSync(sourceRoot);
@@ -410,7 +414,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
   assert.equal(store.followerStatus().git.status, "pending");
   assert.equal(historic.accepted, true, JSON.stringify(historic));
   if (!historic.accepted) {
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
     return;
   }
   store.append({ event: historic.event, plan: docSyncWritePlan(historic.event), blobs: historic.blobs });
@@ -425,6 +429,13 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     snapshotPath,
     databasePath: sqliteLedgerPath(rootDir, 1),
   });
+  const backupDir = path.join(parent, "backup"),
+    destinationRoot = path.join(parent, "current");
+  createLedgerBackup({ rootInput: rootDir, generation: 1, backupDir });
+  const conversion = { backupDir, destinationRoot, invalidateDerivedState: () => {} };
+  runCompletionGenerationConversion({ ...conversion, mode: "convert" });
+  runCompletionGenerationConversion({ ...conversion, mode: "activate" });
+  rootDir = destinationRoot;
   const cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "opaque-prose-restamp" });
   try {
     const firstBody = `${legacy}Current state.\n`;
@@ -455,7 +466,7 @@ test("a historical opaque Markdown claim is restamped through the prose channel"
     if (native?.schema === "doc-event/v1") assert.equal("policyUpgrade" in native.payload.changes[0]!, false);
   } finally {
     await cell.close();
-    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(parent, { recursive: true, force: true });
   }
 });
 

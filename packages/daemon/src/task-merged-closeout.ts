@@ -5,7 +5,7 @@ import {
   localGitObjectRefStore,
 } from "@harness-anything/kernel";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
-import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
+import { githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
 import { projectionReady } from "./repo-cell-settlement.ts";
 
 /** Select delivered leaves; completion itself retains authority over every gate and transition. */
@@ -27,10 +27,10 @@ export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "
       const execution = cuts[0]!,
         submission = execution.submission!,
         approved = settledApprovedReviewsForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
-        requirement = submission.completionContract?.gates.find((gate) => gate.witness.adapterId === "github-actions");
+        requirement = submission.completionContract?.gates.find((gate) => gate.witness.kind === "github-actions");
       if (
         !requirement ||
-        requirement.witness.adapterId !== "github-actions" ||
+        requirement.witness.kind !== "github-actions" ||
         !submission.commitSha ||
         !localGitObjectRefStore.isAncestor(
           cell.rootDir,
@@ -47,7 +47,7 @@ export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "
             execution,
             snapshot.reviewDispositions,
           ) !== undefined,
-        ci = githubActionsWitnessEvidence({ ...cell, projectionReady }, requirement, execution)?.result ?? "missing";
+        ci = githubActionsGateResult({ ...cell, projectionReady }, requirement, execution) ?? "missing";
       return [
         {
           taskId,

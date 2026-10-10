@@ -25,6 +25,8 @@ const fsWriteApis = new Set([
   "cp",
   "cpSync",
   "fsyncSync",
+  "link",
+  "linkSync",
   "mkdir",
   "mkdirSync",
   "open",

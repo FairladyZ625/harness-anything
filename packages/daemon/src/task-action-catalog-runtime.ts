@@ -56,11 +56,7 @@ export async function runTaskActionCatalogRuntime(
             action: contract,
             snapshot: current.snapshot,
             actor: binding.actor,
-            closeoutGates: readEffectiveCloseoutGates(
-              cell.projection,
-              current.snapshot.task?.completionGateIds ?? [],
-              current.snapshot.task?.closeoutOverrides,
-            ),
+            closeoutGates: readEffectiveCloseoutGates(cell.projection, current.snapshot),
             invocation: {
               taskId,
               ...(typeof action.executionId === "string" ? { executionId: action.executionId } : {}),

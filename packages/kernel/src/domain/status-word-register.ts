@@ -1,3 +1,4 @@
+import { gateRunStatusWordRegister } from "./status-word-register-gate-run.ts";
 import { ciStatusWordRegister } from "./status-word-register-ci.ts";
 import type { StatusWordRegistration } from "./status-vocabulary.ts";
 import { closeoutStatusWordRegister } from "./status-word-register-closeout.ts";
@@ -5,6 +6,7 @@ import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  ...gateRunStatusWordRegister,
   {
     word: "scheduled",
     entity: "RuntimeSession",

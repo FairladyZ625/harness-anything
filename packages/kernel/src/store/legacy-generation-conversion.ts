@@ -1,10 +1,7 @@
 import { validateCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
-import {
-  serializeCanonicalEventUnchecked,
-  serializePersistedCanonicalEvent,
-} from "../domain/doc-sync-canonical-events.ts";
+import { serializeCanonicalEventUnchecked } from "../domain/doc-sync-canonical-events.ts";
 import { validateCurrentCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import type { CanonicalEventV1, PersistedCanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { sha256Bytes, sha256Text, stableStringify } from "../integrity/stable-hash.ts";
@@ -71,7 +68,8 @@ export function createImmutableLegacyGenerationSnapshot(input: {
   readonly snapshotPath: string;
 }): { readonly sourceDigest: `sha256:${string}`; readonly eventCount: number; readonly objectCount: number } {
   const events = input.source.read().events,
-    eventBytes = events.map(serializePersistedCanonicalEvent),
+    // The offline snapshot preserves accepted source shapes; conversion validates its output.
+    eventBytes = events.map(serializeCanonicalEventUnchecked),
     claims = new Map(events.flatMap((event) => contentClaims(event).map((claim) => [claim.sha256, claim] as const))),
     objects = [...claims.values()]
       .sort((left, right) => left.sha256.localeCompare(right.sha256))
@@ -511,7 +509,7 @@ function arraySnapshotStore(
         ? null
         : {
             revision: events.length,
-            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(events.at(-1)!))}`,
+            eventDigest: `sha256:${sha256Text(serializeCanonicalEventUnchecked(events.at(-1)!))}`,
           },
     readBatch: () => ({
       sourceRevision: events.length,

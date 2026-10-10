@@ -1,9 +1,10 @@
+import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type { ActorAxes } from "./task.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
 import { validateTaskEvent, type CompletionGateVerifiedEvent } from "./task-lifecycle-event.ts";
 import { TaskLifecycleContractError, type TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
-import { sameGateWitnessLane, type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
+import { type CompletionGateWitnessV1 } from "./completion-gate-witness.ts";
 import type { CompletionEvidenceV1 } from "./completion-evidence.ts";
 import { gateAppliesToSubmission, type FrozenGateRequirement } from "./completion-contract.ts";
 
@@ -15,8 +16,8 @@ function admittedWitnessSource(
   requirement: FrozenGateRequirement,
   evidence: CompletionEvidenceV1 | undefined,
 ): boolean {
-  if (!evidence) return false;
-  const human = evidence.provenance.source === "human" && evidence.provenance.adapterId === "manual-attest";
+  if (!evidence || requirement.witness.kind === "historical") return false;
+  const human = evidence.provenance.source === "human";
   if (evidence.override !== undefined) return human && requirement.allowOverride === true;
   if (evidence.provenance.adapterId === requirement.witness.adapterId) return true;
   return human && requirement.mandatorySignoff === true;
@@ -53,7 +54,7 @@ export function compileCompletionGateWitness(input: {
     !task ||
     task.taskId !== input.taskId ||
     // The witness binds wherever completion can run: in_review, or submitted when no review is owed.
-    !(task.status === "in_review" || (task.status === "submitted" && !input.reviewGate)) ||
+    !["in_review", "submitted"].includes(task.status) ||
     execution?.state !== "submitted" ||
     !execution.submission ||
     !requirement ||
@@ -69,8 +70,26 @@ export function compileCompletionGateWitness(input: {
     throw new TaskLifecycleContractError("invalid_proof", [
       { code: "invalid_gate_witness", message: "checker receipt must bind the current submitted execution cut" },
     ]);
+  const acceptedExecution =
+    input.evidence!.provenance.source === "runner"
+      ? replaceGateRun(
+          execution,
+          settleGateRun({
+            execution,
+            runId: input.evidence!.provenance.runId,
+            claimFence: input.evidence!.provenance.claimFence!,
+            actor: input.actor,
+            occurredAt: input.occurredAt,
+            outcome: { availability: "available", result: input.result, diagnostic: input.evidence!.diagnostic },
+          }),
+        )
+      : execution;
   const witness: CompletionGateWitnessV1 = {
       schema: "completion-gate-witness/v1",
+      subjects: input.evidence!.subjects,
+      predicateType: input.evidence!.predicateType,
+      predicate: input.evidence!.predicate,
+      diagnostic: input.evidence!.diagnostic,
       witnessId: `gate-${input.receiptId}`,
       receiptId: input.receiptId,
       checkerId: input.checkerId,
@@ -102,12 +121,15 @@ export function compileCompletionGateWitness(input: {
       actor: input.actor,
       source: input.source,
       occurredAt: input.occurredAt,
-      payload: { task, execution, witness, documentClaims: [] },
+      payload: { task, execution: acceptedExecution, witness, documentClaims: [] },
     },
     snapshot: TaskLifecycleSnapshot = {
       ...input.snapshot,
       revision: input.workspaceRevision,
-      gateWitnesses: [...input.snapshot.gateWitnesses.filter((value) => !sameGateWitnessLane(value, witness)), witness],
+      gateWitnesses: [...input.snapshot.gateWitnesses, witness],
+      executions: input.snapshot.executions.map((value) =>
+        value.executionId === acceptedExecution.executionId ? acceptedExecution : value,
+      ),
     };
   const issues = validateTaskEvent(event);
   if (issues.length) throw new TaskLifecycleContractError("invalid_schema", issues);

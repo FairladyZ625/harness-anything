@@ -798,7 +798,7 @@ test("contract migration repairs old migrated rows through one canonical event a
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "migration-repair-daemon" });
     const binding = withPolicyGroup({ actor, source: "local" as const }, "admin"),
       blocked = await cell.run({ kind: "task-complete", taskId, executionId: "execution-missing" }, binding);
-    assert.equal(blocked.code, "content_not_ready");
+    assert.equal(blocked.code, "not_in_review");
     const revisionBeforeDryRun = ledger().revision,
       dryRun = await cell.run({ kind: "task-contract-migrate", mode: "dry-run", taskId }, binding),
       dryEvidence = JSON.parse(String(dryRun.evidence)) as {

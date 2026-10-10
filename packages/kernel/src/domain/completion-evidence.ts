@@ -1,5 +1,6 @@
+import type { ArtifactDelivery } from "./execution.ts";
+import { isNonEmptyString } from "./contract-validation.ts";
 import { submissionDigest, type ExecutionV1 } from "./execution.ts";
-import { mappedWitnessAdapterIds, type MappedWitnessAdapterId } from "./completion-contract.ts";
 
 export const completionEvidenceResults = ["pass", "fail", "advisory", "not_run"] as const;
 export type CompletionEvidenceResult = (typeof completionEvidenceResults)[number];
@@ -18,9 +19,10 @@ export interface CompletionEvidenceProvenance {
    * Which witness adapter produced this observation; the canonical write binds it to the declared one.
    * Absent only on evidence recorded before the completion contract froze an adapter registry.
    */
-  readonly adapterId?: MappedWitnessAdapterId;
+  readonly adapterId: string;
   readonly runId: string;
   readonly rawResult: string;
+  readonly claimFence?: number;
 }
 
 import { validCompletionEvidenceOverride, type CompletionEvidenceOverride } from "./completion-evidence-override.ts";
@@ -33,6 +35,10 @@ export {
 
 export interface CompletionEvidenceV1 {
   readonly schema: "completion-evidence/v1";
+  readonly subjects: readonly ArtifactDelivery[];
+  readonly predicateType: string;
+  readonly predicate: Readonly<Record<string, unknown>>;
+  readonly diagnostic: string;
   readonly evidenceId?: string;
   readonly checkerId: string;
   readonly gateId: string;
@@ -102,22 +108,11 @@ export function judgeCompletionEvidence(
     return { accepted: false, result: evidence.result, reason: "evidence ledgerCut is not the canonical cut" };
   if (!(evidence.provenance.source === "runner" || evidence.provenance.source === "human"))
     return { accepted: false, result: evidence.result, reason: "evidence provenance source is unsupported" };
-  if (
-    !evidence.provenance.runId ||
-    !evidence.provenance.rawResult ||
-    // A cut frozen before the completion contract was judged before the adapter registry existed, so its
-    // evidence names no adapter (dec_D23B9787328EF7E0FACB70F9FE); every contract cut must name a mapped one.
-    !(
-      (expected.execution.submission?.completionContract === undefined &&
-        evidence.provenance.adapterId === undefined) ||
-      (mappedWitnessAdapterIds as readonly string[]).includes(evidence.provenance.adapterId as string)
-    )
-  )
+  if (!evidence.provenance.runId || !evidence.provenance.rawResult || !isNonEmptyString(evidence.provenance.adapterId))
     return { accepted: false, result: evidence.result, reason: "evidence provenance is incomplete" };
   if (
     evidence.override !== undefined &&
     (evidence.provenance.source !== "human" ||
-      evidence.provenance.adapterId !== "manual-attest" ||
       evidence.result !== "pass" ||
       !validCompletionEvidenceOverride(evidence.override))
   )

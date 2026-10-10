@@ -407,7 +407,7 @@ test("settings update gatesDraft splices the declared facet into the authored do
         "gates-draft-governance",
         {
           kind: "settings-update",
-          gatesDraft: [{ gateId: "lint", adapter: "manual-attest", appliesTo: "submission", allowOverride: true }],
+          gatesDraft: [{ gateId: "lint", adapter: "manual-attest", appliesTo: "submission", allowOverride: "true" }],
           idempotencyKey: "gates-draft-governance",
         },
       ],

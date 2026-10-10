@@ -1,45 +1,25 @@
+import type { PresetProcessService } from "@harness-anything/preset";
+import { collectCommandWitness } from "./repo-cell-command-witness.ts";
 import { createHash } from "node:crypto";
-import { mkdtempSync, rmSync } from "node:fs";
-import { devNull, tmpdir } from "node:os";
-import path from "node:path";
 import {
   completionEvidenceBasis,
+  currentGateRun,
   gateAppliesToSubmission,
   isHumanAttestationWitness,
   isSamePerson,
-  judgeCompletionEvidence,
   judgeGateWitnesses,
   OVERRIDE_RATIONALE_MIN_LENGTH,
   validOverrideRationale,
   waivableAutomatedFail,
-  localGitObjectRefStore,
-  submissionDigest,
   type CompletionEvidenceV1,
   type FrozenGateRequirement,
-  type MappedWitnessAdapterId,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
-import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 
 type Execution = Snapshot["executions"][number];
-
-const isolatedGitConfig = { GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull } as const;
-
-/**
- * Observations collected outside the write queue ride on the action under this symbol; inside the
- * queue each adapter's evaluate re-judges them against the frozen cut before any canonical write.
- */
-export const witnessCollections: unique symbol = Symbol("witnessCollections");
-
-export type PendingWitnessCollections = ReadonlyMap<string, unknown>;
-
-export function actionWitnessCollections(action: RepoTaskAction): PendingWitnessCollections | undefined {
-  const carried = (action as Record<symbol, unknown>)[witnessCollections];
-  return carried instanceof Map ? carried : undefined;
-}
 
 /** The latest automated (non-human-attestation) witness recorded for this gate on the cut. */
 function recordedAutomatedWitness(
@@ -47,6 +27,7 @@ function recordedAutomatedWitness(
   execution: Execution,
   gateId: string,
 ): Snapshot["gateWitnesses"][number] | undefined {
+  if (execution.schema !== "execution/v1") return undefined;
   return snapshot.gateWitnesses
     .filter(
       (candidate) =>
@@ -54,56 +35,10 @@ function recordedAutomatedWitness(
         candidate.gateId === gateId &&
         candidate.commitSha === execution.submission?.commitSha &&
         candidate.iteration === execution.iteration &&
+        candidate.provenance?.runId === currentGateRun(execution, gateId)?.runId &&
         !isHumanAttestationWitness(candidate),
     )
     .at(-1);
-}
-
-/** Automated evidence the cut already recorded verbatim: publishing it again would only append a duplicate. */
-export function recordedGateEvidence(snapshot: Snapshot, evidence: CompletionEvidenceV1): boolean {
-  const recorded = snapshot.gateWitnesses
-    .filter(
-      (candidate) =>
-        candidate.executionId === evidence.basis.executionId &&
-        candidate.iteration === evidence.basis.iteration &&
-        candidate.gateId === evidence.gateId &&
-        !isHumanAttestationWitness(candidate),
-    )
-    .at(-1);
-  return (
-    recorded?.result === evidence.result &&
-    recorded.basis?.submissionDigest === evidence.basis.submissionDigest &&
-    recorded.provenance?.runId === evidence.provenance.runId &&
-    recorded.provenance.rawResult === evidence.provenance.rawResult
-  );
-}
-
-/** A gate whose recorded automated fail is already waived on this cut needs no fresh observation. */
-export function gateWaived(snapshot: Snapshot, execution: Execution, requirement: FrozenGateRequirement): boolean {
-  return (
-    requirement.allowOverride === true &&
-    execution.schema === "execution/v1" &&
-    judgeGateWitnesses(snapshot.gateWitnesses, execution, requirement.gateId, requirement).status === "waived"
-  );
-}
-
-/** A witness the canonical write already accepted for this gate and cut needs no fresh evidence. */
-export function acceptedGateWitness(
-  snapshot: Snapshot,
-  execution: Execution,
-  gateId: string,
-): Snapshot["gateWitnesses"][number] | null {
-  const recorded = recordedAutomatedWitness(snapshot, execution, gateId);
-  return recorded?.basis &&
-    recorded.provenance &&
-    recorded.observed !== undefined &&
-    execution.schema === "execution/v1" &&
-    judgeCompletionEvidence(
-      { ...recorded, basis: recorded.basis, provenance: recorded.provenance, observed: recorded.observed },
-      { execution, gateId },
-    ).accepted
-    ? recorded
-    : null;
 }
 
 export interface WitnessAdapter {
@@ -115,6 +50,7 @@ export interface WitnessAdapter {
     cell: RepoCellOperationalContext,
     requirement: FrozenGateRequirement,
     execution: Execution,
+    process: PresetProcessService,
   ) => Promise<unknown>;
   readonly ingest?: (
     cell: RepoCellOperationalContext,
@@ -133,136 +69,17 @@ export interface WitnessAdapter {
   ) => CompletionEvidenceV1 | null;
 }
 
-export const witnessAdapters: Readonly<Record<MappedWitnessAdapterId, WitnessAdapter>> = {
+export const witnessAdapters: Readonly<Partial<Record<FrozenGateRequirement["witness"]["kind"], WitnessAdapter>>> = {
   "github-actions": {
     evaluate: (cell, requirement, execution) => githubActionsWitnessEvidence(cell, requirement, execution),
   },
-  "local-command": {
-    collect: collectLocalCommand,
-    evaluate: localCommandWitnessEvidence,
+  command: {
+    collect: collectCommandWitness,
+    evaluate: (_cell, _requirement, _execution, collected) => (collected as CompletionEvidenceV1 | undefined) ?? null,
   },
-  // manual-attest produces no runner observation: a human writes the witness through
-  // `ha task attest`, judged by the same canonical admission as every other adapter.
-  "manual-attest": { evaluate: () => null },
+  manual: { evaluate: () => null },
+  external: { evaluate: () => null },
 };
-
-// -- local-command ------------------------------------------------------------
-
-interface LocalCommandCollection {
-  readonly kind: "local-command";
-  readonly submissionDigest: string;
-  readonly cutSha: string;
-  readonly exitCode: number;
-  readonly outputDigest: string;
-  readonly outputTail: string;
-}
-
-/** A local command can still stall; ten minutes bounds the queue-external wait. */
-const localCommandTimeoutMs = 600_000;
-
-function shellQuote(value: string): string {
-  return `'${value.replace(/'/g, `'\\''`)}'`;
-}
-
-/**
- * Materialize exactly the submitted commit into a scratch directory and run the frozen command
- * there. A commit that no reachable repository holds is unavailable evidence, not a verdict.
- */
-async function collectLocalCommand(
-  cell: RepoCellOperationalContext,
-  requirement: FrozenGateRequirement,
-  execution: Execution,
-): Promise<LocalCommandCollection> {
-  const submission = execution.submission!,
-    command = (requirement.witness.adapterOptions as { readonly command: string }).command,
-    cutSha = submission.commitSha;
-  if (cutSha === null)
-    throw cell.cellCodedError(
-      "witness_unavailable",
-      `Gate ${requirement.gateId} is witnessed by local-command, which requires a code commit cut; this submission is artifact-only.`,
-    );
-  const candidates = [
-      cell.rootDir,
-      ...cell.projection
-        .readRuntimeDispatchesByTaskExecution(execution.taskId, execution.executionId)
-        .map(({ event }) => event.payload.cwd)
-        .filter((cwd): cwd is string => typeof cwd === "string" && cwd.length > 0),
-    ],
-    root = [...new Set(candidates)].find((candidate) => localGitObjectRefStore.hasCommit(candidate, cutSha));
-  if (!root)
-    throw cell.cellCodedError(
-      "witness_unavailable",
-      `Submitted commit ${cutSha} is not materialized in a repository this node can read.`,
-    );
-  const workdir = mkdtempSync(path.join(tmpdir(), "ha-witness-local-"));
-  try {
-    await runProcessTextAsync(
-      "sh",
-      ["-c", `git -C ${shellQuote(root)} archive --format=tar ${cutSha} | tar -x -C ${shellQuote(workdir)}`],
-      cell.rootDir,
-      { PATH: process.env.PATH, ...isolatedGitConfig },
-    );
-    // A nonzero exit is the command's verdict — returned as a result, not thrown. Spawn failure,
-    // signal, and timeout still reject as unavailable evidence, never a verdict.
-    const { exitCode, stdout: output } = await runProcessExitAsync(
-      "sh",
-      ["-c", `${command} 2>&1`],
-      workdir,
-      {
-        PATH: process.env.PATH,
-        ...isolatedGitConfig,
-        HARNESS_WITNESS_CUT: cutSha,
-        HARNESS_WITNESS_GATE: requirement.gateId,
-        // Repository-scoped observations (e.g. merged-to ancestry) read the source repo through
-        // this handle; the extracted workdir carries no .git.
-        HARNESS_WITNESS_REPO: root,
-      },
-      undefined,
-      undefined,
-      { timeoutMs: localCommandTimeoutMs },
-    );
-    return {
-      kind: "local-command",
-      submissionDigest: submissionDigest(submission),
-      cutSha,
-      exitCode,
-      outputDigest: `sha256:${createHash("sha256").update(output).digest("hex")}`,
-      outputTail: output.slice(-2000),
-    };
-  } finally {
-    rmSync(workdir, { recursive: true, force: true });
-  }
-}
-
-function localCommandWitnessEvidence(
-  _cell: RepoCellOperationalContext,
-  requirement: FrozenGateRequirement,
-  execution: Execution | undefined,
-  collected: unknown,
-): CompletionEvidenceV1 | null {
-  const run = collected as LocalCommandCollection | undefined;
-  if (run?.kind !== "local-command" || !execution?.submission) return null;
-  // The observation binds the whole submitted cut: an amended digest or a different commit
-  // makes a previously collected result stale evidence, and this adapter refuses it.
-  if (run.cutSha !== execution.submission.commitSha || run.submissionDigest !== submissionDigest(execution.submission))
-    return null;
-  return {
-    schema: "completion-evidence/v1",
-    evidenceId: `local-${createHash("sha256").update(`${run.cutSha}\0${run.submissionDigest}`).digest("hex").slice(0, 24)}`,
-    checkerId: requirement.gateId,
-    gateId: requirement.gateId,
-    result: run.exitCode === 0 ? "pass" : "fail",
-    observed: true,
-    basis: completionEvidenceBasis(execution),
-    provenance: {
-      source: "runner",
-      adapterId: "local-command",
-      runId: `local-${run.cutSha.slice(0, 12)}`,
-      rawResult:
-        `exit ${run.exitCode}; output ${run.outputDigest}; ` + `tail ${JSON.stringify(run.outputTail.slice(-500))}`,
-    },
-  };
-}
 
 // -- human attestation --------------------------------------------------------
 
@@ -319,6 +136,8 @@ export function attestGateWitness(
       "invalid_command",
       `Gate ${gateId} is not part of the frozen completion contract for this submission.`,
     );
+  if (requirement.witness.kind === "historical")
+    throw cell.cellCodedError("invalid_transition", "Historical acceptance cannot receive a new attestation.");
   if (!gateAppliesToSubmission(requirement, execution.submission))
     throw cell.cellCodedError(
       "invalid_transition",
@@ -349,13 +168,18 @@ export function attestGateWitness(
         `Gate ${gateId} already has an automated witness on this cut; only a recorded fail can be waived.`,
       );
     }
-  } else if (requirement.witness.adapterId !== "manual-attest") {
+  } else if (requirement.witness.kind !== "manual") {
     if (!requirement.mandatorySignoff)
       throw cell.cellCodedError(
         "invalid_command",
         `Gate ${gateId} is witnessed by ${requirement.witness.adapterId}, not manual attestation.`,
       );
-    if (!acceptedGateWitness(snapshot, execution, gateId))
+    if (
+      execution.schema !== "execution/v1" ||
+      !["passed", "signoff_missing"].includes(
+        judgeGateWitnesses(snapshot.gateWitnesses, execution, gateId, requirement).status,
+      )
+    )
       throw cell.cellCodedError(
         "invalid_transition",
         `Gate ${gateId} signoff requires its recorded automated pass on this cut; run ha task complete ${taskId} first.`,
@@ -365,6 +189,10 @@ export function attestGateWitness(
     note = typeof action.note === "string" && action.note ? `; ${action.note}` : "",
     evidence: CompletionEvidenceV1 = {
       schema: "completion-evidence/v1",
+      subjects: [],
+      predicateType: requirement.witness.kind === "internal" ? "" : requirement.witness.predicateType,
+      predicate: {},
+      diagnostic: String(action.note ?? action.rationale ?? "Human attestation"),
       evidenceId: `attest-${createHash("sha256").update(`${taskId}\0${execution.executionId}\0${gateId}\0${result}\0${mode}`).digest("hex").slice(0, 24)}`,
       checkerId: gateId,
       gateId,
@@ -373,7 +201,7 @@ export function attestGateWitness(
       basis: completionEvidenceBasis(execution),
       provenance: {
         source: "human",
-        adapterId: "manual-attest",
+        adapterId: requirement.witness.adapterId,
         runId: `${mode === "override" ? "override" : "attest"}:${actorId}`,
         rawResult: override
           ? override.waivedReceiptId === null

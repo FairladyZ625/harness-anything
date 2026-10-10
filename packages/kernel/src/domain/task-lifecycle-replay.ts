@@ -1,3 +1,4 @@
+import { replayGateRunChange } from "./gate-run-publication.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
@@ -12,7 +13,7 @@ import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, judgeGateWitnesses } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
-import { sameGateWitnessLane } from "./completion-gate-witness.ts";
+import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type {
   ProofFor,
   TaskLifecycleCommand,
@@ -325,6 +326,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
     throw new TaskLifecycleContractError("invalid_transition", [
       lifecycleContractIssue("invalid_transition", "event revision or aggregate identity is not replayable"),
     ]);
+  if (event.type === "gate_run_changed") return replayGateRunChange(snapshot, event);
   let next: TaskLifecycleSnapshot;
   if (event.type === "task_created")
     next = {
@@ -373,7 +375,7 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
         },
       ],
     };
-  else if (event.type === "submission_returned")
+  else if (event.type === "submission_returned" || event.type === "task_completion_generation_retired")
     next = {
       ...snapshot,
       revision: event.workspaceRevision,
@@ -433,10 +435,8 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
     next = {
       ...snapshot,
       revision: event.workspaceRevision,
-      gateWitnesses: [
-        ...snapshot.gateWitnesses.filter((value) => !sameGateWitnessLane(value, event.payload.witness)),
-        event.payload.witness,
-      ],
+      gateWitnesses: [...snapshot.gateWitnesses, event.payload.witness],
+      executions: replaceExecution(snapshot.executions, event.payload.execution),
     };
   else if (event.type === "lease_released")
     next = {
@@ -731,12 +731,37 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     event.type === "completion_gate_verified" &&
     (() => {
       const submission = event.payload.execution.submission,
-        declared = snapshot.task?.completionGateIds.includes(event.payload.witness.gateId) === true,
-        requirement =
-          submission?.completionContract?.gates.find((gate) => gate.gateId === event.payload.witness.gateId) ??
-          (submission && !submission.completionContract && declared
-            ? { gateId: event.payload.witness.gateId, appliesTo: "submission" as const }
-            : undefined);
+        requirement = submission?.completionContract.gates.find((gate) => gate.gateId === event.payload.witness.gateId);
+      const previous = execution(snapshot, event.payload.execution.executionId),
+        witness = event.payload.witness;
+      if (!previous) return true;
+      const expected =
+        witness.historicalAcceptance === undefined && witness.provenance?.source === "runner"
+          ? replaceGateRun(
+              previous,
+              settleGateRun({
+                execution: previous,
+                runId: witness.provenance.runId,
+                claimFence: witness.provenance.claimFence!,
+                actor: event.actor,
+                occurredAt: event.occurredAt,
+                outcome: {
+                  availability: "available",
+                  result: witness.result as "pass" | "fail",
+                  diagnostic: witness.diagnostic,
+                },
+              }),
+            )
+          : previous;
+      if (stableStringify(expected) !== stableStringify(event.payload.execution)) return true;
+      if (witness.historicalAcceptance)
+        return (
+          !submission ||
+          witness.executionId !== previous.executionId ||
+          witness.iteration !== previous.iteration ||
+          witness.commitSha !== submission.commitSha ||
+          witness.historicalAcceptance.submissionDigest !== submissionDigest(submission)
+        );
       return (
         !completionGateIds(snapshot.task?.completionGateIds ?? [], submission).includes(event.payload.witness.gateId) ||
         event.payload.witness.executionId !== event.payload.execution.executionId ||
@@ -755,7 +780,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (
     event.type === "task_completed" &&
-    (!acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId, event.payload.closeoutGates) ||
+    ((!event.payload.historicalAcceptance &&
+      !acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId, event.payload.closeoutGates)) ||
       event.payload.task.taskId !== event.taskId ||
       event.payload.execution.taskId !== event.taskId ||
       event.payload.task.status !== "done" ||

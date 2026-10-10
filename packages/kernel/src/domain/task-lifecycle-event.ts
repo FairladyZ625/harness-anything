@@ -55,6 +55,8 @@ export const taskEventTypes = [
   "code_doc_reconciled",
   "code_doc_repointed",
   "completion_gate_verified",
+  "gate_run_changed",
+  "task_completion_generation_retired",
   "task_completed",
   "lease_released",
   "task_transitioned",
@@ -223,9 +225,19 @@ export type CompletionGateVerifiedEvent = TaskEventEnvelope<
     readonly witness: CompletionGateWitnessV1;
   }
 >;
+export type GateRunChangedEvent = TaskEventEnvelope<
+  "gate_run_changed",
+  {
+    readonly task: TaskV2;
+    readonly execution: ExecutionV1;
+    readonly runId: string;
+    readonly operation: "claim" | "settle" | "revoke";
+  }
+>;
 export type TaskCompletedEvent = TaskEventEnvelope<
   "task_completed",
   {
+    readonly historicalAcceptance?: { readonly sourceGeneration: 1 | 2; readonly sourceRevision: number };
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
@@ -257,6 +269,10 @@ export type LeaseReleasedEvent = TaskEventEnvelope<
     readonly mutation: TaskMutationV1;
   }
 >;
+export type CompletionGenerationRetiredEvent = TaskEventEnvelope<
+  "task_completion_generation_retired",
+  { readonly task: TaskV2; readonly execution: ExecutionV1; readonly sourceGeneration: 1 | 2 }
+>;
 export type TaskMutationEventType = Exclude<
   TaskEventType,
   | "task_created"
@@ -273,6 +289,8 @@ export type TaskMutationEventType = Exclude<
   | "code_doc_reconciled"
   | "code_doc_repointed"
   | "completion_gate_verified"
+  | "gate_run_changed"
+  | "task_completion_generation_retired"
   | "task_completed"
   | "lease_released"
 >;
@@ -295,6 +313,8 @@ export type TaskEventV1 =
   | CodeDocReconciledEvent
   | CodeDocRepointedEvent
   | CompletionGateVerifiedEvent
+  | GateRunChangedEvent
+  | CompletionGenerationRetiredEvent
   | TaskCompletedEvent
   | LeaseReleasedEvent
   | TaskMutationEvent;
@@ -405,6 +425,18 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   )
     return [...issues, invalidEventPayloadIssue(`${String(value.type)} payload fields or document claims are invalid`)];
   issues.push(...validateTaskV2(payload.task, allowUnknownFields));
+  if (payload.historicalAcceptance !== undefined) {
+    const accepted = payload.historicalAcceptance;
+    if (
+      !allowUnknownFields ||
+      value.type !== "task_completed" ||
+      !isRecord(accepted) ||
+      !hasRequiredFields(accepted, ["sourceGeneration", "sourceRevision"]) ||
+      (accepted.sourceGeneration !== 1 && accepted.sourceGeneration !== 2) ||
+      accepted.sourceRevision !== value.workspaceRevision
+    )
+      issues.push(invalidEventPayloadIssue("historical completion must preserve its source acceptance revision"));
+  }
   if (
     [
       "execution_started",
@@ -420,11 +452,19 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "code_doc_reconciled",
       "code_doc_repointed",
       "completion_gate_verified",
+      "gate_run_changed",
+      "task_completion_generation_retired",
       "task_completed",
       "lease_released",
     ].includes(String(value.type))
   )
     issues.push(...validateExecutionV1(payload.execution, allowUnknownFields));
+  if (
+    value.type === "task_completion_generation_retired" &&
+    payload.sourceGeneration !== 1 &&
+    payload.sourceGeneration !== 2
+  )
+    issues.push(invalidEventPayloadIssue("completion retirement requires the offline source generation"));
   if (value.type === "submission_forwarded" && !isNonEmptyString(payload.reason))
     issues.push(invalidEventPayloadIssue("a forward adjudication must carry the owner's auditable note"));
   if (
@@ -528,6 +568,11 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       payload.record.repointedAt !== value.occurredAt)
   )
     issues.push(invalidEventPayloadIssue("code-doc repoint record must be pinned to its canonical event envelope"));
+  if (
+    value.type === "gate_run_changed" &&
+    (!isNonEmptyString(payload.runId) || !["claim", "settle", "revoke"].includes(String(payload.operation)))
+  )
+    issues.push(invalidEventPayloadIssue("gate run changes require their operation and run identity"));
   if (value.type === "completion_gate_verified") {
     issues.push(...validateCompletionGateWitnessV1(payload.witness, allowUnknownFields));
     if (
@@ -560,7 +605,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   }
   if (
     String(value.type).startsWith("task_") &&
-    !["task_created", "task_completed"].includes(String(value.type)) &&
+    !["task_created", "task_completed", "task_completion_generation_retired"].includes(String(value.type)) &&
     !validMutation(payload.mutation, allowUnknownFields)
   )
     issues.push(invalidEventPayloadIssue("task mutation audit fields are invalid"));
@@ -589,6 +634,8 @@ function lifecyclePayloadFields(
   if (type === "submission_returned") return [...common, "reason", ...(reviewId ? ["reviewId"] : [])];
   if (type === "execution_executor_declared")
     return [...common, "previousActor", ...(dispatchTaskId ? ["dispatchTaskId"] : []), "reason"];
+  if (type === "task_completion_generation_retired") return [...common, "sourceGeneration"];
+  if (type === "gate_run_changed") return [...common, "runId", "operation"];
   if (type === "execution_annotated") return [...common, "annotation"];
   if (type === "review_recorded") return [...common, "review", ...(edge ? ["edge"] : [])];
   if (type === "review_consent_recorded") return [...common, "review", "consent"];

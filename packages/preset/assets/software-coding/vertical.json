@@ -224,7 +224,14 @@
     }
   ],
   "templateSelections": [],
-  "checkerProfile": "software-coding-standard",
+  "completion": {
+    "sources": {
+      "github-actions": { "kind": "github-actions", "predicateType": "harness/ci/v1", "resultSchema": { "type": "object", "additionalProperties": false } },
+      "manual-attest": { "kind": "manual", "predicateType": "harness/attestation/v1", "resultSchema": { "type": "object", "additionalProperties": false } }
+    },
+    "gates": { "ci": { "source": "github-actions", "appliesTo": "code" } },
+    "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false, "codeDoc": true }
+  },
   "projectionSchemas": [
     { "id": "task-frontmatter", "schemaRef": "schema://task-frontmatter" },
     { "id": "decision-frontmatter", "schemaRef": "schema://decision-frontmatter" },

@@ -1,9 +1,17 @@
-import type { TemplateCatalog, TemplateSelection, VerticalDefinition } from "@harness-anything/kernel";
+import type {
+  TemplateCatalog,
+  TemplateSelection,
+  VerticalDefinition,
+  VerticalCompletionDeclaration,
+} from "@harness-anything/kernel";
 
 export interface ExtensionValidationIssue {
   readonly code:
     | "duplicate_document"
     | "duplicate_vertical_entity"
+    | "completion_source_missing"
+    | "completion_governance_invalid"
+    | "completion_binding_invalid"
     | "missing_fallback_locale"
     | "missing_required_anchor"
     | "missing_template"
@@ -136,8 +144,54 @@ export function validateTemplateCatalogBodies(
   return { ok: issues.length === 0, issues };
 }
 
-export function validateVerticalDefinition(vertical: VerticalDefinition): ExtensionValidationResult {
+export function validateCompletionDeclaration(completion: VerticalCompletionDeclaration): ExtensionValidationResult {
   const issues: ExtensionValidationIssue[] = [];
+  for (const [gateId, gate] of Object.entries(completion.gates)) {
+    const source = completion.sources[gate.source];
+    if (!source)
+      issues.push(
+        extensionIssue(
+          "completion_source_missing",
+          `Gate ${gateId} references undeclared source ${gate.source}.`,
+          `completion.gates.${gateId}.source`,
+        ),
+      );
+    else if (source.kind === "manual" && (gate.mandatorySignoff || gate.allowOverride))
+      issues.push(
+        extensionIssue(
+          "completion_governance_invalid",
+          "A manual source already requires human testimony.",
+          `completion.gates.${gateId}`,
+        ),
+      );
+    for (const [field, binding] of Object.entries(gate.bindings ?? {})) {
+      if (
+        !binding.artifact.startsWith("artifacts/") ||
+        binding.artifact.split("/").some((part) => !part || part === ".." || part === ".") ||
+        binding.artifact.includes("\\")
+      )
+        issues.push(
+          extensionIssue(
+            "completion_binding_invalid",
+            "A binding must name a task artifact path.",
+            `completion.gates.${gateId}.bindings.${field}.artifact`,
+          ),
+        );
+      if (binding.pointer !== "" && (!binding.pointer.startsWith("/") || /~(?:[^01]|$)/.test(binding.pointer)))
+        issues.push(
+          extensionIssue(
+            "completion_binding_invalid",
+            "A binding must use an RFC 6901 JSON pointer.",
+            `completion.gates.${gateId}.bindings.${field}.pointer`,
+          ),
+        );
+    }
+  }
+  return { ok: issues.length === 0, issues };
+}
+
+export function validateVerticalDefinition(vertical: VerticalDefinition): ExtensionValidationResult {
+  const issues = [...validateCompletionDeclaration(vertical.completion).issues];
   const entityById = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
   const scaffoldEntityKinds = new Set<string>();
   const repositoryRootEntityKinds = new Set<string>();
@@ -417,7 +471,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
       "repositoryScaffold",
       "scripts",
       "templateSelections",
-      "checkerProfile",
+      "completion",
       "projectionSchemas",
     ],
     issues,

@@ -3,7 +3,8 @@ import {
   validateCiRunObservationEvent,
   type CiRunObservationEventV2,
 } from "../domain/ci-run-observation-event.ts";
-import { inferLegacyGateRequirements } from "../domain/completion-contract.ts";
+import { historicalCompletionRequirements } from "./offline-completion-contract.ts";
+import { effectiveCloseoutGates } from "../domain/settings-closeout.ts";
 import { readSettingsFacet } from "../domain/settings.ts";
 import { resolveHarnessLayout } from "../layout/index.ts";
 import { tmpdir } from "node:os";
@@ -462,10 +463,21 @@ function submissionCompletionContractMigration(rootDir: string): EventShapeMigra
       }
       if (cut === undefined) {
         const declared = [...new Set(event.payload.task.completionGateIds)],
-          gates = inferLegacyGateRequirements(declared, workflows);
+          gates = historicalCompletionRequirements(declared, workflows);
         if (gates.length !== declared.length)
           throw new Error(`legacy submission ${event.opId} has gates without historical witness mappings`);
-        cut = { ...original, completionContract: { gates } };
+        cut = {
+          ...original,
+          completionContract: {
+            gates,
+            presetSnapshotDigest: event.payload.task.presetSnapshotDigest!,
+            closeoutGates: effectiveCloseoutGates(
+              { profile: "standard" },
+              declared,
+              event.payload.task.closeoutOverrides,
+            ),
+          },
+        };
         cuts.set(key, cut);
       }
       let pinned = frozen ? event : pinSubmissionReferences(event, original, cut);

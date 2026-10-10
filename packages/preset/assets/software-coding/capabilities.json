@@ -1,6 +1,7 @@
 {
   "schema": "preset-capabilities/v1",
   "providers": [
+    { "id": "completion-witness", "kind": "checker", "version": "1", "actionKind": "completion-witness", "payloadFields": ["result", "subjects", "predicateType", "predicate", "diagnostic"] },
     { "id": "standard-task-check", "kind": "checker", "version": "1" },
     { "id": "policy:artifact-contract/v1", "kind": "command", "version": "1" },
     { "id": "policy:task-create/v1", "kind": "command", "version": "1", "actionKind": "task-create", "payloadFields": ["title", "taskId", "presetId", "profileId", "locale", "taskClass"] },

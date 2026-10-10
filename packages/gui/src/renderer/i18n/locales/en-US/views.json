@@ -1478,7 +1478,7 @@
   "views.settingsView.taskScaffoldEffect": "New task packages are generated with this file's additions and replacements.",
   "views.settingsView.repositoryScaffoldEffect": "Repository documents are generated with this file's additions and replacements.",
   "views.settingsView.ciWorkflowsEffect": "Only runs of these workflows count; with none selected, tasks are not checked against CI.",
-  "views.settingsView.closeoutProfileEffect": "standard leaves the four closeout checks off unless switched on one by one; strict turns all four on.",
+  "views.settingsView.closeoutProfileEffect": "Unset follows the frozen domain defaults; standard turns the four checks off and strict turns all four on.",
   "views.settingsView.closeoutReviewEffect": "On: a task cannot complete without one. Off: it can complete unreviewed. Unset follows the profile.",
   "views.settingsView.closeoutConsentEffect": "On: a task waits for the owner's sign-off. Off: it completes without it. Unset follows the profile.",
   "views.settingsView.closeoutFactDispositionEffect": "On: open facts block completion. Off: they are left as they are. Unset follows the profile.",

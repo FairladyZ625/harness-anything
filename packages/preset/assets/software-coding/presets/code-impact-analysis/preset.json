@@ -12,7 +12,6 @@
     {
       "id": "baseline",
       "title": "Baseline",
-      "checkerProfile": "standard",
       "completionGates": [],
       "templateSelections": [
         {

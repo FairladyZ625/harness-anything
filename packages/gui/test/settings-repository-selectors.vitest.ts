@@ -17,15 +17,14 @@ import { SettingsView } from "../src/renderer/views/SettingsView.tsx";
 import { catalogQueryKeys } from "../src/renderer/catalog-data.ts";
 import { settingsQueryKeys } from "../src/renderer/settings-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { CODE_DOC_GATE_ID, gateAppliesTo, gateGovernanceFields } from "@harness-anything/kernel";
 import {
-  CODE_DOC_GATE_ID,
-  gateAppliesTo,
-  gateGovernanceFields,
-  gateMappingAdapterFields,
-  governableWitnessAdapterIds,
-  mappedWitnessAdapterIds,
-} from "@harness-anything/kernel";
-import { settingsFieldsFace, settingsGroupsFace } from "./settings-catalog-snapshot.ts";
+  mappedSourceIds,
+  sourceFields,
+  governableSourceIds,
+  settingsFieldsFace,
+  settingsGroupsFace,
+} from "./settings-catalog-snapshot.ts";
 
 const REPO_ID = "settings-selectors-probe";
 const AT = "2026-08-27T00:00:00.000Z";
@@ -168,11 +167,11 @@ const SNAPSHOT = {
   adapters: [],
   // 门映射描述面:与 daemon gui-catalog 同一映射,源直接 import kernel 单源。
   gateMappings: {
-    adapters: [...mappedWitnessAdapterIds, "none"],
+    adapters: [...mappedSourceIds, "none"],
     appliesTo: [...gateAppliesTo],
-    adapterFields: gateMappingAdapterFields,
+    adapterFields: sourceFields,
     governanceFields: [...gateGovernanceFields],
-    governableAdapters: [...governableWitnessAdapterIds],
+    governableAdapters: [...governableSourceIds],
     internalGateId: CODE_DOC_GATE_ID,
   },
 };

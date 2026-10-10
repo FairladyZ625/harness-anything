@@ -90,6 +90,7 @@ export const executionSchema: EntityDocumentJsonSchema = {
     deliveryBaseline: opaqueObject(),
     amendedBy: opaqueObject(),
     annotations: { type: "array", items: opaqueObject(), minItems: 1 },
+    gateRuns: { type: "array", items: opaqueObject() },
   },
   required: [
     "schema",
@@ -103,6 +104,7 @@ export const executionSchema: EntityDocumentJsonSchema = {
     "submittedAt",
     "closedAt",
     "submission",
+    "gateRuns",
   ],
   additionalProperties: false,
 };

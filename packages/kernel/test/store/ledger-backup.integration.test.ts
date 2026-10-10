@@ -48,7 +48,7 @@ test("backup, verification, restore and drill digest files above the whole-file 
         throw Object.assign(new Error("file exceeds whole-file read limit"), { code: "ERR_FS_FILE_TOO_LARGE" });
       return Reflect.apply(originalRead, localLedgerBackupFileSystem, [file, ...args]);
     });
-    const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
       entry = manifest.files.find(({ path: file }) => file === "harness/large.bin")!;
     assert.equal(entry.size, body.byteLength);
     assert.equal(entry.backupSha256, `sha256:${sha256Bytes(body)}`);
@@ -80,6 +80,7 @@ test("failed capture and manifest publication remove only the new backup and ret
       assert.throws(
         () =>
           createLedgerBackup({
+            generation: 1,
             rootInput: root,
             backupDir,
             onSnapshotCaptured: () => {
@@ -89,7 +90,7 @@ test("failed capture and manifest publication remove only the new backup and ret
         (error) => error === failure,
       );
       assert.equal(existsSync(backupDir), false);
-      assert.equal(readOfflineLedgerEvents({ rootInput: root }).length, 1);
+      assert.equal(readOfflineLedgerEvents({ generation: 1, rootInput: root }).length, 1);
       assert.throws(() => restoreLedgerBackup({ backupDir, destinationRoot: path.join(root, "restored") }), {
         code: "ENOENT",
       });
@@ -107,8 +108,16 @@ test("generation-aware backup preserves legacy sources and does not create an ab
     interruptedDir = `${backupDir}-interrupted`;
   try {
     writeFileSync(interruptedDir, "partial backup");
-    assert.throws(() => createLedgerBackup({ rootInput: root, backupDir: interruptedDir }), /must not already exist/u);
-    const manifest = createLedgerBackup({ rootInput: root, backupDir, now: new Date("2026-09-06T00:00:00Z") });
+    assert.throws(
+      () => createLedgerBackup({ generation: 1, rootInput: root, backupDir: interruptedDir }),
+      /must not already exist/u,
+    );
+    const manifest = createLedgerBackup({
+      generation: 1,
+      rootInput: root,
+      backupDir,
+      now: new Date("2026-09-06T00:00:00Z"),
+    });
     assert.deepEqual(manifest.accepted, { revision: 1, opIds: 1 });
     assert.equal(manifest.sqlite.present, false);
     const eventFile = manifest.files.find(
@@ -119,7 +128,7 @@ test("generation-aware backup preserves legacy sources and does not create an ab
       manifest.files.some(({ path: file }) => file.endsWith("ledger.sqlite")),
       false,
     );
-    assert.equal(readOfflineLedgerEvents({ rootInput: root }).length, 1);
+    assert.equal(readOfflineLedgerEvents({ generation: 1, rootInput: root }).length, 1);
     const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
     assert.equal(readFileSync(path.join(drilled.shadowRoot, eventFile.path), "utf8").length > 0, true);
     writeFileSync(path.join(backupDir, "payload", eventFile.path), "corrupt");
@@ -161,7 +170,7 @@ test("backup includes tracked files, untracked drafts and Git metadata on every 
       cwd: authoredRoot,
     });
     execFileSync("git", ["worktree", "prune", "--expire", "now"], { cwd: authoredRoot });
-    const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
       entries = new Set(manifest.files.map((file) => file.path));
     assert.equal(entries.has("harness/context/tracked.md"), true);
     assert.equal(entries.has("harness/context/untracked.md"), true);
@@ -199,7 +208,7 @@ test(
       symlinkSync(path.join("..", "missing-target"), dangling);
       execFileSync("git", ["add", "context"], { cwd: path.join(root, "harness") });
       execFileSync("git", ["commit", "-qm", "tracked links"], { cwd: path.join(root, "harness") });
-      const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+      const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
         entries = new Map(manifest.files.map((file) => [file.path, file]));
       for (const [relative, target] of [
         ["harness/context/linked-external", external],
@@ -238,12 +247,12 @@ test("VACUUM backup survives source deletion and rejects wrong generation metada
       events: [event],
     });
     store.close();
-    const before = openSqliteEventStore({ databasePath, readOnly: true }).readCommandOutcome(event.opId);
-    createLedgerBackup({ rootInput: root, backupDir });
+    const before = openSqliteEventStore({ databasePath, generation: 1, readOnly: true }).readCommandOutcome(event.opId);
+    createLedgerBackup({ generation: 1, rootInput: root, backupDir });
     rmSync(databasePath, { force: true });
     const drilled = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") }),
       restoredPath = path.join(drilled.shadowRoot, path.relative(root, databasePath)),
-      restored = openSqliteEventStore({ databasePath: restoredPath, readOnly: true });
+      restored = openSqliteEventStore({ databasePath: restoredPath, generation: 1, readOnly: true });
     assert.deepEqual(restored.readCommandOutcome(event.opId), before);
     restored.close();
     const backupDatabasePath = path.join(backupDir, "payload", path.relative(root, databasePath)),
@@ -374,6 +383,7 @@ test("capture boundary freezes SQLite, authored bytes and legacy events before v
       }
       let captured = false;
       const manifest = createLedgerBackup({
+        generation: 1,
         rootInput: root,
         backupDir,
         onSnapshotCaptured: () => {
@@ -392,7 +402,7 @@ test("capture boundary freezes SQLite, authored bytes and legacy events before v
       assert.equal(captured, true);
       assert.deepEqual(manifest.accepted, { revision: 1, opIds: 1 });
       const restored = drillLedgerBackup({ backupDir, shadowParent: path.join(root, "shadow") });
-      assert.equal(readOfflineLedgerEvents({ rootInput: restored.shadowRoot }).length, 1);
+      assert.equal(readOfflineLedgerEvents({ generation: 1, rootInput: restored.shadowRoot }).length, 1);
       assert.equal(readFileSync(path.join(restored.shadowRoot, "harness/cut.md"), "utf8"), "before cut\n");
       assert.equal(readFileSync(note, "utf8"), "after cut\n");
     } finally {
@@ -409,7 +419,7 @@ test("restore drill rolls shadows by retention, preserves unrelated directories 
     shadowParent = path.join(root, "shadow"),
     unrelated = path.join(shadowParent, "keep-me");
   try {
-    const manifest = createLedgerBackup({ rootInput: root, backupDir });
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir });
     mkdirSync(unrelated, { recursive: true });
     const drilled = [];
     for (let index = 0; index < 4; index += 1) {
@@ -474,7 +484,7 @@ test("backup skips entries that vanish after enumeration instead of failing", as
       });
     });
     await ready;
-    const manifest = createLedgerBackup({ rootInput: root, backupDir }),
+    const manifest = createLedgerBackup({ generation: 1, rootInput: root, backupDir }),
       report = new Promise<number>((resolve, reject) => {
         worker!.on("message", (message: unknown) => {
           const vanished = (message as { readonly vanished?: number }).vanished;

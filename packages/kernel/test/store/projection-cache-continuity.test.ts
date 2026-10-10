@@ -39,7 +39,7 @@ test("a real SQLite event gap blocks schema rebuild and preserves the cache byte
     const retained = readFileSync(projection.path),
       missingEvent = events[1]!;
     await writer.drain();
-    const ledgerPath = sqliteLedgerPath(rootDir, 2),
+    const ledgerPath = sqliteLedgerPath(rootDir, 3),
       ledger = new DatabaseSync(ledgerPath);
     try {
       // The entity-ref index rows reference the event row, so the simulated corruption removes them first.

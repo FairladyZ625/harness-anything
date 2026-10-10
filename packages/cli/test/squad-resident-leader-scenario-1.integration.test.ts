@@ -42,7 +42,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
   mkdirSync(root, { recursive: true });
   mkdirSync(binRoot, { recursive: true });
   mkdirSync(path.join(parent, "tmp"), { recursive: true });
-  writeResidentProvider(path.join(binRoot, "codex"), path.join(root, ".harness/store/generations/2/ledger.sqlite"));
+  writeResidentProvider(path.join(binRoot, "codex"), path.join(root, ".harness/store/generations/3/ledger.sqlite"));
   const env = isolatedDaemonEnvironment({
     HOME: path.join(parent, "home"),
     TMPDIR: daemonSocketTemp(parent),

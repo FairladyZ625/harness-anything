@@ -125,12 +125,22 @@ function git(rootDir: string, ...args: readonly string[]): string {
 test("submit freezes the resolved gate contract into the cut; later harness.yaml edits never reach it", async () => {
   const fixture = await submittedTask("contract-freeze", githubCiMapping),
     { rootDir, repoId, taskId, executionId, packagePath, cell } = fixture,
+    // dec_5EC2631352B17EE2BF4979E37E: the declaration and defaults are frozen, not inferred on reads.
     frozen: FrozenCompletionContract = {
+      presetSnapshotDigest: makeTaskEventReader({ repoId, rootDir })
+        .read()
+        .events.flatMap((event) =>
+          event.schema === "task-bootstrap-event/v1" ? [event.payload.presetSnapshotClaim.digest] : [],
+        )[0]!,
+      closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
       gates: [
         {
           gateId: "ci",
           appliesTo: "code",
           witness: {
+            kind: "github-actions",
+            predicateType: "harness/ci/v1",
+            resultSchema: { type: "object", additionalProperties: false },
             adapterId: "github-actions",
             adapterOptions: {
               workflows: ["rewrite-ci"],
@@ -144,7 +154,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
         {
           gateId: "code-doc-reconciliation",
           appliesTo: "code",
-          witness: { adapterId: "code-doc-reconciliation", adapterOptions: {} },
+          witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
         },
       ],
       reviewer: { agentId: "closeout-reviewer" },
@@ -191,13 +201,16 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
   }
 });
 
-test("a declared gate without a harness.yaml witness mapping stops submit before any cut is recorded", async () => {
-  const { rootDir, repoId, taskId, executionId, cell } = await submittedTask("contract-unmapped", "");
+test("an override naming an undeclared source stops submit before any cut is recorded", async () => {
+  const { rootDir, repoId, taskId, executionId, cell } = await submittedTask(
+    "contract-unmapped",
+    githubCiMapping.replace("adapter: github-actions", "adapter: research/missing"),
+  );
   try {
     const rejected = await submitOverTransport(cell, repoId, { taskId, executionId });
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
     assert.equal(rejected.code, "gate_mapping_invalid");
-    assert.match(String(rejected.rejectionExplanation), /completion gate ci.*settings\.gates maps no witness/u);
+    assert.match(String(rejected.rejectionExplanation), /research\/missing/u);
     assert.deepEqual(submittedContracts(rootDir, repoId), []);
   } finally {
     await cell.close();
@@ -206,7 +219,10 @@ test("a declared gate without a harness.yaml witness mapping stops submit before
 });
 
 test("declaring settings.gates after bootstrap unblocks submit through the settings write path", async () => {
-  const { rootDir, repoId, taskId, executionId, cell } = await submittedTask("contract-late-gates", "");
+  const { rootDir, repoId, taskId, executionId, cell } = await submittedTask(
+    "contract-late-gates",
+    githubCiMapping.replace("adapter: github-actions", "adapter: research/missing"),
+  );
   try {
     const rejected = await submitOverTransport(cell, repoId, { taskId, executionId });
     assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
@@ -215,7 +231,10 @@ test("declaring settings.gates after bootstrap unblocks submit through the setti
     // The repository predates the gates write path: the principal declares the mapping in the
     // authored document, then `settings update --gates-from-document` mints it into the entity.
     const configPath = path.join(rootDir, "harness/harness.yaml");
-    writeFileSync(configPath, `${readFileSync(configPath, "utf8")}${githubCiMapping}`);
+    writeFileSync(
+      configPath,
+      readFileSync(configPath, "utf8").replace("adapter: research/missing", "adapter: github-actions"),
+    );
     const imported = await cell.run(
       { kind: "settings-update", gatesFromDocument: true, idempotencyKey: "late-gates-import" },
       owner,
@@ -235,6 +254,21 @@ test("declaring settings.gates after bootstrap unblocks submit through the setti
     assert.equal(contracts.length, 1);
     assert.equal(contracts[0]?.gates[0]?.gateId, "ci");
     assert.equal(contracts[0]?.gates[0]?.witness.adapterId, "github-actions");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the frozen vertical declaration supplies the source when the repository has no override", async () => {
+  const { rootDir, repoId, taskId, executionId, cell } = await submittedTask("contract-default-source", "");
+  try {
+    const submitted = await submitOverTransport(cell, repoId, { taskId, executionId });
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const contracts = submittedContracts(rootDir, repoId);
+    assert.equal(contracts.length, 1);
+    assert.equal(contracts[0]!.gates[0]!.witness.adapterId, "github-actions");
+    assert.equal(contracts[0]!.closeoutGates.codeDoc, true);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

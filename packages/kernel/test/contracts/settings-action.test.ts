@@ -429,8 +429,8 @@ test("Settings update rejects malformed gate mappings", () => {
   for (const gates of [
     "ci",
     ["ci"],
-    [{ gateId: "ci", adapter: "bogus-adapter" }],
-    [{ gateId: "ci", adapter: "github-actions" }],
+    [{ gateId: "ci", adapter: "" }],
+    [{ gateId: "ci", adapter: "github-actions", selection: "oldest" }],
   ]) {
     assert.throws(
       () => compile({ gates }),
@@ -576,7 +576,7 @@ test("Settings update rejects invalid or duplicate worktree setup steps", () => 
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
   const populated = repositorySettings(
     readSettingsFacet(
-      `${documentBody}  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n`,
+      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n`,
     ),
   );
   const values = repositorySettingsActionValues(populated),

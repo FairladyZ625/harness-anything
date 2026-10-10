@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { emptyCompletionContract } from "../domain/completion.fixtures.ts";
 import test from "node:test";
 import { submissionDigest } from "../../src/domain/execution.ts";
 import { stateTransition } from "../../src/domain/task-action-state-transition.ts";
@@ -30,7 +31,7 @@ const owner: ActorAxes = {
     executor: { kind: "agent", id: "reviewer-agent" },
   },
   commitSha = "a".repeat(40),
-  completionContract = { gates: [] };
+  completionContract = emptyCompletionContract;
 
 function command(snapshot: TaskLifecycleSnapshot, actor: ActorAxes, intent: TaskLifecycleCommandIntent) {
   const revision = snapshot.revision + 1;
@@ -245,7 +246,9 @@ function coordinate(snapshot: TaskLifecycleSnapshot): string {
 }
 
 test("every registry-reachable non-terminal task coordinate can reach done without cancellation", (t) => {
-  for (const actionId of new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId)))
+  for (const actionId of new Set(
+    TASK_LIFECYCLE_TRANSITIONS.filter((transition) => !transition.offline).map(({ actionId }) => actionId),
+  ))
     if (actionId !== "create")
       assert.equal(
         stateTransition(actionId),
@@ -312,11 +315,17 @@ test("every registry-reachable non-terminal task coordinate can reach done witho
     .map(([key]) => key)
     .filter((key) => !canReachDone.has(key));
   assert.deepEqual(
-    TASK_LIFECYCLE_TRANSITIONS.flatMap((transition, index) => (matchedTransitions.has(transition) ? [] : [index])),
+    TASK_LIFECYCLE_TRANSITIONS.flatMap((transition, index) =>
+      transition.offline || matchedTransitions.has(transition) ? [] : [index],
+    ),
     [],
   );
   assert.deepEqual(stranded, []);
-  const lifecycleActions = [...new Set(TASK_LIFECYCLE_TRANSITIONS.map(({ actionId }) => actionId))].map((actionId) => {
+  const lifecycleActions = [
+      ...new Set(
+        TASK_LIFECYCLE_TRANSITIONS.filter((transition) => !transition.offline).map(({ actionId }) => actionId),
+      ),
+    ].map((actionId) => {
       const action = getTaskActionForTransition(actionId);
       assert.ok(action, `missing declaration for lifecycle action ${actionId}`);
       return action;

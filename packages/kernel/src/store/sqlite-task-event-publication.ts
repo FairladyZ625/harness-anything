@@ -245,17 +245,21 @@ export function physicalWorktreeRevision(
 ): number {
   const node = localGitWorktreeSettlement.readNode(`${ledger.rootDir}/${ledgerGitPath(ledger, followerManifestPath)}`);
   if (node?.mode !== "100644") return 0;
-  try {
-    return manifestRevision(node.bytes, sqlite);
-  } catch (error) {
-    consumeKnownError(error);
-    return 0;
-  }
+  return manifestRevision(node.bytes, sqlite);
 }
 
 function manifestRevision(bytes: Buffer, sqlite: ReturnType<typeof openSqliteEventStore>): number {
   const parsed = decodeFollowerManifest(bytes),
     revision = Number(parsed.cut?.revision);
+  // A prior generation cannot certify any prefix of this ledger, even at the same integer revision.
+  if (
+    sqlite.metadata().generation === 3 &&
+    (parsed.generation === 1 || parsed.generation === 2) &&
+    parsed.cut?.repoId === sqlite.metadata().repoId &&
+    Number.isSafeInteger(revision) &&
+    revision >= 0
+  )
+    return 0;
   if (
     parsed.generation !== sqlite.metadata().generation ||
     parsed.cut?.repoId !== sqlite.metadata().repoId ||

@@ -26,12 +26,7 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
-import {
-  isPresetSnapshotCurrent,
-  prepareSubmissionEvidence,
-  upgradeDriftedPresetSnapshot,
-} from "./repo-cell-task-progress.ts";
-import { actionWitnessCollections } from "./repo-cell-witness-adapters.ts";
+import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
 
@@ -40,7 +35,10 @@ const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
 
 /** Structured execution binding selects the public delivery commit; Accepted task documents select artifacts. */
 export function deriveCloseoutSubmission(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "store" | "cellCodedError" | "settings">,
+  cell: Pick<
+    RepoCellOperationalContext,
+    "rootDir" | "projection" | "store" | "cellCodedError" | "settings" | "projection"
+  >,
   taskId: string,
   executionId: string,
   snapshot: Snapshot,
@@ -63,7 +61,7 @@ export function deriveCloseoutSubmission(
         commitSha: "0".repeat(40),
         deliverables: [],
         outputs: [],
-        completionContract: { gates: [] },
+        completionContract: frozen?.completionContract ?? freezeCompletionContract(cell, snapshot),
       },
       document.contract ?? undefined,
     ),
@@ -297,10 +295,17 @@ function automaticSubmissionArtifactPaths(
 }
 
 function freezeCompletionContract(
-  cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings">,
+  cell: Pick<RepoCellOperationalContext, "cellCodedError" | "settings" | "projection">,
   snapshot: Snapshot,
 ): SubmissionV1["completionContract"] {
-  const resolved = resolveCompletionContract(snapshot.task?.completionGateIds ?? [], cell.settings.readRepository());
+  const frozenPreset = cell.projection.readPresetSnapshot(snapshot.task!.presetSnapshotDigest!)
+    .snapshot as import("@harness-anything/preset").PresetSnapshotV1;
+  const resolved = resolveCompletionContract(
+    snapshot.task?.completionGateIds ?? [],
+    cell.settings.readRepository(),
+    frozenPreset,
+    snapshot.task?.closeoutOverrides,
+  );
   if (!resolved.ok) throw cell.cellCodedError("gate_mapping_invalid", resolved.message);
   // The cut freezes the resolved reviewer declaration so a later settings change never redirects a
   // cut already under review; cuts frozen before the field fall back to the repository default.
@@ -444,7 +449,7 @@ export async function submitTask(
     if (receipt.outcome !== "applied") return receipt;
     // The submitted cut now waits for the owning CEO's triage (owner adjudication 2026-09-19):
     // a first submit dispatches nothing; evidence preparation still rides with the worker.
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
       review = await amendedCutReview(cell, taskId, action, binding, receipt);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
@@ -521,7 +526,7 @@ export async function submitTask(
       } as WriteReceiptDraft;
     const receipt = cell.receiptForOperation(event!.opId, binding);
     if (receipt.outcome !== "applied") return receipt;
-    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action));
+    const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding);
     return {
       ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
       steps,
@@ -531,7 +536,7 @@ export async function submitTask(
     return submitTask(cell, { ...action, amend: false }, binding);
   const receipt = await cell.lifecycleAction({ ...action, executionId, submission }, binding);
   if (receipt.outcome !== "applied") return receipt;
-  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding, actionWitnessCollections(action)),
+  const steps = await prepareSubmissionEvidence(cell, taskId, executionId, binding),
     review = await amendedCutReview(cell, taskId, action, binding, receipt);
   return {
     ...(steps.find((step) => !["applied", "no_changes"].includes(step.outcome)) ?? receipt),
@@ -571,46 +576,6 @@ export async function settleTask(
   const submitted = await submitTask(cell, { ...action, kind: "task-submit", taskId }, binding),
     mergedSteps = [...steps, ...((submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [])];
   if (submitted.outcome !== "applied") return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
-  const fresh = await cell.service.read(taskId),
-    submittedExecutionId =
-      currentExecutionCuts(fresh.snapshot).find((execution) => execution.state === "submitted")?.executionId ?? "";
-  // Preset drift used to stop settle on preset_snapshot_mismatch after the submitted cut was
-  // already recorded. Run the same atomic upgrade `ha preset upgrade` performs — a real
-  // preset_snapshot_upgraded event, never a forged digest — then let completion continue.
-  // When the upgrade cannot compile, the canonical mismatch receipt below still stands.
-  const upgrade = upgradeDriftedPresetSnapshot(
-    cell,
-    taskId,
-    fresh.snapshot,
-    fresh.packagePath,
-    binding,
-    `ha task settle ${taskId}`,
-  );
-  if (upgrade !== null) {
-    if (upgrade.outcome !== "applied") return { ...upgrade, steps: [...mergedSteps, upgrade] } as WriteReceiptDraft;
-    return { ...submitted, steps: [...mergedSteps, upgrade] } as WriteReceiptDraft;
-  }
-  if (
-    fresh.snapshot.task?.presetSnapshotDigest &&
-    !isPresetSnapshotCurrent(cell, taskId, fresh.snapshot, fresh.packagePath, `ha task settle ${taskId}`)
-  )
-    return {
-      ...cell.rejected(
-        cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
-        "preset_snapshot_mismatch",
-      ),
-      rejectionExplanation:
-        "The submitted cut is recorded, but the task contract was written against an older preset snapshot.",
-      next: [
-        completionGuidance(
-          fresh.snapshot,
-          submittedExecutionId,
-          `ha preset upgrade ${taskId}`,
-          "Upgrade the task contract preset, then continue review and completion.",
-        ),
-      ],
-      steps: mergedSteps,
-    } as WriteReceiptDraft;
   return { ...submitted, steps: mergedSteps } as WriteReceiptDraft;
 }
 

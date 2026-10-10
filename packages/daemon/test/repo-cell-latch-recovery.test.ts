@@ -143,7 +143,7 @@ test("SQLite malformed canonical rows fail closed during operator activation val
     );
     await cell.close();
     cell = undefined;
-    const source = makeTaskEventReader({ repoId, rootDir, generation: 2 });
+    const source = makeTaskEventReader({ repoId, rootDir, generation: 3 });
     const legacy = openSqliteEventStore({ repoId, rootInput: rootDir, generation: 1 });
     for (const event of source.read().events) {
       const blobs = contentClaims(event).map((claim) => ({

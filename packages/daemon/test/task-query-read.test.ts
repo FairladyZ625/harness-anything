@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -599,7 +600,7 @@ test("agenda counts a cut as reviewed only by an approval of its current submiss
       verificationNotes: [],
       knownGaps: [],
       residualRisks: [],
-      completionContract: { gates: [] },
+      completionContract: emptyCompletionContract,
     }),
     submitted = (taskId: string, claim: string) => ({
       ...executionRow(`exe_${taskId}`, 0, "submitted", taskId),
@@ -892,6 +893,7 @@ function projectionStub(
       freshness: "current",
       currentVersion: entityRef === "task/task_moved" ? 6 : 5,
     }),
+    readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
     readTaskChildCounts: () => options.childCounts ?? {},
     readTaskRelations: () => ({ ...cut, rows: edges }),
     readTaskRelationNeighborhood: () => ({ ...cut, rows: edges }),
@@ -1105,6 +1107,7 @@ test("single-task completion read carries the canonical next and validates its r
         reads.push(id);
         return { ...readyCut, snapshot, packagePath: "tasks/task-1" };
       },
+      readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
       readTaskChildCounts: () => ({}),
       getEntity: () => null,
       readDocument: (documentPath: string) => ({

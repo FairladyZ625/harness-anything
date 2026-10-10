@@ -36,7 +36,7 @@ test("CLI query-only task list and GUI reads reject an unavailable canonical rep
   const fixture = await startGuiResidentDaemonFixture({
     task: { taskId: "task_read_failure", title: "Read failure", presetId: "docs-task" },
     beforeRestart: async (rootDir: string) => {
-      const db = new DatabaseSync(path.join(rootDir, ".harness/store/generations/2/ledger.sqlite"));
+      const db = new DatabaseSync(path.join(rootDir, ".harness/store/generations/3/ledger.sqlite"));
       try {
         const row = db
           .prepare(

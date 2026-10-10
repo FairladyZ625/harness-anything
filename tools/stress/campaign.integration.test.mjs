@@ -591,7 +591,7 @@ async function runRepoCellShadowFixture(targetRoot, controllerRoot) {
   } finally {
     await cell.close();
   }
-  const after = readSqliteCut(path.join(targetRoot, ".harness", "store", "generations", "2", "ledger.sqlite"));
+  const after = readSqliteCut(path.join(targetRoot, ".harness", "store", "generations", "3", "ledger.sqlite"));
   assert.ok(after.revision > before, `SQLite acceptance did not advance beyond ${before}`);
   assert.ok(after.events.some((event) => event.taskId === taskId));
   return {

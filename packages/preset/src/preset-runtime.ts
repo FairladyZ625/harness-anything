@@ -1,4 +1,5 @@
 import { assertCanonicalVertical, loadCanonicalAssets, packageCatalog } from "./preset-assets.ts";
+import { validateCompletionDeclaration } from "./preset-extension-model.ts";
 import { effectiveCatalog } from "./preset-catalog.ts";
 import { listCatalog } from "./preset-discovery.ts";
 import { catalogAnchors, materializeSelections, taskOverlayPath } from "./preset-materialization.ts";
@@ -28,6 +29,7 @@ import type {
   PresetResolveResultV1,
   PresetTaskManifestV3,
   ResolvePresetRequestV1,
+  FrozenCompletionPackage,
 } from "./preset.contract.ts";
 import { mergeScaffoldOverlay } from "./scaffold-overlay.ts";
 import path from "node:path";
@@ -182,6 +184,87 @@ export function createRuntime(options: PresetResolverOptions): {
           missing,
         );
     }
+    const completion = {
+      sources: { ...assets.compiledVertical.definition.completion.sources },
+      gates: { ...assets.compiledVertical.definition.completion.gates },
+      closeoutDefaults: { ...assets.compiledVertical.definition.completion.closeoutDefaults },
+    };
+    for (const manifest of manifests) {
+      if (!manifest.completion) continue;
+      for (const [id, source] of Object.entries(manifest.completion.sources)) {
+        if (Object.hasOwn(completion.sources, id))
+          throw presetFailure("duplicate_source", `Completion source ${id} is declared more than once.`);
+        completion.sources[id] = source;
+      }
+      for (const [id, gate] of Object.entries(manifest.completion.gates)) {
+        if (Object.hasOwn(completion.gates, id))
+          throw presetFailure("duplicate_gate", `Completion gate ${id} is declared more than once.`);
+        completion.gates[id] = gate;
+      }
+      Object.assign(completion.closeoutDefaults, manifest.completion.closeoutDefaults);
+    }
+    const completionValidation = validateCompletionDeclaration(completion);
+    if (!completionValidation.ok)
+      throw presetFailure(
+        "invalid_completion",
+        completionValidation.issues.map(({ path, message }) => `${path}: ${message}`).join("; "),
+      );
+    for (const gateId of profile.completionGates)
+      if (gateId !== "code-doc-reconciliation" && !completion.gates[gateId])
+        throw presetFailure("missing_gate", `Profile ${profile.id} selects undeclared completion gate ${gateId}.`);
+    const completionPackages: Record<string, FrozenCompletionPackage> = {};
+    for (const [sourceId, source] of Object.entries(completion.sources)) {
+      if (source.kind !== "command") continue;
+      const separator = source.entrypoint.lastIndexOf("/"),
+        packageId = source.entrypoint.slice(0, separator),
+        entrypointId = source.entrypoint.slice(separator + 1),
+        candidate = inventory.get(key(request.verticalId, packageId)),
+        decoded = candidate?.decoded,
+        definition = decoded?.manifest.entrypoints?.[entrypointId];
+      if (!decoded || !definition)
+        throw presetFailure(
+          "entrypoint_not_found",
+          `Completion source ${sourceId} requires installed entrypoint ${source.entrypoint}.`,
+        );
+      if (
+        !definition.produces.some(
+          ({ id, kind, version }) => id === "completion-witness" && kind === "checker" && version === "1",
+        ) ||
+        !decoded.manifest.capabilityImports.some(
+          ({ id, kind, version }) => id === "completion-witness" && kind === "checker" && version === "1",
+        )
+      )
+        throw presetFailure(
+          "missing_provider",
+          `Completion source ${sourceId} must import and produce completion-witness@1.`,
+        );
+      const script = path.resolve(decoded.root, definition.command);
+      if (!isWithinPresetAssetRoot(decoded.root, script) || !decoded.files.has(definition.command))
+        throw presetFailure("missing_script", `Completion source ${sourceId} has no safe script command.`);
+      for (const capability of [...definition.requires, ...definition.produces, ...definition.sideEffects]) {
+        const provider = providerMap.get(capability.id);
+        if (!provider || provider.kind !== capability.kind || provider.version !== capability.version)
+          throw presetFailure(
+            "missing_provider",
+            `Completion source ${sourceId} references unavailable capability ${capability.id}.`,
+          );
+      }
+      completionPackages[sourceId] = {
+        id: decoded.manifest.id,
+        version: decoded.manifest.version,
+        packageDigest: decoded.packageDigest,
+        entrypoint: definition,
+        produceActions: Object.fromEntries(
+          definition.produces.map(({ id }) => {
+            const provider = providerMap.get(id);
+            if (!provider?.actionKind)
+              throw presetFailure("missing_provider", `Source ${sourceId} has no provider for ${id}.`);
+            return [id, { actionKind: provider.actionKind, payloadFields: provider.payloadFields ?? [] }];
+          }),
+        ),
+        files: Object.fromEntries(decoded.files),
+      };
+    }
     const resolvedSelectionDigest = `sha256:${resolverContentHash(
         canonicalPresetBytes(
           documents.map((item, index) => ({
@@ -197,6 +280,8 @@ export function createRuntime(options: PresetResolverOptions): {
       )}` as const,
       withoutDigest = {
         schema: "preset-snapshot/v1" as const,
+        completion,
+        completionPackages,
         identity: {
           id: leaf.manifest.id,
           version: leaf.manifest.version,
@@ -210,7 +295,9 @@ export function createRuntime(options: PresetResolverOptions): {
           // resolution drops it so the effective gate set (and digest) stays honest.
           completionGateIds:
             options.ciWorkflows !== undefined && options.ciWorkflows.length === 0
-              ? profile.completionGates.filter((gateId) => gateId !== "ci")
+              ? profile.completionGates.filter(
+                  (gateId) => completion.sources[completion.gates[gateId]?.source ?? ""]?.kind !== "github-actions",
+                )
               : profile.completionGates,
           ...(profile.closeoutOverrides === undefined ? {} : { closeoutOverrides: profile.closeoutOverrides }),
           ...(profile.archiveOnComplete === undefined ? {} : { archiveOnComplete: profile.archiveOnComplete }),

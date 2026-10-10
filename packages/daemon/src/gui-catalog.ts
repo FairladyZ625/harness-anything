@@ -5,13 +5,11 @@ import {
   CODE_DOC_GATE_ID,
   gateAppliesTo,
   gateGovernanceFields,
-  gateMappingAdapterFields,
-  governableWitnessAdapterIds,
-  mappedWitnessAdapterIds,
   SETTINGS_FIELD_GROUPS,
   SETTINGS_FIELD_PRESENTATION,
   settingsUpdateInputFields,
   type SettingsV1,
+  type VerticalCompletionDeclaration,
 } from "@harness-anything/kernel";
 import {
   listBundledAgentDeclarationIds,
@@ -99,7 +97,7 @@ export function openGuiCatalog(input: {
       })) as readonly PresetEntry[],
       vertical = (await runPresetAction({
         rootDir: input.rootDir,
-        action: { kind: "vertical-validate" },
+        action: { kind: "vertical-validate", presetId: defaults.presetId },
         settings,
       })) as JsonObject,
       templates = (await runPresetAction({
@@ -108,6 +106,7 @@ export function openGuiCatalog(input: {
         settings,
       })) as readonly JsonObject[],
       verticalRow = vertical.vertical as JsonObject;
+    const sources = (verticalRow.completion as unknown as VerticalCompletionDeclaration).sources;
     const projectedPresets = presets.map((entry) => ({
       id: entry.id,
       title: entry.title,
@@ -167,15 +166,27 @@ export function openGuiCatalog(input: {
         id: group.id,
         ...("advanced" in group && group.advanced ? { advanced: true } : {}),
       })),
-      // 门映射编辑面的合法组合契约:adapter 四选一(含 none)、每个 adapter 必须声明的
+      // 门映射编辑面的合法组合契约:已安装声明的来源加 none、每个来源种类的
       // option 字段、治理修饰字段与可承载它们的 adapter,全部投影 kernel 单源——界面据此
       // 挡住中心会拒绝的组合,不手抄规则。
       gateMappings: {
-        adapters: ["none", ...mappedWitnessAdapterIds],
+        adapters: ["none", ...Object.keys(sources)],
         appliesTo: [...gateAppliesTo],
-        adapterFields: gateMappingAdapterFields,
+        adapterFields: {
+          none: [],
+          ...Object.fromEntries(
+            Object.entries(sources).map(([id, source]) => [
+              id,
+              source.kind === "github-actions"
+                ? ["appliesTo", "branch", "event", "coverage", "selection"]
+                : ["appliesTo"],
+            ]),
+          ),
+        },
         governanceFields: [...gateGovernanceFields],
-        governableAdapters: [...governableWitnessAdapterIds],
+        governableAdapters: Object.entries(sources)
+          .filter(([, source]) => source.kind !== "manual")
+          .map(([id]) => id),
         internalGateId: CODE_DOC_GATE_ID,
       },
       adapters: nodeCatalogAdapters(),

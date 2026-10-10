@@ -46,6 +46,7 @@ export interface ReplicaAckStore {
   readonly cursor: (key: ReplicaDeliveryKey) => ReplicaAckProof | null;
   readonly proof: (key: ReplicaDeliveryKey, revision: number) => ReplicaAckProof | null;
   readonly keys: () => readonly ReplicaDeliveryKey[];
+  readonly invalidateOffline: (repoId: string) => void;
   readonly close: () => void;
 }
 
@@ -284,7 +285,23 @@ export function openReplicaAckStore(rootDir: string): ReplicaAckStore {
       ).map((row) => ({ nodeId: row.node_id, viewId: row.view_id, repoId })),
     );
   };
+  /** Only in the stopped-center upgrade window; registration and authorization survive. */
+  const invalidateOffline = (repoId: string): void => {
+    const store = db(repoId);
+    store.exec("PRAGMA synchronous=FULL; BEGIN IMMEDIATE");
+    try {
+      for (const { name } of store.prepare("SELECT name FROM sqlite_schema WHERE type='table'").all())
+        if (typeof name === "string" && /^(?:ack_proof|ack_cursor|active_offer)(?:_wire)?(?:_g[0-9]+)?$/u.test(name))
+          store.exec(`DELETE FROM ${name}`);
+      delivery.invalidateOffline(repoId);
+      store.exec("COMMIT");
+    } catch (error) {
+      store.exec("ROLLBACK");
+      throw error;
+    }
+  };
   return {
+    invalidateOffline,
     delivery,
     register,
     registrationRevision,

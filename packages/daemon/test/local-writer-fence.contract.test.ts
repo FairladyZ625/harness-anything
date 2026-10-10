@@ -13,6 +13,7 @@ test("every production local binding is covered by a request or cell-default wri
   for (const use of uses) counts.set(use.file, (counts.get(use.file) ?? 0) + 1);
 
   // dec_D60FAA451F24160E970323B6F3 CH1/CH4: retire roster authority, retain writer leases.
+  // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: GateRun claim/settle bindings.
   // Owner-confirmed inventory; the fence assertions below independently protect writes.
   assert.deepEqual(
     [...counts].sort(([left], [right]) => left.localeCompare(right)),
@@ -20,6 +21,7 @@ test("every production local binding is covered by a request or cell-default wri
       ["daemon-host-binding.ts", 2],
       ["daemon-host-open.ts", 1],
       ["repo-cell-bootstrap-ledger.ts", 1],
+      ["task-witness-runner.ts", 2],
     ],
     `unclassified production source:local use:\n${uses.map((use) => `${use.file}:${use.line}`).join("\n")}`,
   );

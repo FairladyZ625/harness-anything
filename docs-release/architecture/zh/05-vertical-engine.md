@@ -23,7 +23,6 @@
 | `repositoryScaffold` | 顶层目录布局、种子文档、agents 入口 |
 | `scripts[]` | 场景合同附带的声明式脚本条目 |
 | `templateSelections[]` | 不属于任何文档包的、场景合同级模板选择 |
-| `checkerProfile` | 守护这个场景合同的检查器档案的名字 |
 | `projectionSchemas[]` | 投影用来校验行的前置元数据 schema |
 
 引擎从不自己编造这些东西;它读的就是 JSON 声明的内容。这一页接下来走一遍承载业务的四个部分:实体种类、模板选择、仓库脚手架,和 agents 入口。
@@ -119,6 +118,6 @@ JSON 之所以能保持精简,靠的是 [learn/04](../../learn/zh/04-verticals-a
 
 **检测——交给约定。** 目录结构、文件是否已存在、一份文档填的是哪个命名 slot、前置元数据是否通过它的 schema——这些全从文件系统里读出来。引擎扫描确认这些,结构不合法就 fail-closed——不合法的 `vertical.json` 永远校验不过,种子文档模板正文缺失也会暴露成一个错误,而不是写出一个空文件。
 
-**声明——纯粹的意图。** 文件系统揭示不出的东西必须陈述,而且仅限这些:一个种类是不是承重的 `contractEntity`、哪个 `checkerProfile` 守护这个场景合同、某个语言缺失时怎么降级(`localePolicy.fallback`)、一个目录是提前还是延后创建(`create`),以及 agents 入口怎么分层(`baseRef`、`overlayRef`、`repoSpecificsAnchor`)。这些是几个字段,不是几段配置。
+**声明——纯粹的意图。** 文件系统揭示不出的东西必须陈述,而且仅限这些:一个种类是不是承重的 `contractEntity`、任务要求哪些 completion gates、某个语言缺失时怎么降级(`localePolicy.fallback`)、一个目录是提前还是延后创建(`create`),以及 agents 入口怎么分层(`baseRef`、`overlayRef`、`repoSpecificsAnchor`)。这些是几个字段,不是几段配置。
 
 引擎就是一个在约定之上运作的声明解析器:它校验 JSON、解析路径模板、从目录读出本地化正文、写出脚手架——而且对每一个场景合同,它做的都是同一件事。加一个实体种类、一个文档 slot,或者一整个新领域,你改的是 `vertical.json`。读它的内核,不动。

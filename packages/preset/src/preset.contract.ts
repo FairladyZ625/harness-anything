@@ -1,4 +1,6 @@
 import { presetCommands, presetMethods } from "./preset-command-contract.ts";
+import { VerticalCompletionDeclarationSchema, type VerticalCompletionDeclaration } from "@harness-anything/kernel";
+import { Schema } from "effect";
 import type { PresetRunOutcomeV1, PresetRunPhaseV1 } from "./preset-run-receipt-types.ts";
 export {
   decisionProposalDefaultJsonFields,
@@ -32,7 +34,6 @@ export interface TemplateSelectionV1 {
 export interface PresetProfileV3 {
   readonly id: string;
   readonly title: string;
-  readonly checkerProfile?: string;
   readonly completionGates: readonly string[];
   readonly templateSelections: readonly TemplateSelectionV1[];
   readonly capabilityImports?: readonly CapabilityRefV1[];
@@ -58,6 +59,7 @@ export interface PresetTaskManifestV3 extends PresetManifestCommonV3 {
   readonly outputShape: string;
   readonly extends?: string;
   readonly policyPath?: string;
+  readonly completion?: VerticalCompletionDeclaration;
   readonly kernelVersionRange: { readonly min: string; readonly maxExclusive?: string };
   readonly capabilityImports: readonly (CapabilityRefV1 & { readonly required: boolean })[];
   readonly entrypoints?: Readonly<
@@ -100,6 +102,8 @@ export interface PresetSnapshotV1 {
     readonly verticalId: string;
     readonly layer: PresetLayer;
   };
+  readonly completion: VerticalCompletionDeclaration;
+  readonly completionPackages: Readonly<Record<string, FrozenCompletionPackage>>;
   readonly profile: {
     readonly id: string;
     readonly outputShape: string;
@@ -150,6 +154,17 @@ export interface PresetSnapshotV1 {
     readonly ancestry: readonly string[];
   };
   readonly digest: `sha256:${string}`;
+}
+/** Accepted package bytes used by a command source, covered by the preset snapshot digest. */
+export interface FrozenCompletionPackage {
+  readonly id: string;
+  readonly version: string;
+  readonly packageDigest: string;
+  readonly entrypoint: NonNullable<PresetTaskManifestV3["entrypoints"]>[string];
+  readonly produceActions: Readonly<
+    Record<string, { readonly actionKind: string; readonly payloadFields: readonly string[] }>
+  >;
+  readonly files: Readonly<Record<string, string>>;
 }
 export interface PresetCatalogIssueV1 {
   readonly code: string;
@@ -207,6 +222,8 @@ export const PRESET_DOCUMENT_V1_SCHEMA = Object.freeze({
     required: Object.freeze([
       "schema",
       "identity",
+      "completion",
+      "completionPackages",
       "profile",
       "guidance",
       "scaffold",
@@ -245,6 +262,7 @@ const requiredManifest = PRESET_MANIFEST_V3_SCHEMA.required,
     "defaultProfile",
     "extends",
     "policyPath",
+    "completion",
     "entrypoints",
   ];
 export function validatePresetManifestV3(value: unknown): readonly string[] {
@@ -267,6 +285,11 @@ export function validatePresetManifestV3(value: unknown): readonly string[] {
       errors.push(
         `preset.json field "${field}" must be a non-empty string; expected a declared preset identity value.`,
       );
+  if (
+    value.completion !== undefined &&
+    !Schema.is(VerticalCompletionDeclarationSchema, { onExcessProperty: "error" })(value.completion)
+  )
+    errors.push("preset.json completion must contain valid source, gate, and closeout declarations.");
   if (!knownKind) return errors;
   for (const field of ["outputShape", "kernelVersionRange", "capabilityImports", "profiles", "defaultProfile"] as const)
     if (!Object.hasOwn(value, field))
@@ -344,6 +367,9 @@ export function validatePresetSnapshotV1(value: unknown): readonly string[] {
     value.schema !== "preset-snapshot/v1" ||
     !sha(value.digest) ||
     !snapshotIdentity(value.identity) ||
+    !Schema.is(VerticalCompletionDeclarationSchema, { onExcessProperty: "error" })(value.completion) ||
+    !isPresetContractRecord(value.completionPackages) ||
+    !Object.values(value.completionPackages).every(completionPackage) ||
     !snapshotProfile(value.profile) ||
     !snapshotGuidance(value.guidance) ||
     !snapshotScaffold(value.scaffold) ||
@@ -355,6 +381,29 @@ export function validatePresetSnapshotV1(value: unknown): readonly string[] {
   )
     return ["preset snapshot is invalid"];
   return [];
+}
+function completionPackage(value: unknown): boolean {
+  return (
+    isPresetContractRecord(value) &&
+    allowed(
+      value,
+      ["id", "version", "packageDigest", "entrypoint", "produceActions", "files"],
+      ["id", "version", "packageDigest", "entrypoint", "produceActions", "files"],
+    ) &&
+    nonEmpty(value.id) &&
+    nonEmpty(value.version) &&
+    nonEmpty(value.packageDigest) &&
+    isPresetContractRecord(value.entrypoint) &&
+    isPresetContractRecord(value.produceActions) &&
+    isPresetContractRecord(value.files) &&
+    Object.entries(value.files).every(
+      ([name, body]) =>
+        typeof body === "string" &&
+        !name.startsWith("/") &&
+        !name.includes("\\") &&
+        name.split("/").every((part) => part !== ".." && part !== "." && part.length > 0),
+    )
+  );
 }
 export function validatePresetRunReceiptV1(value: unknown): readonly string[] {
   const phases: readonly PresetRunPhaseV1[] = [
@@ -440,7 +489,6 @@ function profile(value: unknown): boolean {
       [
         "id",
         "title",
-        "checkerProfile",
         "completionGates",
         "templateSelections",
         "capabilityImports",
@@ -451,7 +499,6 @@ function profile(value: unknown): boolean {
     ) &&
     nonEmpty(value.id) &&
     nonEmpty(value.title) &&
-    (value.checkerProfile === undefined || nonEmpty(value.checkerProfile)) &&
     hasNonEmptyContractStrings(value.completionGates) &&
     Array.isArray(value.templateSelections) &&
     value.templateSelections.every(selection) &&

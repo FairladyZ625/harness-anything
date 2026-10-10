@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
@@ -140,7 +141,7 @@ function derive(
     body = closeout(summary),
     projection = {
       readDocuments: () => ({ documents: accepted }),
-      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape } } }),
+      readPresetSnapshot: () => ({ snapshot: { ...completionSnapshot, profile: { outputShape } } }),
       readRuntimeDispatchesByTaskExecution: () =>
         reviewerDispatches.map((dispatchId) => ({ event: { payload: { role: "reviewer", dispatchId } } })),
       read: () => ({ watermark: 1, sourceRevision: 1, snapshot: { ...snapshot, task: {} }, packagePath }),

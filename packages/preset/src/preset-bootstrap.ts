@@ -505,6 +505,7 @@ export function compilePresetSnapshotUpgrade(input: CompilePresetSnapshotUpgrade
     {
       closeoutOverrides: _staleCloseoutOverrides,
       archiveOnComplete: _staleArchiveOnComplete,
+      presetSnapshotGap: _historicalSnapshotGap,
       ...taskWithoutOverrides
     } = currentTask,
     compiled = compileTaskPackage({

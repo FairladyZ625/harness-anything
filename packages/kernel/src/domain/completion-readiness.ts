@@ -92,8 +92,8 @@ function witnessCommand(
   executionId: string,
 ): string {
   const requirement = contract?.gates.find((gate) => gate.gateId === gateId),
-    adapterId = requirement?.witness.adapterId;
-  if (requirement?.allowOverride && adapterId !== "manual-attest") {
+    sourceKind = requirement?.witness.kind;
+  if (requirement?.allowOverride && sourceKind !== "manual") {
     if (status === "failed")
       return (
         `ha task attest ${taskId} --gate ${gateId} --result pass --mode override ` +
@@ -105,11 +105,11 @@ function witnessCommand(
         "--rationale <why-no-automated-witness-is-acceptable>"
       );
   }
-  if (adapterId === "manual-attest" || status === "signoff_missing")
+  if (sourceKind === "manual" || status === "signoff_missing")
     return `ha task attest ${taskId} --gate ${gateId} --result pass`;
-  if (adapterId === "local-command")
-    return `ha task submit ${taskId} (the local-command witness runs against the submitted cut)`;
-  if (adapterId === "github-actions" || gateId === "ci")
+  if (sourceKind === "command")
+    return `ha task witness-rerun ${taskId} --execution-id ${executionId} --gate ${gateId} --run-id <current-run-id> --reason <reason>`;
+  if (sourceKind === "github-actions")
     return "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.";
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
 }
@@ -148,6 +148,13 @@ function evaluateCompletion(
       "authority",
       `ha task complete ${task.taskId}`,
       `Ask task owner ${task.createdBy.principal.personId} to run completion with the required authority.`,
+    );
+  if (task.presetSnapshotGap)
+    return one(
+      "document_invalid",
+      "completion-contract",
+      `ha task contract migrate ${task.taskId} --to-preset ${task.metadata?.presetId ?? "standard-task"} --dry-run`,
+      `Historical snapshot gap: original bytes for ${task.presetSnapshotDigest} are unavailable. The accepted history remains recorded; this gap cannot satisfy completion.`,
     );
   if (context.invalidDocument)
     return one(
@@ -303,7 +310,7 @@ function evaluateCompletion(
           witnessCommand(task.taskId, gate.gateId, gate.status, execution.submission.completionContract, executionId),
           gate.status === "signoff_missing"
             ? `Gate ${gate.gateId} passed its automated witness and requires a human signoff for this execution cut.`
-            : `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`,
+            : (gate.detail ?? `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`),
         );
   if (lineageOrphan(task, snapshot.decisionRelations ?? []))
     return one(

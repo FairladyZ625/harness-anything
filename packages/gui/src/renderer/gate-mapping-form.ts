@@ -18,7 +18,6 @@ export interface GateMappingDraft {
   readonly appliesTo?: string;
   readonly branch?: string;
   readonly event?: string;
-  readonly command?: string;
   readonly coverage?: string;
   readonly selection?: string;
   readonly mandatorySignoff?: boolean;
@@ -81,7 +80,7 @@ export function gateMappingRowIssues(
       (!descriptor.governableAdapters.includes(adapter) || mandatorySignoff === false || allowOverride === false)
     )
       issues.push({ row, issue: "governanceNotAllowed" });
-    if (adapter === "github-actions") {
+    if (expected.includes("coverage")) {
       if (options.coverage !== undefined && options.coverage !== "exact" && options.coverage !== "descendant")
         issues.push({ row, issue: "coverageInvalid" });
       if (options.selection !== undefined && options.selection !== "newest")

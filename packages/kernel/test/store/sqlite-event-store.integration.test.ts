@@ -1,4 +1,6 @@
 // harness-test-tier: integration
+import { createLedgerBackup } from "../../src/store/ledger-backup.ts";
+import { runCompletionGenerationConversion } from "../../src/store/completion-generation-conversion.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn, spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -368,7 +370,7 @@ test("SQLite content admission reuses exact objects after reopen and rejects mis
     await first.drain();
   }
   const reopened = makeTaskEventStore(options),
-    objectPath = sqliteContentObjectPath(rootDir, hash, 2);
+    objectPath = sqliteContentObjectPath(rootDir, hash, 3);
   try {
     const beforeReuse = statSync(objectPath),
       reused = docBundle(reopened, body, 2, "content-reused", "context/reused.md");
@@ -861,13 +863,11 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
   convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
   assert.equal(git(rootDir, "status", "--short", "--untracked-files=all", "--", "harness"), "");
   preflightConvertedGenerationActivation({ repoId, rootDir, snapshotPath, databasePath });
-  const publisher = makeTaskEventStore({ repoId, rootDir });
-  await publisher.settlePendingMaterialization!("independent reconcile fixture");
-  await publisher.drain();
-  const reader = openSqliteEventStore({ repoId, databasePath, readOnly: true });
+  const reader = openSqliteEventStore({ repoId, databasePath, generation: 1, readOnly: true });
   const gitReadback = readCertifiedGitFollower({ rootInput: rootDir, repoId, store: reader });
   reader.close();
-  const reconcile = () => reconcileSqliteEvents({ repoId, rootDir, databasePath, snapshotPath, gitReadback });
+  const reconcile = () =>
+    reconcileSqliteEvents({ repoId, rootDir, databasePath, snapshotPath, generation: 1, gitReadback });
   const exact = reconcile();
   assert.equal(exact.schema, "sqlite-ledger-reconciliation/v2");
   assert.equal(exact.matches, true, JSON.stringify(exact));
@@ -894,8 +894,10 @@ test("reconciliation uses immutable source, import evidence, row digests, outcom
 });
 
 test("certified reopen retires stale legacy index entries without changing unrelated staged or worktree bytes", async (t) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-sqlite-stale-index-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-sqlite-stale-index-"));
+  let rootDir = path.join(parent, "source");
+  mkdirSync(rootDir);
+  t.after(() => rmSync(parent, { recursive: true, force: true }));
   initRepo(rootDir);
   mkdirSync(path.join(rootDir, "harness/events"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/events/legacy.json"), "legacy event\n");
@@ -911,6 +913,16 @@ test("certified reopen retires stale legacy index entries without changing unrel
     source: { read: () => ({ events }), readContentBlob: () => null } as never,
   });
   convertLegacyGeneration({ rootDir, snapshotPath, databasePath });
+  const backupDir = path.join(parent, "backup"),
+    destinationRoot = path.join(parent, "current");
+  createLedgerBackup({ rootInput: rootDir, generation: 1, backupDir });
+  const conversion = { backupDir, destinationRoot, invalidateDerivedState: () => {} };
+  runCompletionGenerationConversion({ ...conversion, mode: "convert" });
+  runCompletionGenerationConversion({ ...conversion, mode: "activate" });
+  rootDir = destinationRoot;
+  const publisher = makeTaskEventStore({ repoId, rootDir });
+  await publisher.settlePendingMaterialization?.("publish new-generation baseline");
+  await publisher.drain();
 
   git(rootDir, "update-index", "--add", "--cacheinfo", `100644,${legacyOid},harness/events/legacy.json`);
   mkdirSync(path.join(rootDir, "harness/context"), { recursive: true });

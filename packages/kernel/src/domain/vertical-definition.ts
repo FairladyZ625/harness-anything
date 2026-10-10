@@ -1,4 +1,5 @@
 import { relationTypes } from "./entity-relation.ts";
+import type { VerticalCompletionDeclaration } from "./completion-source.ts";
 
 /**
  * Pure decoded shape of a vertical definition. The domain consumes these values only after the
@@ -162,6 +163,6 @@ export interface VerticalDefinition {
   readonly repositoryScaffold: VerticalRepositoryScaffold;
   readonly scripts: readonly VerticalScript[];
   readonly templateSelections: readonly VerticalTemplateSelection[];
-  readonly checkerProfile: string;
+  readonly completion: VerticalCompletionDeclaration;
   readonly projectionSchemas: readonly { readonly id: string; readonly schemaRef: string }[];
 }

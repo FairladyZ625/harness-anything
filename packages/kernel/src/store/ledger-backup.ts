@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { contentClaims, objectPath } from "./task-event-store-claims-layout.ts";
+import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import { parseCanonicalEvent } from "../domain/doc-sync-canonical-events.ts";
 import { DEFAULT_RESTORE_DRILL_RETENTION, readSettingsFacet } from "../domain/settings.ts";
 import { consumeKnownError } from "../error-consumption.ts";
@@ -46,7 +47,7 @@ export function createLedgerBackup(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly backupDir: string;
   readonly now?: Date;
-  readonly generation?: 1 | 2;
+  readonly generation?: 1 | 2 | 3;
   readonly registration?: LedgerBackupRegistrationV1;
   /** All live sources are frozen; subsequent validation reads only the payload. */
   readonly onSnapshotCaptured?: () => void;
@@ -64,7 +65,7 @@ export function createLedgerBackup(input: {
   try {
     copyWorkingTree(layout.rootDir, layout.authoredRoot, payloadRoot);
     for (const sourcePath of sourcePaths) copySource(layout.rootDir, sourcePath, payloadRoot);
-    for (const generation of [1, 2]) {
+    for (const generation of [1, 2, 3]) {
       const database = sqliteLedgerPath(input.rootInput, generation);
       if (fileSystem.exists(database)) vacuumSqlite(layout.rootDir, database, payloadRoot);
     }
@@ -75,7 +76,7 @@ export function createLedgerBackup(input: {
       legacy = sqlitePresent ? null : readStoppedLegacyGeneration({ rootInput: payloadRoot }),
       files = inventory(payloadRoot).map((backupFile) => {
         const relative = portable(path.relative(payloadRoot, backupFile)),
-          vacuumed = /^\.harness\/store\/generations\/[12]\/ledger\.sqlite$/u.test(relative),
+          vacuumed = /^\.harness\/store\/generations\/[123]\/ledger\.sqlite$/u.test(relative),
           backup = entryDigest(backupFile);
         return {
           path: relative,
@@ -186,7 +187,7 @@ export function restoreDrillRetentionFor(rootInput: HarnessLayoutInput): number 
 
 export function readOfflineLedgerEvents(input: {
   readonly rootInput: HarnessLayoutInput;
-  readonly generation?: 1 | 2;
+  readonly generation?: 1 | 2 | 3;
   readonly sinceRevision?: number;
   readonly sinceTime?: string;
   readonly grep?: string;
@@ -216,7 +217,7 @@ function existingBackupSources(rootDir: string, authoredRoot: string): readonly 
     path.join(rootDir, ".harness", "wal"),
     path.join(rootDir, ".harness", "store", "imports"),
   ];
-  for (const generation of [1, 2]) {
+  for (const generation of [1, 2, 3]) {
     const generationRoot = path.join(rootDir, ".harness", "store", "generations", String(generation));
     if (fileSystem.exists(generationRoot))
       for (const name of fileSystem.readDirectory(generationRoot))
@@ -370,7 +371,13 @@ function inspectSqlite(databasePath: string): {
     for (const row of db.prepare("SELECT event_json FROM event ORDER BY revision").iterate()) {
       if (Number(metadata.generation) === 1) decodeLegacyEventBytes(String(row.event_json), "generation 1 backup");
       else {
-        const event = parseCanonicalEvent(String(row.event_json));
+        // Generation 2 is an offline conversion input. Its completion fields predate
+        // the current schema; the converter validates the produced generation 3 event.
+        // Inventory hashes, SQLite integrity and every referenced object's size still apply.
+        const event =
+          Number(metadata.generation) === 2
+            ? (JSON.parse(String(row.event_json)) as CanonicalEventV1)
+            : parseCanonicalEvent(String(row.event_json));
         for (const claim of contentClaims(event)) {
           const stat = fileSystem.stat(objectPath(objectRoot, claim.sha256), { throwIfNoEntry: false });
           if (stat === undefined) throw new Error(`event content object ${claim.sha256} is missing`);

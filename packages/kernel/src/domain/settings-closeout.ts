@@ -13,12 +13,12 @@ export type CloseoutOverrideKey = (typeof closeoutOverrideKeys)[number];
 export const settingsCloseoutOverrideKeys = ["review", "consent", "factDisposition", "codeDoc"] as const;
 export type CloseoutOverridesV1 = Readonly<Partial<Record<CloseoutOverrideKey, boolean>>>;
 export interface CloseoutSettingsV1 {
-  readonly profile: CloseoutProfile;
+  readonly profile?: CloseoutProfile;
   readonly overrides?: CloseoutOverridesV1;
 }
 export type CloseoutGate = CloseoutOverrideKey;
 
-export const DEFAULT_CLOSEOUT_SETTINGS: CloseoutSettingsV1 = Object.freeze({ profile: "standard" });
+export const DEFAULT_CLOSEOUT_SETTINGS: CloseoutSettingsV1 = Object.freeze({});
 
 export function isValidCloseoutOverrides(value: unknown): value is CloseoutOverridesV1 {
   return (
@@ -40,9 +40,12 @@ export function effectiveCloseoutGates(
   closeout: CloseoutSettingsV1,
   taskGateIds: readonly string[] = [],
   taskOverrides?: CloseoutOverridesV1,
+  domainDefaults: CloseoutOverridesV1 = {},
 ): Readonly<Record<CloseoutGate, boolean>> {
-  const baseline = closeout.profile === "strict",
-    gate = (key: CloseoutOverrideKey) => taskOverrides?.[key] ?? closeout.overrides?.[key] ?? baseline;
+  const gate = (key: CloseoutOverrideKey) =>
+    taskOverrides?.[key] ??
+    closeout.overrides?.[key] ??
+    (closeout.profile === undefined ? (domainDefaults[key] ?? false) : closeout.profile === "strict");
   return Object.freeze({
     review: gate("review"),
     consent: gate("consent"),
@@ -58,9 +61,7 @@ export function isValidCloseoutGateRecord(value: unknown): value is Readonly<Rec
     value !== null &&
     closeoutOverrideKeys.every((key) => {
       const gate = (value as Record<CloseoutGate, unknown>)[key];
-      // `fact` joined the record later than the other gates: task_completed events already in a
-      // ledger omit it, and an absent `fact` reads as enforced (completion-readiness `!== false`).
-      return typeof gate === "boolean" || (key === "fact" && gate === undefined);
+      return typeof gate === "boolean";
     })
   );
 }

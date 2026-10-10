@@ -2,6 +2,7 @@ export type StatusEntity =
   | "Task"
   | "Decision"
   | "Execution"
+  | "GateRun"
   | "Agent"
   | "Schedule"
   | "Policy"
@@ -80,6 +81,30 @@ import { statusWordRegister } from "./status-word-register.ts";
 export { statusWordRegister } from "./status-word-register.ts";
 
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  {
+    id: "gate-run.state",
+    entity: "GateRun",
+    field: "state",
+    module: "packages/kernel/src/domain/gate-run.ts",
+    anchor: "gateRunStates",
+    words: ["running", "completed", "cancelled"],
+  },
+  {
+    id: "gate-run.result",
+    entity: "GateRun",
+    field: "result",
+    module: "packages/kernel/src/domain/gate-run.ts",
+    anchor: "gateRunVerdicts",
+    words: ["pass", "fail"],
+  },
+  {
+    id: "gate-run.availability",
+    entity: "GateRun",
+    field: "availability",
+    module: "packages/kernel/src/domain/gate-run.ts",
+    anchor: "gateRunAvailabilityStates",
+    words: ["available", "unavailable"],
+  },
   // dec_605F9FBF CH1: v4 observations distinguish test termination, file outcomes and measurement coverage.
   {
     id: "ci-test.v4.status",
@@ -295,9 +320,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/kernel/src/domain/execution.ts",
     anchor: "executionV1States",
-    words: ["active", "submitted", "changes_requested", "accepted"],
+    words: ["active", "submitted", "changes_requested", "accepted", "abandoned"],
     subsetOf: "execution.state",
-    note: "Native execution/v1 subset (archived v0 adds abandoned).",
+    note: "Native execution/v1 includes explicit offline generation retirement (dec_5EC2631352B17EE2BF4979E37E).",
   },
   {
     id: "lease.phase",
@@ -632,7 +657,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "state",
     module: "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     anchor: "executionV1StateWords",
-    words: ["active", "submitted", "changes_requested", "accepted"],
+    words: ["active", "submitted", "changes_requested", "accepted", "abandoned"],
     mirrorOf: "execution.state.v1",
   },
   {

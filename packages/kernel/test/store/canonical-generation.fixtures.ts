@@ -26,3 +26,9 @@ export { sha256Bytes } from "../../src/integrity/stable-hash.ts";
 export type { DocEventV1 } from "../../src/domain/doc-sync-types.ts";
 
 export type { AgentRuntimeEventV1 } from "../../src/domain/agent-runtime.ts";
+
+export { makeSqliteTaskEventStore } from "../../src/store/sqlite-task-event-store.ts";
+
+export { planCompletionGeneration } from "../../src/store/completion-generation-plan.ts";
+export { canonicalLedgerCut } from "../../src/store/task-event-store-contract.ts";
+export { makeOfflineCompletionChain } from "../../src/store/offline-completion-chain.ts";

@@ -7,6 +7,6 @@
   "contractEntityKinds": ["task"],
   "packageScaffolds": [],
   "templateSelections": [],
-  "checkerProfile": "software-coding-standard",
+  "completion": { "sources": {}, "gates": {}, "closeoutDefaults": {} },
   "projectionSchemas": []
 }

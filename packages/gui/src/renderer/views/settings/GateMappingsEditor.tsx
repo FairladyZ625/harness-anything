@@ -136,17 +136,6 @@ export function GateMappingsEditor({
                     />
                   </label>
                 )}
-                {fields.includes("command") && (
-                  <label className={`col-span-2 ${fieldLabel}`}>
-                    {t("views.settingsView.gateCommandLabel")}
-                    <GateTextField
-                      testId={`gate-mapping-${row}-command`}
-                      value={draft.command ?? ""}
-                      disabled={disabled}
-                      onChange={(value) => updateRow(row, { command: value })}
-                    />
-                  </label>
-                )}
                 {fields.includes("coverage") && (
                   <label className={selectCell}>
                     {t("views.settingsView.gateCoverageLabel")}

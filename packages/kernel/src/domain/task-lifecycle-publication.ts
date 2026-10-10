@@ -210,7 +210,8 @@ export function taskLifecycleWritePlan(event: TaskEventV1): FrozenWritePlan {
     targets.push(lease(event.taskId, "reserve"), lease(event.taskId, "activate"), lease(event.taskId, "release"));
   if (
     (event.type === "execution_submitted" && event.payload.supersedesSubmissionId === undefined) ||
-    event.type === "lease_released"
+    event.type === "lease_released" ||
+    event.type === "task_completion_generation_retired"
   )
     targets.push(lease(event.taskId, "release"));
   return freezeDeclaredWritePlan({ commandType: event.type, targets }, [event.type]);
@@ -486,6 +487,15 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     `- Claimed: ${value.claimedAt}\n`,
     `- Submitted: ${value.submittedAt ?? "pending"}\n`,
     `- Closed: ${value.closedAt ?? "open"}\n`,
+    ...(packet?.completionContract.historicalAcceptance?.snapshotGap
+      ? [
+          `- Historical snapshot gap: ${packet.completionContract.presetSnapshotDigest}; original bytes unavailable; historical acceptance cannot satisfy a new submission.\n`,
+        ]
+      : []),
+    ...value.gateRuns.map(
+      (run) =>
+        `- Gate run: ${run.gateId}/${run.runId}; fence ${run.claimFence}; ${run.state}; ${run.availability ?? "pending"}; ${run.result ?? "no verdict"}; ${run.diagnostic}\n`,
+    ),
     `- Commit: ${packet ? (packet.commitSha ?? "none (artifact delivery)") : "pending"}\n`,
     ...(packet?.artifacts ?? []).map(
       (anchor) => `- Artifact: ${anchor.path}@${anchor.revision} (${anchor.blobSha256})\n`,

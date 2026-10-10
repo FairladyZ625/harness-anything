@@ -22,6 +22,10 @@ test("all public Task writes are complete executable Action contracts", () => {
   assert.deepEqual(
     actions.map(({ id }) => id),
     [
+      "witness-claim",
+      "witness-settle",
+      "witness-revoke",
+      "witness-rerun",
       "assign",
       "unassign",
       "create",
@@ -61,6 +65,10 @@ test("all public Task writes are complete executable Action contracts", () => {
     assert.ok(action.explain.length > 0);
   }
   assert.deepEqual(explainEntityKind("task").transitions.available, [
+    "witness-claim",
+    "witness-settle",
+    "witness-revoke",
+    "witness-rerun",
     "assign",
     "unassign",
     "create",
@@ -331,7 +339,13 @@ test("nested vocabularies retain identity and guarded lifecycle actions omit sta
     if (action.id !== "create" && lifecycleActionIds.has(action.id))
       assert.equal(action.stateTransition, null, action.id);
   for (const transition of TASK_LIFECYCLE_TRANSITIONS)
-    assert.deepEqual(Object.keys(transition).sort(), ["actionId", "matches", "reduce", "validate"]);
+    assert.deepEqual(Object.keys(transition).sort(), [
+      "actionId",
+      "matches",
+      ...(transition.offline ? ["offline"] : []),
+      "reduce",
+      "validate",
+    ]);
   assert.equal(new Set(actions.flatMap(({ returns }) => returns.guidance.map(({ kind }) => kind))).size, 8);
 });
 
@@ -370,4 +384,21 @@ test("entity explain reports all runtime-local bounded-context Action exceptions
     explainEntityKind("task").boundedContextExceptions.map(({ boundedContext }) => boundedContext),
     ["daemon-user-root", "preset-library", "daemon-user-root", "terminal-host"],
   );
+});
+
+// dec_4190D5EA63D9DD208CE946F133: each run action declares only the input it consumes.
+test("GateRun actions expose operation-specific fields without unrelated result payloads", () => {
+  const actions = getEntityKindContract("task")!.actionCatalog!.actions;
+  for (const [id, extra] of [
+    ["claim", []],
+    ["settle", ["runId", "claimFence", "diagnostic", "evidence"]],
+    ["revoke", ["runId", "reason"]],
+    ["rerun", ["runId", "reason"]],
+  ] as const) {
+    const action = actions.find((value) => value.id === `witness-${id}`)!;
+    assert.deepEqual(
+      action.input.fields.map(({ field }) => field),
+      ["taskId", "executionId", "gateId", ...extra],
+    );
+  }
 });

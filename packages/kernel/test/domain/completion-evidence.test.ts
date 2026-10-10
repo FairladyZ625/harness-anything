@@ -8,7 +8,10 @@ import {
   type ExecutionV1,
 } from "../../src/index.ts";
 
+import { completionSnapshot, emptyCompletionContract } from "./completion.fixtures.ts";
+
 const execution = {
+  gateRuns: [],
   schema: "execution/v1",
   executionId: "exe-current",
   taskId: "task-current",
@@ -27,13 +30,17 @@ const execution = {
     knownGaps: [],
     residualRisks: [],
     commitSha: "0123456789abcdef0123456789abcdef01234567",
-    completionContract: { gates: [] },
+    completionContract: emptyCompletionContract,
   },
 } as const satisfies ExecutionV1;
 
 function evidence(result: CompletionEvidenceV1["result"] = "pass"): CompletionEvidenceV1 {
   return {
     schema: "completion-evidence/v1",
+    subjects: [],
+    predicateType: "ci/v1",
+    predicate: {},
+    diagnostic: "Recorded CI result",
     evidenceId: "receipt-1",
     checkerId: "ci",
     gateId: "ci",
@@ -98,12 +105,14 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
       commitSha: null,
       artifacts: [{ path: "tasks/t/artifacts/report.md", revision: 7, blobSha256: "a".repeat(64) }],
       completionContract: {
+        ...emptyCompletionContract,
         gates: [
           {
             gateId: "ci",
             appliesTo: "code" as const,
             witness: {
               adapterId: "github-actions" as const,
+              ...completionSnapshot.completion.sources["github-actions"],
               adapterOptions: {
                 workflows: ["rewrite-ci"],
                 branch: "main",
@@ -116,12 +125,16 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
           {
             gateId: "code-doc-reconciliation",
             appliesTo: "code" as const,
-            witness: { adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
+            witness: { kind: "internal", adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
           },
           {
             gateId: "attest",
             appliesTo: "artifacts" as const,
-            witness: { adapterId: "manual-attest" as const, adapterOptions: {} },
+            witness: {
+              adapterId: "manual-attest" as const,
+              ...completionSnapshot.completion.sources["manual-attest"],
+              adapterOptions: {},
+            },
           },
         ],
       },
@@ -146,6 +159,7 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   assert.equal(basis.codeCommit, undefined);
   assert.equal(basis.ledgerCut, 7);
   const snapshot = {
+    executions: [artifactExecution],
     task: { completionGateIds: ["ci", "code-doc-reconciliation", "attest"] },
     gateWitnesses: [],
     codeDocWitnesses: [],
@@ -174,8 +188,8 @@ test("artifact evidence binds ledger revisions and only commit cuts carry code g
   assert.ok(commitResults.every((gate) => gate.status === "missing"));
 });
 
-test("a cut frozen before the completion contract keeps the evidence and gate rules it was judged by", async () => {
-  const { completionGateIds } = await import("../../src/domain/closeout-readiness.ts");
+test("unconverted historical evidence cannot enter current admission or infer gate requirements", async () => {
+  const { validateSubmissionV1 } = await import("../../src/domain/execution.ts");
   const { validateCompletionGateWitnessV1 } = await import("../../src/domain/completion-gate-witness.ts");
   const { completionContract: _frozen, ...preFreezeSubmission } = execution.submission;
   const preFreeze = { ...execution, submission: preFreezeSubmission } as unknown as ExecutionV1;
@@ -184,10 +198,11 @@ test("a cut frozen before the completion contract keeps the evidence and gate ru
     basis: completionEvidenceBasis(preFreeze),
     provenance: { source: "runner", runId: "run-1", rawResult: "event:receipt-1" },
   } as unknown as CompletionEvidenceV1;
-  // Evidence recorded before the adapter registry names no adapter; only a pre-freeze cut accepts that.
+  // Old missing-field inputs must cross the offline conversion boundary first.
   assert.deepEqual(judgeCompletionEvidence(legacyEvidence, { execution: preFreeze, gateId: "ci" }), {
-    accepted: true,
+    accepted: false,
     result: "pass",
+    reason: "evidence provenance is incomplete",
   });
   const contractJudgment = judgeCompletionEvidence(
     { ...legacyEvidence, basis: completionEvidenceBasis(execution) },
@@ -213,12 +228,7 @@ test("a cut frozen before the completion contract keeps the evidence and gate ru
     basis: completionEvidenceBasis(preFreeze),
     provenance: { source: "runner", runId: "run-1", rawResult: "event:op-1" },
   };
-  assert.deepEqual(validateCompletionGateWitnessV1(witness, true), []);
+  assert.equal(validateCompletionGateWitnessV1(witness, true).length, 1);
   assert.equal(validateCompletionGateWitnessV1(witness, false).length, 1);
-  // Artifact-only delivery skipped the code gates before a contract could declare applicability.
-  assert.deepEqual(
-    completionGateIds(["ci", "code-doc-reconciliation", "attest"], { ...preFreezeSubmission, commitSha: null }),
-    ["attest"],
-  );
-  assert.deepEqual(completionGateIds(["ci", "attest"], preFreezeSubmission as never), ["ci", "attest"]);
+  assert.equal(validateSubmissionV1(preFreezeSubmission, true).length, 1);
 });

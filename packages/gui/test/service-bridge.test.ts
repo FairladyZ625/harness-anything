@@ -325,7 +325,6 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
       ci: { workflows: [] },
       gates: [],
-      closeout: { profile: "standard" },
       agenda: { pinLimit: 30 },
       // S8 CH4 and dec_199D1CA39C6AD06504D66A95E9 CH1 freeze these defaults.
       tasks: { wipLimit: 30, rootThreshold: 3, assignmentTtlMs: 86_400_000 },

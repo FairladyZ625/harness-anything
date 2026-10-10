@@ -476,6 +476,10 @@ test("the settings read built by its only constructor passes its own result vali
   const configured = { ...INITIAL_SETTINGS_V1, roles: { defaultReviewer: "closeout-reviewer" } };
   assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(configured, "initial")), []);
   const read = daemonSettingsRead(configured, "initial");
+  assert.equal(Object.hasOwn(read.values, "closeoutProfile"), false);
+  const strict = daemonSettingsRead({ ...configured, closeout: { profile: "strict" } }, "initial");
+  assert.equal(strict.values.closeoutProfile, "strict");
+  assert.deepEqual(validateDaemonSettingsRead(strict), []);
   assert.notDeepEqual(
     validateDaemonSettingsRead({ ...read, values: { ...read.values, roles: { defaultReviewer: 1 } } }),
     [],

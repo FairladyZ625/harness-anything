@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import { readFileSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
+import { completionGenerationFixtures, convertFrozenCompletionSample } from "../completion-generation-fixtures.mjs";
+import { makeOfflineCompletionChain } from "../../../packages/kernel/src/store/offline-completion-chain.ts";
 import { readOnlyGenerationOneFixtures } from "../canonical-event-generations.mjs";
 import {
   canonicalEventSchemas,
@@ -16,9 +18,17 @@ import {
 } from "../canonical-event-compat.mjs";
 const sourceRoot = path.resolve(import.meta.dirname, "../../..");
 import { makeRepo } from "./helpers.mjs";
+function makeCompletionFixtureRepo(files) {
+  return makeRepo({
+    ...Object.fromEntries(
+      [...completionGenerationFixtures.keys()].map((file) => [file, readFileSync(path.join(sourceRoot, file), "utf8")]),
+    ),
+    ...files,
+  });
+}
 
 test("canonical event compatibility gate names a rejected frozen sample", () => {
-  const { rootDir } = makeRepo({
+  const { rootDir } = makeCompletionFixtureRepo({
     "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json": '{"schema":"task-event/v1"}\n',
   });
 
@@ -35,7 +45,7 @@ test("canonical event compatibility gate names a rejected frozen sample", () => 
 });
 
 test("canonical event compatibility gate binds each sample to its directory schema", () => {
-  const { rootDir } = makeRepo({
+  const { rootDir } = makeCompletionFixtureRepo({
     "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json": '{"schema":"doc-event/v1"}\n',
   });
 
@@ -51,7 +61,7 @@ test("canonical event compatibility gate binds each sample to its directory sche
 });
 
 test("canonical event compatibility gate verifies the frozen bytes, not only parsed JSON", () => {
-  const { rootDir } = makeRepo({
+  const { rootDir } = makeCompletionFixtureRepo({
     "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json": '{ "schema": "task-event/v1" }\n',
   });
 
@@ -200,4 +210,47 @@ test("generation migration retains frozen historical bytes, rejects live admissi
     assert.ok(validateFrozenCanonicalEvents(rootDir, schemas).some((error) => error.includes("sample is missing")));
     writeFileSync(path.join(rootDir, file), files[file]);
   }
+});
+
+// The raw byte lock precedes the sample-only privacy normalization, so a changed reference cannot be repaired into a pass.
+test("completion samples retain old bytes, convert offline, and reject changed identities", () => {
+  assert.equal(completionGenerationFixtures.size, 62);
+  let privacySamples = 0;
+  let witnesses = 0;
+  for (const [file, entry] of completionGenerationFixtures) {
+    const body = readFileSync(path.join(sourceRoot, file), "utf8");
+    const before = JSON.parse(body);
+    const after = convertFrozenCompletionSample(body, file);
+    assert.equal(after.eventId, before.eventId);
+    assert.equal(after.opId, before.opId);
+    assert.equal(after.workspaceRevision, before.workspaceRevision);
+    assert.equal(after.payload.task.taskId, before.payload.task.taskId);
+    assert.equal(after.payload.execution.executionId, before.payload.execution.executionId);
+    assert.equal(after.payload.execution.state, before.payload.execution.state);
+    assert.ok(validateCurrentCanonicalEvent(before).length);
+    if (after.payload.execution.submission) assert.ok(validateCurrentCanonicalEvent(after).length);
+    assert.throws(() => convertFrozenCompletionSample(body + " ", file), /bytes changed/u);
+    if (entry.privacyReviewReference) {
+      privacySamples++;
+      const converter = makeOfflineCompletionChain({
+        generation: 2,
+        snapshots: new Map(),
+        missingSnapshots: new Set([before.payload.task.presetSnapshotDigest]),
+        readContent: () => null,
+      });
+      assert.throws(() => converter.convert(before), /does not bind its accepted review packet/u);
+      assert.equal(after.payload.consent.consentId, before.payload.consent.consentId);
+      assert.equal(after.payload.consent.contentDigest, before.payload.consent.contentDigest);
+      assert.equal(after.payload.review.verdict, before.payload.review.verdict);
+    }
+    if (before.type === "completion_gate_verified") {
+      witnesses++;
+      assert.equal(after.payload.witness.schema, "completion-gate-acceptance/v1");
+      assert.equal(after.payload.witness.receiptId, before.payload.witness.receiptId);
+      assert.equal(after.payload.witness.result, before.payload.witness.result);
+      assert.equal(after.payload.witness.subjects, undefined);
+    }
+  }
+  assert.equal(privacySamples, 6);
+  assert.equal(witnesses, 4);
 });

@@ -364,6 +364,24 @@ const mutation = (
   });
 
 export const declarations: readonly Declaration[] = Object.freeze([
+  ...["claim", "settle", "revoke", "rerun"].map((operation) =>
+    mutation(
+      `witness-${operation}`,
+      input([
+        taskId,
+        cli("executionId", "string", true, "--execution-id"),
+        cli("gateId", "string", true, "--gate"),
+        ...(operation === "claim" ? [] : [cli("runId", "string", true, "--run-id")]),
+        ...(operation === "settle"
+          ? [field("claimFence", "number"), field("diagnostic"), field("evidence", "json-object")]
+          : []),
+        ...(operation === "revoke" || operation === "rerun" ? [cli("reason", "string", true, "--reason")] : []),
+      ]),
+      "gate_run_stale",
+      "The current submission, run identity, central source authority and claim fence agree.",
+      `Apply the ${operation} transition to an Execution gate run through its owning Task.`,
+    ),
+  ),
   lifecycle("assign", {
     input: input(
       [
