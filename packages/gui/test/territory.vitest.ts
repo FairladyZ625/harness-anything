@@ -9,6 +9,7 @@ import {
   partitionFactsByAnomaly,
   partitionForSkel,
   classifyFactAnomaly,
+  factHostTaskIds,
   isFactVisibleWithHost,
 } from "../src/renderer/graph/territory.ts";
 import { NO_WORK, NO_WORK_TITLE } from "../src/renderer/graph/territoryProgress.ts";
@@ -149,16 +150,53 @@ describe("territory task partition", () => {
     const visibleTaskIds = new Set(["task_active"]); // task_archived 被归档过滤隐藏
 
     // 宿主被隐藏时, fact 随宿主一起隐藏
-    expect(isFactVisibleWithHost("fact/F-arch", visibleTaskIds, allTaskIds, relations)).toBe(false);
+    expect(isFactVisibleWithHost("fact/F-arch", visibleTaskIds, allTaskIds, factHostTaskIds(relations))).toBe(false);
     // 宿主可见时, fact 保持可见
-    expect(isFactVisibleWithHost("fact/F-act", visibleTaskIds, allTaskIds, relations)).toBe(true);
+    expect(isFactVisibleWithHost("fact/F-act", visibleTaskIds, allTaskIds, factHostTaskIds(relations))).toBe(true);
+  });
+
+  it("groups a batch of facts without rescanning relations for each host", () => {
+    let inspected = 0;
+    const facts: FactRef[] = Array.from({ length: 100 }, (_, index) => ({
+      anchor: `fact/F-${index}`,
+      category: "finding",
+      text: `Fact ${index}`,
+      at: "2026-08-01",
+    }));
+    const relations: RelationEdge[] = facts.map((fact) => ({
+      from: "task/host",
+      to: fact.anchor,
+      provenance: "local-document",
+      get kind() {
+        inspected += 1;
+        return "produces" as const;
+      },
+    }));
+    const zones = partitionFacts(facts, [], [task({ taskId: "host", workId: "work", workTitle: "Work" })], relations);
+    expect(zones.map((zone) => [zone.groupId, zone.chips.length])).toEqual([["work", 100]]);
+    expect(inspected).toBeLessThanOrEqual(relations.length * 2);
+  });
+
+  it("keeps the first task producer and retains facts whose host is absent", () => {
+    const relations: RelationEdge[] = [
+      { from: "decision/d", to: "fact/F-1", kind: "produces", provenance: "local-document" },
+      { from: "task/first", to: "fact/F-1", kind: "produces", provenance: "local-document" },
+      { from: "task/second", to: "fact/F-1", kind: "produces", provenance: "local-document" },
+      { from: "task/missing", to: "fact/F-2", kind: "produces", provenance: "local-document" },
+    ];
+    const hosts = factHostTaskIds(relations),
+      allTasks = new Set(["first", "second"]),
+      visibleTasks = new Set(["second"]);
+    expect(hosts.get("fact/F-1")).toBe("first");
+    expect(isFactVisibleWithHost("F-1", visibleTasks, allTasks, hosts)).toBe(false);
+    expect(isFactVisibleWithHost("fact/F-2", visibleTasks, allTasks, hosts)).toBe(true);
   });
 
   it("retains standalone facts without host task as visible and counts them in the standalone block", () => {
     const allTaskIds = new Set(["task_active"]);
     const visibleTaskIds = new Set(["task_active"]);
     // 无宿主 fact 保持可见
-    expect(isFactVisibleWithHost("fact/F-standalone", visibleTaskIds, allTaskIds, [])).toBe(true);
+    expect(isFactVisibleWithHost("fact/F-standalone", visibleTaskIds, allTaskIds, new Map())).toBe(true);
 
     // 且在分区中计入独立任务块
     const standaloneFact: FactRef = {

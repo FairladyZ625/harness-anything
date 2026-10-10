@@ -28,7 +28,7 @@ import { EgoNeighborhood } from "../graph/EgoNeighborhood";
 import { EgoHopsControl } from "../graph/EgoHopsControl";
 import type { EgoHopBudget } from "../graph/egoCanvas";
 import { mergeEgoSession, readEgoSessionFor } from "../graph/egoSession";
-import { applyTerritoryDensity, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
+import { applyTerritoryDensity, factHostTaskIds, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
 import { NO_WORK_TITLE } from "../graph/territoryProgress";
 import { layoutTerritory } from "../graph/territoryLayout";
 import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
@@ -326,9 +326,10 @@ function GraphViewInner({
     const visibleTasks = tasks.filter(taskVisible);
     const visibleTaskIds = new Set(visibleTasks.map((task) => task.taskId));
     const allTaskIds = new Set(tasks.map((task) => task.taskId));
+    const factHosts = factHostTaskIds(graphFeed.relations);
     // fact 跟随宿主 task 的可见性(宿主可见性已含状态/归档筛选);无宿主 fact 保持可见。
     const isFactRefVisible = (ref: string) =>
-      typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, graphFeed.relations);
+      typeOn("fact") && isFactVisibleWithHost(ref, visibleTaskIds, allTaskIds, factHosts);
     const visibleFacts = graphFeed.facts.filter((f) => isFactRefVisible(f.anchor));
     const visibleFactAnchors = graphFeed.factAnchors.filter((a) => isFactRefVisible(a.factRef));
     const partition = partitionForSkel(
