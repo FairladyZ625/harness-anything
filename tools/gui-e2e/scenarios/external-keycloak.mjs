@@ -30,6 +30,11 @@ export default {
     try {
       await page.getByRole("button", { name: /^(?:账号与访问控制|Identity & access)$/u }).click();
       const form = page.getByTestId("external-binding-form");
+      await page.getByRole("tab", { name: /^(?:服务与会话|Service & session)$/u }).click();
+      await page
+        .locator("summary")
+        .filter({ hasText: /(?:改接外部 Keycloak|Connect external Keycloak)/u })
+        .click();
       await form.waitFor();
       await form.locator('[name="url"]').fill(`http://127.0.0.1:${authority.address().port}`);
       await form.locator('[name="realm"]').fill("gui-fleet");

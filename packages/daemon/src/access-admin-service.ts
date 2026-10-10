@@ -186,6 +186,7 @@ export class AccessAdminService {
       // The facets an action picker groups by, read from the declarations the Base groups derive from.
       actions: actionDeclarations.map((declaration) => ({
         action: declaration.policyAction,
+        presentation: declaration.presentation,
         executionClass: declaration.executionClass,
         policyTier: declaration.policyTier,
         residencyScope: declaration.residency.scope,

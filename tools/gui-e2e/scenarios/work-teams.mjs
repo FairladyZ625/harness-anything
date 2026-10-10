@@ -8,6 +8,7 @@ export default {
   async run({ page, app, shot }) {
     await page.getByRole("button", { name: /^(?:账号与访问控制|Identity & access)$/u }).click();
     await page.getByRole("tab", { name: /^(?:工作组|Work teams)$/u }).click();
+    await page.getByTestId("access-team-new").click();
     await page.getByTestId("access-team-name").fill("Build team");
     await page.getByTestId("access-team-save").click();
     const team = page.locator("[data-dense-row]").filter({ hasText: "Build team" });
@@ -15,6 +16,7 @@ export default {
     await team.click();
     const member = page.locator('fieldset input[type="checkbox"]').first();
     await member.click();
+    await page.getByTestId("access-team-confirm").click();
     await page.getByTestId("access-team-save").waitFor({ state: "visible" });
     await page.waitForFunction(() => !globalThis.document.querySelector('[data-testid="access-team-save"]').disabled);
     await page.waitForFunction(() => globalThis.document.querySelector('fieldset input[type="checkbox"]').checked);
@@ -25,6 +27,7 @@ export default {
     assert.ok(windows.length > 0 && windows.every((window) => !window.visible && !window.focused));
     await shot("work-team-member");
     await member.click();
+    await page.getByTestId("access-team-confirm").click();
     await page.waitForFunction(() => !globalThis.document.querySelector('[data-testid="access-team-save"]').disabled);
     await page.waitForFunction(() => !globalThis.document.querySelector('fieldset input[type="checkbox"]').checked);
     assert.equal(await member.isChecked(), false);

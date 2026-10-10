@@ -206,12 +206,12 @@ describe("账号与访问控制页", () => {
     keycloak.account("alice");
     expect(await evaluate("alice", "repo-a", { kind: "task-create" })).toBe("denied");
 
-    await openTab(access, "策略组");
+    await openTab(access, "角色说明");
     await click(byTestId("access-group-new"));
     await type(byTestId<HTMLInputElement>("access-group-id"), "release");
     await type(byTestId<HTMLInputElement>("access-group-name"), "发布组");
     await click(find('input[data-action="decision-reject"]'));
-    await click(labelled(byTestId("access-group-inherits"), "contributor"));
+    await click(labelled(byTestId("access-group-inherits"), "参与（contributor）"));
     // Inheriting contributor brings its actions in, checked and not individually removable.
     const inherited = find<HTMLInputElement>('input[data-action="task-create"]');
     expect([inherited.checked, inherited.disabled]).toEqual([true, true]);
@@ -219,11 +219,15 @@ describe("账号与访问控制页", () => {
     expect(byTestId("access-group-list").textContent).toContain("发布组");
     expect(keycloak.roles.get("release")?.attributes?.harness_scopes).toEqual(["decision-reject"]);
 
-    await openTab(access, "人员授权");
-    await type(byTestId<HTMLSelectElement>("access-grant-person"), "alice");
+    await openTab(access, "成员与权限");
+    await click(byTestId("access-grant-open-alice"));
     await type(byTestId<HTMLSelectElement>("access-grant-group"), "release");
     await type(byTestId<HTMLInputElement>("access-grant-repo"), "repo-a");
+    const writesBeforeConfirmation = keycloak.writes.length;
     await click(byTestId("access-grant-submit"));
+    expect(keycloak.writes.length).toBe(writesBeforeConfirmation);
+    expect(await evaluate("alice", "repo-a", { kind: "task-create" })).toBe("denied");
+    await click(byTestId("access-change-confirm"));
 
     // Real decisions for the granted account: allowed by the group's own action and by inheritance, on repository A only.
     expect(await evaluate("alice", "repo-a", { kind: "decision-reject" } as RepoTaskAction)).toBe("allowed");
@@ -231,29 +235,34 @@ describe("账号与访问控制页", () => {
     expect(await evaluate("alice", "repo-a", { kind: "repo-purge" } as RepoTaskAction)).toBe("denied");
     expect(await evaluate("alice", "repo-b", { kind: "task-create" })).toBe("denied");
 
-    // The page explains the same answer: each allowed action with its source group, the rest as denied.
+    await click(byTestId("access-inspect-alice-release"));
     const effective = byTestId("access-effective").textContent ?? "";
-    expect(effective).toContain("持有 发布组，授于仓库 repo-a");
-    // 继承组链不再整串截断:链进 ChainStrip 单行横滚(全文可滚到),aria-label 带完整链。
-    const inheritChain = byTestId("inherit-chain");
-    expect(inheritChain.getAttribute("aria-label")).toBe("继承展开 release → contributor → viewer");
-    expect(inheritChain.textContent).toBe("release → contributor → viewer");
-    expect(inheritChain.className).toContain("overflow-x-auto");
-    expect(inheritChain.querySelector("span")!.className).toContain("whitespace-nowrap");
-    expect(byTestId("access-source-release").textContent).toMatch(/允许 1 个动作来自 发布组.*decision-reject$/u);
-    const inheritedSource = byTestId("access-source-contributor").textContent ?? "";
-    expect(inheritedSource).toContain("来自 contributor（经 发布组 授于仓库 repo-a）");
-    expect(inheritedSource).toContain("task-create");
-    expect(inheritedSource).not.toContain("decision-reject");
-    expect(byTestId("access-denied").textContent).toContain("repo-purge");
-    expect(byTestId("access-denied").textContent).not.toContain("task-create");
-    expect(byTestId("access-effective-receipts").textContent).toContain("授予策略组");
+    expect(effective).toContain("仓库 repo-a: 发布组");
+    expect(effective).toContain("参与（contributor）");
+    expect(effective).toContain("创建任务");
+    expect(effective).toContain("否决决策");
+    expect(effective).not.toContain("清除仓库");
+    const answer = await access.effectivePermissions({ personId: "alice", resource: "repo-a" });
+    expect(answer).toMatchObject({
+      actions: expect.arrayContaining([
+        {
+          action: "decision-reject",
+          sources: [{ sourceGroup: "release", grantedGroup: "release", resource: "repo-a" }],
+        },
+        {
+          action: "task-create",
+          sources: [{ sourceGroup: "contributor", grantedGroup: "release", resource: "repo-a" }],
+        },
+      ]),
+    });
     expect(byTestId("access-grant-list").textContent).toContain("alice");
 
     // Switching to the granted account: it is not an access administrator, so the daemon refuses its write.
     const writes = keycloak.writes.length;
     signIn("alice", []);
     await click(find('[data-testid^="access-revoke-"]'));
+    expect(keycloak.writes.length).toBe(writes);
+    await click(byTestId("access-change-confirm"));
     const refusal = byTestId("access-grant-refusal");
     expect(refusal.dataset.code).toBe("authorization_denied");
     // The person asked for this write and it failed, so it stays a clear error — never a gray note.
@@ -261,7 +270,7 @@ describe("账号与访问控制页", () => {
     expect(refusal.className).toContain("status-blocked");
     expect(keycloak.writes.length).toBe(writes);
     expect(await evaluate("alice", "repo-a", { kind: "task-create" })).toBe("allowed");
-    await openTab(access, "策略组");
+    await openTab(access, "角色说明");
     const unavailable = byTestId("access-groups-unavailable");
     expect(unavailable.textContent).toContain("不是访问管理员");
     // The page's own read of the same lack of role, by contrast, reads as a permission note.
@@ -271,20 +280,18 @@ describe("账号与访问控制页", () => {
 
   it("shows a Base group with every editing control disabled, and the daemon refuses the same write", async () => {
     const { keycloak, access } = await stack();
-    await openTab(access, "策略组");
+    await openTab(access, "角色说明");
     await click(
       [...byTestId("access-group-list").querySelectorAll<HTMLElement>("[data-dense-row]")].find((row) =>
-        row.textContent?.startsWith("maintainer"),
+        row.textContent?.startsWith("维护（maintainer）"),
       )!,
     );
-    const editor = byTestId("access-group-editor"),
-      controls = [...editor.querySelectorAll<HTMLInputElement | HTMLButtonElement>("input, button")].filter(
-        // The facet switch only changes how the list is grouped.
-        (control) => control.closest('[data-testid="access-action-picker"] > div:first-child') === null,
-      );
-    expect(controls.length).toBeGreaterThan(100);
-    expect(controls.filter((control) => !control.disabled).map((control) => control.outerHTML)).toEqual([]);
-    expect(byTestId("access-group-base-rule").textContent).toContain("继承 contributor");
+    const editor = byTestId("access-group-editor");
+    expect(editor.querySelectorAll("input, button")).toHaveLength(0);
+    expect(byTestId("access-group-base-rule").textContent).toContain("可以指派、关闭任务");
+    expect(editor.querySelector("details")?.open).toBe(false);
+    expect(editor.textContent).toContain("任务");
+    expect(editor.textContent).toContain("开始任务");
 
     const group = await access.groups(),
       maintainer = group.ok ? group.groups.find((item) => item.id === "maintainer")! : null,
@@ -307,7 +314,7 @@ describe("账号与访问控制页", () => {
   it("shows a structured conflict when another administrator changed the group first, and writes nothing", async () => {
     const { keycloak, access } = await stack();
     await access.createGroup({ groupId: "release", displayName: "发布组", scopes: ["task-create"], composites: [] });
-    await openTab(access, "策略组");
+    await openTab(access, "角色说明");
     await click(
       [...byTestId("access-group-list").querySelectorAll<HTMLElement>("[data-dense-row]")].find((row) =>
         row.textContent?.startsWith("发布组"),
@@ -358,7 +365,7 @@ describe("账号与访问控制页", () => {
     await openTab(access, "审计回执");
     const receipts = () => byTestId("access-receipts").textContent ?? "";
     expect(receipts()).toContain("未结算");
-    expect(receipts()).toContain("新建策略组: release");
+    expect(receipts()).toContain("新建自定义角色: release");
     await click(byTestId("receipt-reconcile-lost-receipt"));
     expect(receipts()).not.toContain("未结算");
     expect(container.querySelector('[data-testid="receipt-reconcile-lost-receipt"]')).toBeNull();
@@ -367,7 +374,7 @@ describe("账号与访问控制页", () => {
 
   it("names the Keycloak that carries authorization, opens its console outside the page, and sets the session lifetime", async () => {
     const { keycloak, access } = await stack();
-    await openTab(access, "授权服务");
+    await openTab(access, "服务与会话");
     const card = byTestId("access-service-card").textContent ?? "";
     for (const shown of ["授权服务 · Keycloak", "Harness 托管", keycloakUrl, keycloakRealm, "正常"])
       expect(card).toContain(shown);
@@ -381,7 +388,9 @@ describe("账号与访问控制页", () => {
     await type(minutes, "60");
     await click(byTestId("access-lifetime-save"));
     expect(keycloak.realm.ssoSessionIdleTimeout).toBe(3_600);
-    expect(byTestId<HTMLInputElement>("access-lifetime-minutes").value).toBe("60");
+    expect(byTestId<HTMLInputElement>("access-lifetime-minutes").value).toBe("1");
+    const units = find<HTMLSelectElement>('[data-testid="access-session-lifetime"] select');
+    await type(units, "60");
     await type(byTestId<HTMLInputElement>("access-lifetime-minutes"), "1");
     await click(byTestId("access-lifetime-save"));
     expect(byTestId("access-lifetime-refusal").dataset.code).toBe("session_lifetime_invalid");
@@ -391,7 +400,7 @@ describe("账号与访问控制页", () => {
   it("reads an ordinary signed-in account's legal denial as a permission note, not a failure", async () => {
     const { access, signIn } = await stack();
     signIn("alice", []);
-    await openTab(access, "授权服务");
+    await openTab(access, "服务与会话");
     // The service is healthy and the account is signed in; only the administration read is refused.
     const denied = byTestId("access-lifetime-unavailable");
     expect(denied.dataset.code).toBe("authorization_denied");
@@ -405,7 +414,7 @@ describe("账号与访问控制页", () => {
   it("keeps a session that is no longer authenticated red instead of reading it as a permission note", async () => {
     const { access, root: userRoot } = await stack();
     signOutAt(userRoot);
-    await openTab(access, "授权服务");
+    await openTab(access, "服务与会话");
     const expired = byTestId("access-lifetime-unavailable");
     expect(expired.dataset.code).toBe("authentication_required");
     expect(expired.getAttribute("role")).toBe("alert");
@@ -415,7 +424,7 @@ describe("账号与访问控制页", () => {
   it("offers the binding form only where the daemon accepts binding writes, and says where it is managed elsewhere", async () => {
     const { access } = await stack();
     // Local repository: the daemon owner configures the binding here.
-    await openTab(access, "授权服务", [{ repoId: "repo-a", displayName: "Repo A", mode: "local" }]);
+    await openTab(access, "服务与会话", [{ repoId: "repo-a", displayName: "Repo A", mode: "local" }]);
     expect(byTestId("external-binding-form")).toBeTruthy();
     expect(container.querySelector('[data-testid="binding-managed-elsewhere"]')).toBeNull();
 
@@ -454,12 +463,12 @@ describe("账号与访问控制页", () => {
     keycloak.account("alice");
     await access.grant({ personId: "alice", groupId: "viewer", resource: "repo-a" });
     setActiveLocale("en-US");
-    for (const tab of ["Authorization service", "Policy groups", "Grants", "Audit receipts"]) {
+    for (const tab of ["Service & session", "Roles", "Members & access", "Audit receipts"]) {
       await openTab(access, tab);
-      if (tab === "Grants") await click(find('[data-testid="access-grant-list"] [data-dense-row]'));
+      if (tab === "Members & access") await click(byTestId("access-inspect-alice-viewer"));
       expect(container.textContent).not.toMatch(/[\u3400-\u9fff\uff00-\uffef]/u);
     }
-    expect(container.textContent).toContain("Grant group: viewer · alice · repository repo-a");
+    expect(container.textContent).toContain("Grant role: Read only (viewer) · alice · repository repo-a");
   });
 });
 
@@ -467,6 +476,8 @@ it("manages native work team membership through the identity page and daemon con
   const { keycloak, access, evaluate } = await stack();
   keycloak.account("alice");
   await openTab(access, "工作组");
+  expect(container.querySelector('[data-testid="access-team-name"]')).toBeNull();
+  await click(byTestId("access-team-new"));
   await type(byTestId<HTMLInputElement>("access-team-name"), "Builders");
   await click(byTestId("access-team-save"));
   const listed = await access.teams();
@@ -479,9 +490,13 @@ it("manages native work team membership through the identity page and daemon con
   );
   const member = find<HTMLInputElement>('fieldset input[type="checkbox"]');
   await click(member);
+  expect(await access.teams()).toMatchObject({ teams: [{ personIds: [] }] });
+  await click(byTestId("access-team-confirm"));
   expect(await access.teams()).toMatchObject({ teams: [{ personIds: ["alice"] }] });
   expect(await evaluate("alice", "repo-a", { kind: "task-start", taskId: "task_1" })).toBe("denied");
   await click(find<HTMLInputElement>('fieldset input[type="checkbox"]'));
+  expect(await access.teams()).toMatchObject({ teams: [{ personIds: ["alice"] }] });
+  await click(byTestId("access-team-confirm"));
   expect(await access.teams()).toMatchObject({ teams: [{ personIds: [] }] });
   await click(byTestId("access-team-delete"));
   expect(await access.teams()).toMatchObject({ teams: [] });

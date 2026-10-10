@@ -1,4 +1,3 @@
-import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useEffect, useState } from "react";
 import type {
   AccessAdminApi,
@@ -6,28 +5,18 @@ import type {
   AccessPolicyGroup,
   AccessRejection,
 } from "../../../api/access-admin-contract.ts";
-import {
-  ACTION_FACETS,
-  groupActionsByFacet,
-  inheritedScopes,
-  isRejection,
-  type ActionFacet,
-} from "../../access-model.ts";
+import { inheritedScopes, isRejection, roleLabel } from "../../access-model.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { BoardColumn, BoardMain, BoardRegion, BoardSide, RegionBoard } from "../primitives/RegionBoard.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { Button } from "../primitives/Button.tsx";
+import { currentLocale } from "../../i18n/core.ts";
+import { ActionDetails } from "./ActionDetails.tsx";
 import { AccessNotice, INPUT, asRejection, useAccessRead } from "./AccessParts.tsx";
 
 const NEW_GROUP = "\u0000new";
-
-const FACET_LABEL: Readonly<Record<ActionFacet, MessageKey>> = {
-  policyTier: "accessControl.facet.policyTier",
-  executionClass: "accessControl.facet.executionClass",
-  residencyScope: "accessControl.facet.residencyScope",
-};
 
 interface Draft {
   readonly groupId: string;
@@ -64,7 +53,6 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
   const { data, rejection, reload } = useAccessRead<AccessGroupsReply>(access.groups),
     [selectedId, setSelectedId] = useState<string | null>(null),
     [draft, setDraft] = useState<Draft>(draftOf(undefined)),
-    [facet, setFacet] = useState<ActionFacet>("policyTier"),
     [busy, setBusy] = useState(false),
     [refusal, setRefusal] = useState<AccessRejection | null>(null),
     [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -134,7 +122,7 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
         <BoardColumn>
           <BoardRegion region="group" fill data-testid="access-group-editor">
             <Region
-              title={creating ? t("accessControl.groups.newTitle") : draft.displayName || draft.groupId}
+              title={creating ? t("accessControl.groups.newTitle") : roleLabel(draft.groupId, draft.displayName)}
               tag={
                 creating ? undefined : (
                   <StatusTag
@@ -143,38 +131,40 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                   />
                 )
               }
-              big={effectiveCount}
+              big={readOnly ? undefined : effectiveCount}
               padded
               footer={
-                <>
-                  <span className="min-w-0 truncate">
-                    {readOnly
-                      ? t("accessControl.groups.baseFooter")
-                      : t("accessControl.groups.effectiveFooter", {
-                          own: draft.scopes.size,
-                          inherited: effectiveCount - draft.scopes.size,
-                        })}
-                  </span>
-                  <span className="ml-auto flex flex-none items-center gap-2">
-                    {!creating && (
+                readOnly ? undefined : (
+                  <>
+                    <span className="min-w-0 truncate">
+                      {readOnly
+                        ? t("accessControl.groups.baseFooter")
+                        : t("accessControl.groups.effectiveFooter", {
+                            own: draft.scopes.size,
+                            inherited: effectiveCount - draft.scopes.size,
+                          })}
+                    </span>
+                    <span className="ml-auto flex flex-none items-center gap-2">
+                      {!creating && (
+                        <Button
+                          testId="access-group-delete"
+                          disabled={busy || readOnly}
+                          onClick={() => (confirmingDelete ? void remove() : setConfirmingDelete(true))}
+                        >
+                          {t(confirmingDelete ? "accessControl.groups.confirmDelete" : "accessControl.groups.delete")}
+                        </Button>
+                      )}
                       <Button
-                        testId="access-group-delete"
-                        disabled={busy || readOnly}
-                        onClick={() => (confirmingDelete ? void remove() : setConfirmingDelete(true))}
+                        testId="access-group-save"
+                        variant="primary"
+                        disabled={busy || readOnly || draft.groupId.trim() === ""}
+                        onClick={() => void save()}
                       >
-                        {t(confirmingDelete ? "accessControl.groups.confirmDelete" : "accessControl.groups.delete")}
+                        {t(creating ? "accessControl.groups.create" : "accessControl.groups.save")}
                       </Button>
-                    )}
-                    <Button
-                      testId="access-group-save"
-                      variant="primary"
-                      disabled={busy || readOnly || draft.groupId.trim() === ""}
-                      onClick={() => void save()}
-                    >
-                      {t(creating ? "accessControl.groups.create" : "accessControl.groups.save")}
-                    </Button>
-                  </span>
-                </>
+                    </span>
+                  </>
+                )
               }
             >
               <div className="flex flex-col gap-4">
@@ -200,127 +190,135 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
                   </div>
                 ) : null}
                 {readOnly && (
-                  <p className="text-text-muted ui-meta" data-testid="access-group-base-rule">
-                    {t("accessControl.groups.baseRule", {
-                      own: selected.scopes.length,
-                      inherits:
-                        selected.composites.length > 0 ? selected.composites.join(", ") : t("accessControl.none"),
-                      effective: selected.effectiveScopes.length,
-                    })}
-                  </p>
+                  <div data-testid="access-group-base-rule">
+                    <p className="ui-body">{t(`accessControl.role.${selected.id}.summary` as MessageKey)}</p>
+                    <ActionDetails
+                      actions={data.actions.filter((action) => selected.effectiveScopes.includes(action.action))}
+                    />
+                  </div>
                 )}
-                <div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-3">
-                  <label className="flex flex-col gap-1 ui-meta text-text-muted">
-                    {t("accessControl.groups.id")}
-                    <input
-                      data-testid="access-group-id"
-                      className={`${INPUT} font-mono`}
-                      value={draft.groupId}
-                      disabled={!creating}
-                      placeholder={t("accessControl.groups.idHint")}
-                      onChange={(event) => setDraft({ ...draft, groupId: event.currentTarget.value })}
-                    />
-                  </label>
-                  <label className="flex flex-col gap-1 ui-meta text-text-muted">
-                    {t("accessControl.groups.displayName")}
-                    <input
-                      data-testid="access-group-name"
-                      className={INPUT}
-                      value={draft.displayName}
-                      disabled={readOnly}
-                      onChange={(event) => setDraft({ ...draft, displayName: event.currentTarget.value })}
-                    />
-                  </label>
-                </div>
-                <fieldset className="flex flex-col gap-1.5" data-testid="access-group-inherits">
-                  <legend className="mb-1.5 font-semibold ui-meta">{t("accessControl.groups.inherits")}</legend>
-                  <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-                    {groups
-                      .filter((group) => group.id !== selectedId)
-                      .map((group) => (
-                        <label key={group.id} className="flex min-h-7 items-center gap-1.5 ui-body">
-                          <input
-                            type="checkbox"
-                            checked={draft.composites.has(group.id)}
-                            disabled={readOnly}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                composites: toggled(draft.composites, [group.id], event.currentTarget.checked),
-                              })
-                            }
-                          />
-                          {group.displayName}
-                        </label>
-                      ))}
-                  </div>
-                </fieldset>
-                <div className="flex flex-col gap-3" data-testid="access-action-picker">
-                  <div className="flex flex-wrap items-center gap-3">
-                    <span className="font-semibold ui-meta">{t("accessControl.groups.actions")}</span>
-                    <SegCtl
-                      value={facet}
-                      onChange={setFacet}
-                      options={ACTION_FACETS.map((key) => ({ value: key, label: t(FACET_LABEL[key]) }))}
-                    />
-                  </div>
-                  {groupActionsByFacet(data.actions, facet).map((section) => {
-                    const free = section.actions.filter((action) => !inherited.has(action)),
-                      held = section.actions.filter((action) => draft.scopes.has(action) || inherited.has(action));
-                    return (
-                      <fieldset key={section.value} data-testid={`access-actions-${section.value}`}>
-                        <legend className="mb-1.5 flex w-full items-center gap-2 border-b border-border pb-1 ui-meta">
-                          <label className="flex items-center gap-1.5 font-semibold">
-                            <input
-                              type="checkbox"
-                              aria-label={t("accessControl.groups.selectAll", { section: section.value })}
-                              disabled={readOnly || free.length === 0}
-                              checked={held.length === section.actions.length}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  scopes: toggled(draft.scopes, free, event.currentTarget.checked),
-                                })
-                              }
-                            />
-                            <span className="font-mono">{section.value}</span>
-                          </label>
-                          <span className="ml-auto font-mono tabular-nums text-text-faint">
-                            {held.length}/{section.actions.length}
-                          </span>
-                        </legend>
-                        <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-3">
-                          {section.actions.map((action) => {
-                            const viaInheritance = inherited.has(action) && !draft.scopes.has(action);
-                            return (
-                              <label
-                                key={action}
-                                title={viaInheritance ? t("accessControl.groups.inheritedAction") : undefined}
-                                className={`flex min-h-7 items-center gap-1.5 font-mono ui-meta ${
-                                  viaInheritance ? "text-text-faint" : "text-text"
-                                }`}
-                              >
+                {!readOnly && (
+                  <>
+                    <div className="grid grid-cols-[repeat(auto-fit,minmax(14rem,1fr))] gap-3">
+                      <label className="flex flex-col gap-1 ui-meta text-text-muted">
+                        {t("accessControl.groups.id")}
+                        <input
+                          data-testid="access-group-id"
+                          className={`${INPUT} font-mono`}
+                          value={draft.groupId}
+                          disabled={!creating}
+                          placeholder={t("accessControl.groups.idHint")}
+                          onChange={(event) => setDraft({ ...draft, groupId: event.currentTarget.value })}
+                        />
+                      </label>
+                      <label className="flex flex-col gap-1 ui-meta text-text-muted">
+                        {t("accessControl.groups.displayName")}
+                        <input
+                          data-testid="access-group-name"
+                          className={INPUT}
+                          value={draft.displayName}
+                          disabled={readOnly}
+                          onChange={(event) => setDraft({ ...draft, displayName: event.currentTarget.value })}
+                        />
+                      </label>
+                    </div>
+                    <fieldset className="flex flex-col gap-1.5" data-testid="access-group-inherits">
+                      <legend className="mb-1.5 font-semibold ui-meta">{t("accessControl.groups.inherits")}</legend>
+                      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                        {groups
+                          .filter((group) => group.id !== selectedId)
+                          .map((group) => (
+                            <label key={group.id} className="flex min-h-7 items-center gap-1.5 ui-body">
+                              <input
+                                type="checkbox"
+                                checked={draft.composites.has(group.id)}
+                                disabled={readOnly}
+                                onChange={(event) =>
+                                  setDraft({
+                                    ...draft,
+                                    composites: toggled(draft.composites, [group.id], event.currentTarget.checked),
+                                  })
+                                }
+                              />
+                              {roleLabel(group.id, group.displayName)}
+                            </label>
+                          ))}
+                      </div>
+                    </fieldset>
+                    <div className="flex flex-col gap-3" data-testid="access-action-picker">
+                      <span className="font-semibold ui-meta">{t("accessControl.groups.actions")}</span>
+                      {[...new Set(data.actions.map((action) => action.presentation.domain))].map((domain) => {
+                        const section = {
+                          value: domain,
+                          actions: data.actions
+                            .filter((action) => action.presentation.domain === domain)
+                            .map((action) => action.action),
+                        };
+                        const free = section.actions.filter((action) => !inherited.has(action)),
+                          held = section.actions.filter((action) => draft.scopes.has(action) || inherited.has(action));
+                        return (
+                          <fieldset key={section.value} data-testid={`access-actions-${section.value}`}>
+                            <legend className="mb-1.5 flex w-full items-center gap-2 border-b border-border pb-1 ui-meta">
+                              <label className="flex items-center gap-1.5 font-semibold">
                                 <input
                                   type="checkbox"
-                                  data-action={action}
-                                  checked={draft.scopes.has(action) || inherited.has(action)}
-                                  disabled={readOnly || viaInheritance}
+                                  aria-label={t("accessControl.groups.selectAll", { section: section.value })}
+                                  disabled={readOnly || free.length === 0}
+                                  checked={held.length === section.actions.length}
                                   onChange={(event) =>
                                     setDraft({
                                       ...draft,
-                                      scopes: toggled(draft.scopes, [action], event.currentTarget.checked),
+                                      scopes: toggled(draft.scopes, free, event.currentTarget.checked),
                                     })
                                   }
                                 />
-                                <span className="min-w-0 truncate">{action}</span>
+                                <span>{t(`accessControl.domain.${section.value}` as MessageKey)}</span>
                               </label>
-                            );
-                          })}
-                        </div>
-                      </fieldset>
-                    );
-                  })}
-                </div>
+                              <span className="ml-auto font-mono tabular-nums text-text-faint">
+                                {held.length}/{section.actions.length}
+                              </span>
+                            </legend>
+                            <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-x-3">
+                              {section.actions.map((action) => {
+                                const viaInheritance = inherited.has(action) && !draft.scopes.has(action),
+                                  declaration = data.actions.find((item) => item.action === action)!;
+                                return (
+                                  <label
+                                    key={action}
+                                    title={viaInheritance ? t("accessControl.groups.inheritedAction") : undefined}
+                                    className={`flex min-h-7 items-start gap-1.5 py-1 ui-body ${
+                                      viaInheritance ? "text-text-faint" : "text-text"
+                                    }`}
+                                  >
+                                    <input
+                                      type="checkbox"
+                                      data-action={action}
+                                      checked={draft.scopes.has(action) || inherited.has(action)}
+                                      disabled={readOnly || viaInheritance}
+                                      onChange={(event) =>
+                                        setDraft({
+                                          ...draft,
+                                          scopes: toggled(draft.scopes, [action], event.currentTarget.checked),
+                                        })
+                                      }
+                                    />
+                                    <span className="min-w-0">
+                                      <b>{currentLocale() === "zh-CN" ? declaration.presentation.name : action}</b>
+                                      <span className="block text-text-muted">
+                                        {currentLocale() === "zh-CN" ? declaration.presentation.description : action}
+                                      </span>
+                                      <code className="text-text-faint">{action}</code>
+                                    </span>
+                                  </label>
+                                );
+                              })}
+                            </div>
+                          </fieldset>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             </Region>
           </BoardRegion>
@@ -343,11 +341,15 @@ export function PolicyGroupsTab({ access }: { readonly access: AccessAdminApi })
               key={group.id}
               relaxed
               selected={group.id === selectedId}
-              title={group.displayName}
-              reason={t(group.base ? "accessControl.groups.baseRow" : "accessControl.groups.customRow", {
-                inherits: group.composites.length > 0 ? group.composites.join(", ") : t("accessControl.none"),
-              })}
-              time={group.effectiveScopes.length}
+              title={roleLabel(group.id, group.displayName)}
+              reason={
+                group.base
+                  ? t(`accessControl.role.${group.id}.summary` as MessageKey)
+                  : t("accessControl.groups.customRow", {
+                      inherits: group.composites.length > 0 ? group.composites.join(", ") : t("accessControl.none"),
+                    })
+              }
+              time={undefined}
               onClick={() => open(group.id)}
             />
           ))}

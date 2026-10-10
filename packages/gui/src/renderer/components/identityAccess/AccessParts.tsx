@@ -113,7 +113,15 @@ export function ReceiptRows({
               </span>
             }
             title={receiptTitle(receipt)}
-            reason={`${receipt.actor} · ${receipt.operationId}`}
+            reason={
+              <span>
+                {receipt.actor}
+                <details className="text-text-faint">
+                  <summary className="cursor-pointer">{t("accessControl.receipt.details")}</summary>
+                  <code>{receipt.operationId}</code>
+                </details>
+              </span>
+            }
             time={
               receipt.phase === "intent" && onReconcile ? (
                 <Button

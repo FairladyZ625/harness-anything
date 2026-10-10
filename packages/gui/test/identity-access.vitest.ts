@@ -178,6 +178,7 @@ it("embeds the authorization URL, cancels cleanly and refreshes identity after a
   await act(async () => finish());
   expect(container.querySelector("webview")).toBeNull();
   expect(container.textContent).toContain("person-fixture");
+  expect(container.querySelector('[data-testid="access-current-account"]')?.textContent).toContain("person-fixture");
 });
 
 it("keeps the login panel with a readable alert when the authorization page fails to load", async () => {
