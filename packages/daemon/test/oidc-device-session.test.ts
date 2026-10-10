@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 
-test("Device login keeps device/verifier/refresh private and honors pending/slow-down before binding the person", async (t) => {
+test("Device login without verification_uri_complete keeps secrets private and binds the person after pending/slow-down", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-device-session-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(path.join(root, "rbac"));
@@ -31,7 +31,6 @@ test("Device login keeps device/verifier/refresh private and honors pending/slow
         return Response.json({
           device_code: "private-device",
           user_code: "ABCD-EFGH",
-          verification_uri_complete: "http://127.0.0.1:8080/realms/harness/device?user_code=ABCD-EFGH",
           verification_uri: "http://127.0.0.1:8080/realms/harness/device",
           expires_in: 600,
           interval: 5,

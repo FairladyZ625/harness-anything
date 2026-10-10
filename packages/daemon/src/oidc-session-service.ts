@@ -199,7 +199,6 @@ export class OidcSessionService {
       createdAt = this.#ports.now(),
       expiresAt = createdAt + requiredNumber(device.expires_in, "expires_in") * 1_000,
       userCode = requiredString(device.user_code, "user_code"),
-      verificationUriComplete = requiredString(device.verification_uri_complete, "verification_uri_complete"),
       verificationUri = requiredString(device.verification_uri, "verification_uri"),
       notice = { userCode, createdAt, expiresAt, pending: true };
     this.#device = {
@@ -216,7 +215,6 @@ export class OidcSessionService {
     return {
       ok: true,
       pending: true,
-      verificationUriComplete,
       verificationUri,
       userCode,
       interval,
