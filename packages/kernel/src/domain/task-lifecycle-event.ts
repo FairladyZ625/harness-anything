@@ -236,6 +236,7 @@ export type GateRunChangedEvent = TaskEventEnvelope<
 export type TaskCompletedEvent = TaskEventEnvelope<
   "task_completed",
   {
+    readonly historicalAcceptance?: { readonly sourceGeneration: 1 | 2; readonly sourceRevision: number };
     readonly task: TaskV2;
     readonly execution: ExecutionV1;
     readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
@@ -417,6 +418,18 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   )
     return [...issues, invalidEventPayloadIssue(`${String(value.type)} payload fields or document claims are invalid`)];
   issues.push(...validateTaskV2(payload.task, allowUnknownFields));
+  if (payload.historicalAcceptance !== undefined) {
+    const accepted = payload.historicalAcceptance;
+    if (
+      !allowUnknownFields ||
+      value.type !== "task_completed" ||
+      !isRecord(accepted) ||
+      !hasOnlyFields(accepted, ["sourceGeneration", "sourceRevision"]) ||
+      (accepted.sourceGeneration !== 1 && accepted.sourceGeneration !== 2) ||
+      accepted.sourceRevision !== value.workspaceRevision
+    )
+      issues.push(invalidEventPayloadIssue("historical completion must preserve its source acceptance revision"));
+  }
   if (
     [
       "execution_started",

@@ -33,7 +33,7 @@ export async function collectCommandWitness(
     throw cell.cellCodedError("gate_run_unclaimed", `Gate ${requirement.gateId} requires a current central claim.`);
   const preset = cell.projection.readPresetSnapshot(submission.completionContract.presetSnapshotDigest)
       .snapshot as PresetSnapshotV1,
-    command = preset.completionPackages[requirement.witness.adapterId];
+    command = preset.completionPackages[run.sourceId];
   if (!command)
     throw cell.cellCodedError(
       "witness_unavailable",
@@ -161,7 +161,7 @@ export async function collectCommandWitness(
       provenance: {
         source: "runner",
         claimFence: run.claimFence,
-        adapterId: requirement.witness.adapterId,
+        adapterId: run.sourceId,
         runId: run.runId,
         rawResult: `preset-run:${started.runId}; ${produced.diagnostic}`,
       },

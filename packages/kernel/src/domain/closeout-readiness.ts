@@ -4,7 +4,7 @@ export const closeoutReadinesses = ["not_required", "missing", "incomplete", "re
 export type CloseoutReadiness = (typeof closeoutReadinesses)[number];
 
 import { consentedApprovedReviewForExecution, settledApprovedReviewsForExecution } from "./review.ts";
-import { isNativeExecution } from "./execution.ts";
+import { isNativeExecution, submissionDigest } from "./execution.ts";
 import type { ExecutionV1, ProjectedExecution, SubmissionV1 } from "./execution.ts";
 import type { ReviewConsentV1, ReviewDispositionV1, ReviewV1 } from "./review.ts";
 import { currentCodeDocWitness } from "./code-doc-witness.ts";
@@ -45,6 +45,7 @@ export interface CloseoutSnapshot {
     readonly completionGateIds: readonly string[];
     readonly closeoutOverrides?: CloseoutOverridesV1;
     readonly presetSnapshotDigest?: string | null;
+    readonly presetSnapshotGap?: import("./task.ts").TaskV2["presetSnapshotGap"];
     readonly taskId?: string;
     readonly taskClass?: string;
   } | null;
@@ -188,6 +189,12 @@ export function gateResults(
         applies: true,
       }));
   return requirements.map(({ gateId, applies, requirement }) => {
+    if (snapshot.task?.presetSnapshotGap || contract?.historicalAcceptance?.snapshotGap)
+      return gateResult(
+        gateId,
+        "missing",
+        `Historical snapshot gap: ${contract?.presetSnapshotDigest ?? snapshot.task?.presetSnapshotDigest}; original bytes unavailable.`,
+      );
     if (!applies)
       return gateResult(gateId, "not_applicable", "the gate's declared scope has no delivery part in this cut");
     const codeDoc = gateId === CODE_DOC_GATE_ID,
@@ -277,19 +284,21 @@ export function judgeGateWitnesses(
     ),
     judge = (witness: CompletionGateWitnessV1 | undefined): GateWitnessJudgment => {
       if (!witness) return { status: "missing", detail: "current execution cut has no gate witness" };
+      if (witness.historicalAcceptance)
+        return witness.historicalAcceptance.submissionDigest === submissionDigest(execution.submission!) &&
+          witness.result === "pass"
+          ? { status: "passed", detail: "Historical acceptance; no new measurement is asserted." }
+          : {
+              status: witness.result === "fail" ? "failed" : "missing",
+              detail: "Historical acceptance does not bind this submission.",
+            };
       const judgment =
         witness.basis && witness.provenance && witness.observed !== undefined
           ? judgeCompletionEvidence(
               { ...witness, basis: witness.basis, provenance: witness.provenance, observed: witness.observed },
               { execution, gateId },
             )
-          : {
-              // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
-              accepted: isPreservedVerdictWitness(witness) && witness.result === "pass",
-              reason: isPreservedVerdictWitness(witness)
-                ? "preserved historical verdict carries no bound evidence"
-                : "completion witness has no bound evidence",
-            };
+          : { accepted: false, reason: "completion witness has no bound evidence" };
       if (judgment.accepted) return { status: "passed" };
       return witness.result === "fail"
         ? { status: "failed", detail: witness.diagnostic || judgment.reason || "current execution cut did not pass" }
@@ -297,6 +306,8 @@ export function judgeGateWitnesses(
     };
   if (requirement?.witness.kind === "manual") return judge(cut.at(-1));
   const activeRun = currentGateRun(execution, gateId);
+  if (requirement?.witness.kind === "historical")
+    return judge(cut.filter((value) => isPreservedVerdictWitness(value)).at(-1));
   if (activeRun && activeRun.state !== "completed")
     return { status: "missing", detail: `Gate run ${activeRun.runId} is ${activeRun.state}.` };
   if (activeRun?.availability === "unavailable") return { status: "missing", detail: activeRun.diagnostic };

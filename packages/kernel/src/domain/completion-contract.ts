@@ -24,6 +24,13 @@ export interface GithubWitnessOptions {
   readonly selection: "newest";
 }
 export type FrozenGateWitness =
+  | {
+      /** Offline acceptance history only. This is not an executable source definition. */
+      readonly kind: "historical";
+      readonly adapterId: null;
+      readonly adapterOptions: Readonly<Record<string, never>>;
+      readonly acceptedDefinition: Readonly<Record<string, unknown>> | null;
+    }
   | ({ readonly adapterId: string } & Exclude<WitnessSourceDefinition, { readonly kind: "github-actions" }> & {
         readonly adapterOptions: Readonly<Record<string, never>>;
       })
@@ -50,6 +57,11 @@ export interface FrozenReviewerDeclaration {
   readonly agentId: string;
 }
 export interface FrozenCompletionContract {
+  readonly historicalAcceptance?: {
+    readonly sourceGeneration: 1 | 2;
+    readonly sourceRevision: number;
+    readonly snapshotGap?: true;
+  };
   readonly presetSnapshotDigest: string;
   readonly gates: readonly FrozenGateRequirement[];
   readonly closeoutGates: Readonly<Record<CloseoutGate, boolean>>;
@@ -120,19 +132,28 @@ export function validateFrozenCompletionContract(
 ): readonly ContractValidationIssue[] {
   const fields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
   return isRecord(value) &&
-    fields(
-      value,
-      Object.hasOwn(value, "reviewer")
-        ? ["presetSnapshotDigest", "gates", "closeoutGates", "reviewer"]
-        : ["presetSnapshotDigest", "gates", "closeoutGates"],
-    ) &&
+    fields(value, [
+      "presetSnapshotDigest",
+      "gates",
+      "closeoutGates",
+      ...(Object.hasOwn(value, "reviewer") ? ["reviewer"] : []),
+    ]) &&
+    (value.historicalAcceptance === undefined ||
+      (allowUnknownFields &&
+        isRecord(value.historicalAcceptance) &&
+        [1, 2].includes(Number(value.historicalAcceptance.sourceGeneration)) &&
+        Number.isSafeInteger(value.historicalAcceptance.sourceRevision) &&
+        Number(value.historicalAcceptance.sourceRevision) > 0 &&
+        (value.historicalAcceptance.snapshotGap === undefined || value.historicalAcceptance.snapshotGap === true))) &&
     (value.reviewer === undefined ||
       (isRecord(value.reviewer) && fields(value.reviewer, ["agentId"]) && isNonEmptyString(value.reviewer.agentId))) &&
     typeof value.presetSnapshotDigest === "string" &&
     /^sha256:[a-f0-9]{64}$/u.test(value.presetSnapshotDigest) &&
     isValidCloseoutGateRecord(value.closeoutGates) &&
     Array.isArray(value.gates) &&
-    value.gates.every((gate) => frozenRequirement(gate, fields)) &&
+    value.gates.every((gate) =>
+      frozenRequirement(gate, fields, allowUnknownFields && value.historicalAcceptance !== undefined),
+    ) &&
     new Set(value.gates.map((gate: FrozenGateRequirement) => gate.gateId)).size === value.gates.length
     ? []
     : [
@@ -142,7 +163,7 @@ export function validateFrozenCompletionContract(
         },
       ];
 }
-function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolean {
+function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, historical = false): boolean {
   if (!isRecord(value)) return false;
   const optional = ["subjects", "bindings", "independentNode", ...gateGovernanceFields].filter((key) =>
     Object.hasOwn(value, key),
@@ -157,6 +178,15 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields): boolea
   for (const flag of ["independentNode", ...gateGovernanceFields])
     if (Object.hasOwn(value, flag) && value[flag] !== true) return false;
   const { adapterId, adapterOptions, ...definition } = value.witness;
+  if (definition.kind === "historical")
+    return (
+      historical &&
+      adapterId === null &&
+      isRecord(adapterOptions) &&
+      Object.keys(adapterOptions).length === 0 &&
+      (definition.acceptedDefinition === null || isRecord(definition.acceptedDefinition)) &&
+      hasOnlyFields(definition, ["kind", "acceptedDefinition"])
+    );
   if (!isNonEmptyString(adapterId) || !isRecord(adapterOptions)) return false;
   if (definition.kind === "internal")
     return (

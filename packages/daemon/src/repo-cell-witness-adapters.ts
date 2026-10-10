@@ -136,6 +136,8 @@ export function attestGateWitness(
       "invalid_command",
       `Gate ${gateId} is not part of the frozen completion contract for this submission.`,
     );
+  if (requirement.witness.kind === "historical")
+    throw cell.cellCodedError("invalid_transition", "Historical acceptance cannot receive a new attestation.");
   if (!gateAppliesToSubmission(requirement, execution.submission))
     throw cell.cellCodedError(
       "invalid_transition",

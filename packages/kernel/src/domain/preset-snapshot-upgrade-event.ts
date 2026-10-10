@@ -26,6 +26,7 @@ export type PresetSnapshotUpgradeEventV1 = EventEnvelope<
     readonly task: TaskV2;
     readonly presetSnapshotClaim: PresetSnapshotClaim;
     readonly taskContractClaim: InitialDocumentClaim;
+    readonly historicalAcceptance?: { readonly sourceGeneration: 1 | 2; readonly sourceRevision: number };
   }
 > & { readonly taskId: string };
 export interface PresetSnapshotUpgradeBundle {
@@ -65,7 +66,17 @@ function validatePresetSnapshotUpgradeEventFields(value: unknown, allowUnknownFi
   const task = value.payload.task,
     snapshot = value.payload.presetSnapshotClaim,
     contract = value.payload.taskContractClaim,
-    previous = value.payload.previousDigest;
+    previous = value.payload.previousDigest,
+    accepted = value.payload.historicalAcceptance;
+  if (
+    accepted !== undefined &&
+    (!allowUnknownFields ||
+      !isRecord(accepted) ||
+      !hasOnlyFields(accepted, ["sourceGeneration", "sourceRevision"]) ||
+      (accepted.sourceGeneration !== 1 && accepted.sourceGeneration !== 2) ||
+      accepted.sourceRevision !== value.workspaceRevision)
+  )
+    return ["snapshot historical acceptance is invalid"];
   if (
     validateTaskV2(task, allowUnknownFields).length ||
     !isRecord(task) ||
@@ -73,7 +84,7 @@ function validatePresetSnapshotUpgradeEventFields(value: unknown, allowUnknownFi
     !digest(previous) ||
     !snapshotClaim(snapshot, allowUnknownFields) ||
     task.presetSnapshotDigest !== snapshot.digest ||
-    previous === snapshot.digest ||
+    (previous === snapshot.digest && accepted === undefined) ||
     !contractClaim(contract, value.taskId, allowUnknownFields)
   )
     return ["preset snapshot upgrade claims are invalid"];

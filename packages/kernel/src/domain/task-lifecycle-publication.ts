@@ -486,6 +486,11 @@ function renderExecution(value: ExecutionV1, snapshot: TaskLifecycleSnapshot): s
     `- Claimed: ${value.claimedAt}\n`,
     `- Submitted: ${value.submittedAt ?? "pending"}\n`,
     `- Closed: ${value.closedAt ?? "open"}\n`,
+    ...(packet?.completionContract.historicalAcceptance?.snapshotGap
+      ? [
+          `- Historical snapshot gap: ${packet.completionContract.presetSnapshotDigest}; original bytes unavailable; historical acceptance cannot satisfy a new submission.\n`,
+        ]
+      : []),
     ...value.gateRuns.map(
       (run) =>
         `- Gate run: ${run.gateId}/${run.runId}; fence ${run.claimFence}; ${run.state}; ${run.availability ?? "pending"}; ${run.result ?? "no verdict"}; ${run.diagnostic}\n`,

@@ -634,6 +634,7 @@ export function applyEvent(
     if (archiveOnComplete !== undefined && typeof archiveOnComplete !== "boolean")
       throw new Error(`preset snapshot upgrade declared invalid archiveOnComplete for ${event.taskId}`);
     if (archiveOnComplete === undefined) delete baseTask.archiveOnComplete;
+    delete baseTask.presetSnapshotGap;
     const changed = {
         completionGateIds: snapshot.profile.completionGateIds,
         presetSnapshotDigest: snapshot.digest,

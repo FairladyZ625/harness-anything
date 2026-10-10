@@ -2,7 +2,7 @@ import { validTaskAssignment, type TaskAssignment } from "./task-assignment.ts";
 import type { LifecycleBinding } from "./lifecycle-binding.js";
 import { validateTaskGraph } from "./task-graph.ts";
 import type { TaskGraphV1, TaskNodeId } from "./task-graph.ts";
-import { isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
+import { hasOnlyFields, isNonEmptyString, isRecord, validateActorIdentity } from "./write-chain.contract.ts";
 import { validateSessionProvenance, type SessionProvenanceV1 } from "./agent-runtime.ts";
 import type { BaseEntityPinState } from "./base-entity.ts";
 import { isValidCloseoutOverrides, type CloseoutOverridesV1 } from "./settings-closeout.ts";
@@ -85,6 +85,12 @@ export interface TaskV2 extends BaseEntityPinState {
   readonly createdBy: ActorAxes;
   readonly completionGateIds: readonly string[];
   readonly presetSnapshotDigest: `sha256:${string}` | null;
+  /** Offline acceptance history: the referenced bytes were not retained. Never an executable snapshot. */
+  readonly presetSnapshotGap?: {
+    readonly reason: "snapshot-bytes-unavailable";
+    readonly sourceGeneration: 1 | 2;
+    readonly sourceRevision: number;
+  };
   readonly provenance?: readonly SessionProvenanceV1[];
   readonly metadata?: TaskMetadataV1;
   readonly packageDisposition?: TaskPackageDisposition;
@@ -134,6 +140,7 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
       "closeoutOverrides",
       "archiveOnComplete",
       "assignment",
+      "presetSnapshotGap",
     ];
   if (
     !isRecord(value) ||
@@ -142,6 +149,19 @@ export function validateTaskV2(value: unknown, allowUnknownFields = false): read
   )
     return [{ code: "invalid_task", message: "Task/v2 fields are incomplete or unknown" }];
   const issues: ContractValidationIssue[] = [];
+  if (value.presetSnapshotGap !== undefined) {
+    const gap = value.presetSnapshotGap;
+    if (
+      !isRecord(gap) ||
+      !hasOnlyFields(gap, ["reason", "sourceGeneration", "sourceRevision"]) ||
+      gap.reason !== "snapshot-bytes-unavailable" ||
+      (gap.sourceGeneration !== 1 && gap.sourceGeneration !== 2) ||
+      !Number.isSafeInteger(gap.sourceRevision) ||
+      Number(gap.sourceRevision) < 1 ||
+      value.presetSnapshotDigest === null
+    )
+      issues.push({ code: "invalid_task", message: "historical snapshot gap must name its source acceptance" });
+  }
   if (value.assignment != null && !validTaskAssignment(value.assignment))
     issues.push({ code: "invalid_task", message: "invalid task assignment" });
   if (value.schema !== "task/v2") issues.push({ code: "invalid_schema", message: "Task must use task/v2" });

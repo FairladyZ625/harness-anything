@@ -14,7 +14,8 @@ export function completionPredicateIssues(
 ): readonly string[] {
   const prefix = `gates.${requirement.gateId}.predicate`,
     source = requirement.witness;
-  if (source.kind === "internal") return ["An internal checker does not admit a source result."];
+  if (source.kind === "internal" || source.kind === "historical")
+    return ["This requirement does not admit a source result."];
   if (result.predicateType !== source.predicateType)
     return [`gates.${requirement.gateId}.predicateType does not match the frozen source`];
   const ordered = (values: readonly ArtifactDelivery[]) => [...values].sort((a, b) => a.path.localeCompare(b.path));

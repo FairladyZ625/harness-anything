@@ -149,6 +149,13 @@ function evaluateCompletion(
       `ha task complete ${task.taskId}`,
       `Ask task owner ${task.createdBy.principal.personId} to run completion with the required authority.`,
     );
+  if (task.presetSnapshotGap)
+    return one(
+      "document_invalid",
+      "completion-contract",
+      `ha task contract migrate ${task.taskId} --to-preset ${task.metadata?.presetId ?? "standard-task"} --dry-run`,
+      `Historical snapshot gap: original bytes for ${task.presetSnapshotDigest} are unavailable. The accepted history remains recorded; this gap cannot satisfy completion.`,
+    );
   if (context.invalidDocument)
     return one(
       "document_invalid",

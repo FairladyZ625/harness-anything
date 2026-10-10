@@ -78,6 +78,8 @@ export function claimGateRun(input: {
   readonly rerun?: { readonly runId: string; readonly reason: string };
 }): GateRun {
   const { execution, requirement } = input;
+  if (requirement.witness.kind === "historical" || execution.submission?.completionContract.historicalAcceptance)
+    throw gateRunError("gate_run_stale", "Historical acceptance is not an executable completion source.");
   if (
     execution.state !== "submitted" ||
     !execution.submission ||

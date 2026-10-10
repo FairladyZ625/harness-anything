@@ -16,7 +16,7 @@ function admittedWitnessSource(
   requirement: FrozenGateRequirement,
   evidence: CompletionEvidenceV1 | undefined,
 ): boolean {
-  if (!evidence) return false;
+  if (!evidence || requirement.witness.kind === "historical") return false;
   const human = evidence.provenance.source === "human";
   if (evidence.override !== undefined) return human && requirement.allowOverride === true;
   if (evidence.provenance.adapterId === requirement.witness.adapterId) return true;
