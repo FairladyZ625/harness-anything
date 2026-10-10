@@ -1,3 +1,5 @@
+import { latestSquadStates } from "./squad-run-state.ts";
+import { principalId as actorPrincipalId } from "@harness-anything/kernel";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { deriveSquadChildPlan, reacquireSquadTaskLease } from "./repo-cell-squad-child.ts";
@@ -14,7 +16,6 @@ export function makeFleetSquadCoordinator(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly peer: FleetPeerOptions;
   readonly spawner: ReturnType<typeof makeRuntimeSpawner>;
-  readonly controlBinding: RuntimeBinding;
   readonly sync: () => Promise<void>;
   readonly prepareWorkspace: () => Promise<void>;
   readonly readWorktreeSetup: () => readonly string[];
@@ -125,17 +126,25 @@ export function makeFleetSquadCoordinator(input: {
   });
   async function binding(): Promise<RuntimeBinding> {
     const metadata = await readFleetRepositoryMetadataClient(input.peer);
-    principalId = metadata.personId;
+    principalId = actorPrincipalId(metadata.principal);
     return {
-      actor: { principal: { personId: principalId }, executor: null },
+      actor: { principal: metadata.principal, executor: null },
       source: { kind: "node", nodeId: request.nodeId },
     };
+  }
+  function localRunBinding(squadRunId: string): RuntimeBinding {
+    const state = latestSquadStates(request.workspaceRoot).get(squadRunId);
+    if (!state)
+      throw Object.assign(new Error(`Squad run ${squadRunId} has no control state on this node.`), {
+        code: "execution_scope_mismatch",
+      });
+    return state.binding;
   }
   return {
     async run(action: JsonObject): Promise<JsonObject> {
       const raw =
         action.kind === "squad-cancel"
-          ? await coordinator.cancel(String(action.squadRunId), input.controlBinding)
+          ? await coordinator.cancel(String(action.squadRunId), localRunBinding(String(action.squadRunId)))
           : await (async () => {
               const owner = await binding();
               await input.prepareWorkspace();

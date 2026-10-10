@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { type TaskLifecycleServiceProof } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   canonicalGateReceipts,
@@ -387,18 +388,6 @@ export async function proofFor(
     };
   }
   if (command.type === "RecordReviewConsent") {
-    // Consent is a person's own confirmation. A fleet assignment authenticates a machine: the owner the
-    // center resolves for it decides what the node may do, and confirmed nothing.
-    if (
-      typeof command.source === "object" &&
-      command.source.kind === "node" &&
-      binding.keycloakAuthorization?.session?.personId !== command.actor.principal.personId
-    )
-      throw cellCodedError(
-        "human_confirmation_required",
-        `Consent on task ${command.taskId} is a person's own confirmation, and node ${command.source.nodeId} ` +
-          "authenticated as a machine. Sign in on the edge with ha bootstrap --operation login before confirming.",
-      );
     const authorizationDecision = requiredAuthorizationDecision(binding);
     return {
       actorBinding: command.actor,
@@ -633,7 +622,7 @@ export function operationId(
 export function actorHint(actor: ActorIdentity): string {
   return [
     "personId=",
-    `${actor.principal.personId}`,
+    `${principalId(actor.principal)}`,
     ", executor=",
     `${actor.executor === null ? "none" : `${actor.executor.kind}:${actor.executor.id}`}`,
     "",

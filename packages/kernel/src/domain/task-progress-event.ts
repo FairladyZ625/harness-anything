@@ -1,3 +1,5 @@
+import { samePrincipal } from "./actor-identity.ts";
+import { principalId } from "./actor-identity.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
 import { timestamp } from "./timestamp.ts";
@@ -18,7 +20,7 @@ import {
 } from "./write-chain.contract.ts";
 import type { TaskClass } from "./task.ts";
 import type { LeaseV1 } from "./execution.ts";
-import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import { isTaskBoundRuntimeWriter, type TaskBoundRuntimeBinding } from "./task-bound-runtime-authority.ts";
 import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.ts";
 
@@ -94,7 +96,7 @@ function progressLeaseRequiredMessage(taskId: string, lease: LeaseV1 | null, sta
 }
 function progressLeaseMismatchMessage(taskId: string, lease: LeaseV1): string {
   const executor = lease.actor.executor === null ? "none" : `${lease.actor.executor.kind}:${lease.actor.executor.id}`;
-  return `Progress append requires the active lease holder (personId=${lease.actor.principal.personId}, executor=${executor}) for execution ${lease.executionId}; that holder must run ha task progress append ${taskId} --text <text>, or run ha task release ${taskId}, then this caller can run ha task start ${taskId} --execution-id ${lease.executionId} before retrying progress append.`;
+  return `Progress append requires the active lease holder (principal=${principalId(lease.actor.principal)}, executor=${executor}) for execution ${lease.executionId}; that holder must run ha task progress append ${taskId} --text <text>, or run ha task release ${taskId}, then this caller can run ha task start ${taskId} --execution-id ${lease.executionId} before retrying progress append.`;
 }
 export function compileTaskProgress(input: {
   readonly taskId: string;
@@ -143,13 +145,15 @@ export function compileTaskProgress(input: {
   }
   const lease = input.activeLease,
     workOwner =
-      input.taskClass === "work" && input.taskCreatedBy !== undefined && isSamePerson(input.taskCreatedBy, input.actor),
+      input.taskClass === "work" &&
+      input.taskCreatedBy !== undefined &&
+      samePrincipal(input.taskCreatedBy.principal, input.actor.principal),
     // Post-release owner backfill: the task creator may append after the lease is gone, but a
     // live reservation or a held lease keeps the normal holder rules (no writability revival).
     ownerBackfill =
       input.asOwner === true &&
       input.taskCreatedBy !== undefined &&
-      isSamePerson(input.taskCreatedBy, input.actor) &&
+      samePrincipal(input.taskCreatedBy.principal, input.actor.principal) &&
       (lease === null || lease.phase === "released" || lease.phase === "orphaned");
   if (lease === null || lease.phase !== "held") {
     if (!ownerBackfill && !workOwner)

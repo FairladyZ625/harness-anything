@@ -50,7 +50,7 @@ function lease(taskId: string, nodeId: string | null, overrides: Partial<FleetLe
     coordinationStatus: "active",
     leasePhase: "held",
     leaseExpiresAt: "2026-10-07T00:00:00.000Z",
-    personId: "person_zeyu",
+    principal: { personId: "person_zeyu" },
     executorId: `runtime-session:runtime_${taskId}`,
     nodeId,
     ...overrides,

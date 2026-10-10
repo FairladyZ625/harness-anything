@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import { edgeManifestEntries } from "../src/fleet/replica-read-model.ts";
 import { locateFleetMirrorView, fleetMirrorCutFile } from "../src/fleet-edge-mirror.ts";
 import assert from "node:assert/strict";
@@ -594,6 +595,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Fleet",
   );
+  await assignFixtureTask(host, subject, auth);
   const started = await host.run(
     subject.repoId,
     { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
@@ -662,6 +664,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) =>
             [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
+          nodeSubject: owners.nodeSubject,
           nodeOwner: async (nodeId) => {
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             return owners.nodeOwner(nodeId);
@@ -778,6 +781,7 @@ async function crossRepoFixture(t: TestContext) {
       (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
       "Cross",
     );
+    await assignFixtureTask(host, subject, auth);
     assert.equal(
       (
         await host.run(
@@ -812,6 +816,7 @@ async function crossRepoFixture(t: TestContext) {
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === "node-shared" && credential === "machine-secret",
           nodeOwner: owners.nodeOwner,
+          nodeSubject: owners.nodeSubject,
         }),
       ),
     close: async () => {

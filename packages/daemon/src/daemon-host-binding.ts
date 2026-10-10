@@ -101,32 +101,32 @@ function withSessionEnvironment(binding: RepoCellBinding, auth: DaemonAuthentica
   };
 }
 
-/**
- * A fleet connection authenticates a machine only. The person it acts for is the node's registered
- * owner, and that person answers to the same Keycloak grants as when signed in locally.
- */
-async function nodeOwnerBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
-  const owner = auth.nodePrincipal;
-  if (!owner || !owner.nodeId || !auth.keycloakCenter)
+/** Fleet credentials identify the machine; an independently verified login identifies the acting person. */
+async function nodePrincipalBinding(auth: DaemonAuthenticationContext): Promise<RepoCellBinding> {
+  const node = auth.nodePrincipal;
+  if (!node || !node.nodeId || !auth.keycloakCenter)
     throw hostCodedError(
       "authentication_required",
-      "Fleet ingress requires a registered node owner and center authority.",
+      "Fleet ingress requires an authenticated node and center authority.",
     );
-  if (auth.oidcPrincipal && auth.oidcPrincipal.personId !== owner.personId)
-    throw hostCodedError("human_confirmation_required", "The interactive session belongs to a different node owner.");
+  const principal = auth.oidcPrincipal
+    ? { personId: auth.oidcPrincipal.personId }
+    : { kind: "machine" as const, subject: node.subject, nodeId: node.nodeId };
   return {
-    actor: { principal: { personId: owner.personId }, executor: null },
-    source: { kind: "node", nodeId: owner.nodeId },
-    keycloakAuthorization:
-      auth.oidcPrincipal?.personId === owner.personId
+    actor: { principal, executor: null },
+    source: { kind: "node", nodeId: node.nodeId },
+    keycloakAuthorization: {
+      center: auth.keycloakCenter,
+      ...(auth.oidcPrincipal
         ? {
             session: {
-              personId: owner.personId,
+              personId: auth.oidcPrincipal.personId,
               accessToken: auth.oidcPrincipal.accessToken,
               ...auth.oidcPrincipal.authority,
             },
           }
-        : { center: auth.keycloakCenter },
+        : {}),
+    },
     ...(auth.sessionEnvironment === undefined ? {} : { sessionEnvironment: auth.sessionEnvironment }),
     ...(auth.writerEpoch === undefined ? {} : { writerEpoch: auth.writerEpoch }),
     ...(auth.withWriterEpochFence ? { withWriterEpochFence: auth.withWriterEpochFence } : {}),
@@ -140,7 +140,7 @@ export async function binding(
   executor: RepoCellBinding["actor"]["executor"] = null,
   replicaRead = false,
 ): Promise<RepoCellBinding> {
-  if (auth.transportKind === "fleet-tls") return nodeOwnerBinding(auth);
+  if (auth.transportKind === "fleet-tls") return nodePrincipalBinding(auth);
   if (replicaRead) return localDefaultBinding(auth, executor, true);
   return localDefaultBinding(auth, executor);
 }

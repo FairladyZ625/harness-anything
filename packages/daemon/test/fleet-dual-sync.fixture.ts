@@ -109,6 +109,7 @@ export async function dualSyncFixture() {
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
     nodeOwner: owners.nodeOwner,
+    nodeSubject: owners.nodeSubject,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`),
     workspace = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -120,7 +121,7 @@ export async function dualSyncFixture() {
     servername: "localhost",
     nodeId,
     credential: `secret-${nodeId}`,
-    principalId: owners.nodeOwner(nodeId),
+    principalId: `machine:${nodeId}:${owners.keycloak.nodeClients.get(`harness-node-${nodeId}`)!.id}-service`,
     repoId: "dual-repo",
     viewRoot: edgeRoot(nodeId),
     quotaBytes: replicaQuota,
@@ -210,6 +211,15 @@ export async function dualSyncFixture() {
     const submitted = await host.run("dual-repo", { kind: "doc-submit", paths: [planPath] }, localAuth);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await waitPublished(String(submitted.opId));
+    // dec_2665E58BA5AE42E37793193748/CH1: compute claims require explicit node assignment.
+    const shown = await centerRun({ kind: "task-show", taskId: receipt.taskId });
+    const assigned = await centerRun({
+      kind: "task-assign",
+      taskId: receipt.taskId,
+      nodeId,
+      expectedVersion: JSON.parse(String(shown.evidence)).revision,
+    });
+    assert.equal(assigned.outcome, "applied", JSON.stringify(assigned));
     for (const target of nodes) {
       const synced = await edgeDocSync(target);
       assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 500));

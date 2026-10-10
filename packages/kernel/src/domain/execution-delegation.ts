@@ -1,3 +1,4 @@
+import { samePrincipal } from "./actor-identity.ts";
 import { parseDelegatedExecutionToken, type DelegatedExecutionToken } from "./delegated-execution-token.ts";
 import type { EntityActionCompileInput } from "./entity-action-execution.ts";
 import type { WriteSource } from "./write-chain.contract.ts";
@@ -28,7 +29,7 @@ export function compileExecutionDelegation(
     const token = parseDelegatedExecutionToken({
       schema: "delegated-execution-token/v1",
       tokenId,
-      issuer: { personId: input.actor.principal.personId },
+      issuer: input.actor.principal,
       delegate: { runtimeSessionId: input.action.runtimeSessionId },
       allowedActions: input.action.action,
       issuedAt: input.occurredAt,
@@ -42,7 +43,7 @@ export function compileExecutionDelegation(
   }
   if (
     !held ||
-    held.token.issuer.personId !== input.actor.principal.personId ||
+    !samePrincipal(held.token.issuer, input.actor.principal) ||
     stableStringify(held.source) !== stableStringify(input.source)
   )
     throw invalid("Revoke requires the issuing principal and source of an existing delegation.");

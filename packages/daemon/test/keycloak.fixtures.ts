@@ -202,6 +202,11 @@ export function fakeKeycloak() {
     }
     const nodeClient = [...nodeClients.values()].find((client) => route.startsWith(`/clients/${client.id}`));
     if (nodeClient) {
+      if (route.endsWith("/service-account-user")) {
+        const subject = `${nodeClient.id}-service`;
+        users.set(subject, { id: subject, username: `service-account-${nodeClient.clientId}`, attributes: {} });
+        return json({ id: subject, serviceAccountClientId: nodeClient.clientId });
+      }
       if (method === "DELETE") {
         nodeClients.delete(nodeClient.clientId);
         return new Response(null, { status: 204 });
@@ -344,7 +349,8 @@ export function fakeKeycloak() {
     nodeLogins,
     /** Grants `personId` the named actions on one resource, the way a stored grant materializes. */
     permit(personId: string, resourceName: string, actions: readonly string[]): void {
-      const user = [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
+      const user =
+        users.get(personId) ?? [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
       if (!user) throw new Error(`fixture account ${personId} is not registered`);
       const resource = [...resources.values()].find((item) => item.name === resourceName) ?? {
           _id: id("resource"),
@@ -365,7 +371,8 @@ export function fakeKeycloak() {
     },
     /** Removes the named actions from all fixture permissions for this person and resource. */
     revoke(personId: string, resourceName: string, actions: readonly string[]): void {
-      const user = [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
+      const user =
+        users.get(personId) ?? [...users.values()].find((item) => item.attributes.harness_person_id?.[0] === personId);
       if (!user) throw new Error(`fixture account ${personId} is not registered`);
       const removed = new Set(actions);
       for (const [permissionId, permission] of permissions) {
@@ -390,6 +397,11 @@ export function fakeKeycloak() {
         };
       client.attributes = { ...client.attributes, harness_person_id: personId };
       nodeClients.set(clientId, client);
+      users.set(`${client.id}-service`, {
+        id: `${client.id}-service`,
+        username: `service-account-${clientId}`,
+        attributes: {},
+      });
       return client.secret;
     },
     interactiveSession(personId: string, nodeId: string, issuer: string, token = `token-${personId}`): void {

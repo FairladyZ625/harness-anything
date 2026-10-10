@@ -33,7 +33,8 @@ export interface FleetCenterOptions {
   readonly now?: () => string;
   readonly writerId?: string;
   readonly authenticate: (nodeId: string, credential: string) => boolean | Promise<boolean>;
-  /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
+  readonly nodeSubject: (nodeId: string) => Promise<string | null>;
+  /** Accountability owner; never used for machine authorization. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;

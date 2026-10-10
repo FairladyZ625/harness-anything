@@ -326,7 +326,7 @@ export function createDaemonHostRuntimeApi(
             "repo_mode_read_only",
             "Fleet edge sync requires the matching enabled remote-edge registration.",
           );
-        // The edge only relays its machine credential; the center decides whether the node's owner may sync.
+        // The edge only relays its machine credential; the center decides whether the node principal may sync.
         context.localOnly(auth);
         const receipt = await syncFleetEdgeMirror({
           payload: request,

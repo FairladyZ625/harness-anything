@@ -1,7 +1,7 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   dispatchPrerequisitesOf,
   isSameExecution,
-  isSamePerson,
   type ActorIdentity,
   type TaskProjection,
 } from "@harness-anything/kernel";
@@ -58,7 +58,7 @@ export function taskDispatchLeaseQualifies(
     trustedSourceExecutor = trustedHandoffSource ? `runtime-session:${trustedHandoffSource}` : null;
   return (
     lease.phase === "held" &&
-    isSamePerson(lease.actor, actor) &&
+    samePrincipal(lease.actor.principal, actor.principal) &&
     (isSameExecution(lease.actor, actor) ||
       leaseExecutorId === dispatchLeaseExecutor ||
       leaseExecutorId === trustedSourceExecutor ||

@@ -19,6 +19,7 @@ import type { SnapshotCut } from "./replica-cut-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import {
+  principalId,
   edgeReadAuthorizationShapeDigest,
   READ_MODEL_SCHEMA_GENERATION,
   resolveHarnessLayout,
@@ -83,14 +84,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return lease;
     },
     currentEpochFor = (repoId: string) => writerEpoch.current(repoId) ?? ownedEpochFor(repoId),
-    // The owner is read from the registry for each use, so re-registering a node changes who its next
-    // frame acts for; nothing a frame carries can name the person.
+    // Identity comes from the registry for every request; owner metadata never supplies authority.
     readerAuth = async (node: { nodeId: string; repoId: string }) => {
-      const personId = await options.nodeOwner(node.nodeId);
-      if (!personId) throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
+      const personId = await options.nodeOwner(node.nodeId),
+        subject = await options.nodeSubject(node.nodeId);
+      if (!personId || !subject)
+        throw new FleetFault("node_owner_unregistered", `Node ${node.nodeId} has no registered owner.`);
       return {
         transportKind: "fleet-tls" as const,
-        nodePrincipal: { nodeId: node.nodeId, personId },
+        nodePrincipal: { nodeId: node.nodeId, personId, subject },
       };
     },
     principalAuth = async (
@@ -224,19 +226,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const admitReplica = async (nodeId: string, repoId: string) => {
     if (!Number.isSafeInteger(options.replicaDiskQuotaBytes) || options.replicaDiskQuotaBytes! <= 0)
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
-    const a = await nodeContext(nodeId, repoId),
-      owner = await options.nodeOwner(nodeId);
-    if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
+    const a = await nodeContext(nodeId, repoId);
     const replica = options.host.replica(a.repoId),
-      // The node owner's repository-read authority admits the replica
-      // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).
+      // dec_2665E58BA5AE42E37793193748/CH1: the authenticated machine admits its replica.
       decision = await options.host.authorize(a.repoId, "repository-read", {
-        transportKind: "fleet-tls" as const,
-        nodePrincipal: { nodeId, personId: owner },
+        ...(await readerAuth(a)),
       });
     if (decision.outcome !== "allowed")
-      throw new FleetFault("authorization_denied", "The node owner may not read this repository.");
-    return { a, replica, owner };
+      throw new FleetFault("authorization_denied", "The node principal may not read this repository.");
+    return { a, replica, owner: principalId(decision.actor.principal) };
   };
   const handle = async (
     nodeId: string,
@@ -261,26 +259,25 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     if (frame.schema === "fleet.repo.metadata.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId),
         baseLedgerSha = options.host.replica(a.repoId).ledgerCut(),
-        principal = await readerAuth(a),
-        actionAllowed =
+        authentication = await principalAuth(a, frame.accessToken, frame.executionCredential),
+        decision =
           frame.actionKind === undefined
             ? null
-            : (
-                await options.host.authorize(
-                  a.repoId,
-                  frame.actionKind,
-                  {
-                    ...principal,
-                    ...(frame.executionCredential ? { executionCredential: frame.executionCredential } : {}),
-                  },
-                  frame.taskId ? { taskId: frame.taskId } : undefined,
-                )
-              ).outcome === "allowed";
+            : await options.host.authorize(
+                a.repoId,
+                frame.actionKind,
+                authentication,
+                frame.taskId ? { taskId: frame.taskId } : undefined,
+              );
       if (!baseLedgerSha) throw new FleetFault("projection_pending", "Current ledger cut is unavailable.", true);
       return immediate({
         schema: "fleet.repo.metadata.result/v1",
-        personId: principal.nodePrincipal.personId,
-        actionAllowed,
+        principal: decision?.actor.principal ?? {
+          kind: "machine",
+          subject: authentication.nodePrincipal!.subject,
+          nodeId,
+        },
+        actionAllowed: decision === null ? null : decision.outcome === "allowed",
         messageId: mid(frame.messageId, "metadata"),
         inReplyTo: frame.messageId,
         repoId: a.repoId,
@@ -689,7 +686,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
             const executionId = assertFleetDeliveryHolder(snapshot, {
               nodeId,
-              personId: (await readerAuth(a)).nodePrincipal.personId,
+              principal: admission.actor.principal,
               ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
             });
             const commitSha = await fetchWorkerDelivery(

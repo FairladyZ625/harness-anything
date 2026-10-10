@@ -6,7 +6,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { OidcSessionService, type OidcSessionPorts, type OidcLoginAuthority } from "../src/oidc-session-service.ts";
-import { evaluateKeycloakPerson } from "../src/repo-cell-authorization.ts";
+import { evaluateKeycloakPrincipal } from "../src/repo-cell-authorization.ts";
 import { localDefaultBinding } from "../src/daemon-host-binding.ts";
 import type { DaemonHost } from "../src/daemon-host.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
@@ -615,9 +615,9 @@ test("authorization after delayed preparation renews the originally bound local 
     binding = localDefaultBinding(auth),
     seen: unknown[] = [],
     evaluate = () =>
-      evaluateKeycloakPerson({
+      evaluateKeycloakPrincipal({
         credential: binding.keycloakAuthorization!,
-        personId: binding.actor.principal.personId,
+        principal: binding.actor.principal,
         action: "task-complete",
         resource: { kind: "repository", repoId: "repo-delayed" },
         fetchPort: (async (_url, init) => {
@@ -649,9 +649,9 @@ for (const endedBy of ["revoked", "expired", "logout", "new-login", "unreachable
     if (endedBy === "unreachable") active.keycloak.reachable = false;
     let evaluations = 0;
     await assert.rejects(
-      evaluateKeycloakPerson({
+      evaluateKeycloakPrincipal({
         credential: binding.keycloakAuthorization!,
-        personId: binding.actor.principal.personId,
+        principal: binding.actor.principal,
         action: "task-complete",
         resource: { kind: "repository", repoId: "repo-delayed" },
         fetchPort: (async () => {

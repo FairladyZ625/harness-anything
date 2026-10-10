@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { appendSquadRunObservation } from "./repo-cell-squad-child.ts";
 import { makeSquadCanonicalReader } from "./squad-canonical-read.ts";
@@ -374,7 +375,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     "repo.agenda.read": (payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) =>
       queryRead().agenda({
         ...agendaQueryFromPayload(context, payload),
-        ...(binding ? { principalId: binding.actor.principal.personId } : {}),
+        ...(binding ? { principalId: principalId(binding.actor.principal) } : {}),
       }),
     "repo.triadic.relationGraph": (payload: Readonly<Record<string, unknown>>) => relationGraphFromPayload(payload),
     "repo.agent.entities.list": () =>
@@ -783,7 +784,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           authorizedBinding.source.kind === "node" &&
           authorizedBinding.keycloakAuthorization?.center
             ? {
-                personId: dispatch.actor.principal.personId,
+                principal: dispatch.actor.principal,
                 repoId: context.input.repoId,
                 runtimeSessionId: dispatch.payload.runtimeSessionId,
                 dispatchId: dispatch.payload.dispatchId,
@@ -813,7 +814,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
             ? {
                 executionCredential,
                 executionExpiresAt: execution!.expiresAt,
-                executionPrincipalId: execution!.personId,
+                executionPrincipal: execution!.principal,
               }
             : {}),
         } as unknown as JsonObject;

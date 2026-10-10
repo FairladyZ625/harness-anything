@@ -6,6 +6,9 @@ import { composeDurableActionEnvelope } from "@harness-anything/application/inte
 import path from "node:path";
 import {
   durablePolicyActions,
+  type ActorPrincipal,
+  samePrincipal,
+  principalId,
   isSameExecution,
   parseEntityRef,
   taskIsDescendantOf,
@@ -57,9 +60,9 @@ export async function evaluateRepoCellAction(input: {
     if (!credential.center) throw executionCredentialRejected();
     await verifyRuntimeExecutionPrincipal(await credential.center(), input.binding.executionPrincipal, input.fetchPort);
   }
-  const result = await evaluateKeycloakPerson({
+  const result = await evaluateKeycloakPrincipal({
     credential,
-    personId: envelope.actor.principal.personId,
+    principal: envelope.actor.principal,
     action: input.action.kind,
     resource:
       target === repositoryTarget
@@ -77,7 +80,10 @@ export async function evaluateRepoCellAction(input: {
           {
             proof: "delegated-execution-token",
             tokenId: token.tokenId,
-            issuerPersonId: token.issuer.personId,
+            issuer:
+              token.issuer.kind === "machine"
+                ? { kind: token.issuer.kind, subject: token.issuer.subject, nodeId: token.issuer.nodeId }
+                : { personId: token.issuer.personId },
             runtimeSessionId: token.delegate.runtimeSessionId,
           },
         ],
@@ -90,15 +96,15 @@ export async function evaluateRepoCellAction(input: {
  * resource. A signed-in person presents their own token; a node's owner or the issuer behind an
  * execution token holds none here, so the center asks Keycloak about that person by id.
  */
-export async function evaluateKeycloakPerson(input: {
+export async function evaluateKeycloakPrincipal(input: {
   readonly credential: NonNullable<RepoCellBinding["keycloakAuthorization"]>;
-  readonly personId: string;
+  readonly principal: ActorPrincipal;
   readonly action: string;
   readonly resource: AuthorizationResource;
   readonly fetchPort?: typeof fetch;
 }): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
   const { session, center } = input.credential;
-  if (session?.personId === input.personId)
+  if (input.principal.kind !== "machine" && session?.personId === input.principal.personId)
     return new KeycloakPolicyAdapter(
       { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
       input.fetchPort,
@@ -112,9 +118,9 @@ export async function evaluateKeycloakPerson(input: {
   return new KeycloakPolicyAdapter(
     { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
     input.fetchPort,
-  ).authorizePerson({
+  ).authorizePrincipal({
     adminAccessToken: currentCenter.accessToken,
-    personId: input.personId,
+    principal: input.principal,
     action: input.action,
     resource: input.resource,
   });
@@ -600,7 +606,7 @@ function resolveDelegatedExecution(
     .filter(
       (record) =>
         stableStringify(record.source) === stableStringify(input.binding.source) &&
-        record.token.issuer.personId === input.binding.actor.principal.personId &&
+        samePrincipal(record.token.issuer, input.binding.actor.principal) &&
         record.token.delegate.runtimeSessionId === runtimeSessionId,
     )
     .map((record) => record.token);
@@ -609,7 +615,7 @@ function resolveDelegatedExecution(
   let failure: DelegationFailure | null = null;
   for (const token of candidates) {
     const actor = {
-        principal: { personId: token.issuer.personId },
+        principal: token.issuer,
         executor: { kind: "agent" as const, id: `runtime-session:${runtimeSessionId}` },
       },
       verification = verifyDelegatedExecutionToken(token, actor, actionKind, input.now);
@@ -653,7 +659,7 @@ function delegationFailureExpectation(
     case "delegated_token_action_forbidden":
       return (
         `DelegatedExecutionToken ${token.tokenId} does not allow ${actionKind}; ask issuer ` +
-        `${token.issuer.personId} to include the Action in the delegated set, then retry.`
+        `${principalId(token.issuer)} to include the Action in the delegated set, then retry.`
       );
     case "delegated_token_not_yet_valid":
       return `${named} is not valid before ${token.issuedAt}; retry after that time.`;
@@ -735,7 +741,7 @@ function invalidExecutorBindingFor(
       runtimeSessionId !== null &&
       lease?.actor.executor?.kind === "agent" &&
       lease.actor.executor.id === `runtime-session:${runtimeSessionId}`,
-    principalMismatch = sameExecutor && lease.actor.principal.personId !== input.binding.actor.principal.personId,
+    principalMismatch = sameExecutor && !samePrincipal(lease.actor.principal, input.binding.actor.principal),
     sourceMismatch =
       sameExecutor && !principalMismatch && stableStringify(lease.source) !== stableStringify(input.binding.source),
     // Identity and write source already answer to the lease holder, so the only unmet requirement is
@@ -810,7 +816,7 @@ function invalidExecutorBindingFor(
         : wrongExecution
           ? requestedExecutionId!
           : principalMismatch
-            ? input.binding.actor.principal.personId
+            ? principalId(input.binding.actor.principal)
             : sourceMismatch
               ? stableStringify(input.binding.source)
               : actual,

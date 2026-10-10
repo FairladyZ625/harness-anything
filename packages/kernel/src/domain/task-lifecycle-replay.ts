@@ -1,3 +1,4 @@
+import { samePrincipal } from "./actor-identity.ts";
 import { executionAnnotationKinds, isNativeExecution, submissionDigest, submissionId } from "./execution.ts";
 import type { ExecutionAnnotationKind, ExecutionAnnotationV1, ExecutionV1, LeaseV1 } from "./execution.ts";
 import { reviewDigest } from "./review.ts";
@@ -8,7 +9,7 @@ import type { WriteSource } from "./write-chain.contract.ts";
 import { stableStringify } from "../integrity/stable-hash.ts";
 import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-event.ts";
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
-import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { completionGateIds, judgeGateWitnesses } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
@@ -536,7 +537,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
         submissionId(current.submission) === submissionId(event.payload.execution.submission) ||
         !sameReplayTask(event.payload.task, snapshot.task) ||
         stableStringify(event.payload.execution) !== stableStringify(expected) ||
-        (!isSameExecution(current.actor, event.actor) && !isSamePerson(snapshot.task.createdBy, event.actor)) ||
+        (!isSameExecution(current.actor, event.actor) &&
+          !samePrincipal(snapshot.task.createdBy.principal, event.actor.principal)) ||
         event.payload.edge !== undefined ||
         next.lease !== null
       )
@@ -578,8 +580,8 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
       stableStringify(event.payload.execution) !== stableStringify(expected) ||
       current.actor.executor !== null ||
       event.payload.execution.actor.executor === null ||
-      !isSamePerson(current.actor, event.actor) ||
-      !isSamePerson(event.payload.execution.actor, event.actor) ||
+      !samePrincipal(current.actor.principal, event.actor.principal) ||
+      !samePrincipal(event.payload.execution.actor.principal, event.actor.principal) ||
       !["active", "submitted", "in_review"].includes(String(snapshot.task?.status)) ||
       snapshot.task?.currentNode !== "review" ||
       snapshot.lease !== null ||

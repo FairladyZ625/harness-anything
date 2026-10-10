@@ -1,3 +1,5 @@
+import { principalId } from "@harness-anything/kernel";
+import { samePrincipal } from "@harness-anything/kernel";
 import { isNativeExecution, type TaskProjection } from "@harness-anything/kernel";
 import {
   documentPath,
@@ -250,7 +252,7 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
           " is frozen — doc-sync task package files BEFORE ha task submit; if artifacts must still land, " +
           "the owner returns the cut with ha task adjudicate <task-id> --return and the work is resubmitted with them"
         : scan.lease
-          ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
+          ? `next: lease held by ${principalId(scan.lease.actor.principal)} (${scan.lease.executionId}); ` +
             "submit through the lease holder or use the repository prose channel"
           : "next: submit through the repository prose channel or acquire the task lease"
       : "next: use the required route shown for each blocked path; these documents are daemon-managed. Then rerun " +
@@ -372,7 +374,7 @@ export function scopeTouches(
       return (
         !lease ||
         lease.phase !== "held" ||
-        lease.actor.principal.personId !== input.binding.actor.principal.personId ||
+        !samePrincipal(lease.actor.principal, input.binding.actor.principal) ||
         JSON.stringify(lease.source) !== JSON.stringify(input.binding.source)
       );
     })

@@ -1,3 +1,4 @@
+import { samePrincipal } from "./actor-identity.ts";
 import { isNativeExecution } from "./execution.ts";
 import type { ExecutionV1, LeaseV1, ProjectedExecution } from "./execution.ts";
 import type { ActorAxes, ContractValidationIssue, TaskV2 } from "./task.ts";
@@ -7,7 +8,7 @@ import { codeDocRecordId, currentCodeDocWitness } from "./code-doc-witness.ts";
 import { judgeCompletionEvidence } from "./completion-evidence.ts";
 import { TaskLifecycleContractError } from "./task-lifecycle-event.ts";
 import type { TaskEventV1, TaskLifecycleErrorCode } from "./task-lifecycle-event.ts";
-import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import { completionGateIds, currentSubmittedExecutions, gateResults } from "./closeout-readiness.ts";
 import type {
   CompleteTaskProof,
@@ -100,7 +101,7 @@ export function executionExecutorDeclarationCandidates(
   )
     return [];
   return currentSubmittedExecutions(snapshot).filter(
-    (value) => value.actor.executor === null && isSamePerson(value.actor, actor),
+    (value) => value.actor.executor === null && samePrincipal(value.actor.principal, actor.principal),
   );
 }
 export function takeEdge(

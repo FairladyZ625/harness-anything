@@ -1,3 +1,4 @@
+import { principalLabel as principalId } from "../../model/actor-name.ts";
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient } from "../../api-client.ts";
@@ -86,7 +87,15 @@ export function TaskAssignmentPanel({
             <span>
               {t(`taskAssignment.${assignee.kind === "team" ? "team" : assignee.nodeId ? "node" : "person"}`)}
             </span>
-            <IdText value={assignee.kind === "team" ? assignee.teamId : (assignee.nodeId ?? assignee.personId)} />
+            <IdText
+              value={
+                assignee.kind === "team"
+                  ? assignee.teamId
+                  : assignee.kind === "node"
+                    ? assignee.nodeId
+                    : (assignee.nodeId ?? assignee.personId)
+              }
+            />
             <span>{formatTime(assignment!.expiresAt, { style: "month-day-time" })}</span>
           </>
         ) : (
@@ -101,7 +110,7 @@ export function TaskAssignmentPanel({
           <span className="ui-meta">{t("taskAssignment.holderNone")}</span>
         ) : (
           <>
-            <IdText value={task.leaseActor.principal.personId} />
+            <IdText value={principalId(task.leaseActor.principal)} />
             {(() => {
               const runtimeSessionId = leaseRuntimeSessionIdOf(task.leaseActor);
               if (runtimeSessionId === null) return null;

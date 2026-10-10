@@ -1,3 +1,4 @@
+import { validActorPrincipal, type ActorPrincipal } from "./actor-identity.ts";
 import { validateReceiptAcceptance, type ReceiptAcceptanceFields } from "./receipt-acceptance.ts";
 import { validateActorIdentity } from "./actor-identity.ts";
 import { isNonEmptyString } from "./contract-validation.ts";
@@ -107,7 +108,7 @@ export interface DocSyncDeletion {
 export interface DocSyncHolder {
   readonly taskId: string;
   readonly executionId: string;
-  readonly personId: string;
+  readonly principal: ActorPrincipal;
   readonly executorId: string | null;
   readonly source: unknown;
   readonly expiresAt: string;
@@ -576,10 +577,9 @@ function validateDocSyncDetail(value: Readonly<Record<string, unknown>>): boolea
     ) &&
     (value.holder === null ||
       (isReceiptDomainRecord(value.holder) &&
-        exact(value.holder, ["taskId", "executionId", "personId", "executorId", "source", "expiresAt", "version"]) &&
-        [value.holder.taskId, value.holder.executionId, value.holder.personId, value.holder.expiresAt].every(
-          isNonEmptyString,
-        ) &&
+        validActorPrincipal(value.holder.principal) &&
+        exact(value.holder, ["taskId", "executionId", "principal", "executorId", "source", "expiresAt", "version"]) &&
+        [value.holder.taskId, value.holder.executionId, value.holder.expiresAt].every(isNonEmptyString) &&
         (value.holder.executorId === null || isNonEmptyString(value.holder.executorId)) &&
         cut(value.holder.version))) &&
     Array.isArray(value.differences) &&

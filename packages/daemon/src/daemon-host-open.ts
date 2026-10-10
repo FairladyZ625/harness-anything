@@ -262,8 +262,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           auth.nodePrincipal &&
           (typeof execution.source !== "object" ||
             execution.source.kind !== "node" ||
-            execution.source.nodeId !== auth.nodePrincipal.nodeId ||
-            execution.personId !== auth.nodePrincipal.personId)
+            execution.source.nodeId !== auth.nodePrincipal.nodeId)
         )
           throw executionCredentialRejected();
         const cell = cells.get(execution.repoId);

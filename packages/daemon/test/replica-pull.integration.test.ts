@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -291,6 +292,7 @@ async function replicaFixture(t: TestContext) {
     (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Replica R2",
   );
+  await assignFixtureTask(host, subject, auth);
   const started = await host.run(
     subject.repoId,
     { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
@@ -324,6 +326,7 @@ async function replicaFixture(t: TestContext) {
         authenticate: (nodeId, credential) =>
           [subject.nodeId, otherSubject.nodeId].includes(nodeId) && credential === "machine-secret",
         nodeOwner: owners.nodeOwner,
+        nodeSubject: owners.nodeSubject,
       }),
     close: async () => {
       await host.close();

@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { executionDelegationPath, readExecutionDelegations } from "./execution-delegation-store.ts";
 import {
@@ -78,7 +79,7 @@ export function makeRepoCellCommandRunner(
                     issue?.schema === "execution-delegation-event/v1" &&
                     issue.payload.operation === "issue" &&
                     issue.payload.tokenId === record.token.tokenId &&
-                    issue.actor.principal.personId === record.token.issuer.personId &&
+                    samePrincipal(issue.actor.principal, record.token.issuer) &&
                     stableStringify(issue.source) === stableStringify(record.source)
                   );
                 })

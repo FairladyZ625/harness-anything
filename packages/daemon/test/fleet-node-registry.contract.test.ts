@@ -32,7 +32,7 @@ test("fleet center admission rejects unreadable TLS material before opening a li
     prepareFleetCenterAdmission({
       host: {} as Parameters<typeof prepareFleetCenterAdmission>[0]["host"],
       userRoot: root,
-      nodes: { authenticate: () => false, nodeOwner: () => null },
+      nodes: { authenticate: () => false, nodeOwner: () => null, nodeSubject: async () => null },
       payload: {
         port: 0,
         keyPath: path.join(root, "missing.key"),

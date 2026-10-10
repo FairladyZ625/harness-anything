@@ -179,7 +179,10 @@ export function validateWriteSource(value: unknown, allowUnknownFields = false):
 function actorIdentityShape(value: unknown): readonly unknown[] | null {
   if (validateActorIdentity(value, true).length || !isRecord(value) || !isRecord(value.principal)) return null;
   return [
+    value.principal.kind,
     value.principal.personId,
+    value.principal.subject,
+    value.principal.nodeId,
     value.executor === null ? null : (value.executor as Record<string, unknown>).kind,
     value.executor === null ? null : (value.executor as Record<string, unknown>).id,
   ];

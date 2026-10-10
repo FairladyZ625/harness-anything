@@ -1,3 +1,4 @@
+import { samePrincipal, type ActorPrincipal } from "@harness-anything/kernel";
 import path from "node:path";
 import type { Snapshot } from "./repo-cell-types.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
@@ -9,7 +10,7 @@ export type FleetDeliveryTask = Snapshot & { readonly workspace: TaskWorkspaceVi
 
 export function assertFleetDeliveryHolder(
   snapshot: FleetDeliveryTask,
-  input: { readonly nodeId: string; readonly personId: string; readonly executionId?: string },
+  input: { readonly nodeId: string; readonly principal: ActorPrincipal; readonly executionId?: string },
 ): string {
   const lease = snapshot.lease;
   if (
@@ -17,12 +18,12 @@ export function assertFleetDeliveryHolder(
     typeof lease.source !== "object" ||
     lease.source.kind !== "node" ||
     lease.source.nodeId !== input.nodeId ||
-    lease.actor.principal.personId !== input.personId ||
+    !samePrincipal(lease.actor.principal, input.principal) ||
     (input.executionId !== undefined && lease.executionId !== input.executionId) ||
     lease.phase !== "held" ||
     Date.parse(lease.expiresAt) <= Date.now()
   )
-    throw Object.assign(new Error("Delivery requires the current node, owner and execution lease."), {
+    throw Object.assign(new Error("Delivery requires the current node, principal and execution lease."), {
       code: "lease_holder_mismatch",
     });
   return lease.executionId;
@@ -34,7 +35,7 @@ export async function prepareEdgeTaskDelivery(input: {
   readonly nodeId: string;
 
   readonly action: FleetTaskAction;
-  readonly authorize: () => Promise<string>;
+  readonly authorize: () => Promise<ActorPrincipal>;
   readonly readTask: () => Promise<FleetDeliveryTask>;
 }): Promise<FleetTaskAction> {
   const initial = await input.readTask();
@@ -53,10 +54,10 @@ export async function prepareEdgeTaskDelivery(input: {
   const taskId = String(input.action.taskId),
     expectedRemoteCommit = await readWorkerRemoteCommit(input.workspaceRoot, taskId),
     current = await input.readTask(),
-    personId = await input.authorize(),
+    principal = await input.authorize(),
     executionId = assertFleetDeliveryHolder(current, {
       ...input,
-      personId,
+      principal,
       executionId: typeof input.action.executionId === "string" ? input.action.executionId : undefined,
     }),
     cwd = path.join(input.workspaceRoot, initial.workspace.path),

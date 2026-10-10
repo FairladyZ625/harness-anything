@@ -1,7 +1,7 @@
 import { composeDurableActionEnvelope } from "@harness-anything/application/internal/durable-action-envelope";
 import { actionDeclarations, type AuthorizationDecision } from "@harness-anything/kernel";
 import { localDefaultBinding, localSystemActionBinding } from "./daemon-host-binding.ts";
-import { evaluateKeycloakPerson, keycloakDecision } from "./repo-cell-authorization.ts";
+import { evaluateKeycloakPrincipal, keycloakDecision } from "./repo-cell-authorization.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 
@@ -51,9 +51,9 @@ export async function evaluateFleetAction(input: {
       };
     return keycloakDecision(envelope, input.evaluatedAtCut, "denied", "authentication_required");
   }
-  const result = await evaluateKeycloakPerson({
+  const result = await evaluateKeycloakPrincipal({
     credential,
-    personId: input.binding.actor.principal.personId,
+    principal: input.binding.actor.principal,
     action: input.kind,
     resource: input.repoId === undefined ? { kind: "fleet" } : { kind: "repository", repoId: input.repoId },
     fetchPort: input.fetchPort,

@@ -14,7 +14,7 @@ import type { WriterEpochLease } from "./writer-epoch.ts";
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
   fetchPort?: typeof fetch,
-): Pick<FleetCenterOptions, "authenticate" | "nodeOwner"> {
+): Pick<FleetCenterOptions, "authenticate" | "nodeOwner" | "nodeSubject"> {
   const open = async () => {
     const authority = await center();
     return {
@@ -27,6 +27,10 @@ export function keycloakNodeRegistry(
   };
   return {
     authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
+    nodeSubject: async (nodeId) => {
+      const { adapter, token } = await open();
+      return adapter.nodeSubject(token, nodeId);
+    },
     nodeOwner: async (nodeId) => {
       const { adapter, token } = await open();
       return (await adapter.readNode(token, nodeId))?.personId || null;
@@ -40,7 +44,7 @@ export interface FleetCenterAdmissionRequest {
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
-    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
+    "authenticate" | "nodeOwner" | "nodeSubject" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
   >;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {

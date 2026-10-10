@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import assert from "node:assert/strict";
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -123,6 +124,8 @@ for (const row of [{type:'thread.started',thread_id:id},
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (_node, credential) => credential === "machine-secret",
         nodeOwner: f.owners.nodeOwner,
+
+        nodeSubject: f.owners.nodeSubject,
       }),
     ),
     remote = path.join(f.root, "code.git");
@@ -285,6 +288,7 @@ for (const row of [{type:'thread.started',thread_id:id},
     f.auth,
   );
   assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+  await assignFixtureTask(f.host, { repoId, taskId, nodeId: "node-two" }, f.auth);
   const started = await f.host.run(
     repoId,
     { kind: "task-start", taskId },

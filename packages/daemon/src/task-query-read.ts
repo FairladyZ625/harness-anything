@@ -1,3 +1,4 @@
+import { principalId, type ActorIdentity } from "@harness-anything/kernel";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
@@ -963,11 +964,8 @@ type AgendaSourcePage = {
   readonly warnings: ReturnType<TaskProjection["list"]>["warnings"];
   readonly reads: readonly ProjectionCut[];
 };
-function actorLabel(actor: {
-  readonly principal: { readonly personId: string };
-  readonly executor: { readonly id: string } | null;
-}) {
-  return actor.executor?.id ?? actor.principal.personId;
+function actorLabel(actor: ActorIdentity) {
+  return actor.executor?.id ?? principalId(actor.principal);
 }
 function agendaTaskRow(row: AgendaSourceRow): AgendaTaskRow {
   const task = row.snapshot.task!;

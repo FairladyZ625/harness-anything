@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   evaluatePersonActionCapability,
@@ -114,7 +115,6 @@ function personObjectRow(
       evaluatePersonActionCapability({
         action,
         personId: input.entity.id,
-        actorPersonId: dependencies.actor.principal.personId,
         evaluatedAt: input.evaluatedAt,
       }).map((criterion) => [criterion.criterionRef, criterion]),
     ),
@@ -138,7 +138,7 @@ function personObjectRow(
   if (
     authorizationDecision.subject !== target ||
     authorizationDecision.evaluatedAtCut !== input.evaluatedAtCut ||
-    authorizationDecision.actor.principal.personId !== dependencies.actor.principal.personId ||
+    !samePrincipal(authorizationDecision.actor.principal, dependencies.actor.principal) ||
     authorizationDecision.actor.executor?.id !== dependencies.actor.executor?.id
   )
     throw new Error("Person Action authorization decision does not match the actor, target, and canonical cut.");

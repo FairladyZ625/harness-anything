@@ -1,6 +1,6 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   isIndependentFrom,
-  isSamePerson,
   type ActorIdentity,
   type DecisionDocumentState,
   type ReviewIndependence,
@@ -12,7 +12,9 @@ export function reviewActorsIndependent(
   reviewer: ActorIdentity,
   independence: ReviewIndependence,
 ): boolean {
-  return independence === "execution" ? isIndependentFrom(author, reviewer) : !isSamePerson(author, reviewer);
+  return independence === "execution"
+    ? isIndependentFrom(author, reviewer)
+    : !samePrincipal(author.principal, reviewer.principal);
 }
 
 export function assertDecisionReviewerIndependent(

@@ -1,3 +1,4 @@
+import type { ActorPrincipal } from "./actor-identity.ts";
 export interface EventListQuery {
   readonly type?: string;
   readonly entity?: string;
@@ -16,7 +17,7 @@ export interface EventListRow {
   readonly schema: string;
   readonly type: string;
   readonly occurredAt: string;
-  readonly actor: { readonly personId: string; readonly executorId: string | null };
+  readonly actor: { readonly principal: ActorPrincipal; readonly executorId: string | null };
   readonly entityRefs: readonly string[];
 }
 

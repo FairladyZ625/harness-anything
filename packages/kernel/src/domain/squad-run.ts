@@ -1,3 +1,4 @@
+import type { ActorPrincipal } from "./actor-identity.ts";
 import type { ActorIdentity, EventEnvelope } from "./write-chain.contract.ts";
 import { hasOnlyFields, isRecord, isNonEmptyString } from "./write-chain.contract.ts";
 
@@ -58,7 +59,7 @@ export interface SquadRunObservation extends SquadRunIdentity {
 export interface CanonicalSquadRun extends SquadRunObservation {
   readonly owner: {
     readonly source: EventEnvelope<string, string, ActorIdentity, unknown>["source"];
-    readonly personId: string;
+    readonly principal: ActorPrincipal;
   };
   readonly acceptedRevision: number;
   readonly acceptedAt: string;

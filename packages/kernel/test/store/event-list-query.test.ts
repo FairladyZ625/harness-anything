@@ -128,3 +128,22 @@ test("event list scan keeps only the newest window and entity refs cover envelop
   });
   assert.deepEqual(eventEntityRefs(entityEvent), ["software/coding/adr@1/ADR-1"]);
 });
+
+// dec_2665E58BA5AE42E37793193748/CH1: canonical audit does not alias machines to people.
+test("machine event descriptors retain their subject and node and filter independently", () => {
+  const principal = { kind: "machine", nodeId: "compute", subject: "service" } as const;
+  const db = store([
+    event({ workspaceRevision: 1, actor: { principal, executor: null } }),
+    event({ workspaceRevision: 2, actor: { principal: { personId: "service" }, executor: null } }),
+  ]);
+  const machine = selectLedgerEvents(db, { actor: "machine:compute:service", limit: 10 });
+  assert.deepEqual(
+    machine.rows.map((row) => row.revision),
+    [1],
+  );
+  assert.deepEqual(machine.rows[0]!.actor.principal, principal);
+  assert.deepEqual(
+    selectLedgerEvents(db, { actor: "service", limit: 10 }).rows.map((row) => row.revision),
+    [2],
+  );
+});

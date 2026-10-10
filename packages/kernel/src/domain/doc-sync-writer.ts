@@ -59,7 +59,7 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       : {
           taskId: input.lease.taskId,
           executionId: input.lease.executionId,
-          personId: input.lease.actor.principal.personId,
+          principal: input.lease.actor.principal,
           executorId: input.lease.actor.executor?.id ?? null,
           source: input.lease.source,
           expiresAt: input.lease.expiresAt,

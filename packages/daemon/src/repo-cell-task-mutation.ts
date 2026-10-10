@@ -1,7 +1,7 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   compareRuntimeActivity,
   isSameExecution,
-  isSamePerson,
   isTerminalStatus,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionSemanticState,
@@ -76,15 +76,15 @@ export function taskMutation(
         isSameExecution(activeLease.actor, binding.actor) &&
         JSON.stringify(activeLease.source) === JSON.stringify(binding.source),
       samePrincipalRecovery =
-        isSamePerson(activeLease.actor, binding.actor) &&
+        samePrincipal(activeLease.actor.principal, binding.actor.principal) &&
         (activeLease.phase === "orphaned" || execution === undefined || terminalRuntimeBinding !== null),
       sessionHandoff =
-        isSamePerson(activeLease.actor, binding.actor) &&
+        samePrincipal(activeLease.actor.principal, binding.actor.principal) &&
         activeLease.actor.executor?.kind === "agent" &&
         runtimeSessionIdFromActor(activeLease.actor) === null &&
         optionalReleaseText(action.reason) !== null,
       ownerRecovery =
-        isSamePerson(task.createdBy, binding.actor) &&
+        samePrincipal(task.createdBy.principal, binding.actor.principal) &&
         (activeLease.phase === "orphaned" || terminalRuntimeBinding !== null);
     if (!authorizationDecision || authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError(

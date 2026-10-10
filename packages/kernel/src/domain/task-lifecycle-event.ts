@@ -1,3 +1,4 @@
+import { samePrincipal } from "./actor-identity.ts";
 import {
   isNativeCommitSha,
   isSubmissionId,
@@ -37,7 +38,6 @@ import { isValidDocEventChange, type DocEventChange } from "./doc-sync.contract.
 import { timestamp } from "./timestamp.ts";
 import { validFactStillHoldsAttestation, type FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import { isValidCloseoutGateRecord, type CloseoutGate } from "./settings-closeout.ts";
-import { isSamePerson } from "./actor-domain-services.ts";
 export const taskEventTypes = [
   "task_created",
   "task_assigned",
@@ -458,8 +458,8 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       !actorsValid ||
       (previousActor as ActorAxes).executor !== null ||
       (executionActor as ActorAxes).executor === null ||
-      !isSamePerson(previousActor as ActorAxes, value.actor as ActorAxes) ||
-      !isSamePerson(executionActor as ActorAxes, value.actor as ActorAxes) ||
+      !samePrincipal((previousActor as ActorAxes).principal, (value.actor as ActorAxes).principal) ||
+      !samePrincipal((executionActor as ActorAxes).principal, (value.actor as ActorAxes).principal) ||
       ((value.actor as ActorAxes).executor !== null &&
         !sameActorIdentity(executionActor as ActorAxes, value.actor as ActorAxes))
     )

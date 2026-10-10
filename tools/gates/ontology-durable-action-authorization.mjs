@@ -100,12 +100,13 @@ function authorizationAuthority(rootDir, analysis) {
   const typedPort = sourceFile.getText().includes("daemonAuthorizationPort: AuthorizationPort");
   const definitions = analysis.functions.get("authorizeAction") ?? [];
   const callsPort = definitions.some(({ body }) => containsPortAuthorize(body));
+  // dec_2665E58BA5AE42E37793193748/CH1: both typed issuer branches retain Keycloak evaluation.
   const person = analysis.functions
-    .get("evaluateKeycloakPerson")
+    .get("evaluateKeycloakPrincipal")
     ?.find((definition) => definition.file === "packages/daemon/src/repo-cell-authorization.ts");
   const keycloak =
     person !== undefined &&
-    ["authorize", "authorizePerson"].every((method) =>
+    ["authorize", "authorizePrincipal"].every((method) =>
       someNode(
         person.body,
         (node) =>
@@ -390,7 +391,7 @@ function queuedTaskWrite(analysis) {
     !syntax(current).includes(
       "returnevaluateRepoCellAction({action,binding,actionId,repoId:context.input.repoId,revision,now:context.now(),})",
     ) ||
-    !calls(evaluate, "evaluateKeycloakPerson")
+    !calls(evaluate, "evaluateKeycloakPrincipal")
   )
     return false;
   let publication;
@@ -617,7 +618,7 @@ function containsNode(container, target) {
 function nodeReachesAuthorization(node, analysis, authority, visiting) {
   const calls = calledNames(node);
   if (calls.has("authorizeAction") && authority.ok) return true;
-  if (calls.has("evaluateKeycloakPerson") && authority.keycloak) return true;
+  if (calls.has("evaluateKeycloakPrincipal") && authority.keycloak) return true;
   for (const name of calls) {
     if (visiting.has(name)) continue;
     if (name === "requireAuthorizedHostAction" && !hostRejectionGuard(analysis)) continue;

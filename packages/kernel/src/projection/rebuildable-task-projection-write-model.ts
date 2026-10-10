@@ -1,7 +1,7 @@
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { emptyTaskLifecycleSnapshot } from "../domain/task-lifecycle.contract.ts";
-import { isSamePerson } from "../domain/actor-domain-services.ts";
+import { samePrincipal } from "../domain/actor-identity.ts";
 import { currentTaskForWrite } from "../domain/task.ts";
 import { docByteLength, type DocumentState } from "../domain/doc-sync.contract.ts";
 import { requireEntityKindContract } from "../domain/entity-kind-registry.ts";
@@ -52,7 +52,7 @@ export function projectProgress(
   if (
     snapshot.task === null ||
     !(event.payload.executionId === ""
-      ? snapshot.task.taskClass === "work" && isSamePerson(snapshot.task.createdBy, event.actor)
+      ? snapshot.task.taskClass === "work" && samePrincipal(snapshot.task.createdBy.principal, event.actor.principal)
       : snapshot.executions.some((execution) => execution.executionId === event.payload.executionId)) ||
     !packagePath ||
     claim.path !== `${packagePath}/progress.md` ||

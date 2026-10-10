@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { createHash } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
@@ -6,7 +7,6 @@ import {
   completionEvidenceBasis,
   gateAppliesToSubmission,
   isHumanAttestationWitness,
-  isSamePerson,
   judgeCompletionEvidence,
   judgeGateWitnesses,
   OVERRIDE_RATIONALE_MIN_LENGTH,
@@ -301,10 +301,10 @@ export function attestGateWitness(
     );
   if (mode === "approve" && action.rationale !== undefined)
     throw cell.cellCodedError("invalid_field", "--rationale belongs to --mode override; use --note for approve.");
-  if (binding.actor.executor !== null)
+  if (binding.actor.principal.kind === "machine" || binding.actor.executor !== null)
     throw cell.cellCodedError(
       "actor_unauthorized",
-      `Gate attestation records a human principal; executor ${binding.actor.executor.id} cannot attest.`,
+      `Gate attestation records a human principal; executor ${binding.actor.executor?.id ?? "machine"} cannot attest.`,
     );
   if (!cell.projectionReady(read) || !snapshot.task)
     throw cell.cellCodedError("content_not_ready", `Task ${taskId} is not ready for attestation.`);
@@ -328,7 +328,7 @@ export function attestGateWitness(
   if (mode === "override") {
     if (!requirement.allowOverride)
       throw cell.cellCodedError("invalid_command", `Gate ${gateId} does not allow override in its frozen contract.`);
-    if (!isSamePerson(snapshot.task.createdBy, binding.actor))
+    if (!samePrincipal(snapshot.task.createdBy.principal, binding.actor.principal))
       throw cell.cellCodedError(
         "actor_unauthorized",
         `Override requires the task owner principal (personId=${snapshot.task.createdBy.principal.personId}).`,

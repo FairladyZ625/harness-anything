@@ -169,6 +169,7 @@ async function admissionFixture(t: TestContext, initialState: "warming" | "unava
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => nodeId === "node-one" && credential === "machine-secret",
     nodeOwner: owners.nodeOwner,
+    nodeSubject: owners.nodeSubject,
   });
   centers.push(center);
   return {

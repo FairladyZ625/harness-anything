@@ -99,7 +99,7 @@ export function makeAgentRuntimeReadModel(input: {
         return {
           taskId: binding.taskId,
           executionId: binding.executionId,
-          holder: actor ? { personId: actor.principal.personId, executorId: actor.executor?.id ?? null } : null,
+          holder: actor ? { principal: actor.principal, executorId: actor.executor?.id ?? null } : null,
           lease: lease ? { phase: lease.phase, expiresAt: lease.expiresAt } : null,
         };
       }),

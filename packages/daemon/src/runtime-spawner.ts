@@ -719,7 +719,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           ? {
               execution: {
                 repoId: input.repoId,
-                personId: activeBinding.actor.principal.personId,
+                principal: activeBinding.actor.principal,
                 source: activeBinding.source,
                 runtimeSessionId,
                 dispatchId: newDispatchId,

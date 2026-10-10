@@ -1,4 +1,5 @@
 // harness-test-tier: fast
+// dec_2665E58BA5AE42E37793193748/CH1: keep authority-loss negative mutations for typed principals.
 import assert from "node:assert/strict";
 import { cpSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -129,7 +130,7 @@ for (const mutation of [
   {
     name: "Keycloak person evaluation",
     file: "host-action-authorization",
-    before: "await evaluateKeycloakPerson({",
+    before: "await evaluateKeycloakPrincipal({",
     after: "await uncheckedPerson({",
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
@@ -143,7 +144,7 @@ for (const mutation of [
   {
     name: "center adapter authorization",
     file: "repo-cell-authorization",
-    before: ").authorizePerson({",
+    before: ").authorizePrincipal({",
     after: ").uncheckedPerson({",
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
@@ -248,7 +249,7 @@ const queuedWriteMutations = [
   {
     name: "Keycloak person evaluation",
     file: "repo-cell-authorization",
-    before: "const result = await evaluateKeycloakPerson({",
+    before: "const result = await evaluateKeycloakPrincipal({",
     after: "const result = await uncheckedPerson({",
   },
   {

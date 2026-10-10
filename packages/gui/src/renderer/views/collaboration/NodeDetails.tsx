@@ -1,3 +1,4 @@
+import { principalLabel } from "../../model/actor-name.ts";
 import { Fragment, type ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { FleetFieldState, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
@@ -221,7 +222,7 @@ function LeaseRow({
         </button>
       </div>
       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 ui-micro text-text-muted">
-        <span>{lease.personId ?? t("collaboration.notProvided")}</span>
+        <span>{principalLabel(lease.principal)}</span>
         {lease.agentId === null ? null : (
           <EntityRefLink entityRef={`agent/${lease.agentId}`} onNavigate={onNavigateEntity}>
             {lease.agentLabel ?? lease.agentId}

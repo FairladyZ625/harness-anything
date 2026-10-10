@@ -26,7 +26,7 @@ const identity = {
   runRevision: 2,
   acceptedRevision: 42,
   acceptedAt: "2026-08-26T00:00:00.000Z",
-  owner: { source: "local", personId: "person-squad" },
+  owner: { source: "local", principal: { personId: "person-squad" } },
 };
 const summary = {
   ...identity,
@@ -434,7 +434,7 @@ function canonicalFixture() {
     workerCallbackCount: 0,
     pendingLeaderCallbackCount: 0,
     synthesisReportPath: null,
-    owner: { source: "local", personId: "person-squad" },
+    owner: { source: "local", principal: { personId: "person-squad" } },
     acceptedAt: identity.acceptedAt,
     acceptedRevision: 42,
   };

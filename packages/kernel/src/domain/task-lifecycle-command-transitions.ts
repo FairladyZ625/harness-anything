@@ -1,3 +1,4 @@
+import { samePrincipal } from "./actor-identity.ts";
 import { taskAssignmentMatches } from "./task-assignment.ts";
 import { isNativeExecution, submissionId, validExecutionDeliveryBaseline, validateSubmissionV1 } from "./execution.ts";
 import type { ExecutionV1, LeaseV1 } from "./execution.ts";
@@ -12,7 +13,7 @@ import type {
   TaskCreatedEvent,
   TaskMutationEvent,
 } from "./task-lifecycle-event.ts";
-import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
+import { isSameExecution } from "./actor-domain-services.ts";
 import { timestamp } from "./timestamp.ts";
 import { explainStatusTransition, reinstateTaskTargets } from "./lifecycle-status.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
@@ -135,10 +136,10 @@ export const start: Transition = {
       issues = revisionIssues(snapshot, command),
       reservation = proof.reservation;
     if (
-      snapshot.task?.assignment &&
+      (snapshot.task?.assignment || command.actor.principal.kind === "machine") &&
       (!proof.claimant ||
-        proof.claimant.personId !== command.actor.principal.personId ||
-        !taskAssignmentMatches(snapshot.task.assignment, proof.claimant, command.occurredAt))
+        !samePrincipal(proof.claimant.principal, command.actor.principal) ||
+        !taskAssignmentMatches(snapshot.task?.assignment, proof.claimant, command.occurredAt))
     )
       issues.push(lifecycleContractIssue("invalid_proof", "A matching authenticated assignment claimant is required."));
     if (!canStartExecution(snapshot, command.executionId))
@@ -196,7 +197,7 @@ export const start: Transition = {
         ? {
             ...rejoin,
             actor:
-              command.actor.executor === null && isSamePerson(rejoin.actor, command.actor)
+              command.actor.executor === null && samePrincipal(rejoin.actor.principal, command.actor.principal)
                 ? { ...command.actor, executor: rejoin.actor.executor }
                 : command.actor,
           }
@@ -410,7 +411,8 @@ export const submit: Transition = {
       current = execution(snapshot, command.executionId),
       lease = snapshot.lease,
       amendment = command.amend === true,
-      ownerAmendment = command.asOwner === true && task !== null && isSamePerson(task.createdBy, command.actor);
+      ownerAmendment =
+        command.asOwner === true && task !== null && samePrincipal(task.createdBy.principal, command.actor.principal);
     if (amendment) {
       if (
         !task ||

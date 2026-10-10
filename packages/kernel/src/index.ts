@@ -1,3 +1,5 @@
+export { principalId, samePrincipal, validActorPrincipal, validateActorIdentity } from "./domain/actor-identity.ts";
+export type { ActorPrincipal } from "./domain/actor-identity.ts";
 export { consumeKnownError } from "./error-consumption.ts";
 export * from "./domain/index.ts";
 export {
@@ -53,7 +55,7 @@ export {
   validateTaskEvent,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
-export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor-domain-services.ts";
+export { isIndependentFrom, isSameExecution } from "./domain/actor-domain-services.ts";
 export { revisionIssues } from "./domain/task-lifecycle-contract-support.ts";
 export {
   isTaskBoundRuntimeWriter,

@@ -100,8 +100,12 @@ function joinValidationPath(prefix: string, field: string): string {
 export function actor(value: unknown): boolean {
   return (
     exactRecord(value, ["principal", "executor"]) &&
-    exactRecord(value.principal, ["personId"]) &&
-    nonEmpty(value.principal.personId) &&
+    (exactRecord(value.principal, ["personId"])
+      ? nonEmpty(value.principal.personId)
+      : exactRecord(value.principal, ["kind", "subject", "nodeId"]) &&
+        value.principal.kind === "machine" &&
+        nonEmpty(value.principal.subject) &&
+        nonEmpty(value.principal.nodeId)) &&
     (value.executor === null ||
       (exactRecord(value.executor, ["kind", "id"]) && value.executor.kind === "agent" && nonEmpty(value.executor.id)))
   );
@@ -630,14 +634,9 @@ export function wireUnmetCriterion(value: unknown): boolean {
   );
 }
 function wireAuthorizationActor(value: unknown): boolean {
-  return (
-    exactRecord(value, ["principal", "executor"]) &&
-    exactRecord(value.principal, ["personId"]) &&
-    wireText(value.principal.personId) &&
-    (value.executor === null ||
-      (exactRecord(value.executor, ["kind", "id"]) && value.executor.kind === "agent" && wireText(value.executor.id)))
-  );
+  return actor(value);
 }
+
 // Exactly the built-in ref candidates emitted by repo-cell-authorization actionTarget.
 // It constructs kind/id locally: external harness aliases and artifact refs cannot occur here.
 function squadControlSubject(value: unknown): boolean {

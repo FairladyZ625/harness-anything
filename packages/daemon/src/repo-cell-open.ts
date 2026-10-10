@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { resolveAgentRuntimeDeclaration } from "./agent-declaration-resolution.ts";
 import { requireSquadBusinessAction } from "./squad-runtime-ingress.ts";
 import { readCanonicalRuntimeResult } from "./runtime-result-read.ts";
@@ -7,7 +8,6 @@ import {
   consumeKnownError,
   createEntityStore,
   isSameExecution,
-  isSamePerson,
   makeTaskEventStore,
   runtimeSessionActionIds,
   type AgentRuntimeEventV1,
@@ -829,7 +829,7 @@ export async function openRepoWriterCell(
         trustedRuntimeHandoff =
           heldRuntimeSessionId !== null &&
           heldRuntimeSessionId === fromRuntimeSessionId &&
-          isSamePerson(lease.actor, binding.actor);
+          samePrincipal(lease.actor.principal, binding.actor.principal);
       // An orphaned lease is past expiresAt; the release rule decides who may reclaim it.
       if (lease.phase === "held" && !dispatcherOwnsLease && !trustedRuntimeHandoff) {
         throw cellCodedError(

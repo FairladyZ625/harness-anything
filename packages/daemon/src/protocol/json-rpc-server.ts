@@ -1,3 +1,4 @@
+import { principalId } from "@harness-anything/kernel";
 import { randomUUID } from "node:crypto";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import type { DaemonHost } from "../daemon-host.ts";
@@ -533,9 +534,9 @@ export function createJsonRpcProtocolServer(options: {
                 ...params.payload,
                 ...(executionCredential ? { executionCredential } : {}),
                 ...(options.authContext.executionPrincipal
-                  ? { principalId: options.authContext.executionPrincipal.personId }
+                  ? { principalId: principalId(options.authContext.executionPrincipal.principal) }
                   : relayedExecutionPrincipal
-                    ? { principalId: relayedExecutionPrincipal.personId }
+                    ? { principalId: principalId(relayedExecutionPrincipal.principal) }
                     : !executionCredential && options.authContext.oidcPrincipal
                       ? { principalId: options.authContext.oidcPrincipal.personId }
                       : {}),

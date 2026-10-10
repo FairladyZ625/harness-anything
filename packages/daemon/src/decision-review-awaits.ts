@@ -79,7 +79,11 @@ function reconcileDecisionReviewAwait(input: DecisionReviewAwaitInput): void {
   if (!decision) reject("content_not_ready", `Decision ${input.decisionId} is not materialized.`);
   // Only a changes_requested review raises the notification and review history is append-only, so a
   // Decision that never had one has no edge to reconcile.
-  if (!decision.reviews.some(({ verdict }) => verdict === "changes_requested")) return;
+  if (
+    decision.proposer.principal.kind === "machine" ||
+    !decision.reviews.some(({ verdict }) => verdict === "changes_requested")
+  )
+    return;
   const identity = {
       source: `decision/${input.decisionId}`,
       target: `person/${decision.proposer.principal.personId}`,

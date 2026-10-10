@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { isIndependentFrom } from "../../src/domain/actor-domain-services.ts";
-import { isSameExecution, isSamePerson, type ActorIdentity } from "../../src/index.ts";
+import { isSameExecution, samePrincipal, type ActorIdentity } from "../../src/index.ts";
 
 const person = (personId: string, executor: ActorIdentity["executor"]): ActorIdentity => ({
   principal: { personId },
@@ -10,7 +10,7 @@ const person = (personId: string, executor: ActorIdentity["executor"]): ActorIde
 });
 const declared = (kind: string, id: string): ActorIdentity["executor"] => ({ kind, id }) as ActorIdentity["executor"];
 
-test("isSamePerson ignores executor presence, kind, and id", () => {
+test("samePrincipal ignores executor presence, kind, and id", () => {
   const agent = { kind: "agent", id: "executor-a" } as const;
   const otherAgent = { kind: "agent", id: "executor-b" } as const;
   const rows = [
@@ -21,7 +21,8 @@ test("isSamePerson ignores executor presence, kind, and id", () => {
     ["different person", person("person-a", agent), person("person-b", agent), false],
   ] as const;
 
-  for (const [label, left, right, expected] of rows) assert.equal(isSamePerson(left, right), expected, label);
+  for (const [label, left, right, expected] of rows)
+    assert.equal(samePrincipal(left.principal, right.principal), expected, label);
 });
 
 test("isSameExecution requires the same person and the complete executor identity", () => {

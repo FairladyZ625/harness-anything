@@ -24,7 +24,7 @@ export function projectEventSummary(db: DatabaseSync, event: PersistedCanonicalE
       schema: event.schema,
       type: event.type,
       occurredAt: event.occurredAt,
-      actor: { personId: event.actor.principal.personId, executorId: event.actor.executor?.id ?? null },
+      actor: { principal: event.actor.principal, executorId: event.actor.executor?.id ?? null },
       entityRefs: canonicalEventEntityRefs(event),
     }),
   );

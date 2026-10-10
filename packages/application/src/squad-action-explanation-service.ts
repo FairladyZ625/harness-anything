@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   getEntityKindContract,
@@ -143,7 +144,7 @@ function squadObjectRow(
   if (
     authorizationDecision.subject !== target ||
     authorizationDecision.evaluatedAtCut !== input.evaluatedAtCut ||
-    authorizationDecision.actor.principal.personId !== dependencies.actor.principal.personId ||
+    !samePrincipal(authorizationDecision.actor.principal, dependencies.actor.principal) ||
     authorizationDecision.actor.executor?.id !== dependencies.actor.executor?.id
   )
     throw new Error("Squad Action authorization decision does not match the actor, target, and canonical cut.");

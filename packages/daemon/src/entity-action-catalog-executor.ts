@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import { createHash } from "node:crypto";
 import { makeDecisionService, makeFactService, type ArtifactSourceResolution } from "@harness-anything/application";
 import {
@@ -8,7 +9,6 @@ import {
   compileFactWrite,
   decisionWritePlan,
   getExecutableEntityAction,
-  isSamePerson,
   parseEntityRef,
   requireEntityStoreKindContract,
   readAcceptedCommandOutcome,
@@ -729,13 +729,13 @@ function decisionAuthorization(
     return authorizationDecision;
   }
   if (action.kind === "decision-respond-review") {
-    if (proposalActor === null || !isSamePerson(proposalActor, binding.actor))
+    if (proposalActor === null || !samePrincipal(proposalActor.principal, binding.actor.principal))
       reject("actor_unauthorized", "Decision review responses must be recorded by the proposal owner principal.");
     return authorizationDecision;
   }
   if (!judgment && action.kind !== "decision-override-review") return authorizationDecision;
   const approval = decisionApproval(action, binding),
-    directHuman = binding.actor.executor === null;
+    directHuman = binding.actor.principal.kind !== "machine" && binding.actor.executor === null;
   if (action.kind === "decision-reject" || action.kind === "decision-override-review") {
     if (!directHuman && !approval)
       reject(
@@ -770,7 +770,7 @@ function decisionApproval(
       "invalid_command",
       "Human consent is only valid for Decision acceptance, rejection, deferral, or review override.",
     );
-  if (action.consentBy !== binding.actor.principal.personId)
+  if (binding.actor.principal.kind === "machine" || action.consentBy !== binding.actor.principal.personId)
     reject("actor_unauthorized", "Human consent must name the authenticated principal person.");
   if (
     typeof action.consentAt !== "string" ||

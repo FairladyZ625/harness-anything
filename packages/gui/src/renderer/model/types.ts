@@ -327,9 +327,9 @@ export interface DecisionRow {
   preset?: string;
   decisionClass?: "ordinary" | "standing_policy";
   workspaceRevision?: number;
-  proposedBy?: { kind: "agent" | "human" | "system"; id: string };
+  proposedBy?: { kind: "agent" | "human" | "system" | "machine"; id: string };
   /** arbiter 必须 ≠ proposedBy（防自证） */
-  arbiter?: { kind: "agent" | "human" | "system"; id: string };
+  arbiter?: { kind: "agent" | "human" | "system" | "machine"; id: string };
   proposedAt?: string;
   decidedAt?: string;
   question: string; // 这条决策回答的问题（复现当时场景）

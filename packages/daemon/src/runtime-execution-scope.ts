@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 import {
   stableStringify,
   isSameExecution,
@@ -102,7 +103,7 @@ export function requireCurrentExecutionScope(input: {
     (!isSameExecution(actor, input.binding.actor) &&
       !(
         ingress &&
-        input.binding.actor.principal.personId === p.personId &&
+        samePrincipal(input.binding.actor.principal, p.principal) &&
         (input.binding.actor.executor === null ||
           isSameExecution(
             {
@@ -117,7 +118,7 @@ export function requireCurrentExecutionScope(input: {
     (session.outcome !== null && !settling) ||
     (session.outcome === "cancelled" && !negativeTerminal) ||
     dispatch?.payload.dispatchId !== p.dispatchId ||
-    dispatch.actor.principal.personId !== p.personId ||
+    !samePrincipal(dispatch.actor.principal, p.principal) ||
     stableStringify(dispatch.source) !== stableStringify(p.source) ||
     stableStringify(input.binding.source) !== stableStringify(p.source) ||
     !session.taskBindings.some((b) => b.taskId === p.taskId && b.executionId === p.executionId)

@@ -1,3 +1,4 @@
+import { samePrincipal } from "@harness-anything/kernel";
 // @slice-activation P4 W2 is composed by tests; W3 owns daemon and production publication cutover.
 import {
   applyTransition,
@@ -5,7 +6,6 @@ import {
   compileTaskLifecycleWrite,
   eventObjectTarget,
   isSameExecution,
-  isSamePerson,
   lifecycleDocumentPaths,
   taskLifecycleWritePlan,
   validateTaskLifecycleCommandEnvelope,
@@ -331,7 +331,7 @@ function planClaim(
   const reason =
     previous === null
       ? ("initial_claim" as const)
-      : isSamePerson(previous.actor, command.actor)
+      : samePrincipal(previous.actor.principal, command.actor.principal)
         ? ("same_principal_reconnect" as const)
         : ("ttl_expired_takeover" as const);
   return {

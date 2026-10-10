@@ -22,7 +22,7 @@ const verify = (updates: Record<string, unknown> = {}, userUpdates: Record<strin
     auth: {
       transportKind: "fleet-tls",
       humanAccessToken: "request-token",
-      nodePrincipal: { nodeId: "a", personId: "person-a" },
+      nodePrincipal: { nodeId: "a", personId: "person-a", subject: "node-service" },
     },
     url: "http://127.0.0.1:1",
     issuerUrl: "https://center.test",
@@ -39,10 +39,13 @@ const verify = (updates: Record<string, unknown> = {}, userUpdates: Record<strin
     }) as typeof fetch,
   });
 
-test("center online introspection binds only the current owner's interactive node session", async () => {
+test("center online introspection binds the actual interactive person with current realm, audience, node and user checks", async () => {
   const bound = await verify();
   assert.equal(bound.oidcPrincipal?.personId, "person-a");
   assert.equal(bound.oidcPrincipal?.accessToken, "request-token");
+  // dec_2665E58BA5AE42E37793193748/CH1: a different real login does not borrow owner authority.
+  const other = await verify({ harness_person_id: "person-b" }, { attributes: { harness_person_id: ["person-b"] } });
+  assert.equal(other.oidcPrincipal?.personId, "person-b");
   for (const updates of [
     { active: false },
     { exp: 1 },
@@ -78,6 +81,9 @@ test("the center's local session never supplies a missing edge human credential"
       roles: ["access-admin"],
     }),
   );
-  const auth = { transportKind: "fleet-tls" as const, nodePrincipal: { nodeId: "a", personId: "person-a" } };
+  const auth = {
+    transportKind: "fleet-tls" as const,
+    nodePrincipal: { nodeId: "a", personId: "person-a", subject: "node-service" },
+  };
   assert.deepEqual(await new OidcSessionService(root).bind(auth), auth);
 });

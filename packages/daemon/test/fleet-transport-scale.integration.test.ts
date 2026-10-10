@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { assignFixtureTask } from "./fleet-store.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
@@ -317,8 +318,13 @@ async function scaleFixture(t: TestContext) {
           (planPath) => host.run(repo.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
           taskId,
         );
-        const auth = owners.auth(subject),
-          started = await host.run(repo.repoId, { kind: "task-start", taskId, executionId: subject.executionId }, auth);
+        const auth = owners.auth(subject);
+        await assignFixtureTask(host, subject, auth);
+        const started = await host.run(
+          repo.repoId,
+          { kind: "task-start", taskId, executionId: subject.executionId },
+          auth,
+        );
         assert.equal(
           started.outcome,
           "applied",
@@ -372,6 +378,7 @@ async function scaleFixture(t: TestContext) {
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
           nodeOwner: owners.nodeOwner,
+          nodeSubject: owners.nodeSubject,
         }),
       ),
     ledgerRevisions: () => new Map(repos.map((repo) => [repo.repoId, fleetLedgerRevision(repo.rootDir, repo.repoId)])),

@@ -1,3 +1,4 @@
+import { samePrincipal, type ActorPrincipal } from "@harness-anything/kernel";
 import path from "node:path";
 import { existsSync, readFileSync } from "node:fs";
 import {
@@ -20,7 +21,7 @@ export interface RuntimeHandoffCheckpoint {
   readonly taskId: string;
   readonly executionId: string;
   readonly runtimeSessionId: string;
-  readonly ownerPersonId: string;
+  readonly ownerPrincipal: ActorPrincipal;
   readonly source: WriteSource;
   readonly providerSessionId: string;
   readonly commit: string;
@@ -53,8 +54,11 @@ export function runRuntimeHandoffAction(
     location = directory(cell.rootDir, dispatchId),
     previous = readHandoffCheckpoint(cell.rootDir, dispatchId),
     source = cell.projection.readRuntimeDispatchById(dispatchId)?.event;
-  if (!source || source.actor.principal.personId !== binding.actor.principal.personId)
-    throw runtimeSpawnError("runtime_handoff_owner_mismatch", "The authenticated person must own the source dispatch.");
+  if (!source || !samePrincipal(source.actor.principal, binding.actor.principal))
+    throw runtimeSpawnError(
+      "runtime_handoff_owner_mismatch",
+      "The authenticated principal must own the source dispatch.",
+    );
   const payload = source.payload;
   const result = (value: object) => ({
     outcome: "no_changes" as const,
@@ -113,7 +117,7 @@ export function runRuntimeHandoffAction(
       taskId: payload.taskId,
       executionId: payload.executionId,
       runtimeSessionId: payload.runtimeSessionId,
-      ownerPersonId: binding.actor.principal.personId,
+      ownerPrincipal: binding.actor.principal,
       source: source.source,
       providerSessionId: session.providerSessionId,
       commit,
@@ -178,8 +182,8 @@ export function assertHandoffClaim(
       "runtime_handoff_pending",
       "The export audit has not been accepted; retry export on the source.",
     );
-  if (checkpoint.ownerPersonId !== binding.actor.principal.personId)
-    throw runtimeSpawnError("runtime_handoff_owner_mismatch", "The checkpoint belongs to another person.");
+  if (!samePrincipal(checkpoint.ownerPrincipal, binding.actor.principal))
+    throw runtimeSpawnError("runtime_handoff_owner_mismatch", "The checkpoint belongs to another principal.");
   if (checkpoint.revokedAt) throw runtimeSpawnError("runtime_handoff_revoked", "The checkpoint has been revoked.");
   if (stableStringify(checkpoint.source) === stableStringify(binding.source))
     throw runtimeSpawnError("runtime_handoff_target_same", "Claim on a different authenticated node.");
@@ -189,7 +193,7 @@ export function assertHandoffClaim(
   if (
     !held ||
     held.phase !== "held" ||
-    held.actor.principal.personId !== binding.actor.principal.personId ||
+    !samePrincipal(held.actor.principal, binding.actor.principal) ||
     stableStringify(held.source) !== stableStringify(binding.source)
   )
     throw runtimeSpawnError(
