@@ -256,6 +256,7 @@ export function createDaemonHostRuntimeApi(
             nodes: {
               ...keycloakNodeRegistry(context.keycloakCenter),
               loginAuthority: (nodeId) => context.oidc.discovery(nodeId),
+              revokeDeviceSessions: (nodeId) => context.oidc.revokeDeviceSessions(nodeId),
               deviceLoginNotice: (nodeId, personId, notice) =>
                 context.oidc.receiveDeviceNotice(nodeId, personId, notice),
               verifyHuman: (auth) => context.oidc.bind(auth),

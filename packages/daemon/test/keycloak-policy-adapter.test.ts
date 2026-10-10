@@ -293,12 +293,7 @@ test("group validation rejects unknown scopes and inheritance cycles before any 
 test("Admin REST rejection exposes a stable code", async () => {
   const adapter = new KeycloakPolicyAdapter(config, async () => new Response(null, { status: 401 }));
   await assert.rejects(
-    adapter.authorizePerson({
-      adminAccessToken: "expired-center-token",
-      personId: "person-a",
-      action: "task-create",
-      resource: { kind: "repository", repoId: "repo-a" },
-    }),
+    adapter.findUserId("expired-center-token", "person-a"),
     (error: unknown) =>
       error instanceof Error &&
       (error as Error & { readonly code?: string }).code === "keycloak_admin_rejected" &&

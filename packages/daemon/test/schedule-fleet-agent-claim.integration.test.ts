@@ -12,7 +12,6 @@ import { listenFleetTls } from "../src/fleet/center.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 test(
@@ -89,7 +88,7 @@ test(
       await host.attachmentsSettled();
       const owners = await fleetNodeOwners({ userRoot, owners: { "edge-one": "operator-one" }, repoIds: [repoId] });
       // Retire an installed Agent before the center starts holding the writer epoch.
-      signInPolicyTestUser(userRoot, "operator-one", [repoId], "admin");
+      owners.signIn(userRoot, "edge-one");
       const retiredAgentId = "retired-schedule-agent";
       const installed = await host.run(
         repoId,

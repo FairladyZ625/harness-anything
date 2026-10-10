@@ -29,7 +29,8 @@ export function keycloakNodeRegistry(
     authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
     nodeOwner: async (nodeId) => {
       const { adapter, token } = await open();
-      return (await adapter.readNode(token, nodeId))?.personId || null;
+      const node = await adapter.readNode(token, nodeId);
+      return node?.state === "active" && node.revocation === "complete" ? node.personId : null;
     },
   };
 }
@@ -40,7 +41,7 @@ export interface FleetCenterAdmissionRequest {
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
-    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
+    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice" | "revokeDeviceSessions"
   >;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {

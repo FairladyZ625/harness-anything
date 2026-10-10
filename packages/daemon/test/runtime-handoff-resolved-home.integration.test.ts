@@ -165,6 +165,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       userRoot,
       createConvenienceLinks: false,
     });
+    f.owners.signIn(userRoot, nodeId);
     const host = await openDaemonHost({
       daemonId: nodeId,
       userRoot,

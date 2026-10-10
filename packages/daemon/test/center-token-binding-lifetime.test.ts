@@ -132,12 +132,7 @@ test("a retained user-device binding uses its current session after token rotati
       await new KeycloakPolicyAdapter(
         { url: "https://keycloak.invalid", realm: "harness", resourceServerClientId: "harness-center" },
         async () => new Response(null, { status: 401 }),
-      ).authorizePerson({
-        adminAccessToken: "infrastructure-token",
-        personId: "person_rotation",
-        action: "task-create",
-        resource: { kind: "repository", repoId: "repo-rotation" },
-      });
+      ).findUserId("infrastructure-token", "person_rotation");
     } catch (error) {
       rejection = error;
     }

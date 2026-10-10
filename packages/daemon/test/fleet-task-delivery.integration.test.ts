@@ -78,10 +78,11 @@ for (const explicit of [false, true])
         JSON.stringify({ schema: "fleet-edge-config/v1", ...config }),
       );
       fixture.owners.signIn(edgeUser, "node-one");
+      const oidc = new OidcSessionService(edgeUser, { fetch: fixture.owners.keycloak.fetch });
       const edge = await openDaemonHost({
         daemonId: "delivery-edge",
         userRoot: edgeUser,
-        oidc: new OidcSessionService(edgeUser, { fetch: fixture.owners.keycloak.fetch }),
+        oidc,
       });
       t.after(() => edge.close());
       await edge.attachmentsSettled();
@@ -89,7 +90,13 @@ for (const explicit of [false, true])
         daemonId: "delivery-edge",
         socketPath: localUserDaemonEndpoint(edgeUser, "delivery-edge"),
         createProtocolServer: (authContext, emit) =>
-          createJsonRpcProtocolServer({ host: edge, build: { commit: null }, authContext, emit }),
+          createJsonRpcProtocolServer({
+            host: edge,
+            build: { commit: null },
+            authContext,
+            emit,
+            sessionPrincipal: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal,
+          }),
       });
       await transport.start();
       t.after(() => transport.stop());

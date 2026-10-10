@@ -868,6 +868,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           nodes: {
             ...keycloakNodeRegistry(hostContext.keycloakCenter),
             loginAuthority: (nodeId) => oidc.discovery(nodeId),
+            revokeDeviceSessions: (nodeId) => oidc.revokeDeviceSessions(nodeId),
             deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),
             verifyHuman: (auth) => oidc.bind(auth),
           },

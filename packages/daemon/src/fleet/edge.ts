@@ -898,7 +898,9 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
     },
     send = async (frame: FleetFrameV1) => {
       const token =
-        frame.schema === "fleet.session.hello/v1" || frame.schema === "fleet.device.login/v1"
+        frame.schema === "fleet.session.hello/v1" ||
+        frame.schema === "fleet.device.login/v1" ||
+        frame.schema === "fleet.device.sessions.revoke/v1"
           ? undefined
           : await options.readAccessToken?.();
       return socket.write(serializeFleetFrame({ ...frame, ...(token ? { accessToken: token } : {}) }));
@@ -936,7 +938,9 @@ export async function reportFleetDeviceLogin(
   }
 }
 
-export async function readFleetLoginAuthorityClient(options: Omit<FleetPeerOptions, "repoId">) {
+export async function readFleetLoginAuthorityClient(
+  options: Omit<FleetPeerOptions, "repoId"> & { readonly resetSession?: boolean },
+) {
   const peer = await openPeer(options);
   try {
     if (
@@ -947,6 +951,11 @@ export async function readFleetLoginAuthorityClient(options: Omit<FleetPeerOptio
       throw Object.assign(new Error("The center has no external HTTPS Keycloak login authority for this node."), {
         code: "oidc_listener_required",
       });
+    if (options.resetSession) {
+      const reply = await peer.request({ schema: "fleet.device.sessions.revoke/v1", messageId: peer.messageId() });
+      if (reply.schema !== "fleet.device.sessions.revoked/v1")
+        throw new Error("Device session revocation acknowledgement expected.");
+    }
     return peer.loginAuthority;
   } finally {
     peer.close();
