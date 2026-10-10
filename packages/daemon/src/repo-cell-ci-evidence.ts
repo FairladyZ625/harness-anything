@@ -44,7 +44,7 @@ export function strandedDelivery(rootDir: string, submission: SubmissionV1 | nul
  * separate `write-coordinator`/`ledger-publication` observation path; it has no GitHub run ordering.
  */
 export function githubActionsWitnessEvidence(
-  cell: RepoCellOperationalContext,
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "projectionReady" | "cellCodedError">,
   requirement: FrozenGateRequirement,
   execution: Snapshot["executions"][number] | undefined,
 ): CompletionEvidenceV1 | null {

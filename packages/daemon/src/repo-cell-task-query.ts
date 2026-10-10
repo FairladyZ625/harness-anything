@@ -1,3 +1,4 @@
+import { mergedCloseoutCandidates } from "./task-merged-closeout.ts";
 import { taskPresentationReads } from "./task-presentation-read.ts";
 import {
   admitTaskExecutionWip,
@@ -249,11 +250,18 @@ export function assertTaskWipCapacity(cell: TaskQueryCell, taskId: string, nextS
       nextStatus: allowed ? nextStatus : activating.status,
       rootThreshold: rootSetting.threshold,
     });
-  if (!admission.ok)
+  if (!admission.ok) {
+    const closeouts = mergedCloseoutCandidates(cell).slice(0, 3),
+      closeoutAdvice = closeouts.length
+        ? "Merged approved closeouts (owner consent remains explicit): " +
+          closeouts.map((candidate) => `${candidate.taskId}: ${candidate.commands.join("; ")}`).join(". ") +
+          ". "
+        : "";
     throw cell.cellCodedError(
       admission.code === "TASK_WIP_LIMIT_REACHED" ? "task_wip_limit_reached" : "task_wip_limit_invalid",
-      `${admission.message} Root threshold source: ${rootSetting.label}.`,
+      `${closeoutAdvice}${admission.message} Root threshold source: ${rootSetting.label}.`,
     );
+  }
 }
 
 // Only WIP-occupying task rows (plus the activating task itself, which may still be
