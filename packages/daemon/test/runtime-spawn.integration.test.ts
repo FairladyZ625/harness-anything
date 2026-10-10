@@ -6,7 +6,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSy
 import { hostname, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventStore, registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { makeTaskEventStore, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
@@ -19,7 +19,10 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  registerSettledBootstrappedDaemonRepo,
+} from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 const definition: AgentDefinitionSnapshot = {
@@ -861,7 +864,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
     path.join(root, "harness", "skills", "provider-witness", "SKILL.md"),
     "---\nname: provider-witness\ndescription: Provider witness\n---\nSKILL_PROVIDER_WITNESS\n",
   );
-  registerDaemonRepo({
+  await registerSettledBootstrappedDaemonRepo({
     canonicalRoot: root,
     repoId,
     userRoot,
