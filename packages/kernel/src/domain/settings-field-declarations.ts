@@ -443,6 +443,28 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     cli: { name: "--fleet-claim-scope", kind: "single", enum: ["node", "reserved", "startable"] },
   }),
   defineSettingsField({
+    path: ["runtime", "allowedInstances"],
+    ownership: repository,
+    valueKind: "string-array",
+    defaultValue: undefined,
+    optional: true,
+    pattern: settingValuePattern,
+    uniqueItems: true,
+    description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
+    effect:
+      "When set, only enabled machine instances in this list can receive dispatches; an explicit empty list blocks every instance.",
+    group: "schedules-nodes",
+    action: { field: "runtimeAllowedInstances", type: "string-array" },
+    cli: {
+      name: "--runtime-allowed-instance",
+      kind: "repeated",
+      regex: settingValuePattern,
+      format: "runtime instance ids, or none to block all machine instances",
+    },
+    noneMeansEmpty: true,
+    yamlStyle: "block-list",
+  }),
+  defineSettingsField({
     path: ["schedule", "admissionWindowMs"],
     ownership: repository,
     valueKind: "integer",

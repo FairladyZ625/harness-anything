@@ -386,6 +386,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
       localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
       runtimeInstances = input.runtimeInstances?.() ?? [],
+      allowedInstanceIds = input.readSettings?.().runtime?.allowedInstances,
       initialFallback =
         inheritedFallback ??
         initialFallbackAttempt(
@@ -397,6 +398,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           mission,
           runtimeInstances,
           localRuntimeSessions,
+          allowedInstanceIds,
         ),
       selection = await prepareRuntimeInstance(
         {
@@ -408,6 +410,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           agent,
           model,
           instances: runtimeInstances,
+          ...(allowedInstanceIds === undefined ? {} : { allowedInstanceIds }),
           sessions: localRuntimeSessions,
         },
         async (runtimeInstanceId) => {
@@ -423,12 +426,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     mission,
                     runtimeInstances,
                     localRuntimeSessions,
+                    allowedInstanceIds,
                   )
                 : initialFallback,
             fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            // Model resolution order: --model override > the runtimes row matching the selected
-            // instance's kind > the instance default (undefined defers to prepareLaunch).
+            // Model resolution: dispatch override, agent kind, then instance default.
             selectedModel =
               fallbackCandidate?.model ??
               model ??

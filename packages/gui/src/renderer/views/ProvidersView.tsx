@@ -14,6 +14,7 @@ import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
+import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 
 // Provider 入口(W6 IA 拆分):承运者(Runtime 实例)的完整工作区——目录 rail、
 // 实例卡片(编辑/auth/self-test/权限/删除)与右栏 health。live 计数取 overview 的
@@ -83,6 +84,8 @@ export function ProvidersWorkspace({
   // 返回键回目录;宽容器常驻双栏,该状态不参与。深链/跨页实体跳转视为一次点行。
   const narrow = useCatalogDetailPane(refId);
   const workspace = useProviderWorkspace(repoId, refId);
+  const settings = useSettingsQuery(repoId),
+    settingsMutation = useSettingsMutation(repoId);
   const [dialog, setDialog] = useState(false),
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
@@ -95,6 +98,9 @@ export function ProvidersWorkspace({
       : (orderProviderRows(instances, workspace.authProbeStates)[0]?.instance.instanceId ?? null);
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
+  const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
+    ? settings.data.settings.runtime.allowedInstances
+    : [];
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
   const carrierSessions =
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
@@ -178,6 +184,14 @@ export function ProvidersWorkspace({
                 onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
                 onValidate={() => void workspace.validateInstance(instance.instanceId)}
                 onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
+                projectAllowed={allowedInstances.includes(instance.instanceId)}
+                onSetProjectAllowed={(allowed) =>
+                  settingsMutation.mutate({
+                    runtimeAllowedInstances: allowed
+                      ? [...new Set([...allowedInstances, instance.instanceId])]
+                      : allowedInstances.filter((id) => id !== instance.instanceId),
+                  })
+                }
                 onUpdate={workspace.updateInstance}
                 onDelete={() => {
                   void workspace.deleteInstance(instance.instanceId);

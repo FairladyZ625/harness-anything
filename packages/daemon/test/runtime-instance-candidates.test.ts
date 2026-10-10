@@ -59,6 +59,49 @@ test("runtime candidates use runtimes row order only when providerPriority is ab
   ]);
 });
 
+test("repository allowlist filters automatic candidates and reports the blocked instance", () => {
+  const instances = [
+    instance("project-a", "codex", "provider-codex"),
+    instance("project-b", "devin", "provider-devin"),
+  ];
+  assert.deepEqual(
+    resolveRuntimeInstanceCandidates({ agent: agent(), instances, sessions: [], allowedInstanceIds: ["project-a"] }),
+    ["project-a"],
+  );
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "project-b",
+        agent: agent(),
+        instances,
+        sessions: [],
+        allowedInstanceIds: ["project-a"],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      error.message ===
+        "Runtime instance project-b is not allowed for this repository. Allowed instances: project-a. " +
+          "Enable it with ha settings update --runtime-allowed-instance project-b.",
+  );
+});
+
+test("an empty repository allowlist rejects every automatic dispatch with actionable guidance", () => {
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        agent: agent(),
+        instances: [instance("machine-codex", "codex", "provider-codex")],
+        sessions: [],
+        allowedInstanceIds: [],
+      }),
+    (error: unknown) =>
+      error instanceof Error &&
+      /No runtime instance is allowed for this repository.*Allowed instances: none.*ha settings update --runtime-allowed-instance <instance-id>/u.test(
+        error.message,
+      ),
+  );
+});
+
 test("runtime candidates retain live-load and instance-id ordering within one runtime kind", () => {
   const instances = [
     instance("codex-b", "codex", "provider-b"),
