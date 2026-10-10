@@ -10,6 +10,7 @@ import {
   isSamePerson,
   makeTaskEventStore,
   runtimeSessionActionIds,
+  SETTINGS_ID,
   type AgentRuntimeEventV1,
   type CanonicalEventAppendReceipt,
   type DaemonRepoMode,
@@ -452,6 +453,32 @@ export async function openRepoWriterCell(
     store: () => store,
     projection: () => projection,
     readSettings: () => readSettings(),
+    initializeAllowedInstances: async (binding, runtimeInstances) => {
+      if (readSettings().runtime?.allowedInstances !== undefined) return;
+      // Runtime executors cannot author repository settings. They use this dispatch's enabled
+      // machine snapshot until a principal dispatch persists the project allowlist.
+      if (binding.actor.executor !== null) return;
+      const instanceIds = [...new Set(runtimeInstances.filter((row) => row.enabled).map((row) => row.instanceId))];
+      if (instanceIds.length === 0) return;
+      const settingsRow = projection.getEntity("settings", SETTINGS_ID),
+        expectedVersion = settingsRow?.workspaceRevision ?? 0,
+        settingsAction = {
+          kind: "settings-update",
+          runtimeAllowedInstances: instanceIds,
+          expectedVersion,
+          idempotencyKey: `runtime-allowlist-auto-init-${input.repoId}`,
+        } satisfies RepoTaskAction,
+        actionId = operationId(settingsAction, binding, input.repoId, 0),
+        authorizedBinding = await authorizeRuntimeAction(settingsAction, binding, actionId),
+        receipt = await extracted.executeAction(settingsAction, authorizedBinding);
+      if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
+        throw Object.assign(
+          new Error(receipt.rejectionExplanation ?? "Settings allowlist initialization was rejected."),
+          {
+            code: receipt.code ?? "settings_initialization_failed",
+          },
+        );
+    },
     stream: runtimeStream,
     now,
     schedule,

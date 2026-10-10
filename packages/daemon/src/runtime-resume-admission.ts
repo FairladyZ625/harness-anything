@@ -8,6 +8,8 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 import {
   checkoutTaskWorktree,
   openTaskWorktreeBinding,
@@ -84,6 +86,19 @@ export function runtimeResumeAdmission(input: {
   const resumedDispatchId = input.resumedDispatches.get(input.dispatchId);
   if (resumedDispatchId) return { resumable: false, reason: "already_resumed", resumedDispatchId };
   return { resumable: true, dispatchId: input.dispatchId, agentId: input.agentId };
+}
+
+/** A read-only attach reads the frozen round from the repository root so it never checks out or advances the task worktree. */
+export function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
+  const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
+  if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
+  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
+    ?.status;
+  if (status !== "submitted" && status !== "in_review") return false;
+  const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
+  return agentId !== undefined && input.resolveAgent !== undefined
+    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
+    : false;
 }
 
 export function assertResumeAgent(

@@ -748,6 +748,12 @@ export const settingsFieldProtocolProjection = {
       enum: ["node", "reserved", "startable"],
     },
     {
+      field: "runtimeAllowedInstances",
+      description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
+      type: "string-array",
+      required: false,
+    },
+    {
       field: "scheduleAdmissionWindowMs",
       description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
       type: "number",
@@ -975,6 +981,17 @@ export const settingsFieldProtocolProjection = {
       name: "--fleet-claim-scope",
       kind: "single",
       enum: ["node", "reserved", "startable"],
+    },
+    {
+      field: "runtimeAllowedInstances",
+      description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
+      group: "schedules-nodes",
+      effect:
+        "Only enabled instances in this list can receive dispatches; an explicit empty list blocks all instances.",
+      name: "--runtime-allowed-instance",
+      kind: "repeated",
+      regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
+      format: "runtime instance ids, or none to block all machine instances",
     },
     {
       field: "scheduleAdmissionWindowMs",

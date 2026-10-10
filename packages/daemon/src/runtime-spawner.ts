@@ -22,12 +22,13 @@ import {
 } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
+import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -102,6 +103,7 @@ import {
   assertNativeResumeNotExported,
   assertRuntimeHandoffLaunch,
   assertResumeAgent,
+  readOnlyAttachDispatch,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
@@ -115,23 +117,6 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   exitNotificationTimeoutMs = 30_000;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
-
-/** A read-only attach reads the frozen round from the repository root — the reviewer dispatch's
- *  working-directory discipline — so its dispatch never checks out or advances the round's worktree.
- *  Resolution failures surface here exactly as they would in spawn: an Agent identity that does not
- *  resolve is a dispatch error, never a quiet read-only classification. */
-function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
-  const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
-  if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
-  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
-    ?.status;
-  if (status !== "submitted" && status !== "in_review") return false;
-  const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
-  return agentId !== undefined && input.resolveAgent !== undefined
-    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
-    : false;
-}
-
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -383,9 +368,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         squadId,
         targetAgentId,
       ),
-      runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
-      localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
-      runtimeInstances = input.runtimeInstances?.() ?? [],
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
+        input,
+        input.remote,
+        projection!,
+        processes,
+        dryRun,
+        binding,
+      ),
       initialFallback =
         inheritedFallback ??
         initialFallbackAttempt(
@@ -397,6 +387,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           mission,
           runtimeInstances,
           localRuntimeSessions,
+          allowedInstanceIds,
         ),
       selection = await prepareRuntimeInstance(
         {
@@ -408,6 +399,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           agent,
           model,
           instances: runtimeInstances,
+          allowedInstanceIds,
           sessions: localRuntimeSessions,
         },
         async (runtimeInstanceId) => {
@@ -423,12 +415,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     mission,
                     runtimeInstances,
                     localRuntimeSessions,
+                    allowedInstanceIds,
                   )
                 : initialFallback,
             fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            // Model resolution order: --model override > the runtimes row matching the selected
-            // instance's kind > the instance default (undefined defers to prepareLaunch).
+            // Model resolution: dispatch override, agent kind, then instance default.
             selectedModel =
               fallbackCandidate?.model ??
               model ??

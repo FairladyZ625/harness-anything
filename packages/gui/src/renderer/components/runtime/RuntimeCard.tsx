@@ -63,6 +63,8 @@ type Props = {
   readonly onValidate: () => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSetEnabled: (enabled: boolean) => void;
+  readonly projectAllowed: boolean;
+  readonly onSetProjectAllowed: (allowed: boolean) => void;
   readonly onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>;
   readonly onDelete: () => void;
   readonly onSelfTest: (model: string) => Promise<string | null>;
@@ -84,6 +86,8 @@ export function RuntimeCard({
   onAuth,
   onValidate,
   onSetEnabled,
+  projectAllowed,
+  onSetProjectAllowed,
   onUpdate,
   onDelete,
   onSelfTest,
@@ -158,6 +162,22 @@ export function RuntimeCard({
               ))}
             </FieldGrid>
           )}
+        </CardBody>
+      </Card>
+
+      <Card testId="runtime-card-project-access">
+        <CardHead>
+          <CardTitle>{t("agentRuntime.projectAccessTitle")}</CardTitle>
+          <Hint>{t("agentRuntime.projectAccessHint")}</Hint>
+          <Right>
+            <Hint>{t(projectAllowed ? "agentRuntime.projectAllowed" : "agentRuntime.projectBlocked")}</Hint>
+            <Toggle checked={projectAllowed} label={t("agentRuntime.projectAllowed")} onChange={onSetProjectAllowed} />
+          </Right>
+        </CardHead>
+        <CardBody>
+          <p className="ui-meta text-text-muted">
+            {t("agentRuntime.projectAccessBody", { instance: instance.instanceId })}
+          </p>
         </CardBody>
       </Card>
 

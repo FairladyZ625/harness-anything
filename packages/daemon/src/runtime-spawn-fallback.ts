@@ -39,6 +39,7 @@ export function initialFallbackAttempt(
   mission: string,
   instances: readonly RuntimeInstanceSummary[] = [],
   sessions: readonly RuntimeSessionSelection[] = [],
+  allowedInstanceIds?: readonly string[],
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
   const pin = requestedInstance ?? agent?.instance;
@@ -54,6 +55,7 @@ export function initialFallbackAttempt(
             agent,
             model: requestedModel,
             instances,
+            allowedInstanceIds,
             sessions,
           })
         : undefined,
@@ -83,6 +85,7 @@ export function initialFallbackAttempt(
       model: chainModel,
       runtimeKind: agent === null ? anchor.kindId : undefined,
       instances,
+      allowedInstanceIds,
       sessions,
     }),
     requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,

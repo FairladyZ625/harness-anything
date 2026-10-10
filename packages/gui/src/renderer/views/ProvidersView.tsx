@@ -14,6 +14,7 @@ import { StatusTag } from "../components/primitives/StatusTag.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
+import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
 
 // Provider 入口(W6 IA 拆分):承运者(Runtime 实例)的完整工作区——目录 rail、
 // 实例卡片(编辑/auth/self-test/权限/删除)与右栏 health。live 计数取 overview 的
@@ -83,6 +84,8 @@ export function ProvidersWorkspace({
   // 返回键回目录;宽容器常驻双栏,该状态不参与。深链/跨页实体跳转视为一次点行。
   const narrow = useCatalogDetailPane(refId);
   const workspace = useProviderWorkspace(repoId, refId);
+  const settings = useSettingsQuery(repoId),
+    settingsMutation = useSettingsMutation(repoId);
   const [dialog, setDialog] = useState(false),
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
@@ -95,6 +98,22 @@ export function ProvidersWorkspace({
       : (orderProviderRows(instances, workspace.authProbeStates)[0]?.instance.instanceId ?? null);
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
+  const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
+    ? settings.data.settings.runtime.allowedInstances
+    : [];
+  const settingsExpectedVersion =
+    settings.data?.lastChanged === "initial" || settings.data === undefined ? 0 : settings.data.lastChanged.revision;
+  const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
+    const current =
+      settings.data?.settings.runtime?.allowedInstances ??
+      instances.filter((row) => row.enabled).map((row) => row.instanceId);
+    return settingsMutation.mutate({
+      runtimeAllowedInstances: allowed
+        ? [...new Set([...current, instanceId])]
+        : current.filter((id) => id !== instanceId),
+      expectedVersion: settingsExpectedVersion,
+    });
+  };
   const liveSessions = selectedId === null ? 0 : (workspace.liveByInstance.get(selectedId) ?? 0);
   const carrierSessions =
     workspace.overview.data?.sessions.filter((session) => session.instanceId === selectedId) ?? [];
@@ -177,7 +196,13 @@ export function ProvidersWorkspace({
                 onSelectRuntime={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
                 onAuth={(action) => void workspace.authInstance(instance.instanceId, action)}
                 onValidate={() => void workspace.validateInstance(instance.instanceId)}
-                onSetEnabled={(enabled) => void workspace.setInstanceEnabled(instance.instanceId, enabled)}
+                onSetEnabled={(enabled) => {
+                  void workspace.setInstanceEnabled(instance.instanceId, enabled).then((result) => {
+                    if (enabled && result) updateProjectAllowedInstances(instance.instanceId, true);
+                  });
+                }}
+                projectAllowed={allowedInstances.includes(instance.instanceId)}
+                onSetProjectAllowed={(allowed) => updateProjectAllowedInstances(instance.instanceId, allowed)}
                 onUpdate={workspace.updateInstance}
                 onDelete={() => {
                   void workspace.deleteInstance(instance.instanceId);
@@ -207,6 +232,7 @@ export function ProvidersWorkspace({
             void workspace.createInstance(input).then((created) => {
               if (created) {
                 setDialog(false);
+                updateProjectAllowedInstances(input.instanceId, true);
                 onSelectEntity(`provider/${input.instanceId}`);
               }
             });
