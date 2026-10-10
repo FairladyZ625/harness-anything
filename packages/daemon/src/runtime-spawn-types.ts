@@ -293,7 +293,7 @@ export interface RuntimeSpawnerInput {
   readonly store?: () => CanonicalEventStore;
   readonly projection?: () => TaskProjection;
   readonly readSettings?: () => SettingsV1;
-  /** Initializes a missing repository allowlist through the caller's settings action before resolution. */
+  /** Mints a missing repository allowlist inside the admitted dispatch's writer queue before resolution. */
   readonly initializeAllowedInstances?: (
     binding: RuntimeBinding,
     instances: readonly RuntimeInstanceSummary[],

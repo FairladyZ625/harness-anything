@@ -114,7 +114,32 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
     return initialize(readSettingsFacet(documentBody), documentBody, binding);
   };
 
-  return { initialize, initializeFromAuthoredDocument, read, readRepository, writeLocal };
+  // This default is minted by the repository writer during an admitted dispatch, not
+  // authored by the dispatching executor as a settings-update. The same queue and event
+  // compiler used by bootstrap publish the one-time machine snapshot to every replica.
+  const initializeAllowedInstances = (instanceIds: readonly string[], binding: RepoCellBinding) => {
+    if (instanceIds.length === 0) return null;
+    initializeFromAuthoredDocument(binding);
+    const current = cell.projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined;
+    if (!current || current.runtime?.allowedInstances !== undefined) return null;
+    const documentBody = cell.projection.readDocument("harness.yaml").document!.body;
+    const settings = {
+        ...current,
+        runtime: { ...current.runtime, allowedInstances: instanceIds },
+      },
+      candidateDocumentBody = writeRepositorySettingsFacet(documentBody, settings),
+      revision = cell.store.readHead()?.revision ?? 0;
+    return appendInitialization(
+      settings,
+      documentBody,
+      candidateDocumentBody,
+      `runtime-allowlist-auto-init-${cell.input.repoId}`,
+      revision,
+      binding,
+    );
+  };
+
+  return { initialize, initializeFromAuthoredDocument, initializeAllowedInstances, read, readRepository, writeLocal };
 }
 
 /**

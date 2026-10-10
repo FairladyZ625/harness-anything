@@ -360,14 +360,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
-        input,
-        binding,
-        cwd,
-        agentId,
-        squadId,
-        targetAgentId,
-      ),
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
         input,
         input.remote,
@@ -376,19 +368,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         dryRun,
         binding,
       ),
-      initialFallback =
-        inheritedFallback ??
-        initialFallbackAttempt(
-          agent,
-          explicitRuntimeInstanceId,
-          model,
-          providerSessionId,
-          idempotencyKey,
-          mission,
-          runtimeInstances,
-          localRuntimeSessions,
-          allowedInstanceIds,
-        ),
+      { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
+        input,
+        binding,
+        cwd,
+        agentId,
+        squadId,
+        targetAgentId,
+      ),
       selection = await prepareRuntimeInstance(
         {
           requested:
@@ -403,7 +390,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           sessions: localRuntimeSessions,
         },
         async (runtimeInstanceId) => {
-          const fallbackAttempt =
+          const initialFallback =
+              inheritedFallback ??
+              initialFallbackAttempt(
+                agent,
+                explicitRuntimeInstanceId,
+                model,
+                providerSessionId,
+                idempotencyKey,
+                mission,
+                runtimeInstances,
+                localRuntimeSessions,
+                allowedInstanceIds,
+              ),
+            fallbackAttempt =
               initialFallback &&
               initialFallback.candidates[initialFallback.attemptIndex]?.instance !== runtimeInstanceId
                 ? initialFallbackAttempt(

@@ -108,6 +108,8 @@ export function resolveRuntimeInstanceCandidates(input: {
     allowedNames = allowed.length ? allowed.join(", ") : "none";
   const assertAllowed = (instanceId: string): void => {
     if (allowed.includes(instanceId) || (!configured && input.instances.length === 0)) return;
+    if (!input.instances.some((instance) => instance.instanceId === instanceId))
+      throw runtimeSpawnError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
       `Runtime instance ${instanceId} is not allowed for this repository. ` +

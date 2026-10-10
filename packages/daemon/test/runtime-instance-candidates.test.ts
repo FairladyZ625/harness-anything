@@ -249,3 +249,18 @@ for (const code of [
     }
   });
 }
+
+test("unknown explicit instances keep their machine-catalog error instead of a repository rejection", () => {
+  assert.throws(
+    () =>
+      resolveRuntimeInstanceCandidates({
+        requested: "missing-instance",
+        agent: null,
+        instances: [instance("known-codex", "codex", "provider-codex")],
+        sessions: [],
+        allowedInstanceIds: ["known-codex"],
+      }),
+    (error: unknown) =>
+      error instanceof Error && (error as Error & { code: string }).code === "runtime_instance_not_found",
+  );
+});
