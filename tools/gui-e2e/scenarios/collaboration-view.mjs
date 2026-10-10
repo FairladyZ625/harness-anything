@@ -36,7 +36,7 @@ import { bridgeReady, nav } from "./helpers.mjs";
  *                      absent 态的载体,台账无副本行)。
  *
  * 第 2 轮(CEO 检查点)补真实副本通道三态:场景开始时(daemon 空闲、fleet center
- * 尚未启动)向中心自己的副本账本种行——只读打开 cuts.sqlite 取最新修订 N 与连续
+ * 尚未启动)向中心自己的副本账本种行——只读打开 checkpoints.sqlite 取最新修订 N 与连续
  * cut 区间,经 openReplicaAckStore 把 ALPHA 的 ack cursor 落在 N(fresh)、BETA 落在
  * 最大连续 N-k(lag≥1),GAMMA 不种(absent=账本无行);再用 openssl 自签证书经
  * daemon.fleet.center.start 启动真实 TLS center,center.status() 从磁盘账本读出
@@ -116,8 +116,8 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
       localRoot: path.dirname(path.dirname(projection.path)),
       // 与 repo-cell 同款读序列适配(readSequence/readRevision 口径,a310599ca 起
       // publish 必经 readSequence;旧的 readBasis 选项已不在接口上)。
-      readSequence: (from, read) => projection.readReplicaSequence(from, read),
-      readRevision: (revision) => projection.readReplicaRevision(revision),
+      readSequence: projection.readReplicaSequence,
+      readRevision: projection.readReplicaRevision,
       readLedgerCut: () => store.currentCut(),
       readContentBlob: (sha256) => store.readContentBlob(sha256),
       readEvent: (opId) => store.readEvent(opId),
@@ -268,7 +268,7 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
     "repos",
     repoId,
     `g${READ_MODEL_SCHEMA_GENERATION}`,
-    "cuts.sqlite",
+    "checkpoints.sqlite",
   );
   assert.ok(existsSync(cutsPath), `replica cut store missing at ${cutsPath}`);
   const cuts = new DatabaseSync(cutsPath, { readOnly: true });
@@ -277,7 +277,7 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
     // 只读窗口取最近 12 个 cut 行(WAL 允许与运行中的 daemon 并发读)。
     window = cuts
       .prepare(
-        "SELECT revision, head_digest, manifest_digest, event_occurred_at FROM cut " +
+        "SELECT revision, head_digest, manifest_digest, occurred_at FROM cut " +
           "WHERE revision > (SELECT MAX(revision) - 12 FROM cut) ORDER BY revision",
       )
       .all();
@@ -297,12 +297,16 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
       const cut = window.find((row) => Number(row.revision) === revision);
       assert.ok(cut, `cut row ${revision} vanished between read and seed`);
       const key = { nodeId, viewId, repoId },
-        transferId = `transfer-e2e-${nodeId}-${revision}`;
+        transferId = `transfer-e2e-${nodeId}-${revision}`,
+        ackedAt = new Date().toISOString(),
+        // ack 要求一条活跃的 delivery lease(transport 契约):claim 后同事务内续租生效。
+        lease = ackStore.delivery.claim(key, `seed-${nodeId}`, Date.parse(ackedAt), 60_000);
+      assert.ok(lease, `seeding ${nodeId} could not claim its delivery lease`);
       ackStore.register(key, 1);
       ackStore.offer(key, {
         transferId,
         fromCut: null,
-        toCut: { revision, headDigest: String(cut.head_digest) },
+        toCut: { revision, headDigest: String(cut.head_digest), schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
         manifestDigest: String(cut.manifest_digest),
         kind: "delta",
         issuedAt: new Date().toISOString(),
@@ -310,10 +314,11 @@ export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot
       const acked = ackStore.ack(
         key,
         transferId,
-        { revision, headDigest: String(cut.head_digest) },
+        { revision, headDigest: String(cut.head_digest), schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
         String(cut.manifest_digest),
-        new Date().toISOString(),
-        String(cut.event_occurred_at),
+        ackedAt,
+        String(cut.occurred_at),
+        lease,
       );
       assert.equal(acked.outcome, "applied", `seeding ${nodeId} cursor at revision ${revision}`);
     };

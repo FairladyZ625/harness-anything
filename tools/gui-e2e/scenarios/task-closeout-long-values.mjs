@@ -60,10 +60,27 @@ export default {
       ].join("\n"),
     );
     // 种真实记录行:start 建 execution,submit 的证据准备产生 code-doc witness。
+    // 交付 commit 必须是 start 之后的「新工作」:start 会冻结 deliveryBaseline,
+    // baseline 之后的 diff 才是交付清单——先 commit 再 start 会被判为无新工作
+    // (200f8dc3d 起 no-diff 提交不带 code cut,投影不出 code-doc witness)。
     // submit 的交付门要一个可在本地解析的 40 位 commit:夹具仓 unborn HEAD,
     // 造一个带长路径文件的交付 commit(daemon 对该仓只做只读 rev-parse/
     // cat-file)。harness/ 在夹具仓被 .gitignore 忽略,文件放仓根;长 路径
     // 成为 code-doc witness 的 paths——真实、不可断的机器串探针。
+    const receipts = {};
+    const run = async (payload) => {
+      const receipt = await requestDaemonJsonRpcAt(
+        fixture.endpoint,
+        "repo.task.run",
+        { repo: { repoId: fixture.repoId }, payload: { action: payload } },
+        1_000,
+        10_000,
+      );
+      receipts[payload.kind] = receipt;
+      assert.equal(receipt.ok, true, `${payload.kind}: ${JSON.stringify(receipt)}`);
+      assert.equal(receipt.outcome, "applied", `${payload.kind} must create this scenario's execution`);
+    };
+    await run({ kind: "task-start", taskId: TASK_ID, executionId: EXECUTION_ID });
     const LONG_BASENAME =
       "entity-ref-long-values-narrow-container-acceptance-probe-20261002-closeout-review-text-overlap.md";
     writeFileSync(
@@ -85,22 +102,7 @@ export default {
       execFileSync("git", ["-C", fixture.rootDir, ...gitArgs], { encoding: "utf8" });
     }
     const headSha = execFileSync("git", ["-C", fixture.rootDir, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
-    const receipts = {};
-    for (const payload of [
-      { kind: "task-start", taskId: TASK_ID, executionId: EXECUTION_ID },
-      { kind: "task-submit", taskId: TASK_ID, commitSha: headSha },
-    ]) {
-      const receipt = await requestDaemonJsonRpcAt(
-        fixture.endpoint,
-        "repo.task.run",
-        { repo: { repoId: fixture.repoId }, payload: { action: payload } },
-        1_000,
-        10_000,
-      );
-      receipts[payload.kind] = receipt;
-      assert.equal(receipt.ok, true, `${payload.kind}: ${JSON.stringify(receipt)}`);
-      assert.equal(receipt.outcome, "applied", `${payload.kind} must create this scenario's execution`);
-    }
+    await run({ kind: "task-submit", taskId: TASK_ID, commitSha: headSha });
     const read = await requestDaemonJsonRpcAt(
       fixture.endpoint,
       "repo.tasks.list",

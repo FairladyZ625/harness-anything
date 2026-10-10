@@ -77,14 +77,48 @@ async function cancelDrag(page, boardId, sourceId, targetId, at) {
   );
 }
 
-/** dockview 分隔条(sash)是真实 pointer 拖拽:按住中点沿轴走一段。 */
-async function dragSash(page, board, delta, axis) {
-  const sash = board.locator(".dv-sash.dv-enabled, .dv-sash").first();
-  await sash.waitFor();
-  const box = await sash.boundingBox();
-  assert.ok(box, "dv-sash has no box");
-  const x = box.x + box.width / 2,
-    y = box.y + box.height / 2;
+/** dockview 分隔条(sash)是真实 pointer 拖拽:按住中点沿轴走一段。选缝按几何邻接——
+ * 拖挨着被测区域(anchor 的 bounding box)的那条正交缝;布局改成多分区网格后
+ * (work 板 2×2),DOM 里第一条 dv-sash 不再保证属于本区域。拖点避开缝交叉:
+ * 网格的竖缝与横缝在分区角上相交,角点会被另一条缝盖住,pointerdown 落错缝。 */
+async function dragSash(page, board, anchor, delta, axis) {
+  const target = await board.evaluate(
+    (node, { anchor: region, axis: dragAxis }) => {
+      const box = (element) => element.getBoundingClientRect();
+      const vertical = (rect) => rect.height >= rect.width,
+        // 沿横轴拖 -> 拖竖缝;沿纵轴拖 -> 拖横缝。
+        orientation = dragAxis === "row" ? vertical : (rect) => !vertical(rect),
+        along = (rect) => (dragAxis === "row" ? rect.left + rect.width / 2 : rect.top + rect.height / 2),
+        lo = dragAxis === "row" ? region.x : region.y,
+        hi = dragAxis === "row" ? region.x + region.width : region.y + region.height,
+        crosses = (rect) =>
+          dragAxis === "row"
+            ? rect.bottom > region.y && rect.top < region.y + region.height
+            : rect.right > region.x && rect.left < region.x + region.width;
+      const sash = [...node.querySelectorAll(".dv-sash")]
+        .map((element) => ({ element, rect: box(element) }))
+        .filter(({ rect }) => orientation(rect) && crosses(rect) && along(rect) >= lo - 2 && along(rect) <= hi + 2)[0];
+      if (!sash) return null;
+      const cross = dragAxis === "row" ? sash.rect.width / 2 : sash.rect.height / 2,
+        fixed = dragAxis === "row" ? sash.rect.left + sash.rect.width / 2 : sash.rect.top + sash.rect.height / 2;
+      for (const fraction of [0.85, 0.7, 0.5, 0.3, 0.15]) {
+        const variable =
+          dragAxis === "row"
+            ? Math.min(region.y + region.height * fraction, sash.rect.bottom - cross - 1)
+            : Math.min(region.x + region.width * fraction, sash.rect.right - cross - 1);
+        const point =
+          dragAxis === "row"
+            ? { x: fixed, y: Math.max(sash.rect.top + cross + 1, variable) }
+            : { y: fixed, x: Math.max(sash.rect.left + cross + 1, variable) };
+        const hit = globalThis.document.elementFromPoint(point.x, point.y);
+        if (hit === sash.element || sash.element.contains(hit)) return { point };
+      }
+      return null;
+    },
+    { anchor, axis },
+  );
+  assert.ok(target, `no ${axis === "row" ? "vertical" : "horizontal"} sash borders the measured region`);
+  const { x, y } = target.point;
   await page.mouse.move(x, y);
   await page.mouse.down();
   const steps = 8;
@@ -358,7 +392,7 @@ async function checkLayout(page, shot, boardId, first, second, label, reopen) {
   );
   // 分隔条真实 pointer 拖拽调比例。
   const start = await box(first);
-  await dragSash(page, board, -30, "row");
+  await dragSash(page, board, start, -30, "row");
   const resized = await box(first);
   assert.ok(Math.abs(resized.width - start.width) > 10, `${label} sash resize`);
   await shot(`${label}-sash`);
@@ -488,7 +522,7 @@ async function checkOverviewColumn(page, shot, label) {
     `${label} keyboard seam: ${seamBefore.height} -> ${seamAfter.height}`,
   );
   const sashStart = await box("works");
-  await dragSash(page, board, -40, "column");
+  await dragSash(page, board, sashStart, -40, "column");
   const sashResized = await box("works");
   assert.ok(Math.abs(sashResized.height - sashStart.height) > 10, `${label} sash resize`);
   await board.getByTestId("overview-board-controls-reset").click();
