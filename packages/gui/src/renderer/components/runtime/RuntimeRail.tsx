@@ -36,7 +36,11 @@ const badEdge = { "--status-edge": TONE_COLOR.bad } as CSSProperties;
 export function orderProviderRows(
   instances: readonly RuntimeInstanceSummary[],
   authProbeStates?: ReadonlyMap<string, RuntimeAuthProbeState>,
+  allowedInstanceIds?: readonly string[],
 ) {
+  const order = new Map(
+    (allowedInstanceIds ?? instances.map(({ instanceId }) => instanceId)).map((id, index) => [id, index]),
+  );
   const rows = instances.map((instance) => {
     const auth = runtimeAuthPresentation(instance, authProbeStates?.get(instance.instanceId));
     return {
@@ -44,9 +48,10 @@ export function orderProviderRows(
       auth,
       rank: !instance.enabled ? 2 : auth.cap === "none" ? 0 : 1,
       abnormal: instance.enabled && auth.cap === "none",
+      projectOrder: order.get(instance.instanceId) ?? order.size,
     };
   });
-  return rows.sort((left, right) => left.rank - right.rank);
+  return rows.sort((left, right) => left.rank - right.rank || left.projectOrder - right.projectOrder);
 }
 
 export function ProviderRail({
@@ -54,6 +59,7 @@ export function ProviderRail({
   authProbeStates,
   selectedId,
   liveByInstance,
+  allowedInstanceIds,
   onSelect,
   onNew,
 }: {
@@ -63,9 +69,10 @@ export function ProviderRail({
   readonly liveByInstance: ReadonlyMap<string, number>;
   readonly onSelect: (instanceId: string) => void;
   readonly onNew: () => void;
+  readonly allowedInstanceIds?: readonly string[];
 }) {
   const [open, setOpen] = useState(true);
-  const ordered = orderProviderRows(instances, authProbeStates);
+  const ordered = orderProviderRows(instances, authProbeStates, allowedInstanceIds);
   return (
     <nav
       data-testid="runtime-rail"

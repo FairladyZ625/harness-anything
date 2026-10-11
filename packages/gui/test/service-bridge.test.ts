@@ -313,7 +313,18 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     const settingsBefore = parseDaemonGuiReadResult("repo.settings.read", results.get("repo.settings.read"));
     // F-1D3A0A64: init records the empty machine inventory as this project's exact list.
     assert.deepEqual(settingsBefore.settings, {
-      runtime: { allowedInstances: [] },
+      // Provider scheduling fields project their repository-owned defaults.
+      runtime: {
+        allowedInstances: [],
+        providerMaxRetries: 3,
+        providerRoundBackoffBaseSeconds: 5,
+        providerRoundBackoffMaxSeconds: 60,
+        providerCooldownBaseSeconds: 30,
+        providerCooldownMaxSeconds: 300,
+        providerFreezeAfter: 5,
+        providerFreezeDurationSeconds: 1800,
+        providerMaxWaitSeconds: 300,
+      },
       schema: "settings/v1",
       settingsId: "repository",
       defaultVertical: "software/coding",

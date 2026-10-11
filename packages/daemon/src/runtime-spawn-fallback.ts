@@ -40,6 +40,8 @@ export function initialFallbackAttempt(
   instances: readonly RuntimeInstanceSummary[] = [],
   sessions: readonly RuntimeSessionSelection[] = [],
   allowedInstanceIds?: readonly string[],
+  health?: Parameters<typeof resolveRuntimeInstanceCandidates>[0]["health"],
+  now?: string,
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
   const pin = requestedInstance ?? agent?.instance;
@@ -57,9 +59,10 @@ export function initialFallbackAttempt(
             instances,
             allowedInstanceIds,
             sessions,
+            health,
+            now,
           })
         : undefined,
-    declared = agent?.fallback,
     anchorId = pin ?? candidatesForAnchor?.[0],
     anchor = instances.find((instance) => instance.instanceId === anchorId);
   // Each candidate kind resolves its own model: --model override > the runtimes row for
@@ -87,6 +90,8 @@ export function initialFallbackAttempt(
       instances,
       allowedInstanceIds,
       sessions,
+      health,
+      now,
     }),
     requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
     candidates = derivedInstances.slice(requestedIndex).map((instanceId) => ({
@@ -94,18 +99,21 @@ export function initialFallbackAttempt(
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
     }));
   if (requestedIndex < 0) return undefined;
+  // A fallback group is a provider switch chain. A single eligible instance has no
+  // successor to switch to, so preserve the existing terminal path instead of
+  // retrying the same scheduled runtime indefinitely.
   if (candidates.length < 2) return undefined;
-  const backoff = declared?.backoff ?? { baseMs: 0, maxMs: 0 },
-    digest = createHash("sha256")
-      .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
-      .digest("hex");
+  const digest = createHash("sha256")
+    .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
+    .digest("hex");
   return {
     attemptGroupId: `attempt_${digest.slice(0, 24)}`,
     attemptIndex: 0,
+    candidateIndex: 0,
+    retryRound: 0,
     rootIdempotencyKey: idempotencyKey,
     originalMission: mission,
     candidates,
-    backoff,
   };
 }
 
@@ -128,6 +136,19 @@ export function continuationMission(outcome: RuntimeAttemptOutcome, originalMiss
   ].join("\n");
 }
 
+function fallbackAvailabilitySummary(
+  candidates: readonly RuntimeFallbackAttempt["candidates"][number][],
+  health: RuntimeSpawnerInput["runtimeProviderHealth"],
+): string {
+  return candidates
+    .map((candidate) => {
+      const row = health?.get(candidate.instance),
+        recovery = row?.frozen ? "manual解冻" : (row?.frozenUntil ?? row?.cooldownUntil ?? "unknown");
+      return `${candidate.instance}: ${row?.reason ?? "provider unavailable"}; recover at ${recovery}`;
+    })
+    .join("; ");
+}
+
 export async function settleFallbackAttempt(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
@@ -136,14 +157,89 @@ export async function settleFallbackAttempt(
 ): Promise<void> {
   const { input } = context;
   const fallback = active.fallbackAttempt;
+  if (isProviderFailureClassification(outcome.classification)) {
+    const settings = input.readSettings?.(),
+      runtime = settings?.runtime;
+    input.runtimeProviderHealth?.recordFailure({
+      instanceId: outcome.provider.instance,
+      reason: outcome.reason,
+      occurredAt: input.now(),
+      ...(outcome.resetAt ? { resetAt: outcome.resetAt } : {}),
+      cooldownBaseSeconds: runtime?.providerCooldownBaseSeconds,
+      cooldownMaxSeconds: runtime?.providerCooldownMaxSeconds,
+      freezeAfter: runtime?.providerFreezeAfter,
+      freezeDurationSeconds: runtime?.providerFreezeDurationSeconds,
+      permanentFreeze:
+        active.providerFault?.code === "auth_failed" ||
+        (active.providerFault?.faultClass === "quota_exhausted" && outcome.resetAt === undefined),
+    });
+  } else if (active.providerOutcome === "succeeded") {
+    input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
+  }
   if (!isProviderFailureClassification(outcome.classification) || !fallback) {
     await input.onAttemptTerminal?.(terminal);
     return;
   }
-  const nextAttemptIndex = fallback.attemptIndex + 1,
-    exhausted = nextAttemptIndex >= fallback.candidates.length;
+  const currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
+    nextAttemptIndex = fallback.attemptIndex + 1,
+    nextCandidateIndex = currentCandidateIndex + 1,
+    retryRound = fallback.retryRound ?? 0,
+    runtimeSettings = input.readSettings?.()?.runtime,
+    maxRetries = Math.max(0, Number(runtimeSettings?.providerMaxRetries ?? 3)),
+    exhausted = nextCandidateIndex >= fallback.candidates.length;
   if (exhausted) {
-    const reason = `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s): ${outcome.reason}`;
+    if (retryRound < maxRetries) {
+      const roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
+        roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
+        delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
+        observedAt = Date.parse(input.now()),
+        waitStartedAt = fallback.waitStartedAt ? Date.parse(fallback.waitStartedAt) : observedAt,
+        maxWaitMs = Math.max(0, Number(runtimeSettings?.providerMaxWaitSeconds ?? 300) * 1_000),
+        recoverAt = fallback.candidates.reduce<number | null>((earliest, candidate) => {
+          const health = input.runtimeProviderHealth?.get(candidate.instance);
+          if (health?.frozen) return earliest;
+          const blockedUntil = health?.frozenUntil ?? health?.cooldownUntil,
+            blockedMs = blockedUntil ? Date.parse(blockedUntil) : Number.NaN;
+          if (!Number.isFinite(blockedMs) || blockedMs <= observedAt) return earliest ?? observedAt;
+          return earliest === null ? blockedMs : Math.min(earliest, blockedMs);
+        }, null),
+        notBeforeAt = new Date(Math.max(observedAt + delayMs, recoverAt ?? observedAt + delayMs)).toISOString(),
+        next = fallback.candidates[0]!;
+      if (
+        Number.isFinite(waitStartedAt) &&
+        observedAt - waitStartedAt + Math.max(0, Date.parse(notBeforeAt) - observedAt) > maxWaitMs
+      ) {
+        const reason =
+          `Provider fallback wait budget exhausted after ${String(Math.max(0, observedAt - waitStartedAt))}ms. ` +
+          `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
+        active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
+        return;
+      }
+      if (recoverAt === null) {
+        const reason =
+          `Provider fallback exhausted: every instance is permanently unavailable after ${String(nextAttemptIndex)} attempt(s). ` +
+          `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
+        active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
+        await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
+        return;
+      }
+      active.stream.appendFallbackState(
+        {
+          state: "scheduled",
+          delayMs,
+          notBeforeAt,
+          waitStartedAt: new Date(waitStartedAt).toISOString(),
+          nextProvider: next,
+        },
+        input.now(),
+      );
+      context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
+      return;
+    }
+    const reason =
+      `Provider fallback exhausted after ${String(nextAttemptIndex)} attempt(s) and ${String(retryRound)} retry round(s): ${outcome.reason}. ` +
+      `Candidates: ${fallbackAvailabilitySummary(fallback.candidates, input.runtimeProviderHealth)}`;
     active.stream.appendFallbackState({ state: "exhausted", reason }, input.now());
     try {
       await input.onAttemptTerminal?.({ ...terminal, outcome: "failed", reason });
@@ -158,8 +254,10 @@ export async function settleFallbackAttempt(
     }
     return;
   }
-  const next = fallback.candidates[nextAttemptIndex]!,
-    delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
+  const next = fallback.candidates[nextCandidateIndex]!,
+    roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
+    roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
+    delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
     notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
   active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
   context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
@@ -220,8 +318,21 @@ export function scheduleFallbackContinuation(args: {
       if (!binding || typeof dispatchCwd !== "string") return;
       const fallback = header.fallbackAttempt!,
         nextAttemptIndex = fallback.attemptIndex + 1,
-        nextFallback = { ...fallback, attemptIndex: nextAttemptIndex },
-        next = fallback.candidates[nextAttemptIndex],
+        currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
+        nextCandidateIndex = currentCandidateIndex + 1,
+        nextRound = (fallback.retryRound ?? 0) + (nextCandidateIndex >= fallback.candidates.length ? 1 : 0),
+        nextFallback = {
+          ...fallback,
+          attemptIndex: nextAttemptIndex,
+          candidateIndex: nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex,
+          retryRound: nextRound,
+          ...(fallback.waitStartedAt ||
+          current.fallbackSchedule.waitStartedAt ||
+          nextCandidateIndex >= fallback.candidates.length
+            ? { waitStartedAt: fallback.waitStartedAt ?? current.fallbackSchedule.waitStartedAt ?? input.now() }
+            : {}),
+        },
+        next = fallback.candidates[nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex],
         writer = reopenDispatchStream(input.rootDir, header),
         continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
       if (

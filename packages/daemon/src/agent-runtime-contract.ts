@@ -39,6 +39,16 @@ interface AgentRuntimeInstanceCommonDto {
 }
 export interface AgentRuntimeInstanceDto extends AgentRuntimeInstanceCommonDto {
   readonly kindId: string;
+  readonly providerHealth?: {
+    readonly nodeId: string;
+    readonly failureStreak: number;
+    readonly cooldownUntil: string | null;
+    readonly frozen: boolean;
+    readonly frozenUntil: string | null;
+    readonly reason: string | null;
+    readonly lastFailureAt: string | null;
+    readonly lastResetAt: string | null;
+  };
 }
 export interface AgentRuntimeAssociationDto {
   readonly taskId: string;

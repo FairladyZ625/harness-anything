@@ -36,12 +36,9 @@ export type AgentDraft = {
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly instructions: string;
   readonly prompts: readonly string[];
-  // Optional declaration facets the editor does not render controls for still round-trip:
-  // rebuilding the declaration from only the visible fields silently stripped instance,
-  // permissionMode, and fallback on every save.
+  // Optional declaration facets the editor does not render controls for still round-trip.
   readonly instance: string;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | "";
-  readonly fallback: AgentDeclarationV1["fallback"] | undefined;
 };
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
@@ -53,7 +50,6 @@ export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   prompts: detail.prompts,
   instance: detail.instance ?? "",
   permissionMode: detail.permissionMode ?? "",
-  fallback: detail.fallback ?? undefined,
 });
 export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclarationV1 {
   return {
@@ -73,7 +69,6 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     ...(draft.preset.trim() ? { preset: draft.preset.trim() } : {}),
     ...(draft.instance.trim() ? { instance: draft.instance.trim() } : {}),
     ...(draft.permissionMode ? { permissionMode: draft.permissionMode } : {}),
-    ...(draft.fallback ? { fallback: draft.fallback } : {}),
   } as AgentDeclarationV1;
 }
 export const agentDraftDirty = (detail: AgentEntityDetail, draft: AgentDraft): boolean =>

@@ -640,6 +640,7 @@ export const runtimeInstanceMethods = Object.freeze([
         isolationState: "string?",
         fast: "boolean?",
         enabled: "boolean?",
+        clearFreeze: "boolean?",
         apiKey: "string?",
       }),
     }),

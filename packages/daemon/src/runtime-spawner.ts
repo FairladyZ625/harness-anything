@@ -360,12 +360,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
-        input,
-        input.remote,
-        projection!,
-        processes,
-      ),
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
+        await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
         binding,
@@ -378,7 +374,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const selection = await prepareRuntimeInstance(
         {
           requested:
-            inheritedFallback?.candidates[inheritedFallback.attemptIndex]?.instance ??
+            inheritedFallback?.candidates[inheritedFallback.candidateIndex ?? inheritedFallback.attemptIndex]
+              ?.instance ??
             explicitRuntimeInstanceId ??
             agent?.instance,
           providerSessionId: providerSessionId ?? undefined,
@@ -387,6 +384,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           instances: runtimeInstances,
           allowedInstanceIds,
           sessions: localRuntimeSessions,
+          health: providerHealth,
+          now: input.now(),
         },
         async (runtimeInstanceId) => {
           const initialFallback =
@@ -401,10 +400,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 runtimeInstances,
                 localRuntimeSessions,
                 allowedInstanceIds,
+                providerHealth,
+                input.now(),
               ),
             fallbackAttempt =
               initialFallback &&
-              initialFallback.candidates[initialFallback.attemptIndex]?.instance !== runtimeInstanceId
+              initialFallback.candidates[initialFallback.candidateIndex ?? initialFallback.attemptIndex]?.instance !==
+                runtimeInstanceId
                 ? initialFallbackAttempt(
                     agent,
                     runtimeInstanceId,
@@ -415,11 +417,16 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     runtimeInstances,
                     localRuntimeSessions,
                     allowedInstanceIds,
+                    providerHealth,
+                    input.now(),
                   )
                 : initialFallback,
-            fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
+            fallbackAttemptForDispatch = fallbackAttempt,
+            fallbackCandidate =
+              fallbackAttemptForDispatch?.candidates[
+                fallbackAttemptForDispatch.candidateIndex ?? fallbackAttemptForDispatch.attemptIndex
+              ],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            // Model resolution: dispatch override, agent kind, then instance default.
             selectedModel =
               fallbackCandidate?.model ??
               model ??
@@ -502,7 +509,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   runtimeSessionId,
                 }),
             result = {
-              fallbackAttempt,
+              fallbackAttempt: fallbackAttemptForDispatch,
               runtimeInstance,
               effectivePermissionMode,
               callbackRelay,
@@ -734,7 +741,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         providerSessionId,
       );
     };
-    // Remote resumes must first win center admission, just like fresh provider launches.
     if (providerSessionId && !input.remote && !handoff) {
       if (!requestedDispatchId) assertNativeResumeNotExported(input.rootDir, providerSessionId, projection!);
       try {

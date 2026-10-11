@@ -597,6 +597,10 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
       channel.run(t(enabled ? "agentRuntime.opInstanceEnabled" : "agentRuntime.opInstanceDisabled"), () =>
         runtimeInstanceClient.setEnabled(instanceId, enabled, repoId),
       ),
+    clearInstanceFreeze: (instanceId: string) =>
+      channel.run("Clear provider freeze", () =>
+        runtimeInstanceClient.update({ instanceId, clearFreeze: true }, repoId),
+      ),
     deleteInstance: (instanceId: string) =>
       channel.run(t("agentRuntime.opInstanceDeleted"), () => runtimeInstanceClient.delete(instanceId, repoId)),
     validateInstance: (instanceId: string) =>

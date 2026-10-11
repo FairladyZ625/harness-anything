@@ -93,17 +93,17 @@ export function ProvidersWorkspace({
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
   const instances = workspace.instances;
+  const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
+    ? settings.data.settings.runtime.allowedInstances
+    : [];
   // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落目录首项(异常置顶后的
   // 第一项,标准 §2.5)——派生选择,不写回导航栈。
   const selectedId =
     refId !== null && instances.some((candidate) => candidate.instanceId === refId)
       ? refId
-      : (orderProviderRows(instances, workspace.authProbeStates)[0]?.instance.instanceId ?? null);
+      : (orderProviderRows(instances, workspace.authProbeStates, allowedInstances)[0]?.instance.instanceId ?? null);
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
-  const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
-    ? settings.data.settings.runtime.allowedInstances
-    : [];
   const settingsExpectedVersion =
     settings.data?.lastChanged === "initial" || settings.data === undefined ? 0 : settings.data.lastChanged.revision;
   const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
@@ -156,6 +156,7 @@ export function ProvidersWorkspace({
           authProbeStates={workspace.authProbeStates}
           selectedId={selectedId}
           liveByInstance={workspace.liveByInstance}
+          allowedInstanceIds={allowedInstances}
           onSelect={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
           onNew={() => setDialog(true)}
         />
@@ -200,6 +201,29 @@ export function ProvidersWorkspace({
                   });
                 }}
                 projectAllowed={allowedInstances.includes(instance.instanceId)}
+                providerHealth={instance.providerHealth}
+                onClearFreeze={() => void workspace.clearInstanceFreeze(instance.instanceId)}
+                projectOrder={
+                  allowedInstances.includes(instance.instanceId)
+                    ? allowedInstances.indexOf(instance.instanceId) + 1
+                    : undefined
+                }
+                onMoveProjectOrder={(direction) => {
+                  const indexes = allowedInstances.flatMap((instanceId, index) =>
+                      instances.find((row) => row.instanceId === instanceId)?.kindId === instance.kindId ? [index] : [],
+                    ),
+                    position = indexes.indexOf(allowedInstances.indexOf(instance.instanceId)),
+                    target = position + direction;
+                  if (position < 0 || target < 0 || target >= indexes.length) return;
+                  const next = [...allowedInstances],
+                    left = indexes[position]!,
+                    right = indexes[target]!;
+                  [next[left], next[right]] = [next[right]!, next[left]!];
+                  void settingsMutation.mutate({
+                    runtimeAllowedInstances: next,
+                    expectedVersion: settingsExpectedVersion,
+                  });
+                }}
                 onSetProjectAllowed={(allowed) => updateProjectAllowedInstances(instance.instanceId, allowed)}
                 onUpdate={workspace.updateInstance}
                 onDelete={() => {

@@ -25,10 +25,14 @@ export type RuntimeFallbackCandidate = { readonly instance: string; readonly mod
 export type RuntimeFallbackAttempt = {
   readonly attemptGroupId: string;
   readonly attemptIndex: number;
+  /** Position within the current candidate round. Older streams omit this and use attemptIndex. */
+  readonly candidateIndex?: number;
+  /** Number of completed retry rounds after the initial candidate pass. */
+  readonly retryRound?: number;
+  readonly waitStartedAt?: string;
   readonly rootIdempotencyKey: string;
   readonly originalMission: string;
   readonly candidates: readonly RuntimeFallbackCandidate[];
-  readonly backoff: { readonly baseMs: number; readonly maxMs: number };
 };
 
 export type RuntimeAttemptOutcome = {

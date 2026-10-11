@@ -4,12 +4,17 @@ import { locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
 import type { ActiveRuntime, RuntimeSessionSelection, RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 
 export async function resolveRuntimeDispatchResources(
-  input: Pick<RuntimeSpawnerInput, "readSettings" | "runtimeInstances">,
+  input: Pick<RuntimeSpawnerInput, "readSettings" | "runtimeInstances" | "runtimeProviderHealth">,
   remote: RuntimeSpawnerInput["remote"],
   projection: TaskProjection,
   processes: ReadonlyMap<string, Pick<ActiveRuntime, "process">>,
 ): Promise<
-  readonly [readonly RuntimeSessionSelection[], readonly RuntimeInstanceSummary[], readonly string[] | undefined]
+  readonly [
+    readonly RuntimeSessionSelection[],
+    readonly RuntimeInstanceSummary[],
+    readonly string[] | undefined,
+    readonly import("./runtime-provider-health.ts").RuntimeProviderHealth[],
+  ]
 > {
   const runtimeSessions = remote ? await remote.readRuntimeSessions() : projection.readRuntimeSessions(),
     localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
@@ -17,8 +22,9 @@ export async function resolveRuntimeDispatchResources(
   const settings = remote
       ? input.readSettings?.()
       : (projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined),
-    allowedInstanceIds = settings?.runtime?.allowedInstances;
-  return [localRuntimeSessions, runtimeInstances, allowedInstanceIds];
+    allowedInstanceIds = settings?.runtime?.allowedInstances,
+    health = input.runtimeProviderHealth?.list() ?? [];
+  return [localRuntimeSessions, runtimeInstances, allowedInstanceIds, health];
 }
 
 /** ha init captures machine availability during the operator's repository setup. */

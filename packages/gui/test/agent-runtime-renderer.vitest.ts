@@ -149,7 +149,6 @@ const agentDetail = {
   preset: null,
   instance: "claude-one",
   permissionMode: "bypass",
-  fallback: { providerPriority: ["anthropic"], backoff: { baseMs: 1000, maxMs: 5000 } },
 } as const;
 const availableSkills = [
     { id: "review", path: "/Users/test/.claude/skills/review", source: "user" },
@@ -693,7 +692,6 @@ describe("agent runtime renderer", () => {
       skills: agentDetail.skills,
       instance: agentDetail.instance,
       permissionMode: agentDetail.permissionMode,
-      fallback: agentDetail.fallback,
     });
     expect(withSkills).toContain('data-testid="agent-skill-search"');
     expect(withSkills).toContain('data-testid="agent-preset"');

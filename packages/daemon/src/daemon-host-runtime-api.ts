@@ -390,7 +390,55 @@ export function createDaemonHostRuntimeApi(
         ...payload,
         kind: actionKind,
       })) as JsonObject;
-      return { ...receipt, authorizationDecision: authorizationDecision as unknown as JsonObject };
+      if (operation === "update" && payload.clearFreeze === true && typeof payload.instanceId === "string")
+        context.runtimePorts.runtimeProviderHealth.reset(payload.instanceId, context.now());
+      const withHealth = (value: unknown): unknown => {
+        if (value === null || typeof value !== "object" || Array.isArray(value)) return value;
+        const instance = value as Record<string, unknown>;
+        return typeof instance.instanceId === "string"
+          ? {
+              ...instance,
+              providerHealth: {
+                nodeId: context.input.daemonId,
+                ...context.runtimePorts.runtimeProviderHealth.get(instance.instanceId),
+              },
+            }
+          : value;
+      };
+      const instances = Array.isArray(receipt.instances) ? receipt.instances.map(withHealth) : undefined,
+        instance = receipt.instance === undefined ? undefined : withHealth(receipt.instance),
+        summary =
+          instances === undefined
+            ? receipt.summary
+            : [
+                receipt.summary,
+                "",
+                "NODE\tID\tNAME\tKIND\tMODEL\tENABLED\tHEALTH\tREASON\tRECOVER AT",
+                ...(instances as Record<string, unknown>[]).map((row) => {
+                  const health = row.providerHealth as Record<string, unknown>;
+                  return [
+                    health.nodeId,
+                    row.instanceId,
+                    row.name,
+                    row.kindId,
+                    Array.isArray(row.models) ? row.models.join(",") : "",
+                    row.enabled ? "enabled" : "disabled",
+                    health.frozen ? "frozen" : health.cooldownUntil ? "cooldown" : "ready",
+                    health.reason ?? "-",
+                    health.frozenUntil ?? health.cooldownUntil ?? "-",
+                  ].join("\t");
+                }),
+              ]
+                .filter((value): value is string => typeof value === "string")
+                .join("\n");
+      return {
+        ...receipt,
+        ...(instances === undefined ? {} : { instances }),
+        ...(instance === undefined ? {} : { instance }),
+        ...(summary === undefined ? {} : { summary }),
+        ...(operation === "update" && payload.clearFreeze === true ? { providerHealthCleared: true } : {}),
+        authorizationDecision: authorizationDecision as unknown as JsonObject,
+      } as JsonObject;
     },
     runtimeInstanceAuth: async (repoId, method, payload, auth) => {
       context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);

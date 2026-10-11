@@ -14,7 +14,6 @@ import type {
   WriteSource,
 } from "@harness-anything/kernel";
 import type {
-  AgentFallbackDeclarationV1,
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,
@@ -33,6 +32,7 @@ import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { type RuntimePermissionMode } from "./runtime-permissions.ts";
 import type { RuntimeFallbackAttempt, RuntimeProviderFault } from "./runtime-fallback-contract.ts";
+import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 
 export interface RuntimeProcess {
   readonly pid: number;
@@ -129,7 +129,6 @@ export type RuntimeAgent = {
   readonly skills?: readonly AgentSkillDeclarationV1[];
   readonly prompts?: readonly string[];
   readonly preset?: string;
-  readonly fallback?: AgentFallbackDeclarationV1;
 };
 
 export type ActiveRuntime = {
@@ -308,6 +307,7 @@ export interface RuntimeSpawnerInput {
   readonly stream: Pick<AgentRuntimeStreamHub, "publish">;
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly runtimeProviderHealth?: RuntimeProviderHealthStore;
   readonly prepareLaunch: (
     instanceId: string,
     request: {

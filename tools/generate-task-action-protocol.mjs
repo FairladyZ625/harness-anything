@@ -164,20 +164,27 @@ export async function renderTaskActionProtocolProjection() {
       writeReceiptFields,
       actions: actions.filter(({ id }) => id !== "create"),
     },
-    [
-      `export const settingsFieldProtocolProjection = ${readableJson(projectSettingsFields())} as const satisfies GeneratedSettingsFieldProtocolProjection;`,
-    ],
-    ["GeneratedSettingsFieldProtocolProjection"],
+    [],
   );
+}
+
+export async function renderSettingsFieldProtocolProjection() {
+  return `export const settingsFieldProtocolProjection = ${readableJson(projectSettingsFields())} as const satisfies GeneratedSettingsFieldProtocolProjection;`;
 }
 
 /** Task creation input and its result fields. */
 export async function renderTaskCreateProjection() {
   const { taskCreateResultFields, actions } = projectTaskActions();
-  return renderProjection("GeneratedTaskCreateProjection", "taskCreateDescriptorProjection", {
-    taskCreateResultFields,
-    action: actions.find(({ id }) => id === "create"),
-  });
+  return renderProjection(
+    "GeneratedTaskCreateProjection",
+    "taskCreateDescriptorProjection",
+    {
+      taskCreateResultFields,
+      action: actions.find(({ id }) => id === "create"),
+    },
+    [await renderSettingsFieldProtocolProjection()],
+    ["GeneratedSettingsFieldProtocolProjection"],
+  );
 }
 
 export async function generateTaskActionProtocolProjection(check = false) {

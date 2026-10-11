@@ -33,6 +33,7 @@ export type RuntimeInstanceUpdateInput = {
   readonly permissionMode?: "bypass" | "workspace-write" | "read-only";
   readonly isolationState?: "enforced" | "operator-environment";
   readonly fast?: boolean;
+  readonly clearFreeze?: boolean;
 };
 type RuntimeInstanceCreateCommon = {
   readonly instanceId: string;

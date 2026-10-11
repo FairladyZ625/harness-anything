@@ -522,6 +522,9 @@ export const runtimeConfigProtocolCommands = Object.freeze([
       cliInput("--disable", "boolean", false, {
         code: "invalid_field",
       }),
+      cliInput("--clear-freeze", "boolean", false, {
+        code: "invalid_field",
+      }),
     ],
   }),
   defineLedgerWriteCommand({

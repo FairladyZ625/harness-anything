@@ -16,6 +16,7 @@ import type { RuntimeDaemonRoute } from "./runtime-spawn.ts";
 import type { makeScheduleScheduler } from "./schedule-scheduler.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import type { makeWarmingSettlement } from "./daemon-host-errors.ts";
+import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
 import type { WriterEpochFenceDescriptor, WriterEpochLease } from "./writer-epoch.ts";
 
@@ -27,6 +28,7 @@ export interface DaemonPoint extends JsonObject {
 
 export interface DaemonRuntimePorts {
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
+  readonly runtimeProviderHealth: RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch: ReturnType<typeof openRuntimeInstanceStore>["prepareLaunch"];
   readonly reclaimRuntimeTempDirectory: ReturnType<typeof openRuntimeInstanceStore>["reclaimRuntimeTempDirectory"];
   readonly reclaimSettledRuntimeTempDirectories: ReturnType<

@@ -150,10 +150,6 @@ test("run-now launches only after an applied claim, stays single-flight, and set
                 instructions: "Run the exact probe mission.",
                 runtimes: [{ type: "codex" }],
                 instance: definition.instanceId,
-                fallback: {
-                  providerPriority: [definition.providerId, "openai-secondary"],
-                  backoff: { baseMs: 1, maxMs: 1 },
-                },
               },
             },
             actor,

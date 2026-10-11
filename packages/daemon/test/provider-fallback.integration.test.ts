@@ -362,12 +362,10 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     assert.equal(emptySuccess.exitCode, 0);
     assert.match(emptySuccess.reason ?? "", /outcome is unknown/u);
 
-    await installAgent(
-      cell,
-      "fallback-restart",
-      [{ instance: "provider-restart-first" }, { instance: "provider-restart-second" }],
-      { baseMs: 500, maxMs: 500 },
-    );
+    await installAgent(cell, "fallback-restart", [
+      { instance: "provider-restart-first" },
+      { instance: "provider-restart-second" },
+    ]);
     await startTask(cell, root, "task_provider_fallback_restart", "execution-provider-fallback-restart");
     await cell.spawnRuntime(
       {
@@ -555,10 +553,6 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
       name: "Fallback Adopt Twice",
       instructions: "Exercise durable fallback adoption.",
       runtimes: [{ type: "codex", model: "provider-success-model" }],
-      fallback: {
-        providerPriority: ["provider-adopt-first", "provider-adopt-next"],
-        backoff: { baseMs: 500, maxMs: 500 },
-      },
     },
     instances = [runtimeInstance("provider-adopt-first"), runtimeInstance("provider-adopt-next")],
     schedule = (work: () => void | Promise<void>, scheduledBinding?: RuntimeBinding) => {
@@ -582,7 +576,15 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         remote,
         stream: { publish: () => ({}) as never },
         now,
-        readSettings: () => ({ runtime: { allowedInstances: instances.map((row) => row.instanceId) } }) as never,
+        readSettings: () =>
+          ({
+            runtime: {
+              allowedInstances: instances.map((row) => row.instanceId),
+              providerRoundBackoffBaseSeconds: 1,
+              providerRoundBackoffMaxSeconds: 1,
+              providerMaxRetries: 0,
+            },
+          }) as never,
         runtimeInstances: () => instances,
         prepareLaunch: async (instanceId, request) => ({
           definition: definition(instanceId, request.model ?? `${instanceId}-model`),
@@ -679,8 +681,24 @@ async function installAgent(
   cell: Awaited<ReturnType<typeof openRepoCell>>,
   agentId: string,
   providers: readonly { readonly instance: string }[],
-  backoff = { baseMs: 1, maxMs: 2 },
 ): Promise<void> {
+  const settings = (await cell.read("repo.settings.read")) as {
+    readonly settings?: { readonly runtime?: { readonly allowedInstances?: readonly string[] } };
+  };
+  const allowedInstances = [
+    ...new Set([...(settings.settings?.runtime?.allowedInstances ?? []), ...providers.map(({ instance }) => instance)]),
+  ];
+  const configured = await cell.run(
+    {
+      kind: "settings-update",
+      runtimeAllowedInstances: allowedInstances,
+      runtimeProviderRoundBackoffBaseSeconds: 0,
+      runtimeProviderRoundBackoffMaxSeconds: 0,
+      runtimeProviderMaxRetries: 0,
+    },
+    binding,
+  );
+  assert.ok(["applied", "no_changes"].includes(String(configured.outcome)), JSON.stringify(configured));
   const receipt = await cell.run(
     {
       kind: "agent-install",
@@ -691,7 +709,6 @@ async function installAgent(
         instructions: "Execute the assigned mission.",
         runtimes: [{ type: "codex", model: "provider-success-model" }],
         instance: providers[0]!.instance,
-        fallback: { providerPriority: providers.map(({ instance }) => instance), backoff },
       },
     },
     binding,
