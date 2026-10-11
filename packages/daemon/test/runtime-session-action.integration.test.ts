@@ -43,9 +43,12 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
           realm: keycloakRealm,
           clientId: "harness-center",
         },
-        center: async () => {
-          throw new Error("runtime must retain the user's device session");
-        },
+        center: async () => ({
+          url: served.url,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+          accessToken: "center-token",
+        }),
       },
       writerEpoch: 7,
     },
@@ -154,6 +157,14 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       },
     });
     assert.equal(changedOwner.code, "execution_scope_mismatch");
+    await assert.rejects(
+      start("runtime-start-no-device-session", {
+        ...binding,
+        keycloakAuthorization: { center: binding.keycloakAuthorization!.center },
+      }),
+      { code: "authorization_denied" },
+      "center authority cannot replace a device session",
+    );
     const stale = await start("runtime-start-stale-generation", binding);
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "runtime_session_adoption_stale");

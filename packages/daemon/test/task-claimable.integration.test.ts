@@ -10,6 +10,7 @@ import {
 } from "@harness-anything/kernel";
 import { emptyTaskLifecycleSnapshot } from "@harness-anything/kernel/internal/domain/task-lifecycle.contract";
 import { readClaimableTasks } from "../src/task-claimable-read.ts";
+import { readTaskAssignmentDirectory } from "../src/task-assignment-directory.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { serveKeycloak } from "./keycloak.fixtures.ts";
 
@@ -60,7 +61,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
   const team = (await adapter.readTeams("center-token"))[0]!,
     userId = (await adapter.findUserId("center-token", "owner"))!;
   await adapter.setTeamMember("center-token", team.id, userId, true);
-  realm.keycloak.permit("owner", "repo", ["task-start"]);
+  realm.keycloak.permit("owner", "repo", ["task-start", "task-assign"]);
   const rows = [
     row("task-node", { assignee: { kind: "person", personId: "owner", nodeId: "node-a" }, expiresAt }),
     row("task-other-node", { assignee: { kind: "person", personId: "owner", nodeId: "node-b" }, expiresAt }),
@@ -112,7 +113,20 @@ test("fresh claimable query applies three scopes, live membership, task permissi
     ["task-node", "task-person", "task-team", "task-expired", "task-free"],
   );
   assert.equal(JSON.stringify(rows), before);
+  const directory = await readTaskAssignmentDirectory("repo", "task-node", binding);
+  assert.ok(directory.people.some((person) => person.personId === "owner"));
+  for (const session of [undefined, { ...binding.keycloakAuthorization.session, personId: "someone-else" }]) {
+    await assert.rejects(
+      readTaskAssignmentDirectory("repo", "task-node", {
+        ...binding,
+        keycloakAuthorization: { ...binding.keycloakAuthorization, session },
+      }),
+      { code: "authorization_denied" },
+    );
+  }
   assert.deepEqual(realm.keycloak.writes.slice(writes), [], "user-session reads do not issue admin writes");
+  realm.keycloak.revoke("owner", "repo", ["task-assign"]);
+  await assert.rejects(readTaskAssignmentDirectory("repo", "task-node", binding), { code: "authorization_denied" });
   const free = rows.find((entry) => entry.taskId === "task-free")!;
   rows[rows.indexOf(free)] = {
     ...free,

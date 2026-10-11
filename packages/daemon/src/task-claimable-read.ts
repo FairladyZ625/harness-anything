@@ -34,7 +34,8 @@ export async function readClaimableTasks(input: {
     }),
     personId = binding.actor.principal.personId,
     permission = await evaluateKeycloakPerson({
-      credential: binding.keycloakAuthorization!,
+      // Read hints use the device session; the eventual write also evaluates center authority.
+      credential: { session: binding.keycloakAuthorization!.session },
       personId,
       action: "task-start",
       resource: { kind: "repository", repoId },
