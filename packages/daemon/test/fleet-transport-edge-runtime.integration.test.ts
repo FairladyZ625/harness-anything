@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
@@ -65,10 +65,6 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
     t.after(() => fixture.close());
-    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
-      "edge-codex",
-      "aaa-edge-codex",
-    ]);
     const taskReleaseBarrier = fixture.blockTaskRelease();
     t.after(taskReleaseBarrier.release);
     const center = await fixture.center(),
@@ -189,8 +185,10 @@ test(
       [runtimeDefinition.instanceId, "Edge Codex"],
       [alternateInstanceId, "Alternate Codex"],
     ])
-      await edgeHost.runtimeInstance(
-        "daemon.runtimeInstance.create",
+      await registerFixtureRuntimeInstance(
+        edgeHost,
+        fixture.subject.repoId,
+        localAuth,
         {
           instanceId,
           name,
@@ -201,7 +199,7 @@ test(
           codex: { reasoningEffort: runtimeDefinition.reasoningEffort },
           authMode: runtimeDefinition.authMode,
         },
-        localAuth,
+        { allowHost: fixture.host },
       );
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
@@ -513,11 +511,7 @@ test(
       },
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
-    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
-      "edge-codex",
-      "aaa-edge-codex",
-    ]);
-    await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
+    await registerFixtureRuntimeInstance(fixture.host, fixture.subject.repoId, localAuthFixture(), codexInstance);
     const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
       packageSource = path.join(fixture.repo, "source", "edge-worker");
@@ -611,7 +605,7 @@ test(
       });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
-    await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
+    await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
@@ -729,10 +723,6 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
-    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
-      "edge-codex",
-      "aaa-edge-codex",
-    ]);
     const center = await fixture.center(),
       workspaceRoot = path.join(fixture.root, "paged-runtime-edge"),
       viewRoot = path.join(fixture.root, "paged-runtime-view");

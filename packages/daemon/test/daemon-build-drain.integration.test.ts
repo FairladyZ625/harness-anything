@@ -12,11 +12,11 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import test from "node:test";
 import {
   consumeKnownError,
-  registerDaemonRepo,
   makeTaskEventReader,
   makeTaskProjection,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
+import { registerDaemonRepo } from "@harness-anything/kernel";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";

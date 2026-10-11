@@ -10,10 +10,13 @@ import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
-import { registerDaemonRepo, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+} from "./repo-settings.fixture.ts";
 import { canonicalRoot } from "../src/protocol/daemon-protocol.contract.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import type { ScheduleGuiRowDto, SchedulesListResult } from "../src/protocol/schedules-gui-contract.ts";

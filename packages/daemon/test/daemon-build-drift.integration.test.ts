@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -52,20 +52,15 @@ test("a dist rebuild is observable while the daemon keeps serving and its runtim
   });
   await host.attachmentsSettled();
   try {
-    host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: "build-drift-worker",
-        name: "Build drift worker",
-        kindId: "codex",
-        installationId: installation.installationId,
-        providerId: "openai",
-        models: ["test-model"],
-        authMode: "subscription",
-      },
-      auth,
-    );
-    await allowFixtureRuntimeInstances(host, repoId, auth, ["build-drift-worker"]);
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "build-drift-worker",
+      name: "Build drift worker",
+      kindId: "codex",
+      installationId: installation.installationId,
+      providerId: "openai",
+      models: ["test-model"],
+      authMode: "subscription",
+    });
     const worker = await host.spawnRuntime(
       repoId,
       {

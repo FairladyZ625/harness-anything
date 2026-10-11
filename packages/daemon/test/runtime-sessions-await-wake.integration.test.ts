@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -64,20 +64,15 @@ test("a parked sessions.await does not re-read settlement for provider activity 
     return read(...args);
   }) as typeof host.read;
   try {
-    host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: "claude-wake",
-        name: "claude wake",
-        kindId: "claude",
-        installationId: "installation-claude",
-        providerId: "anthropic",
-        models: ["claude-model"],
-        authMode: "subscription",
-      },
-      auth,
-    );
-    await allowFixtureRuntimeInstances(host, repoId, auth, ["claude-wake"]);
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "claude-wake",
+      name: "claude wake",
+      kindId: "claude",
+      installationId: "installation-claude",
+      providerId: "anthropic",
+      models: ["claude-model"],
+      authMode: "subscription",
+    });
     const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {
