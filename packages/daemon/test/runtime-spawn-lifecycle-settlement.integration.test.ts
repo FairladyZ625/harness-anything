@@ -697,6 +697,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
           rootDir: canonicalRoot(root),
           ownerId,
           defaultWriterEpochFence,
+          keycloakSession: async () => oldBinding.keycloakAuthorization.session,
           runtimeDaemonRoute: {
             userRoot: path.join(parent, "daemon-user"),
             daemonId: "runtime-re-adopt-test",
@@ -915,7 +916,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
       executionId = "execution-runtime-lost",
       binding = withPolicyGroup(
         {
-          actor: { principal: { personId: "owner" }, executor: null },
+          actor,
           source: "local" as const,
         },
         "admin",
@@ -1116,6 +1117,7 @@ test(
             rootDir: canonicalRoot(root),
             ownerId,
             defaultWriterEpochFence,
+            keycloakSession: async () => oldBinding.keycloakAuthorization.session,
             runtimeDaemonRoute: {
               userRoot: path.join(parent, "daemon-user"),
               daemonId: "runtime-re-adopt-test",

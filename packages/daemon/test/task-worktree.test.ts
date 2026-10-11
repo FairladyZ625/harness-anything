@@ -39,7 +39,12 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     leaderDispatchId = `dispatch_${hash.slice(0, 24)}`;
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   initRepo(rootDir);
-  const first = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "first-open" });
+  const first = await openBootstrappedRepoCell({
+    repoId,
+    rootDir: canonicalRoot(rootDir),
+    keycloakSession: async () => cellBinding.keycloakAuthorization.session,
+    ownerId: "first-open",
+  });
   assert.equal(
     (await first.run({ kind: "task-create", taskId: orphanTaskId, title: "Rejected Squad child" }, cellBinding))
       .outcome,
@@ -140,6 +145,7 @@ test("attach cancels a rejected Squad child through the task lifecycle writer", 
     repoId,
     rootDir: canonicalRoot(rootDir),
     ownerId: "startup-reconciliation",
+    keycloakSession: async () => cellBinding.keycloakAuthorization.session,
   });
   t.after(() => reopened.close());
   assert.equal(

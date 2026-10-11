@@ -356,6 +356,8 @@ export async function openWriterSupervisor(
       case "releaseCurrentAccessToken":
         sessionTokens.delete(call.payload as string);
         return;
+      case "keycloakSession":
+        return input.keycloakSession!();
       case "keycloakCenter":
         return input.keycloakCenter!();
       case "prepareRuntimeLaunch": {
@@ -467,6 +469,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       shouldStop: input.shouldStop !== undefined,
       runtimeInstances: input.runtimeInstances !== undefined,
       keycloakCenter: input.keycloakCenter !== undefined,
+      keycloakSession: input.keycloakSession !== undefined,
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
       // Runtime worker hosts belong to the daemon process, not the replaceable

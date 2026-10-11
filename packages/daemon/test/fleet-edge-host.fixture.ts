@@ -22,7 +22,7 @@ export async function fleetEdgeHostFixture(
   t: TestContext,
   f: Pick<FleetFixture, "root" | "repo"> & {
     readonly center: Pick<FleetFixture["center"], "port">;
-    readonly owners: { readonly keycloak: Pick<FleetFixture["owners"]["keycloak"], "fetch"> };
+    readonly owners: { readonly url: string; readonly keycloak: Pick<FleetFixture["owners"]["keycloak"], "fetch"> };
   },
   options: {
     readonly name?: string;
@@ -80,7 +80,7 @@ export async function fleetEdgeHostFixture(
         sessionExpiresAt: Date.now() + 21_600_000,
         roles: [],
         loginTarget: edgeRoot,
-        authority: { url: "https://keycloak.example", realm: "harness" },
+        authority: { url: f.owners.url, realm: "harness" },
       }),
     );
   signIn(options.personId ?? "person-one");

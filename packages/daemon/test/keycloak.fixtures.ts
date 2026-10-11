@@ -554,6 +554,7 @@ type RealmControl =
   | { readonly op: "account"; readonly personId: string }
   | { readonly op: "permit"; readonly personId: string; readonly resource: string; readonly actions: readonly string[] }
   | { readonly op: "node"; readonly nodeId: string; readonly personId: string }
+  | { readonly op: "session"; readonly nodeId: string; readonly personId: string; readonly issuer: string }
   | { readonly op: "nodeLogins" };
 
 /** Applies one control message to a served realm; the child entry and its parent share this vocabulary. */
@@ -564,6 +565,10 @@ export function applyRealmControl(keycloak: ReturnType<typeof fakeKeycloak>, mes
     return null;
   }
   if (message.op === "node") return keycloak.node(message.nodeId, message.personId);
+  if (message.op === "session") {
+    keycloak.interactiveSession(message.personId, message.nodeId, message.issuer);
+    return null;
+  }
   return keycloak.nodeLogins;
 }
 

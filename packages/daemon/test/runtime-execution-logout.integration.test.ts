@@ -25,7 +25,7 @@ import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 
 // The real daemon, writer process, socket, CLI, and provider executable run in a dedicated user root.
 // Keycloak wire behavior is a realm fixture; the fixed real-server mechanism is recorded in F-02C8A42D.
-test("implementation and reviewer retain bounded CLI authority after logout", { timeout: 120_000 }, async (t) => {
+test("runtime CLI requires device login and bounded execution", { timeout: 120_000 }, async (t) => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-execution-logout-")),
     root = path.join(parent, "repo"),
     userRoot = path.join(parent, "user"),
@@ -197,6 +197,13 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
   assert.ok(eventRows.every((row) => row.type === "runtime_session_started"));
   const logout = await rpc("daemon.rbac.manage", { operation: "logout" });
   assert.equal(logout.ok, true, JSON.stringify(logout));
+  // dec_F01770FD0DCF72683B7C4C7A47/CH5: local execution needs the same current user session as Fleet.
+  assert.equal((await implementation.cli(["task", "show", taskId])).code, "authentication_required");
+  assert.equal(
+    (await implementation.cli(["task", "progress", "append", taskId, "--text", "No session"])).code,
+    "authentication_required",
+  );
+  signInAt(userRoot, "owner");
   for (const args of [
     ["event", "list", "--limit", "1"],
     ["task", "show", taskId],
@@ -212,7 +219,7 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
     "append",
     taskId,
     "--text",
-    "Worker continued after actual OIDC logout.",
+    "Worker continued after the device owner signed in again.",
   ]);
   assert.equal(progress.outcome, "applied", JSON.stringify(progress));
   for (const args of [
@@ -241,7 +248,7 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
   assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
   writeFileSync(
     path.join(root, "harness", packagePath, "closeout.md"),
-    `## Summary\nDelivered ${delivery}.\n## Verification\nReal daemon CLI logout read and progress passed.\n## Residual Risk\nIsolated fixture only.\n## Same Mechanism Elsewhere\nReviewer ingress uses the same independent credential.\n`,
+    `## Summary\nDelivered ${delivery}.\n## Verification\nReal daemon CLI logout refusal and reauthenticated progress passed.\n## Residual Risk\nIsolated fixture only.\n## Same Mechanism Elsewhere\nReviewer ingress uses the same independent credential.\n`,
   );
   const doc = await implementation.cli(["doc", "sync", "--submit", "--task", taskId]);
   assert.equal(doc.outcome, "applied", JSON.stringify(doc));
@@ -259,6 +266,8 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
   assert.equal(forward.outcome, "applied", JSON.stringify(forward));
   const reviewer = await launch("reviewer");
   assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+  assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");
+  signInAt(userRoot, "owner");
   assert.equal((await reviewer.cli(["task", "show", taskId])).outcome, "applied");
   assert.equal((await reviewer.cli(["task", "read-set", taskId])).outcome, "applied");
   const dispatchId = String(reviewer.result.dispatchId),
@@ -268,13 +277,13 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
     path.join(reportDir, `${dispatchId}.json`),
     JSON.stringify({
       verdict: "approved",
-      reason: "The bounded runtime completed after logout.",
+      reason: "The bounded runtime completed after device reauthentication.",
       evidenceChecked: ["isolated CLI receipts"],
     }),
   );
   writeFileSync(
     path.join(reportDir, `${dispatchId}.md`),
-    "# Review\n\nVerified independent execution after logout and current permission refusal.\n",
+    "# Review\n\nVerified device session requirement and current permission refusal.\n",
   );
   const wrongReport = await reviewer.cli([
     "task",
@@ -359,6 +368,8 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
       assert.equal(cancelled.ok, true, JSON.stringify(cancelled));
     } else {
       assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
+      assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");
+      signInAt(userRoot, "owner");
       writeFileSync(path.join(parent, `${runtime.runtime}.finish`), "finish");
     }
     // The stream records the outcome before the ledger does; settlement archives the stream only

@@ -429,10 +429,10 @@ export async function openRepoWriterCell(
   let handoffTaskLease: NonNullable<Parameters<typeof makeRuntimeSpawner>[0]["handoffTaskLease"]> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell task lease handoff is not ready.");
   };
-  // Direct test/fleet bindings may carry an explicit user session. Refresh only those bindings;
-  // local socket-owner bindings have no Keycloak dependency and pass through unchanged.
+  // Async work outlives its initiating RPC. Resolve the daemon's current local session at acceptance;
+  // a device request must keep its own verified session and can never borrow this local one.
   const onlineBinding = async (binding: RepoCellBinding): Promise<RepoCellBinding> => {
-    if (binding.source !== "local" || !input.keycloakSession || binding.daemonSocketOwner === true) return binding;
+    if (binding.source !== "local" || !input.keycloakSession) return binding;
     const session = await input.keycloakSession();
     if (session.personId !== binding.actor.principal.personId)
       throw cellCodedError("authentication_required", "The original runtime owner must sign in on this device.");
@@ -958,6 +958,7 @@ export async function openRepoWriterCell(
   );
 
   const apiContext = {
+    onlineBinding,
     extracted: operationalContext,
     mode,
     // Resolved per read so the schedule GUI join sees the host's current admission

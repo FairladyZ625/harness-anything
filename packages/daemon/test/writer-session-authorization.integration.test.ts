@@ -54,7 +54,7 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
       auth: DaemonAuthenticationContext = {
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: {
-          ownerUid: (process.getuid?.() ?? 0) + 1_000,
+          ownerUid: process.getuid?.() ?? 0,
           source: "unix-socket-filesystem-owner-boundary",
         },
         oidcPrincipal: {

@@ -33,12 +33,7 @@ import {
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import {
-  binding as deriveBinding,
-  isLocalSocketOwner,
-  localSystemBinding,
-  withDaemonWriterEpochFence,
-} from "./daemon-host-binding.ts";
+import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -250,6 +245,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     await rbacResumed;
     return { ...(await oidc.center()), clientId: "harness-center" };
   };
+  const keycloakSession = async () => {
+    await rbacResumed;
+    const principal = (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal;
+    if (!principal) throw hostCodedError("authentication_required", "Sign in before continuing a runtime.");
+    return { personId: principal.personId, accessToken: principal.accessToken, ...principal.authority };
+  };
   const hostBinding: DaemonHostApiContext["binding"] = async (
       rootDir,
       auth,
@@ -277,26 +278,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             "execution_credential_rejected",
             "Execution credential belongs to a different repository.",
           );
-        const localExecution =
-          cell.status().mode !== "remote-edge" &&
-          execution.source === "local" &&
-          !auth.nodePrincipal &&
-          isLocalSocketOwner(auth);
-        const deviceSession = localExecution ? undefined : await deriveBinding(rootDir, await oidc.bind(auth));
-        if (deviceSession && deviceSession.actor.principal.personId !== execution.personId)
-          throw executionCredentialRejected();
+        const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth));
+        if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
         const base = {
           actor: runtimeExecutionActor(execution),
           source: execution.source,
-          ...(localExecution ? { daemonSocketOwner: true as const } : {}),
           executionPrincipal: execution,
           writerEpoch: auth.writerEpoch,
           withWriterEpochFence: auth.withWriterEpochFence,
           writerEpochFence: auth.writerEpochFence,
-          ...(cell.status().mode === "remote-edge" || localExecution
+          ...(cell.status().mode === "remote-edge"
             ? {}
             : {
-                keycloakAuthorization: { ...deviceSession!.keycloakAuthorization, center: keycloakCenter },
+                keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
               }),
         };
         return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
@@ -308,13 +302,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           edge && replicaRead
             ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, true)), keycloakCenter }, executor, true)
             : await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
-        base =
-          edge || principal.daemonSocketOwner
-            ? principal
-            : {
-                ...principal,
-                keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
-              };
+        base = edge
+          ? principal
+          : {
+              ...principal,
+              keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
+            };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
     },
     closeDaemonWriterEpoch = () => {
@@ -355,11 +348,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             .schedule;
         if (!schedule || validateScheduleV1(schedule).length)
           throw hostCodedError("invalid_schedule", "Schedule execution requires its canonical creator identity.");
-        return daemonWriterBinding(repoId, {
-          actor: { principal: schedule.createdBy.principal, executor: null },
-          source: "local",
-          daemonSocketOwner: true,
-        });
+        const current = await hostBinding(rootDir, { transportKind: "unix-socket" });
+        if (current.actor.principal.personId !== schedule.createdBy.principal.personId)
+          throw hostCodedError("authentication_required", "The schedule creator must sign in on this device.");
+        return daemonWriterBinding(repoId, current);
       },
       remoteEdgeAction: async (repoId, rootDir, action) => {
         const config = readFleetEdgeConfig(rootDir);
@@ -472,6 +464,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimePorts,
     runtimeDaemonRoute,
     keycloakCenter,
+    keycloakSession,
     scheduleScheduler,
     edgeRuntimeFor,
     invalidRepoId,
@@ -632,6 +625,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     hostCodedError,
     binding: hostBinding,
     keycloakCenter,
+    keycloakSession,
     oidc,
     writerEpochFence,
     writerEpochLease,

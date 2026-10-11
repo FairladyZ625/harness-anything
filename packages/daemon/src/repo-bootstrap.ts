@@ -28,7 +28,6 @@ import {
   type WorkspaceId,
 } from "./protocol/daemon-protocol.contract.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
-import { isLocalSocketOwner } from "./daemon-host-binding.ts";
 import { runProcessText } from "./process-port.ts";
 
 export interface RepoBootstrapRequest {
@@ -56,7 +55,6 @@ export interface RepoBootstrapInput {
   readonly keycloakAuthorization?: import("./repo-cell-types.ts").RepoCellBinding["keycloakAuthorization"];
   readonly repositoryPlan: RepositoryScaffoldPlan;
   readonly actor: ActorIdentity;
-  readonly daemonSocketOwner?: true;
   readonly configureOnly?: boolean;
 }
 export interface RepoBootstrapReceipt {
@@ -156,7 +154,6 @@ export function resolveRepoBootstrap(
     rootDir,
     repoId: normalizedRepoId,
     actor: { principal: { personId: auth.oidcPrincipal?.personId ?? personId }, executor: null },
-    ...(isLocalSocketOwner(auth) ? { daemonSocketOwner: true as const } : {}),
     machineDocuments,
     settingsBootstrap: [settings, harnessDocument.body],
     ...(auth.oidcPrincipal === undefined

@@ -20,7 +20,6 @@ export async function initializeBootstrapLedger(
     baseBinding = {
       actor: bootstrap.actor,
       source: "local" as const,
-      ...(bootstrap.daemonSocketOwner ? { daemonSocketOwner: true as const } : {}),
       ...(bootstrap.keycloakAuthorization ? { keycloakAuthorization: bootstrap.keycloakAuthorization } : {}),
     },
     revision = store.readHead()?.revision ?? 0,

@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { binding as bindDaemonPrincipal } from "../src/daemon-host-binding.ts";
+import { binding as bindDaemonPrincipal, localSystemBinding } from "../src/daemon-host-binding.ts";
 import { evaluateFleetAction } from "../src/host-action-authorization.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
@@ -143,12 +143,13 @@ test("a retained user-device binding uses its current session after token rotati
   });
 });
 
-test("a verified local socket owner authorizes local work without borrowing Keycloak", async () => {
+test("a local socket owner requires a user session for repository work", async () => {
   const ownerUid = process.getuid?.() ?? 0,
-    local = await bindDaemonPrincipal("/unused", {
+    auth: DaemonAuthenticationContext = {
       transportKind: "unix-socket",
       unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
-    }),
+    },
+    local = localSystemBinding("/unused"),
     repoDecision = await evaluateRepoCellAction({
       action: { kind: "task-create", taskId: "task-local", title: "Local" },
       binding: local,
@@ -158,7 +159,7 @@ test("a verified local socket owner authorizes local work without borrowing Keyc
       now: "2026-10-11T00:00:00.000Z",
     }),
     hostDecision = await evaluateFleetAction({
-      kind: "daemon-control-request",
+      kind: "rbac-bootstrap",
       binding: local,
       actionId: "local-control",
       evaluatedAtCut: "daemon-control:current",
@@ -167,10 +168,34 @@ test("a verified local socket owner authorizes local work without borrowing Keyc
   assert.equal(local.actor.principal.personId, `local-user-${ownerUid}`);
   assert.equal(local.daemonSocketOwner, true);
   assert.equal(local.keycloakAuthorization, undefined);
-  assert.equal(repoDecision.outcome, "allowed");
-  assert.deepEqual(repoDecision.bindingsUsed, [{ proof: "unix-socket-owner-boundary", scope: "task-create" }]);
+  assert.equal(repoDecision.outcome, "denied");
+  assert.deepEqual(repoDecision.bindingsUsed, []);
+  // dec_F01770FD0DCF72683B7C4C7A47/CH5 and the owner ruling: socket ownership is not a user session.
+  await assert.rejects(bindDaemonPrincipal("/unused", auth), { code: "authentication_required" });
   assert.equal(hostDecision.outcome, "allowed");
   assert.equal(hostDecision.policyRef, "daemon-socket-owner@1");
+  // dec_F01770FD0DCF72683B7C4C7A47/CH5 does not replace the one-time host bootstrap boundary.
+  assert.equal(
+    (
+      await evaluateFleetAction({
+        kind: "daemon-control-request",
+        binding: local,
+        actionId: "local-canonical-control",
+        evaluatedAtCut: "daemon-control:current",
+      })
+    ).outcome,
+    "denied",
+  );
+  await assert.rejects(
+    bindDaemonPrincipal("/unused", {
+      transportKind: "unix-socket",
+      unixSocketOwnerBoundary: { ownerUid, source: "unix-socket-filesystem-owner-boundary" },
+      keycloakCenter: async () => {
+        throw new Error("no principal may borrow center authority");
+      },
+    }),
+    { code: "authentication_required" },
+  );
   await assert.rejects(
     bindDaemonPrincipal("/unused", {
       transportKind: "unix-socket",

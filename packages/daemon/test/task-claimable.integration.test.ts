@@ -112,7 +112,7 @@ test("fresh claimable query applies three scopes, live membership, task permissi
     ["task-node", "task-person", "task-team", "task-expired", "task-free"],
   );
   assert.equal(JSON.stringify(rows), before);
-  assert.ok(realm.keycloak.writes.slice(writes).every((request) => request.endsWith("/policy/evaluate")));
+  assert.deepEqual(realm.keycloak.writes.slice(writes), [], "user-session reads do not issue admin writes");
   const free = rows.find((entry) => entry.taskId === "task-free")!;
   rows[rows.indexOf(free)] = {
     ...free,

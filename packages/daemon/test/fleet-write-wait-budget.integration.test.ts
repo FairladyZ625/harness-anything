@@ -12,7 +12,6 @@ import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 // A mutating center round trip settles when the single-writer queue applies the operation, so the
@@ -32,7 +31,8 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     nodeId = "edge-one";
   let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
     host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
-    edge: ReturnType<typeof openFleetEdgeRuntime> | null = null;
+    edge: ReturnType<typeof openFleetEdgeRuntime> | null = null,
+    owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null;
   try {
     initHarnessRepo(repo, "fleet-write-wait-center");
     registerDaemonRepo({ canonicalRoot: repo, repoId, mode: "remote-center", userRoot, createConvenienceLinks: false });
@@ -57,13 +57,17 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
       ],
       { stdio: "ignore" },
     );
+    owners = await fleetNodeOwners({
+      userRoot,
+      owners: { [nodeId]: "operator-one" },
+      repoIds: [repoId],
+      localPersonId: "operator-one",
+    });
     host = await openDaemonHost({ daemonId: "fleet-write-wait-center", userRoot });
     await host.attachmentsSettled();
-    const owners = await fleetNodeOwners({ userRoot, owners: { [nodeId]: "operator-one" }, repoIds: [repoId] });
     initHarnessRepo(path.join(root, "edge-workspace"), "fleet-write-wait-edge");
     // The edge pulls before its first command, so the center needs one published cut: warm the
     // ledger with an unstalled local write before any fleet session exists.
-    signInPolicyTestUser(userRoot, "operator-one", [repoId], "admin");
     const warmed = await host.run(
       repoId,
       {
@@ -104,6 +108,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
       replicaDiskQuotaBytes: 64 * 1024 * 1024,
       authenticate: (node, credential) => credential === `credential-${node}`,
       nodeOwner: owners.nodeOwner,
+      verifyHuman: owners.verifyHuman,
     });
     const workspaceRoot = path.join(root, "edge-workspace");
     edge = openFleetEdgeRuntime({
@@ -121,6 +126,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
         method: "repo.schedule.run",
         action: {},
       },
+      readAccessToken: owners.readAccessToken(nodeId),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(root, "edge-user"),
@@ -161,6 +167,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     edge?.close();
     await center?.close();
     await host?.close();
+    await owners?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });
