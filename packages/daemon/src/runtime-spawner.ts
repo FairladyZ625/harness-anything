@@ -28,7 +28,7 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -656,14 +656,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.release?.();
       cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      // The stream is gone, so the startup sweep is this directory's only remaining reclaim
-      // path (a launch that failed before its dispatch event never registers at the center,
-      // which the sweep treats as settled); the refusal is logged, not swallowed.
-      const reclaimFailure = input.reclaimRuntimeTempDirectory?.(runtimeInstanceId, runtimeSessionId);
-      if (reclaimFailure)
-        console.error(
-          `[runtime-temp] ${runtimeInstanceId}/${runtimeSessionId} could not be reclaimed after a failed launch: ${reclaimFailure.message}`,
-        );
+      reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
       if (!taskLeaseHandoff || !taskBinding) return;
       await input.onAttemptTerminal?.({
         runtimeSessionId,

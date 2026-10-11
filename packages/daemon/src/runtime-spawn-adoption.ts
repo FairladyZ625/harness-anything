@@ -210,9 +210,23 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
     return !session || session.outcome !== null;
   });
   for (const failure of reclaimFailures)
-    console.error(
-      `[runtime-temp] ${failure.instanceId}/${failure.runtimeSessionId} could not be reclaimed by the startup sweep: ${failure.error.message}`,
-    );
+    logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);
+}
+
+/** A launch that failed before its dispatch event never registered at the center, so the
+ *  startup sweep — which reclaims sessions the center does not know — is this directory's
+ *  only remaining reclaim path; the refusal is logged, not swallowed. */
+export function reclaimFailedLaunchTempDirectory(
+  input: Pick<RuntimeSpawnerInput, "reclaimRuntimeTempDirectory">,
+  instanceId: string,
+  runtimeSessionId: string,
+): void {
+  const failure = input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId);
+  if (failure) logRuntimeTempReclaimFailure(instanceId, runtimeSessionId, "after a failed launch", failure);
+}
+
+function logRuntimeTempReclaimFailure(instanceId: string, runtimeSessionId: string, stage: string, error: Error): void {
+  console.error(`[runtime-temp] ${instanceId}/${runtimeSessionId} could not be reclaimed ${stage}: ${error.message}`);
 }
 
 export function ownedByRuntimeSpawner(
