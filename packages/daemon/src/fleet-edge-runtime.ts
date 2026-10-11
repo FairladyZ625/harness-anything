@@ -146,6 +146,28 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
   return sessions;
 }
 
+export function createFleetEdgeRuntimeWorkQueue(onError: (error: unknown) => void) {
+  let tail = Promise.resolve(),
+    closed = false;
+  const schedule = (work: () => void | Promise<void>): Promise<void> => {
+    const scheduled = tail.then(() => {
+      if (closed) return;
+      return work();
+    });
+    tail = scheduled.then(
+      () => undefined,
+      (error: unknown) => onError(error),
+    );
+    return scheduled;
+  };
+  return {
+    schedule,
+    close: () => {
+      closed = true;
+    },
+  };
+}
+
 export function openFleetEdgeRuntime(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly readBinding: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
@@ -203,24 +225,13 @@ export function openFleetEdgeRuntime(input: {
     );
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
-  let tail = Promise.resolve();
-  let closed = false;
-  const schedule = (work: () => void | Promise<void>): Promise<void> => {
-    const scheduled = tail.then(() => {
-      if (closed) return;
-      return work();
-    });
-    tail = scheduled.then(
-      () => undefined,
-      (error: unknown) => {
-        console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
-        // Durable dispatch streams remain the recovery source. The next supported request
-        // re-enters adoption instead of treating failed initialization as permanent readiness.
-        ready = null;
-      },
-    );
-    return scheduled;
-  };
+  const workQueue = createFleetEdgeRuntimeWorkQueue((error) => {
+    console.error("[fleet-edge-runtime] Pending runtime work failed:", error);
+    // Durable dispatch streams remain the recovery source. The next supported request
+    // re-enters adoption instead of treating failed initialization as permanent readiness.
+    ready = null;
+  });
+  const schedule = workQueue.schedule;
   const spawner = makeRuntimeSpawner({
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
@@ -610,7 +621,7 @@ export function openFleetEdgeRuntime(input: {
           })) as JsonObject);
     },
     close: () => {
-      closed = true;
+      workQueue.close();
       spawner.close();
     },
   };
