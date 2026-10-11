@@ -71,6 +71,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       repoId: workspaceId("provider-fallback"),
       rootDir: canonicalRoot(root),
       ownerId: "provider-fallback",
+      keycloakSession: async () => binding.keycloakAuthorization.session,
       runtimeDaemonRoute: {
         userRoot,
         daemonId: "provider-fallback",

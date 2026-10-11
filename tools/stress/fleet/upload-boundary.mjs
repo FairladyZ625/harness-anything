@@ -332,6 +332,7 @@ function peer(fixture, center, subject) {
     servername: "localhost",
     nodeId: subject.nodeId,
     credential: `credential-${subject.nodeId}`,
+    readAccessToken: fixture.readAccessToken(subject.nodeId),
     repoId: subject.repoId,
   };
 }

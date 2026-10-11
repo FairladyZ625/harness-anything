@@ -243,7 +243,7 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: replicaQuota,
-          ...(verifyHuman ? { verifyHuman } : {}),
+          verifyHuman: verifyHuman ?? owners.verifyHuman,
           authenticate: (nodeId, credential) =>
             [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
           loginAuthority: (nodeId) => ({
@@ -320,7 +320,7 @@ export async function rawPeer(
   const next = () =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
     request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame(frame));
+      socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
       return next();
     },
     raw = async (frame: unknown) => {
@@ -328,7 +328,7 @@ export async function rawPeer(
       return next();
     },
     split = async (frame: FleetFrameV1, marker: string) => {
-      splitWrite(socket, frame, marker);
+      splitWrite(socket, { ...frame, accessToken: `device-token-${nodeId}` }, marker);
       return next();
     };
   const hello = await request({

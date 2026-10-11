@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -981,17 +981,21 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
           "high",
           "--prompt",
           "probe",
-          "--no-stream",
+          "--detach",
         ],
         childEnv,
       );
     assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
+    // This case witnesses provider argv; settlement is covered above. Wait for the witness
+    // directly instead of including canonical settlement in spawnCli's process deadline.
+    await eventually(() => existsSync(argsPath));
     assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
     const fastSpawned = await spawnCli(
-      ["--root", root, "--json", "runtime", "run", "codex-fast-provider", "--fast", "--prompt", "probe", "--no-stream"],
+      ["--root", root, "--json", "runtime", "run", "codex-fast-provider", "--fast", "--prompt", "probe", "--detach"],
       childEnv,
     );
     assert.equal(fastSpawned.status, 0, `${fastSpawned.stderr}\n${fastSpawned.stdout}`);
+    await eventually(() => existsSync(codexArgsPath));
     assert.deepEqual(JSON.parse(readFileSync(codexArgsPath, "utf8")), [
       "exec",
       "--json",

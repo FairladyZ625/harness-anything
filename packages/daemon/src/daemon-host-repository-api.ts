@@ -141,6 +141,7 @@ export function createDaemonHostRepositoryApi(
             defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
+            keycloakSession: context.keycloakSession,
             bootstrap,
             onBootstrap: (receipt) => {
               published = receipt;

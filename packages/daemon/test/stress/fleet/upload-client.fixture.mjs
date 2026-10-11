@@ -23,6 +23,7 @@ const pause = (boundary, frame) => {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
 };
 const result = await runFleetWriteClient({
+  readAccessToken: async () => `device-token-${config.nodeId}`,
   port: config.port,
   ca: readFileSync(config.caFile),
   servername: "localhost",

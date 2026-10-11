@@ -22,7 +22,7 @@ export async function fleetEdgeHostFixture(
   t: TestContext,
   f: Pick<FleetFixture, "root" | "repo"> & {
     readonly center: Pick<FleetFixture["center"], "port">;
-    readonly owners: { readonly keycloak: Pick<FleetFixture["owners"]["keycloak"], "fetch"> };
+    readonly owners: { readonly url: string; readonly keycloak: Pick<FleetFixture["owners"]["keycloak"], "fetch"> };
   },
   options: {
     readonly name?: string;
@@ -69,7 +69,10 @@ export async function fleetEdgeHostFixture(
     managedRbacSessionStore(edgeUser).write(
       JSON.stringify({
         schema: "harness-oidc-session/v2",
-        accessToken: `token-${personId}`,
+        accessToken:
+          personId === (options.personId ?? "person-one")
+            ? `device-token-${options.nodeId ?? "node-one"}`
+            : `token-${personId}`,
         refreshToken: `refresh-${personId}`,
         subject: personId,
         personId,
@@ -77,7 +80,7 @@ export async function fleetEdgeHostFixture(
         sessionExpiresAt: Date.now() + 21_600_000,
         roles: [],
         loginTarget: edgeRoot,
-        authority: { url: "https://keycloak.example", realm: "harness" },
+        authority: { url: f.owners.url, realm: "harness" },
       }),
     );
   signIn(options.personId ?? "person-one");
@@ -112,6 +115,7 @@ export async function fleetEdgeHostFixture(
     host,
     build: { commit: null },
     authContext: auth,
+    sessionPrincipal: () => host.sessionPrincipal(auth),
     emit: async () => undefined,
   });
   t.after(() => rpc.close());

@@ -14,12 +14,11 @@ export async function verifyFleetHuman(input: {
 }): Promise<DaemonAuthenticationContext> {
   const token = input.auth.humanAccessToken,
     node = input.auth.nodePrincipal;
-  if (!token) return input.auth;
   const reject = () =>
     Object.assign(new Error("The command requires the current node owner's active interactive Keycloak session."), {
       code: "human_confirmation_required",
     });
-  if (!node) throw reject();
+  if (!token || !node) throw reject();
   const realmPath = `/realms/${encodeURIComponent(input.realm)}`;
   const response = await input.fetch(`${input.url}${realmPath}/protocol/openid-connect/token/introspect`, {
     method: "POST",

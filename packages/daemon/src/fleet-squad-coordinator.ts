@@ -14,7 +14,7 @@ export function makeFleetSquadCoordinator(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
   readonly peer: FleetPeerOptions;
   readonly spawner: ReturnType<typeof makeRuntimeSpawner>;
-  readonly controlBinding: RuntimeBinding;
+  readonly controlBinding: () => Promise<RuntimeBinding>;
   readonly sync: () => Promise<void>;
   readonly prepareWorkspace: () => Promise<void>;
   readonly readWorktreeSetup: () => readonly string[];
@@ -28,7 +28,10 @@ export function makeFleetSquadCoordinator(input: {
       (projection) => read(projection as TaskProjection),
     );
   const command = async (action: Record<string, unknown> & { kind: string }): Promise<JsonObject> => {
-    const receipt = await runFleetEdgeTask({ payload: { ...request, workspaceRoot: request.workspaceRoot, action } });
+    const receipt = await runFleetEdgeTask(
+      { payload: { ...request, workspaceRoot: request.workspaceRoot, action } },
+      input.peer.readAccessToken,
+    );
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
       throw Object.assign(new Error(JSON.stringify(receipt)), { code: receipt.code ?? "squad_control_failed" });
     return receipt as JsonObject;
@@ -135,7 +138,7 @@ export function makeFleetSquadCoordinator(input: {
     async run(action: JsonObject): Promise<JsonObject> {
       const raw =
         action.kind === "squad-cancel"
-          ? await coordinator.cancel(String(action.squadRunId), input.controlBinding)
+          ? await coordinator.cancel(String(action.squadRunId), await input.controlBinding())
           : await (async () => {
               const owner = await binding();
               await input.prepareWorkspace();

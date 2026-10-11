@@ -143,6 +143,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
 
 export function openFleetEdgeRuntime(input: {
   readonly request: FleetEdgeRuntimeRequest["payload"];
+  readonly readBinding: () => Promise<import("./repo-cell-types.ts").RepoCellBinding>;
   readonly daemonGeneration: number;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly ports: RuntimePorts;
@@ -155,6 +156,10 @@ export function openFleetEdgeRuntime(input: {
   const request = input.request,
     credential = request.credential,
     peer: FleetPeerOptions = {
+      readAccessToken: async () => {
+        const session = (await input.readBinding()).keycloakAuthorization?.session;
+        return session?.currentAccessToken ? session.currentAccessToken() : session?.accessToken;
+      },
       hostname: request.host,
       port: request.port,
       ca: readFileSync(request.caPath, "utf8"),
@@ -185,8 +190,12 @@ export function openFleetEdgeRuntime(input: {
         ...(projection.getEntity("settings", "repository")!.value as RepositorySettingsV1),
       }));
   let replicaOwner: string | undefined;
-  const readReplica = (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>
-    readEdgeRuntimeRepository({ ...request, principalId: replicaOwner }, method, payload);
+  const readReplica = async (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>
+    readEdgeRuntimeRepository(
+      { ...request, principalId: (await input.readBinding()).actor.principal.personId },
+      method,
+      payload,
+    );
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   let tail = Promise.resolve();
@@ -236,7 +245,10 @@ export function openFleetEdgeRuntime(input: {
       taskContext: async (taskId, missionName, review) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
-        const runtimeContext = taskRuntimeContext(readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
+        const runtimeContext = taskRuntimeContext(
+          await readReplica("repo.tasks.runtimeContext.read", { taskId }),
+          taskId,
+        );
         const current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
         const executionId = review
@@ -481,7 +493,7 @@ export function openFleetEdgeRuntime(input: {
     request,
     peer: writePeer,
     spawner,
-    controlBinding: edgeBinding(request),
+    controlBinding: input.readBinding,
     sync: async () => {
       await pullRuntimeReplica();
     },
@@ -521,12 +533,13 @@ export function openFleetEdgeRuntime(input: {
     ): Promise<JsonObject> => {
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
         return readReplica(method, action);
+      const readBinding = await input.readBinding();
       if (
         method === "repo.schedule.run" &&
         ["schedule-list", "schedule-show", "schedule-runs", "schedule-reckon"].includes(String(action.kind))
       )
         return withEdgeReadModel(
-          { ...request, principalId: replicaOwner },
+          { ...request, principalId: readBinding.actor.principal.personId },
           (projection, frame, view) =>
             ({
               ...readScheduleAction(
@@ -541,17 +554,14 @@ export function openFleetEdgeRuntime(input: {
                   store: { readContentBlob: (sha256) => readEdgeViewBlob(request.viewRoot, view, sha256) },
                 },
                 action as { kind: string },
-                {
-                  actor: { principal: { personId: replicaOwner! }, executor: null },
-                  source: { kind: "node", nodeId: request.nodeId },
-                },
+                readBinding,
               ),
               ...frame,
             }) as unknown as JsonObject,
         );
       // Local termination cannot wait for adoption's canonical publications.
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
-      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, edgeBinding(request));
+      if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await input.readBinding());
       await ensureReady();
       await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);
@@ -572,11 +582,11 @@ export function openFleetEdgeRuntime(input: {
             });
             return result.receipt as JsonObject;
           },
-          spawn: (checkpoint, spawn, rollout) =>
-            spawner.spawnHandoff(checkpoint, spawn, edgeBinding(request), null, rollout),
+          spawn: async (checkpoint, spawn, rollout) =>
+            spawner.spawnHandoff(checkpoint, spawn, await input.readBinding(), null, rollout),
         });
       return method === "repo.agentRuntime.spawn"
-        ? spawner.spawn(action, edgeBinding(request))
+        ? spawner.spawn(action, await input.readBinding())
         : ((await awaitFleetRuntimeSessionsClient({
             ...runtimeReadPeer,
             repoId: request.repoId,
@@ -654,7 +664,7 @@ export function openFleetEdgeRuntime(input: {
       idempotencyKey: operationKey,
       now,
       spawn: async (scheduled) => {
-        const spawned = await spawner.spawnScheduled(scheduled, edgeBinding(request));
+        const spawned = await spawner.spawnScheduled(scheduled, await input.readBinding());
         return {
           outcome: String(spawned.outcome),
           ...(typeof spawned.dispatchId === "string" ? { dispatchId: spawned.dispatchId } : {}),
@@ -700,7 +710,7 @@ export function openFleetEdgeRuntime(input: {
       viewRoot: request.viewRoot,
       diskQuotaBytes: request.quotaBytes,
     });
-    replicaOwner = pulled.current.authorizationOwner;
+    replicaOwner = (await input.readBinding()).actor.principal.personId;
     return pulled;
   }
 
@@ -806,12 +816,6 @@ function scheduleResult(
   };
 }
 
-function edgeBinding(request: Pick<FleetEdgeRuntimeRequest["payload"], "nodeId">) {
-  return {
-    actor: { principal: { personId: "fleet-edge" }, executor: null },
-    source: { kind: "node" as const, nodeId: request.nodeId },
-  };
-}
 /**
  * The mirrored task contract carries the plan's readiness contract in its descriptor; packages
  * materialized before descriptors carried it resolve through the bundled catalog their

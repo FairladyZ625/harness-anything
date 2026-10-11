@@ -63,6 +63,13 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.deleteTeam({ teamId: "team-1", expectedVersion: "v1" });
   await api.addTeamMember({ teamId: "team-1", personId: "alice", expectedVersion: "v1" });
   await api.removeTeamMember({ teamId: "team-1", personId: "alice", expectedVersion: "v1" });
+  const device = { nodeId: "device-a", expectedVersion: "2" };
+  await api.devices();
+  await api.renameDevice({ ...device, displayName: "Laptop" });
+  await api.pauseDevice(device);
+  await api.resumeDevice(device);
+  await api.removeDevice(device);
+  await api.logoutDevices({ expectedVersion: "list-v2" });
   assert.deepEqual(sent, [
     { operation: "group-list" },
     { operation: "group-create", ...group, operationId: "operation-1" },
@@ -107,6 +114,12 @@ test("every preload method reaches the daemon as one operation the protocol cont
       expectedVersion: "v1",
       operationId: "operation-11",
     },
+    { operation: "device-list" },
+    { operation: "device-rename", ...device, displayName: "Laptop", operationId: "operation-12" },
+    { operation: "device-pause", ...device, operationId: "operation-13" },
+    { operation: "device-resume", ...device, operationId: "operation-14" },
+    { operation: "device-remove", ...device, operationId: "operation-15" },
+    { operation: "device-logout-all", expectedVersion: "list-v2", operationId: "operation-16" },
   ]);
   assert.equal(Object.keys(api).length, sent.length, "the test covers every method the page can call");
 
@@ -126,6 +139,8 @@ test("a request outside the typed contract is refused before it reaches the daem
     [{ operation: "backup", backupDir: "/tmp" }, /does not offer backup/u],
     [{ operation: "invite" }, /does not offer invite/u],
     [null, /does not offer undefined/u],
+    [{ operation: "device-pause", nodeId: "a" }, /requires expectedVersion/u],
+    [{ operation: "device-remove", nodeId: "a", expectedVersion: "1", personId: "other" }, /does not take personId/u],
     // The main process names each write; the renderer cannot pick an operation id to replay or collide with.
     [
       { operation: "grant", personId: "a", groupId: "g", resource: "r", operationId: "mine" },

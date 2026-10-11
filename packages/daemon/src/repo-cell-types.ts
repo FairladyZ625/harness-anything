@@ -48,8 +48,8 @@ export interface RepoCellBinding {
   readonly sessionEnvironment?: Readonly<Record<string, string | undefined>>;
   /**
    * Daemon-established material for online Keycloak evaluation; never accepted from action payloads. A
-   * signed-in person is evaluated with their own token; any other acting person (a node's owner, the
-   * issuer behind an execution token) is evaluated by id through the center's service account.
+   * signed-in person must match the actor and pass user-token authorization; when center authority
+   * is present, its realm must also authorize that same person.
    */
   readonly keycloakAuthorization?: {
     readonly session?: {

@@ -4,7 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { policyTestCenter, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { Worker } from "node:worker_threads";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -46,7 +46,13 @@ test("production writer requests open the epoch database once and never block on
     ).close();
     supervisor = await openWriterSupervisor(
       // Production configuration: no injected clock, so the writer must read its own.
-      { repoId, rootDir, ownerId: "writer-request-cost", defaultWriterEpochFence: fence },
+      {
+        repoId,
+        rootDir,
+        ownerId: "writer-request-cost",
+        defaultWriterEpochFence: fence,
+        keycloakCenter: policyTestCenter,
+      },
       {
         createWorker: (url, options) => {
           const worker = new Worker(url, { ...options, execArgv: [...options.execArgv, "--import", openProbe] });
@@ -136,6 +142,7 @@ test("sync capability round trips reuse one shared buffer pair for the writer's 
         repoId,
         rootDir,
         ownerId: "writer-sab-cost",
+        keycloakCenter: policyTestCenter,
         defaultWriterEpochFence: fence,
         now: () => new Date((clock += 1_000)).toISOString(),
       },

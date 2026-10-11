@@ -144,6 +144,7 @@ export async function openFleetCampaignFixture(options = {}) {
         now: () => clock,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner: owners.nodeOwner,
+        verifyHuman: owners.verifyHuman,
       });
       return center;
     };
@@ -159,6 +160,7 @@ export async function openFleetCampaignFixture(options = {}) {
       servername: "localhost",
       nodeId: subject.nodeId,
       credential: `credential-${subject.nodeId}`,
+      readAccessToken: owners.readAccessToken(subject.nodeId),
       repoId: subject.repoId,
       ...overrides,
     });
@@ -169,6 +171,7 @@ export async function openFleetCampaignFixture(options = {}) {
       host,
       certFile,
       quotaBytes,
+      readAccessToken: (nodeId) => owners.readAccessToken(nodeId),
       setClock: (value) => {
         clock = value;
       },

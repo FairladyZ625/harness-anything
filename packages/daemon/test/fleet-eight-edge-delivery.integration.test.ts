@@ -31,7 +31,7 @@ test(
       edges.map(async (edge) => {
         const peer = await openPeer(f.peer(edge.nodeId));
         t.after(() => peer.close());
-        peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: "lease-repo" });
+        await peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: "lease-repo" });
         for (;;) {
           const frame = await peer.next();
           const ack = edge.view.receive(frame);
