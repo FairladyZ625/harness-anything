@@ -545,9 +545,10 @@ test(
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
-    git(fixture.root, "init", "--bare", "-q", remote);
+    git(fixture.root, "clone", "--bare", "-q", edgeRoot, remote);
     git(edgeRoot, "remote", "add", "origin", remote);
-    git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
+    git(edgeRoot, "fetch", "-q", "origin");
+    git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
     const base = git(edgeRoot, "rev-parse", "HEAD");
     await runFleetReplicaPullClient({
       port: center.port,
