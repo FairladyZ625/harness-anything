@@ -36,6 +36,11 @@ const args = process.argv.slice(2);
 const statePath = process.env.PR_STATE_PATH;
 const data = JSON.parse(readFileSync(statePath, "utf8"));
 if (args[0] === "pr" && args[1] === "view") {
+  // GitHub answers UNKNOWN while it computes mergeability; later reads settle.
+  if (Array.isArray(data.mergeableSequence) && data.mergeableSequence.length) {
+    data.mergeable = data.mergeableSequence.shift();
+    writeFileSync(statePath, JSON.stringify(data));
+  }
   process.stdout.write(JSON.stringify(data));
 } else if (args[0] === "pr" && args[1] === "checks") {
   if (!args.includes("--required")) process.exit(3);
@@ -187,6 +192,17 @@ test("merges, cleans the PR branch and worktree, and fast-forwards local main", 
   assert.equal(existsSync(setup.prWorktree), false);
   assert.equal(git(setup.main, "branch", "--list", "codex/pr-123"), "");
   assert.equal(git(setup.main, "ls-remote", "--heads", "origin", "refs/heads/codex/pr-123"), "");
+  assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+});
+
+test("waits while GitHub is still computing mergeability, then merges", (t) => {
+  const setup = fixture(t);
+  const state = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(setup.statePath, JSON.stringify({ ...state, mergeableSequence: ["UNKNOWN", "MERGEABLE"] }));
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
 });
 
