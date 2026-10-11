@@ -209,6 +209,7 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
               submittedAt: null,
               closedAt: null,
               submission: null,
+              gateRuns: [],
             },
             lease: {
               schema: "lease/v1",
