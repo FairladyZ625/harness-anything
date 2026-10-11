@@ -85,11 +85,19 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
 test("execution requests exclude other tasks, repos, controls, and human consent", () => {
   const p = principal();
   const request = (kind: string, overrides = {}) =>
-    requireExecutionRequestScope(p, "repo.task.read", {
-      repo: { repoId: p.repoId },
-      payload: { action: { kind, taskId: p.taskId, ...overrides } },
-    });
+    requireExecutionRequestScope(
+      p,
+      kind === "task-push" || kind === "ci-observe-pull" ? "repo.task.run" : "repo.task.read",
+      {
+        repo: { repoId: p.repoId },
+        payload: { action: { kind, taskId: p.taskId, ...overrides } },
+      },
+    );
   assert.doesNotThrow(() => request("task-show"));
+  assert.doesNotThrow(() => request("task-push"));
+  assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId }));
+  assert.throws(() => request("ci-observe-pull", { taskId: undefined }));
+  assert.throws(() => request("ci-observe-pull", { taskId: p.taskId, limit: 1 }));
   for (const kind of [
     "task-review-consent",
     "task-adjudicate",
