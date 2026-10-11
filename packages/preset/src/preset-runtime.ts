@@ -1,4 +1,9 @@
-import { assertCanonicalVertical, loadCanonicalAssets, packageCatalog } from "./preset-assets.ts";
+import {
+  assertCanonicalVertical,
+  loadCanonicalAssets,
+  packageCatalog,
+  resolveVerticalAssetsRoot,
+} from "./preset-assets.ts";
 import { validateCompletionDeclaration } from "./preset-extension-model.ts";
 import { effectiveCatalog } from "./preset-catalog.ts";
 import { listCatalog } from "./preset-discovery.ts";
@@ -7,8 +12,6 @@ import { file, presetPackageScripts } from "./preset-package.ts";
 import {
   asFailure,
   compareVersion,
-  defaultAssets,
-  defaultBundled,
   isWithinPresetAssetRoot,
   key,
   normalizeLocale,
@@ -38,13 +41,12 @@ export function createRuntime(options: PresetResolverOptions): {
   readonly resolver: CanonicalPresetResolver;
   readonly resolveInternal: (request: ResolvePresetRequestV1) => InternalPresetResolution;
 } {
-  const bundledRoot = path.resolve(options.bundledRoot ?? defaultBundled),
-    userRoot = path.resolve(options.userRoot),
-    assetsRoot = path.resolve(options.assetsRoot ?? defaultAssets),
+  const userRoot = path.resolve(options.userRoot),
     kernelVersion = options.kernelVersion ?? "1.0.0";
   const resolveInternal = (request: ResolvePresetRequestV1): InternalPresetResolution => {
-    const assets = loadCanonicalAssets(assetsRoot),
-      inventory = effectiveCatalog(bundledRoot, userRoot),
+    const assetsRoot = options.assetsRoot ?? resolveVerticalAssetsRoot(request.verticalId, options.repoRoot),
+      assets = loadCanonicalAssets(assetsRoot),
+      inventory = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
       selected = inventory.get(key(request.verticalId, request.presetId));
     if (selected && !selected.decoded)
       throw selected.error ?? presetFailure("shadow_invalid", `User shadow ${request.presetId} is invalid.`);
@@ -388,9 +390,11 @@ export function createRuntime(options: PresetResolverOptions): {
   };
   const resolver: CanonicalPresetResolver = {
     list: async ({ verticalId }) => {
-      const catalog = effectiveCatalog(bundledRoot, userRoot),
+      const assetsRoot = options.assetsRoot ?? resolveVerticalAssetsRoot(verticalId, options.repoRoot),
+        catalog = effectiveCatalog(options.bundledRoot ?? path.join(assetsRoot, "presets"), userRoot),
         assets = loadCanonicalAssets(assetsRoot),
         providers = new Map(assets.providers.map((item) => [item.id, item]));
+      assertCanonicalVertical(assets, verticalId);
       return listCatalog(catalog, verticalId).map((entry) => {
         if (entry.validity !== "valid") return entry;
         const candidate = catalog.get(key(verticalId, entry.id)),

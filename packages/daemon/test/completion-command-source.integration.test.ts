@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  INITIAL_SETTINGS_V1,
+  writeRepositorySettingsFacet,
   currentGateRun,
   isTaskEvent,
   makeTaskEventReader,
@@ -43,7 +45,34 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
   git(root, "commit", "-qm", "test: fixture exclusions");
   mkdirSync(ledger);
   initRepo(ledger);
-  const source = researchPackage(root);
+  const source = researchPackage(root),
+    assets = path.join(root, "verticals/research"),
+    verticalId = "research/experiments";
+  cpSync(new URL("../../preset/assets/software-coding", import.meta.url), assets, { recursive: true });
+  const manifestPath = path.join(source, "preset.json"),
+    manifest = JSON.parse(readFileSync(manifestPath, "utf8")),
+    declarationPath = path.join(assets, "vertical.json"),
+    declaration = JSON.parse(readFileSync(declarationPath, "utf8"));
+  // dec_9DFDC635180975FDFC0CDB33D7/CH1: repository domains use the existing frozen completion chain.
+  declaration.id = verticalId;
+  declaration.completion = manifest.completion;
+  manifest.vertical = verticalId;
+  delete manifest.completion;
+  writeFileSync(declarationPath, JSON.stringify(declaration));
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  cpSync(source, path.join(assets, "presets/research-checks"), { recursive: true });
+  writeFileSync(
+    path.join(ledger, "harness.yaml"),
+    writeRepositorySettingsFacet(
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings: {}\n",
+      {
+        ...INITIAL_SETTINGS_V1,
+        defaultVertical: verticalId,
+        defaultPreset: "research-checks",
+        defaultProfile: "experiment",
+      },
+    ),
+  );
   let cell = await openBootstrappedRepoCell({ repoId, rootDir: canonicalRoot(root), ownerId: "completion-fixture" });
   const applied = async (action: Record<string, unknown> & { kind: string }, binding = worker) => {
     const receipt = await cell.run(action, binding);
@@ -56,6 +85,9 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
   };
   try {
     await applied({ kind: "preset-install", packageSource: source });
+    const inspected = await cell.run({ kind: "preset-inspect", presetId: "research-checks" }, worker);
+    assert.notEqual(inspected.outcome, "op_rejected", JSON.stringify(inspected));
+    assert.equal(JSON.parse(String(inspected.evidence)).snapshot.identity.verticalId, verticalId);
     const validated = await cell.run({ kind: "vertical-validate", presetId: "research-checks" }, worker);
     assert.equal(JSON.parse(String(validated.evidence)).valid, true, JSON.stringify(validated));
     const invalidAssets = path.join(root, "source", "undeclared-source");

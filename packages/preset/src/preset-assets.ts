@@ -16,10 +16,40 @@ import {
 } from "./preset-resolver-common.ts";
 import type { CanonicalAssets, CatalogSource, DecodedPresetPackageV3, Provider } from "./preset-resolver-types.ts";
 import { Schema } from "effect";
-import { existsSync, lstatSync } from "node:fs";
+import { existsSync, lstatSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 const canonicalAssetsCache = new Map<string, CanonicalAssets>();
+
+/** Repository declarations are external input; IDs never become filesystem paths. */
+export function resolveVerticalAssetsRoot(verticalId: string, repoRoot?: string): string {
+  const roots = new Map([["software/coding", defaultAssets]]);
+  const directory = repoRoot && path.join(repoRoot, "verticals");
+  if (directory && existsSync(directory)) {
+    for (const entry of readdirSync(directory, { withFileTypes: true })) {
+      if (!entry.isDirectory() || entry.isSymbolicLink()) continue;
+      const root = path.join(directory, entry.name),
+        declaration = path.join(root, "vertical.json");
+      if (!existsSync(declaration)) continue;
+      const raw = parsePresetJson(requiredRegularFile(declaration, "missing_vertical"), "invalid_vertical");
+      if (!isPresetResolutionRecord(raw) || typeof raw.id !== "string" || !raw.id.trim())
+        throw presetFailure("invalid_vertical", `${declaration} must declare a vertical id.`);
+      if (roots.has(raw.id))
+        throw presetFailure(
+          "duplicate_vertical",
+          `Vertical ${raw.id} is declared by both ${roots.get(raw.id)} and ${root}.`,
+        );
+      roots.set(raw.id, root);
+    }
+  }
+  const root = roots.get(verticalId);
+  if (!root)
+    throw presetFailure(
+      "missing_vertical",
+      `Vertical ${verticalId} is unavailable. Available vertical ids: ${[...roots.keys()].join(", ")}.`,
+    );
+  return root;
+}
 
 export function loadCanonicalAssets(source: string): CanonicalAssets {
   const resolvedSource = path.resolve(source),

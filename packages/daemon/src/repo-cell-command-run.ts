@@ -313,6 +313,7 @@ export function makeRepoCellCommandRunner(
           executeVerticalScriptAction({
             action,
             rootDir: context.rootDir,
+            verticalId: context.settings.readRepository().defaultVertical,
             commitSha: context.store.currentCommit().sha,
             signal,
           }),
