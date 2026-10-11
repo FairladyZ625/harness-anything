@@ -26,7 +26,7 @@ export function runVerticalDiscoveryAction(
 ): unknown {
   const assets = loadCanonicalAssets(path.resolve(assetsRoot)),
     vertical = assets.compiledVertical.definition,
-    source = `builtin:${vertical.id}`;
+    source = path.resolve(assetsRoot) === defaultAssets ? `builtin:${vertical.id}` : path.resolve(assetsRoot);
   if (action.kind === "template-list")
     return assets.catalog.catalog.documents
       .map((document) => ({

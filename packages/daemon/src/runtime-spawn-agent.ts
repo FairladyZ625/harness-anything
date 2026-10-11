@@ -49,6 +49,7 @@ export function resolveDispatchAgent(
           // The spawn prompt needs the preset's PRESET.md text only; a full resolve would
           // re-hash the whole catalog for a body the catalog already decoded.
           return presetDocumentBody({
+            repoRoot: input.rootDir,
             userRoot: presetUserRoot(input.rootDir),
             verticalId: defaults.verticalId,
             presetId: agent.preset!,
