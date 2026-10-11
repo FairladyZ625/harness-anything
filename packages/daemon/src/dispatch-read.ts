@@ -30,6 +30,9 @@ type DispatchQueries = Pick<
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesByAttemptGroup"
   | "readTaskRelationsBySources"
+  | "readLeaseIntervals"
+  | "readCanonicalEvents"
+  | "readEventWitness"
 >;
 
 export interface RuntimeSessionActivityEvidence {
@@ -357,7 +360,7 @@ function canonicalDispatchRow(
     endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
     outcome,
     status:
-      outcome === "stopped" && taskHasStructuredBlock(projection, payload.taskId)
+      outcome === "stopped" && taskHasStructuredBlock(projection, event)
         ? "blocked"
         : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
     resultRef,
@@ -412,13 +415,38 @@ function isClassification(value: unknown): value is NonNullable<TaskDispatchRow[
   return value === "provider_fault" || value === "provider_quota" || value === "worker_stop" || value === "gate_red";
 }
 
-function taskHasStructuredBlock(projection: DispatchQueries, taskId: string | null | undefined): boolean {
-  if (!taskId) return false;
-  const task = projection.read(taskId).snapshot.task;
-  if (task?.status === "blocked") return true;
-  return (
-    projection
-      .readTaskRelationsBySources?.([`task/${taskId}`], "awaits")
-      .rows.some((row) => row.state === "active" && row.sourceRef === `task/${taskId}`) ?? false
-  );
+/** CH2 (dec_614F7BBB18C8687E7EFC72173D): current task state alone cannot
+ * attribute another dispatch's blocker to this worker. Select its lease interval
+ * and the canonical blocker write made inside that interval. */
+function taskHasStructuredBlock(projection: DispatchQueries, dispatch: DispatchEvent): boolean {
+  const { taskId, executionId, runtimeSessionId } = dispatch.payload;
+  if (!taskId || !executionId) return false;
+  const executorId = `runtime-session:${runtimeSessionId}`,
+    leases = projection.readLeaseIntervals(taskId),
+    intervals = leases.filter(
+      (interval) => interval.executionId === executionId && interval.holder.actor.executor?.id === executorId,
+    );
+  if (projection.read(taskId).snapshot.task?.status === "blocked")
+    for (const interval of intervals) {
+      if (interval !== leases.at(-1) || interval.releasedRevision === null) continue;
+      const release = projection.readCanonicalEvents(interval.releasedRevision - 1, 1).events[0];
+      if (
+        release?.schema === "task-event/v1" &&
+        release.type === "lease_released" &&
+        release.payload.task.status === "blocked" &&
+        release.payload.mutation.fields.includes("status")
+      )
+        return true;
+    }
+  return projection.readTaskRelationsBySources([`task/${taskId}`], "awaits").rows.some((row) => {
+    if (row.state !== "active" || row.sourceRef !== `task/${taskId}` || row.workspaceRevision === null) return false;
+    const revision = row.workspaceRevision;
+    const interval = intervals.find(
+      (lease) =>
+        revision >= lease.acquiredRevision && (lease.releasedRevision === null || revision <= lease.releasedRevision),
+    );
+    if (!interval) return false;
+    const write = projection.readEventWitness(revision);
+    return write !== null && Date.parse(write.occurredAt) <= Date.parse(interval.leaseExpiresAt);
+  });
 }
