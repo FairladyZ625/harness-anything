@@ -74,10 +74,11 @@ export function githubActionsWitnessEvidence(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "projection" | "projectionReady" | "cellCodedError">,
   requirement: FrozenGateRequirement,
   execution: Snapshot["executions"][number] | undefined,
+  allowSettledGateRun = false,
 ): CompletionEvidenceV1 | null {
   if (requirement.witness.kind !== "github-actions" || !execution?.submission?.commitSha) return null;
   const gateRun = currentGateRun(execution, requirement.gateId);
-  if (!gateRun || gateRun.state !== "running") return null;
+  if (!gateRun || (!allowSettledGateRun && gateRun.state !== "running")) return null;
   const options = requirement.witness.adapterOptions;
   // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
