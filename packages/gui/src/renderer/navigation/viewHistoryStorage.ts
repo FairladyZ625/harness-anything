@@ -14,9 +14,10 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 import { isRendererRecord } from "../result-validation.ts";
 
 /**
- * 视图导航历史的 sessionStorage 持久化(移植老 main 线 navigationHistoryStorage)。
- * 按 projectId 分键:切仓各自恢复自己的栈;解析失败一律回退到干净初始栈,
- * 绝不让坏存储挡住导航。
+ * 视图导航历史的 localStorage 持久化。按 projectId 分键:切仓各自恢复自己的栈,
+ * 栈顶即该项目上次停留的位置(业主 2026-10-11:切回项目直接回到那里,跨重启保留);
+ * 属单观看者的本地便利状态,不进台账。解析失败(含存储里的 ViewId 已随页面撤销)
+ * 一律回退到干净初始栈,绝不让坏存储挡住导航。
  */
 
 const VIEW_HISTORY_SCHEMA = "gui-view-history/v1";
@@ -223,9 +224,4 @@ export function writeViewHistory(
     // 导航在存储不可用/写满时必须继续工作;失败被显式消费(不静默吞)。
     consumeKnownError(cause);
   }
-}
-
-/** 为指定仓写入干净初始栈(打开项目时复位到 overview + 默认筛选)。 */
-export function resetViewHistory(storage: Pick<ViewHistoryStorage, "setItem">, projectId: string): void {
-  writeViewHistory(storage, projectId, createViewHistory(initialLocation()));
 }

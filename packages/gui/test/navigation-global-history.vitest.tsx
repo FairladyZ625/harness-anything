@@ -94,6 +94,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 afterEach(async () => {
   await act(async () => {

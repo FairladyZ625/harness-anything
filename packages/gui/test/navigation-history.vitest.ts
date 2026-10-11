@@ -108,12 +108,7 @@ import {
   pushLocation,
   type AppLocation,
 } from "../src/renderer/navigation/viewHistory.ts";
-import {
-  initialLocation,
-  readViewHistory,
-  writeViewHistory,
-  resetViewHistory,
-} from "../src/renderer/navigation/viewHistoryStorage.ts";
+import { initialLocation, readViewHistory, writeViewHistory } from "../src/renderer/navigation/viewHistoryStorage.ts";
 
 function loc(patch: Partial<AppLocation>): AppLocation {
   return { ...initialLocation(), ...patch };
@@ -296,8 +291,6 @@ describe("view navigation history (HISTORY-002)", () => {
       }),
     );
     expect(currentLocation(readViewHistory(shim, "proj-d")).view).toBe("overview");
-    resetViewHistory(shim, "proj-a");
-    expect(currentLocation(readViewHistory(shim, "proj-a")).view).toBe("overview");
   });
 
   it("round-trips the overview in-page layers and rejects a stored layer key outside the closed set", () => {

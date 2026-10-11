@@ -1442,6 +1442,8 @@
   "views.homeView.actionRemove": "Remove",
   "views.homeView.actionCancel": "Cancel",
   "views.homeView.actionMore": "More actions",
+  "views.homeView.actionPin": "Pin (front of the switcher)",
+  "views.homeView.actionUnpin": "Unpin",
   "views.homeView.confirmDisableTitle": "Disable \"{name}\"?",
   "views.homeView.confirmDisableAgents": "This project has {count} agents running right now.",
   "views.homeView.confirmDisableBody": "Once disabled, the daemon no longer attaches it and this page stops reading its task status. Files on disk are untouched, and you can enable it again later.",

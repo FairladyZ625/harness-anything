@@ -1442,6 +1442,8 @@
   "views.homeView.actionRemove": "移除",
   "views.homeView.actionCancel": "取消",
   "views.homeView.actionMore": "更多操作",
+  "views.homeView.actionPin": "置顶（排在切换器前面）",
+  "views.homeView.actionUnpin": "取消置顶",
   "views.homeView.confirmDisableTitle": "停用「{name}」?",
   "views.homeView.confirmDisableAgents": "这个项目现在有 {count} 个 agent 在跑。",
   "views.homeView.confirmDisableBody": "停用后 daemon 不再挂载它,这里也不再读取它的任务情况;磁盘文件不动,之后可以再启用。",
