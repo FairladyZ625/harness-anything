@@ -29,6 +29,7 @@ test("a dispatch hands its runtime session id to the launch preparation", async 
       ({
         readRuntimeSessions: () => [],
         currentLease: () => null,
+        getEntity: () => ({ value: { runtime: { allowedInstances: ["worker"] } } }),
         read: () => assert.fail("a taskless dispatch reads no task projection"),
       }) as never,
     runtimeInstances: () => [
