@@ -10,6 +10,30 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 
+test("daemon startup defers runtime discovery until a runtime-instance request", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-runtime-discovery-lazy-")),
+    userRoot = path.join(parent, "user");
+  let discoveries = 0;
+  const host = await openDaemonHost({
+    daemonId: "runtime-discovery-lazy",
+    userRoot,
+    runtimeDiscover: () => {
+      discoveries += 1;
+      return [];
+    },
+  });
+  try {
+    await host.attachmentsSettled();
+    assert.equal(discoveries, 0, "opening a daemon must not scan provider executables");
+    const listed = await host.runtimeInstance("daemon.runtimeInstance.list", { all: true }, auth);
+    assert.equal(listed.ok, true, JSON.stringify(listed));
+    assert.equal(discoveries, 1, "runtime-instance commands still refresh their installation snapshot");
+  } finally {
+    await host.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 // The daemon-side shape of the 2026-10-05 build-superseded handoff: a successor daemon consults
 // the identity center while the managed center's own resume is still running, and the
 // not-yet-started center refuses the connection ("TypeError: fetch failed", then HTTP 503). The
