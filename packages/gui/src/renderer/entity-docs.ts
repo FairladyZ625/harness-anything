@@ -220,11 +220,11 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
       },
       {
         field: "outcome",
-        words: ["succeeded", "failed", "unknown", "cancelled"],
+        words: ["succeeded", "failed", "unknown", "cancelled", "stopped"],
       },
       {
         field: "semanticState",
-        words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+        words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
       },
     ],
     actions: [

@@ -628,7 +628,9 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
         !isRendererRecord(row) ||
         typeof row.dispatchId !== "string" ||
         typeof row.runtimeSessionId !== "string" ||
-        !["running", "succeeded", "failed", "unknown", "cancelled", "lost"].includes(String(row.status)),
+        !["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "blocked", "lost"].includes(
+          String(row.status),
+        ),
     ) ||
     !Number.isInteger(result.watermark) ||
     !Number.isInteger(result.sourceRevision)

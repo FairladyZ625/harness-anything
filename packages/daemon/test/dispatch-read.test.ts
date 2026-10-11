@@ -200,13 +200,24 @@ test("canonical archive preserves result, artifact, delegation and provider quot
   assert.equal(row.reviewTarget?.kind, "decision");
 });
 
-test("unknown outcome is not promoted by a zero exit and result reference", () => {
+test("normal exit with a result is stopped rather than unknown", () => {
   assert.equal(
     fixture(
-      session("exited", "unknown", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+      session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
     ).rows()[0]?.status,
-    "unknown",
+    "stopped",
   );
+});
+
+test("stopped dispatch is shown as blocked only from a structured task state", () => {
+  const f = fixture(
+    session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+  );
+  const projection = {
+    ...f.projection,
+    read: () => ({ snapshot: { task: { taskId, status: "blocked" } }, packagePath: "tasks/task-1" }),
+  } as unknown as TaskProjection;
+  assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, "blocked");
 });
 
 test("point dispatch lookup cannot attribute a canonical dispatch to a different task", () => {

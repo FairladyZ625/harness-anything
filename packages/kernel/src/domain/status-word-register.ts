@@ -16,6 +16,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     divergence: "entity-scoped",
   },
   {
+    word: "stopped",
+    entity: "RuntimeSession",
+    field: "outcome",
+    meaning: "The worker exited normally with a final message but no submitted delivery cut.",
+    divergence: "entity-scoped",
+  },
+  {
     word: "exhausted",
     entity: "RuntimeSession",
     field: "attempt.fallbackState",
@@ -667,6 +674,13 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
     entity: "RuntimeSession",
     field: "semantic state",
     meaning: "The observed outcome was an actively requested cancellation.",
+    divergence: "entity-scoped",
+  },
+  {
+    word: "stopped",
+    entity: "RuntimeSession",
+    field: "semantic state",
+    meaning: "The worker exited normally with a final message but no submitted delivery.",
     divergence: "entity-scoped",
   },
   {

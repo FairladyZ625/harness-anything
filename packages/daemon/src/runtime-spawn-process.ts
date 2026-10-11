@@ -331,7 +331,7 @@ export function launchExitNotification(input: {
   readonly payload: {
     readonly schema: "runtime-session-exited/v1";
     readonly runtimeSessionId: string;
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled";
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
     readonly exitCode: number | null;
   };
   readonly now: () => string;

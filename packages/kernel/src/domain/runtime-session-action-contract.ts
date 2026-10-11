@@ -90,7 +90,7 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
   runtime_session_exited: Object.freeze([runtimeSessionId, idempotencyKey]),
   runtime_session_outcome_observed: Object.freeze([
     runtimeSessionId,
-    field("outcome", "string", true, ["succeeded", "failed", "unknown", "cancelled"]),
+    field("outcome", "string", true, ["succeeded", "failed", "unknown", "cancelled", "stopped"]),
     field("exitCode", "number", false),
     field("resultRef"),
     field("result", "json-object"),

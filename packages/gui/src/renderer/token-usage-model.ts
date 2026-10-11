@@ -95,6 +95,7 @@ export const usageOutcomeKey: Readonly<Record<AgentRuntimeTokenUsageOutcome, Mes
   succeeded: "agentRuntime.sessionStatusSucceeded",
   failed: "agentRuntime.sessionStatusFailed",
   cancelled: "agentRuntime.sessionStatusCancelled",
+  stopped: "agentRuntime.sessionStatusStopped",
   running: "agentRuntime.sessionStatusRunning",
   unknown: "agentRuntime.sessionStatusUnknown",
 };
@@ -103,6 +104,7 @@ export const usageOutcomeColor: Readonly<Record<AgentRuntimeTokenUsageOutcome, s
   succeeded: "var(--color-status-done)",
   failed: "var(--color-status-blocked)",
   cancelled: "var(--color-status-cancelled)",
+  stopped: "var(--color-status-planned)",
   running: "var(--color-status-active)",
   unknown: "var(--color-status-planned)",
 };

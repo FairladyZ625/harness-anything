@@ -29,6 +29,7 @@ const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageSessionRow["outcome"],
   cancelled: "cancelled",
   running: "active",
   unknown: "unknown",
+  stopped: "unknown",
 };
 
 /**

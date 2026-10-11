@@ -28,6 +28,7 @@ const OUTCOME_TONE: Readonly<Record<AgentRuntimeTokenUsageResult["outcomes"][num
   succeeded: "done",
   failed: "bad",
   cancelled: "cancel",
+  stopped: "neutral",
   running: "active",
   unknown: "neutral",
 };

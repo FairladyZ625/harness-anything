@@ -38,6 +38,7 @@ export const tokenUsageOutcomeWords = Object.freeze([
   "succeeded",
   "failed",
   "cancelled",
+  "stopped",
   "running",
   "unknown",
 ] as const);

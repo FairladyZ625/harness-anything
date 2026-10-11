@@ -98,7 +98,7 @@ export interface AgentRuntimeSessionDto {
   readonly attemptChain?: AgentRuntimeAttemptChainDto;
   readonly activity: {
     readonly lastObservedAt: string;
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
     readonly exitCode: number | null;
     readonly resultRef: string | null;
     readonly missingEvidence: "exit-code-and-result" | "exit-code" | "result" | null;
@@ -135,7 +135,7 @@ export type AgentRuntimeOverviewResult = {
 /** The daemon-authoritative terminal verdict for one runtime session: outcome, receipt exit code,
  * and the failure code/reason a transport renders verbatim. Null until the session settles. */
 export interface AgentRuntimeSettlement {
-  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown";
+  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown" | "stopped";
   readonly exitCode: number;
   readonly code: string | null;
   readonly reason: string | null;
@@ -161,7 +161,7 @@ export type AgentRuntimeEventsResult = {
 };
 export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
 export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "decision" | "unattributed";
-export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "lost";
+export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "blocked" | "lost";
 /**
  * The runtime value half of `AgentRuntimeSessionGroupStatus`, so the status filter admits exactly
  * the words the group DTO can report. The kernel keeps its semantic-state list private, so the
@@ -172,9 +172,11 @@ export const agentRuntimeSessionGroupStatusWords = Object.freeze([
   "succeeded",
   "failed",
   "cancelled",
+  "stopped",
   "ended-indeterminate",
   "unavailable",
   "unknown",
+  "blocked",
   "lost",
 ] as const satisfies readonly AgentRuntimeSessionGroupStatus[]);
 export const agentRuntimeSessionGroupStatusWordsAreExact: [AgentRuntimeSessionGroupStatus] extends [
@@ -437,7 +439,7 @@ function validSettlement(value: unknown): value is AgentRuntimeSettlement | null
     value === null ||
     (isAgentRuntimeContractRecord(value) &&
       hasExactAgentRuntimeContractFields(value, ["outcome", "exitCode", "code", "reason"]) &&
-      ["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) &&
+      ["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) &&
       Number.isInteger(value.exitCode) &&
       (value.code === null || typeof value.code === "string") &&
       (value.reason === null || typeof value.reason === "string"))
@@ -495,7 +497,7 @@ function validSession(value: unknown): value is AgentRuntimeSessionDto {
     ) &&
     typeof value.activity.lastObservedAt === "string" &&
     (value.activity.outcome === null ||
-      ["succeeded", "failed", "unknown", "cancelled"].includes(String(value.activity.outcome))) &&
+      ["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.activity.outcome))) &&
     (value.activity.exitCode === null ||
       (Number.isInteger(value.activity.exitCode) && (value.activity.exitCode as number) >= 0)) &&
     (value.activity.resultRef === null || typeof value.activity.resultRef === "string") &&
