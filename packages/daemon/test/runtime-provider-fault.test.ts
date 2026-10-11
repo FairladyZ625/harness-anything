@@ -120,14 +120,15 @@ test("zcode turn.failed attribution 429 preserves retry reset", () => {
   assert.equal(fault?.resetAt, "2026-09-06T04:05:06.000Z");
 });
 
-test("attempt-bound classification falls back only before tools or for recognized provider faults", () => {
+// decision/dec_FCD38D503B0C0752B83A417246/CH2: unknown failures are task failures.
+test("attempt-bound classification falls back only for recognized provider faults", () => {
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false }), 1)), {
     outcome: "failed",
-    classification: "provider_fault",
+    classification: "gate_red",
   });
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false, providerOutcome: "failed" }), 0)), {
     outcome: "failed",
-    classification: "provider_fault",
+    classification: "gate_red",
   });
   assert.deepEqual(pick(classifyRuntimeExit(active({ toolCallObserved: false, providerOutcome: "failed" }), null)), {
     outcome: "failed",
@@ -306,3 +307,65 @@ function active(overrides: Partial<ActiveRuntime>): ActiveRuntime {
 function pick(value: ReturnType<typeof classifyRuntimeExit>) {
   return { outcome: value.outcome, classification: value.classification };
 }
+
+// decision/dec_FCD38D503B0C0752B83A417246/CH2: preserve provider-positive and task-negative cases.
+test("task input, model and request-policy errors do not become provider failures", () => {
+  const inputFailure = classifyRuntimeExit(active({ errorBuffer: "Task input file missing: mission.md" }), 1);
+  assert.equal(inputFailure.classification, "gate_red");
+  assert.equal(inputFailure.reason, "Task input file missing: mission.md");
+  assert.equal(classifyRuntimeExit(active({ errorOverflowed: true }), 1).classification, "gate_red");
+  for (const fault of [
+    providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { code: "unknown_model", message: "model_not_found" },
+    }),
+    providerFaultFromStderr("claude", "[claude-code:unrecognized_model] invalid model"),
+  ]) {
+    assert.ok(fault);
+    assert.equal(classifyRuntimeExit(active({ providerFault: fault }), 1).classification, "gate_red");
+  }
+  for (const message of ["forbidden", "content policy rejected the request", "request not permitted"]) {
+    assert.equal(providerFaultFromFrame("codex", { type: "turn.failed", error: { http_status: 403, message } }), null);
+  }
+  assert.equal(providerFaultFromStderr("claude", "[claude-code:forbidden] content policy rejected"), null);
+  assert.equal(
+    providerFaultFromFrame("codex", { type: "turn.failed", error: { http_status: 403, message: "invalid API key" } })
+      ?.code,
+    "auth_failed",
+  );
+  assert.equal(
+    providerFaultFromFrame("codex", { type: "turn.failed", error: { http_status: 401, message: "access denied" } })
+      ?.code,
+    "auth_failed",
+  );
+});
+
+test("Retry-After seconds and dates decode once at observation time; absolute resets stay absolute", (t) => {
+  const now = Date.parse("2026-10-11T04:00:00Z");
+  t.mock.method(Date, "now", () => now);
+  const fromError = (error: Record<string, unknown>) =>
+    providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { http_status: 429, message: "Too many requests", ...error },
+    })?.resetAt;
+  for (const seconds of [120, "120", " 120 ", 0, "0", "1.5"]) {
+    const expected = new Date(now + Number(seconds) * 1000).toISOString();
+    assert.equal(fromError({ headers: { "retry-after": seconds } }), expected);
+    assert.equal(fromError({ response_headers: { "retry-after": seconds } }), expected);
+    assert.equal(fromError({ retry_after: seconds }), expected);
+  }
+  assert.equal(fromError({ headers: { "retry-after": "Sun, 11 Oct 2026 04:02:00 GMT" } }), "2026-10-11T04:02:00.000Z");
+  for (const invalid of [-1, "-1", "garbage", "", "  ", null, false]) {
+    assert.equal(fromError({ headers: { "retry-after": invalid } }), undefined);
+  }
+  for (const reset of [1791691320, "1791691320", 1791691320000, "1791691320000"]) {
+    assert.equal(
+      fromError({ headers: { "x-ratelimit-reset": reset, "retry-after": "120" } }),
+      "2026-10-11T04:02:00.000Z",
+    );
+  }
+  assert.equal(
+    fromError({ reset_at: "2026-10-11T05:00:00Z", headers: { "retry-after": "120" } }),
+    "2026-10-11T05:00:00.000Z",
+  );
+});

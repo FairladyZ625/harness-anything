@@ -282,6 +282,12 @@ test("a failed attempt persists a one-line reason that references the dispatch s
       finalText: null,
       cancelBinding: null,
       cancelOpId: null,
+      // decision/dec_FCD38D503B0C0752B83A417246/CH2: explicit service fault, not arbitrary stderr.
+      providerFault: {
+        code: "server_error",
+        reason:
+          "PROVIDER-STDERR-FIRST-LINE diagnostic\nPROVIDER-STDERR-RAW-SECOND-LINE\nPROVIDER-STDERR-RAW-THIRD-LINE",
+      },
       errorBuffer:
         "PROVIDER-STDERR-FIRST-LINE diagnostic\nPROVIDER-STDERR-RAW-SECOND-LINE\nPROVIDER-STDERR-RAW-THIRD-LINE",
     }),
