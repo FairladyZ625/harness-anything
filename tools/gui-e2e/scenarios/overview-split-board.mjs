@@ -59,10 +59,10 @@ async function checkOverviewBoard(page, shot, label, halfSplitAccepts) {
       const source = boardNode.querySelector(`[data-testid="region-handle-${sourceId}"]`);
       const target = boardNode.querySelector(`[data-region="${targetId}"]`);
       const dataTransfer = new globalThis.DataTransfer();
-      source.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer }));
+      source.dispatchEvent(new globalThis.DragEvent("dragstart", { bubbles: true, dataTransfer }));
       const rect = target.getBoundingClientRect();
       target.dispatchEvent(
-        new DragEvent("dragover", {
+        new globalThis.DragEvent("dragover", {
           bubbles: true,
           cancelable: true,
           clientX: rect.left + rect.width * 0.25,
@@ -80,7 +80,7 @@ async function checkOverviewBoard(page, shot, label, halfSplitAccepts) {
       const handleNode = globalThis.document.querySelector(
         '[data-testid="overview-board"] [data-testid="region-handle-works"]',
       );
-      handleNode.dispatchEvent(new DragEvent("dragend", { bubbles: true }));
+      handleNode.dispatchEvent(new globalThis.DragEvent("dragend", { bubbles: true }));
     });
     assert.ok(
       (await board.getByTestId("region-drop-overlay-drill").count()) === 0,
@@ -99,7 +99,7 @@ async function checkOverviewBoard(page, shot, label, halfSplitAccepts) {
       const handleNode = globalThis.document.querySelector(
         '[data-testid="overview-board"] [data-testid="region-handle-works"]',
       );
-      handleNode.dispatchEvent(new DragEvent("dragend", { bubbles: true }));
+      handleNode.dispatchEvent(new globalThis.DragEvent("dragend", { bubbles: true }));
     });
     await defaultOrderSettled();
     await shot(`${label}-refused`);
@@ -154,12 +154,16 @@ async function dockRegion(page, boardId, sourceId, targetId, at) {
       const handle = board.querySelector(`[data-testid="region-handle-${sourceId}"]`);
       const target = board.querySelector(`[data-region="${targetId}"]`);
       const dataTransfer = new globalThis.DataTransfer();
-      handle.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer }));
+      handle.dispatchEvent(new globalThis.DragEvent("dragstart", { bubbles: true, dataTransfer }));
       const rect = target.getBoundingClientRect();
       const point = { clientX: rect.left + rect.width * at.x, clientY: rect.top + rect.height * at.y };
-      target.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, ...point, dataTransfer }));
-      target.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, ...point, dataTransfer }));
-      handle.dispatchEvent(new DragEvent("dragend", { bubbles: true, dataTransfer }));
+      target.dispatchEvent(
+        new globalThis.DragEvent("dragover", { bubbles: true, cancelable: true, ...point, dataTransfer }),
+      );
+      target.dispatchEvent(
+        new globalThis.DragEvent("drop", { bubbles: true, cancelable: true, ...point, dataTransfer }),
+      );
+      handle.dispatchEvent(new globalThis.DragEvent("dragend", { bubbles: true, dataTransfer }));
     },
     { boardId, sourceId, targetId, at },
   );
