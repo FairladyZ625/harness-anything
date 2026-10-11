@@ -75,11 +75,14 @@ test("a work-scoped agenda serves that work's in-flight rows at a small limit", 
     const scoped = await read({ work: RELEASE_WORK, limit: 2 });
     // Pre-fix this page held the other work's two lanes and filtered to zero; the release
     // lanes only appeared once the limit covered the whole repository first page.
+    // Since a started member promotes its work root to presented-active, the root itself
+    // holds a page slot ahead of its lanes; a root carries no lease or execution of its
+    // own, so at limit 2 only one lane renders in-flight.
     assert.deepEqual(
       scoped.inFlight.map(({ taskId }) => taskId),
-      ["task_work_release_a", "task_work_release_b"],
+      ["task_work_release_a"],
     );
-    assert.ok(scoped.page.nextCursor, "one release lane still awaits the next page");
+    assert.ok(scoped.page.nextCursor, "release lanes still await the next pages");
     assert.ok(
       scoped.inFlight.every(({ work }) => work?.taskId === RELEASE_WORK),
       "every served row names the release work",
@@ -105,9 +108,12 @@ test("work-scoped cursor pagination walks every release lane exactly once and th
 test("an unscoped agenda keeps serving the repository-wide page order", async () => {
   await withInterleavedWorks("agenda-work-unscoped-control", async (read) => {
     const unscoped = await read({ limit: 2 });
+    // The other work's root now interleaves as a presented-active row between its lanes;
+    // it holds no lease, so only the lane renders in-flight. Row order itself is
+    // unchanged (pinned, then task id) — the cursor-walk test above pins the mechanics.
     assert.deepEqual(
       unscoped.inFlight.map(({ taskId }) => taskId),
-      ["task_a_other_lane", "task_c_other_lane"],
+      ["task_a_other_lane"],
     );
   });
 });
