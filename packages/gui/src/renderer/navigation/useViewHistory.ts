@@ -19,20 +19,20 @@ import { readViewHistory, writeViewHistory } from "./viewHistoryStorage.ts";
  *
  * - navigate:视图切换、跨实体跳转、打开任务详情等「导航」。
  * - updateLocation:过滤器微调、抽屉开关等「精修」,不单独占历史条目。
- * - 按 projectId 分键持久化(sessionStorage):切仓时同步重读该仓自己的栈
+ * - 按 projectId 分键持久化(localStorage,跨重启):切仓时同步重读该仓自己的栈
  *   (render 期派生 state,避免旧栈被写到新仓的键下)。
  */
 export function useViewHistory(projectId: string, initial: AppLocation) {
   const [state, setState] = useState(() => ({
     projectId,
-    history: readViewHistory(window.sessionStorage, projectId, initial),
+    history: readViewHistory(window.localStorage, projectId, initial),
   }));
 
   if (state.projectId !== projectId) {
     // 切仓:丢弃旧仓栈,读新仓栈。render 期 setState 是 React 官方派生模式。
     setState({
       projectId,
-      history: readViewHistory(window.sessionStorage, projectId, initial),
+      history: readViewHistory(window.localStorage, projectId, initial),
     });
   }
 
@@ -40,7 +40,7 @@ export function useViewHistory(projectId: string, initial: AppLocation) {
   const location = currentLocation(history);
 
   useEffect(() => {
-    writeViewHistory(window.sessionStorage, projectId, history);
+    writeViewHistory(window.localStorage, projectId, history);
   }, [history, projectId]);
 
   const setHistory = useCallback((update: (prev: ViewHistoryState) => ViewHistoryState) => {

@@ -26,6 +26,7 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
   const receipt = receiptAuthorizationContract(rootDir);
   const taskWrites = taskCatalogAuthorization(rootDir, analysis, authority);
   const queuedWrites = queuedDispatchAuthorization(rootDir, analysis, authority);
+  const preparedWrites = queuedPreparedAuthorization(rootDir, analysis, authority);
   const rows = kinds.map((kind) => ({
     action: kind,
     authorizationPort:
@@ -33,7 +34,7 @@ export function auditDurableActionAuthorization(rootDir = process.cwd(), durable
         ? bootstrapAuthority(analysis)
         : taskWrites.has(kind)
           ? taskWrites.get(kind)
-          : actionReachesAuthorization(kind, analysis, authority) || queuedWrites.has(kind),
+          : actionReachesAuthorization(kind, analysis, authority) || queuedWrites.has(kind) || preparedWrites.has(kind),
     receiptAuthorizationDecision: receipt.nonNullable,
   }));
   const findings = [
@@ -549,6 +550,100 @@ function repoActionWiring(analysis) {
       importsBinding(runner, "@harness-anything/kernel", "durablePolicyActions", "durablePolicyActions") &&
       importsBinding(runner, "./repo-cell-authorization.ts", "evaluateRepoCellAction", "evaluateRepoCellAction"),
   );
+}
+
+// dec_2AAF1D0612D3295C80F87E49FE CH1: task push publishes from a prepared callback.
+// Trace that callback through the same authorized queue; action names alone prove nothing.
+function queuedPreparedAuthorization(rootDir, analysis, authority) {
+  const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
+  if (!existsSync(path.join(rootDir, declarationPath))) return new Set();
+  const rows = new Set(),
+    runner = source(analysis, "repo-cell-command-run"),
+    run = definition(analysis, "repo-cell-command-run", "run"),
+    prepare = definition(analysis, "write-queue-external-reads", "readBeforeWriteQueue"),
+    module = source(analysis, "write-queue-external-reads"),
+    declarations = parseTypeScript(rootDir, declarationPath),
+    inventory = unwrapExpression(findVariable(declarations, "actionDeclarations")?.initializer);
+  if (
+    !authority.ok ||
+    !authority.keycloak ||
+    !queuedTaskWrite(analysis) ||
+    !repoActionWiring(analysis) ||
+    !runner ||
+    !run ||
+    !prepare ||
+    !ts.isBlock(prepare) ||
+    !module ||
+    !inventory ||
+    !ts.isArrayLiteralExpression(inventory) ||
+    !importsBinding(runner, "./write-queue-external-reads.ts", "readBeforeWriteQueue", "readBeforeWriteQueue") ||
+    !syntax(run).includes("readBeforeWriteQueue(context,action,binding,context.refreshCi)") ||
+    !syntax(run).includes(
+      "returnexternalRead.then((publish)=>enqueuePublication((authorizationDecision)=>publish(action,authorizationDecision?{...binding,authorizationDecision}:binding),",
+    )
+  )
+    return rows;
+  for (const branch of prepare.statements) {
+    if (!ts.isIfStatement(branch) || !ts.isBlock(branch.thenStatement)) continue;
+    const condition = branch.expression;
+    if (
+      !ts.isBinaryExpression(condition) ||
+      condition.operatorToken.kind !== ts.SyntaxKind.EqualsEqualsEqualsToken ||
+      syntax(condition.left) !== "action.kind" ||
+      !ts.isStringLiteral(condition.right)
+    )
+      continue;
+    const kind = condition.right.text;
+    if (
+      !inventory.elements.some(
+        (entry) =>
+          ts.isCallExpression(entry) &&
+          entry.expression.getText() === "canonical" &&
+          syntax(entry.arguments[0]) === syntax(condition.right) &&
+          syntax(entry.arguments[2]) === '"repo-write"',
+      )
+    )
+      continue;
+    const returned = branch.thenStatement.statements.at(-1);
+    if (
+      !returned ||
+      !ts.isReturnStatement(returned) ||
+      !returned.expression ||
+      !ts.isCallExpression(returned.expression) ||
+      returned.expression.arguments.length !== 0
+    )
+      continue;
+    const factory = unwrapExpression(returned.expression.expression);
+    if (!factory || !ts.isArrowFunction(factory) || !ts.isBlock(factory.body)) continue;
+    const publication = factory.body.statements.at(-1);
+    if (
+      !publication ||
+      !ts.isReturnStatement(publication) ||
+      !publication.expression ||
+      !ts.isArrowFunction(publication.expression)
+    )
+      continue;
+    // The side effect must remain inside the returned publication, after queue authorization.
+    const handlers = calledNames(publication.expression.body);
+    const imported = module.statements.some(
+      (statement) =>
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        statement.moduleSpecifier.text.startsWith("./") &&
+        statement.importClause?.namedBindings &&
+        ts.isNamedImports(statement.importClause.namedBindings) &&
+        statement.importClause.namedBindings.elements.some(
+          (entry) =>
+            handlers.has(entry.name.text) &&
+            (analysis.functions.get(entry.propertyName?.text ?? entry.name.text) ?? []).some(
+              (implementation) =>
+                implementation.file === path.posix.join("packages/daemon/src", statement.moduleSpecifier.text),
+            ),
+        ),
+    );
+    if (imported) rows.add(kind);
+  }
+  return rows;
 }
 
 function taskCatalogWiring(analysis) {

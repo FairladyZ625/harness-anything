@@ -611,7 +611,14 @@ const FIXTURE_AGENDA = {
 };
 
 const VIEW_RENDERERS = {
-  home: () => createElement(HomeView, { repos: [fixtureRepoRow()], currentRepoId: REPO_ID, onOpenProject: noop }),
+  home: () =>
+    createElement(HomeView, {
+      repos: [fixtureRepoRow()],
+      currentRepoId: REPO_ID,
+      pinnedRepoIds: [],
+      onToggleProjectPin: noop,
+      onOpenProject: noop,
+    }),
   overview: () =>
     createElement(OverviewView, {
       repoId: REPO_ID,

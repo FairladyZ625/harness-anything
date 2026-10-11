@@ -21,7 +21,7 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // F-8E80EE50: independently revocable repository reads belong to viewer.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: the three handoff actions are owner-approved.
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four Task GateRun actions.
-  assert.equal(actionDeclarations.length, 147);
+  assert.equal(actionDeclarations.length, 148);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);

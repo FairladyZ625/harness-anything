@@ -166,6 +166,51 @@ test("edge staging replays snapshot/delta pages and chunks and switches only com
   }
 });
 
+test("a delta from the acknowledged cut discards unacknowledged changes absent from its net result", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-edge-overlap-"));
+  try {
+    const view = openFleetEdgeView(root, replicaQuota),
+      original = Buffer.from("original"),
+      intermediate = Buffer.from("unacknowledged"),
+      added = Buffer.from("new"),
+      a = wireEntry("tasks/t/a.md", original),
+      changed = wireEntry(a.path, intermediate),
+      b = wireEntry("tasks/t/b.md", added);
+    for (const frame of snapshotFrames("base", "view", wireCut(1), [a], [original])) view.receive(frame);
+    for (const frame of deltaFrames(
+      "unacked",
+      "view",
+      wireCut(1),
+      wireCut(2),
+      fleetManifestDigest([changed]),
+      [{ op: "put", ...changed }],
+      [intermediate],
+    ))
+      view.receive(frame);
+    // The center never received cut 2's ACK; cut 3 restored a, so delta 1→3 only adds b.
+    for (const frame of deltaFrames(
+      "caught-up",
+      "view",
+      wireCut(1),
+      wireCut(3),
+      fleetManifestDigest([a, b]),
+      [{ op: "put", ...b }],
+      [added],
+    ))
+      view.receive(frame);
+    const latest = locateFleetMirrorView(root, "repo", "view")!;
+    assert.equal(fleetMirrorCutFile(latest, a.path)!.toString(), "original");
+    assert.equal(fleetMirrorCutFile(latest, b.path)!.toString(), "new");
+    const retained = path.join(latest.viewDir, "cuts", "2-g0", "manifest.json");
+    assert.equal(
+      readEdgeManifestEntries(retained).find((entry) => entry.path === a.path)?.blob.sha256,
+      changed.blob.sha256,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("edge chunk replay compares only the named window against the staged blob", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-edge-window-"));
   try {

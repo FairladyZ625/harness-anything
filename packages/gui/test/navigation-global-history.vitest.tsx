@@ -155,9 +155,10 @@ const pressThenClick = (button: HTMLButtonElement) => {
   button.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true }));
   button.click();
 };
-/** 栈指针实测值:viewHistoryStorage 持久化的 history.index(证据协议的 dump 路径)。 */
+/** 栈指针实测值:viewHistoryStorage 持久化的 history.index(证据协议的 dump 路径)。
+ * 介质是 localStorage(切仓位置跨重启保留后从 sessionStorage 迁移)。 */
 const shellHistoryIndex = () => {
-  const raw = window.sessionStorage.getItem(`harness-view-history:${SHELL_PROJECT}`);
+  const raw = window.localStorage.getItem(`harness-view-history:${SHELL_PROJECT}`);
   expect(raw).toBeTruthy();
   return (JSON.parse(raw!) as { history: { index: number } }).history.index;
 };
@@ -169,6 +170,7 @@ beforeAll(() => {
 });
 beforeEach(() => {
   window.sessionStorage.clear();
+  window.localStorage.clear();
 });
 afterEach(async () => {
   await act(async () => {

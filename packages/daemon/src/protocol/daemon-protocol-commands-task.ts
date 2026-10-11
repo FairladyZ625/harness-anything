@@ -103,6 +103,22 @@ export const taskActionHelpRows = Object.freeze(
 
 export const taskExecutionProtocolCommands = Object.freeze([
   ...derivedTaskActionProtocolCommands,
+  defineCliCommand({
+    id: "task-push",
+    actionKind: "task-push",
+    phase: "W3",
+    path: ["task", "push", "<task-id>"],
+    summary: "Publish the current task worktree branch through the daemon-held Git credential.",
+    method: "repo.task.run",
+    inputs: [],
+    commandClass: "repo-write" as const,
+    admission: {
+      local: "direct" as const,
+      "remote-proxy": "rejected" as const,
+      "remote-center": "direct" as const,
+      "remote-edge": "direct" as const,
+    },
+  }),
   defineCenterForwardWriteCommand({
     id: "task-progress-append",
     payloadFields: [

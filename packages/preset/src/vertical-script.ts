@@ -1,6 +1,5 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import {
   parseVerticalScriptAction,
   parseVerticalScriptPlan,
@@ -8,7 +7,8 @@ import {
   type VerticalScriptActionV1,
   type VerticalScriptPlanV1,
 } from "@harness-anything/kernel";
-import { loadCanonicalAssets } from "./preset-assets.ts";
+import { assertSupportedScriptInterpreter } from "./preset-resolver-common.ts";
+import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
 
 export interface PreparedBuiltinVerticalScript {
   readonly action: VerticalScriptActionV1;
@@ -27,28 +27,29 @@ export class BuiltinVerticalScriptError extends Error {
   }
 }
 
-const assetsRoot = fileURLToPath(new URL("../assets/software-coding", import.meta.url));
-
 export function prepareBuiltinVerticalScriptExecution(input: {
   readonly rootDir: string;
   readonly action: unknown;
   readonly commitSha: string;
+  readonly verticalId: string;
 }): PreparedBuiltinVerticalScript {
   const action = parseVerticalScriptAction(input.action),
     layout = resolveHarnessLayout(input.rootDir),
+    assetsRoot = resolveVerticalAssetsRoot(input.verticalId, input.rootDir),
     vertical = loadCanonicalAssets(assetsRoot).compiledVertical.definition,
     declaration = vertical.scripts.find(({ id }) => id === action.scriptId);
   if (!declaration)
     throw new BuiltinVerticalScriptError(
       "script_not_found",
-      `Script ${action.scriptId} is not declared by software/coding.`,
+      `Script ${action.scriptId} is not declared by ${vertical.id}.`,
     );
   const command = path.resolve(assetsRoot, declaration.command);
-  if (!isWithinVerticalBoundary(assetsRoot, command) || !regularContainedFile(command))
+  if (!isWithinVerticalBoundary(assetsRoot, command) || !regularContainedFile(assetsRoot, command))
     throw new BuiltinVerticalScriptError(
       "script_command_invalid",
       `Declared script command is unavailable: ${declaration.command}.`,
     );
+  assertSupportedScriptInterpreter(command);
   let outputRoot = layout.contextRoot;
   if (action.taskId !== null) {
     outputRoot = layout.taskPackagePath(action.taskId as Parameters<typeof layout.taskPackagePath>[0]);
@@ -131,7 +132,7 @@ export function acceptBuiltinVerticalScriptPlan(
   return plan;
 }
 
-function regularContainedFile(target: string): boolean {
+function regularContainedFile(assetsRoot: string, target: string): boolean {
   try {
     return lstatSync(target).isFile() && isWithinVerticalBoundary(realpathSync(assetsRoot), realpathSync(target));
   } catch {

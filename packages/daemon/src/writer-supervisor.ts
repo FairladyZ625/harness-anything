@@ -359,7 +359,7 @@ export async function openWriterSupervisor(
       case "keycloakSession":
         return input.keycloakSession!();
       case "keycloakCenter":
-        return input.keycloakCenter!();
+        return input.keycloakCenter!(call.payload === null ? undefined : (call.payload as string));
       case "prepareRuntimeLaunch": {
         const payload = call.payload as {
           instanceId: string;

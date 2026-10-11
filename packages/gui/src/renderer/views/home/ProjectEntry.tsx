@@ -28,12 +28,17 @@ export function ProjectEntry({
   repo,
   read,
   isCurrent,
+  isPinned,
+  onTogglePin,
   canManage,
   onOpen,
 }: {
   readonly repo: SystemRepoRow;
   readonly read: ProjectActivityRead;
   readonly isCurrent: boolean;
+  /** 置顶状态(与切换器同一条顺序偏好);「⋯」里给置顶/取消置顶。 */
+  readonly isPinned: boolean;
+  readonly onTogglePin: () => void;
   readonly canManage: boolean;
   readonly onOpen: (repoId: string, targetView?: "agenda" | "work") => void;
 }) {
@@ -151,37 +156,41 @@ export function ProjectEntry({
               {t("views.homeView.actionOpen")}
             </button>
           ) : null}
-          {canManage || canOpenDirectory ? (
-            <Popover
-              label={t("views.homeView.actionMore")}
-              trigger={<DotsThree weight="bold" />}
-              triggerClassName={
-                "grid size-10 shrink-0 place-items-center rounded-md ui-heading text-text-faint " +
-                "transition-colors duration-100 hover:bg-text/5 hover:text-text aria-expanded:bg-text/5 aria-expanded:text-text"
-              }
-              panelClassName="w-80"
-              testId="home-entry-more"
-            >
-              {(close) => (
-                <ProjectActions
-                  repo={repo}
-                  name={name}
-                  liveAgents={read.state === "ready" ? (read.liveAgents ?? 0) : 0}
-                  admin={admin}
-                  close={close}
-                  canManage={canManage}
-                  openDirectory={
-                    canOpenDirectory
-                      ? () => {
-                          openDirectory.mutate();
-                          close();
-                        }
-                      : undefined
-                  }
-                />
-              )}
-            </Popover>
-          ) : null}
+          {/* 「⋯」至少有置顶动作(本地偏好,人人可用);目录/停用/移除按宿主能力出现。 */}
+          <Popover
+            label={t("views.homeView.actionMore")}
+            trigger={<DotsThree weight="bold" />}
+            triggerClassName={
+              "grid size-10 shrink-0 place-items-center rounded-md ui-heading text-text-faint " +
+              "transition-colors duration-100 hover:bg-text/5 hover:text-text aria-expanded:bg-text/5 aria-expanded:text-text"
+            }
+            panelClassName="w-80"
+            testId="home-entry-more"
+          >
+            {(close) => (
+              <ProjectActions
+                repo={repo}
+                name={name}
+                liveAgents={read.state === "ready" ? (read.liveAgents ?? 0) : 0}
+                admin={admin}
+                close={close}
+                canManage={canManage}
+                isPinned={isPinned}
+                onTogglePin={() => {
+                  onTogglePin();
+                  close();
+                }}
+                openDirectory={
+                  canOpenDirectory
+                    ? () => {
+                        openDirectory.mutate();
+                        close();
+                      }
+                    : undefined
+                }
+              />
+            )}
+          </Popover>
         </div>
       </div>
       {feedback === null ? null : (
@@ -268,9 +277,13 @@ function ProjectActions({
   admin: { update, unregister },
   close,
   canManage,
+  isPinned,
+  onTogglePin,
   openDirectory,
 }: {
   readonly canManage: boolean;
+  readonly isPinned: boolean;
+  readonly onTogglePin: () => void;
   readonly openDirectory?: () => void;
   readonly repo: SystemRepoRow;
   readonly name: string;
@@ -284,6 +297,9 @@ function ProjectActions({
   if (confirming === null)
     return (
       <>
+        <button type="button" className={item} data-testid="home-entry-toggle-pin" onClick={onTogglePin}>
+          {t(isPinned ? "views.homeView.actionUnpin" : "views.homeView.actionPin")}
+        </button>
         {openDirectory ? (
           <button type="button" className={item} data-testid="home-entry-directory" onClick={openDirectory}>
             {t("views.homeView.actionDirectory")}
