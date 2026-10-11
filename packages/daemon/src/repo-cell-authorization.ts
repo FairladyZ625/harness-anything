@@ -100,7 +100,9 @@ export async function canonicalResourceAncestors(
   const target = await read(resource.entityRef.slice("task/".length)),
     ancestors: AuthorizationResource[] = [],
     seen = new Set<string>();
-  for (let taskId = target?.metadata?.parentTaskId ?? null; taskId !== null && !seen.has(taskId); ) {
+  let taskId = target?.metadata?.parentTaskId ?? null;
+  for (; taskId !== null; ) {
+    if (seen.has(taskId)) return [];
     seen.add(taskId);
     const task = await read(taskId);
     if (!task) break;

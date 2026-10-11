@@ -31,6 +31,7 @@ export type { AuthorizationResource, PolicyGroup } from "./policy-groups.ts";
 export {
   beginPermissionApproval,
   createPermissionRequest,
+  PermissionRequestCoordinator,
   PermissionRequestError,
   rejectPermissionRequest,
   settlePermissionApproval,

@@ -28,6 +28,76 @@ export class PermissionRequestError extends Error {
     this.code = code;
   }
 }
+
+/** Serialize approval mutations at the center writer turn. */
+export class PermissionRequestCoordinator {
+  readonly #requests = new Map<string, PermissionRequestV1>();
+  readonly #queues = new Map<string, Promise<void>>();
+
+  create(input: Parameters<typeof createPermissionRequest>[0]): PermissionRequestV1 {
+    const request = createPermissionRequest(input);
+    if (this.#requests.has(request.requestId))
+      throw new PermissionRequestError("invalid", `Permission request ${request.requestId} already exists.`);
+    this.#requests.set(request.requestId, request);
+    return request;
+  }
+
+  read(requestId: string): PermissionRequestV1 | null {
+    return this.#requests.get(requestId) ?? null;
+  }
+
+  async approve(
+    requestId: string,
+    expectedVersion: number,
+    approverPersonId: string,
+    settle: () => Promise<{ readonly ok: boolean; readonly error?: string }>,
+  ): Promise<PermissionRequestDecision> {
+    return this.#enqueue(requestId, async () => {
+      const request = this.#requests.get(requestId);
+      if (!request) throw new PermissionRequestError("invalid", `Permission request ${requestId} does not exist.`);
+      if (request.revision !== version(expectedVersion)) return { outcome: "version_conflict", request };
+      const applying = beginPermissionApproval(request, expectedVersion, approverPersonId);
+      this.#requests.set(requestId, applying);
+      const decision = settlePermissionApproval(applying, await settle());
+      this.#requests.set(requestId, decision.request);
+      return decision;
+    });
+  }
+
+  reject(
+    requestId: string,
+    expectedVersion: number,
+    approverPersonId: string,
+    reason: string,
+  ): PermissionRequestDecision {
+    const request = this.#requests.get(requestId);
+    if (!request) throw new PermissionRequestError("invalid", `Permission request ${requestId} does not exist.`);
+    const decision = rejectPermissionRequest(request, expectedVersion, approverPersonId, reason);
+    this.#requests.set(requestId, decision.request);
+    return decision;
+  }
+
+  withdraw(requestId: string, expectedVersion: number): PermissionRequestV1 {
+    const request = this.#requests.get(requestId);
+    if (!request) throw new PermissionRequestError("invalid", `Permission request ${requestId} does not exist.`);
+    const withdrawn = withdrawPermissionRequest(request, expectedVersion);
+    this.#requests.set(requestId, withdrawn);
+    return withdrawn;
+  }
+
+  #enqueue<T>(requestId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.#queues.get(requestId) ?? Promise.resolve();
+    const current = previous.then(operation, operation);
+    this.#queues.set(
+      requestId,
+      current.then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+    return current;
+  }
+}
 function text(value: unknown, field: string): string {
   if (typeof value !== "string" || !value.trim()) throw new PermissionRequestError("invalid", `${field} is required.`);
   return value.trim();

@@ -44,3 +44,14 @@ test("terminates on a malformed parent cycle without inventing a scope", async (
   );
   assert.deepEqual(ancestors, []);
 });
+
+test("drops every ancestor when a Work chain contains a cycle", async () => {
+  const ancestors = await canonicalResourceAncestors(
+    projection({
+      work: { taskId: "work", taskClass: "work", parentTaskId: "child" },
+      child: { taskId: "child", taskClass: "standard", parentTaskId: "work" },
+    }),
+    { kind: "entity", repoId: "repo", entityRef: "task/child" },
+  );
+  assert.deepEqual(ancestors, []);
+});
