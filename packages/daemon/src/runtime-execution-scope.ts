@@ -49,6 +49,7 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     reads = [
       "event-list",
       "task-show",
+      "task-ci",
       "task-read-set",
       "task-dispatches",
       "doc-status",

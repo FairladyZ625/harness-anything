@@ -37,6 +37,7 @@ import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./ve
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
+import { readTaskCi } from "./task-ci-read.ts";
 
 function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
   if (context.state !== "attached" || getExecutableEntityAction(action.kind)?.target.kind !== "schedule") return false;
@@ -187,7 +188,11 @@ export function makeRepoCellCommandRunner(
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
           if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          return context.withHumanSummary(await context.executeAction(action, binding));
+          return context.withHumanSummary(
+            await (action.kind === "task-ci"
+              ? readTaskCi(context, action, binding)
+              : context.executeAction(action, binding)),
+          );
         })
         .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(error));

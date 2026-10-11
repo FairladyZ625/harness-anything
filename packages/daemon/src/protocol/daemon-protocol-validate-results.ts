@@ -408,6 +408,7 @@ export function validateDaemonProtocolError(value: unknown): readonly string[] {
 
 export const writeReceiptFields = generatedWriteReceiptFields,
   guiReceiptExtensions = [
+    "ci",
     "error",
     "summary",
     ...generatedTaskCreateResultFields,

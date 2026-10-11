@@ -35,6 +35,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-adjudicate", renderAdjudication],
   ["task-dispatch-review", renderReviewDispatches],
   ["task-show", renderTaskShow],
+  ["task-ci", (receipt) => JSON.stringify(receipt.ci, null, 2)],
   ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
   ["migrate-import", renderSuccessfulReceipt],

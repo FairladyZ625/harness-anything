@@ -94,6 +94,15 @@ test("execution requests exclude other tasks, repos, controls, and human consent
       },
     );
   assert.doesNotThrow(() => request("task-show"));
+  assert.doesNotThrow(() => request("task-ci"));
+  assert.doesNotThrow(() =>
+    requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: p.taskId }),
+  );
+  assert.throws(() => request("task-ci", { taskId: "task-other" }), { code: "execution_credential_rejected" });
+  assert.throws(
+    () => requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: "task-other" }),
+    { code: "execution_credential_rejected" },
+  );
   assert.doesNotThrow(() => request("task-push"));
   assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId }));
   assert.throws(() => request("ci-observe-pull", { taskId: undefined }));
