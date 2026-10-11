@@ -185,25 +185,28 @@ export function requireCurrentExecutionScope(input: {
     }
   } else {
     if (dispatch.payload.role === "reviewer") throw executionCredentialRejected();
-    const snapshot = settling ? input.projection.read(p.taskId).snapshot : null;
+    const snapshot = settling || input.action.kind === "task-push" ? input.projection.read(p.taskId).snapshot : null;
     const lease =
       input.projection.currentLease(p.taskId, input.now) ??
       (terminal && snapshot?.lease?.phase === "released" ? snapshot.lease : null);
+    const submittedPush =
+      input.action.kind === "task-push" &&
+      lease === null &&
+      snapshot?.executions.some(
+        (execution) => execution.executionId === p.executionId && execution.submission !== null,
+      ) === true;
     if (
       settling &&
-      input.projection
-        .read(p.taskId)
-        .snapshot.executions.some(
-          (execution) => execution.executionId === p.executionId && execution.submission !== null,
-        )
+      snapshot?.executions.some((execution) => execution.executionId === p.executionId && execution.submission !== null)
     )
       return;
     if (
-      !lease ||
-      (lease.phase !== "held" && !(terminal && lease.phase === "released")) ||
-      lease.executionId !== p.executionId ||
-      !isSameExecution(lease.actor, actor) ||
-      stableStringify(lease.source) !== stableStringify(input.binding.source)
+      !submittedPush &&
+      (!lease ||
+        (lease.phase !== "held" && !(terminal && lease.phase === "released")) ||
+        lease.executionId !== p.executionId ||
+        !isSameExecution(lease.actor, actor) ||
+        stableStringify(lease.source) !== stableStringify(input.binding.source))
     )
       throw executionCredentialRejected();
   }
