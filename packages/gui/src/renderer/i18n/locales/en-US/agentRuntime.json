@@ -499,6 +499,8 @@
   "agentRuntime.tokenUsageChangeNoBase": "No consumption in {previous} to compare against",
   "agentRuntime.tokenUsageKindFreshInput": "Fresh input",
   "agentRuntime.tokenUsageKindCacheWrite": "Cache write",
+  "agentRuntime.tokenUsageCacheWriteMixedUnreported": "including {count} dispatches not reported",
+  "agentRuntime.tokenUsageCacheWriteMixedUnitemized": "including {count} dispatches not itemized",
   "agentRuntime.tokenUsageCacheWriteNote": "Cache writes are counted separately and priced at the cache-write rate since 2026-10-10; earlier records cannot be split (their writes sit in fresh input at the input rate); providers that report no cache-write field count as zero, never an estimate.",
   "agentRuntime.tokenUsageCacheWriteUnreported": "Not reported",
   "agentRuntime.tokenUsageCacheWriteUnitemized": "Not itemized",

@@ -25,8 +25,27 @@ export function requireExecutionRequestScope(
   requireExecutionActionScope(principal, actionForDaemonMethod(method, params.payload));
 }
 
+/** Repository catalog reads a dispatched implementer needs to pick its preset and validate
+ * declarations (dec_9DFDC635180975FDFC0CDB33D7): exactly the repo-read preset commands, never
+ * the ledger-write lifecycle. Caller-supplied sources stay bounded by the preset dispatch. */
+const catalogReads = [
+  "preset-list",
+  "preset-inspect",
+  "preset-check",
+  "preset-validate",
+  "preset-audit",
+  "vertical-validate",
+  "template-list",
+  "template-render",
+  "script-list",
+  "script-inspect",
+] as const;
+
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
-  const frozenDocument = p.role === "reviewer" && action.kind === "doc-show",
+  const catalog = p.role === "implementation" && (catalogReads as readonly string[]).includes(action.kind),
+    // Reviewers read frozen submission evidence, implementers their own package documents; the
+    // exact path authorization happens in the doc-sync read where the projection is available.
+    documentRead = action.kind === "doc-show",
     reads = [
       "event-list",
       "task-show",
@@ -34,7 +53,7 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
       "task-dispatches",
       "doc-status",
       "doc-dry-run",
-      ...(frozenDocument ? ["doc-show"] : []),
+      ...(documentRead ? ["doc-show"] : []),
     ],
     writes =
       p.role === "reviewer"
@@ -43,9 +62,9 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
   if (
     (action.kind.startsWith("doc-") &&
       (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
-    ![...reads, ...writes].includes(action.kind) ||
-    (action.kind !== "event-list" && !frozenDocument && action.taskId !== p.taskId) ||
-    (frozenDocument && action.taskId !== undefined && action.taskId !== p.taskId) ||
+    (![...reads, ...writes].includes(action.kind) && !catalog) ||
+    (action.kind !== "event-list" && !documentRead && !catalog && action.taskId !== p.taskId) ||
+    (documentRead && action.taskId !== undefined && action.taskId !== p.taskId) ||
     (action.executionId !== undefined && action.executionId !== p.executionId) ||
     (action.executor != null &&
       (!isJsonObject(action.executor) ||

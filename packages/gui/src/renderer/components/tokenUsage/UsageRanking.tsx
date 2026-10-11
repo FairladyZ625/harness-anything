@@ -1,3 +1,4 @@
+import { CacheWriteValue } from "./CacheWriteValue.tsx";
 import type {
   AgentRuntimeTokenUsageAgentRow,
   AgentRuntimeTokenUsageModelRow,
@@ -5,7 +6,6 @@ import type {
 } from "@harness-anything/daemon/protocol";
 import { preciseTokens, exactTokens, percentText, usdText } from "../../token-format.ts";
 import {
-  cacheWriteCaveat,
   rankBarShare,
   rankLogFloor,
   successRate,
@@ -178,8 +178,7 @@ export function UsageRankingTable({
         <tbody>
           {rows.map((row) => {
             const rate = successRate(row),
-              perSuccess = tokensPerSuccess(row),
-              cacheWrite = cacheWriteCaveat(row);
+              perSuccess = tokensPerSuccess(row);
             return (
               <tr
                 key={row.id}
@@ -199,16 +198,7 @@ export function UsageRankingTable({
                   {preciseTokens(row.cacheReadTokens)}
                 </td>
                 <td className={cell}>
-                  {cacheWrite === null ? (
-                    <span title={exactTokens(row.cacheWriteTokens)}>{preciseTokens(row.cacheWriteTokens)}</span>
-                  ) : (
-                    <StatusTag
-                      mono
-                      status="cancelled"
-                      tip={t("agentRuntime.tokenUsageCacheWriteNote")}
-                      label={t(cacheWrite)}
-                    />
-                  )}
+                  <CacheWriteValue row={row} />
                 </td>
                 <td className={cell} title={exactTokens(row.outputTokens)}>
                   {preciseTokens(row.outputTokens)}

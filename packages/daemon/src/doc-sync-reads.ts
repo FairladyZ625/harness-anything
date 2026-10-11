@@ -56,6 +56,12 @@ export function readAction(input: Input): WriteReceipt {
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
   }
   const principal = input.binding.executionPrincipal;
+  if (principal?.role === "implementation") {
+    // An implementer reads the documents of its own dispatch's task package only: the projection's
+    // package-owner mapping decides, so other packages and non-task paths fail closed.
+    if (paths.some((candidate) => input.projection.taskIdForDocumentPath(candidate) !== principal.taskId))
+      throw executionCredentialRejected();
+  }
   if (principal?.role === "reviewer") {
     const task = input.projection.read(principal.taskId),
       execution = task.snapshot.executions.find((entry) => entry.executionId === principal.executionId),

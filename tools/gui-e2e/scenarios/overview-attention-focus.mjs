@@ -7,12 +7,13 @@ import { createRealizedTaskPlanFixture } from "../../fixtures/task-plan.mjs";
 import { nav } from "./helpers.mjs";
 
 /**
- * #task_ac9665e4b3d0400b34e851b1c4 CEO 视觉返工的验收场景(2026-10-04):真实 daemon 数据
- * 下的注意力布局——至少 3 条置顶关注工作、多条机器返工(task-adjudicate --return 打回)、
- * 多条真实人工决策(awaits 问句 + 夹具自带的待点头决策)。隐藏 Electron 在默认宽
- * (1440)/1120/900 三档窗口截屏:决策带默认只铺三条并可一键展开,关注工作是首屏主体,
- * 执行下钻是底部紧凑工具带,不再独占整列空容器。全部数据走真实写路(repo.task.create/
- * run/pin、relation-relate),断言与截图不写死 daemon 侧数值。
+ * #task_ac9665e4b3d0400b34e851b1c4 CEO 视觉返工的验收场景(2026-10-04;2026-10-11 业主
+ * 意见返工后重排):真实 daemon 数据下的注意力布局——至少 3 条置顶关注工作、多条机器
+ * 返工(task-adjudicate --return 打回)、多条真实人工决策(awaits 问句 + 夹具自带的待
+ * 点头决策)。隐藏 Electron 在默认宽(1440)/1120/900 三档窗口截屏:决策带默认只铺三条
+ * 并可一键展开,「执行与下钻」在左上格(产物速览架叠其下同列),关注的工作独占右列。
+ * 全部数据走真实写路(repo.task.create/run/pin、relation-relate),断言与截图不写死
+ * daemon 侧数值。
  */
 
 const WATCHED_WORKS = [
@@ -52,7 +53,8 @@ async function setSize(app, page, width, height) {
   await page.waitForFunction(([w, h]) => globalThis.innerWidth === w && globalThis.innerHeight === h, actual);
 }
 
-/** 三段布局的实测几何:决策带在上、工作主体居中、下钻工具带在底部同列。 */
+/** 三段布局的实测几何(2026-10-11 返工):决策带在上,「执行与下钻」占左上格,最新产物
+ * 速览架叠在其下,关注的工作是右列主体。 */
 async function attentionGeometry(page) {
   return page.evaluate(() => {
     const box = (testId) => {
@@ -73,6 +75,7 @@ async function attentionGeometry(page) {
       band: box("overview-decisions-band"),
       works: box("overview-region-works"),
       drill: box("overview-region-drill"),
+      artifacts: box("overview-region-artifacts"),
       decisionRows: globalThis.document.querySelectorAll('[data-testid="overview-decisions-band"] [data-decision]')
         .length,
       workCards: globalThis.document.querySelectorAll("[data-work-card]").length,
@@ -81,10 +84,10 @@ async function attentionGeometry(page) {
 }
 
 function assertAttentionLayout(geometry) {
-  const { viewport, band, works, drill } = geometry;
+  const { viewport, band, works, drill, artifacts } = geometry;
   assert.ok(
-    band !== null && works !== null && drill !== null,
-    `all three sections must exist: ${JSON.stringify(geometry)}`,
+    band !== null && works !== null && drill !== null && artifacts !== null,
+    `all four sections must exist: ${JSON.stringify(geometry)}`,
   );
   // 紧凑决策带:默认 ≤3 行,且不占首屏的大头(高度低于工作主体)。
   assert.ok(geometry.decisionRows <= 3, `compact band must show at most 3 rows, saw ${geometry.decisionRows}`);
@@ -96,11 +99,19 @@ function assertAttentionLayout(geometry) {
     band.height < viewport.height * 0.42,
     `band must stay a compact strip: ${band.height} of ${viewport.height}`,
   );
-  // 单列注意力漏斗:决策带在上,工作主体接其下,下钻工具带与工作同列(不另立空列)。
-  assert.ok(band.bottom <= works.top + 1, `band must sit above the works body: ${JSON.stringify(geometry)}`);
+  // 决策带横跨两列之上;「执行与下钻」在左上格(业主意见 3),产物速览架叠其下同列。
   assert.ok(
-    Math.abs(drill.left - works.left) <= 2 && Math.abs(drill.right - works.right) <= 2,
-    `drill must share the works column instead of owning an empty column: ${JSON.stringify(geometry)}`,
+    band.bottom <= drill.top + 1 && band.bottom <= works.top + 1,
+    `band must sit above both columns: ${JSON.stringify(geometry)}`,
+  );
+  assert.ok(
+    drill.bottom <= artifacts.top + 1 && Math.abs(drill.left - artifacts.left) <= 2,
+    `drill must be the top-left cell with the artifacts shelf stacked below: ${JSON.stringify(geometry)}`,
+  );
+  // 关注的工作独占右列:在 drill 右侧,不与左列重叠。
+  assert.ok(
+    works.left >= drill.right - 1,
+    `works must own the right column instead of sharing the drill column: ${JSON.stringify(geometry)}`,
   );
   assert.ok(geometry.workCards >= 3, `at least three watched works must render, saw ${geometry.workCards}`);
 }
@@ -110,9 +121,10 @@ export default {
   feature: "overview",
   lane: "isolated",
   description:
-    "Compact decision band (few rows by default, one-click expand), watched works as the first-screen body, " +
-    "and a bottom drill tool strip, verified against a real daemon seeded with 3+ pinned works, machine reworks " +
-    "and human decisions at 1440/1120/900 hidden windows.",
+    "Compact decision band (few rows by default, one-click expand), the Execution & drill region in the " +
+    "top-left cell with the artifacts shelf stacked below it, and watched works owning the right column, " +
+    "verified against a real daemon seeded with 3+ pinned works, machine reworks and human decisions at " +
+    "1440/1120/900 hidden windows.",
   async run({ page, app, fixture, shot }) {
     const { endpoint, repoId, rootDir } = fixture;
 

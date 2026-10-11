@@ -388,6 +388,10 @@ function AppShell() {
       focusedEntityRef: null,
       selectedId: null,
       previewId: null,
+      // 总览页内层(产物二级页/放大层)随离页显式收起:侧栏再进总览给干净首屏,
+      // 后退仍能回到带着层的那一条(层字段留在原条目里)。
+      overviewArtifactId: null,
+      overviewFocus: null,
       ...(v !== "board" ? { drill: null } : {}),
     });
   };
@@ -623,6 +627,16 @@ function AppShell() {
                     onOpenTasks={() => goto("board")}
                     onOpenCollaboration={() => goto("collaboration")}
                     onUnpin={(taskId) => handleSetPin({ taskId }, false)}
+                    // 总览页内层(产物二级页/放大层)走全局导航历史:开层推栈、层内换选中
+                    // 原地改、关层弹栈(栈底恢复的孤立层条目原地收层)——与预览抽屉同一
+                    // 条路径(业主 2026-10-11「有的页面能退能进,有的不能」)。
+                    overviewLayer={{
+                      overviewArtifactId: location.overviewArtifactId ?? null,
+                      overviewFocus: location.overviewFocus ?? null,
+                    }}
+                    onOverviewLayerNavigate={navigate}
+                    onOverviewLayerPatch={updateLocation}
+                    onOverviewLayerClose={(fields) => (canBack ? back() : updateLocation(fields))}
                   />
                 ) : (
                   <WorkspaceSummaryPending error={workspaceSummaryQuery.error} />

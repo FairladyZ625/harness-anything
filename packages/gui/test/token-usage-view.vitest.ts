@@ -65,6 +65,8 @@ const usage: AgentRuntimeTokenUsageResult = {
   buckets: [
     {
       bucketStart: "2026-09-18T12:00:00.000Z",
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       dispatchCount: 1,
       inputTokens: 1_500,
       cacheReadTokens: 340,
@@ -78,6 +80,8 @@ const usage: AgentRuntimeTokenUsageResult = {
     },
     {
       bucketStart: "2026-09-18T13:00:00.000Z",
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       dispatchCount: 1,
       inputTokens: 12_000,
       cacheReadTokens: 0,
@@ -734,6 +738,34 @@ describe("TokenUsageView", () => {
     act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
     expect(byTestId(container, "token-usage-row-devin-neutral").textContent).toContain("Not reported");
     expect(byTestId(container, "token-usage-row-codex-real-zero").textContent).not.toContain("Not reported");
+  });
+
+  it("keeps missing cache writes visible beside mixed totals and in the headline", async () => {
+    const totals = { ...usage.totals, cacheWriteTokens: 0, cacheWriteUnreportedDispatches: 1 };
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
+      ...usage,
+      totals,
+      models: usage.models.map((row) => ({ ...row, usageReportedDispatches: 2, cacheWriteUnreportedDispatches: 1 })),
+      buckets: usage.buckets.map((row) => ({ ...row, cacheWriteTokens: 0, cacheWriteUnreportedDispatches: 1 })),
+    });
+    const container = await renderView();
+    expect(byTestId(container, "token-usage-composition").textContent).toContain("1 dispatches not reported");
+    act(() => findButton(container, "Model").click());
+    act(() => findButton(byTestId(container, "token-usage-ranking-card"), "Table").click());
+    expect(byTestId(container, "token-usage-ranking-card").textContent).toContain("1 dispatches not reported");
+    act(() => findButton(byTestId(container, "token-usage-trend-card"), "Table").click());
+    expect(byTestId(container, "token-usage-trend-table").textContent).toContain("Not reported");
+    focusedMemberRef = "tokenAgent/terra";
+    vi.spyOn(agentRuntimeClient, "tokenUsageDetail").mockResolvedValue({ ...detail, totals });
+    const member = await renderView();
+    expect(byTestId(member, "token-usage-detail-totals").textContent).toContain("1 dispatches not reported");
+  });
+
+  it("shows Not reported instead of a numeric zero in the headline", async () => {
+    const totals = { ...usage.totals, cacheWriteTokens: 0, cacheWriteUnreportedDispatches: 2 };
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({ ...usage, totals });
+    const container = await renderView();
+    expect(byTestId(container, "token-usage-composition").textContent).toContain("Not reported");
   });
 
   it("labels cache-write cells that are not real zeros: not reported, not itemized", async () => {

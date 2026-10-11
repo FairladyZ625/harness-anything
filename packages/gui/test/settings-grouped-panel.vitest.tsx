@@ -59,6 +59,8 @@ const SETTINGS_VALUES = {
   rootThreshold: 8,
   worktreeSetup: [],
   restoreDrillRetention: 3,
+  locale: "zh-CN",
+  overviewWatchedActivityDays: 3,
 };
 const SNAPSHOT = {
   schema: "gui-catalog-snapshot/v1" as const,
@@ -233,6 +235,7 @@ describe("设置页按用途分组并逐项解释", () => {
       "任务工作区",
       "定时任务",
       "备份",
+      "呈现",
     ]);
     // 页面只有设置分组:没有只显示内部标识的「归属」区块。
     expect(container.textContent).not.toContain("settings/repository");
