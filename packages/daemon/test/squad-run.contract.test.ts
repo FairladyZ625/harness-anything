@@ -439,7 +439,8 @@ function canonicalFixture() {
     acceptedRevision: 42,
   };
   const rows = [run];
-  let resultRef: string | null = null,
+  let outcome: RuntimeSession["outcome"] = null,
+    resultRef: string | null = null,
     result = "Complete immutable result\n";
   const projection = {
     readCut: () => ({ status: "ready", watermark: 42, sourceRevision: 42 }),
@@ -455,7 +456,7 @@ function canonicalFixture() {
       ({
         runtimeSessionId: "runtime-leader",
         liveness: "live",
-        outcome: null,
+        outcome,
         resultRef,
         lastObservedAt: identity.acceptedAt,
       }) as RuntimeSession,
@@ -464,6 +465,9 @@ function canonicalFixture() {
   } as unknown as TaskProjection;
   return {
     rows,
+    setOutcome: (value: RuntimeSession["outcome"]) => {
+      outcome = value;
+    },
     reader: makeSquadCanonicalReader({
       projection,
       readResult: () => {
@@ -477,6 +481,22 @@ function canonicalFixture() {
     },
   };
 }
+
+// dec_614F7BBB18C8687E7EFC72173D/CH4: Squad reads keep the canonical stopped word.
+test("canonical Squad read preserves stopped attempts and rejects unknown status words", () => {
+  const fixture = canonicalFixture();
+  fixture.setOutcome("stopped");
+  const result = fixture.reader.read(summary.squadRunId);
+  assert.equal(result.run.leaderTurns[0]?.status, "stopped");
+  assert.deepEqual(validateSquadRunRead(result), []);
+  assert.notDeepEqual(
+    validateSquadRunRead({
+      ...result,
+      run: { ...result.run, leaderTurns: result.run.leaderTurns.map((turn) => ({ ...turn, status: "invented" })) },
+    }),
+    [],
+  );
+});
 
 test("canonical Squad read survives a filesystem trap and exposes frozen execution and accepted revisions", (t) => {
   const f = canonicalFixture();

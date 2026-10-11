@@ -5,6 +5,7 @@ import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harne
 import {
   serializeAgentRuntimeSessionGroups,
   validateAgentRuntimeSessionGroups,
+  validateAgentRuntimeOverview,
 } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeReadModel } from "../src/agent-runtime-read.ts";
 import {
@@ -240,6 +241,32 @@ test("session group results reject secret-bearing or identity-incoherent output"
     validateAgentRuntimeSessionGroups({
       ...result,
       groups: result.groups.map((group) => ({ ...group, taskId: "not-valid-for-squad" })),
+    }),
+    [],
+  );
+});
+
+// dec_614F7BBB18C8687E7EFC72173D/CH4: stopped must survive the actual read boundary.
+test("stopped session semantics pass overview contracts while unknown words remain invalid", () => {
+  const stopped = runtimeSession("runtime-stopped", "instance-a", "2026-10-11T00:00:00.000Z", "exited", "stopped", [
+      "task-a",
+    ]),
+    projection = {
+      ...projectionFixture(),
+      readRuntimeSessions: () => [stopped],
+      readRuntimeSessionsForTask: () => [stopped],
+      readRuntimeSessionEvents: () => [],
+      readRuntimeInstallation: () => null,
+      readRuntimeDispatch: () => null,
+      currentLease: () => null,
+    } as unknown as TaskProjection,
+    overview = makeAgentRuntimeReadModel({ projection, store: {} as never }).overview({ taskId: "task-a" });
+  assert.equal(overview.sessions[0]?.semanticState, "stopped");
+  assert.deepEqual(validateAgentRuntimeOverview(overview), []);
+  assert.notDeepEqual(
+    validateAgentRuntimeOverview({
+      ...overview,
+      sessions: overview.sessions.map((session) => ({ ...session, semanticState: "invented" })),
     }),
     [],
   );
