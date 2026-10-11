@@ -186,7 +186,7 @@ describe("view navigation history (HISTORY-002)", () => {
       getItem: (key: string) => storage.get(key) ?? null,
       setItem: (key: string, value: string) => void storage.set(key, value),
     };
-    // W0:Ctrl+` 压栈进入终端页;离开走 goBack 回上一视图,位置经 sessionStorage 复原。
+    // W0:Ctrl+` 压栈进入终端页;离开走 goBack 回上一视图,位置经 localStorage 复原。
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "terminal" }));
     writeViewHistory(shim, "proj-terminal", state);
@@ -295,7 +295,7 @@ describe("view navigation history (HISTORY-002)", () => {
 
   it("round-trips the overview in-page layers and rejects a stored layer key outside the closed set", () => {
     // 总览页内层(产物二级页/放大层)是后加的 AppLocation 字段:旧存储没有它们照样可读
-    // (缺省 = 层关着);带层条目经 sessionStorage 往返原样还原;键不在放大层枚举里按坏
+    // (缺省 = 层关着);带层条目经 localStorage 往返原样还原;键不在放大层枚举里按坏
     // 存储回退干净初始栈,不猜收敛。
     const storage = new Map<string, string>();
     const shim = {

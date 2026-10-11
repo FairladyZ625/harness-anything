@@ -14,19 +14,19 @@ export default {
     await bridgeReady(page);
     // Enter the review route using the existing persisted navigation state.
     await page.waitForFunction(() =>
-      Object.keys(globalThis.sessionStorage).some((key) => key.startsWith("harness-view-history")),
+      Object.keys(globalThis.localStorage).some((key) => key.startsWith("harness-view-history")),
     );
     await page.evaluate(() => {
-      const key = Object.keys(globalThis.sessionStorage).find(
+      const key = Object.keys(globalThis.localStorage).find(
         (key) => key.startsWith("harness-view-history") && key.includes("gui-e2e-catalog"),
       );
-      const value = JSON.parse(globalThis.sessionStorage.getItem(key));
+      const value = JSON.parse(globalThis.localStorage.getItem(key));
       const base = value.history.entries[value.history.index];
       value.history = {
         entries: [{ ...base, view: "decisionDetail", focusedEntityRef: "decisionreview/dec_gui_smoke/review" }],
         index: 0,
       };
-      globalThis.sessionStorage.setItem(key, JSON.stringify(value));
+      globalThis.localStorage.setItem(key, JSON.stringify(value));
     });
     await page.reload();
     await page.getByTestId("decision-review-tab").waitFor();
