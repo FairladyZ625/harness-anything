@@ -6,7 +6,6 @@ import {
 } from "@harness-anything/kernel";
 import type { TaskQueryCell } from "./repo-cell-task-query.ts";
 import { githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
-import { projectionReady } from "./repo-cell-settlement.ts";
 
 /** Select delivered leaves; completion itself retains authority over every gate and transition. */
 export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "projection" | "cellCodedError">) {
@@ -47,7 +46,7 @@ export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "
             execution,
             snapshot.reviewDispositions,
           ) !== undefined,
-        ci = githubActionsGateResult({ ...cell, projectionReady }, requirement, execution) ?? "missing";
+        ci = githubActionsGateResult(requirement, execution) ?? "missing";
       return [
         {
           taskId,

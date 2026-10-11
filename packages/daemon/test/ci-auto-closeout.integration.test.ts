@@ -45,7 +45,9 @@ test("merged approved cuts resume completion after red becomes green, without ma
       statePath = path.join(rootDir, "provider.json");
     mkdirSync(bin);
     process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+    let now = "2026-10-11T00:00:00.000Z";
     const center = await openBootstrappedRepoCell({
+      now: () => now,
       repoId: workspaceId(repoId),
       rootDir: canonicalRoot(rootDir),
       ownerId: "closeout",
@@ -138,7 +140,14 @@ else throw new Error('unexpected provider call '+args.join(' '));
         assert.equal(receipt.code, undefined, JSON.stringify(receipt));
         return receipt;
       };
+      now = "2026-10-11T02:00:00.000Z";
       await run(1, "success");
+      const initialSnapshot = JSON.parse(String((await center.run({ kind: "task-show", taskId }, binding)).evidence));
+      const initialRuns = initialSnapshot.executions[0].gateRuns;
+      assert.equal(initialRuns.length, 2);
+      assert.equal(initialRuns[0].state, "cancelled");
+      assert.equal(initialRuns[1].result, "pass");
+      assert.equal(initialSnapshot.gateWitnesses.length, 1);
       const newTask = await center.run({ kind: "task-create", taskId: "task-new", title: "New work" }, binding);
       applied(newTask);
       await realizeTaskPlanFixture(
@@ -158,6 +167,20 @@ else throw new Error('unexpected provider call '+args.join(' '));
       );
       await run(2, "failure");
       await run(2, "failure");
+      // Import now publishes the first pass. Only an owner rerun may replace it with red.
+      applied(
+        await center.run(
+          {
+            kind: "task-witness-rerun",
+            taskId,
+            executionId,
+            gateId: "ci",
+            runId: initialRuns[1].runId,
+            reason: "Owner requests the newly observed failing CI run.",
+          },
+          binding,
+        ),
+      );
       const beforeConsent = JSON.parse(String((await center.run({ kind: "task-show", taskId }, binding)).evidence)).task
         .status;
       assert.equal(beforeConsent, "in_review");

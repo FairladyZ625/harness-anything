@@ -14,7 +14,7 @@ import {
   type RunGh,
 } from "./ci-observation-actions.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
+import { githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { BuiltinExecutionResult } from "./schedule-builtin-executor.ts";
@@ -160,8 +160,7 @@ export async function reconcileCiOccurrence(input: {
           !localGitObjectRefStore.hasCommit(cell.rootDir, submission.commitSha)
         )
           continue;
-        if (githubActionsWitnessEvidence(cell as RepoCellOperationalContext, requirement, execution)?.result === "pass")
-          continue;
+        if (githubActionsGateResult(requirement, execution!) === "pass") continue;
         const result = await fetchCiRequest(cell, { kind: "ci-observe-pull", taskId }, gh);
         if ("failure" in result) {
           // Durable submissions are re-derived next occurrence after a transient provider failure.

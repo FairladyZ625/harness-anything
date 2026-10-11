@@ -14,6 +14,7 @@ import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
 import { ingestCiObservations, type RunGh } from "../src/ci-observation-actions.ts";
 import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { projectionReady } from "../src/repo-cell-settlement.ts";
+import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 
 const binding = withPolicyGroup(
   { actor: { principal: { personId: "priority-owner" }, executor: null }, source: "local" },
@@ -70,7 +71,7 @@ test("a submitted CI cut survives center reopen and is accepted before 60 pendin
       await center.close();
     }
     // A fresh projection has only the persisted submission, with no process-local request queue.
-    const store = makeTaskEventStore({ rootDir, repoId });
+    let store = makeTaskEventStore({ rootDir, repoId });
     let projection = makeTaskProjection({ rootDir, eventStore: store });
     const cell = {
       rootDir,
@@ -287,6 +288,70 @@ test("a submitted CI cut survives center reopen and is accepted before 60 pendin
           reopenedRun: evidence()?.provenance.runId,
         }),
       );
+      // CEO ruling ceo-ruling-2026-10-11.md for task_b05f8391070fc0d2d8e2bda6dd
+      // defines a recorded witness as a settled center publication. Observation alone must
+      // therefore walk the provider again before the center settlement below exists.
+      let observationOnlyFetches = 0;
+      const observationOnly = await reconcileCiOccurrence({
+        cell: cell as never,
+        schedule,
+        requests: () => [],
+        gh: async (_command, args) => {
+          const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
+          if (endpoint.includes("actions/runs?head_sha=")) {
+            observationOnlyFetches += 1;
+            return "[]";
+          }
+          if (endpoint.includes("actions/workflows/")) return JSON.stringify({ workflow_runs: [] });
+          return "[]";
+        },
+        accept: async (fetched) => ingestCiObservations(cell as never, binding, fetched),
+      });
+      assert.equal(observationOnly.outcome, "succeeded", observationOnly.detail);
+      assert.equal(observationOnlyFetches, 1, "an observation without settlement must fetch its witness again");
+
+      // Use the production center CI pull to claim and publish the already observed run.
+      // The fixture must not manufacture a settled gate-run storage shape directly.
+      projection.close();
+      const originalPath = process.env.PATH,
+        bin = path.join(rootDir, "bin");
+      mkdirSync(bin);
+      writeFileSync(
+        path.join(bin, "gh"),
+        `#!/usr/bin/env node
+const args = process.argv.slice(2);
+const endpoint = args.find((arg) => arg.startsWith("repos/")) ?? "";
+if (endpoint.includes("actions/runs?head_sha=")) process.stdout.write(JSON.stringify([{ databaseId: 900, path: ".github/workflows/rewrite-ci.yml", headBranch: "main", event: "push", status: "completed", conclusion: "success" }]));
+else if (endpoint.includes("/attempts/")) process.stdout.write(JSON.stringify({ name: "rewrite-ci", head_sha: ${JSON.stringify(delivery)}, head_branch: "main", event: "push", status: "completed", conclusion: "success", run_attempt: 1, path: ".github/workflows/rewrite-ci.yml", workflow_id: 1, repository: { full_name: "fixture/repository" } }));
+else if (endpoint.includes("actions/workflows/")) process.stdout.write(JSON.stringify({ workflow_runs: [] }));
+else process.stdout.write("[]");
+`,
+        { mode: 0o755 },
+      );
+      process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+      const settlementCenter = await openBootstrappedRepoCell({
+        repoId: workspaceId(repoId),
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "priority-settlement",
+      });
+      let settled: Awaited<ReturnType<typeof settlementCenter.run>>;
+      try {
+        await seedBuiltinSchedules({ cell: settlementCenter, binding });
+        settled = await settlementCenter.run({ kind: "ci-observe-pull", taskId }, binding);
+      } finally {
+        process.env.PATH = originalPath;
+        await settlementCenter.close();
+      }
+      assert.equal(settled.outcome, "applied", JSON.stringify(settled));
+      t.diagnostic(`center settlement receipt: ${JSON.stringify(settled)}`);
+      store = makeTaskEventStore({ rootDir, repoId });
+      projection = makeTaskProjection({ rootDir, eventStore: store });
+      cell.projection = projection;
+      cell.store = store;
+      const settledExecution = cell.projection
+        .read(taskId)
+        .snapshot.executions.find((entry) => entry.executionId === "priority-execution")!;
+      assert.equal(settledExecution.gateRuns.findLast((run) => run.gateId === "ci")?.state, "completed");
       // A later center occurrence derives no work for the already passing submission.
       let calls = 0;
       const second = await reconcileCiOccurrence({
