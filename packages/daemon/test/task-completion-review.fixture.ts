@@ -322,7 +322,11 @@ export async function fixture(
     await submit();
     if (options.autoForward !== false) assert.equal((await forward()).outcome, "applied");
   }
-  const events = () => makeTaskEventReader({ repoId, rootDir: root }).read().events;
+  // One reader serves every events() call for the fixture's life: a fresh connection per call
+  // both cost a SQLite open and left the handle for the GC (which blocks deleting the fixture
+  // tree on Windows). close() drains it before the tree goes away.
+  let eventsReader: ReturnType<typeof makeTaskEventReader> | null = null;
+  const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
     for (let attempt = 0; attempt < 500; attempt += 1) {
       const outcome = events().find(
@@ -579,6 +583,7 @@ export async function fixture(
     },
     close: async () => {
       await cell.close();
+      await eventsReader?.drain();
       rmSync(root, { recursive: true, force: true });
     },
   };
