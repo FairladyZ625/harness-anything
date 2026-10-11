@@ -53,6 +53,7 @@ const installation: RuntimeInstallationWitness = {
 test("attached task runtime settlement releases its execution lease before publishing the terminal outcome", async () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-attached-tail-"));
   let exit: ((code: number | null) => void) | null = null,
+    output: ((chunk: string, persisted?: boolean) => void) | null = null,
     failSettlement = false,
     launchedPrompt: string | undefined;
   try {
@@ -99,7 +100,9 @@ test("attached task runtime settlement releases its execution lease before publi
       },
       runtimeLaunch: () => ({
         pid: process.pid,
-        onOutput: () => undefined,
+        onOutput: (listener) => {
+          output = listener;
+        },
         onErrorOutput: () => undefined,
         onExit: (listener) => {
           exit = listener;
@@ -220,6 +223,9 @@ test("attached task runtime settlement releases its execution lease before publi
           event,
         });
       }
+      // Match the native observer: persisted provider output is delivered before exit.
+      assert.ok(output, "runtime output listener must be attached before provider output");
+      output(records.map((event) => `${JSON.stringify(event)}\n`).join(""), true);
       appendRuntimeWorkerRecord(root, String(receipt.dispatchId), {
         kind: "process_exit",
         occurredAt: "2026-08-24T12:00:01.000Z",
