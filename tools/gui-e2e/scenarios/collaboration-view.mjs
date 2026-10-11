@@ -209,6 +209,9 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
               submittedAt: null,
               closedAt: null,
               submission: null,
+              // Execution/v1 的必填集(9e8dc33ff1 起含 gateRuns):种子执行没有门运行,
+              // 显式给空数组,replay 校验不再按缺字段拒收。
+              gateRuns: [],
             },
             lease: {
               schema: "lease/v1",

@@ -2,20 +2,20 @@ import assert from "node:assert/strict";
 import { nav } from "./helpers.mjs";
 
 /**
- * #task_88003efc 总览产物速览架的落点(2026-10-07 三块区域返工):点一行 HTML 产物,
- * 原地弹产物详情层——层内直接渲染该 HTML 的隔离 webview 预览(不离开总览);层内
- * 「跳到所属 task」保留 #task_15b1bb96 的行为(任务详情直接停在文件页签并选中该产物)。
- * 产物文件由夹具 lanes.mjs 写进 task-gui-smoke 的包(顶层无子任务,不是工作根,落普通
- * 任务详情)。
+ * 总览产物速览架的落点(2026-10-11 业主意见 1):点一行 HTML 产物(或「查看全部产物」)
+ * 进产物二级页——接近全屏,左窄列表是全部产物行,右大预览直接渲染被点产物(或最新
+ * 一条)的隔离 webview;页内「跳到所属 task」保留 #task_15b1bb96 的行为(任务详情直接
+ * 停在文件页签并选中该产物)。产物文件由夹具 lanes.mjs 写进 task-gui-smoke 的包
+ * (顶层无子任务,不是工作根,落普通任务详情)。
  */
 export default {
   id: "overview-artifacts-shelf",
   feature: "overview",
   lane: "isolated",
   description:
-    "Clicking an overview shelf HTML row opens an in-place artifact detail layer rendering that HTML's isolated " +
-    "webview without leaving the overview; the layer's open-task action lands on the owning task detail directly " +
-    "at that artifact preview.",
+    "Clicking an overview shelf HTML row (or the open-all footer) opens the near-fullscreen artifacts page: " +
+    "a narrow list of every artifact beside a large preview rendering the clicked artifact's isolated webview, " +
+    "with the page's open-task action landing on the owning task detail directly at that artifact preview.",
   async run({ page, shot }) {
     await nav(page, /^(?:总览|Overview)$/u, "overview-view");
     const row = page.locator('[data-shelf-artifact="artifacts/preview-height.html"]');
@@ -23,15 +23,17 @@ export default {
     await shot("overview-shelf-before-click");
     // 行主点击面是包住内容列的内层 button(「在浏览器打开」动作在它右侧)。
     await row.getByRole("button").first().click();
-    const dialog = page.locator('[role="dialog"]');
+    const dialog = page.locator('[data-testid="overview-artifacts-page"]');
     await dialog.waitFor();
-    // 详情层右栏直接渲染被点产物的隔离预览:同一行 HTML,不离开总览。
+    // 二级页右栏直接渲染被点产物的隔离预览:同一行 HTML,左窄列表全部产物行可见。
     await dialog.locator('[data-testid="html-artifact-webview"]').waitFor();
     assert.equal(
       await dialog.getByTestId("html-artifact-webview").getAttribute("data-artifact-path"),
       "artifacts/preview-height.html",
-      "the clicked artifact must render in the detail layer",
+      "the clicked artifact must render in the secondary page's preview",
     );
+    const listRows = await dialog.locator('[data-testid="overview-artifacts-page-list"] [data-dense-row]').count();
+    assert.ok(listRows >= 1, "the narrow list must carry the artifact rows");
     await shot("overview-shelf-opens-html");
 
     // 「跳到所属 task」(#task_15b1bb96 落点):任务详情停在文件页签并选中该产物文档。

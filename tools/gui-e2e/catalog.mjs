@@ -36,6 +36,7 @@ import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
+import overviewSplitBoard from "./scenarios/overview-split-board.mjs";
 import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-default.mjs";
 import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
@@ -81,6 +82,7 @@ export const catalog = [
   overviewWipRegion,
   overviewAttentionFocus,
   overviewArtifactsShelf,
+  overviewSplitBoard,
   taskDetailExplainerDefault,
   tokenUsageCosts,
   graphSpotlightCards,
