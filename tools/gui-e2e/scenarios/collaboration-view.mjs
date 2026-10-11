@@ -199,7 +199,6 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
             task,
             execution: {
               schema: "execution/v1",
-              gateRuns: [],
               executionId,
               taskId: lease.taskId,
               nodeId: "implementation",

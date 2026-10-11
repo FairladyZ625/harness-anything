@@ -126,7 +126,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
         method: "repo.schedule.run",
         action: {},
       },
-      readAccessToken: owners.readAccessToken(nodeId),
+      readBinding: () => owners!.binding(nodeId),
       daemonGeneration: 1,
       daemonRoute: {
         userRoot: path.join(root, "edge-user"),
