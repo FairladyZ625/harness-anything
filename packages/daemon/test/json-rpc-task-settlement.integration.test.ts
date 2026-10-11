@@ -957,26 +957,7 @@ test(
       // the independent collector from observing again: the newest attempt is the contract's verdict.
       writeFileSync(path.join(ghBin, "rerun"), "");
       await cell.run({ kind: "ci-observe-pull", taskId }, repoWriteBinding);
-      const unchanged = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-      assert.equal(unchanged.code, "ci_missing", "terminal fail cannot be replaced by an observation");
-      const failedRun = (
-        JSON.parse(String(shown.evidence)) as { executions: { gateRuns: { gateId: string; runId: string }[] }[] }
-      ).executions[0]!.gateRuns.findLast((run) => run.gateId === "ci")!;
-      const restarted = await cell.run(
-        {
-          kind: "task-witness-rerun",
-          taskId,
-          executionId,
-          gateId: "ci",
-          runId: failedRun.runId,
-          reason: "Owner requests the independently collected second attempt",
-        },
-        withPolicyGroup(
-          { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
-          "admin",
-        ),
-      );
-      assert.equal(restarted.outcome, "applied", JSON.stringify(restarted));
+      // The center adopts the newer attempt without an owner-issued rerun action.
       const rerun = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
       assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
       assert.equal(
