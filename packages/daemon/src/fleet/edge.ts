@@ -795,15 +795,9 @@ export async function runFleetReplicaPullClient(
       return await pullReplica(options);
     } catch (error) {
       recordReplicaHealth(viewDir, { syncFailure: replicaFailure(error, "replica_pull_failed") });
-      if (
-        error instanceof FleetRemoteError &&
-        [
-          "authorization_denied",
-          "authentication_required",
-          "human_confirmation_required",
-          "node_owner_unregistered",
-        ].includes(error.code)
-      )
+      // Device session failures reject this request; they do not revoke the owner's admitted cut.
+      // The daemon checks device login on each local read, independently of repository revocation.
+      if (error instanceof FleetRemoteError && ["authorization_denied", "node_owner_unregistered"].includes(error.code))
         recordNodeReadDenied(options.viewRoot, options.repoId, options.nodeId);
       throw error;
     }
