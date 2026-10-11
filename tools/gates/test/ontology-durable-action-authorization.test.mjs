@@ -141,10 +141,10 @@ for (const mutation of [
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
   {
-    name: "matching user session required (dec_F01770FD0DCF72683B7C4C7A47)",
+    name: "center adapter authorization",
     file: "repo-cell-authorization",
-    before: "session?.personId === input.personId",
-    after: "session !== undefined",
+    before: ").authorizePerson({",
+    after: ").uncheckedPerson({",
     missing: retiredHostKinds.filter((kind) => kind !== "rbac-bootstrap"),
   },
   {

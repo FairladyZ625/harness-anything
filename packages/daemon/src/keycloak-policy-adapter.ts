@@ -559,6 +559,51 @@ export class KeycloakPolicyAdapter {
     return Object.freeze({ outcome: "denied", reasonCode: "keycloak_denied", resource, scope: input.action });
   }
 
+  /** Evaluate the authenticated person against the center realm's current grants. */
+  async authorizePerson(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly resource: AuthorizationResource;
+  }): Promise<KeycloakPermissionDecision> {
+    const resource = encodeAuthorizationResource(input.resource),
+      denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
+        Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
+    if (!this.#knownScopes.has(input.action)) return denied("unknown_scope");
+    const userId = await this.findUserId(input.adminAccessToken, input.personId);
+    if (!userId) return denied("keycloak_denied");
+    const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
+    for (const candidate of coveringResources(input.resource)) {
+      const found = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
+          input.adminAccessToken,
+          `${server}/resource?name=${encodeURIComponent(candidate)}&exactName=true`,
+        ),
+        resourceId = found.find((item) => item.name === candidate)?._id;
+      // A resource nobody was ever granted on has no permission to evaluate.
+      if (!resourceId) continue;
+      const evaluation = (await (
+        await this.#request(input.adminAccessToken, `${server}/policy/evaluate`, {
+          method: "POST",
+          body: JSON.stringify({
+            userId,
+            roleIds: [],
+            entitlements: false,
+            context: { attributes: {} },
+            resources: [{ _id: resourceId, scopes: [{ name: input.action }] }],
+          }),
+        })
+      ).json()) as { readonly status?: unknown; readonly results?: readonly { readonly status?: unknown }[] };
+      if (
+        evaluation.status === "PERMIT" &&
+        Array.isArray(evaluation.results) &&
+        evaluation.results.length > 0 &&
+        evaluation.results.every((result) => result.status === "PERMIT")
+      )
+        return Object.freeze({ outcome: "allowed", reasonCode: "keycloak_allowed", resource, scope: input.action });
+    }
+    return denied("keycloak_denied");
+  }
+
   async #nodeClient(token: string, nodeId: string): Promise<NodeClient | undefined> {
     const clientId = `${nodeClientPrefix}${nodeId}`,
       clients = await this.#json<readonly NodeClient[]>(token, `/clients?clientId=${encodeURIComponent(clientId)}`);

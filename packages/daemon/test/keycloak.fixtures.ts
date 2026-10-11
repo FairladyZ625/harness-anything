@@ -225,6 +225,15 @@ export function fakeKeycloak() {
       nodeClient.attributes = { ...nodeClient.attributes, ...(body!.attributes as Record<string, string>) };
       return new Response(null, { status: 204 });
     }
+    if (route === `${server}/policy/evaluate`) {
+      const request = body as { userId: string; resources: { _id: string; scopes: { name: string }[] }[] },
+        results = request.resources.map((resource) => ({
+          status: resource.scopes.every((scope) => permits(request.userId, resource._id, scope.name))
+            ? "PERMIT"
+            : "DENY",
+        }));
+      return json({ status: results.every((result) => result.status === "PERMIT") ? "PERMIT" : "DENY", results });
+    }
     if (route === "/users/profile") {
       if (method === "PUT") profile.attributes = (body as typeof profile).attributes;
       return json(profile);

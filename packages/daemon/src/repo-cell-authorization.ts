@@ -97,17 +97,27 @@ export async function evaluateKeycloakPerson(input: {
   readonly resource: AuthorizationResource;
   readonly fetchPort?: typeof fetch;
 }): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
-  const { session } = input.credential;
-  if (session?.personId === input.personId)
-    return new KeycloakPolicyAdapter(
-      { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
-      input.fetchPort,
-    ).authorize({
-      userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
-      action: input.action,
-      resource: input.resource,
-    });
-  return { outcome: "denied", reasonCode: "keycloak_denied" };
+  const { session, center } = input.credential;
+  if (session?.personId !== input.personId) return { outcome: "denied", reasonCode: "keycloak_denied" };
+  const decision = await new KeycloakPolicyAdapter(
+    { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
+    input.fetchPort,
+  ).authorize({
+    userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+    action: input.action,
+    resource: input.resource,
+  });
+  if (decision.outcome === "denied" || !center) return decision;
+  const currentCenter = await center();
+  return new KeycloakPolicyAdapter(
+    { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
+    input.fetchPort,
+  ).authorizePerson({
+    adminAccessToken: currentCenter.accessToken,
+    personId: input.personId,
+    action: input.action,
+    resource: input.resource,
+  });
 }
 
 export function authorizeRepoCellAction(input: {

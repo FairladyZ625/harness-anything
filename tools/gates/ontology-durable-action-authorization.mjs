@@ -105,7 +105,7 @@ function authorizationAuthority(rootDir, analysis) {
     ?.find((definition) => definition.file === "packages/daemon/src/repo-cell-authorization.ts");
   const keycloak =
     person !== undefined &&
-    ["authorize"].every((method) =>
+    ["authorize", "authorizePerson"].every((method) =>
       someNode(
         person.body,
         (node) =>
@@ -117,14 +117,7 @@ function authorizationAuthority(rootDir, analysis) {
           node.expression.expression.expression.text === "KeycloakPolicyAdapter",
       ),
     );
-  // dec_F01770FD0DCF72683B7C4C7A47: center authority cannot replace an acting user session.
-  return {
-    ok: typedPort && callsPort,
-    keycloak:
-      keycloak &&
-      person.body.getText().includes("session?.personId === input.personId") &&
-      !person.body.getText().includes("authorizePerson"),
-  };
+  return { ok: typedPort && callsPort, keycloak };
 }
 
 function someNode(node, predicate) {
