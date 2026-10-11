@@ -231,8 +231,9 @@ function isTestOrFixturePath(rel) {
 
 // Repository setup in tests is intentionally funneled through the daemon fixture. These
 // exceptions are the small set of tests that exercise the product registration/open boundary
-// itself or need an unprojected/remote lifecycle; the classification is documented in the task
-// package and kept explicit so a new direct import fails closed.
+// itself or need an unprojected/remote lifecycle that the fixture's settings bootstrap changes;
+// the classification is documented in the task package and kept explicit so a new direct import
+// fails closed.
 const repoFixtureBoundaryExceptions = new Set([
   "packages/kernel/test/store/daemon-registry.test.ts",
   "packages/daemon/test/repo-settings.fixture.ts",
@@ -252,6 +253,7 @@ const repoFixtureBoundaryExceptions = new Set([
   "packages/daemon/test/schedule-fleet-agent-claim.integration.test.ts",
   "packages/daemon/test/worker-catalog-reads.integration.test.ts",
   "packages/daemon/test/worker-catalog-reads.integration.test.ts",
+  "packages/daemon/test/fleet-write-wait-budget.integration.test.ts",
 ]);
 
 function hasDirectRepoFixtureImport(text) {
