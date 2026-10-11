@@ -350,7 +350,9 @@ async function runLiveRuntimeRestart(root) {
       "Owner",
     ]);
     const inventory = runCli(fixture.repoRoot, env, ["runtime", "instance", "list"]),
-      installation = inventory.installations.find((row) => row.kindId === "codex");
+      installation = inventory.installations.find(
+        (row) => row.kindId === "codex" && row.version === "codex 0.0.0-stress-s3",
+      );
     assert.ok(installation, JSON.stringify(inventory));
     runCli(fixture.repoRoot, env, [
       "runtime",
@@ -362,12 +364,20 @@ async function runLiveRuntimeRestart(root) {
       "Stress Runtime",
       "--kind",
       "codex",
+      "--installation",
+      installation.installationId,
       "--provider",
       "openai",
       "--model",
       "stress-model",
       "--auth",
       "subscription",
+    ]);
+    runCli(fixture.repoRoot, { ...env, HARNESS_ACTOR: undefined }, [
+      "settings",
+      "update",
+      "--runtime-allowed-instance",
+      "stress-runtime",
     ]);
     const spawned = runCli(fixture.repoRoot, env, [
         "runtime",

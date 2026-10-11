@@ -1,0 +1,10 @@
+{
+  "host": "cjsz-tencent-server",
+  "user": "harness-test",
+  "root": "/srv/harness-tests",
+  "capacity": 3,
+  "cpus": 4,
+  "memoryGiB": 8,
+  "image": "harness-ci:node24",
+  "dependencyCacheVolume": "harness-test-dependencies"
+}

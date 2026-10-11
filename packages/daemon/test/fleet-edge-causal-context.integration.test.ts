@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -200,8 +201,10 @@ test(
     });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
-    await edgeHost.runtimeInstance(
-      "daemon.runtimeInstance.create",
+    await registerFixtureRuntimeInstance(
+      edgeHost,
+      fixture.subject.repoId,
+      localAuth,
       {
         instanceId: runtimeDefinition.instanceId,
         name: "Causal Edge Codex",
@@ -212,7 +215,7 @@ test(
         codex: { reasoningEffort: runtimeDefinition.reasoningEffort },
         authMode: runtimeDefinition.authMode,
       },
-      localAuth,
+      { allowHost: fixture.host },
     );
     // Line-anchored: the lookup guidance names the tag mid-sentence, so only an
     // element that starts its own line is the injected block.

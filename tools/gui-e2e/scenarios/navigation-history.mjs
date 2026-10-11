@@ -74,6 +74,26 @@ export default {
     // ② 鼠标侧键:详情 → 再退一步回预览抽屉(原路返回的完整链)。
     await sideBack();
     await page.locator("aside[role=dialog]").waitFor({ state: "visible" });
+
+    // ——— F-9280B707:抽屉开着时顶栏前进/后退恰好一步 ———
+    // 修前:非模态抽屉的「点外部关闭」挂在 window mousedown,顶栏按钮按下瞬间先
+    // onClose→back() 弹一次栈,click 里按钮自己的前进/后退再动一次——前进净位移
+    // 为零(页面停在抽屉),后退两步。侧键同族:App 级 button 3/4 监听与外压在
+    // 同一次按下各弹一次。
+    await history.getByRole("button", { name: /(?:前进|Forward)/u }).click();
+    await page.getByTestId("task-detail-view").waitFor();
+    await shot("navigation-history-bar-forward-from-drawer");
+    // 先回抽屉,再在抽屉开着时点顶栏后退:恰好一步回看板。
+    await history.getByRole("button", { name: /(?:后退|Back)/u }).click();
+    await page.locator("aside[role=dialog]").waitFor({ state: "visible" });
+    await history.getByRole("button", { name: /(?:后退|Back)/u }).click();
+    await page.getByTestId("board-task-card").first().waitFor();
+    await page.locator("aside[role=dialog]").waitFor({ state: "hidden" });
+    await shot("navigation-history-bar-back-from-drawer");
+    // 前进回到抽屉条目,把位置还原给 ③ 的 app-command 路径。
+    await history.getByRole("button", { name: /(?:前进|Forward)/u }).click();
+    await page.locator("aside[role=dialog]").waitFor({ state: "visible" });
+
     // ③ 主进程 app-command:抽屉 → 后退回看板;前进两次原路回到任务详情。
     await emitAppCommand(app, "browser-backward");
     await page.locator("aside[role=dialog]").waitFor({ state: "hidden" });

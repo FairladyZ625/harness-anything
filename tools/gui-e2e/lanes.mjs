@@ -106,7 +106,7 @@ function writeDeclaredEntitySource(rootDir) {
   );
 }
 
-export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver }) {
+export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver, runtimeInstance }) {
   if (lane === "canonical") {
     await warmDaemonProjection({ rootDir: workspaceRoot, workspaceRoot, env });
     const endpoint = resolveLocalDaemonEndpoint({
@@ -137,42 +137,58 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   let fixture;
   let sessionTaskPackages;
   try {
-    fixture = await startGuiResidentDaemonFixture({
-      prefix: "hg-",
-      daemonId: "g",
-      repoId: "gui-e2e-catalog",
-      task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
-      // 协作种子的指派目标账号(assign RPC 会在目录里核人,不登记则 person_not_found)。
-      keycloakSetup: (keycloak) => {
-        keycloak.account("person-ada");
-        keycloak.account("person-bo");
-        // project-switch-restore 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
-        keycloak.permit("person-gui", "gui-e2e-restore", effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
-      },
-      afterRestart: seedTriadicReviewAwait,
-      // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
-      // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
-      beforeStop: async (endpoint, repoId) => {
-        sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
-        await seedGuiE2eCollaborationTasks(endpoint, repoId);
-      },
-      beforeRestart: async (rootDir, repoId, writerFence) => {
-        await seedTriadicEvents(rootDir, repoId, writerFence);
-        await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
-        await seedSupersedeChain(rootDir, repoId, writerFence);
-        await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
-        await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
-      },
-    });
+    // Provider scenarios need a machine catalog, not synthetic task executions.
+    fixture = await startGuiResidentDaemonFixture(
+      runtimeInstance
+        ? {
+            prefix: "hg-",
+            daemonId: "g",
+            repoId: "gui-e2e-catalog",
+            runtimeInstance,
+          }
+        : {
+            prefix: "hg-",
+            daemonId: "g",
+            repoId: "gui-e2e-catalog",
+            task: { taskId: "task-gui-smoke", title: "Render the real triadic projection" },
+            // 协作种子的指派目标账号(assign RPC 会在目录里核人,不登记则 person_not_found)。
+            keycloakSetup: (keycloak) => {
+              keycloak.account("person-ada");
+              keycloak.account("person-bo");
+              // project-switch-restore 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
+              keycloak.permit(
+                "person-gui",
+                "gui-e2e-restore",
+                effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+              );
+            },
+            afterRestart: seedTriadicReviewAwait,
+            // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
+            // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
+            beforeStop: async (endpoint, repoId) => {
+              sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
+              await seedGuiE2eCollaborationTasks(endpoint, repoId);
+            },
+            beforeRestart: async (rootDir, repoId, writerFence) => {
+              await seedTriadicEvents(rootDir, repoId, writerFence);
+              await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
+              await seedSupersedeChain(rootDir, repoId, writerFence);
+              await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
+              await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
+            },
+          },
+    );
   } finally {
     if (originalTmpdir === undefined) delete process.env.TMPDIR;
     else process.env.TMPDIR = originalTmpdir;
   }
-  writeTriadicLedger(fixture.rootDir);
-  writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
-  writeRawArtifact(fixture.rootDir, fixture.packagePath);
-  writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
-  writeDeclaredEntitySource(fixture.rootDir);
+  if (!runtimeInstance) {
+    writeTriadicLedger(fixture.rootDir);
+    writeHtmlPreviewArtifact(fixture.rootDir, fixture.packagePath);
+    writeRawArtifact(fixture.rootDir, fixture.packagePath);
+    writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
+    writeDeclaredEntitySource(fixture.rootDir);
+  }
   // Electron 应用面对的是夹具 daemon。外层运行时注入的任务执行凭据不需要在这里剥:
   // GUI 主进程启动时已丢弃它(electron-main.ts),应用永远以本机会话连 daemon。
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };

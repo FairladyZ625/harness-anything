@@ -43,7 +43,7 @@ test(
         calibration: { requestedArms: 5, completedArms: result.cases.length, deterministicRedControls: 5 },
         cases: result.cases,
         replayCommand:
-          "node tools/dispatch-isolated-test.mjs --target ubuntu " +
+          "node tools/dispatch-isolated-test.mjs --target server " +
           "--file tools/stress/fleet-upload.integration.test.mjs",
         residualRisks: [
           "The protocol has no explicit upload-abort frame; the abort arm covers transport loss after a durable prefix.",

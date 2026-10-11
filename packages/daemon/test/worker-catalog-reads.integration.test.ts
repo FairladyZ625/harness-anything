@@ -12,9 +12,9 @@ import {
   makeTaskProjection,
 } from "@harness-anything/kernel";
 import { openRepoCell } from "../src/repo-cell-open.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
@@ -113,6 +113,17 @@ test(
       },
     });
     assert.equal(instance.ok, true, JSON.stringify(instance));
+    const settings = await run({ kind: "settings-read" });
+    assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+    const projectUse = await run({
+      kind: "settings-update",
+      runtimeAllowedInstances: [
+        ...((settings.settings as { runtime?: { allowedInstances?: string[] } }).runtime?.allowedInstances ?? []),
+        "codex-worker",
+      ],
+      expectedVersion: settings.entityRevision,
+    });
+    assert.equal(projectUse.outcome, "applied", JSON.stringify(projectUse));
     const taskId = "task-reads";
     await createRealizedTaskPlanFixture(
       root,

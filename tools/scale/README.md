@@ -63,19 +63,17 @@ comparisons and trend/extrapolation, not cross-host SLO claims.
 ## CLI and entity scale bench
 
 `cli-entity-bench.mjs` measures data correctness and latency for every `ha` CLI command and every
-entity read/write path on a real daemon at a declared Task count. It runs in the local Docker test
-image (`plt-center-testbed/source:latest`) in a fresh `harness-test-isolation-*` container:
+entity read/write path on a real daemon at a declared Task count. Run it only inside an
+owner-prepared remote test environment with a dedicated user root. The local Docker
+launcher has been removed; this benchmark is not a file/tier selector for the dispatcher.
 
 ```sh
-node tools/scale/cli-entity-bench.mjs --docker --tasks 1000 --out <dir>
-node tools/scale/cli-entity-bench.mjs --docker --tasks 10000 --out <dir>
-node tools/scale/cli-entity-bench.mjs --matrix                  # coverage matrix, no daemon
-node tools/scale/cli-entity-bench.mjs --compare a.json,b.json   # p50 ratio per metric
+node tools/scale/cli-entity-bench.mjs --tasks 1000 --out <dir> # inside the remote environment
+node tools/scale/cli-entity-bench.mjs --matrix               # coverage matrix, no daemon
+node tools/scale/cli-entity-bench.mjs --compare a.json,b.json # p50 ratio per metric
 ```
 
-`--docker` copies the working tree into the container, runs `npm ci` and the hermetic preflight,
-runs the bench against a fixture daemon under a per-run user root, and copies
-`bench-results-<sha>-<tasks>.{json,md}` plus `host-load.json` back to `--out`. Other options:
+Other options:
 `--samples` (CLI samples per command, default 5), `--clients` (concurrent clients, default 8),
 `--populate-budget-s` (stop issuing population writes after this many seconds and measure at the
 reached counts, which the results record).

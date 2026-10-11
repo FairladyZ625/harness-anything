@@ -25,7 +25,11 @@ for (const route of ["agent", "schedule"] as const) {
         second = { ...definition, instanceId: "claude-second", kindId: "claude" as const, model: "GLM-5.3" },
         attempted: string[] = [],
         launched: string[] = [];
-      initHarnessRepo(root, "prelaunch-selection");
+      initHarnessRepo(
+        root,
+        "prelaunch-selection",
+        [first, second].map(({ instanceId }) => ({ instanceId, enabled: true })),
+      );
       const ports = scheduleRuntimePorts(),
         cell = await openRepoCell({
           repoId: workspaceId("prelaunch-selection"),
