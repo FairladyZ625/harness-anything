@@ -75,9 +75,13 @@ export interface LedgerMaintenanceReceipt {
 export function configureLedgerMaintenance(repoRoot: string): LedgerMaintenanceReceipt {
   const version = readGitVersion(repoRoot),
     applied: string[] = [],
-    degraded: string[] = [];
+    degraded: string[] = [],
+    // One `--list --local` answers every pin check; a per-key `--get` spent a git process each,
+    // paid again by every repo attach.
+    pinned = readLocalGitConfig(repoRoot);
   const pin = (key: string, value: string): void => {
-    if (readGitConfig(repoRoot, key) === value) return;
+    // Git variable names are case-insensitive, and `config --list` lowercases them on Git < 2.45.
+    if (pinned.get(key.toLowerCase()) === value) return;
     runGit(repoRoot, "config", key, value);
     applied.push(`${key}=${value}`);
   };
@@ -153,8 +157,22 @@ function readGitVersion(repoRoot: string): { readonly text: string; readonly par
   if (!match) return null;
   return { text: match[0], parts: [Number(match[1]), Number(match[2]), Number(match[3] ?? 0)] };
 }
-function readGitConfig(repoRoot: string, key: string): string | null {
-  return readGitText(repoRoot, ["config", "--get", key]);
+/** The repository-local scope only: what the pins themselves write, so a pinned key reads back
+ * pinned regardless of wider scopes. An unreadable local scope reads as empty (readGitText null),
+ * which only re-runs the writes that establish the pins. */
+function readLocalGitConfig(repoRoot: string): Map<string, string> {
+  const values = new Map<string, string>();
+  const raw = readGitText(repoRoot, ["config", "--list", "--local", "--null"]);
+  if (raw === null) return values;
+  for (const entry of raw.split("\0")) {
+    if (!entry) continue;
+    const separator = entry.indexOf("\n");
+    values.set(
+      (separator === -1 ? entry : entry.slice(0, separator)).toLowerCase(),
+      separator === -1 ? "" : entry.slice(separator + 1),
+    );
+  }
+  return values;
 }
 function readGitText(repoRoot: string, args: readonly string[]): string | null {
   try {
