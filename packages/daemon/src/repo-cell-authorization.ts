@@ -582,14 +582,23 @@ export function bindVerifiedExecutorClaim(input: {
     );
   }
   const lease = input.projection.currentLease(taskBinding.taskId, input.now),
+    submittedPush =
+      action.kind === "task-push" &&
+      lease === null &&
+      input.projection
+        .read(taskBinding.taskId)
+        .snapshot.executions.some(
+          (execution) => execution.executionId === taskBinding.executionId && execution.submission !== null,
+        ),
     // Acquiring a lease is a lifecycle transition, not a write under a released lease.
     reacquiring = action.kind === "task-start" || action.kind === "task-contract-migrate";
   if (
-    lease === null ||
-    (lease.phase !== "held" && !(reacquiring && (lease.phase === "released" || lease.phase === "orphaned"))) ||
-    (executionId !== null && executionId !== lease.executionId && action.kind !== "task-start") ||
-    !isSameExecution(lease.actor, runtimeActor) ||
-    stableStringify(lease.source) !== stableStringify(input.binding.source)
+    !submittedPush &&
+    (!lease ||
+      (lease.phase !== "held" && !(reacquiring && (lease.phase === "released" || lease.phase === "orphaned"))) ||
+      (executionId !== null && executionId !== lease.executionId && action.kind !== "task-start") ||
+      !isSameExecution(lease.actor, runtimeActor) ||
+      stableStringify(lease.source) !== stableStringify(input.binding.source))
   )
     throw invalidExecutorBindingFor(
       input,

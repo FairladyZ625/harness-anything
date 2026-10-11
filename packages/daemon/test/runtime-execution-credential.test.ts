@@ -16,6 +16,7 @@ import {
   requireExecutionActionScope,
 } from "../src/runtime-execution-scope.ts";
 import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
+import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const center = {
@@ -153,6 +154,45 @@ test("the writer rejects expired credentials, stopped or superseded dispatches, 
     () => requireCurrentExecutionScope({ ...input, now: new Date(Date.parse(p.expiresAt) + 1).toISOString() }),
     { code: "execution_credential_rejected" },
   );
+});
+
+test("a live worker may push its submitted task after submission releases the lease", () => {
+  const p = principal();
+  let liveness = "live";
+  const actor = {
+      principal: { personId: p.personId },
+      executor: { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
+    },
+    action = {
+      kind: "task-push",
+      taskId: p.taskId,
+      executor: actor.executor,
+    },
+    projection = {
+      read: () => ({
+        snapshot: { executions: [{ executionId: p.executionId, submission: { commitSha: "a".repeat(40) } }] },
+      }),
+      readRuntimeSession: () => ({
+        liveness,
+        outcome: null,
+        taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+      }),
+      readRuntimeDispatch: () => ({ actor, source: "local", payload: { dispatchId: p.dispatchId } }),
+      currentLease: () => null,
+    } as never,
+    input = {
+      action,
+      binding: { executionPrincipal: p, actor, source: "local" as const },
+      projection,
+      now: new Date().toISOString(),
+    };
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  assert.doesNotThrow(() => bindVerifiedExecutorClaim(input));
+  liveness = "exited";
+  assert.throws(() => bindVerifiedExecutorClaim(input), { code: "execution_credential_rejected" });
+  assert.throws(() => bindVerifiedExecutorClaim({ ...input, action: { ...action, taskId: "task-other" } }), {
+    code: "execution_credential_rejected",
+  });
 });
 
 test("queued node executions recheck current Keycloak node ownership", async () => {
