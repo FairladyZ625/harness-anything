@@ -1,4 +1,5 @@
 import { PROJECT_DIRECTORY_CHANNEL, type ProjectDirectoryApi } from "../api/project-directory-contract.ts";
+import { APP_COMMAND_CHANNEL, type AppCommandApi, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import {
   HARNESS_PRELOAD_API,
@@ -131,6 +132,14 @@ const exposedHarnessApi = {
   projects: {
     openDirectory: (input) => invoke(PROJECT_DIRECTORY_CHANNEL, input),
   } satisfies ProjectDirectoryApi,
+  // 鼠标侧键后退/前进:主进程 app-command 的只读订阅(见 api/app-command-contract.ts)。
+  appCommand: {
+    onNavigationCommand: (listener: (command: AppNavigationCommand) => void) => {
+      const subscription = (_event: Electron.IpcRendererEvent, command: AppNavigationCommand) => listener(command);
+      ipcRenderer.on(APP_COMMAND_CHANNEL, subscription);
+      return () => ipcRenderer.removeListener(APP_COMMAND_CHANNEL, subscription);
+    },
+  } satisfies AppCommandApi,
   // 账号与访问控制页:策略组、授权与回执,见 preload/access-admin-preload.ts。
   access: accessAdminPreloadApi(invoke),
   capabilities: preloadApiCapabilities,

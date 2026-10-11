@@ -68,12 +68,14 @@ export function useEntityNavigation({
   const openTaskDetail = useCallback((id: string) => navigateLocalEntity(`task/${id}`), [navigateLocalEntity]);
 
   // 预览抽屉是任务详情的轻量版;工作根没有单独的任务详情,直接进工作页。
+  // 抽屉与详情同一条推栈路径:开着抽屉按后退/侧键即回到列表(业主 2026-10-11
+  // 「有的页面能退能进,有的不能」的其中一类——原地改不占历史条目,后退失灵)。
   const openTaskPreview = useCallback(
     (id: string) => {
       if (isWorkRoot(id)) openTaskDetail(id);
-      else updateLocation({ selectedId: null, previewId: id });
+      else navigate({ selectedId: null, previewId: id });
     },
-    [isWorkRoot, openTaskDetail, updateLocation],
+    [isWorkRoot, navigate, openTaskDetail],
   );
 
   // 显式开某个已知工作的工作页:任务详情的「属于工作」。
