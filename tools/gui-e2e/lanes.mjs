@@ -13,6 +13,7 @@ import {
   daemonGuiInvokeFacets,
 } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { startGuiResidentDaemonFixture } from "../../packages/gui/test-support/resident-daemon.mjs";
+import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import {
   seedSupersedeChain,
   seedTriadicEvents,
@@ -145,6 +146,8 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
       keycloakSetup: (keycloak) => {
         keycloak.account("person-ada");
         keycloak.account("person-bo");
+        // project-switch-restore 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
+        keycloak.permit("person-gui", "gui-e2e-restore", effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
       },
       afterRestart: seedTriadicReviewAwait,
       // 层次 fixture 的任务实体要在 daemon 停机前经 repo.task.create 落进投影;
