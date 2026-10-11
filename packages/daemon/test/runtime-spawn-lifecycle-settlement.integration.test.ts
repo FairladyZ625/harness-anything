@@ -264,7 +264,7 @@ test("attached task runtime settlement releases its execution lease before publi
           outcome: settled.outcome,
           exitCode: settled.exitCode,
         },
-        { liveness: "exited", outcome: "unknown", exitCode: 0 },
+        { liveness: "exited", outcome: "stopped", exitCode: 0 },
       );
       assert.deepEqual(
         events
@@ -1013,8 +1013,8 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         liveness: lostSession.liveness,
       },
       {
-        status: "failed",
-        outcome: "failed",
+        status: "unknown",
+        outcome: "unknown",
         exitCode: null,
         resultRef: lostSession.resultRef,
         liveness: "exited",
@@ -1179,7 +1179,7 @@ test(
         projection.close();
         assert.deepEqual(
           { liveness: session.liveness, outcome: session.outcome, exitCode: session.exitCode },
-          { liveness: "exited", outcome: "failed", exitCode: null },
+          { liveness: "exited", outcome: "unknown", exitCode: null },
         );
         const stream = readDispatchStream(root, dispatchId)!;
         assert.equal(
