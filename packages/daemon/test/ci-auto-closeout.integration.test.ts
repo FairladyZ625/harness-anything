@@ -166,6 +166,7 @@ else throw new Error('unexpected provider call '+args.join(' '));
           full.rejectionExplanation!.indexOf("TASK_WIP_LIMIT_REACHED"),
       );
       await run(2, "failure");
+      await run(2, "failure");
       // Import now publishes the first pass. Only an owner rerun may replace it with red.
       applied(
         await center.run(
@@ -180,7 +181,6 @@ else throw new Error('unexpected provider call '+args.join(' '));
           binding,
         ),
       );
-      await run(2, "failure");
       const beforeConsent = JSON.parse(String((await center.run({ kind: "task-show", taskId }, binding)).evidence)).task
         .status;
       assert.equal(beforeConsent, "in_review");
