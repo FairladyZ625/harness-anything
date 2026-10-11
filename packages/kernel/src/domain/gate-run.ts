@@ -76,6 +76,7 @@ export function claimGateRun(input: {
   readonly occurredAt: string;
   readonly expiresAt: string;
   readonly rerun?: { readonly runId: string; readonly reason: string };
+  readonly reuseCurrent?: boolean;
 }): GateRun {
   const { execution, requirement } = input;
   if (requirement.witness.kind === "historical" || execution.submission?.completionContract.historicalAcceptance)
@@ -89,7 +90,11 @@ export function claimGateRun(input: {
   if (!timestamp(input.expiresAt) || Date.parse(input.expiresAt) <= Date.parse(input.occurredAt))
     throw gateRunError("gate_run_stale", "A claim must expire after its acceptance time.");
   const previous = currentGateRun(execution, requirement.gateId);
-  if (previous && (!input.rerun || input.rerun.runId !== previous.runId || !input.rerun.reason.trim()))
+  if (previous && !input.rerun && !expiredGithubActionsClaim(requirement, previous, input.occurredAt)) {
+    if (input.reuseCurrent) return previous;
+    throw gateRunError("gate_run_claimed", `Gate ${requirement.gateId} already has current run ${previous.runId}.`);
+  }
+  if (previous && input.rerun && (input.rerun.runId !== previous.runId || !input.rerun.reason.trim()))
     throw gateRunError("gate_run_claimed", `Gate ${requirement.gateId} already has current run ${previous.runId}.`);
   if (input.rerun && !previous) throw gateRunError("gate_run_stale", "The referenced prior run is not current.");
   if (previous && input.claimFence <= previous.claimFence)
@@ -111,7 +116,7 @@ export function claimGateRun(input: {
     settledAt: null,
     availability: null,
     result: null,
-    diagnostic: input.rerun?.reason ?? "",
+    diagnostic: input.rerun?.reason ?? (previous ? "Previous GitHub Actions claim expired." : ""),
     supersedesRunId: previous?.runId ?? null,
   };
 }
@@ -197,6 +202,18 @@ export function validGateRun(value: unknown): value is GateRun {
           value.result === null)
   );
 }
+export function expiredGithubActionsClaim(
+  requirement: FrozenGateRequirement,
+  run: GateRun,
+  occurredAt: string,
+): boolean {
+  return (
+    requirement.witness.kind === "github-actions" &&
+    run.state === "running" &&
+    Date.parse(occurredAt) >= Date.parse(run.expiresAt)
+  );
+}
+
 export function replaceGateRun(execution: ExecutionV1, run: GateRun): ExecutionV1 {
   const exists = execution.gateRuns.some((candidate) => candidate.runId === run.runId);
   return {

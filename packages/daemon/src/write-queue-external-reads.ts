@@ -1,3 +1,4 @@
+import { settleImportedGithubActionsClaims } from "./task-witness-action.ts";
 import { type WriteReceiptDraft } from "@harness-anything/kernel";
 import { ingestCiObservations, preparedCiObservation, type CiObservationFetch } from "./ci-observation-actions.ts";
 import type { ScheduleV1 } from "@harness-anything/kernel";
@@ -67,7 +68,9 @@ export function readBeforeWriteQueue(
           | undefined;
         if (!schedule?.status.activeRun || schedule.status.activeRun.claimFence !== action.claimFence)
           throw context.cellCodedError("schedule_claim_stale", "CI occurrence claim is no longer current.");
-        return ingestCiObservations(context.extracted, binding, fetched);
+        const receipt = ingestCiObservations(context.extracted, binding, fetched);
+        settleImportedGithubActionsClaims(context.extracted, binding);
+        return receipt;
       });
     return refreshCi(action, binding).then((receipt) => () => receipt);
   }
