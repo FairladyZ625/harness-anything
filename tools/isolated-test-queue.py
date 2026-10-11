@@ -27,15 +27,16 @@ def cancelled(signum, frame):
     raise SystemExit(128 + signum)
 
 
-def cleanup(workspace, container, extra_containers=()):
+def cleanup(workspace, container, extra_containers=(), mode='docker'):
     # A container belongs to the engine, not the SSH process group. Name is known
     # before create, including the create/SSH-death race; absence is harmless.
-    for owned in (container, *extra_containers):
-        result = subprocess.run(['docker', 'container', 'ls', '-aq', '--filter', f'name=^/{owned}$'],
-                                check=True, capture_output=True, text=True)
-        if result.stdout.strip():
-            subprocess.run(['docker', 'rm', '-f', owned], check=True,
-                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    if mode != 'local':
+        for owned in (container, *extra_containers):
+            result = subprocess.run(['docker', 'container', 'ls', '-aq', '--filter', f'name=^/{owned}$'],
+                                    check=True, capture_output=True, text=True)
+            if result.stdout.strip():
+                subprocess.run(['docker', 'rm', '-f', owned], check=True,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     if workspace.exists():
         shutil.rmtree(workspace)
 
@@ -57,7 +58,7 @@ def supervise(run_id, config):
             except BlockingIOError:
                 continue
             abandoned = workspace.parent / stale.name.split('-', 1)[1]
-            cleanup(abandoned, abandoned.name, (f'{abandoned.name}-dependencies',))
+            cleanup(abandoned, abandoned.name, (f'{abandoned.name}-dependencies',), config.get('mode', 'docker'))
             stale.unlink()
     ticket = queue / f'{time.time_ns():020d}-{workspace.name}'
     ticket.touch()
@@ -96,7 +97,7 @@ def supervise(run_id, config):
                     group = message['pid']
         if group is not None:
             terminate(group)
-        cleanup(workspace, run_id, (f'{run_id}-dependencies',))
+        cleanup(workspace, run_id, (f'{run_id}-dependencies',), config.get('mode', 'docker'))
         fcntl.flock(mutex, fcntl.LOCK_EX)
         ticket.unlink()
         fcntl.flock(mutex, fcntl.LOCK_UN)
@@ -167,11 +168,14 @@ def supervise(run_id, config):
                     '--mount', f'type=volume,source={dependency_volume},target=/dependency-cache',
                     '--workdir', '/workspace', '--env', 'HOME=/workspace/.home',
                     '--env', 'HARNESS_TEST_DEPENDENCY_CACHE=/dependency-cache',
-                    '--env', 'PLAYWRIGHT_BROWSERS_PATH=/dependency-cache/playwright',
-                    '--env', 'ELECTRON_CACHE=/dependency-cache/electron',
-                    '--user', f'{os.getuid()}:{os.getgid()}',
+                    '--env', 'PLAYWRIGHT_BROWSERS_PATH=/dependency-cache/pending/runtime/playwright',
+                    '--env', 'ELECTRON_CACHE=/dependency-cache/pending/runtime/electron',
+                    '--user', '0:0',
                     '--entrypoint', 'sh', config['image'], '-c',
-                    'node tools/isolated-test-dependencies.mjs',
+                    'mkdir -p /dependency-cache && '
+                    'chown runner:runner /dependency-cache && '
+                    'exec su --preserve-environment --shell /bin/sh '
+                    '--command "exec node tools/isolated-test-dependencies.mjs" runner',
                 ]
                 emit('creating', run=run_id, phase='dependencies')
                 os.write(writer, (json.dumps({'create': prep}) + '\n').encode())
@@ -193,8 +197,8 @@ def supervise(run_id, config):
                 '--memory-swap', f"{config['memoryGiB']}g",
                 '--mount', f'type=bind,source={workspace},target=/workspace',
                 '--workdir', '/workspace', '--env', 'HOME=/workspace/.home',
-                '--env', 'PLAYWRIGHT_BROWSERS_PATH=/dependency-cache/playwright',
-                '--env', 'ELECTRON_CACHE=/dependency-cache/electron',
+                '--env', 'PLAYWRIGHT_BROWSERS_PATH=/workspace/.test-runtime/playwright',
+                '--env', 'ELECTRON_CACHE=/workspace/.test-runtime/electron',
                 '--user', f'{os.getuid()}:{os.getgid()}',
             ]
             if dependency_volume:

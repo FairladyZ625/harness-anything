@@ -43,14 +43,19 @@ reuses the preceding isolated-CI work: Ubuntu 24.04, Node 24.21.0, Git 2.55.0 an
 system packages, with Chromium's `libglib2.0-0t64` included. It includes Java/PostgreSQL/Xvfb,
 but equivalence to GitHub CI and the image build remain subject to actual server acceptance.
 The dependency installer runs in a preparation container against each source snapshot.
-The server queue mounts the named `dependencyCacheVolume` from `config.json` read-write
-for preparation, then mounts it read-only for the test container. The key includes the
+Docker creates a new named volume as root, so the preparation container starts as root
+only long enough to create the cache directory and assign its root to the image's `runner`
+account; it then runs the installer as `runner`, whose UID matches the dedicated server
+account. The server queue mounts the named `dependencyCacheVolume` from `config.json`
+read-write for preparation, then mounts it read-only for the test container. The key includes the
 lockfile, workspace manifests, Node/npm runtime, platform and effective npm configuration.
 The dependency cache helper publishes a staging generation with an atomic rename while
 holding its SQLite writer lock; concurrent misses serialize and never expose a partial
-generation. A newer key replaces the retained generation after active jobs have copied
-their dependencies into their private workspace. The named volume is owner-managed and
-may be pruned only when no queue ticket is admitted.
+generation. A generation contains workspace `node_modules`, Electron and Playwright Chromium
+downloads and is limited to 2 GiB as a whole. Each admitted run copies dependencies and runtime
+downloads into its private workspace before releasing the lock, so replacing the retained
+generation cannot interrupt active tests. The named volume is owner-managed and may be
+pruned only when no queue ticket is admitted.
 
 Configuration grants three slots, each 4 CPU and 8 GiB with no extra swap: 12 CPU / 24 GiB
 of container limits. The owner must constrain the complete test facility to the approved

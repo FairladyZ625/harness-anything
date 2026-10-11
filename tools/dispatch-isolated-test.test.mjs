@@ -242,6 +242,8 @@ test("remote scripts preflight before executing tests with a dedicated root and 
   assert.match(posix, /test-hermetic-preflight\.mjs --user-root '\/tmp\/run\/.test-isolation-state'/u);
   assert.match(posix, /HARNESS_DAEMON_USER_ROOT='\/tmp\/run\/.test-isolation-state'/u);
 
+  assert.match(posix, /PLAYWRIGHT_BROWSERS_PATH/u);
+  assert.match(posix, /ELECTRON_CACHE/u);
   const powerShell = powerShellTestScript("C:\\Temp\\run", "C:\\Temp\\run\\.test-isolation-state", options);
   assert.match(powerShell, /node tools\/isolated-test-dependencies\.mjs/u);
   assert.doesNotMatch(posix, /npm ci/u);
@@ -249,6 +251,8 @@ test("remote scripts preflight before executing tests with a dedicated root and 
   assert.match(powerShell, /\$ProgressPreference = 'SilentlyContinue'/u);
   assert.match(powerShell, /test-hermetic-preflight\.mjs --user-root 'C:\\Temp\\run\\\.test-isolation-state'/u);
   assert.match(powerShell, /\$env:HARNESS_DAEMON_USER_ROOT = 'C:\\Temp\\run\\\.test-isolation-state'/u);
+  assert.match(powerShell, /\$env:PLAYWRIGHT_BROWSERS_PATH/u);
+  assert.match(powerShell, /\$env:ELECTRON_CACHE/u);
 });
 
 test("remote scripts preserve the GUI workspace-relative file argument", () => {
@@ -471,6 +475,46 @@ test(
 test("local target shares the queue command and capacity-two configuration", () => {
   assert.equal(localQueueConfig().capacity, 2);
   assert.match(localQueueCommand("local-test", "/tmp/local-config"), /python3 -u -c/u);
+});
+
+test("local queue reaps stale workspaces without querying Docker", { skip: queueSkip, timeout: 10000 }, async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-local-queue-"));
+  const runId = "harness-test-isolation-current";
+  const staleId = "harness-test-isolation-stale";
+  const queue = path.join(root, "queue");
+  const staleWorkspace = path.join(root, "runs", staleId);
+  mkdirSync(queue);
+  mkdirSync(staleWorkspace, { recursive: true });
+  writeFileSync(path.join(queue, "admission.lock"), "");
+  writeFileSync(path.join(queue, "00000000000000000001-" + staleId), "");
+  const configPath = path.join(root, "config.json");
+  writeFileSync(configPath, JSON.stringify({ mode: "local", root, capacity: 2 }));
+  const child = spawn("sh", ["-c", `exec ${localQueueCommand(runId, configPath)}`], {
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  let output = "",
+    sent = false;
+  const closed = new Promise((resolve, reject) => {
+    child.stdout.on("data", (chunk) => {
+      output += chunk;
+      if (!sent && output.includes('"event": "admitted"')) {
+        sent = true;
+        child.stdin.write(queueInput("true"));
+      }
+      if (output.includes('"event": "finished"')) child.stdin.end();
+    });
+    child.stderr.on("data", (chunk) => (output += chunk));
+    child.on("close", (code) => (code === 0 ? resolve() : reject(new Error(output))));
+  });
+  try {
+    await closed;
+    assert.equal(existsSync(staleWorkspace), false);
+    assert.deepEqual(readdirSync(queue), ["admission.lock"]);
+    assert.match(output, /"event": "finished"/u);
+  } finally {
+    child.stdin.end();
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 function installFakeDocker(root) {

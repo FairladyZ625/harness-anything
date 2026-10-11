@@ -191,7 +191,7 @@ export function posixTestScript(workspaceRoot, stateRoot, options) {
     `cd ${shellQuote(workspaceRoot)}`,
     ...(options.prepareDependencies === false ? [] : ["node tools/isolated-test-dependencies.mjs"]),
     `node tools/test-hermetic-preflight.mjs --user-root ${shellQuote(stateRoot)}`,
-    `HARNESS_TEST_CONCURRENCY=2 HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} ${command}`,
+    `HARNESS_TEST_CONCURRENCY=2 HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} PLAYWRIGHT_BROWSERS_PATH=${shellQuote(path.join(workspaceRoot, ".test-runtime/playwright"))} ELECTRON_CACHE=${shellQuote(path.join(workspaceRoot, ".test-runtime/electron"))} ${command}`,
   ].join("\n");
 }
 
@@ -219,6 +219,8 @@ export function powerShellTestScript(workspaceRoot, stateRoot, options) {
     `& node tools/test-hermetic-preflight.mjs --user-root ${powerShellLiteral(stateRoot)}`,
     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
     `$env:HARNESS_DAEMON_USER_ROOT = ${powerShellLiteral(stateRoot)}`,
+    `$env:PLAYWRIGHT_BROWSERS_PATH = ${powerShellLiteral(path.join(workspaceRoot, ".test-runtime/playwright"))}`,
+    `$env:ELECTRON_CACHE = ${powerShellLiteral(path.join(workspaceRoot, ".test-runtime/electron"))}`,
     `& ${command}`,
     "exit $LASTEXITCODE",
   ].join("\n");
