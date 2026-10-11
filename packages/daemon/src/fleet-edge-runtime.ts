@@ -204,8 +204,12 @@ export function openFleetEdgeRuntime(input: {
   const executionCredentials = new Map<string, { credential: string; expiresAt: string; personId: string }>();
   const trustedScheduleAgents = new Map<string, RuntimeAgent>();
   let tail = Promise.resolve();
+  let closed = false;
   const schedule = (work: () => void | Promise<void>): Promise<void> => {
-    const scheduled = tail.then(work);
+    const scheduled = tail.then(() => {
+      if (closed) return;
+      return work();
+    });
     tail = scheduled.then(
       () => undefined,
       (error: unknown) => {
@@ -606,6 +610,7 @@ export function openFleetEdgeRuntime(input: {
           })) as JsonObject);
     },
     close: () => {
+      closed = true;
       spawner.close();
     },
   };
