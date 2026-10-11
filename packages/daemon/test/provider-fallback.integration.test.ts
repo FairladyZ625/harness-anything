@@ -379,7 +379,14 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      const successor = rows[1],
+        outcomeMatchesEvidence =
+          successor?.exitCode === null
+            ? successor.outcome === "unknown"
+            : successor?.exitCode === 0
+              ? successor.outcome === "stopped"
+              : false;
+      return rows.length === 2 && outcomeMatchesEvidence && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
 
