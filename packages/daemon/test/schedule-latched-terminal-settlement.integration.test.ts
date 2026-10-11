@@ -14,7 +14,7 @@ import {
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openRepoCell } from "../src/repo-cell.ts";
+import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
 import { operationId } from "../src/repo-cell-proof.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 

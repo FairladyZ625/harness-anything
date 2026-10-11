@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import tls from "node:tls";
@@ -40,6 +41,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       throw new Error("Center must not launch Squad processes");
     },
   });
+  await allowFixtureRuntimeInstances(f.host, "lease-repo", localAuthFixture(), [
+    "center-codex",
+    "squad-runtime",
+    "successor-runtime",
+  ]);
   const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuthFixture());
   assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
   const schedule = await f.host.run(

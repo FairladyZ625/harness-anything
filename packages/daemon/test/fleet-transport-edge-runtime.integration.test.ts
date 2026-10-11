@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
@@ -64,6 +65,10 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
+      "edge-codex",
+      "aaa-edge-codex",
+    ]);
     const taskReleaseBarrier = fixture.blockTaskRelease();
     t.after(taskReleaseBarrier.release);
     const center = await fixture.center(),
@@ -508,6 +513,10 @@ test(
       },
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
+      "edge-codex",
+      "aaa-edge-codex",
+    ]);
     await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
     const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
@@ -546,9 +555,10 @@ test(
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
-    git(fixture.root, "init", "--bare", "-q", remote);
+    git(fixture.root, "clone", "--bare", "-q", edgeRoot, remote);
     git(edgeRoot, "remote", "add", "origin", remote);
-    git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
+    git(edgeRoot, "fetch", "-q", "origin");
+    git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
     const base = git(edgeRoot, "rev-parse", "HEAD");
     await runFleetReplicaPullClient({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
@@ -719,6 +729,10 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
+      "edge-codex",
+      "aaa-edge-codex",
+    ]);
     const center = await fixture.center(),
       workspaceRoot = path.join(fixture.root, "paged-runtime-edge"),
       viewRoot = path.join(fixture.root, "paged-runtime-view");
@@ -771,6 +785,33 @@ test(
       sessionIds.push(String(launched.runtimeSessionId));
     }
     await runtime.reconcile();
+    const settings = await fixture.host.read(fixture.subject.repoId, "repo.settings.read", {}, localAuthFixture());
+    const revoked = await fixture.host.run(
+      fixture.subject.repoId,
+      { kind: "settings-update", runtimeAllowedInstances: [], expectedVersion: settings.lastChanged.revision },
+      localAuthFixture(),
+    );
+    assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, revoked.opId, localAuthFixture());
+    await runFleetReplicaPullClient({
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    await assert.rejects(
+      runtime.run("repo.agentRuntime.spawn", {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Project access was revoked in the replica, without materializing the workspace.",
+        idempotencyKey: "replica-revoked",
+      }),
+      { code: "runtime_instance_not_allowed" },
+    );
     await center.close();
     const payloads: Record<string, unknown>[] = [],
       pageSizes: number[] = [];
