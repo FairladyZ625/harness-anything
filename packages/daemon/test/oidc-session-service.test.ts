@@ -726,6 +726,7 @@ for (const rejectedStatus of [401, 403, 503]) {
         const url = new URL(String(input));
         if (url.pathname.endsWith("/token"))
           return Response.json({ access_token: `center-${++tokenCalls}`, expires_in: 300 });
+        if (url.pathname.endsWith("/userinfo")) return Response.json({ sub: "person-1" });
         if (url.pathname.endsWith("/users")) return Response.json([{ id: "user-1" }]);
         if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
         if (url.pathname.endsWith("/resource")) return Response.json([{ _id: "resource-1", name: "repo-1" }]);
@@ -779,6 +780,7 @@ test("a second center 401 surfaces without a third policy request or token acqui
       const url = new URL(String(input));
       if (url.pathname.endsWith("/token"))
         return Response.json({ access_token: `center-${++tokenCalls}`, expires_in: 300 });
+      if (url.pathname.endsWith("/userinfo")) return Response.json({ sub: "person-1" });
       if (url.pathname.endsWith("/users")) return Response.json([{ id: "user-1" }]);
       if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
       if (url.pathname.endsWith("/resource")) return Response.json([{ _id: "resource-1", name: "repo-1" }]);
