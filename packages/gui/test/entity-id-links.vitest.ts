@@ -624,7 +624,14 @@ const VIEW_RENDERERS = {
       onOpenTask: noop,
       onOpenSearch: noop,
       onOpenSessions: noop,
+      onOpenWorks: noop,
+      onOpenTasks: noop,
       onUnpin: noop,
+      // 总览层走全局导航历史后是必传位置(层关着),本测试只扫死链不驱层。
+      overviewLayer: { overviewArtifactId: null, overviewFocus: null },
+      onOverviewLayerNavigate: noop,
+      onOverviewLayerPatch: noop,
+      onOverviewLayerClose: noop,
     }),
   agenda: () =>
     createElement(AgendaView, { repoId: REPO_ID, agenda: FIXTURE_AGENDA, agendaError: null, onNavigateEntity: noop }),

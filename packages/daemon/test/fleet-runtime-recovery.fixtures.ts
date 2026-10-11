@@ -19,6 +19,7 @@ import {
 } from "./fleet-store.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { scheduleRepositoryDocument } from "./schedule-actions.fixtures.ts";
 type FleetTestSubject = {
   nodeId: string;
   repoId: string;
@@ -55,6 +56,7 @@ export async function fleetFixture(
   centerRuntimes: readonly RuntimeInstallationWitness[] = [],
   mode: "local" | "remote-center" = "local",
   prTemplate?: string,
+  repositoryInstances?: Parameters<typeof scheduleRepositoryDocument>[1],
 ) {
   // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
   // from it compares equal where the temporary directory is itself a symbolic link.
@@ -78,10 +80,7 @@ export async function fleetFixture(
     mkdirSync(path.join(repo, ".github"));
     writeFileSync(path.join(repo, ".github/pull_request_template.md"), prTemplate);
   }
-  writeFileSync(
-    path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
+  writeFileSync(path.join(repo, "harness/harness.yaml"), scheduleRepositoryDocument("fleet", repositoryInstances));
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", mode, userRoot, createConvenienceLinks: false });
@@ -244,7 +243,7 @@ export async function fleetFixture(
           key,
           cert,
           replicaDiskQuotaBytes: replicaQuota,
-          ...(verifyHuman ? { verifyHuman } : {}),
+          verifyHuman: verifyHuman ?? owners.verifyHuman,
           authenticate: (nodeId, credential) =>
             [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
           loginAuthority: (nodeId) => ({
@@ -321,7 +320,7 @@ export async function rawPeer(
   const next = () =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
     request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame(frame));
+      socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
       return next();
     },
     raw = async (frame: unknown) => {
@@ -329,7 +328,7 @@ export async function rawPeer(
       return next();
     },
     split = async (frame: FleetFrameV1, marker: string) => {
-      splitWrite(socket, frame, marker);
+      splitWrite(socket, { ...frame, accessToken: `device-token-${nodeId}` }, marker);
       return next();
     };
   const hello = await request({

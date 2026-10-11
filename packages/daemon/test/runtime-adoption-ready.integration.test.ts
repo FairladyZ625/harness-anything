@@ -56,10 +56,15 @@ test("the real writer relays completed runtime restorations before ready without
       ["commit", "-qm", "fixture"],
     ])
       execFileSync("git", args, { cwd: rootDir, stdio: "pipe" });
+    const binding = withPolicyGroup(
+      { actor: { principal: { personId: "adoption-ready-operator" }, executor: null }, source: "local" as const },
+      "admin",
+    );
     const input = {
       repoId: workspaceId("adoption-ready"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "adoption-ready-test",
+      keycloakSession: async () => binding.keycloakAuthorization.session,
       onStatus: (status: RepoCellStatus) => statuses.push(status),
       runtimeInstances: () => [
         {
@@ -102,11 +107,7 @@ test("the real writer relays completed runtime restorations before ready without
       },
     };
     cell = await openRepoCell(input);
-    const binding = withPolicyGroup(
-        { actor: { principal: { personId: "adoption-ready-operator" }, executor: null }, source: "local" as const },
-        "admin",
-      ),
-      sessions: string[] = [];
+    const sessions: string[] = [];
     for (const idempotencyKey of ["first", "second"]) {
       const receipt = await cell.spawnRuntime(
         {

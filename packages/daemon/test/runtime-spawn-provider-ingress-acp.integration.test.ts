@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -62,20 +63,16 @@ async function withAcpDaemon(
     });
   await host.attachmentsSettled();
   try {
-    host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: "devin-provider",
-        name: "devin provider",
-        kindId: "devin",
-        installationId: "installation-devin",
-        providerId: "devin",
-        models: ["swe", "exit-before-session"],
-        permissionMode: "bypass",
-        authMode: "subscription",
-      },
-      auth,
-    );
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: "devin-provider",
+      name: "devin provider",
+      kindId: "devin",
+      installationId: "installation-devin",
+      providerId: "devin",
+      models: ["swe", "exit-before-session"],
+      permissionMode: "bypass",
+      authMode: "subscription",
+    });
     await body({ host, root, capture, executablePath });
   } finally {
     await host.close();

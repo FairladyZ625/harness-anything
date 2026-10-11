@@ -55,11 +55,15 @@ export function withEdgeReadModel<T>(
   const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
   if (!model) throw new EdgeReadError("replica_unavailable", "The edge read-model bytes are unavailable.");
   try {
-    const expected = edgeReadAuthorizationShapeDigest({ repoId: input.repoId, owner: model.meta.authorizationOwner });
+    const expected = edgeReadAuthorizationShapeDigest({
+      repoId: input.repoId,
+      readerProfile: model.meta.readerProfile,
+    });
     if (
-      model.meta.authorizationOwner === null ||
+      model.meta.readerProfile === null ||
       input.principalId === undefined ||
-      input.principalId !== model.meta.authorizationOwner ||
+      input.principalId !== model.meta.readerProfile?.personId ||
+      input.nodeId !== model.meta.readerProfile?.nodeId ||
       model.meta.authorizationShapeDigest !== expected
     )
       throw new EdgeReadError("authorization_denied", "The local read model is not authorized for this principal.");

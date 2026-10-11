@@ -12,11 +12,11 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import test from "node:test";
 import {
   consumeKnownError,
-  registerDaemonRepo,
   makeTaskEventReader,
   makeTaskProjection,
   type AgentDefinitionSnapshot,
 } from "@harness-anything/kernel";
+import { registerDaemonRepo } from "@harness-anything/kernel";
 import { ensureLocalDaemonRunning, type DaemonLaunchSpec } from "../src/client/daemon-autostart.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
@@ -765,8 +765,14 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
       }
     };
   initializeRepo(rootDir, repoId);
-  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "person-superseded-readopt", [repoId], "admin");
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    runtimeInstances: [instance],
+    createConvenienceLinks: false,
+  });
   try {
     daemon = runningDaemon(
       await startDaemon({
@@ -1012,8 +1018,14 @@ test("a superseded exit hands the slot over while a --wait client's parked await
       }
     };
   initializeRepo(rootDir, repoId);
-  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "person-superseded-await", [repoId], "admin");
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    runtimeInstances: [instance],
+    createConvenienceLinks: false,
+  });
   try {
     daemon = runningDaemon(
       await startDaemon({
@@ -1238,8 +1250,14 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
       }
     };
   initializeRepo(rootDir, repoId);
-  signInPolicyTestUser(userRoot, "writer", [repoId], "admin");
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  signInPolicyTestUser(userRoot, "person-drain-outlasts-await", [repoId], "admin");
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    runtimeInstances: [instance],
+    createConvenienceLinks: false,
+  });
   try {
     daemon = runningDaemon(
       await startDaemon({

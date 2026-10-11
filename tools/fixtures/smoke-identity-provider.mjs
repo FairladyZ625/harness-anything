@@ -45,6 +45,7 @@ const server = createServer(async (request, response) => {
         )
           return json({}, 401);
         token = `fixture.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.fixture`;
+        realm.interactiveSession("owner", "smoke-device", url.origin, token);
         return json({
           access_token: token,
           refresh_token: "smoke-refresh",
@@ -53,19 +54,12 @@ const server = createServer(async (request, response) => {
         });
       }
       if (request.headers.authorization !== `Bearer ${token}` || !owner) return json({}, 401);
-      const [resourceName, scope] = (form.get("permission") ?? "").split("#");
-      const resource = [...realm.resources.values()].find((item) => item.name === resourceName);
-      if (!resource) return json({ error: "invalid_resource" }, 400);
-      const decision = await realm.fetch(
-        "http://127.0.0.1/admin/realms/harness/clients/client-1/authz/resource-server/policy/evaluate",
-        {
-          method: "POST",
-          body: JSON.stringify({ userId: owner.id, resources: [{ _id: resource._id, scopes: [{ name: scope }] }] }),
-        },
-      );
-      return (await decision.json()).status === "PERMIT"
-        ? json({ result: true })
-        : json({ error: "access_denied" }, 403);
+      const decision = await realm.fetch(url, {
+        method: "POST",
+        headers: request.headers,
+        body: form,
+      });
+      return json(await decision.json(), decision.status);
     }
     if (url.pathname.endsWith("/userinfo"))
       return request.headers.authorization === `Bearer ${token}` && owner

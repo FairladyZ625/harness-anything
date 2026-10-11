@@ -109,7 +109,10 @@ export interface NarrowTaskRow {
 /** dec_mr7v4h6t: the only production work-status derivation. The correlated
  * recursion visits this root's descendants using the existing parent index.
  * Unary + removes TEXT affinity so SQLite can search the JSON parent index.
- * UNION terminates cycles; the root itself is never a member. No writes. */
+ * UNION terminates cycles; the root itself is never a member. No writes.
+ * A planned root with any started member presents active (CEO ruling 2026-10-11:
+ * a work whose subtask started is in progress, never "planned"); completion
+ * stays explicit — only an all-terminal subtree presents done/cancelled. */
 const PRESENTATION_STATUS_SQL = `CASE
   WHEN task_snapshot.status IN ('done', 'cancelled') THEN task_snapshot.status
   WHEN json_extract(task_snapshot.snapshot_json, '$.task.taskClass') = 'work' OR (
@@ -127,8 +130,12 @@ const PRESENTATION_STATUS_SQL = `CASE
         ON json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +parent.task_id
       WHERE child.task_id <> task_snapshot.task_id
     )
-    SELECT CASE WHEN COUNT(*) > 0 AND MIN(COALESCE(status IN ('done', 'cancelled'), 0)) = 1
-      THEN CASE WHEN MAX(status = 'done') = 1 THEN 'done' ELSE 'cancelled' END END FROM members
+    SELECT CASE
+      WHEN COUNT(*) > 0 AND MIN(COALESCE(status IN ('done', 'cancelled'), 0)) = 1
+        THEN CASE WHEN MAX(status = 'done') = 1 THEN 'done' ELSE 'cancelled' END
+      WHEN task_snapshot.status = 'planned' AND MAX(COALESCE(status NOT IN ('planned', 'cancelled'), 0)) = 1
+        THEN 'active'
+    END FROM members
   ), task_snapshot.status)
   ELSE task_snapshot.status END`;
 

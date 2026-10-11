@@ -5,6 +5,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  realpathSync,
   readFileSync,
   rmSync,
   symlinkSync,
@@ -72,7 +73,11 @@ test("cache copies isolate dependency writes, rebase workspace links and rebuild
     prepareDependencies(second, cache, record);
     assert.equal(readFileSync(path.join(second, "node_modules/value"), "utf8"), "installed");
     assert.equal(readFileSync(path.join(second, "packages/local/node_modules/nested"), "utf8"), "nested dependency");
-    assert.equal(readFileSync(path.join(second, "node_modules/local/output"), "utf8"), "second source");
+    assert.equal(
+      realpathSync(path.join(second, "node_modules/local")),
+      realpathSync(path.join(second, "packages/local")),
+    );
+    assert.equal(readFileSync(path.join(second, "packages/local/output"), "utf8"), "second source");
     assert.deepEqual(calls, [
       ["ci", "--no-audit", "--no-fund"],
       ["run", "prepare", "--workspace", "packages/local", "--ignore-scripts"],
@@ -110,7 +115,6 @@ test("failed installs surface unchanged and a later owner discards partial publi
       (error) => error === failure,
     );
     assert.equal(existsSync(path.join(cache, "current")), false);
-    mkdirSync(path.join(cache, "pending"));
     writeFileSync(path.join(cache, "pending/stale"), "partial");
     prepareDependencies(root, cache, install);
     assert.equal(existsSync(path.join(cache, "pending")), false);
@@ -173,7 +177,7 @@ test("oversized installations fail before publishing or allocating a cache copy"
     assert.equal(existsSync(path.join(cache, "current")), false);
   }));
 
-test("warm preparation executes the real npm workspace prepare against new source", () =>
+test("warm preparation restores dependencies and rebuilds workspaces against current source", () =>
   fixture(({ cache, workspace }) => {
     const first = workspace("first-real"),
       second = workspace("second-real");
@@ -188,6 +192,45 @@ test("warm preparation executes the real npm workspace prepare against new sourc
       writeFileSync(path.join(root, "packages/local/source"), root === first ? "old" : "new");
     }
     prepareDependencies(first, cache, install);
-    prepareDependencies(second, cache);
+    prepareDependencies(second, cache, (root, args) => {
+      assert.deepEqual(args, ["run", "prepare", "--workspace", "packages/local", "--ignore-scripts"]);
+      install(root, args);
+    });
     assert.equal(readFileSync(path.join(second, "packages/local/output"), "utf8"), "new");
+  }));
+
+test("build cache follows snapshot bytes and remains independent after source changes", () =>
+  fixture(({ cache, workspace }) => {
+    const calls = [];
+    const build = (root, args) => {
+      calls.push(args[0]);
+      install(root, args);
+      mkdirSync(path.join(root, "packages/local/dist"), { recursive: true });
+      writeFileSync(
+        path.join(root, "packages/local/dist/output"),
+        readFileSync(path.join(root, "packages/local/source")),
+      );
+    };
+    const roots = ["first", "second", "third"].map((name) => {
+      const root = workspace(name);
+      writeFileSync(path.join(root, "packages/local/source"), "old");
+      execFileSync("git", ["init", "--quiet"], { cwd: root });
+      execFileSync(
+        "git",
+        ["add", "package.json", "package-lock.json", "packages/local/package.json", "packages/local/source"],
+        { cwd: root },
+      );
+      return root;
+    });
+    prepareDependencies(roots[0], cache, build);
+    prepareDependencies(roots[1], cache, build);
+    assert.deepEqual(calls, ["ci", "run"]);
+    assert.equal(readFileSync(path.join(roots[1], "packages/local/dist/output"), "utf8"), "old");
+    writeFileSync(path.join(roots[2], "packages/local/source"), "new");
+    prepareDependencies(roots[2], cache, build);
+    assert.deepEqual(calls, ["ci", "run", "run"]);
+    assert.equal(readFileSync(path.join(roots[2], "packages/local/dist/output"), "utf8"), "new");
+    assert.equal(readFileSync(path.join(roots[1], "packages/local/dist/output"), "utf8"), "old");
+    writeFileSync(path.join(roots[2], "packages/local/dist/output"), "test mutation");
+    assert.equal(readFileSync(path.join(cache, "build/packages/local/dist/output"), "utf8"), "new");
   }));

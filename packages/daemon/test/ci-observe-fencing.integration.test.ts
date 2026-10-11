@@ -40,6 +40,7 @@ async function fixture(
     events: () => Promise<readonly { readonly schema: string; readonly type: string }[]>;
     stateRoot: string;
     advance: (time: string) => void;
+    setSessionPerson: (personId: string | null) => void;
   }) => Promise<void>,
 ) {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-ci-fence-")),
@@ -78,11 +79,16 @@ else throw new Error('unexpected provider call ' + args.join(' '));
   const authority = openPersistentWriterEpoch({ stateRoot, holderId: "ci-fence-owner" }),
     lease = authority.acquire("ci-fence");
   authority.close();
-  let currentTime = "2026-10-08T10:00:00.000Z";
+  let currentTime = "2026-10-08T10:00:00.000Z",
+    sessionPerson: string | null = "ci-center-owner";
   const cell = await openRepoCell({
     repoId: workspaceId("ci-fence"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "ci-fence-owner",
+    keycloakSession: async () => {
+      if (sessionPerson === null) throw Object.assign(new Error("session ended"), { code: "authentication_required" });
+      return { ...binding.keycloakAuthorization.session, personId: sessionPerson };
+    },
     defaultWriterEpochFence: {
       schema: "harness-writer-epoch-fence/v1",
       stateRoot,
@@ -96,6 +102,9 @@ else throw new Error('unexpected provider call ' + args.join(' '));
   try {
     await seedBuiltinSchedules({ cell, binding });
     await work({
+      setSessionPerson: (personId) => {
+        sessionPerson = personId;
+      },
       cell,
       rootDir,
       release,
@@ -263,6 +272,25 @@ test("an old center writer epoch cannot append after provider IO completes", { s
     assert.equal((await events()).filter((e) => e.schema === "ci-run-observation/v4").length, 0);
   });
 });
+
+for (const personId of [null, "another-person"]) {
+  test(
+    `builtin continuation rejects ${personId === null ? "logout" : "a different signed-in person"} after provider IO`,
+    { skip: posix },
+    async () => {
+      await fixture(async ({ cell, release, started, events, setSessionPerson }) => {
+        const collecting = cell.run(claim, binding);
+        await waitForFile(started);
+        setSessionPerson(personId);
+        const rejected = assert.rejects(collecting, { code: "authentication_required" });
+        release();
+        await rejected;
+        assert.equal((await events()).filter((event) => event.schema === "ci-run-observation/v4").length, 0);
+        assert.equal((await events()).filter((event) => event.type === "schedule_run_settled").length, 0);
+      });
+    },
+  );
+}
 
 test("CI acceptance reauthorizes after provider IO before appending", { skip: posix }, async () => {
   await fixture(async ({ cell, release, started, show, events }) => {

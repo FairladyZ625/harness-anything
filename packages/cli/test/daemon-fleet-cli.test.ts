@@ -182,6 +182,10 @@ test(
         "--quota-bytes",
         String(quotaBytes),
       ] as const;
+      // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
+      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
+      realm.bind(fixture.edgeUser);
+      signInAt(fixture.edgeUser, "edge-operator");
       const edgeGitHead = readFileSync(path.join(fixture.edgeRepo, ".git", "HEAD"), "utf8");
       const observed = await spawnedRun(fixture, "edge", syncArgs),
         exposed = JSON.stringify({ argv: observed.argv, stdout: observed.stdout, stderr: observed.stderr });
@@ -248,6 +252,7 @@ test(
         "materialization leaves workspace Git metadata untouched",
       );
       // A local read needs the node owner's identity on the edge (dec_8DC9 CH2): none is signed in yet.
+      signOutAt(fixture.edgeUser);
       const anonymous = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(anonymous.status, 1);
       assert.equal(anonymous.receipt.code, "authentication_required", JSON.stringify(anonymous.receipt));
@@ -276,8 +281,7 @@ test(
         }
       }
       writeFileSync(path.join(fixture.edgeRepo, "harness", docPath), docBody);
-      // Edge writes below keep the machine path; a signed-in person's writes would ask for confirmation.
-      signOutAt(fixture.edgeUser);
+      // Restart and later writes keep the independently approved device owner session.
       const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as {
         cut: { revision: number };
       };
@@ -418,7 +422,7 @@ test(
 // here holds no people document and no roster copy; its node owner has no entry in the center's people
 // document either, so nothing about the local uid can explain the outcome.
 test(
-  "a clean edge node completes its first sync on the machine credential the center issued",
+  "a clean edge node completes its first sync with its registered device and owner session",
   { timeout: 180_000 },
   async () => {
     const fixture = setup(),
@@ -496,9 +500,11 @@ test(
           ]),
         logins = () => realm.control<{ clientId: string; ok: boolean }[]>({ op: "nodeLogins" });
 
-      // 1. Before the node is registered, the request still reaches the center and the center refuses the
-      //    credential. The edge did not answer for it: nobody is signed in there, yet the code is not the
-      //    not-signed-in one.
+      // 1. A signed-in device still cannot use an unregistered transport credential.
+      await realm.control({ op: "account", personId: "edge-operator" });
+      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
+      realm.bind(fixture.edgeUser);
+      signInAt(fixture.edgeUser, "edge-operator");
       const unregistered = sync("any-credential");
       assert.equal(unregistered.status, 1);
       assert.equal(unregistered.receipt.code, "authentication_failed");
@@ -507,8 +513,7 @@ test(
       assert.deepEqual(await logins(), [{ clientId: "harness-node-edge-one", ok: false }]);
 
       // 2. Registration is written while the center keeps running, through the registry write path, and
-      //    returns the machine credential once.
-      await realm.control({ op: "account", personId: "edge-operator" });
+      //    returns the transport credential once.
       const credentialFile = path.join(fixture.root, "edge-one.credential"),
         registration = ["bootstrap", "--operation", "node-register", "--node-id", "edge-one"],
         registerArgs = [...registration, "--person-id", "edge-operator", "--operation-id", "register-edge-one"],
@@ -541,6 +546,13 @@ test(
 
       // 3. The right credential authenticates the machine; its owner holds no grant yet, so the center
       //    denies the action. Three different answers for three different conditions.
+      signOutAt(fixture.edgeUser);
+      const unsigned = sync(credential);
+      assert.equal(unsigned.status, 1);
+      assert.equal(unsigned.receipt.code, "authentication_required");
+      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
+      realm.bind(fixture.edgeUser);
+      signInAt(fixture.edgeUser, "edge-operator");
       const ungranted = sync(credential);
       assert.equal(ungranted.status, 1);
       assert.equal(ungranted.receipt.code, "authorization_denied", JSON.stringify(ungranted.receipt));
@@ -585,6 +597,7 @@ test(
       stop(fixture, "edge");
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       // Local reads also need the node owner's identity on the edge (dec_8DC9 CH2).
+      signOutAt(fixture.edgeUser);
       const anonymousRead = maybeRun(fixture, "edge", ["task", "show", "task-fleet"]);
       assert.equal(anonymousRead.status, 1);
       assert.equal(anonymousRead.receipt.code, "authentication_required", JSON.stringify(anonymousRead.receipt));

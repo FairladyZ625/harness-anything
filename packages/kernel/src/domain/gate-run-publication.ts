@@ -1,5 +1,13 @@
 import { isSamePerson } from "./actor-domain-services.ts";
-import { claimGateRun, currentGateRun, gateRunError, replaceGateRun, settleGateRun, type GateRun } from "./gate-run.ts";
+import {
+  claimGateRun,
+  currentGateRun,
+  expiredGithubActionsClaim,
+  gateRunError,
+  replaceGateRun,
+  settleGateRun,
+  type GateRun,
+} from "./gate-run.ts";
 import { envelope, execution } from "./task-lifecycle-contract-support.ts";
 import { compileTaskLifecycleWrite, type LifecycleDocumentState } from "./task-lifecycle-publication.ts";
 import type { GateRunChangedEvent } from "./task-lifecycle-event.ts";
@@ -26,8 +34,12 @@ export function replayGateRunChange(
     throw gateRunError("gate_run_stale", "Gate run action requires the current submitted Task and Execution.");
   const requirement = current.submission.completionContract.gates.find((gate) => gate.gateId === run.gateId);
   if (!requirement) throw gateRunError("gate_run_stale", "Run gate is absent from the frozen contract.");
+  const prior = currentGateRun(current, run.gateId),
+    sourceRenewal =
+      prior && expiredGithubActionsClaim(requirement, prior, event.occurredAt) && event.actor.executor !== null;
   const ownerAction =
-    event.payload.operation === "revoke" || (event.payload.operation === "claim" && run.supersedesRunId !== null);
+    event.payload.operation === "revoke" ||
+    (event.payload.operation === "claim" && run.supersedesRunId !== null && !sourceRenewal);
   if (ownerAction) {
     if (event.actor.executor !== null || !isSamePerson(snapshot.task.createdBy, event.actor))
       throw gateRunError("actor_unauthorized", "Only the task owner may revoke or rerun a gate.");
@@ -74,7 +86,7 @@ export function replayGateRunChange(
       diagnostic: run.diagnostic,
     };
   }
-  const updated = replaceGateRun(current, expected);
+  const updated = replaceClaimedRun(current, expected, event.actor);
   if (stableStringify(updated) !== stableStringify(event.payload.execution))
     throw gateRunError("gate_run_conflict", "Gate run event changed fields outside the accepted transition.");
   return {
@@ -102,7 +114,7 @@ export function compileGateRunChange(input: {
     throw gateRunError("gate_run_stale", "The gate run's aggregate cut is no longer current.");
   const event = envelope<GateRunChangedEvent>({ ...input, taskId: input.snapshot.task.taskId }, "gate_run_changed", {
     task: input.snapshot.task,
-    execution: replaceGateRun(current, input.run),
+    execution: replaceClaimedRun(current, input.run, input.actor),
     runId: input.run.runId,
     operation: input.operation,
   });
@@ -115,4 +127,34 @@ export function compileGateRunChange(input: {
     packagePath: input.packagePath,
     currentDocuments: input.currentDocuments,
   });
+}
+
+function replaceClaimedRun(current: Parameters<typeof replaceGateRun>[0], run: GateRun, actor: ActorAxes) {
+  const updated = replaceGateRun(current, run),
+    prior = currentGateRun(current, run.gateId),
+    requirement = current.submission?.completionContract.gates.find((gate) => gate.gateId === run.gateId);
+  // Only the newly admitted source renewal retires the expired claim. Owner rerun event
+  // replay retains its existing contract, including historical events.
+  if (
+    actor.executor === null ||
+    run.state !== "running" ||
+    !prior ||
+    prior.runId !== run.supersedesRunId ||
+    !requirement ||
+    !expiredGithubActionsClaim(requirement, prior, run.claimedAt)
+  )
+    return updated;
+  return {
+    ...updated,
+    gateRuns: updated.gateRuns.map((candidate) =>
+      candidate.runId === prior.runId
+        ? {
+            ...candidate,
+            state: "cancelled" as const,
+            settledAt: run.claimedAt,
+            diagnostic: "GitHub Actions claim expired and was superseded.",
+          }
+        : candidate,
+    ),
+  };
 }

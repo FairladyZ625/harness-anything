@@ -311,7 +311,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       assert.deepEqual(envelope.inputs, deriveUseCaseProjectionInputs(name), `${name} inputs are registry-derived`);
     }
     const settingsBefore = parseDaemonGuiReadResult("repo.settings.read", results.get("repo.settings.read"));
+    // F-1D3A0A64: init records the empty machine inventory as this project's exact list.
     assert.deepEqual(settingsBefore.settings, {
+      runtime: { allowedInstances: [] },
       schema: "settings/v1",
       settingsId: "repository",
       defaultVertical: "software/coding",
@@ -326,6 +328,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       ci: { workflows: [] },
       gates: [],
       agenda: { pinLimit: 30 },
+      overview: { watchedActivityDays: 3 },
       // S8 CH4 and dec_199D1CA39C6AD06504D66A95E9 CH1 freeze these defaults.
       tasks: { wipLimit: 30, rootThreshold: 3, assignmentTtlMs: 86_400_000 },
       fleet: { claim: { scope: "node" } },

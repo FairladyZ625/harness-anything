@@ -6,6 +6,7 @@ import { sha256Bytes } from "@harness-anything/kernel";
 import type { FleetTlsCenter } from "../src/fleet/center.ts";
 import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
 import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
+import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, rawPeer } from "./fleet-tls-session.fixture.ts";
 
@@ -193,7 +194,14 @@ test("a removal whose receipt never settled cuts through reconcile", { timeout: 
   // settles it, so that is where the cut has to come from too.
   signInAt(fixture.userRoot, "person-admin");
   const operationId = "unregister-external-write";
-  fixture.owners.keycloak.nodeClients.delete(`harness-node-${nodeId}`);
+  // dec_F01770FD0DCF72683B7C4C7A47/CH5: removal persists a disabled device tombstone.
+  const adapter = new KeycloakPolicyAdapter({
+      url: fixture.owners.url,
+      realm: "harness",
+      resourceServerClientId: "harness-center",
+    }),
+    previous = (await adapter.readNode("center-token", nodeId))!;
+  await adapter.deleteNode("center-token", nodeId);
   managedRbacReceiptJournal(fixture.userRoot).append(
     JSON.stringify({
       schema: "harness-access-receipt/v1",
@@ -202,7 +210,7 @@ test("a removal whose receipt never settled cuts through reconcile", { timeout: 
       actor: "person-admin",
       authority: { url: "http://127.0.0.1:1", realm: "harness", clientId: "harness-center" },
       phase: "intent",
-      expect: { kind: "node", nodeId, version: "" },
+      expect: { kind: "node", nodeId, version: String(previous.revision + 1), state: "removed" },
       recordedAt: new Date().toISOString(),
     }),
   );

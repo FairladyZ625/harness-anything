@@ -1,3 +1,4 @@
+import type { EdgeReaderProfile } from "@harness-anything/kernel";
 import { readReplicaHealth, recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 import type { FleetCut, FleetEntry, FleetDeltaChange } from "./contract.ts";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -83,7 +84,7 @@ export function readHeadConfirmation(viewDir: string): HeadConfirmation | null {
 export interface EdgeReadModel {
   readonly db: DatabaseSync;
   readonly meta: EdgeReadModelMeta & {
-    readonly authorizationOwner: string | null;
+    readonly readerProfile: EdgeReaderProfile | null;
     readonly authorizationShapeDigest: string;
   };
 }
@@ -257,7 +258,7 @@ function synchronize(file: string, view: FleetMirrorView, casRoot: string, meta:
       db,
       meta: {
         ...meta,
-        authorizationOwner: view.authorizationOwner,
+        readerProfile: view.readerProfile,
         authorizationShapeDigest: view.authorizationShapeDigest,
       },
     };

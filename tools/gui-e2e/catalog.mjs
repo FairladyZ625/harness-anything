@@ -1,5 +1,7 @@
+import myDevices from "./scenarios/my-devices.mjs";
 import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
+import providerProjectAccess from "./scenarios/provider-project-access.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
@@ -37,15 +39,18 @@ import pageSplitLayout from "./scenarios/page-split-layout.mjs";
 import overviewWipRegion from "./scenarios/overview-wip-region.mjs";
 import overviewAttentionFocus from "./scenarios/overview-attention-focus.mjs";
 import overviewArtifactsShelf from "./scenarios/overview-artifacts-shelf.mjs";
+import overviewSplitBoard from "./scenarios/overview-split-board.mjs";
 import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-default.mjs";
 import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
 import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
 
 export const catalog = [
+  myDevices,
   ciObservations,
   edgeReadFreshness,
   runtimeHandoff,
+  providerProjectAccess,
   accountLogin,
   deviceLoginApproval,
   taskAssignment,
@@ -83,6 +88,7 @@ export const catalog = [
   overviewWipRegion,
   overviewAttentionFocus,
   overviewArtifactsShelf,
+  overviewSplitBoard,
   taskDetailExplainerDefault,
   tokenUsageCosts,
   graphSpotlightCards,

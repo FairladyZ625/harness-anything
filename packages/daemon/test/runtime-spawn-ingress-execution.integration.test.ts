@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
-import { signInPolicyTestUser, withPolicyGroup } from "./keycloak-policy.fixtures.ts";
+import { signInPolicyTestUser, withPolicyGroup, policyTestDeviceToken } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -782,7 +782,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         `a ${sourceNode ? "node" : "local"} task-bound runtime syncs and dispatches descendants but not an unrelated task`,
         async () => {
           const commandAuth = sourceNode
-            ? { transportKind: "fleet-tls" as const, nodePrincipal: { nodeId: "commander-node", personId: "owner" } }
+            ? {
+                transportKind: "fleet-tls" as const,
+                nodePrincipal: { nodeId: "commander-node", personId: "owner" },
+                humanAccessToken: policyTestDeviceToken("owner", "commander-node"),
+              }
             : auth;
           const parentTaskId = `task-runtime-commander-parent-${sourceNode}`,
             parentExecutionId = `exec-runtime-commander-parent-${sourceNode}`,
@@ -891,7 +895,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 { nodeId: "other-node", personId: "owner" },
                 { nodeId: "commander-node", personId: "intruder" },
               ]) {
-                const denied = await host.run(repoId, action, { transportKind: "fleet-tls", nodePrincipal });
+                const denied = await host.run(repoId, action, {
+                  transportKind: "fleet-tls",
+                  nodePrincipal,
+                  humanAccessToken: policyTestDeviceToken(nodePrincipal.personId, nodePrincipal.nodeId),
+                });
                 assert.equal(denied.code, "executor_binding_invalid", JSON.stringify(denied));
                 assert.equal(makeTaskEventReader({ repoId, rootDir: root }).read().revision, before);
               }

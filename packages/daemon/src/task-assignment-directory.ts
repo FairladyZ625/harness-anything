@@ -13,7 +13,8 @@ export async function readTaskAssignmentDirectory(
   const credential = binding.keycloakAuthorization;
   if (!credential?.center) throw cellCodedError("authentication_required", "Task assignment requires Keycloak.");
   const decision = await evaluateKeycloakPerson({
-    credential,
+    // Read hints use the device session; the eventual write also evaluates center authority.
+    credential: { session: credential.session },
     personId: binding.actor.principal.personId,
     action: "task-assign",
     resource: { kind: "entity", repoId, entityRef: `task/${taskId}` },
@@ -34,7 +35,7 @@ export async function readTaskAssignmentDirectory(
   return {
     schema: "task-assignment-directory/v1",
     people: people.map(({ personId, username }) => ({ personId, username })),
-    nodes: nodes.map(({ nodeId, personId }) => ({ nodeId, personId })),
+    nodes: nodes.filter((node) => node.state === "active").map(({ nodeId, personId }) => ({ nodeId, personId })),
     teams: teams.map(({ id, name }) => ({ id, name })),
   };
 }

@@ -9,6 +9,7 @@ import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-prot
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
+import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
@@ -76,14 +77,26 @@ for (const explicit of [false, true])
         path.join(edgeRoot, "fleet-edge.json"),
         JSON.stringify({ schema: "fleet-edge-config/v1", ...config }),
       );
-      const edge = await openDaemonHost({ daemonId: "delivery-edge", userRoot: edgeUser });
+      fixture.owners.signIn(edgeUser, "node-one");
+      const oidc = new OidcSessionService(edgeUser, { fetch: fixture.owners.keycloak.fetch });
+      const edge = await openDaemonHost({
+        daemonId: "delivery-edge",
+        userRoot: edgeUser,
+        oidc,
+      });
       t.after(() => edge.close());
       await edge.attachmentsSettled();
       const transport = createUnixSocketTransportServer({
         daemonId: "delivery-edge",
         socketPath: localUserDaemonEndpoint(edgeUser, "delivery-edge"),
         createProtocolServer: (authContext, emit) =>
-          createJsonRpcProtocolServer({ host: edge, build: { commit: null }, authContext, emit }),
+          createJsonRpcProtocolServer({
+            host: edge,
+            build: { commit: null },
+            authContext,
+            emit,
+            sessionPrincipal: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal,
+          }),
       });
       await transport.start();
       t.after(() => transport.stop());
@@ -143,6 +156,7 @@ for (const explicit of [false, true])
           { kind: "task-submit", taskId: "task-other", commitSha },
         ]) {
           const denied = await runFleetTaskCommandClient({
+            readAccessToken: async () => `device-token-${config.nodeId}`,
             hostname: config.host,
             port: config.port,
             ca: readFileSync(config.caPath),

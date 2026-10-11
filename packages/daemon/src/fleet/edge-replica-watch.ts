@@ -8,7 +8,7 @@ export async function watchReplicaHead(
   timeoutMs: number | null,
 ) {
   const messageId = session.messageId();
-  session.send({ schema: "fleet.replica.watch/v1", messageId, repoId, afterRevision });
+  await session.send({ schema: "fleet.replica.watch/v1", messageId, repoId, afterRevision });
   const hint = await session.next(timeoutMs);
   if (hint.schema !== "fleet.replica.head-hint/v1" || hint.inReplyTo !== messageId)
     throw new Error("replica head hint expected");

@@ -10,10 +10,12 @@ import {
   makeTaskEventReader,
   readVerifiedLedgerBackup,
   type ScheduleV1,
-  registerDaemonRepo,
 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+} from "./repo-settings.fixture.ts";
 import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { definition, initHarnessRepo } from "./schedule-actions.fixtures.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";

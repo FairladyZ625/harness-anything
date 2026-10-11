@@ -25,7 +25,12 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
-import { withPolicyGroup, signInPolicyTestUser, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
+import {
+  withPolicyGroup,
+  signInPolicyTestUser,
+  provisionPolicyTestRepository,
+  policyTestCenter,
+} from "./keycloak-policy.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
@@ -65,7 +70,7 @@ const repoWriteBinding = withPolicyGroup(
 test("projection rebuild repairs a repository that has no authored settings document", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-projection-rebuild-bare-")); let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    initRepo(rootDir); provisionPolicyTestRepository("projection-rebuild-bare"); cell = await openProductRepoCell({ repoId: workspaceId("projection-rebuild-bare"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild-bare" });
+    initRepo(rootDir); provisionPolicyTestRepository("projection-rebuild-bare"); cell = await openProductRepoCell({ repoId: workspaceId("projection-rebuild-bare"), rootDir: canonicalRoot(rootDir), ownerId: "projection-rebuild-bare", keycloakCenter: policyTestCenter });
     const repaired = await cell.run({ kind: "projection-rebuild" }, withPolicyGroup(repoWriteBinding, "admin")) as Record<string, unknown>;
     assert.equal(repaired.outcome, "applied", JSON.stringify(repaired)); assert.equal(repaired.revision, 0); assert.deepEqual(makeTaskEventReader({ repoId: "projection-rebuild-bare", rootDir }).read().events, []);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }

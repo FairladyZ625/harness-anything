@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
@@ -20,14 +21,32 @@ import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 // Real provider process, child CLI, edge socket, Fleet TLS, center writer and isolated realm.
 // The edge has neither a center admin config nor a center secret.
 test(
-  "edge execution authenticates child CLI after logout without center configuration",
+  "edge execution requires a device session after logout without center configuration",
   { timeout: 120_000 },
   async (t) => {
     let cleanup = async () => {};
     t.after(() => cleanup());
     const live = new Set<string>();
-    const f = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
-    const loginAuthorityUrl = "https://keycloak.fixture";
+    const f = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", undefined, [
+      { instanceId: "edge-worker", enabled: true },
+    ]);
+    const loginAuthorityUrl = "https://keycloak.fixture:443";
+    const centerConfigPath = path.join(f.root, "user/rbac/config.json");
+    writeFileSync(
+      centerConfigPath,
+      JSON.stringify({
+        ...JSON.parse(readFileSync(centerConfigPath, "utf8")),
+        listener: {
+          address: "127.0.0.1",
+          hostname: "keycloak.fixture",
+          port: 443,
+          certificateFile: f.certFile,
+          certificateKeyFile: path.join(f.root, "tls.key"),
+        },
+      }),
+    );
+    for (const nodeId of ["node-one", "node-two", "node-slow"])
+      f.owners.keycloak.interactiveSession("person-owner", nodeId, loginAuthorityUrl, `device-token-${nodeId}`);
     const networkFetch = globalThis.fetch;
     let offline = false;
     t.mock.method(globalThis, "fetch", (input: string | URL | Request, init?: RequestInit) => {
@@ -45,14 +64,13 @@ test(
       userRoot = path.join(f.root, "edge-user"),
       viewRoot = path.join(f.root, "view");
     const remote = path.join(f.root, "delivery.git");
-    mkdirSync(remote);
-    git(remote, "init", "--bare", "--initial-branch=main");
-    git(f.repo, "remote", "add", "origin", remote);
-    // Clone the code baseline, before center-authored task publications. The center's
-    // compatibility event exports are not an edge ledger activation certificate.
+    // Preserve the pre-publication code cut without publishing a fixture branch.
     const codeBaseline = git(f.repo, "log", "--reverse", "--format=%H").split("\n")[1]!;
-    git(f.repo, "push", "origin", `${codeBaseline}:refs/heads/main`);
-    git(f.root, "clone", remote, edgeRoot);
+    git(f.root, "clone", "--bare", f.repo, remote);
+    git(remote, "update-ref", "refs/heads/main", codeBaseline);
+    git(remote, "symbolic-ref", "HEAD", "refs/heads/main");
+    git(f.repo, "remote", "add", "origin", remote);
+    git(f.root, "clone", "--branch", "main", remote, edgeRoot);
     git(edgeRoot, "config", "user.name", "Fleet Test");
     git(edgeRoot, "config", "user.email", "fleet@example.invalid");
     const config = {
@@ -68,7 +86,20 @@ test(
       quotaBytes: 64 * 1024 * 1024,
       waitTimeoutMs: 5000,
     };
-    const peer = { ...config, ca: f.cert, hostname: config.host };
+    let loginVersion = 0;
+    const approveDeviceAgain = (userRoot: string, nodeId: string, previous: string) => {
+      const session = JSON.parse(previous);
+      f.owners.keycloak.endInteractiveSession(session.accessToken);
+      const accessToken = `approved-${nodeId}-${++loginVersion}`;
+      f.owners.keycloak.interactiveSession(session.personId, nodeId, loginAuthorityUrl, accessToken);
+      managedRbacSessionStore(userRoot).write(JSON.stringify({ ...session, accessToken }));
+    };
+    const peer = {
+      ...config,
+      ca: f.cert,
+      hostname: config.host,
+      readAccessToken: f.owners.readAccessToken(config.nodeId),
+    };
     writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
     await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
@@ -232,6 +263,7 @@ test(
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const initialLocalRead = await cli(["task", "show", taskId]);
     assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
+    const initialDeviceSession = managedRbacSessionStore(userRoot).read()!;
     const edgeLogout = await rpc("daemon.rbac.manage", { operation: "logout" });
     assert.equal(edgeLogout.ok, true, JSON.stringify(edgeLogout));
     const logout = await new OidcSessionService(path.join(f.root, "user")).logout();
@@ -239,6 +271,9 @@ test(
     await daemon.stop();
     daemon = await startDaemon(daemonOptions);
     assert.ok("stop" in daemon);
+    assert.equal((await cli(["task", "show", taskId])).code, "authentication_required");
+    // dec_F01770FD0DCF72683B7C4C7A47: task credentials do not replace a signed-in device.
+    approveDeviceAgain(userRoot, config.nodeId, initialDeviceSession);
     for (const args of [
       ["task", "show", taskId],
       ["task", "read-set", taskId],
@@ -281,6 +316,7 @@ test(
       "evidence.bin",
     ]);
     assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    await waitForFleetPublication(f.host, repoId, String(artifact.opId), f.auth);
     assert.deepEqual(
       readFileSync(path.join(f.repo, "harness/tasks/task-fleet-fleet/artifacts/evidence.bin")),
       artifactBytes,
@@ -290,6 +326,7 @@ test(
       runFleetRuntimeEventClient({
         ...peer,
         nodeId: "node-slow",
+        readAccessToken: f.owners.readAccessToken("node-slow"),
         executionCredential: secret,
         opId: "wrong-node",
         eventType: "runtime_session_exited",
@@ -348,6 +385,12 @@ test(
     const reassigned = await cli(["task", "progress", "append", taskId, "--text", "Owner was reassigned."]);
     assert.equal(reassigned.outcome, "op_rejected", JSON.stringify(reassigned));
     f.setOwner("person-owner");
+    f.owners.keycloak.interactiveSession(
+      "person-owner",
+      config.nodeId,
+      loginAuthorityUrl,
+      `device-token-${config.nodeId}`,
+    );
     offline = true;
     const offlineShow = await cli(["task", "show", taskId]);
     assert.equal(offlineShow.outcome, "applied", JSON.stringify(offlineShow));
@@ -399,6 +442,7 @@ test(
     await runFleetReplicaPullClient({
       ...peer,
       nodeId: "node-slow",
+      readAccessToken: f.owners.readAccessToken("node-slow"),
       viewRoot: reviewView,
       diskQuotaBytes: config.quotaBytes,
     });
@@ -511,6 +555,7 @@ test(
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, secret);
     assert.equal(existsSync(path.join(reviewUser, "rbac/config.json")), false);
+    const savedReviewSession = managedRbacSessionStore(reviewUser).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
     await new OidcSessionService(path.join(f.root, "user")).logout();
     const reviewCli = async (args: string[]) => {
@@ -518,6 +563,9 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
+    const loggedOutReview = await reviewCli(["task", "show", taskId]);
+    assert.equal(loggedOutReview.code, "authentication_required", JSON.stringify(loggedOutReview));
+    approveDeviceAgain(reviewUser, "node-slow", savedReviewSession);
     const reviewedTask = await reviewCli(["task", "show", taskId]);
     assert.equal(reviewedTask.outcome, "applied", JSON.stringify(reviewedTask));
     // Frozen evidence is served by the center, even when the edge's workspace content differs.
@@ -546,6 +594,7 @@ test(
       const crossed = await runFleetTaskCommandClient({
         ...peer,
         nodeId,
+        readAccessToken: f.owners.readAccessToken(nodeId),
         executionCredential,
         opId: `crossed-${nodeId}`,
         taskId,
@@ -597,14 +646,14 @@ test(
     assert.ok(Array.isArray(s1.reviews));
     const ownerSession = {
       schema: "harness-oidc-session/v2",
-      accessToken: "token-person-owner",
+      accessToken: "owner-return-node-one",
       subject: "person-owner",
       personId: "person-owner",
       expiresAt: Date.now() + 3_600_000,
       roles: [],
       loginTarget: edgeRoot,
     };
-    f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, f.owners.url);
+    f.owners.keycloak.interactiveSession("person-owner", f.subject.nodeId, loginAuthorityUrl, ownerSession.accessToken);
     managedRbacSessionStore(userRoot).write(JSON.stringify(ownerSession));
     const closeout = path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md");
     writeFileSync(
@@ -673,6 +722,7 @@ test(
       runFleetRuntimeEventClient({
         ...peer,
         nodeId: "node-slow",
+        readAccessToken: f.owners.readAccessToken("node-slow"),
         opId: "stale-success-terminal",
         eventType: "runtime_session_outcome_observed",
         payload: {
@@ -704,8 +754,10 @@ test(
     assert.equal(beforeStaleExit.session.activity.outcome, null);
     t.diagnostic("S1 reviewer read and fixed receipt rejected; canonical reviews unchanged and report absent.");
     assert.equal(s2.task.status, "in_review", "amend preserves the already forwarded review stage");
-    f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl);
-    managedRbacSessionStore(reviewUser).write(JSON.stringify({ ...ownerSession, loginTarget: reviewRoot }));
+    f.owners.keycloak.interactiveSession("person-owner", "node-slow", loginAuthorityUrl, "owner-return-node-slow");
+    managedRbacSessionStore(reviewUser).write(
+      JSON.stringify({ ...ownerSession, accessToken: "owner-return-node-slow", loginTarget: reviewRoot }),
+    );
     writeFileSync(path.join(f.root, `${reviewRuntime}.finish`), "finish");
     const staleSettled = await eventuallyValue(async () => {
       const result = await f.host.read(
@@ -762,6 +814,7 @@ test(
     await runFleetReplicaPullClient({
       ...peer,
       nodeId: "node-slow",
+      readAccessToken: f.owners.readAccessToken("node-slow"),
       viewRoot: reviewView,
       diskQuotaBytes: config.quotaBytes,
     });
@@ -779,8 +832,11 @@ test(
     );
     assert.ok(reviewEnv.HARNESS_EXECUTION_CREDENTIAL);
     assert.notEqual(reviewEnv.HARNESS_EXECUTION_CREDENTIAL, oldSecret);
+    const s2DeviceSession = managedRbacSessionStore(reviewUser).read()!;
     assert.equal((await reviewRpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
     await new OidcSessionService(path.join(f.root, "user")).logout();
+    assert.equal((await reviewCli(["task", "show", taskId])).code, "authentication_required");
+    approveDeviceAgain(reviewUser, "node-slow", s2DeviceSession);
     assert.equal((await reviewCli(["task", "show", taskId])).outcome, "applied");
     packet = `harness/tasks/task-fleet-fleet/artifacts/reports/${reviewDispatch}.json`;
     writeFileSync(
