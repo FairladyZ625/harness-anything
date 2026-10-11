@@ -52,6 +52,7 @@ function provider() {
     readStage: "",
     transientEvery: 0,
     transientCalls: 0,
+    staleRun: null as number | null,
     calls: [] as string[],
     seen: [] as string[],
   };
@@ -234,6 +235,8 @@ async function fixture(
         requests: () => requests.splice(0),
         accept: async (fetched) => {
           if (fetched.runs.length && crash === "before-accept") throw new Error("crash before acceptance");
+          if (fetched.runs.some((run) => run.databaseId === state.staleRun))
+            throw Object.assign(new Error("A gate run requires a current submitted cut."), { code: "gate_run_stale" });
           const receipt = ingestCiObservations(cell as never, binding, fetched);
           if (fetched.runs.length && crash === "after-accept")
             throw new Error("crash after acceptance, before settlement");
@@ -285,19 +288,16 @@ async function fixture(
   });
 }
 
-test("reconciliation crosses 100 runs and the empty API tail; an old run's new attempt is imported on the next full pass", async () => {
+test("reconciliation reads only the newest main page and its latest attempt", async () => {
   await fixture(async ({ run, state, store, current }) => {
     state.runs = 121;
-    for (let page = 0; page < 8; page++) assert.equal((await run()).outcome, "succeeded");
-    assert.equal(current().status.ciObserve!.scanPass, 1);
+    assert.equal((await run()).outcome, "succeeded");
     assert.equal(current().status.ciObserve!.nextPage, 1);
     const revision = store.readHead()!.revision;
-    assert.equal(revision, 363, "one workflow, one job and one authority inventory per run");
+    assert.equal(revision, 60, "one workflow, one job and one authority inventory per latest-page run");
     state.latestAttempt = 2;
     assert.equal((await run()).outcome, "succeeded");
-    assert.ok(state.seen.includes("1.2"));
-    assert.equal(store.readHead()!.revision, revision + 30);
-    assert.equal((await run()).outcome, "succeeded");
+    assert.ok(state.seen.some((value) => value.endsWith(".2")));
     assert.equal(store.readHead()!.revision, revision + 60);
     assert.equal(current().status.ciObserve!.pending.length, 0);
   });
@@ -360,25 +360,20 @@ test("a crash before acceptance or after append preserves continuation; replay c
     crash(null);
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(store.readHead()!.revision, 3);
-    assert.equal(current().status.ciObserve!.nextPage, 2);
+    assert.equal(current().status.ciObserve!.nextPage, 1);
   });
 });
 
-test("a run with hundreds of attempts resumes a bounded subpage instead of restarting after every occurrence", async () => {
+test("a run with hundreds of attempts observes only its latest settled attempt", async () => {
   await fixture(async ({ run, state, current, store }) => {
     state.runs = 1;
     state.latestAttempt = 201;
-    for (let occurrence = 1; occurrence <= 10; occurrence++) {
-      assert.equal((await run()).outcome, "succeeded");
-      assert.equal(current().status.ciObserve!.nextRunId, 1);
-      assert.equal(current().status.ciObserve!.nextAttempt, occurrence * 20 + 1);
-      assert.equal(current().status.ciObserve!.nextPage, 1);
-      assert.equal(store.readHead()!.revision, occurrence * 60);
-    }
     assert.equal((await run()).outcome, "succeeded");
     assert.equal(current().status.ciObserve!.nextRunId, null);
-    assert.equal(current().status.ciObserve!.nextPage, 2);
-    assert.equal(store.readHead()!.revision, 603);
+    assert.equal(current().status.ciObserve!.nextPage, 1);
+    assert.equal(current().status.ciObserve!.nextAttempt, 1);
+    assert.deepEqual(state.seen, ["1.201", "1.201"]);
+    assert.equal(store.readHead()!.revision, 3);
   });
 });
 
@@ -460,21 +455,20 @@ for (const [mode, failure] of [
         pending: [],
         events: mode === "normal" ? 6 : 5,
         artifactRuns: mode === "normal" ? ["1", "2"] : ["2"],
-        seen: ["1.1", "1.1", "2.1", "2.1"],
       };
       assert.deepEqual(
-        checkpoints,
+        checkpoints.map(({ seen: _seen, unavailable: _unavailable, ...checkpoint }) => checkpoint),
         [
-          {
-            ...accepted,
-            nextPage: 2,
-            scanPass: 0,
-            unavailable: mode === "normal" ? [] : [{ runId: 1, attempt: 1, reason: "provider-artifact-unavailable" }],
-          },
-          { ...accepted, nextPage: 1, scanPass: 1, unavailable: [] },
+          { ...accepted, nextPage: 1, scanPass: 0 },
+          { ...accepted, nextPage: 1, scanPass: 0 },
         ],
-        "one unavailable archive must not pin the scan or fabricate artifact evidence",
+        "one unavailable archive must not pin the first-page scan or fabricate artifact evidence",
       );
+      assert.deepEqual(
+        checkpoints[0]!.unavailable,
+        mode === "normal" ? [] : [{ runId: 1, attempt: 1, reason: "provider-artifact-unavailable" }],
+      );
+      assert.deepEqual(checkpoints[1]!.unavailable, checkpoints[0]!.unavailable);
     });
   });
 }
@@ -504,7 +498,7 @@ for (const [name, failure, errorPattern, retryAt] of [
       assert.equal(result.outcome, "failed");
       assert.match(progress.error!, errorPattern);
       assert.equal(progress.nextPage, 1);
-      assert.equal(progress.nextRunId, 1);
+      assert.equal(progress.nextRunId, null);
       assert.deepEqual(progress.unavailable, []);
       assert.deepEqual(state.seen, ["1.1"], "the later run must not be visited after an occurrence failure");
       assert.equal(store.readHead(), null);
@@ -531,11 +525,11 @@ test("C1 intermittent listing EOF preserves page progress and publishes witnesse
       t.diagnostic(JSON.stringify({ occurrence, outcome: result.outcome, progress: result.ciObserve }));
       assert.equal(result.outcome, "succeeded");
     }
-    assert.ok(current().status.ciObserve!.lastCompletedScanAt);
+    assert.equal(current().status.ciObserve!.lastCompletedScanAt, null);
     const witnesses = store
       .read()
       .events.filter((event) => event.schema === "ci-run-observation/v4" && event.payload.scope === "workflow");
-    assert.equal(new Set(witnesses.map((event) => event.payload.identity.databaseRunId)).size, 41);
+    assert.equal(new Set(witnesses.map((event) => event.payload.identity.databaseRunId)).size, 20);
   });
 });
 
@@ -556,11 +550,11 @@ for (const [mode, failure] of [
       state.runs = 2;
       state.firstArchiveError = failure;
       assert.equal((await run()).outcome, "succeeded");
-      assert.equal(current().status.ciObserve!.nextPage, 2);
+      assert.equal(current().status.ciObserve!.nextPage, 1);
       assert.deepEqual(current().status.ciObserve!.pending, [{ runId: 1, attempt: 1, workflow: "rewrite-ci" }]);
       assert.equal(store.readHead()!.revision, 3);
       assert.equal((await run()).outcome, "succeeded");
-      assert.ok(current().status.ciObserve!.lastCompletedScanAt);
+      assert.equal(current().status.ciObserve!.lastCompletedScanAt, null);
       state.firstArchiveError = null;
       assert.equal((await run()).outcome, "succeeded");
       assert.equal(current().status.ciObserve!.pending.length, 0);
@@ -576,11 +570,11 @@ for (const stage of ["/artifacts?", "/attempts/1", "/jobs?"]) {
       state.readStage = stage;
       state.firstReadError = new Error("read: connection reset by peer");
       assert.equal((await run()).outcome, "succeeded");
-      assert.equal(current().status.ciObserve!.nextPage, 2);
+      assert.equal(current().status.ciObserve!.nextPage, 1);
       assert.deepEqual(current().status.ciObserve!.pending, [{ runId: 1, attempt: 1, workflow: "rewrite-ci" }]);
       assert.equal(store.readHead()!.revision, 3);
       assert.equal((await run()).outcome, "succeeded");
-      assert.ok(current().status.ciObserve!.lastCompletedScanAt);
+      assert.equal(current().status.ciObserve!.lastCompletedScanAt, null);
       state.firstReadError = null;
       assert.equal((await run()).outcome, "succeeded");
       assert.equal(current().status.ciObserve!.pending.length, 0);
@@ -615,17 +609,15 @@ test("explicit demand precedes a bounded pending batch and remaining diagnostics
   });
 });
 
-test("one occurrence scans at most twenty attempts and resumes the first unprocessed attempt", async () => {
+test("one occurrence observes the latest attempt without a historical attempt cursor", async () => {
   await fixture(async ({ run, state, current }) => {
     state.runs = 1;
     state.latestAttempt = 21;
     assert.equal((await run()).outcome, "succeeded");
-    assert.equal(current().status.ciObserve!.nextAttempt, 21);
-    assert.equal(current().status.ciObserve!.nextRunId, 1);
-    assert.equal(state.seen.includes("1.21"), false);
-    assert.equal((await run()).outcome, "succeeded");
+    assert.equal(current().status.ciObserve!.nextAttempt, 1);
     assert.equal(current().status.ciObserve!.nextRunId, null);
     assert.equal(state.seen.includes("1.21"), true);
+    assert.equal(current().status.ciObserve!.nextRunId, null);
   });
 });
 
@@ -677,7 +669,7 @@ test("a progressing download exceeds the provider deadline and resumes completed
   });
 });
 
-test("full pending capacity succeeds at the first unprocessed target and resumes when space frees", async () => {
+test("full pending capacity admits newer runs by evicting the oldest diagnostic target", async () => {
   await fixture(async ({ run, state, seedPending, current }) => {
     seedPending(100);
     state.artifacts = false;
@@ -689,15 +681,22 @@ test("full pending capacity succeeds at the first unprocessed target and resumes
     assert.equal(full.ciObserve!.error, null);
     assert.equal(full.ciObserve!.pending.length, 100);
     assert.equal(full.ciObserve!.nextPage, 1);
-    assert.equal(full.ciObserve!.nextRunId, 101);
+    assert.equal(full.ciObserve!.nextRunId, null);
     assert.equal(full.ciObserve!.nextAttempt, 1);
     assert.equal(full.ciObserve!.scanPass, 0);
-    state.artifacts = true;
-    const resumed = await run();
-    assert.equal(resumed.outcome, "succeeded", resumed.detail);
-    assert.equal(current().status.ciObserve!.pending.length, 96);
     assert.ok(current().status.ciObserve!.pending.some((target) => target.runId === 101));
-    assert.equal(current().status.ciObserve!.nextRunId, null);
-    assert.equal(current().status.ciObserve!.nextPage, 2);
+  });
+});
+
+test("a stale gate-run target is unavailable while the remaining pending targets finish the occurrence", async () => {
+  await fixture(async ({ run, state, seedPending, current }) => {
+    seedPending(2);
+    state.staleRun = 1;
+    state.runs = 0;
+    const result = await run();
+    assert.equal(result.outcome, "succeeded", result.detail);
+    assert.deepEqual(current().status.ciObserve!.pending, []);
+    assert.deepEqual(current().status.ciObserve!.unavailable, [{ runId: 1, attempt: 1, reason: "gate-run-stale" }]);
+    assert.ok(state.seen.includes("2.1"), "the stale target must not starve the next target");
   });
 });
