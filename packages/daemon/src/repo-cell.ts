@@ -121,6 +121,9 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       rootDir: context.rootDir,
       eventStore: store,
       now: context.now,
+      // Cold attach replays content-heavy historical events. Commit smaller cuts so the
+      // supervisor observes advancing watermarks during reconstruction, before ready.
+      catchUpLimit: 256,
       onProgress: (progress) =>
         context.input.onOpenProgress?.({
           phase: "catching-up",
