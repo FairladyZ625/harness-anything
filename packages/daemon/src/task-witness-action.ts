@@ -186,6 +186,39 @@ export function settleImportedGithubActionsClaims(cell: RepoCellOperationalConte
     for (const { taskId, snapshot } of cell.projection.list({ status }).rows) {
       const target = submittedGithubActionsRequirement(snapshot);
       if (!target || target.execution.schema !== "execution/v1") continue;
+      const current = currentGateRun(target.execution, target.requirement.gateId),
+        latest = githubActionsWitnessEvidence(cell, target.requirement, target.execution, true);
+      // A completed source run is terminal for its provider attempt, but a later settled
+      // attempt of the same GitHub run is a new source result. Advance the source claim once
+      // so the normal witness publication path can bind the latest verdict.
+      if (
+        current &&
+        current.state === "completed" &&
+        latest &&
+        latest.diagnostic !== current.diagnostic &&
+        target.requirement.witness.kind === "github-actions"
+      ) {
+        runTaskWitnessAction(
+          cell,
+          {
+            kind: "task-witness-rerun",
+            taskId,
+            executionId: target.execution.executionId,
+            gateId: target.requirement.gateId,
+            runId: current.runId,
+            reason: `CI provider attempt advanced: ${latest.diagnostic}`,
+            [centerWitnessAction]: true,
+          },
+          {
+            ...binding,
+            actor: {
+              principal: snapshot.task!.createdBy.principal,
+              executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
+            },
+          },
+        );
+        continue;
+      }
       runTaskWitnessAction(
         cell,
         {

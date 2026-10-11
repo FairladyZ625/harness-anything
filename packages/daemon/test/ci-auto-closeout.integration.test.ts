@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { currentGateRun, makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
+import { makeTaskEventReader } from "@harness-anything/kernel";
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -112,11 +112,11 @@ test("merged approved cuts resume completion after red becomes green, without ma
         `#!/usr/bin/env node
 const fs = require('node:fs'); const args = process.argv.slice(2); const state=JSON.parse(fs.readFileSync(${JSON.stringify(statePath)},'utf8'));
 const endpoint=args.find(a=>a.startsWith('repos/'))||'';
-const metadata={name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:'${delivery}',headSha:'${delivery}',head_branch:'main',headBranch:'main',status:'completed',conclusion:state.conclusion,run_attempt:1,attempt:1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/repository'}};
+const metadata={name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:'${delivery}',headSha:'${delivery}',head_branch:'main',headBranch:'main',status:'completed',conclusion:state.conclusion,run_attempt:state.attempt||1,attempt:state.attempt||1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/repository'}};
 if(endpoint.includes('/compare/')) process.stdout.write(JSON.stringify({status:'identical'}));
 else if(endpoint.includes('/commits?')) process.stdout.write(JSON.stringify([{sha:'${delivery}',parents:[]}]));
 else if(endpoint.includes('actions/runs?head_sha=')) process.stdout.write(JSON.stringify([{databaseId:state.runId,path:metadata.path,headBranch:'main',event:'push',status:'completed',conclusion:state.conclusion}]));
-else if(endpoint.includes('/workflows/')) process.stdout.write(JSON.stringify({workflow_runs:endpoint.endsWith('page=1')?[{id:state.runId,run_attempt:1,head_branch:'main',status:'completed'}]:[]}));
+else if(endpoint.includes('/workflows/')) process.stdout.write(JSON.stringify({workflow_runs:endpoint.endsWith('page=1')?[{id:state.runId,run_attempt:state.attempt||1,head_branch:'main',status:'completed'}]:[]}));
 else if(endpoint.includes('/jobs?')) process.stdout.write(JSON.stringify([{jobs:[]}]));
 else if(endpoint.includes('/artifacts')) process.stdout.write(JSON.stringify([{artifacts:[]}]));
 else if(endpoint.includes('/attempts/')||args[1]==='view') process.stdout.write(JSON.stringify(metadata));
@@ -127,8 +127,8 @@ else throw new Error('unexpected provider call '+args.join(' '));
       process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
       await seedBuiltinSchedules({ cell: center, binding });
       let occurrence = 0;
-      const run = async (runId: number, conclusion: string) => {
-        writeFileSync(statePath, JSON.stringify({ runId, conclusion }));
+      const run = async (runId: number, conclusion: string, attempt = 1) => {
+        writeFileSync(statePath, JSON.stringify({ runId, conclusion, attempt }));
         const receipt = await center.run(
           {
             kind: "schedule-run-now",
@@ -165,22 +165,8 @@ else throw new Error('unexpected provider call '+args.join(' '));
         full.rejectionExplanation!.indexOf("Merged approved closeouts") <
           full.rejectionExplanation!.indexOf("TASK_WIP_LIMIT_REACHED"),
       );
-      await run(2, "failure");
-      await run(2, "failure");
-      // Import now publishes the first pass. Only an owner rerun may replace it with red.
-      applied(
-        await center.run(
-          {
-            kind: "task-witness-rerun",
-            taskId,
-            executionId,
-            gateId: "ci",
-            runId: initialRuns[1].runId,
-            reason: "Owner requests the newly observed failing CI run.",
-          },
-          binding,
-        ),
-      );
+      await run(2, "failure", 1);
+      await run(2, "failure", 2);
       const beforeConsent = JSON.parse(String((await center.run({ kind: "task-show", taskId }, binding)).evidence)).task
         .status;
       assert.equal(beforeConsent, "in_review");
@@ -190,50 +176,12 @@ else throw new Error('unexpected provider call '+args.join(' '));
       const red = await center.run({ kind: "task-complete", taskId }, binding);
       assert.equal(red.code, "ci_missing", JSON.stringify(red));
       t.diagnostic(`red complete: ${red.code} ${red.rejectionExplanation}`);
-      // dec_4190D5EA63D9DD208CE946F133: new CI observations cannot overwrite a terminal run.
-      await run(3, "success");
-      const unchanged = await center.run({ kind: "task-complete", taskId }, binding);
-      assert.equal(unchanged.code, "ci_missing", JSON.stringify(unchanged));
-      const runReader = makeTaskEventReader({ rootDir, repoId }),
-        projection = makeTaskProjection({ rootDir, eventStore: runReader });
-      let failedRunId: string;
-      try {
-        projection.rebuild();
-        const execution = projection
-          .read(taskId)
-          .snapshot.executions.find((value) => value.executionId === executionId)!;
-        const failedRun = currentGateRun(execution, "ci")!;
-        assert.equal(failedRun.result, "fail");
-        failedRunId = failedRun.runId;
-      } finally {
-        projection.close();
-        await runReader.drain();
-      }
-      applied(
-        await center.run(
-          {
-            kind: "task-witness-rerun",
-            taskId,
-            executionId,
-            gateId: "ci",
-            runId: failedRunId,
-            reason: "Owner requests the new CI observation for this submitted cut.",
-          },
-          binding,
-        ),
-      );
-      const contenders = await Promise.all([run(3, "success"), center.run({ kind: "task-complete", taskId }, binding)]);
-      assert.ok(
-        contenders[1].outcome === "applied" ||
-          contenders[1].outcome === "no_changes" ||
-          contenders[1].code === "ci_missing",
-        JSON.stringify(contenders[1]),
-      );
-      await run(3, "success");
+      await run(2, "success", 3);
       const status = JSON.parse(String((await center.run({ kind: "task-show", taskId }, binding)).evidence)).task
         .status;
       assert.equal(status, "done", "the next green occurrence must finish the consented cut");
-      await run(3, "success");
+      const final = await center.run({ kind: "task-complete", taskId }, binding);
+      assert.ok(final.outcome === "no_changes" || final.outcome === "applied", JSON.stringify(final));
       const reader = makeTaskEventReader({ rootDir, repoId });
       try {
         assert.equal(reader.read().events.filter((event) => event.type === "task_completed").length, 1);

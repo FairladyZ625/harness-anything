@@ -36,7 +36,10 @@ export function replayGateRunChange(
   if (!requirement) throw gateRunError("gate_run_stale", "Run gate is absent from the frozen contract.");
   const prior = currentGateRun(current, run.gateId),
     sourceRenewal =
-      prior && expiredGithubActionsClaim(requirement, prior, event.occurredAt) && event.actor.executor !== null;
+      prior &&
+      event.actor.executor !== null &&
+      (expiredGithubActionsClaim(requirement, prior, event.occurredAt) ||
+        (requirement.witness.kind === "github-actions" && run.diagnostic.startsWith("CI provider attempt advanced:")));
   const ownerAction =
     event.payload.operation === "revoke" ||
     (event.payload.operation === "claim" && run.supersedesRunId !== null && !sourceRenewal);
