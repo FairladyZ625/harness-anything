@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { ScheduleV1 } from "@harness-anything/kernel";
+import type { ScheduleV1, TaskLifecycleSnapshot } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -37,6 +37,7 @@ async function submittedTaskFixture(
     readonly releaseWitness: () => void;
     readonly releaseScan: () => void;
     readonly show: () => Promise<ScheduleV1>;
+    readonly advance: () => void;
   }) => Promise<void>,
 ): Promise<void> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-receipt-")),
@@ -84,7 +85,9 @@ else throw new Error('unexpected provider call ' + args.join(' '));
   writeFileSync(path.join(bin, "gh"), gh, { mode: 0o755 });
   const taskId = "task-pull-receipt";
   process.env.PATH = `${bin}${path.delimiter}${originalPath ?? ""}`;
+  let now = "2026-10-11T00:00:00.000Z";
   const cell = await openBootstrappedRepoCell({
+    now: () => now,
     repoId: workspaceId("ci-pull-receipt"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "pull-receipt",
@@ -119,6 +122,9 @@ else throw new Error('unexpected provider call ' + args.join(' '));
       rootDir,
       taskId,
       delivery,
+      advance: () => {
+        now = "2026-10-11T02:00:00.000Z";
+      },
       calls: () => readFileSync(callsLog, "utf8").split("\n").filter(Boolean),
       releaseWitness: () => writeFileSync(witnessHold, "released"),
       releaseScan: () => writeFileSync(scanHold, "released"),
@@ -245,3 +251,57 @@ test("a late --task pull waits out the active occurrence, then answers from the 
     );
   });
 });
+
+for (const trigger of ["ci-observe-pull", "schedule-run-now", "task-complete"] as const) {
+  test(`${trigger} replaces an expired CI claim and publishes one bound witness`, async () => {
+    await submittedTaskFixture(async ({ cell, taskId, advance, releaseWitness, releaseScan, show }) => {
+      const snapshot = async () =>
+        JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence)) as TaskLifecycleSnapshot;
+      const before = await snapshot();
+      const old = before.executions[0]!.gateRuns[0]!;
+      assert.equal(old.state, "running");
+      assert.equal(before.gateWitnesses.length, 0);
+      advance();
+      releaseWitness();
+      releaseScan();
+      if (trigger === "task-complete") {
+        const results = await Promise.all(
+          [0, 1].map((i) =>
+            cell.run({ kind: trigger, taskId }, { ...binding, source: { kind: "node", nodeId: `edge-${i}` } }),
+          ),
+        );
+        assert.ok(
+          results.every((receipt) => receipt.code === "ci_missing"),
+          JSON.stringify(results),
+        );
+        const renewed = await snapshot();
+        assert.equal(renewed.executions[0]!.gateRuns.length, 2, "two edge requests share one new claim");
+        assert.equal(renewed.executions[0]!.gateRuns[0]!.state, "cancelled");
+      }
+      const receipt =
+        trigger === "schedule-run-now"
+          ? await cell.run(
+              { kind: trigger, scheduleId: builtinCiObserveScheduleId, idempotencyKey: "expired-import" },
+              binding,
+            )
+          : await cell.run({ kind: "ci-observe-pull", taskId }, binding);
+      assert.ok(["applied", "no_changes"].includes(receipt.outcome), JSON.stringify(receipt));
+      await waitForIdleSchedule(show);
+      const after = await snapshot();
+      const runs = after.executions[0]!.gateRuns;
+      assert.equal(runs.length, 2);
+      assert.equal(runs[0]!.state, "cancelled");
+      assert.equal(runs[1]!.state, "completed");
+      assert.equal(runs[1]!.result, "pass");
+      assert.equal(runs[1]!.supersedesRunId, old.runId);
+      assert.ok(runs[1]!.claimFence > old.claimFence);
+      assert.equal(after.gateWitnesses.length, 1);
+      assert.equal(after.gateWitnesses[0]!.provenance!.runId, runs[1]!.runId);
+      assert.equal(after.gateWitnesses[0]!.provenance!.claimFence, runs[1]!.claimFence);
+      const completed = await cell.run({ kind: "task-complete", taskId }, binding);
+      assert.notEqual(completed.code, "ci_missing", JSON.stringify(completed));
+      // This fixture has no human review; CI must cease blocking without inventing consent.
+      assert.equal((await snapshot()).gateWitnesses.length, 1);
+    });
+  });
+}
