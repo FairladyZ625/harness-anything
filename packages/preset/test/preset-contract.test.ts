@@ -1,6 +1,8 @@
 // harness-test-tier: contract
 import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures.ts";
 import assert from "node:assert/strict";
+import { readdirSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
 import type { GeneratedTaskActionProtocolProjection } from "../src/preset-command-contract-support.ts";
 import { taskActionDescriptorProjection } from "../src/task-action-projection.generated.ts";
@@ -13,6 +15,8 @@ import presetContract, {
 import { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "@harness-anything/kernel";
 import { parameterRelationHint, regexLength } from "../src/preset-command-contract.ts";
 import { decodePresetPackageV3, validateVerticalSource } from "../src/preset-resolver.ts";
+import { defaultBundled } from "../src/preset-resolver-common.ts";
+import { validatePresetPackage } from "../src/preset-validation.ts";
 
 const manifest = {
   schema: "preset-manifest/v3",
@@ -36,6 +40,52 @@ test("preset contract accepts only the closed v3 wire shape", () => {
     presetContract.schemas.map((schema) => schema.id),
     ["preset-manifest/v3", "preset-document/v1", "preset-snapshot/v1", "preset-run-receipt/v1"],
   );
+});
+
+test("manifest profile errors name the offending profile field", () => {
+  // Incident regression: checkerProfile was a declared v3 profile field until 9e8dc33ff1
+  // retired it. A preset installed before that commit fails current validation, and the
+  // error must name the retired field instead of the former blanket "profiles or
+  // defaultProfile is invalid".
+  assert.match(
+    validatePresetManifestV3({
+      ...manifest,
+      profiles: [{ ...manifest.profiles[0], checkerProfile: "standard" }],
+    }).join("\n"),
+    /profiles\[0\] contains unknown field "checkerProfile"/u,
+  );
+  assert.match(
+    validatePresetManifestV3({ ...manifest, defaultProfile: "missing" }).join("\n"),
+    /"defaultProfile" must match the id of a declared profile/u,
+  );
+  assert.match(
+    validatePresetManifestV3({
+      ...manifest,
+      profiles: [
+        {
+          ...manifest.profiles[0],
+          templateSelections: [
+            {
+              slot: "task.worker.flow",
+              templateRef: "template://planning/gui-component-flow@1",
+              materializeAs: "worker-flow.md",
+              localePolicy: { prefer: "project", fallback: "en-US" },
+              rewrites: true,
+            },
+          ],
+        },
+      ],
+    }).join("\n"),
+    /profiles\[0\]\.templateSelections\[0\] contains unknown field "rewrites"/u,
+  );
+});
+
+test("every bundled preset package passes full validation", () => {
+  for (const entry of readdirSync(defaultBundled, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const report = validatePresetPackage({ source: path.join(defaultBundled, entry.name) });
+    assert.equal(report.valid, true, `${entry.name}: ${report.issues.map((issue) => issue.message).join("; ")}`);
+  }
 });
 
 test("profile closeoutOverrides accepts exactly the kernel closeout gate vocabulary", () => {
