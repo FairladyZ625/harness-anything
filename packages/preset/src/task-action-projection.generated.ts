@@ -662,6 +662,12 @@ export const settingsFieldProtocolProjection = {
       enum: ["en-US", "zh-CN"],
     },
     {
+      field: "overviewWatchedActivityDays",
+      description: "How many days back the overview's watched-works activity window reaches.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "taskScaffold",
       description: "Repository file that adds to or replaces the preset's documents in every new task package.",
       type: "string",
@@ -837,6 +843,17 @@ export const settingsFieldProtocolProjection = {
       name: "--locale",
       kind: "single",
       enum: ["en-US", "zh-CN"],
+    },
+    {
+      field: "overviewWatchedActivityDays",
+      description: "How many days back the overview's watched-works activity window reaches.",
+      group: "presentation",
+      effect:
+        "The overview keeps pinned works first, then works active in this window; older ones stay on the works page.",
+      name: "--overview-watched-activity-days",
+      kind: "single",
+      regex: "^[1-9][0-9]*$",
+      projection: "number",
     },
     {
       field: "taskScaffold",

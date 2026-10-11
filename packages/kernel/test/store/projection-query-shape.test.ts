@@ -942,9 +942,25 @@ test("one root status query stays indexed and constant as unrelated works grow",
     assert.equal(readTaskPresentationStatus(db, "direct-done-root"), "done");
     add("direct-open-root", "planned", null);
     add("direct-open-leaf", "active", "direct-open-root");
-    assert.equal(readTaskPresentationStatus(db, "direct-open-root"), "planned");
+    assert.equal(readTaskPresentationStatus(db, "direct-open-root"), "active");
     add("open", "active", "member");
-    assert.equal(readTaskPresentationStatus(db, "root"), "planned");
+    assert.equal(readTaskPresentationStatus(db, "root"), "active");
+    // A started member (any non-planned, non-cancelled status) moves a planned root to active; a
+    // cancelled member alongside a planned one is not a started work and not an all-terminal
+    // subtree, so that root stays planned.
+    add("declared-root", "planned", null, "work");
+    add("declared-leaf", "in_review", "declared-root");
+    assert.equal(readTaskPresentationStatus(db, "declared-root"), "active");
+    add("cancelled-only-root", "planned", null);
+    add("cancelled-only-leaf", "cancelled", "cancelled-only-root");
+    add("cancelled-sibling", "planned", "cancelled-only-root");
+    assert.equal(readTaskPresentationStatus(db, "cancelled-only-root"), "planned");
+    add("all-planned-root", "planned", null);
+    add("all-planned-leaf", "planned", "all-planned-root");
+    assert.equal(readTaskPresentationStatus(db, "all-planned-root"), "planned");
+    add("running-root", "active", null);
+    add("running-leaf", "submitted", "running-root");
+    assert.equal(readTaskPresentationStatus(db, "running-root"), "active");
     add("empty", "planned", null, "work");
     assert.equal(readTaskPresentationStatus(db, "empty"), "planned");
     add("terminal", "cancelled", null, "work");

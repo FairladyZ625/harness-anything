@@ -6,8 +6,10 @@ import { FocusLayer } from "../components/primitives/FocusLayer";
 import { PageRegions } from "../components/primitives/page-regions.tsx";
 import { Region } from "../components/primitives/Region";
 import { StatusTag } from "../components/primitives/StatusTag";
+import type { AppLocation, OverviewFocusLocation } from "../navigation/viewHistory.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { useOverviewArtifacts, useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
+import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import { t } from "../i18n/index.tsx";
@@ -17,7 +19,6 @@ import {
   decisionRows,
   drillWipRows,
   followUpRows,
-  inflightTaskRows,
   pinnedTaskRows,
   recentDayGroups,
   reviewRows,
@@ -25,15 +26,14 @@ import {
   watchedRecentPaths,
   watchedWorks,
   workHandlers,
+  WATCHED_ACTIVITY_DAYS_DEFAULT,
 } from "./overview-model.ts";
-import { ArtifactFocusDetail, ArtifactFocusList, artifactRowKey } from "./overview-inflight-shelf.tsx";
+import { OverviewArtifactsPage, OverviewArtifactsShelf, artifactRowKey } from "./overview-artifacts.tsx";
 import {
   FollowUpsFocusDetail,
   FollowUpsFocusList,
-  OverviewArtifactsShelf,
   OverviewDecisionsBand,
   OverviewDrillBody,
-  OverviewInflightBody,
   OverviewWorksBody,
   PinnedFocusDetail,
   PinnedFocusList,
@@ -49,15 +49,14 @@ import { CiFocusDetail, CiFocusList } from "./overview-ci.tsx";
 import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
- * 总览(2026-10-07 三块区域返工):页面顶部仍是紧凑决策带——只放真实要本人动手的
- * awaits 问句与待点头决策。首屏主体分两列:左列是在飞任务流(repo.tasks.wip 的
- * active/submitted/in_review 占位,执行者来自 runtime overview 的 live 会话)与最新
- * HTML 产物速览架(repo.artifacts.list,行点击弹详情层原地预览该 HTML,不离开总览);
- * 右列是关注的工作(全部关注工作压缩为紧凑行、区内滚动、点行进工作详情)与「执行与
- * 下钻」(tab + 内联名单:WIP 四态全量/跟进与返工/置顶承诺,注意力序,点行弹既有
- * FocusLayer 详情)。系统状态弱化成一行小字,只有影响当前工作的异常才升成显眼状态点。
- * 数据全部来自已挂载读面,页面不另发第二套请求;注意力/排序只透传 daemon 的分数与
- * 已有 Pin。区域板沿用 PageRegions(连接+仓+槽位的顺序与比例偏好照旧)。
+ * 总览(2026-10-11 业主意见返工):页面顶部仍是紧凑决策带(计数并入标签)。首屏主体
+ * 左列上格是「执行与下钻」(放左上角;「进行中的任务」行并进原在飞任务流的执行者与
+ * 最近活动信息,「在飞任务」区块已删除),下格是最新 HTML 产物速览架;右列是关注的工作
+ * (默认列最近 N 天内有活动的工作,N 是设置项「关注的工作活动天数」,置顶工作保留在
+ * 前;行内给进度、进行中子任务数、最近活动与等你处理数)。点产物行或「查看全部」进
+ * 接近全屏的产物二级页:左窄列表、右大预览、默认选中最新;二级页与各名单的放大层都
+ * 走全局导航历史(开层推栈、后退回原位)。系统状态弱化成一行小字。
+ * 数据全部来自已挂载读面,页面不另发第二套请求;区域板沿用 PageRegions。
  */
 export function OverviewView({
   repoId,
@@ -75,8 +74,11 @@ export function OverviewView({
   onOpenWorks,
   onOpenTasks,
   onOpenCollaboration,
-  onOpenArtifacts,
   onUnpin,
+  overviewLayer,
+  onOverviewLayerNavigate,
+  onOverviewLayerPatch,
+  onOverviewLayerClose,
 }: {
   readonly repoId: string;
   readonly connectionId: string | null;
@@ -92,8 +94,8 @@ export function OverviewView({
   /** 非纯本地仓的协作摘要(task_1bafbf09);null/undefined = 纯本地,不显示入口。 */
   readonly collaboration?: { readonly total: number; readonly executing: number } | null;
   readonly onNavigateEntity: (ref: string) => void;
-  /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情;产物速览架
-   *  行点击额外带该产物的包内相对路径,任务详情直接选中该文档,其余入口不传。 */
+  /** 工作行与任务行的落点:App 按「根任务即工作」分流到工作页或任务详情;产物二级页
+   *  「跳到所属 task」额外带该产物的包内相对路径,任务详情直接选中该文档。 */
   readonly onOpenTask: (taskId: string, docPath?: string | null) => void;
   /** 顶栏全局搜索的落点:⌘K 命令面板。 */
   readonly onOpenSearch: () => void;
@@ -104,16 +106,29 @@ export function OverviewView({
   readonly onOpenTasks: () => void;
   /** 紧凑协作入口的落点(总览只给摘要与入口,分工清单在协作页)。 */
   readonly onOpenCollaboration?: () => void;
-  /** 产物速览架「查看全部产物」的落点:产物页;未提供时不渲染该入口。 */
-  readonly onOpenArtifacts?: () => void;
   /** 取消置顶(pin 写通道,taskActions.setTaskPin)。 */
   readonly onUnpin: (taskId: string) => void;
+  /** 总览页内层位置(AppLocation 的总览层字段子集,App 从 location 派生):null = 层关着。 */
+  readonly overviewLayer: {
+    readonly overviewArtifactId: string | null;
+    readonly overviewFocus: OverviewFocusLocation | null;
+  };
+  /** 开层/换层(导航性):推栈,后退回到开层前的位置。 */
+  readonly onOverviewLayerNavigate: (
+    fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>,
+  ) => void;
+  /** 层内精修(换选中行):原地改当前位置,不占历史条目。 */
+  readonly onOverviewLayerPatch: (fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>) => void;
+  /** 关层:能退则弹栈回上一位置,栈底(会话恢复的孤立层条目)原地收层。 */
+  readonly onOverviewLayerClose: (fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>) => void;
 }) {
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
-  const [focus, setFocus] = useState<DrillFocusKey | null>(null);
-  const [selected, setSelected] = useState<Partial<Record<DrillFocusKey, string>>>({});
-  // 产物详情层的选中行(键 = artifactRowKey;null = 层关着)。点速览架行打开,不离开总览。
-  const [artifactFocus, setArtifactFocus] = useState<string | null>(null);
+  // 放大层与产物二级页的开关/选中都在全局导航历史(AppLocation 的总览层字段):
+  // 开层推栈、层内换选中原地改、关层弹栈——原地 useState 会让后退失灵(业主
+  // 2026-10-11 全局导航返工)。焦点键与选中行从层位置派生,不再各持一份。
+  const focus = overviewLayer.overviewFocus?.key ?? null;
+  const layerSelectedId = overviewLayer.overviewFocus?.selectedId ?? null;
+  const artifactFocus = overviewLayer.overviewArtifactId;
   const [fetchCiDetails, setFetchCiDetails] = useState(false);
   const ciQuery = useOverviewCi(repoId, fetchCiDetails);
   const runtimeQuery = useOverviewRuntime(repoId);
@@ -139,7 +154,18 @@ export function OverviewView({
   const reviews = useMemo(() => reviewRows(agenda), [agenda]);
   const reviewDrill = useMemo(() => reviewDrillRows(reviews), [reviews]);
   const pinned = useMemo(() => pinnedTaskRows(agenda, works), [agenda, works]);
-  const { watched, pinnedClosed } = useMemo(() => watchedWorks(works, agenda), [works, agenda]);
+  // 关注的活动窗口(意见 4):天数走设置项,读面落定前的 undefined 用声明默认,不猜。
+  const settingsQuery = useSettingsQuery(repoId);
+  const activityDays = useMemo(() => {
+    const value = settingsQuery.data?.values.overviewWatchedActivityDays;
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 1
+      ? value
+      : WATCHED_ACTIVITY_DAYS_DEFAULT;
+  }, [settingsQuery.data]);
+  const { watched, pinnedClosed } = useMemo(
+    () => watchedWorks(works, agenda, { days: activityDays, now }),
+    [works, agenda, activityDays, now],
+  );
   // 卡点行接回源行的映射(一次构建,attentionOf 逐项查;行上动作需要源读面的完整行)。
   const attentionSourceMap = useMemo(() => (agenda === undefined ? null : attentionSources(agenda)), [agenda]);
   const recentDays = useMemo(
@@ -159,13 +185,13 @@ export function OverviewView({
   const failing = ciRuns.filter((run) => run.branch === "main" && run.pass === false);
   const wipCounted = wipQuery.data?.counted ?? [];
   const wipFull = wipQuery.data !== undefined && wipCounted.length >= wipQuery.data.limit;
-  const inflight = useMemo(
-    () => inflightTaskRows(wipQuery.data, runtimeQuery.data, agenda),
+  // 「执行与下钻 → 进行中的任务」的内联名单(注意力分降序;行内含执行者与最近活动)。
+  const drillWip = useMemo(
+    () => drillWipRows(wipQuery.data, runtimeQuery.data, agenda),
     [wipQuery.data, runtimeQuery.data, agenda],
   );
-  // 「执行与下钻」WIP tab 的内联名单(注意力分降序;blocked 与其余三态同列)。
-  const drillWip = useMemo(() => drillWipRows(wipQuery.data, agenda), [wipQuery.data, agenda]);
-  // 产物详情层:列表 = 全部产物行(不只架上的 6 条),选中收敛到首个存在的键。
+  // 产物二级页:列表 = 全部产物行(不只架上的 6 条),打开时收敛到首个存在的键
+  // (daemon 已按时间倒序给出,首个即最新——意见 1 的「默认选中最新一个产物」)。
   const artifactRows = artifactsQuery.data?.artifacts ?? [];
   const artifactKeys = useMemo(() => artifactRows.map(artifactRowKey), [artifactsQuery.data]);
   const artifactSelected =
@@ -178,36 +204,26 @@ export function OverviewView({
   const deps: OverviewBoardDeps = {
     now,
     workTitleOf,
+    // 答复卡点:收放大层(能退则弹栈)再开答复面板;其余导航直接透传——推栈后层留在
+    // 原条目里,后退自然回到带着层的总览,不需要(也不应该)先把层就地清掉。
     onAnswer: (subject) => {
-      setFocus(null);
+      onOverviewLayerClose({ overviewFocus: null });
       setPanel(subject);
     },
-    onNavigateEntity: (ref) => {
-      setFocus(null);
-      onNavigateEntity(ref);
-    },
-    onOpenTask: (taskId) => {
-      setFocus(null);
-      onOpenTask(taskId);
-    },
-    onOpenWorks: () => {
-      setFocus(null);
-      onOpenWorks();
-    },
+    onNavigateEntity,
+    onOpenTask,
+    onOpenWorks,
     onOpenTasks,
     onOpenSessions,
     onUnpin,
   };
 
-  // 点行开层:内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
+  // 点行开层(推栈):内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
   const openFocus = (key: DrillFocusKey, selectedId?: string) => {
-    if (selectedId !== undefined) {
-      setSelected((current) => ({ ...current, [key]: selectedId }));
-      // WIP 层的可见集合出自 wipFilter:上次遗留的分组/搜索会把被点行滤出集合,选中被
-      // focusSelected 复算回首行、详情显示错任务——进入即重置,被点行必然可见且被选中。
-      if (key === "wip") setWipFilter({ group: "all", search: "" });
-    }
-    setFocus(key);
+    // WIP 层的可见集合出自 wipFilter:上次遗留的分组/搜索会把被点行滤出集合,选中被
+    // focusSelected 复算回首行、详情显示错任务——进入即重置,被点行必然可见且被选中。
+    if (selectedId !== undefined && key === "wip") setWipFilter({ group: "all", search: "" });
+    onOverviewLayerNavigate({ overviewFocus: { key, selectedId: selectedId ?? null } });
   };
 
   // 键盘导航的可选中集合:WIP 用当前过滤后的可见名单(过滤隐藏的行不可被 ↑↓ 选中),
@@ -225,7 +241,7 @@ export function OverviewView({
               ? pinned.map(({ taskId }) => taskId)
               : ciRuns.map(({ eventId }) => eventId);
   const focusSelected =
-    focus === null ? null : focusIds.includes(selected[focus] ?? "") ? selected[focus]! : (focusIds[0] ?? null);
+    focus === null ? null : focusIds.includes(layerSelectedId ?? "") ? layerSelectedId! : (focusIds[0] ?? null);
 
   const quietLine =
     health.daemon.state === "responsive" &&
@@ -242,7 +258,7 @@ export function OverviewView({
         })}
       />
     ) : (
-      <StatusTag tone="neutral" label={t("views.overviewView.worksSourceActive")} />
+      <StatusTag tone="neutral" label={t("views.overviewView.worksSourceRecent", { days: String(activityDays) })} />
     );
 
   return (
@@ -315,8 +331,9 @@ export function OverviewView({
         </button>
       </header>
 
-      {/* 双列信息密度(task_8a83698):紧凑决策带仍是内容定高的普通条(不进区域板);
-          左列平铺在飞任务流 + 最新产物速览架,右列是关注的工作、下钻工具带收在其底部。 */}
+      {/* 双列信息密度(2026-10-11 返工):紧凑决策带仍是内容定高的普通条(不进区域板);
+          左列上格是「执行与下钻」(左上角),下格最新产物速览架,右列是关注的工作。
+          计数并进标题小字(意见 2),区域头不再放孤立的大号数字。 */}
       <div className="flex min-h-0 flex-1 flex-col gap-1 p-1" data-testid="overview-scroll">
         <OverviewDecisionsBand rows={decisions} deps={deps} />
         <PageRegions
@@ -336,87 +353,12 @@ export function OverviewView({
             !wipQuery.isPending &&
             !artifactsQuery.isPending
           }
-          columns={[
-            ["inflight", "artifacts"],
-            ["works", "drill"],
-          ]}
+          columns={[["drill", "artifacts"], ["works"]]}
           regions={[
-            {
-              id: "inflight",
-              title: t("views.overviewView.regionInflight"),
-              weight: 3,
-              testId: "overview-region-inflight",
-              content: (
-                <div className="grid min-h-0 min-w-0">
-                  <Region
-                    title={t("views.overviewView.regionInflight")}
-                    big={wipQuery.data === undefined ? (wipErrorText !== null ? "—" : "…") : inflight.length}
-                    footer={t("views.overviewView.inflightFooter")}
-                  >
-                    <OverviewInflightBody
-                      rows={inflight}
-                      loading={wipQuery.isPending}
-                      error={wipErrorText}
-                      deps={deps}
-                    />
-                  </Region>
-                </div>
-              ),
-            },
-            {
-              id: "artifacts",
-              title: t("views.overviewView.regionArtifacts"),
-              weight: 2,
-              testId: "overview-region-artifacts",
-              content: (
-                <div className="grid min-h-0 min-w-0">
-                  <Region
-                    title={t("views.overviewView.regionArtifacts")}
-                    big={
-                      artifactsQuery.data === undefined
-                        ? artifactsErrorText !== null
-                          ? "—"
-                          : "…"
-                        : String(artifactsQuery.data.counts.html)
-                    }
-                    footer={
-                      <>
-                        {artifactsQuery.data !== undefined && (
-                          <span className="min-w-0 truncate">
-                            {t("views.overviewView.artifactsShelfNote", {
-                              shown: String(Math.min(artifactsQuery.data.artifacts.length, 6)),
-                              total: String(artifactsQuery.data.counts.html),
-                            })}
-                          </span>
-                        )}
-                        {onOpenArtifacts !== undefined && (
-                          <button
-                            type="button"
-                            data-testid="overview-artifacts-open-all"
-                            onClick={onOpenArtifacts}
-                            className="text-accent underline-offset-2 hover:underline"
-                          >
-                            {t("views.overviewView.artifactsOpenAll")}
-                          </button>
-                        )}
-                      </>
-                    }
-                  >
-                    <OverviewArtifactsShelf
-                      repoId={repoId}
-                      rows={artifactsQuery.data?.artifacts ?? []}
-                      pending={artifactsQuery.isPending}
-                      error={artifactsErrorText}
-                      onOpenArtifact={(row) => setArtifactFocus(artifactRowKey(row))}
-                    />
-                  </Region>
-                </div>
-              ),
-            },
             {
               id: "drill",
               title: t("views.overviewView.regionDrill"),
-              weight: 2,
+              weight: 3,
               testId: "overview-region-drill",
               content: (
                 <div className="grid min-h-0 min-w-0">
@@ -475,6 +417,58 @@ export function OverviewView({
               ),
             },
             {
+              id: "artifacts",
+              title: t("views.overviewView.regionArtifacts"),
+              weight: 2,
+              testId: "overview-region-artifacts",
+              content: (
+                <div className="grid min-h-0 min-w-0">
+                  <Region
+                    title={t("views.overviewView.regionArtifacts")}
+                    tag={
+                      <span className="font-mono tabular-nums text-text-faint ui-meta">
+                        {artifactsQuery.data === undefined
+                          ? artifactsErrorText !== null
+                            ? "—"
+                            : "…"
+                          : t("views.overviewView.regionCountOf", {
+                              count: String(artifactsQuery.data.counts.html),
+                            })}
+                      </span>
+                    }
+                    footer={
+                      <>
+                        {artifactsQuery.data !== undefined && (
+                          <span className="min-w-0 truncate">
+                            {t("views.overviewView.artifactsShelfNote", {
+                              shown: String(Math.min(artifactsQuery.data.artifacts.length, 6)),
+                              total: String(artifactsQuery.data.counts.html),
+                            })}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          data-testid="overview-artifacts-open-all"
+                          onClick={() => onOverviewLayerNavigate({ overviewArtifactId: artifactKeys[0] ?? "" })}
+                          className="text-accent underline-offset-2 hover:underline"
+                        >
+                          {t("views.overviewView.artifactsOpenPage")}
+                        </button>
+                      </>
+                    }
+                  >
+                    <OverviewArtifactsShelf
+                      repoId={repoId}
+                      rows={artifactsQuery.data?.artifacts ?? []}
+                      pending={artifactsQuery.isPending}
+                      error={artifactsErrorText}
+                      onOpenArtifact={(row) => onOverviewLayerNavigate({ overviewArtifactId: artifactRowKey(row) })}
+                    />
+                  </Region>
+                </div>
+              ),
+            },
+            {
               id: "works",
               title: t("views.overviewView.regionWatched"),
               weight: 3,
@@ -483,13 +477,18 @@ export function OverviewView({
                 <div className="grid min-h-0 min-w-0">
                   <Region
                     title={t("views.overviewView.regionWatched")}
-                    tag={worksTag ?? undefined}
-                    big={watched.length}
-                    footer={t("views.overviewView.worksFooterWatched")}
+                    tag={
+                      <>
+                        {worksTag}
+                        <span className="font-mono tabular-nums text-text-faint ui-meta"> · {watched.length}</span>
+                      </>
+                    }
+                    footer={t("views.overviewView.worksFooterWatched", { days: String(activityDays) })}
                   >
                     <OverviewWorksBody
                       watched={watched}
                       pinnedClosed={pinnedClosed}
+                      activityDays={activityDays}
                       attentionOf={(workTaskId) =>
                         (agenda?.attentionItems ?? [])
                           .filter((item) => item.workTaskId === workTaskId)
@@ -521,15 +520,15 @@ export function OverviewView({
           }
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, wip: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "wip", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <WipFocusList
               snapshot={wipQuery.data}
               loading={wipQuery.isPending}
               error={wipErrorText}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, wip: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "wip", selectedId: id } })}
               onOpenTask={onOpenTask}
               filter={wipFilter}
               onFilterChange={setWipFilter}
@@ -558,13 +557,13 @@ export function OverviewView({
           big={reviewDrill.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, review: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "review", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <ReviewFocusList
               rows={reviewDrill}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, review: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "review", selectedId: id } })}
               deps={deps}
             />
           }
@@ -583,13 +582,13 @@ export function OverviewView({
           big={followUps.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, followups: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "followups", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <FollowUpsFocusList
               rows={followUps}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, followups: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "followups", selectedId: id } })}
               deps={deps}
             />
           }
@@ -614,13 +613,13 @@ export function OverviewView({
           big={pinned.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, pinned: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <PinnedFocusList
               rows={pinned}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, pinned: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
               deps={deps}
             />
           }
@@ -640,13 +639,13 @@ export function OverviewView({
           big={ciRuns.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, ci: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "ci", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <CiFocusList
               ci={ciQuery.data}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, ci: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "ci", selectedId: id } })}
             />
           }
           detail={
@@ -664,31 +663,20 @@ export function OverviewView({
         />
       )}
 
-      {/* 产物详情层(2026-10-07):点速览架行原地看该 HTML 的隔离预览,不离开总览;
-          「跳到所属 task」保留 task_15b1bb96 的落点(任务页直接选中该产物文档)。 */}
+      {/* 产物二级页面(2026-10-11 意见 1):接近全屏,左窄列表、右大预览,默认选中最新
+          一条(daemon 倒序首行);开层/换选中/关层走全局历史(开层推栈、层内换选中原地
+          改、关层弹栈)。「跳到所属 task」保留 task_15b1bb96 的落点并直接推栈——后退
+          回到带着产物页的总览位置。 */}
       {artifactFocus !== null && (
-        <FocusLayer
+        <OverviewArtifactsPage
           open
-          title={t("views.overviewView.regionArtifacts")}
-          tag={<StatusTag tone="neutral" label={t("artifacts.kind.html")} />}
-          big={String(artifactsQuery.data?.counts.html ?? artifactRows.length)}
-          itemIds={artifactKeys}
+          repoId={repoId}
+          rows={artifactRows}
+          total={artifactsQuery.data?.counts.html ?? artifactRows.length}
           selectedId={artifactSelected}
-          onSelect={setArtifactFocus}
-          onClose={() => setArtifactFocus(null)}
-          list={<ArtifactFocusList rows={artifactRows} selectedId={artifactSelected} onSelect={setArtifactFocus} />}
-          detail={
-            artifactSelected === null ? null : (
-              <ArtifactFocusDetail
-                repoId={repoId}
-                row={artifactRows.find((row) => artifactRowKey(row) === artifactSelected)!}
-                onOpenTask={(taskId, docPath) => {
-                  setArtifactFocus(null);
-                  onOpenTask(taskId, docPath);
-                }}
-              />
-            )
-          }
+          onSelect={(key) => onOverviewLayerPatch({ overviewArtifactId: key })}
+          onClose={() => onOverviewLayerClose({ overviewArtifactId: null })}
+          onOpenTask={(taskId, docPath) => onOpenTask(taskId, docPath)}
         />
       )}
 

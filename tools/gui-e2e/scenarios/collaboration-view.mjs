@@ -209,8 +209,8 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
               submittedAt: null,
               closedAt: null,
               submission: null,
-              // kernel 9e8dc33ff1 起 Execution/v1 必带 gateRuns;种子停在旧契约上会让
-              // 整条 isolated lane 在 reduceTaskEvent 处红(无 gate 的租约场景为空数组)。
+              // Execution/v1 的必填集(9e8dc33ff1 起含 gateRuns):种子执行没有门运行,
+              // 显式给空数组,replay 校验不再按缺字段拒收。
               gateRuns: [],
             },
             lease: {

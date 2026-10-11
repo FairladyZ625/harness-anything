@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { ArrowSquareOut } from "@phosphor-icons/react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
+import { ArrowSquareOut, X } from "@phosphor-icons/react";
 import type { ArtifactGuiRowDto } from "@harness-anything/daemon/protocol";
 import { DenseRow, RowTime } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
@@ -7,104 +8,26 @@ import { Notice } from "../components/primitives/Notice";
 import { StatusTag } from "../components/primitives/StatusTag";
 import { HtmlArtifactPreview } from "../components/HtmlArtifactPreview.tsx";
 import { t } from "../i18n/index.tsx";
-import { formatRelative, formatTime } from "../model/time.ts";
 import { openArtifactExternally } from "../artifact-open-client.ts";
 import { useRepoRow } from "../system-data.ts";
 import { useTaskDocumentQuery } from "../task-data.ts";
 import { ARTIFACT_OPEN_BUTTON_CLASS, fileNameOf, repoPathOf } from "./ArtifactsView.tsx";
-import type { InflightTaskRow } from "./overview-model.ts";
-import type { OverviewBoardDeps } from "./overview-regions.tsx";
 
-/* ------------------------------------------------------------------ 左列:在飞任务流与产物速览架 */
+/* ------------------------------------------------------------------ 左列:最新产物速览架 */
 
-/**
- * 在飞任务流的行体(task_8a83698):repo.tasks.wip 的 active/submitted/in_review 占位任务
- * 平铺在总览左列——状态标签 + 标题 + 执行者(live 会话,无会话如实标注)+ 最近活动的
- * 相对年龄,行点击直达任务详情。行取 relaxed 两行档(标题一行、执行者与年龄收进弱色
- * 第二行):左列是窄流,单行档会把执行者挤成中途截断。名单内部滚动(Region 行体滚动
- * 容器),blocked 不进流(住「跟进与返工」),四态全量与过滤仍在 WIP 放大层。
- */
-export function OverviewInflightBody({
-  rows,
-  loading = false,
-  error = null,
-  deps,
-}: {
-  /** inflightTaskRows 的当前行(wip × runtime × agenda 的同一份派生)。 */
-  readonly rows: readonly InflightTaskRow[];
-  /** WIP 读面首次取数进行中(宿主传 `query.isPending`);已有快照时不闪 pending。 */
-  readonly loading?: boolean;
-  /** WIP 读面失败的可读信息(宿主传 `query.error?.message ?? null`)。 */
-  readonly error?: string | null;
-  readonly deps: OverviewBoardDeps;
-}) {
-  if (error !== null) {
-    return (
-      <Notice tone="bad" variant="strip" testId="overview-inflight-error">
-        {t("views.overviewView.inflightReadFailed", { error })}
-      </Notice>
-    );
-  }
-  if (rows.length === 0) {
-    return loading ? (
-      <p data-testid="overview-inflight-loading" className="px-3.5 py-2 ui-meta text-text-faint">
-        {t("views.overviewTaskWip.loading")}
-      </p>
-    ) : (
-      <div data-testid="overview-inflight-empty" className="px-3.5 py-2">
-        <Empty>{t("views.overviewView.inflightEmpty")}</Empty>
-      </div>
-    );
-  }
-  return (
-    <div data-testid="overview-inflight">
-      {rows.map((row) => (
-        <div key={row.taskId} data-inflight-task={row.taskId}>
-          <DenseRow
-            tag={<StatusTag status={row.status} />}
-            title={row.title}
-            hoverTitle={row.taskId}
-            relaxed
-            reason={
-              row.handlers.length > 0 ? (
-                row.handlers.join(" · ")
-              ) : (
-                <span className="text-status-submitted">{t("views.overviewView.worksNoAgent")}</span>
-              )
-            }
-            time={
-              row.since === null ? undefined : (
-                <span
-                  title={formatTime(row.since, { style: "date-time", now: deps.now }) ?? row.since}
-                  className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta"
-                >
-                  {formatRelative(row.since, { now: deps.now })}
-                </span>
-              )
-            }
-            onClick={() => deps.onOpenTask(row.taskId)}
-          />
-        </div>
-      ))}
-    </div>
-  );
-}
-
-/** 速览架默认铺出的最新产物条数:速览不是时间线,更长名单走产物页。 */
+/** 速览架默认铺出的最新产物条数:速览不是时间线,完整名单走产物二级页。 */
 export const ARTIFACTS_SHELF_LIMIT = 6;
 
-/** 产物行的稳定键(速览架/详情层/键盘导航同一份)。 */
+/** 产物行的稳定键(速览架/二级页/键盘导航同一份)。 */
 export function artifactRowKey(row: ArtifactGuiRowDto): string {
   return `${row.taskId ?? "taskless"}/${row.path}`;
 }
 
 /**
- * 最新 HTML 产物速览架(task_8a83698;2026-10-07 三块区域返工):一条 `repo.artifacts.list`
- * (kind=html,与产物页同一缓存)取最新产物,平铺产物名、所属任务与创建时间;行右侧
- * 「在浏览器打开」走 openArtifactExternally 的 preload 通道(主进程校验),行点击弹
- * 产物详情层(OverviewView 的 FocusLayer + ArtifactFocusDetail)——不要求离开总览,
- * task_15b1bb96 的「点 HTML 产物直接打开该 HTML」语义在层内预览保持。无归属任务、
- * 纯展示仓的禁用规则与产物页预览头同一份。
+ * 最新 HTML 产物速览架(task_8a83698;2026-10-07 三块区域返工;2026-10-11 意见 1 行点击
+ * 改为进产物二级页):一条 `repo.artifacts.list`(kind=html,与产物页同一缓存)取最新
+ * 产物,平铺产物名、所属任务与创建时间;行右侧「在浏览器打开」走 openArtifactExternally
+ * 的 preload 通道(主进程校验)。无归属任务、纯展示仓的禁用规则与产物页预览头同一份。
  */
 export function OverviewArtifactsShelf({
   repoId,
@@ -119,7 +42,7 @@ export function OverviewArtifactsShelf({
   readonly pending: boolean;
   /** 取数失败的可读信息。 */
   readonly error: string | null;
-  /** 行点击的落点:弹产物详情层(键用 artifactRowKey,与层内列表/键盘导航同源)。 */
+  /** 行点击的落点:进产物二级页并选中该行(键用 artifactRowKey,与页内列表同源)。 */
   readonly onOpenArtifact: (row: ArtifactGuiRowDto) => void;
 }) {
   // 纯展示(remote-proxy)仓的「打开」走主进程物化副本统一面(与产物页同一判据)。
@@ -200,39 +123,116 @@ export function OverviewArtifactsShelf({
   );
 }
 
-/** 产物详情层左列表:与速览架同一排行(全部行,不只架上的 6 条)。 */
-export function ArtifactFocusList({
+/* ------------------------------------------------------------------ 产物二级页面(2026-10-11 意见 1) */
+
+/**
+ * 产物二级页面:接近全屏的整页浮层——左侧窄列表(全部产物,最新在上),右侧大预览,
+ * 默认直接选中展示最新一个产物(或调用方点开的那条),点列表项切换预览。预览本体是
+ * ArtifactFocusDetail(HtmlArtifactPreview,脚本/外联禁用,与产物页同一渲染路径);
+ * 「跳到所属 task」保留 task_15b1bb96 的落点,「在浏览器打开」与速览架同一 preload
+ * 通道。Esc 收起;↑↓ 在列表内移动选中(与 FocusLayer 同一键盘契约)。
+ */
+export function OverviewArtifactsPage({
+  open,
   rows,
+  total,
   selectedId,
   onSelect,
+  onClose,
+  repoId,
+  onOpenTask,
 }: {
+  readonly open: boolean;
+  /** daemon 已按时间倒序给出的全部 HTML 产物行(首行即最新)。 */
   readonly rows: readonly ArtifactGuiRowDto[];
+  /** 产物总数(计数入标题小字,不占大号数字位)。 */
+  readonly total: number;
   readonly selectedId: string | null;
   readonly onSelect: (key: string) => void;
+  readonly onClose: () => void;
+  readonly repoId: string;
+  /** 「跳到所属 task」的落点:进任务页并直接选中该产物文档(包内相对路径)。 */
+  readonly onOpenTask: (taskId: string, docPath: string) => void;
 }) {
-  return (
-    <>
-      {rows.map((row) => (
-        <DenseRow
-          key={artifactRowKey(row)}
-          tag={<StatusTag tone="neutral" label={t("artifacts.kind.html")} />}
-          title={fileNameOf(row.path)}
-          hoverTitle={repoPathOf(row)}
-          reason={row.taskTitle ?? row.taskId ?? t("artifacts.taskUnknown")}
-          time={<RowTime at={row.time} className="ui-meta" />}
-          selected={selectedId === artifactRowKey(row)}
-          onClick={() => onSelect(artifactRowKey(row))}
-        />
-      ))}
-    </>
+  const keys = rows.map(artifactRowKey);
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
+      if (keys.length === 0) return;
+      const current = keys.indexOf(selectedId ?? ""),
+        next =
+          event.key === "ArrowDown"
+            ? Math.min(keys.length - 1, current + 1)
+            : Math.max(0, current === -1 ? 0 : current - 1);
+      event.preventDefault();
+      if (keys[next] !== undefined && keys[next] !== selectedId) onSelect(keys[next]);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, keys, selectedId, onClose, onSelect]);
+  if (!open) return null;
+  const selected = rows.find((row) => artifactRowKey(row) === selectedId) ?? null;
+  return createPortal(
+    <div
+      data-testid="overview-artifacts-page"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("views.overviewView.artifactsPageTitle")}
+      className="glass fixed inset-2 z-11 flex min-h-0 flex-col overflow-hidden rounded-lg"
+    >
+      <header className="flex flex-none items-center gap-2.5 px-[18px] pb-[10px] pt-[14px]">
+        <h2 className="min-w-0 truncate font-semibold ui-title">{t("views.overviewView.artifactsPageTitle")}</h2>
+        <span className="shrink-0 font-mono tabular-nums text-text-faint ui-meta">
+          {t("views.overviewView.artifactsPageCount", { count: String(total) })}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          data-testid="overview-artifacts-page-close"
+          aria-label={t("components.primitives.close")}
+          className="ml-auto grid size-[26px] shrink-0 place-items-center rounded-xs border border-border bg-text/10 text-text-muted hover:text-text"
+        >
+          <X weight="bold" className="ui-meta" />
+        </button>
+      </header>
+      <div className="grid min-h-0 flex-1 grid-cols-[minmax(11rem,17%)_minmax(0,1fr)]">
+        {/* 左列表窄列:全部产物行,区内滚动;行点击/键盘 ↑↓ 换预览。 */}
+        <div data-testid="overview-artifacts-page-list" className="min-h-0 overflow-y-auto border-t border-border">
+          {rows.map((row) => (
+            <DenseRow
+              key={artifactRowKey(row)}
+              tag={<StatusTag tone="neutral" label={t("artifacts.kind.html")} />}
+              title={fileNameOf(row.path)}
+              hoverTitle={repoPathOf(row)}
+              reason={row.taskTitle ?? row.taskId ?? t("artifacts.taskUnknown")}
+              time={<RowTime at={row.time} className="ui-meta" />}
+              selected={selectedId === artifactRowKey(row)}
+              onClick={() => onSelect(artifactRowKey(row))}
+            />
+          ))}
+        </div>
+        {/* 右预览占大头:业主「我点进来是为了看页面,不是为看列表」。 */}
+        <div className="min-h-0 overflow-y-auto border-t border-border px-[18px] py-[14px] md:border-l">
+          {selected === null ? (
+            <p className="ui-meta text-text-faint">{t("views.overviewView.artifactsShelfEmpty")}</p>
+          ) : (
+            <ArtifactFocusDetail repoId={repoId} row={selected} onOpenTask={onOpenTask} />
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
-/**
- * 产物详情层右栏(2026-10-07):层内直接渲染该 HTML 的隔离预览(HtmlArtifactPreview,
- * 脚本/外联禁用,与产物页同一渲染路径),「跳到所属 task」保留 task_15b1bb96 的落点
- * (进任务页并直接选中该产物文档),「在浏览器打开」与速览架行按钮同一 preload 通道。
- */
+/** 产物预览右栏:直接渲染该 HTML 的隔离预览(HtmlArtifactPreview,脚本/外联禁用,与
+ * 产物页同一渲染路径),「跳到所属 task」保留 task_15b1bb96 的落点(进任务页并直接
+ * 选中该产物文档),「在浏览器打开」与速览架行按钮同一 preload 通道。 */
 export function ArtifactFocusDetail({
   repoId,
   row,

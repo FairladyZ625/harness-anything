@@ -285,42 +285,56 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
 }
 
 /**
- * 主区「关注的工作」:置顶的非终态工作是默认入口(来源如实标示);零置顶时回退到
- * 活跃工作(注意力/最近活动序,绝不把最旧项当当前承诺),并让页面给出「去工作页选择
- * 关注」的入口。已收尾的置顶工作不进列表,只计数提及。
+ * 主区「关注的工作」(2026-10-11 业主意见 4):置顶的非终态工作保留在前(显式关注,
+ * 不受活动窗口限制);其余非终态工作默认只列最近 N 天内有活动的(N 来自设置项
+ * 「关注的工作活动天数」,未读到时用声明默认 3),按最近活动倒排——总览是「现在在
+ * 发生什么」,不是全量工作索引,全量在工作页。已收尾的置顶工作不进列表,只计数提及。
  */
 export interface WatchedWork {
   readonly work: WorkRow;
-  readonly source: "pinned" | "active";
+  readonly source: "pinned" | "recent";
   /** 该工作名下的任务(根除外;repo.works.index 的归属,不在 GUI 重推)。 */
   readonly memberTaskIds: readonly string[];
 }
 
+/** 「关注的工作活动天数」的声明默认值;设置面读到别的值时以设置为准。 */
+export const WATCHED_ACTIVITY_DAYS_DEFAULT = 3;
+
 export function watchedWorks(
   works: WorkIndexRead | undefined,
   agenda: AgendaSuccess | undefined,
+  activity?: { readonly days: number; readonly now: string },
 ): { readonly watched: readonly WatchedWork[]; readonly pinnedClosed: number } {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
-  const byId = new Map(rows.map((row) => [row.taskId, row]));
   const pinnedIds = new Set(
     (agenda?.pinnedEntities ?? [])
       .filter((entity) => entity.kind === "task")
       .map((entity) => entity.ref.replace(/^task\//u, "")),
   );
   const pinnedClosed = [...pinnedIds].filter((id) => {
-    const row = byId.get(id);
+    const row = rows.find((entry) => entry.taskId === id);
     return row !== undefined && TERMINAL_WORK.has(row.status);
   }).length;
-  const watched = (
-    pinnedIds.size - pinnedClosed > 0
-      ? rows.filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status))
-      : rows.filter((row) => !TERMINAL_WORK.has(row.status))
-  ).map((work) => ({
-    work,
-    source: pinnedIds.size - pinnedClosed > 0 ? ("pinned" as const) : ("active" as const),
-    memberTaskIds: members.get(work.taskId) ?? [],
-  }));
+  const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000,
+    entryOf = (source: WatchedWork["source"]) => (work: WorkRow) => ({
+      work,
+      source,
+      memberTaskIds: members.get(work.taskId) ?? [],
+    }),
+    watched = [
+      ...rows.filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status)).map(entryOf("pinned")),
+      ...rows
+        .filter(
+          (row) =>
+            !pinnedIds.has(row.taskId) &&
+            !TERMINAL_WORK.has(row.status) &&
+            (cutoff === null || Date.parse(row.lastActivityAt) >= cutoff),
+        )
+        // 置顶区保持注意力序(显式承诺),近期区按最近活动倒排(窗口本身就是活动口径)。
+        .sort((left, right) => Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt))
+        .map(entryOf("recent")),
+    ];
   return { watched, pinnedClosed };
 }
 
@@ -355,54 +369,30 @@ export function taskAttentionScores(agenda: AgendaSuccess | undefined): Map<stri
 }
 
 /**
- * 「执行与下钻」WIP tab 的内联名单行(2026-10-07 三块区域返工):counted × 注意力分——
- * 分数降序(原设计的重要性口径),平分按占位状态生命周期序,再按 taskId 定序。blocked
- * 与其余三态同列(这里是被点名的下钻面,不是左列的注意力过滤流)。
+ * 「执行与下钻 → 进行中的任务」的内联名单行(2026-10-11 合并在飞任务流):counted ×
+ * 注意力分——分数降序(原设计的重要性口径),平分按占位状态生命周期序,再按 taskId
+ * 定序。行内并进原在飞任务流的执行信息:当前在跑的执行者(live 会话去重;空 = 「无
+ * agent 在跑」的诚实信号)与最近一次可观察活动(live 会话 lastObservedAt,兜底议程行
+ * updatedAt;两个源都没有就不显示时间,不造起点)。
  */
 export interface DrillWipRow {
   readonly taskId: string;
   readonly title: string;
   readonly status: TaskWipRead["counted"][number]["status"];
   readonly score: number;
-}
-
-export function drillWipRows(wip: TaskWipRead | undefined, agenda: AgendaSuccess | undefined): readonly DrillWipRow[] {
-  if (wip === undefined) return [];
-  const scores = taskAttentionScores(agenda);
-  return wip.counted
-    .map((entry) => ({ ...entry, score: scores.get(entry.taskId) ?? 0 }))
-    .sort(
-      (left, right) =>
-        right.score - left.score ||
-        WIP_STATUS_ORDER.indexOf(left.status) - WIP_STATUS_ORDER.indexOf(right.status) ||
-        left.taskId.localeCompare(right.taskId),
-    );
-}
-
-/**
- * 在飞任务流的行(总览左列,task_8a83698):repo.tasks.wip 的 active/submitted/in_review
- * 占位任务——blocked 不进流(是注意力状态,住「跟进与返工」),四态全量仍在 WIP 放大层。
- * 执行者与最近活跃来自 runtime overview 的 live 会话(与工作卡同一 runRows 源);无会话
- * 时的年龄兜底信号是议程任务行的 updatedAt,两个源都没有就不显示时间,不造起点。
- */
-export interface InflightTaskRow {
-  readonly taskId: string;
-  readonly title: string;
-  readonly status: TaskWipRead["counted"][number]["status"];
   /** 该任务名下 live 会话的执行者去重(who = kind · model);空 = 无 agent 在跑。 */
   readonly handlers: readonly string[];
   /** 最近一次可观察活动(live 会话的 lastObservedAt,兜底议程行 updatedAt);null = 未知。 */
   readonly since: string | null;
 }
 
-const INFLIGHT_STATUSES: readonly InflightTaskRow["status"][] = ["active", "submitted", "in_review"];
-
-export function inflightTaskRows(
+export function drillWipRows(
   wip: TaskWipRead | undefined,
   runtime: AgentRuntimeOverviewResult | undefined,
   agenda: AgendaSuccess | undefined,
-): readonly InflightTaskRow[] {
+): readonly DrillWipRow[] {
   if (wip === undefined) return [];
+  const scores = taskAttentionScores(agenda);
   const sessions = new Map<string, { handlers: string[]; latest: string }>();
   for (const run of runRows(runtime, agenda)) {
     if (run.taskId === null) continue;
@@ -418,23 +408,21 @@ export function inflightTaskRows(
   for (const row of agenda?.waitingOnOthers ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
   for (const row of agenda?.awaitingRework ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
   for (const row of agenda?.dispatchable ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
-  const rankOf = new Map(INFLIGHT_STATUSES.map((status, index) => [status, index] as const));
   return wip.counted
-    .filter((entry) => rankOf.has(entry.status))
     .map((entry) => {
       const session = sessions.get(entry.taskId);
       return {
-        taskId: entry.taskId,
-        title: entry.title,
-        status: entry.status,
+        ...entry,
+        score: scores.get(entry.taskId) ?? 0,
         handlers: session?.handlers ?? [],
         since: session?.latest ?? agendaUpdatedAt.get(entry.taskId) ?? null,
       };
     })
     .sort(
       (left, right) =>
-        (rankOf.get(left.status) ?? 0) - (rankOf.get(right.status) ?? 0) ||
-        Date.parse(right.since ?? "") - Date.parse(left.since ?? ""),
+        right.score - left.score ||
+        WIP_STATUS_ORDER.indexOf(left.status) - WIP_STATUS_ORDER.indexOf(right.status) ||
+        left.taskId.localeCompare(right.taskId),
     );
 }
 
