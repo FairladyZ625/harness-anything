@@ -440,7 +440,7 @@ async function runLocal(options, runId, snapshotRoot, files) {
       }
       if (exitCode === 0 && !cancelled) {
         owner.stdin.write(
-          `${JSON.stringify(posixTestScript(workspaceRoot, path.join(workspaceRoot, ".test-isolation-state"), { ...options, prepareDependencies: false }))}\n`,
+          `${JSON.stringify(posixTestScript(workspaceRoot, path.join(workspaceRoot, ".test-isolation-state"), options))}\n`,
         );
         exitCode = await completion;
       }
