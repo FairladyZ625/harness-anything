@@ -214,11 +214,24 @@ function workspaceLine(workspace: Record<string, unknown>, setup: unknown): stri
 
 function renderSettingsRead(receipt: Record<string, unknown>): string {
   const lastChanged = receipt.lastChanged,
-    worktree = isRecord(receipt.settings) && isRecord(receipt.settings.worktree) ? receipt.settings.worktree : null,
-    setup = Array.isArray(worktree?.setup) ? worktree.setup.map(String) : [];
+    settings = isRecord(receipt.settings) ? receipt.settings : null,
+    worktree = settings !== null && isRecord(settings.worktree) ? settings.worktree : null,
+    setup = Array.isArray(worktree?.setup) ? worktree.setup.map(String) : [],
+    runtime = settings !== null && isRecord(settings.runtime) ? settings.runtime : null,
+    allowedInstances =
+      runtime !== null && Array.isArray(runtime.allowedInstances) ? runtime.allowedInstances.map(String) : undefined;
   return [
     renderSuccessfulReceipt(receipt),
     `worktree.setup: ${setup.length ? setup.join("; ") : "none"}`,
+    // Unset and empty are both total rejections (PR #3512), but they repair differently: unset
+    // wants ha init, empty wants an explicit allow.
+    `runtime.allowedInstances: ${
+      allowedInstances === undefined
+        ? "not set — every dispatch is rejected (run ha init or ha settings update --runtime-allowed-instance <id>)"
+        : allowedInstances.length
+          ? allowedInstances.join("; ")
+          : "none — every dispatch is rejected (allow with ha settings update --runtime-allowed-instance <id>)"
+    }`,
     lastChanged === "initial"
       ? "lastChanged=initial"
       : isRecord(lastChanged)
