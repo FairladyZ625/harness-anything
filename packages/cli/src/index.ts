@@ -18,6 +18,7 @@ import { beginCliTiming, cliPhaseEnd, cliPhaseStart, daemonRequestTimer, finishC
 import { isRetiredEntityExplain, taskExplainHelpOverlay } from "./cli/thin-command-explain.ts";
 import { parseTaskArtifactRunInvocation, runTaskArtifactCommand } from "./cli-task-artifact-run.ts";
 import { doctorInvocation, renderDoctorReport, runDoctor } from "./cli/thin-command-doctor.ts";
+import { parseBackupRetentionInvocation, runBackupRetention } from "./cli/thin-command-backup-retention.ts";
 import { runDoctorHealth } from "./cli/thin-command-doctor-health.ts";
 import { renderCliReceipt } from "./cli/receipt-render-registry.ts";
 import { withFactStatementGuidance, withTitleFocusGuidance } from "./cli/guidance-plane.ts";
@@ -110,6 +111,14 @@ async function runThinCli(argv: readonly string[]): Promise<number> {
     if (invocation.mode === "commands")
       return renderDoctorReport(runDoctor(invocation.rootDir), argv.includes("--json"));
     return runDoctorHealth(argv, emit);
+  }
+  if (command === "backup" && argv[firstCliCommandIndex(argv) + 1] === "retention") {
+    const invocation = parseBackupRetentionInvocation(argv);
+    if (typeof invocation === "string") {
+      emit(cliFailure("backup retention", "invalid_field", invocation), argv.includes("--json"));
+      return 2;
+    }
+    return runBackupRetention(invocation);
   }
   if (command === "daemon" || command === "gui") {
     const { runDaemonControl } = await import("./daemon/control.ts");
