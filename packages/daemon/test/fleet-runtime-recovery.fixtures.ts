@@ -80,7 +80,7 @@ export async function fleetFixture(
   }
   writeFileSync(
     path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  runtime:\n    allowedInstances:\n      - codex-schedule\n",
   );
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");

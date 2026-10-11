@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { prepareRuntimeInstance, resolveRuntimeInstanceCandidates } from "../src/runtime-spawn-mission.ts";
+import { readSettingsFacet } from "@harness-anything/kernel";
+import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import type { RuntimeAgent } from "../src/runtime-spawn-types.ts";
 
 const instance = (
@@ -279,4 +281,19 @@ test("unknown explicit instances keep their machine-catalog error instead of a r
     (error: unknown) =>
       error instanceof Error && (error as Error & { code: string }).code === "runtime_instance_not_found",
   );
+});
+
+test("repository init seeds enabled instances once and preserves explicit project choices", () => {
+  const settings = readSettingsFacet("layout:\n  authoredRoot: harness\n"),
+    machines = [
+      { instanceId: "codex-api", enabled: true },
+      { instanceId: "other", enabled: false },
+    ],
+    projectA = initialRuntimeInstanceSettings(settings, machines),
+    projectB = initialRuntimeInstanceSettings(settings, []);
+  assert.deepEqual(projectA.runtime?.allowedInstances, ["codex-api"]);
+  assert.deepEqual(projectB.runtime?.allowedInstances, []);
+  assert.equal(initialRuntimeInstanceSettings(projectB, machines), projectB);
+  assert.equal(initialRuntimeInstanceSettings(projectA, []), projectA);
+  assert.equal(settings.runtime?.allowedInstances, undefined);
 });

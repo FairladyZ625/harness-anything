@@ -204,6 +204,15 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       },
     });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
+    assert.equal(
+      (
+        await rpc("repo.settings.update", {
+          repo: { repoId: "alpha" },
+          payload: { runtimeAllowedInstances: ["resident-codex"], expectedVersion: 1 },
+        })
+      ).outcome,
+      "applied",
+    );
     const updated = await rpc("daemon.runtimeInstance.update", {
       payload: {
         instanceId: "resident-codex",

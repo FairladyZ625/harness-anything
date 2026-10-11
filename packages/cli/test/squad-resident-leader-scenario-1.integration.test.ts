@@ -84,6 +84,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
     "--auth",
     "subscription",
   ]);
+  run(root, env, ["settings", "update", "--runtime-allowed-instance", "resident-worker"]);
   for (const id of ["fable", "terra", "luna"]) {
     const source = path.join(parent, id);
     writeIdentity(
@@ -334,6 +335,16 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       "--auth",
       "subscription",
     ]);
+  run(root, env, [
+    "settings",
+    "update",
+    "--runtime-allowed-instance",
+    "claude-lee",
+    "--runtime-allowed-instance",
+    "test-codex-sol",
+    "--runtime-allowed-instance",
+    "missing-agy",
+  ]);
   for (const [id, name, runtimeType, model] of [
     ["mixed-leader", "Mixed Leader", "claude", "fable"],
     ["mixed-reconcile", "Mixed Reconcile", "codex", "gpt-5.6-terra"],
@@ -567,6 +578,7 @@ test(
       "--credential-ref",
       "credential:v1:squad-key",
     ]);
+    run(root, env, ["settings", "update", "--runtime-allowed-instance", "squad-api"]);
     for (const id of ["fable", "terra", "luna"]) {
       const source = path.join(parent, id);
       writeIdentity(

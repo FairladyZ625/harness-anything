@@ -311,7 +311,9 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       assert.deepEqual(envelope.inputs, deriveUseCaseProjectionInputs(name), `${name} inputs are registry-derived`);
     }
     const settingsBefore = parseDaemonGuiReadResult("repo.settings.read", results.get("repo.settings.read"));
+    // F-1D3A0A64: init records the empty machine inventory as this project's exact list.
     assert.deepEqual(settingsBefore.settings, {
+      runtime: { allowedInstances: [] },
       schema: "settings/v1",
       settingsId: "repository",
       defaultVertical: "software/coding",

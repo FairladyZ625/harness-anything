@@ -25,7 +25,7 @@ export default {
     assert.equal(hidden, true);
     await page.getByRole("button", { name: /^(?:Provider|Providers|承运者)$/u }).click();
     const card = page.getByTestId("runtime-card-codex-project"),
-      toggle = card.getByRole("switch", { name: /本项目允许|Allowed here/u });
+      toggle = card.getByRole("switch", { name: /在此项目使用|Use in this project/u });
     await toggle.waitFor();
     assert.equal(await toggle.getAttribute("aria-checked"), "false");
     await shot("provider-project-blocked");

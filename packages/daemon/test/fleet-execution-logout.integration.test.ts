@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -27,6 +28,7 @@ test(
     t.after(() => cleanup());
     const live = new Set<string>();
     const f = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    await allowFixtureRuntimeInstances(f.host, f.subject.repoId, localAuthFixture(), ["edge-worker"]);
     const loginAuthorityUrl = "https://keycloak.fixture";
     const networkFetch = globalThis.fetch;
     let offline = false;

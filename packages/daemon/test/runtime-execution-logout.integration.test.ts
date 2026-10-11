@@ -131,6 +131,7 @@ test("implementation and reviewer retain bounded CLI authority after logout", { 
     },
   });
   assert.equal(instance.ok, true, JSON.stringify(instance));
+  assert.equal((await run({ kind: "settings-update", runtimeAllowedInstances: ["codex-worker"] })).outcome, "applied");
   const taskId = "task-logout",
     executionId = "execution-logout";
   await createRealizedTaskPlanFixture(

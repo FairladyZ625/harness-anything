@@ -529,6 +529,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         remote,
         stream: { publish: () => ({}) as never },
         now,
+        readSettings: () => ({ runtime: { allowedInstances: instances.map((row) => row.instanceId) } }) as never,
         runtimeInstances: () => instances,
         prepareLaunch: async (instanceId, request) => ({
           definition: definition(instanceId, request.model ?? `${instanceId}-model`),

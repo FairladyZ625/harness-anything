@@ -20,3 +20,19 @@ export async function resolveRuntimeDispatchResources(
     allowedInstanceIds = settings?.runtime?.allowedInstances;
   return [localRuntimeSessions, runtimeInstances, allowedInstanceIds];
 }
+
+/** ha init captures machine availability during the operator's repository setup. */
+export function initialRuntimeInstanceSettings<Settings extends RepositorySettingsV1>(
+  settings: Settings,
+  instances: readonly Pick<RuntimeInstanceSummary, "instanceId" | "enabled">[],
+): Settings {
+  return settings.runtime?.allowedInstances === undefined
+    ? {
+        ...settings,
+        runtime: {
+          ...settings.runtime,
+          allowedInstances: [...new Set(instances.filter((row) => row.enabled).map((row) => row.instanceId))],
+        },
+      }
+    : settings;
+}

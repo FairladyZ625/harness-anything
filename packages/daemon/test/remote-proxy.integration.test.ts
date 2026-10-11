@@ -294,6 +294,15 @@ test(
         authMode: "subscription",
       },
     });
+    assert.equal(
+      (
+        await rpcB("repo.settings.update", {
+          repo: { repoId },
+          payload: { runtimeAllowedInstances: ["proxy-codex"], expectedVersion: 1 },
+        })
+      ).outcome,
+      "applied",
+    );
     const spawned = await rpcA("repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {

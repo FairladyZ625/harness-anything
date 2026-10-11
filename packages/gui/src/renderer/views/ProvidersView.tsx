@@ -107,9 +107,7 @@ export function ProvidersWorkspace({
   const settingsExpectedVersion =
     settings.data?.lastChanged === "initial" || settings.data === undefined ? 0 : settings.data.lastChanged.revision;
   const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
-    const current =
-      settings.data?.settings.runtime?.allowedInstances ??
-      instances.filter((row) => row.enabled).map((row) => row.instanceId);
+    const current = settings.data?.settings.runtime?.allowedInstances ?? [];
     return settingsMutation.mutate({
       runtimeAllowedInstances: allowed
         ? [...new Set([...current, instanceId])]

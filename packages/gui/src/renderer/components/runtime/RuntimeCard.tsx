@@ -134,6 +134,14 @@ export function RuntimeCard({
             )}
             <Hint>{t("agentRuntime.enabled")}</Hint>
             <Toggle checked={instance.enabled} label={t("agentRuntime.enabled")} onChange={onSetEnabled} />
+            <span data-testid="runtime-card-project-access" className="flex items-center gap-2">
+              <Hint>{t("agentRuntime.projectAllowed")}</Hint>
+              <Toggle
+                checked={projectAllowed}
+                label={t("agentRuntime.projectAllowed")}
+                onChange={onSetProjectAllowed}
+              />
+            </span>
           </Right>
         </CardHead>
         <CardBody>
@@ -162,22 +170,6 @@ export function RuntimeCard({
               ))}
             </FieldGrid>
           )}
-        </CardBody>
-      </Card>
-
-      <Card testId="runtime-card-project-access">
-        <CardHead>
-          <CardTitle>{t("agentRuntime.projectAccessTitle")}</CardTitle>
-          <Hint>{t("agentRuntime.projectAccessHint")}</Hint>
-          <Right>
-            <Hint>{t(projectAllowed ? "agentRuntime.projectAllowed" : "agentRuntime.projectBlocked")}</Hint>
-            <Toggle checked={projectAllowed} label={t("agentRuntime.projectAllowed")} onChange={onSetProjectAllowed} />
-          </Right>
-        </CardHead>
-        <CardBody>
-          <p className="ui-meta text-text-muted">
-            {t("agentRuntime.projectAccessBody", { instance: instance.instanceId })}
-          </p>
         </CardBody>
       </Card>
 

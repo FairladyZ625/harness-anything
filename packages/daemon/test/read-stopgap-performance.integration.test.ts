@@ -85,6 +85,10 @@ test("runtime discovery write load keeps independent read clients within the sto
         authMode: "subscription",
       },
     });
+    await request("repo.settings.update", {
+      repo: { repoId },
+      payload: { runtimeAllowedInstances: ["read-stopgap-codex"], expectedVersion: 1 },
+    });
     await new Promise((resolve) => setTimeout(resolve, 0));
     const idle = await measure(readCalls, 20),
       callsBeforeSpawn = discoveryCalls,

@@ -78,6 +78,7 @@ test("writer supervisor observes internal runtime work draining to zero", async 
         repoId,
         rootDir,
         ownerId: "writer-queue-depth-seed",
+        runtimeInstances: () => [instance],
         defaultWriterEpochFence: fence,
       })
     ).close();

@@ -373,8 +373,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agentId,
         squadId,
         targetAgentId,
-      ),
-      selection = await prepareRuntimeInstance(
+      );
+    if (agent) assertAgentDispatchable(agent);
+    const selection = await prepareRuntimeInstance(
         {
           requested:
             inheritedFallback?.candidates[inheritedFallback.attemptIndex]?.instance ??
@@ -474,7 +475,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
                 : dispatchMission,
             prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
-          if (agent) assertAgentDispatchable(agent);
+
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
           const preview = dryRun

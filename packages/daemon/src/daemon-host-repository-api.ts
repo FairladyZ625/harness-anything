@@ -1,3 +1,4 @@
+import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -108,27 +109,13 @@ export function createDaemonHostRepositoryApi(
         await context.oidc.bind(auth),
       );
       const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
-        allowedInstances = [
-          ...new Set(
-            context.runtimePorts
-              .runtimeInstances()
-              .filter((row) => row.enabled)
-              .map((row) => row.instanceId),
-          ),
-        ],
-        bootstrap =
-          bootstrapSettings.runtime?.allowedInstances === undefined
-            ? {
-                ...prepared,
-                settingsBootstrap: [
-                  {
-                    ...bootstrapSettings,
-                    runtime: { ...bootstrapSettings.runtime, allowedInstances },
-                  },
-                  bootstrapDocumentBody,
-                ] as const,
-              }
-            : prepared;
+        bootstrap = {
+          ...prepared,
+          settingsBootstrap: [
+            initialRuntimeInstanceSettings(bootstrapSettings, context.runtimePorts.runtimeInstances()),
+            bootstrapDocumentBody,
+          ] as const,
+        };
       await context.waitForWarming(bootstrap.repoId);
       if (context.warming.has(bootstrap.repoId))
         throw context.hostCodedError("repo_warming", context.warmingMessage(bootstrap.repoId));
@@ -151,7 +138,7 @@ export function createDaemonHostRepositoryApi(
             rootDir: bootstrap.rootDir,
             mode: "local",
             ownerId: context.input.daemonId,
-            defaultWriterEpochFence: context.writerEpochFence(bootstrap.repoId, bootstrap.rootDir),
+            defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
             bootstrap,

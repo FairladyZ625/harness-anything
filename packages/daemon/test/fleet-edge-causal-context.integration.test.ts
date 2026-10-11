@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -26,6 +27,7 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), ["causal-edge-codex"]);
     const center = await fixture.center(),
       edgeRoot = path.join(fixture.root, "causal-edge"),
       edgeUserRoot = path.join(fixture.root, "causal-edge-user"),
@@ -355,6 +357,7 @@ for (const probe of [
   test(`edge task context rejects ${probe.name}`, { timeout: 60_000 }, async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", "# English\n# 中文\n");
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), ["causal-edge-codex"]);
     const missionLogical = "tasks/task-fleet-fleet/artifacts/missions/probe.md";
     mkdirSync(path.join(fixture.repo, "harness/tasks/task-fleet-fleet/artifacts/missions"), { recursive: true });
     writeFileSync(path.join(fixture.repo, "harness", missionLogical), "Run the probe.\n");
@@ -447,6 +450,7 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), ["causal-edge-codex"]);
     const { repoId, taskId } = fixture.subject;
     // dec_57370FF2021DADF04E3B21724D CH1: one read carries what the launching node needs from the center.
     const context = await fixture.host.read(repoId, "repo.tasks.runtimeContext.read", { taskId }, fixture.auth);

@@ -81,6 +81,14 @@ test("real CLI signs in interactively, refreshes through login, runs real provid
       ];
     run(root, env, [...create, "subscription"]);
     run(root, env, [...apiCreate, "api-key", "--credential-ref", "keychain:harness/cli-keyed"]);
+    run(root, env, [
+      "settings",
+      "update",
+      "--runtime-allowed-instance",
+      "cli-worker",
+      "--runtime-allowed-instance",
+      "cli-keyed",
+    ]);
     const blocked = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "too early", "--no-stream"]);
     assert.notEqual(blocked.status, 0, JSON.stringify(blocked));
     assert.equal((blocked.receipt.error as Record<string, unknown>).code, "runtime_subscription_required");

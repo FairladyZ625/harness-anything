@@ -369,6 +369,7 @@ async function runLiveRuntimeRestart(root) {
       "--auth",
       "subscription",
     ]);
+    runCli(fixture.repoRoot, env, ["settings", "update", "--runtime-allowed-instance", "stress-runtime"]);
     const spawned = runCli(fixture.repoRoot, env, [
         "runtime",
         "run",

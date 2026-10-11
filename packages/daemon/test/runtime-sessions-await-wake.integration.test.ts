@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -76,6 +77,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
       },
       auth,
     );
+    await allowFixtureRuntimeInstances(host, repoId, auth, ["claude-wake"]);
     const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {

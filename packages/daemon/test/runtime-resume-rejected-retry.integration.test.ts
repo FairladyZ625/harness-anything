@@ -54,7 +54,16 @@ test("a provider-rejected local resume leaves its source available for another a
       repoId: workspaceId("resume-rejected-retry"),
       rootDir: canonicalRoot(root),
       ownerId: "fixture",
-      runtimeInstances: () => [],
+      runtimeInstances: () =>
+        [
+          {
+            instanceId: definition.instanceId,
+            enabled: true,
+            kindId: definition.kindId,
+            models: [definition.model],
+            defaultModel: definition.model,
+          },
+        ] as never,
       prepareRuntimeLaunch: (_instanceId, request) => ({
         definition,
         installation: {

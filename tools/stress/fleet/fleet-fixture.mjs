@@ -40,16 +40,6 @@ export async function openFleetCampaignFixture(options = {}) {
     clock = options.now ?? "2026-09-06T00:00:00.000Z";
   const children = new Set();
   try {
-    for (const repo of repos) {
-      initHarnessRepo(repo.rootDir, repo.repoId);
-      registerDaemonRepo({
-        canonicalRoot: repo.rootDir,
-        repoId: repo.repoId,
-        mode: "remote-center",
-        userRoot,
-        createConvenienceLinks: false,
-      });
-    }
     makeCertificate(keyFile, certFile);
     owners = await fleetNodeOwners({
       userRoot,
@@ -75,6 +65,16 @@ export async function openFleetCampaignFixture(options = {}) {
       models: ["stress-model"],
       authMode: "subscription",
     });
+    for (const repo of repos) {
+      initHarnessRepo(repo.rootDir, repo.repoId);
+      registerDaemonRepo({
+        canonicalRoot: repo.rootDir,
+        repoId: repo.repoId,
+        mode: "remote-center",
+        userRoot,
+        createConvenienceLinks: false,
+      });
+    }
     const host = await openDaemonHost({
       daemonId: "stress-s4-center",
       userRoot,

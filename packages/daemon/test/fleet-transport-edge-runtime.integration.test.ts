@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
@@ -63,6 +64,10 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
+      "edge-codex",
+      "aaa-edge-codex",
+    ]);
     const taskReleaseBarrier = fixture.blockTaskRelease();
     t.after(taskReleaseBarrier.release);
     const center = await fixture.center(),
@@ -499,6 +504,10 @@ test(
       },
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
+      "edge-codex",
+      "aaa-edge-codex",
+    ]);
     await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
     const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
@@ -707,6 +716,10 @@ test(
   async (t) => {
     const fixture = await fleetFixture(t);
     t.after(() => fixture.close());
+    await allowFixtureRuntimeInstances(fixture.host, fixture.subject.repoId, localAuthFixture(), [
+      "edge-codex",
+      "aaa-edge-codex",
+    ]);
     const center = await fixture.center(),
       workspaceRoot = path.join(fixture.root, "paged-runtime-edge"),
       viewRoot = path.join(fixture.root, "paged-runtime-view");

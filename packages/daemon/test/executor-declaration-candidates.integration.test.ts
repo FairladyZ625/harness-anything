@@ -32,6 +32,16 @@ function openRuntimeStubCell(rootDir: string, repoId: string, processes: Spawned
     rootDir: canonicalRoot(rootDir),
     ownerId: "daemon-test",
     runtimeDaemonRoute: { userRoot: rootDir, daemonId: "daemon-test", endpoint: path.join(rootDir, "daemon.sock") },
+    runtimeInstances: () =>
+      [
+        {
+          instanceId: "review-runtime",
+          enabled: true,
+          kindId: "codex",
+          models: ["review-model"],
+          defaultModel: "review-model",
+        },
+      ] as never,
     prepareRuntimeLaunch: (_instanceId, request) => {
       const providerSessionId = request.providerSessionId ?? `provider-${++providerSequence}`;
       return {

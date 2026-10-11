@@ -261,8 +261,8 @@ function edgeSpawner(rootDir: string, worktree: TaskWorktreeBindingV1 | null) {
       },
       stream: { publish: () => ({}) as never },
       now: () => "2026-10-01T00:00:00.000Z",
-      readSettings: () => ({ worktree: { setup: [] } }) as never,
-      runtimeInstances: () => [],
+      readSettings: () => ({ worktree: { setup: [] }, runtime: { allowedInstances: ["edge-instance"] } }) as never,
+      runtimeInstances: () => [{ instanceId: "edge-instance", enabled: true, kindId: "codex" }] as never,
       prepareLaunch: async (_instanceId, request) => {
         launchedIn.push(request.cwd);
         prompts.push(request.prompt);
