@@ -241,9 +241,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // awaits it, so a center still resuming reads as a slow startup instead of a broken repo (a
   // build-superseded successor's first attach lost exactly that race and latched its repo).
   let rbacResumed: Promise<void> = Promise.resolve();
-  const keycloakCenter: KeycloakCenterAuthority = async () => {
+  const keycloakCenter: KeycloakCenterAuthority = async (rejectedAccessToken) => {
     await rbacResumed;
-    return { ...(await oidc.center()), clientId: "harness-center" };
+    return { ...(await oidc.center(rejectedAccessToken)), clientId: "harness-center" };
   };
   const keycloakSession = async () => {
     await rbacResumed;
