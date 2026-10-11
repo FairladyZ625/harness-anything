@@ -199,7 +199,7 @@ export function openFleetEdgeView(
             JSON.stringify(base?.cut) !== JSON.stringify(frame.fromCut) ||
             (activeCut && frame.toCut.revision < activeCut.cut.revision)
           )
-            throw new Error("snapshot_required: delta base cut is unavailable or target is stale");
+            throw new Error("snapshot_required: delta base cut is not current");
         }
         exactJson(path.join(staging, frame.transferId, "begin.json"), frame);
         active.set(frame.transferId, root);
