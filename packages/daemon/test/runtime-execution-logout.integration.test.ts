@@ -131,6 +131,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     },
   });
   assert.equal(instance.ok, true, JSON.stringify(instance));
+  assert.equal((await run({ kind: "settings-update", runtimeAllowedInstances: ["codex-worker"] })).outcome, "applied");
   const taskId = "task-logout",
     executionId = "execution-logout";
   await createRealizedTaskPlanFixture(

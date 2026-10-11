@@ -35,6 +35,7 @@
   "agentRuntime.opSquadSaved": "Squad declaration saved",
   "agentRuntime.opSessionCancelled": "Session cancellation requested",
   "agentRuntime.enabled": "Enabled",
+  "agentRuntime.projectAllowed": "Use in this project",
   "agentRuntime.instanceEnabled": "enabled",
   "agentRuntime.instanceDisabled": "disabled",
   "agentRuntime.providerDefault": "provider default",

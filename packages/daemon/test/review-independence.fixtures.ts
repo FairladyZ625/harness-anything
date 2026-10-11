@@ -3,7 +3,26 @@ import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { makeTaskEventReader } from "@harness-anything/kernel";
+import type { RuntimeInstanceSummary } from "../src/agent-runtime-instances.ts";
 import type { RepoCell } from "../src/repo-cell.ts";
+
+export const reviewRuntimeInstance: RuntimeInstanceSummary = {
+  schemaVersion: 2,
+  instanceId: "review-runtime",
+  name: "Review Runtime",
+  installationId: "review-runtime-installation",
+  providerId: "openai",
+  kindId: "codex",
+  models: ["review-model"],
+  defaultModel: "review-model",
+  enabled: true,
+  permissionMode: "workspace-write",
+  authMode: "subscription",
+  authState: "authenticated",
+  authReadiness: { status: "ready", code: null, hint: null },
+  isolationState: "enforced",
+  configuration: {},
+};
 
 export const git = (rootDir: string, ...args: readonly string[]): string =>
   execFileSync("git", args, { cwd: rootDir, encoding: "utf8", windowsHide: true }).trim();

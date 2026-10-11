@@ -766,7 +766,13 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
     };
   initializeRepo(rootDir, repoId);
   signInPolicyTestUser(userRoot, "person-superseded-readopt", [repoId], "admin");
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    runtimeInstances: [instance],
+    createConvenienceLinks: false,
+  });
   try {
     daemon = runningDaemon(
       await startDaemon({
@@ -1013,7 +1019,13 @@ test("a superseded exit hands the slot over while a --wait client's parked await
     };
   initializeRepo(rootDir, repoId);
   signInPolicyTestUser(userRoot, "person-superseded-await", [repoId], "admin");
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    runtimeInstances: [instance],
+    createConvenienceLinks: false,
+  });
   try {
     daemon = runningDaemon(
       await startDaemon({
@@ -1239,7 +1251,13 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
     };
   initializeRepo(rootDir, repoId);
   signInPolicyTestUser(userRoot, "person-drain-outlasts-await", [repoId], "admin");
-  registerBootstrappedDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
+  registerBootstrappedDaemonRepo({
+    canonicalRoot: rootDir,
+    repoId,
+    userRoot,
+    runtimeInstances: [instance],
+    createConvenienceLinks: false,
+  });
   try {
     daemon = runningDaemon(
       await startDaemon({

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -99,6 +100,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
       },
       auth,
     );
+    await allowFixtureRuntimeInstances(host, repoId, auth, [definition.instanceId]);
     const created = await host.run(repoId, { kind: "task-create", taskId, title: "Lease reservation" }, auth);
     assert.equal(created.outcome, "applied");
     const publication = await host.run(

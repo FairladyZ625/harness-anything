@@ -35,6 +35,7 @@
   "agentRuntime.opSquadSaved": "Squad 声明已保存",
   "agentRuntime.opSessionCancelled": "会话已请求终止",
   "agentRuntime.enabled": "启用",
+  "agentRuntime.projectAllowed": "在此项目使用",
   "agentRuntime.instanceEnabled": "已启用",
   "agentRuntime.instanceDisabled": "已停用",
   "agentRuntime.providerDefault": "provider 默认",

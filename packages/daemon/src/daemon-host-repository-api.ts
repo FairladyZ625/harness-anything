@@ -1,3 +1,4 @@
+import { initialRuntimeInstanceSettings } from "./runtime-spawn-allowlist.ts";
 import { edgeReplicaDoctor } from "./edge-replica-doctor.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -107,33 +108,41 @@ export function createDaemonHostRepositoryApi(
           : request,
         await context.oidc.bind(auth),
       );
-      await context.waitForWarming(prepared.repoId);
-      if (context.warming.has(prepared.repoId))
-        throw context.hostCodedError("repo_warming", context.warmingMessage(prepared.repoId));
+      const [bootstrapSettings, bootstrapDocumentBody] = prepared.settingsBootstrap,
+        bootstrap = {
+          ...prepared,
+          settingsBootstrap: [
+            initialRuntimeInstanceSettings(bootstrapSettings, context.runtimePorts.runtimeInstances()),
+            bootstrapDocumentBody,
+          ] as const,
+        };
+      await context.waitForWarming(bootstrap.repoId);
+      if (context.warming.has(bootstrap.repoId))
+        throw context.hostCodedError("repo_warming", context.warmingMessage(bootstrap.repoId));
       context.markWarming(
-        prepared.repoId,
+        bootstrap.repoId,
         context.warmingStatus({
-          repoId: prepared.repoId,
-          canonicalRoot: prepared.rootDir,
+          repoId: bootstrap.repoId,
+          canonicalRoot: bootstrap.rootDir,
           mode: "local",
         }),
       );
       try {
-        await context.cells.get(prepared.repoId)?.close();
-        context.cells.delete(prepared.repoId);
-        context.unavailable.delete(prepared.repoId);
+        await context.cells.get(bootstrap.repoId)?.close();
+        context.cells.delete(bootstrap.repoId);
+        context.unavailable.delete(bootstrap.repoId);
         let published: RepoBootstrapReceipt | undefined, cell: RepoCell;
         try {
           cell = await context.openCell({
-            repoId: prepared.repoId,
-            rootDir: prepared.rootDir,
+            repoId: bootstrap.repoId,
+            rootDir: bootstrap.rootDir,
             mode: "local",
             ownerId: context.input.daemonId,
             defaultWriterEpochFence: context.writerEpochFence(prepared.repoId, prepared.rootDir),
             runtimeDaemonRoute: context.runtimeDaemonRoute,
             keycloakCenter: context.keycloakCenter,
             keycloakSession: context.keycloakSession,
-            bootstrap: prepared,
+            bootstrap,
             onBootstrap: (receipt) => {
               published = receipt;
             },

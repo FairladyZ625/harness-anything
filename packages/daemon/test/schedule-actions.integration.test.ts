@@ -12,7 +12,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, eventually, git } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
@@ -659,7 +659,7 @@ test(
         workspaces = subjects.map((subject, index) => {
           const workspaceRoot = path.join(root, `edge-${index + 1}`),
             viewRoot = path.join(root, `view-${index + 1}`);
-          initHarnessRepo(workspaceRoot, `schedule-edge-${index + 1}`);
+          initHarnessRepo(workspaceRoot, "schedule-center");
           const runtime = openFleetEdgeRuntime({
             readBinding: () => owners!.binding(subject.nodeId),
             request: {
