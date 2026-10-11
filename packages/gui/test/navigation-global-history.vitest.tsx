@@ -175,6 +175,19 @@ describe("全局导航历史:主要页面与下钻共用一个栈(业主 2026-10
     expect(h().location.previewId).toBe("t2");
   });
 
+  it("小队编排下钻(squadrun/<id>)推栈:后退回上一位置,前进重开(评审 F2)", async () => {
+    const h = await mountNavigation();
+    act(() => h().gotoBoard());
+    act(() => h().navigateToEntity("squadrun/run-1"));
+    expect(h().location.view).toBe("sessions");
+    expect(h().location.focusedEntityRef).toBe("squadrun/run-1");
+    act(() => sideBack());
+    expect(h().location.view).toBe("board");
+    expect(h().location.focusedEntityRef).toBeNull();
+    act(() => sideForward());
+    expect(h().location.focusedEntityRef).toBe("squadrun/run-1");
+  });
+
   it("后退回到列表页保留当时的筛选(筛选随历史条目快照,精修不占条目)", async () => {
     const h = await mountNavigation();
     act(() => h().gotoBoard());

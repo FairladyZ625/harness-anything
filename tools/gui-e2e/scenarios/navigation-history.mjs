@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 import { bridgeReady, nav } from "./helpers.mjs";
 
 // 全局导航历史(业主 2026-10-11「有的页面能退能进,有的不能」):在真实 Electron 壳里
@@ -29,7 +30,7 @@ export default {
   lane: "isolated",
   description:
     "Global back/forward across board, preview drawer, task detail and sessions via bar buttons, real mouse side buttons, and the main-process app-command path.",
-  async run({ page, app, shot }) {
+  async run({ page, app, fixture, shot }) {
     await bridgeReady(page);
     // preload 面暴露侧键订阅(Windows 投递路径的 renderer 半边)。
     assert.equal(
@@ -83,5 +84,79 @@ export default {
     await emitAppCommand(app, "browser-forward");
     await page.getByTestId("task-detail-view").waitFor();
     await shot("navigation-history-app-command-forward-detail");
+
+    // ——— 返工 F1(评审 2026-10-11):工作页任务抽屉与根任务下钻走同一条全局历史 ——
+    // 种一个子任务让夹具根任务成为工作根(与 work-progress-chain 同一判定面),再回看板。
+    const created = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.task.create",
+      {
+        repo: { repoId: fixture.repoId },
+        payload: { taskId: "task-nav-work-child", title: "导航历史工作页成员", parentTaskId: "task-gui-smoke" },
+      },
+      5_000,
+      30_000,
+    );
+    assert.equal(created.ok, true, `work child create: ${JSON.stringify(created).slice(0, 300)}`);
+    await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.task.read",
+      {
+        repo: { repoId: fixture.repoId },
+        payload: {
+          action: {
+            kind: "receipt-show",
+            opId: created.opId,
+            waitFor: ["git_verified", "worktree_visible"],
+            timeoutMs: 5_000,
+          },
+        },
+      },
+      5_000,
+      30_000,
+    );
+    // 种子发生在 GUI 挂载之后:重载让读面重新拉取,不吃 stale 缓存。
+    await page.reload();
+    await bridgeReady(page);
+    // 任务详情头部也有同名「看板」面包屑,导航点限定侧栏。
+    await page
+      .getByTestId("app-sidebar-scroll")
+      .getByRole("button", { name: /^(?:看板|Board)$/u })
+      .click();
+    const workCard = page
+      .getByTestId("board-task-card")
+      .filter({ hasText: "Render the real triadic projection" })
+      .first();
+    await workCard.waitFor({ timeout: 20_000 });
+    // 工作根卡片路由进工作页(workspace)。
+    await workCard.click();
+    await page.getByTestId("workspace-view").waitFor({ timeout: 20_000 });
+    await shot("navigation-history-workspace");
+
+    // 任务页签:成员行进预览抽屉(App 级 previewId 推栈)——侧键后退关抽屉留在工作页,前进重开。
+    await page.locator("#workspace-tab-tasks").click();
+    const memberRow = page.locator("[data-task-row] button").first();
+    await memberRow.waitFor({ timeout: 20_000 });
+    await memberRow.click();
+    await page.locator("aside[role=dialog]").waitFor({ state: "visible" });
+    await shot("navigation-history-workspace-drawer");
+    await sideBack();
+    await page.locator("aside[role=dialog]").waitFor({ state: "hidden" });
+    await page.getByTestId("workspace-view").waitFor();
+    await shot("navigation-history-workspace-drawer-side-back");
+    await sideForward();
+    await page.locator("aside[role=dialog]").waitFor({ state: "visible" });
+    await sideBack();
+
+    // 根任务页签:下钻推栈(selectedId 落在工作根)——侧键后退回工作页页签,前进重开根任务分区。
+    await page.locator("#workspace-tab-root").click();
+    await page.getByTestId("workspace-root-task").waitFor({ timeout: 20_000 });
+    await shot("navigation-history-workspace-root");
+    await sideBack();
+    await page.getByTestId("workspace-root-task").waitFor({ state: "detached" });
+    await page.getByTestId("workspace-view").waitFor();
+    await sideForward();
+    await page.getByTestId("workspace-root-task").waitFor({ timeout: 20_000 });
+    await shot("navigation-history-workspace-root-forward");
   },
 };

@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
-import { act, createElement } from "react";
+import { act, createElement, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ReactFlowProvider } from "@xyflow/react";
@@ -336,16 +336,28 @@ describe("the work page absorbs the root task", () => {
   it("offers the root task as its own tab and opens child tasks outside the page", async () => {
     const onOpenTask = vi.fn(),
       renderRootTask = vi.fn(() => createElement("p", { "data-testid": "root-detail-probe" }, "root detail"));
+    // 根任务分区由全局历史条目驱动:harness 按 App 的接线把 onOpenRootTask/onCloseRootTask
+    // 反射回 rootTaskOpen(业主 2026-10-11 全局导航)。
+    let setRootOpen: ((open: boolean) => void) | undefined;
+    const Harness = () => {
+      const [rootOpen, open] = useState(false);
+      setRootOpen = open;
+      return createElement(WorkspaceView, {
+        scope,
+        projectName: "P",
+        onOpenTask,
+        onPreviewTask: () => undefined,
+        rootTaskOpen: rootOpen,
+        onOpenRootTask: () => open(true),
+        onCloseRootTask: () => open(false),
+        renderRootTask,
+      });
+    };
     const page = await render(
       createElement(
         QueryClientProvider,
         { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
-        createElement(WorkspaceView, {
-          scope,
-          projectName: "P",
-          onOpenTask,
-          renderRootTask,
-        }),
+        createElement(Harness),
       ),
     );
     const tab = (label: string) =>
@@ -356,6 +368,7 @@ describe("the work page absorbs the root task", () => {
     expect(tab("根任务").getAttribute("aria-selected")).toBe("true");
     // 子任务仍走外部打开位(App 按共享判定落任务详情)。
     act(() => tab("任务 1").click());
+    expect(setRootOpen).toBeDefined();
     act(() =>
       [...page.querySelectorAll<HTMLButtonElement>("[data-task-row] button")]
         .find((b) => b.textContent?.includes("T child"))!
@@ -377,6 +390,10 @@ describe("the work page absorbs the root task", () => {
         QueryClientProvider,
         { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
         createElement(WorkspaceView, {
+          onPreviewTask: () => undefined,
+          rootTaskOpen: false,
+          onOpenRootTask: () => undefined,
+          onCloseRootTask: () => undefined,
           scope: {
             ...scope,
             groups: [declaredRow],
@@ -412,6 +429,10 @@ describe("the work page absorbs the root task", () => {
           scope,
           projectName: "P",
           onOpenTask: () => undefined,
+          onPreviewTask: () => undefined,
+          rootTaskOpen: false,
+          onOpenRootTask: () => undefined,
+          onCloseRootTask: () => undefined,
         }),
       ),
     );

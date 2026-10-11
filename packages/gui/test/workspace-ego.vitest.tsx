@@ -118,6 +118,10 @@ it("reuses the ego canvas with scoped full rows, navigates entities and preserve
             edge("decision/unrelated", "fact/F-OUTSIDE"),
           ]}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
           onNavigateEntity={navigate}
         />
       </QueryClientProvider>,
@@ -193,6 +197,10 @@ it("hands the canvas its pin toggle, so the workspace canvas offers the same act
           facts={[]}
           relations={[edge("task/root", "task/member")]}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
           onNavigateEntity={() => {}}
           onSetTaskPin={setPin}
         />

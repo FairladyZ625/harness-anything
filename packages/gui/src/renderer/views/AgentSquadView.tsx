@@ -66,18 +66,21 @@ export function AgentSquadView({
   tasks,
   focusedEntityRef,
   onSelectEntity,
+  onBack,
   onFocusGraph,
 }: {
   readonly repoId: string;
   readonly tasks: readonly DispatchDialogTaskOption[];
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
+  /** 窄容器返回键:全局导航弹栈(App 注入,与顶栏后退/侧键同一条路径)。 */
+  readonly onBack: () => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);透传给 Agent 详情卡。 */
   readonly onFocusGraph?: (ref: string) => void;
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
-  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情、
-  // 返回键回目录;宽容器常驻双栏,该状态不参与。深链/跨页实体跳转视为一次点行。
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行 =
+  // 推栈选中引用进详情、全局后退/返回键弹回目录;宽容器常驻双栏,该状态不参与。
   const narrow = useCatalogDetailPane(
     refSelection !== null && (refSelection.type === "agent" || refSelection.type === "squad")
       ? `${refSelection.type}/${refSelection.id}`
@@ -298,10 +301,7 @@ export function AgentSquadView({
           agentNames={agentNames}
           squadsByAgent={squadsByAgent}
           selection={current}
-          onSelect={(selection) => {
-            onSelectEntity(runtimeSelectionRef(selection));
-            narrow.openDetail();
-          }}
+          onSelect={(selection) => onSelectEntity(runtimeSelectionRef(selection))}
           onNew={(segment) => setDialog({ kind: "new-entity", entity: segment === "agents" ? "agent" : "squad" })}
           toolbar={
             <AgentSquadFilterBar agents={agentRows} squads={squadRows} filters={filters} onChange={setFilters} />
@@ -361,7 +361,7 @@ export function AgentSquadView({
           data-pane="detail"
           className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6"
         >
-          <CatalogBackButton testId="agent-squad-back-to-list" onBack={narrow.backToList} />
+          <CatalogBackButton testId="agent-squad-back-to-list" onBack={onBack} />
           {current === null ? (
             <>
               {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}

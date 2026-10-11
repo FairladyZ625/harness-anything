@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { t } from "../../i18n/index.tsx";
 
 // 目录页双栏的窄容器退化(标准 §2.3/§5.1、原则 9②,先例 PR #3167 会话页):内容区
@@ -36,7 +36,7 @@ export function CatalogSplit({
   );
 }
 
-/** 单列形态的返回键(容器 ≥720px 时隐藏,styles.css .catalog-split)。 */
+/** 单列形态的返回键(容器 ≥720px 时隐藏,styles.css .catalog-split);onBack 走全局历史弹栈。 */
 export function CatalogBackButton({ testId, onBack }: { readonly testId: string; readonly onBack: () => void }) {
   return (
     <button
@@ -51,18 +51,11 @@ export function CatalogBackButton({ testId, onBack }: { readonly testId: string;
 }
 
 /**
- * 单列形态的「详情已开」状态:点行/深链进详情,返回键回目录;宽容器下不参与显隐。
- * `focusKey` 是当前深链落点(null = 无):变化即视为一次点行——窄容器下,深链/跨页
- * 实体跳转让详情取代目录;返回键只清 open,不动导航栈。同页再点同一行仍能进详情
- * (点行回调直接 openDetail,不经过本 effect)。
+ * 单列形态的「详情已开」状态(业主 2026-10-11 全局导航):由当前导航条目的选中引用
+ * 派生——点行/深链推栈使 focusKey 非空即进详情,全局后退/前进弹回无引用的条目即回
+ * 目录,不再持有第二份本地开关。`focusKey` 是当前段落的深链落点(null = 无):会话页
+ * 按段落取 session/squadrun 引用,切换段落自然回到目录。
  */
 export function useCatalogDetailPane(focusKey: string | null) {
-  const [detailOpen, setDetailOpen] = useState(false);
-  useEffect(() => {
-    if (focusKey !== null) setDetailOpen(true);
-  }, [focusKey]);
-  // 稳定引用:调用方(如会话页的行回调)拿它组 useCallback 做行级 memo。
-  const openDetail = useCallback(() => setDetailOpen(true), []),
-    backToList = useCallback(() => setDetailOpen(false), []);
-  return { detailOpen, openDetail, backToList };
+  return { detailOpen: focusKey !== null };
 }
