@@ -27,6 +27,7 @@ export function SchedulesView({
   onSelectEntity,
   onFocusSchedule,
   onFocusGraph,
+  onBack,
 }: {
   readonly repoId: string;
   readonly focusedEntityRef: string | null;
@@ -36,6 +37,8 @@ export function SchedulesView({
   readonly onFocusSchedule: (ref: string | null) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);缺省不渲染。 */
   readonly onFocusGraph?: (ref: string) => void;
+  /** 详情 hub 返回键 = 全局历史弹栈(与任务/预设详情同一能力,业主 2026-10-11)。 */
+  readonly onBack: () => void;
 }) {
   const query = useQuery({
     queryKey: ["schedules", repoId],
@@ -61,6 +64,7 @@ export function SchedulesView({
         onSelectEntity={onSelectEntity}
         onFocusSchedule={onFocusSchedule}
         onFocusGraph={onFocusGraph}
+        onBack={onBack}
       />
     </section>
   );
@@ -74,6 +78,7 @@ export function ScheduleWorkspace({
   onSelectEntity,
   onFocusSchedule,
   onFocusGraph,
+  onBack,
   onMutated,
 }: {
   readonly repoId: string;
@@ -84,6 +89,8 @@ export function ScheduleWorkspace({
   readonly onFocusSchedule: (ref: string | null) => void;
   /** 统一「在关系图中查看」入口(task_89d324b5);透传给详情 hub。 */
   readonly onFocusGraph?: (ref: string) => void;
+  /** 详情 hub 的返回键:全局历史弹栈(进 hub/运行详情都是推栈,弹栈原路返回)。 */
+  readonly onBack: () => void;
   readonly onMutated?: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -189,8 +196,8 @@ export function ScheduleWorkspace({
           onDelete={() => void deleteSchedule(selected)}
           onSelectEntity={onSelectEntity}
           onFocusGraph={onFocusGraph}
-          onExitRun={() => onFocusSchedule(scheduleRef(selected.scheduleId))}
-          onExit={() => onFocusSchedule(null)}
+          onExitRun={onBack}
+          onExit={onBack}
         />
       ) : (
         <ScheduleListPane

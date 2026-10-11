@@ -4,10 +4,12 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { notifyManager, QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppMotionConfig, MOTION_PREFERENCE_STORAGE_KEY } from "../src/renderer/motion-config.tsx";
 import { PageEntryBoundary } from "../src/renderer/components/primitives/EntryBoundary.tsx";
 import { WorkspaceView } from "../src/renderer/views/WorkspaceView.tsx";
+import { useViewHistory } from "../src/renderer/navigation/useViewHistory.ts";
+import { initialLocation } from "../src/renderer/navigation/viewHistoryStorage.ts";
 import { combineWorkspaceScopePages } from "../src/renderer/workspace-scope-data.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import { readSplitPreferences } from "../src/renderer/split-layout-preferences.ts";
@@ -164,6 +166,10 @@ describe("work page header", () => {
           projectName="Harness"
           tasks={[submittedRow("task_w1"), submittedRow("task_w2"), submittedRow("task_w3")]}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
         />
       </QueryClientProvider>,
     );
@@ -192,6 +198,10 @@ describe("work page header", () => {
         projectName="Harness"
         tasks={[row("task_root", { pinned: false })]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
         onSetTaskPin={setPin}
       />,
     );
@@ -214,6 +224,10 @@ describe("work page header", () => {
           })}
           projectName="Harness"
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
         />
       </QueryClientProvider>,
     );
@@ -229,7 +243,16 @@ describe("work page header", () => {
       uncommitted: false,
     } as never);
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     expect(documentSpy).toHaveBeenCalledWith(expect.objectContaining({ taskId: "task_root" }));
     await vi.waitFor(() => expect(host.querySelector('[data-testid="workspace-mission"]')).not.toBeNull());
@@ -261,6 +284,10 @@ describe("overview narrative", () => {
           projectName="Harness"
           tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
           onAdjudicate={onAdjudicate}
         />,
       );
@@ -311,6 +338,10 @@ describe("overview narrative", () => {
             }),
           ]}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
           onAttest={onAttest}
         />,
       );
@@ -337,6 +368,10 @@ describe("overview narrative", () => {
           }),
         ]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const warn = host.querySelector('[data-testid="work-stuck"]')!;
@@ -379,6 +414,10 @@ describe("overview narrative", () => {
           row("task_next", { coordinationStatus: "planned" }),
         ]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const board = host.querySelector('[data-testid="work-overview-board"]')!;
@@ -438,6 +477,10 @@ describe("overview narrative", () => {
         projectName="Harness"
         tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const board = host.querySelector<HTMLElement>('[data-testid="work-overview-board"]')!;
@@ -513,6 +556,10 @@ describe("overview narrative", () => {
           projectName="Harness"
           tasks={[row("task_wait", { coordinationStatus: "submitted", parentTaskId: "task_root" })]}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
         />,
       );
     const dockTimeline = async (host: HTMLElement) => {
@@ -563,7 +610,17 @@ describe("overview narrative", () => {
   });
 
   it("drops empty regions instead of leaving empty frames", async () => {
-    const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
+    const host = await mount(
+      <WorkspaceView
+        scope={scope()}
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
     const keys = [...host.querySelectorAll<HTMLElement>("[data-region]")].map((region) => region.dataset.region);
     // 工作说明区域是「该有而无」的空态(未选仓库),不是可丢的空框,常驻。
     expect(keys).toEqual(["structure", "explainer"]);
@@ -600,6 +657,10 @@ describe("overview narrative", () => {
         projectName="Harness"
         tasks={[row("task_solo"), row("task_next", { coordinationStatus: "planned", pinned: true })]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const days = host.querySelectorAll("[data-day]");
@@ -641,6 +702,10 @@ describe("overview narrative", () => {
         projectName="Harness"
         tasks={[row("task_solo"), row("task_exec", { leaseHolder: "person_x" })]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     expect(host.querySelectorAll("[data-day]")).toHaveLength(3);
@@ -693,6 +758,10 @@ describe("overview narrative", () => {
           }),
         ]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     await act(async () => tab(host, "tasks").click());
@@ -715,6 +784,10 @@ describe("overview narrative", () => {
         projectName="Harness"
         tasks={[row("task_solo", { title: "停滞任务标题：补充说明" })]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const grid = host.querySelector('[data-testid="work-stuck"] [data-task-row="task_solo"] .grid')!;
@@ -742,6 +815,10 @@ describe("overview narrative", () => {
           row("task_solo", { parentTaskId: "task_group" }),
         ]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const rail = host.querySelector('[data-testid="work-structure"]')!;
@@ -773,15 +850,107 @@ describe("overview narrative", () => {
     expect(host.textContent).not.toContain("T task_wait");
   });
 
-  it("opens a task row into the right drawer", async () => {
+  it("opens a task row through the global preview route (no local drawer state)", async () => {
+    const previewCalls: string[] = [];
     const host = await mount(
-      <WorkspaceView scope={baseScope} projectName="Harness" tasks={[row("task_solo")]} onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={baseScope}
+        projectName="Harness"
+        tasks={[row("task_solo")]}
+        onOpenTask={() => {}}
+        onPreviewTask={(taskId) => previewCalls.push(taskId)}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     await act(async () =>
       host.querySelector<HTMLButtonElement>('[data-testid="work-stuck"] [data-task-row="task_solo"] button')!.click(),
     );
-    const drawer = host.querySelector('[role="dialog"]')!;
-    expect(drawer.textContent).toContain("T task_solo");
+    // 抽屉是全局 previewId 推栈(评审 F1):本页不再持有第二份本地抽屉状态。
+    expect(previewCalls).toEqual(["task_solo"]);
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
+  });
+});
+
+describe("global navigation history (owner 2026-10-11): workspace drawer and root task drill-down", () => {
+  // 与 App.tsx 同一接线:useViewHistory 持位置,onPreviewTask/onOpenRootTask 推栈,
+  // rootTaskOpen 从 selectedId 派生;后退弹栈回工作页,前进原路重开。
+  let history: ReturnType<typeof useViewHistory> | null = null;
+  beforeEach(() => {
+    window.sessionStorage.clear();
+    history = null;
+  });
+
+  function WorkspaceWithHistory(props: { readonly previewCalls?: string[] }) {
+    const viewHistory = useViewHistory("p", initialLocation());
+    const { location, navigate, updateLocation } = viewHistory;
+    history = viewHistory;
+    return (
+      <WorkspaceView
+        scope={baseScopeOfNavigation()}
+        projectName="Harness"
+        tasks={[row("task_solo")]}
+        onOpenTask={() => {}}
+        onPreviewTask={(taskId) => {
+          props.previewCalls?.push(taskId);
+          navigate({ selectedId: null, previewId: taskId });
+        }}
+        rootTaskOpen={location.selectedId === "task_root"}
+        onOpenRootTask={() => navigate({ selectedId: "task_root", previewId: null, focusedEntityRef: null })}
+        onCloseRootTask={() => updateLocation({ selectedId: null })}
+        renderRootTask={() => <div data-testid="root-detail-body">根任务详情</div>}
+      />
+    );
+  }
+
+  function baseScopeOfNavigation() {
+    return scope({
+      counts: { done: 0, executing: 1, pending: 1, blocked: 0, planned: 1, cancelled: 0 },
+      scope: { descendantCount: 3, executableLeafCount: 3, archivedCount: 0 },
+      memberTaskIds: ["task_wait", "task_solo", "task_next"],
+      tasks: [scopeRow("task_wait", { status: "submitted" }), scopeRow("task_solo")],
+    });
+  }
+
+  it("member row pushes a preview entry; back closes it, forward reopens it", async () => {
+    const previewCalls: string[] = [];
+    const host = await mount(<WorkspaceWithHistory previewCalls={previewCalls} />);
+    await act(async () =>
+      host.querySelector<HTMLButtonElement>('[data-testid="work-stuck"] [data-task-row="task_solo"] button')!.click(),
+    );
+    expect(previewCalls).toEqual(["task_solo"]);
+    expect(history!.location.previewId).toBe("task_solo");
+    act(() => history!.back());
+    expect(history!.location.previewId).toBeNull();
+    act(() => history!.forward());
+    expect(history!.location.previewId).toBe("task_solo");
+  });
+
+  it("root task drill-down pushes an entry; back returns to the work page, forward reopens the section", async () => {
+    const host = await mount(<WorkspaceWithHistory />);
+    // 「根任务」页签即下钻入口:推栈后根任务分区打开。
+    await act(async () => tab(host, "root").click());
+    expect(history!.location.selectedId).toBe("task_root");
+    expect(host.querySelector('[data-testid="workspace-root-task"]')).not.toBeNull();
+    // 全局后退:弹栈回工作页,分区关闭;前进原路重开。
+    act(() => history!.back());
+    expect(history!.location.selectedId).toBeNull();
+    expect(host.querySelector('[data-testid="workspace-root-task"]')).toBeNull();
+    act(() => history!.forward());
+    expect(history!.location.selectedId).toBe("task_root");
+    expect(host.querySelector('[data-testid="workspace-root-task"]')).not.toBeNull();
+  });
+
+  it("leaving the root section via another tab patches the current entry in place", async () => {
+    const host = await mount(<WorkspaceWithHistory />);
+    await act(async () => tab(host, "root").click());
+    expect(history!.location.selectedId).toBe("task_root");
+    // 页签离开根任务分区 = 页内精修(原地改),不额外占历史条目。
+    await act(async () => tab(host, "tasks").click());
+    expect(history!.location.selectedId).toBeNull();
+    expect(host.querySelector('[data-testid="workspace-root-task"]')).toBeNull();
+    expect(host.querySelector('[data-testid="workspace-load-more"], [data-group="_loose"]')).not.toBeNull();
   });
 });
 
@@ -812,6 +981,10 @@ describe("tasks tab", () => {
           row("task_p", { coordinationStatus: "planned" }),
         ]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
         {...extra}
       />,
     );
@@ -855,6 +1028,10 @@ describe("tasks tab", () => {
         projectName="Harness"
         tasks={[row("task_live"), row("task_p", { coordinationStatus: "planned" })]}
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
       />,
     );
     const search = host.querySelector<HTMLInputElement>('[data-testid="workspace-search"]')!;
@@ -872,7 +1049,17 @@ describe("tasks tab", () => {
   });
 
   it("focuses the page search on /", async () => {
-    const host = await mount(<WorkspaceView scope={groupScope} projectName="Harness" onOpenTask={() => {}} />);
+    const host = await mount(
+      <WorkspaceView
+        scope={groupScope}
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
     const search = host.querySelector<HTMLInputElement>('[data-testid="workspace-search"]')!;
     expect(search).not.toBe(document.activeElement);
     await act(async () => {
@@ -955,7 +1142,16 @@ describe("work explainer tab and overview preview", () => {
   it("lands on the overview with the explainer embedded when the root task package has one", async () => {
     installDocuments();
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     // 首次进入默认选中概况(不再异步跳去工作说明),有 explainer 也不例外。
     expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
@@ -972,7 +1168,16 @@ describe("work explainer tab and overview preview", () => {
   it("opens the full explainer tab from the overview preview and shows the same content", async () => {
     installDocuments();
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     const openFull = host.querySelector<HTMLButtonElement>('[data-testid="work-explainer-open-full"]');
     expect(openFull?.textContent).toContain("打开完整工作说明");
@@ -991,7 +1196,16 @@ describe("work explainer tab and overview preview", () => {
     let release: ((value: unknown) => void) | undefined;
     list.mockImplementation(() => new Promise((resolve) => (release = resolve)));
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     // 清单未定案不再整页占位:概况首屏即渲染,内嵌工作说明区域自己处在读态。
     expect(host.querySelector('[data-testid="work-overview-board"]')).not.toBeNull();
@@ -1008,7 +1222,16 @@ describe("work explainer tab and overview preview", () => {
   it("lands on the overview and marks the explainer missing when the package has none", async () => {
     installDocuments({ explainer: false });
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
     expect(host.querySelector('[data-testid="work-overview-board"]')).not.toBeNull();
@@ -1022,7 +1245,16 @@ describe("work explainer tab and overview preview", () => {
   it("tells a manifest read failure apart from a missing explainer", async () => {
     vi.spyOn(harnessClient, "getTaskDocuments").mockRejectedValue(new Error("daemon unreachable"));
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     // 清单读失败按「无 explainer」定案落回概况,但状态面如实报失败,不冒充缺失。
     expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
@@ -1038,7 +1270,16 @@ describe("work explainer tab and overview preview", () => {
       status: "pending",
     } as never);
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     expect(tab(host, "overview").getAttribute("aria-selected")).toBe("true");
     expect(explainerState(host)).toBe("list-not-ready");
@@ -1049,7 +1290,16 @@ describe("work explainer tab and overview preview", () => {
     vi.spyOn(harnessClient, "getTaskDocuments").mockResolvedValue(listWith(true) as never);
     vi.spyOn(harnessClient, "getTaskDocument").mockRejectedValue(new Error("blob store offline"));
     const host = await mount(
-      <WorkspaceView scope={scope()} repoId="repo" projectName="Harness" onOpenTask={() => {}} />,
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
     );
     const state = host.querySelector<HTMLElement>('[data-testid="work-explainer-document"]');
     expect(state?.getAttribute("data-state")).toBe("body-error");
@@ -1067,7 +1317,16 @@ describe("work explainer tab and overview preview", () => {
     const client = new QueryClient();
     const element = (rootId: string) => (
       <QueryClientProvider client={client}>
-        <WorkspaceView scope={scopeWithRoot(rootId)} repoId="repo" projectName="Harness" onOpenTask={() => {}} />
+        <WorkspaceView
+          scope={scopeWithRoot(rootId)}
+          repoId="repo"
+          projectName="Harness"
+          onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
+        />
       </QueryClientProvider>
     );
     await act(async () => root.render(element("task_root")));
@@ -1101,7 +1360,15 @@ describe("tab panel wiring (TabPanel 原语)", () => {
     const host = await mount(
       <AppMotionConfig>
         <PageEntryBoundary identity="work-page">
-          <WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />
+          <WorkspaceView
+            scope={scope()}
+            projectName="Harness"
+            onOpenTask={() => {}}
+            onPreviewTask={() => {}}
+            rootTaskOpen={false}
+            onOpenRootTask={() => {}}
+            onCloseRootTask={() => {}}
+          />
         </PageEntryBoundary>
       </AppMotionConfig>,
     );
@@ -1123,7 +1390,17 @@ describe("tab panel wiring (TabPanel 原语)", () => {
 
 describe("layout adapts without guessed viewport constants(原则 9)", () => {
   it("fills the local-graph canvas from the flex chain instead of calc(100vh) and a fixed min width", async () => {
-    const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
+    const host = await mount(
+      <WorkspaceView
+        scope={scope()}
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
     await act(async () => tab(host, "graph").click());
     const scroll = host.querySelector('[data-testid="workspace-graph-scroll"]')!;
     expect(scroll.className).toContain("min-h-0");
@@ -1137,15 +1414,19 @@ describe("layout adapts without guessed viewport constants(原则 9)", () => {
   });
 
   it("gives the root-task panel its height from the flex chain, not a viewport guess", async () => {
+    // 根任务分区由全局历史条目驱动(rootTaskOpen),直接以打开态挂载验证布局。
     const host = await mount(
       <WorkspaceView
         scope={scope()}
         projectName="Harness"
         onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={true}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
         renderRootTask={() => <p>root detail</p>}
       />,
     );
-    await act(async () => tab(host, "root").click());
     const panel = host.querySelector('[data-testid="workspace-root-task"]')!;
     expect(panel.className).toContain("flex-1");
     expect(panel.className).toContain("min-h-0");
@@ -1153,7 +1434,17 @@ describe("layout adapts without guessed viewport constants(原则 9)", () => {
   });
 
   it("keeps the in-page search a fixed compact control in the header tab row (chrome S4)", async () => {
-    const host = await mount(<WorkspaceView scope={scope()} projectName="Harness" onOpenTask={() => {}} />);
+    const host = await mount(
+      <WorkspaceView
+        scope={scope()}
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
     const search = host.querySelector('[data-testid="workspace-search"]')!;
     // 三行化:搜索与页签同行,固定 210px/24px 紧凑档,窄屏随行折行,不再吃 flex-1。
     expect(search.className).toContain("w-[210px]");
