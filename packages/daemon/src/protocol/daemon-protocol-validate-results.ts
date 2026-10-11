@@ -306,7 +306,7 @@ export function validateDaemonTaskDispatches(value: unknown): readonly string[] 
     [
       "outcome",
       value.outcome,
-      ["succeeded", "failed", "cancelled", "unknown"].includes(String(value.outcome)),
+      ["succeeded", "failed", "cancelled", "unknown", "stopped"].includes(String(value.outcome)),
       "must be a terminal outcome",
     ],
     ["exitCode", value.exitCode, integer(value.exitCode), "must be an integer"],

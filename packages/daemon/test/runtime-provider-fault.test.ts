@@ -162,7 +162,9 @@ test("attempt-bound classification falls back only before tools or for recognize
     "worker_stop",
   );
   const cleanExit = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
-  assert.deepEqual(pick(cleanExit), { outcome: "unknown", classification: "worker_stop" });
+  assert.deepEqual(pick(cleanExit), { outcome: "failed", classification: "worker_stop" });
+  const stopped = classifyRuntimeExit(active({ providerOutcome: "succeeded", finalText: "checkpoint reached" }), 0);
+  assert.deepEqual(pick(stopped), { outcome: "stopped", classification: "worker_stop" });
   assert.deepEqual(pick(classifyRuntimeExit(active({ cancelRequested: true, toolCallObserved: false }), 1)), {
     outcome: "cancelled",
     classification: "worker_stop",
@@ -208,7 +210,7 @@ test("blank successful Codex turns classify as provider faults", () => {
     observeProviderFault(runtime, parsed);
   }
   const result = classifyRuntimeExit(runtime, 0);
-  assert.equal(result.outcome, "unknown");
+  assert.equal(result.outcome, "failed");
   assert.equal(result.classification, "provider_fault");
   assert.equal(result.reason, "Provider completed a turn but produced no output.");
 });

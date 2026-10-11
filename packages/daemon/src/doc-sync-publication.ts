@@ -57,7 +57,7 @@ export interface RuntimeDispatchArchive {
   readonly providerSessionId: string | null;
   readonly startedAt: string;
   readonly endedAt: string;
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled";
+  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
   readonly exitCode: number | null;
   readonly resultRef: string;
   readonly resultText: string;

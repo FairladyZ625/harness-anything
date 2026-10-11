@@ -82,7 +82,7 @@ export interface RuntimeSpawnerContext {
   readonly runtimeResultText: (
     active: ActiveRuntime,
     code: number | null,
-    outcome: "succeeded" | "failed" | "unknown" | "cancelled",
+    outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
   ) => string;
   readonly resultMediaType: "text/plain; charset=utf-8";
   readonly launchExitNotification: typeof launchExitNotification;

@@ -163,7 +163,7 @@ export interface RuntimeSession {
   readonly liveness: RuntimeLiveness;
   readonly attachable: boolean;
   readonly taskBindings: readonly RuntimeTaskSessionLink[];
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
   readonly exitCode: number | null;
   readonly resultRef: string | null;
   readonly reasonCode?: string;
@@ -176,6 +176,7 @@ export type RuntimeSessionSemanticState =
   | "succeeded"
   | "failed"
   | "cancelled"
+  | "stopped"
   | "ended-indeterminate"
   | "unavailable";
 
@@ -225,7 +226,7 @@ export const runtimeSessionEntityV1Schema = Object.freeze({
     },
     outcome: {
       type: "string",
-      enum: ["succeeded", "failed", "unknown", "cancelled"],
+      enum: ["succeeded", "failed", "unknown", "cancelled", "stopped"],
       "x-nullable": true,
       description: "Provider outcome, null before settlement.",
     },
@@ -243,7 +244,12 @@ export const runtimeSessionEntityV1Schema = Object.freeze({
 export function runtimeSessionOutcomeFromEvidence(
   session: Pick<RuntimeSession, "outcome"> & Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
 ): RuntimeSession["outcome"] {
-  if (session.outcome === "succeeded" || session.outcome === "failed" || session.outcome === "cancelled")
+  if (
+    session.outcome === "succeeded" ||
+    session.outcome === "failed" ||
+    session.outcome === "cancelled" ||
+    session.outcome === "stopped"
+  )
     return session.outcome;
   if (session.reasonCode) return "failed";
   if (session.exitCode === undefined || session.exitCode === null || !session.resultRef) return session.outcome;
@@ -265,7 +271,8 @@ export function runtimeSessionSemanticState(
     Partial<Pick<RuntimeSession, "exitCode" | "resultRef" | "reasonCode">>,
 ): RuntimeSessionSemanticState {
   const outcome = runtimeSessionOutcomeFromEvidence(session);
-  if (outcome === "succeeded" || outcome === "failed" || outcome === "cancelled") return outcome;
+  if (outcome === "succeeded" || outcome === "failed" || outcome === "cancelled" || outcome === "stopped")
+    return outcome;
   if (outcome === "unknown") return "ended-indeterminate";
   return session.liveness === "live" ? "running" : "unavailable";
 }
@@ -400,7 +407,7 @@ interface RuntimePayloads {
   readonly runtime_session_exited: { readonly runtimeSessionId: string };
   readonly runtime_session_outcome_observed: {
     readonly runtimeSessionId: string;
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled";
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
     readonly exitCode: number | null;
     readonly resultRef: string;
     readonly result: RuntimeResultClaim | null;
@@ -600,7 +607,7 @@ function validateAgentRuntimePayloadFields(
     return ["runtime liveness transition is invalid"];
   if (
     type === "runtime_session_outcome_observed" &&
-    (!["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome)) ||
+    (!["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome)) ||
       (value.exitCode !== null && (!Number.isInteger(value.exitCode) || (value.exitCode as number) < 0)) ||
       (value.reasonCode !== undefined && !isNonEmptyString(value.reasonCode)) ||
       !validResult(value.resultRef, value.result, allowUnknownFields))

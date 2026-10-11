@@ -41,8 +41,8 @@ export interface TaskDispatchRow {
   readonly eventStreamRef: string | null;
   readonly startedAt: string;
   readonly endedAt: string | null;
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
-  readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
+  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
+  readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | "blocked" | "lost";
   readonly resultRef?: string | null;
   readonly exitCode?: number | null;
   readonly dispatchPath?: string | null;
