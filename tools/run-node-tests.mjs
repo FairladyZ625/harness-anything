@@ -35,12 +35,17 @@ import { readTestQuarantine } from "./test-quarantine.mjs";
 const repoRoot = resolve(import.meta.dirname, "..");
 const DEFAULT_TEST_FILE_TIMEOUT_MS = 900_000;
 const PROCESS_TREE_KILL_GRACE_MS = 1_000;
-const DAEMON_ROUTE_ENVIRONMENT_VARIABLES = [
+// A worker runtime injects its daemon route and execution identity; tests must
+// reach their own fixture daemons as the test actor, not as that worker.
+const WORKER_ENVIRONMENT_VARIABLES = [
   "HARNESS_DAEMON_ENDPOINT",
   "HARNESS_DAEMON_USER_ROOT",
   "HARNESS_DAEMON_ID",
   "HARNESS_DAEMON_REPO_ID",
   "HARNESS_DAEMON_RELAY",
+  "HARNESS_EXECUTION_CREDENTIAL",
+  "HARNESS_EXECUTION_EXPIRES_AT",
+  "HARNESS_TASK_BOUND",
 ];
 
 // Reuse type-strip/compile output across the test host and every CLI
@@ -49,7 +54,7 @@ const DAEMON_ROUTE_ENVIRONMENT_VARIABLES = [
 // env, so the cache is shared. Lives under node_modules/.cache (already
 // git-ignored).
 process.env.NODE_COMPILE_CACHE ||= resolve(repoRoot, "node_modules/.cache/harness-node-compile");
-process.env.HARNESS_ACTOR ||= "agent:harness-test";
+process.env.HARNESS_ACTOR = "agent:harness-test";
 process.env.HARNESS_GIT_AUTHOR_NAME ||= "Harness Test";
 process.env.HARNESS_GIT_AUTHOR_EMAIL ||= "harness@example.test";
 
@@ -181,7 +186,7 @@ if (observationRoot) {
   childEnvironment.HARNESS_CI_NODE_TEST_RESULTS = observationRoot;
 }
 
-for (const name of DAEMON_ROUTE_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
+for (const name of WORKER_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
 const child = spawn(
   process.execPath,
   [
