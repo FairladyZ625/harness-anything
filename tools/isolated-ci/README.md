@@ -18,7 +18,7 @@ server tier runs are explicit diagnostics. No automatic fallback or retry is pro
 
 Install Docker Engine with effective CPU/memory cgroup controllers, Python 3, Git and rsync;
 a host Node installation is unnecessary. Give the dedicated account access to Docker and
-`/srv/harness-tests`. Its UID must match the image's non-root runner (1001); the bind mount
+`/srv/harness-tests`. Its UID must match the image's non-root runner (pass it as `RUNNER_UID` when building; default 1001); the bind mount
 and container run as that account. Deploy `tools/isolated-test-server.json` as
 `/srv/harness-tests/config.json` before enabling dispatch. Every producer reads that server
 file for admission, image and per-container limits. The local copy supplies the SSH alias,
@@ -27,7 +27,7 @@ account and location. Keep those routing fields aligned when the owner changes t
 Build the image on the amd64 server before admitting tests:
 
 ```sh
-docker build --platform linux/amd64 -t harness-ci:node24 tools/isolated-ci
+docker build --platform linux/amd64 --build-arg RUNNER_UID="$(id -u)" -t harness-ci:node24 tools/isolated-ci
 ```
 
 The owner must enforce the facility cgroup ceiling before building; the build command

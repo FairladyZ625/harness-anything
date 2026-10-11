@@ -26,8 +26,10 @@ FROM system
 COPY --from=git /git-install/usr/local/ /usr/local/
 COPY --from=node /usr/local/ /usr/local/
 ENV LANG=C.UTF-8 TZ=Etc/UTC
+# The runner UID must equal the dedicated host account's UID: the bind mount is owned by it.
+ARG RUNNER_UID=1001
 RUN git config --system init.defaultBranch main \
-    && useradd --create-home --uid 1001 runner \
+    && useradd --create-home --uid ${RUNNER_UID} runner \
     && mkdir /workspace && chown runner:runner /workspace
 # Managed PostgreSQL refuses root, as it does on the GitHub hosted runner.
 USER runner
