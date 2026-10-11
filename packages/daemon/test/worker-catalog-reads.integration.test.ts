@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -57,12 +57,14 @@ test(
     fs.readFileSync(0, "utf8");
     const id = process.env.HARNESS_ACTOR.split(":").at(-1), dir = ${JSON.stringify(parent)};
     console.log(JSON.stringify({ type: "thread.started", thread_id: id }));
-    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_ACTOR", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_REPO_ID", "HARNESS_CANONICAL_ROOT"];
+    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_ACTOR", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_REPO_ID", "HARNESS_CANONICAL_ROOT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_RELAY"];
     const envPath = path.join(dir, id + ".json");
     fs.writeFileSync(envPath + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))), { mode: 0o600 });
     fs.renameSync(envPath + ".tmp", envPath);
-    console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Reads exercised." } }));
-    console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));
+    const finish = () => { if (!fs.existsSync(path.join(dir, id + ".finish"))) return;
+      watcher.close(); console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "Reads exercised." } }));
+      console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } })); };
+    const watcher = fs.watch(dir, finish); finish();
   `,
     );
     const opened = Promise.withResolvers<Awaited<ReturnType<typeof openRepoCell>>>();
@@ -160,10 +162,6 @@ test(
       assert.ok(response.stdout.trim(), response.stderr);
       return { receipt: JSON.parse(response.stdout) as JsonObject, status: response.status };
     };
-    t.after(async () => {
-      signInAt(userRoot, "owner");
-      await rpc("repo.agentRuntime.cancel", { repo: { repoId }, payload: { runtimeSessionId: runtime } });
-    });
 
     const catalog = await cli(["preset", "list"]);
     assert.equal(catalog.receipt.outcome, "applied", JSON.stringify(catalog.receipt));
@@ -186,5 +184,8 @@ test(
       assert.equal(denied.receipt.code, "execution_credential_rejected", `${label}: ${JSON.stringify(denied.receipt)}`);
       assert.notEqual(denied.status, 0, `${label} must exit non-zero on an error receipt`);
     }
+    // The per-dispatch relay socket lives only while the provider runs, so the worker completes
+    // on this marker after the CLI reads; the early cleanup hook then stops the fixture daemon.
+    writeFileSync(path.join(parent, `${runtime}.finish`), "finish");
   },
 );
