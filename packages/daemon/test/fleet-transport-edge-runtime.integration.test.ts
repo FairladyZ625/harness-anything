@@ -22,6 +22,7 @@ import {
   runFaultChild,
 } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
+import { signOutAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
@@ -74,6 +75,7 @@ test(
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
       } as const;
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -83,6 +85,7 @@ test(
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -142,26 +145,29 @@ test(
             exit = listener;
             queueMicrotask(async () => {
               if (launchIndex === 0)
-                await runFleetEdgeTask({
-                  payload: {
-                    host: "127.0.0.1",
-                    port: center.port,
-                    caPath: fixture.certFile,
-                    nodeId: fixture.subject.nodeId,
-                    credential: "machine-secret",
-                    repoId: fixture.subject.repoId,
-                    viewRoot,
-                    quotaBytes: replicaQuota,
-                    workspaceRoot: edgeRoot,
-                    action: {
-                      kind: "task-progress-append",
-                      taskId: fixture.subject.taskId,
-                      executionId: fixture.subject.executionId,
-                      text: unique,
-                      evidence: [],
+                await runFleetEdgeTask(
+                  {
+                    payload: {
+                      host: "127.0.0.1",
+                      port: center.port,
+                      caPath: fixture.certFile,
+                      nodeId: fixture.subject.nodeId,
+                      credential: "machine-secret",
+                      repoId: fixture.subject.repoId,
+                      viewRoot,
+                      quotaBytes: replicaQuota,
+                      workspaceRoot: edgeRoot,
+                      action: {
+                        kind: "task-progress-append",
+                        taskId: fixture.subject.taskId,
+                        executionId: fixture.subject.executionId,
+                        text: unique,
+                        evidence: [],
+                      },
                     },
                   },
-                });
+                  async () => `device-token-${fixture.subject.nodeId}`,
+                );
               output?.(
                 `${JSON.stringify({ type: "thread.started", thread_id: "edge-provider-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge runtime done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
               );
@@ -369,11 +375,13 @@ test(
       );
 
       // Public queries require a repository principal and cannot drive recovery writes.
+      signOutAt(edgeUserRoot);
       await assert.rejects(
         edgeHost.read(fixture.subject.repoId, "repo.agentRuntime.overview", { limit: 1 }, localAuth),
         { code: "authentication_required" },
       );
-      // The supported sync path reconciles with node authority, without an interactive login.
+      // dec_F01770FD0DCF72683B7C4C7A47: recovery requires the device owner to sign in again.
+      fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
       const sync = await edgeHost.fleet.edgeSync(
         {
           host: "127.0.0.1",
@@ -398,7 +406,7 @@ test(
         // The recovered verdict is the settled unknown: no delivery was witnessed on the edge,
         // and recovery restores the published outcome rather than restating success.
         { liveness: "exited", outcome: "unknown" },
-        "edge sync without an interactive login recovers the outcome after the center accepted exited",
+        "edge sync with the device session recovers the outcome after the center accepted exited",
       );
       assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
       assert.equal(
@@ -445,6 +453,7 @@ test(
       }
     });
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -528,6 +537,7 @@ test(
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -541,6 +551,7 @@ test(
     git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
     const base = git(edgeRoot, "rev-parse", "HEAD");
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -653,6 +664,7 @@ test("remote-edge control retries startup adoption after the center recovers", {
       "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
   const runtime = openFleetEdgeRuntime({
+    readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
     request: {
       host: "127.0.0.1",
       port: unavailablePort,
@@ -717,6 +729,7 @@ test(
         "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
     const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: center.port,

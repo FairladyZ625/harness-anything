@@ -79,5 +79,34 @@ test("the center's local session never supplies a missing edge human credential"
     }),
   );
   const auth = { transportKind: "fleet-tls" as const, nodePrincipal: { nodeId: "a", personId: "person-a" } };
-  assert.deepEqual(await new OidcSessionService(root).bind(auth), auth);
+  await assert.rejects(new OidcSessionService(root).bind(auth), { code: "authentication_required" });
+});
+
+// dec_F01770FD0DCF72683B7C4C7A47: a device client alone never supplies a user session.
+test("Fleet binding requires the device owner's user session even when center authority exists", async () => {
+  const { binding } = await import("../src/daemon-host-binding.ts");
+  let centerCalls = 0;
+  const auth = {
+    transportKind: "fleet-tls" as const,
+    nodePrincipal: { nodeId: "a", personId: "person-a" },
+    keycloakCenter: async () => {
+      centerCalls += 1;
+      throw new Error("center must not lend user authority");
+    },
+  };
+  await assert.rejects(binding("/unused", auth), { code: "authentication_required" });
+  assert.equal(centerCalls, 0);
+  const verified = await verify();
+  const bound = await binding("/unused", verified);
+  assert.equal(bound.actor.principal.personId, "person-a");
+  assert.deepEqual(bound.source, { kind: "node", nodeId: "a" });
+  assert.equal(bound.keycloakAuthorization?.session?.accessToken, "request-token");
+  assert.equal(bound.keycloakAuthorization?.center, undefined);
+  await assert.rejects(
+    binding("/unused", {
+      ...verified,
+      oidcPrincipal: { ...verified.oidcPrincipal!, personId: "person-b" },
+    }),
+    { code: "human_confirmation_required" },
+  );
 });

@@ -43,6 +43,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       repoId: workspaceId("schedule-actions"),
       rootDir: canonicalRoot(root),
       ownerId: "schedule-test",
+      keycloakSession: async () => actor.keycloakAuthorization!.session!,
       runtimeDaemonRoute: {
         userRoot: path.join(root, ".daemon"),
         daemonId: "schedule-test",
@@ -650,6 +651,7 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner,
+        verifyHuman: owners.verifyHuman,
       });
       const terminalCallbacks: Array<(() => void) | undefined> = [],
         settlementErrors = t.mock.method(Object, "assign"),
@@ -659,6 +661,7 @@ test(
             viewRoot = path.join(root, `view-${index + 1}`);
           initHarnessRepo(workspaceRoot, `schedule-edge-${index + 1}`);
           const runtime = openFleetEdgeRuntime({
+            readBinding: () => owners!.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",
               port: center!.port,

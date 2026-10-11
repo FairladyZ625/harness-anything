@@ -55,6 +55,10 @@ test("runtime dispatch persistence excludes RepoCell writer transport fields", (
     } as Parameters<typeof runtimeBindingForDispatch>[0] & Record<string, unknown>,
     persisted = runtimeBindingForDispatch(binding);
   assert.deepEqual(persisted, { actor, source });
+  assert.deepEqual(runtimeBindingForDispatch({ ...binding, daemonSocketOwner: true } as typeof binding), {
+    actor,
+    source,
+  });
 });
 
 test("runtime cancellation rejects when descendant processes remain alive", async (t) => {

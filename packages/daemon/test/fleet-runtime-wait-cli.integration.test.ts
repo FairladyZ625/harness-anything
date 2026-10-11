@@ -87,6 +87,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
           ...(port === undefined ? {} : { port }),
           authenticate: (nodeId, credential) => nodeId === fixture.subject.nodeId && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+          verifyHuman: fixture.owners.verifyHuman,
         }),
       );
     const center = await openCenter(),
@@ -107,6 +108,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     git(edgeRoot, "remote", "add", "origin", remote);
     git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -139,13 +141,13 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     managedRbacSessionStore(edgeUserRoot).write(
       JSON.stringify({
         schema: "harness-oidc-session/v2",
-        accessToken: "token-person-owner",
+        accessToken: `device-token-${fixture.subject.nodeId}`,
         subject: "person-owner",
         personId: "person-owner",
         expiresAt: Date.now() + 3_600_000,
         roles: [],
         loginTarget: edgeRoot,
-        authority: { url: "https://keycloak.example", realm: "harness" },
+        authority: { url: fixture.owners.url, realm: "harness" },
       }),
     );
     let finish: (() => void) | undefined, cancel: (() => void) | undefined;
@@ -288,6 +290,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     }
     await assert.rejects(
       awaitFleetRuntimeSessionsClient({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: center.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,

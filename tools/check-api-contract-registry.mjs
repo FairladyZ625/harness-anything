@@ -212,7 +212,7 @@ function checkPrincipalBindings(graph, violations) {
     "registered node owner",
     "nodeOwnerBinding",
     rejectingGuard,
-    "!owner||!owner.nodeId||!auth.keycloakCenter",
+    "!owner||!owner.nodeId||!auth.oidcPrincipal",
     condition,
   );
   requireSyntax(
@@ -234,7 +234,15 @@ function checkPrincipalBindings(graph, violations) {
     "actor:{principal:{personId:owner.personId},executor:null}",
   );
   requireSyntax("node assignment provenance", "nodeOwnerBinding", property, 'source:{kind:"node",nodeId:owner.nodeId}');
-  requireSyntax("node Keycloak authority", "nodeOwnerBinding", property, "center:auth.keycloakCenter");
+  // dec_F01770FD0DCF72683B7C4C7A47 replaces owner-by-id authority with a device user's session.
+  requireSyntax("node Keycloak authority", "nodeOwnerBinding", property, "accessToken:auth.oidcPrincipal.accessToken");
+  requireSyntax(
+    "device session owner",
+    "nodeOwnerBinding",
+    rejectingGuard,
+    "auth.oidcPrincipal.personId!==owner.personId",
+    condition,
+  );
   requireSyntax("center node registry connection", null, call, "keycloakNodeRegistry(context.keycloakCenter)");
   requireSyntax(
     "center node credential validation",

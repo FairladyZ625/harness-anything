@@ -61,7 +61,8 @@ test("edge binding health reads the selected login authority through fleet disco
           expires_in: 3600,
           refresh_expires_in: 3600,
         });
-      if (url.endsWith("/userinfo")) return Response.json({ sub: "ordinary-person" });
+      if (url.endsWith("/userinfo"))
+        return Response.json({ sub: "ordinary-person", harness_person_id: "ordinary-person" });
       assert.match(url, /^https:\/\/center\.example\/realms\/node-(one|two)$/u);
       return new Response(null, { status: realmStatus });
     },
@@ -69,6 +70,7 @@ test("edge binding health reads the selected login authority through fleet disco
   const host = await openDaemonHost({ daemonId: "edge-binding", userRoot, oidc });
   t.after(() => host.close());
   let discovery = "valid";
+  const revokedDevices: string[] = [];
   const center = await listenFleetTls({
     host,
     stateRoot: path.join(root, "center"),
@@ -76,6 +78,9 @@ test("edge binding health reads the selected login authority through fleet disco
     cert: readFileSync(certFile),
     authenticate: (_nodeId, credential) => credential === "fixture-machine-secret",
     nodeOwner: () => "ordinary-person",
+    revokeDeviceSessions: async (nodeId) => {
+      revokedDevices.push(nodeId);
+    },
     loginAuthority: (nodeId) =>
       discovery === "missing"
         ? null
@@ -138,7 +143,8 @@ test("edge binding health reads the selected login authority through fleet disco
     repoId: "node-one",
     redirectUri: "http://127.0.0.1/callback",
   });
-  assert.match(String(begun.authorizationUrl), /center\.example\/realms\/node-one/u);
+  assert.match(String(begun.authorizationUrl), /center\.example\/realms\/node-one/u, JSON.stringify(begun));
+  assert.deepEqual(revokedDevices, ["node-one"]);
   assert.equal(
     (await request({ operation: "login-complete", repoId: "node-one", code: "code", state: begun.state }))
       .authenticated,

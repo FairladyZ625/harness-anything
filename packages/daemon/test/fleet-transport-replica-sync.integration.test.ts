@@ -67,6 +67,7 @@ function reclaimer() {
 type RoundTripOptions = FleetWriteClientOptions & Pick<FleetReplicaPullClientOptions, "viewRoot" | "edgeKillpoint">;
 async function runFleetRoundTrip(options: RoundTripOptions) {
   const peer = {
+    readAccessToken: async () => `device-token-${options.nodeId}`,
     hostname: options.hostname,
     port: options.port,
     ca: options.ca,
@@ -95,6 +96,7 @@ test("cross-repo transfer identity keeps equal node/view/cut/digest isolated", {
   const edgeRoot = path.join(fixture.root, "edge"),
     body = "# Same cut\n",
     first = await runFleetRoundTrip({
+      readAccessToken: async () => `device-token-${fixture.subjects[0]!.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subjects[0]!.nodeId,
@@ -105,6 +107,7 @@ test("cross-repo transfer identity keeps equal node/view/cut/digest isolated", {
       changes: [{ path: fixture.path, body }],
     });
   const second = await runFleetRoundTrip({
+    readAccessToken: async () => `device-token-${fixture.subjects[1]!.nodeId}`,
     port: center.port,
     ca: fixture.cert,
     nodeId: fixture.subjects[1]!.nodeId,
@@ -173,6 +176,7 @@ test("a node's next pull retires its frozen legacy view row from the center ledg
   assert.equal(before.ackRevision, 5);
 
   await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
     port: center.port,
     ca: fixture.cert,
     nodeId: fixture.subject.nodeId,
@@ -196,6 +200,7 @@ test("background replica sync follows a new center cut without a read request", 
   const center = await fixture.center(),
     edgeRoot = path.join(fixture.root, "background-edge"),
     peer = {
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       hostname: "127.0.0.1",
       port: center.port,
       ca: fixture.cert,
@@ -235,6 +240,7 @@ test(
     const port = center.port,
       edgeRoot = path.join(fixture.root, "restart-edge"),
       peer = {
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         hostname: "127.0.0.1",
         port,
         ca: fixture.cert,
@@ -289,6 +295,7 @@ test("an idle center keeps a watching edge confirmed fresh without another pull"
   const center = await fixture.center(undefined, 300),
     edgeRoot = path.join(fixture.root, "progress-edge"),
     peer = {
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       hostname: "127.0.0.1",
       port: center.port,
       ca: fixture.cert,
@@ -398,6 +405,7 @@ test("multi-path subject produces a complete first snapshot and a scoped delta",
   const firstSchemas: string[] = [],
     firstBodies = ["# A one\n", "# B one\n"],
     first = await runFleetRoundTrip({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -416,6 +424,7 @@ test("multi-path subject produces a complete first snapshot and a scoped delta",
     secondSchemas: string[] = [],
     nextBody = `${firstBodies[1]}Second.\n`,
     second = await runFleetRoundTrip({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -442,6 +451,7 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
     body = "",
     baseBlobSha256: string | null = null;
   await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${fixture.slowSubject.nodeId}`,
     port: center.port,
     ca: fixture.cert,
     nodeId: fixture.slowSubject.nodeId,
@@ -453,6 +463,7 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
   for (let index = 0; index < 66; index += 1) {
     body += `line-${index}\n`;
     const result = await runFleetRoundTrip({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -467,6 +478,7 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
     if (index === 0)
       await assert.rejects(
         runFleetReplicaPullClient({
+          readAccessToken: async () => `device-token-${fixture.slowSubject.nodeId}`,
           port: center.port,
           ca: fixture.cert,
           nodeId: fixture.slowSubject.nodeId,
@@ -490,6 +502,7 @@ test("more than 64 completed uploads remain bounded across center restart", { ti
   assert.notEqual(stale.lagMs, null);
   const schemas: string[] = [];
   await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${fixture.slowSubject.nodeId}`,
     port: center.port,
     ca: fixture.cert,
     nodeId: fixture.slowSubject.nodeId,
@@ -662,6 +675,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) =>
             [subject.nodeId, slowSubject.nodeId].includes(nodeId) && credential === "machine-secret",
+          verifyHuman: owners.verifyHuman,
           nodeOwner: async (nodeId) => {
             if (ownerLookupDelayMs) await new Promise((resolve) => setTimeout(resolve, ownerLookupDelayMs));
             return owners.nodeOwner(nodeId);
@@ -812,6 +826,7 @@ async function crossRepoFixture(t: TestContext) {
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => nodeId === "node-shared" && credential === "machine-secret",
           nodeOwner: owners.nodeOwner,
+          verifyHuman: owners.verifyHuman,
         }),
       ),
     close: async () => {

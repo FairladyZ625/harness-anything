@@ -388,15 +388,11 @@ export async function proofFor(
   if (command.type === "RecordReviewConsent") {
     // Consent is a person's own confirmation. A fleet assignment authenticates a machine: the owner the
     // center resolves for it decides what the node may do, and confirmed nothing.
-    if (
-      typeof command.source === "object" &&
-      command.source.kind === "node" &&
-      binding.keycloakAuthorization?.session?.personId !== command.actor.principal.personId
-    )
+    if (typeof command.source === "object" && command.source.kind === "node")
       throw cellCodedError(
         "human_confirmation_required",
         `Consent on task ${command.taskId} is a person's own confirmation, and node ${command.source.nodeId} ` +
-          "authenticated as a machine. Sign in on the edge with ha bootstrap --operation login before confirming.",
+          "holds a device session, which does not prove human confirmation. Confirm through the center's interactive interface.",
       );
     const authorizationDecision = requiredAuthorizationDecision(binding);
     return {

@@ -31,6 +31,7 @@ test(
     source.kick = () => {};
     const center = await f.center();
     const options = {
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,
@@ -142,6 +143,7 @@ for (const through of ["known-head", "write-revision"] as const) {
     const center = await f.center();
     const acked: number[] = [];
     const result = await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,
@@ -194,6 +196,7 @@ test(
       return content(blob);
     });
     const result = await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,
@@ -293,6 +296,7 @@ for (const phase of ["Delivery", "ACK"] as const) {
       const center = await f.center();
       await assert.rejects(
         runFleetReplicaPullClient({
+          readAccessToken: async () => `device-token-${f.subject.nodeId}`,
           port: center.port,
           ca: f.cert,
           nodeId: f.subject.nodeId,
@@ -468,6 +472,7 @@ test(
       }
     })();
     const pulling = runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId: f.subject.nodeId,

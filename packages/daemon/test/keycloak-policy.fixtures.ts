@@ -62,6 +62,12 @@ export function grantTestPolicyGroups(personIds: readonly string[], group: BaseP
   for (const personId of personIds) withPolicyGroup({ actor: { principal: { personId }, executor: null } }, group);
 }
 
+export function policyTestDeviceToken(personId: string, nodeId: string): string {
+  const token = `device-${nodeId}-${personId}`;
+  realm.keycloak.interactiveSession(personId, nodeId, realm.url, token);
+  return token;
+}
+
 /** Changes authority state, so all of a person's existing sessions observe the same revocation. */
 export function revokeTestPolicyGroup(personId: string, group: BasePolicyGroupId): void {
   const person = people.get(personId);

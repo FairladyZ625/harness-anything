@@ -66,6 +66,7 @@ export async function pullScheduleView(
   ca: Buffer,
 ): Promise<void> {
   const pulled = await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${edge.subject.nodeId}`,
     port,
     ca,
     servername: "localhost",

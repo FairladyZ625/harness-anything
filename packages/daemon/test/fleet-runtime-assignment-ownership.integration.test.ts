@@ -99,6 +99,7 @@ for (const distinctNode of [false, true])
             authenticate: (nodeId, credential) =>
               [fixture.subject.nodeId, second.nodeId].includes(nodeId) && credential === "machine-secret",
             nodeOwner: fixture.owners.nodeOwner,
+            verifyHuman: fixture.owners.verifyHuman,
           }),
         );
         const workspaceRoot = path.join(fixture.root, "edge");
@@ -109,6 +110,7 @@ for (const distinctNode of [false, true])
         );
         const open = (subject: typeof fixture.subject) => {
           const runtime = openFleetEdgeRuntime({
+            readBinding: () => fixture.owners.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",
               port: center.port,
@@ -160,6 +162,7 @@ for (const distinctNode of [false, true])
         for (const subject of [fixture.subject, second]) {
           const viewRoot = path.join(fixture.root, subject.viewId);
           await runFleetReplicaPullClient({
+            readAccessToken: async () => `device-token-${subject.nodeId}`,
             port: center.port,
             ca: fixture.cert,
             nodeId: subject.nodeId,
@@ -227,6 +230,7 @@ for (const distinctNode of [false, true])
           [second, fixture.subject],
         ]) {
           const own = await runFleetTaskCommandClient({
+            readAccessToken: async () => `device-token-${subject!.nodeId}`,
             port: center.port,
             ca: fixture.cert,
             nodeId: subject!.nodeId,
@@ -240,6 +244,7 @@ for (const distinctNode of [false, true])
           });
           assert.equal(own.outcome, "applied");
           const crossed = await runFleetTaskCommandClient({
+            readAccessToken: async () => `device-token-${subject!.nodeId}`,
             port: center.port,
             ca: fixture.cert,
             nodeId: subject!.nodeId,

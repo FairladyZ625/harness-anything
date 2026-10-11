@@ -29,7 +29,8 @@ export function keycloakNodeRegistry(
     authenticate: async (nodeId, credential) => (await open()).adapter.authenticateNode(nodeId, credential),
     nodeOwner: async (nodeId) => {
       const { adapter, token } = await open();
-      return (await adapter.readNode(token, nodeId))?.personId || null;
+      const node = await adapter.readNode(token, nodeId);
+      return node?.state === "active" && node.revocation === "complete" ? node.personId : null;
     },
   };
 }
@@ -40,7 +41,7 @@ export interface FleetCenterAdmissionRequest {
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
-    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice"
+    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice" | "revokeDeviceSessions"
   >;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
@@ -115,9 +116,13 @@ export interface FleetEdgeSyncRequest {
     readonly timeoutMs?: number;
   };
 }
-export async function syncFleetEdgeMirror(input: FleetEdgeSyncRequest): Promise<Record<string, unknown>> {
+export async function syncFleetEdgeMirror(
+  input: FleetEdgeSyncRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const pulled = await runFleetReplicaPullClient({
+      readAccessToken,
       hostname: input.payload.host,
       port: input.payload.port,
       ca: material(input.payload.caPath, "--ca").toString("utf8"),

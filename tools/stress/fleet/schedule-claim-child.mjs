@@ -22,6 +22,7 @@ const result = await runFleetScheduleCommandClient({
   servername: config.servername,
   nodeId: config.nodeId,
   credential: config.credential,
+  readAccessToken: async () => `device-token-${config.nodeId}`,
   repoId: config.repoId,
   scheduleId: config.scheduleId,
   opId: config.opId,

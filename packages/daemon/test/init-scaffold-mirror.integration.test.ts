@@ -117,22 +117,26 @@ async function initializedCenterWithEdge() {
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (candidate, credential) => candidate === nodeId && credential === "secret-node-one",
     nodeOwner: owners.nodeOwner,
+    verifyHuman: owners.verifyHuman,
   });
   const edgeSync = (): Promise<Record<string, unknown>> =>
-    runFleetEdgeDocSync({
-      payload: {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: certFile,
-        servername: "localhost",
-        nodeId,
-        credential: "secret-node-one",
-        repoId,
-        viewRoot,
-        quotaBytes: replicaQuota,
-        workspaceRoot: workspace,
-      } as never,
-    });
+    runFleetEdgeDocSync(
+      {
+        payload: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: certFile,
+          servername: "localhost",
+          nodeId,
+          credential: "secret-node-one",
+          repoId,
+          viewRoot,
+          quotaBytes: replicaQuota,
+          workspaceRoot: workspace,
+        } as never,
+      },
+      owners.readAccessToken(nodeId),
+    );
   const centerSubmit = async (logical: string, body: string): Promise<void> => {
     writeFileSync(path.join(repo, "harness", ...logical.split("/")), body);
     const submitted = await host.run(repoId, { kind: "doc-submit", paths: [logical] } as never, auth);

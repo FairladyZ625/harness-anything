@@ -43,7 +43,11 @@ async function waitForWriteRelease() {
 }
 for (;;) {
   try {
-    const peer = { ...config, ca: readFileSync(config.caFile) },
+    const peer = {
+        ...config,
+        ca: readFileSync(config.caFile),
+        readAccessToken: async () => `device-token-${config.nodeId}`,
+      },
       diskQuotaBytes = config.diskQuotaBytes ?? 64 * 1024 * 1024;
     await runFleetReplicaPullClient({ ...peer, diskQuotaBytes });
     if (!released) await waitForWriteRelease();

@@ -36,6 +36,13 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       actor: { principal: { personId: "person-edge" }, executor: null },
       source,
       keycloakAuthorization: {
+        session: {
+          personId: "person-edge",
+          accessToken: served.keycloak.account("person-edge"),
+          url: served.url,
+          realm: keycloakRealm,
+          clientId: "harness-center",
+        },
         center: async () => ({
           url: served.url,
           realm: keycloakRealm,
@@ -61,7 +68,6 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       baseUrl: null,
       authMode: "subscription",
     } as const;
-  served.keycloak.account("person-edge");
   served.keycloak.permit(
     "person-edge",
     repoId,
@@ -133,7 +139,7 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
         explain: "The authenticated node and owner own the canonical dispatch that created this RuntimeSession.",
       },
     ]);
-    served.keycloak.account("person-new-owner");
+    const newOwnerToken = served.keycloak.account("person-new-owner");
     served.keycloak.permit(
       "person-new-owner",
       repoId,
@@ -142,8 +148,23 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     const changedOwner = await start("runtime-start-new-owner", {
       ...binding,
       actor: { principal: { personId: "person-new-owner" }, executor: null },
+      keycloakAuthorization: {
+        session: {
+          ...binding.keycloakAuthorization!.session!,
+          personId: "person-new-owner",
+          accessToken: newOwnerToken,
+        },
+      },
     });
     assert.equal(changedOwner.code, "execution_scope_mismatch");
+    await assert.rejects(
+      start("runtime-start-no-device-session", {
+        ...binding,
+        keycloakAuthorization: { center: binding.keycloakAuthorization!.center },
+      }),
+      { code: "authorization_denied" },
+      "center authority cannot replace a device session",
+    );
     const stale = await start("runtime-start-stale-generation", binding);
     assert.equal(stale.outcome, "op_rejected");
     assert.equal(stale.code, "runtime_session_adoption_stale");
