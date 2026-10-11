@@ -22,6 +22,48 @@ type RuntimeWorkerManifest = {
   readonly acpApiKey?: string;
 };
 
+const providerGitCredentialEnvironment = new Set([
+  "GH_TOKEN",
+  "HARNESS_GITHUB_TOKEN",
+  "GIT_ASKPASS",
+  "GIT_ASKPASS_REQUIRE",
+  "GIT_CONFIG_COUNT",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_SSH",
+  "GIT_SSH_VARIANT",
+  "SSH_AGENT_PID",
+  "SSH_ASKPASS",
+  "SSH_ASKPASS_REQUIRE",
+  "SSH_AUTH_SOCK",
+]);
+
+/**
+ * Provider processes retain their own authentication environment, while Git gets no host
+ * credential sources. Settlement invokes the daemon-side push path with its own environment.
+ */
+export function runtimeWorkerProviderEnvironment(
+  source: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const environment = { ...source };
+  for (const name of providerGitCredentialEnvironment) delete environment[name];
+  for (const name of Object.keys(environment)) {
+    if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)) delete environment[name];
+  }
+  const nullDevice = platform === "win32" ? "NUL" : "/dev/null";
+  return {
+    ...environment,
+    GIT_CONFIG_GLOBAL: nullDevice,
+    GIT_CONFIG_SYSTEM: nullDevice,
+    GIT_CONFIG_NOSYSTEM: "1",
+    GIT_CONFIG_COUNT: "1",
+    GIT_CONFIG_KEY_0: "credential.helper",
+    GIT_CONFIG_VALUE_0: "",
+    GIT_SSH_COMMAND: `ssh -F ${nullDevice} -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none -o IdentityFile=${nullDevice}`,
+    GIT_TERMINAL_PROMPT: "0",
+  };
+}
+
 export async function runRuntimeWorkerHost(): Promise<void> {
   const manifest = parseManifest(await readStandardInput());
   const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId),
@@ -52,7 +94,9 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     // the daemon, and devin's ACP server exits 0 as soon as that editor process is gone.
     const { WINDSURF_EXT_HOST_PID: _editorHostPid, ...hostEnvironment } = manifest.env,
       // The callback route is provenance, not authority. The CLI still needs its registry namespace.
-      providerEnv = relay ? { ...hostEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment;
+      providerEnv = runtimeWorkerProviderEnvironment(
+        relay ? { ...hostEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment,
+      );
     child = spawn(manifest.executablePath, [...manifest.args], {
       cwd: manifest.cwd,
       env: providerEnv,
