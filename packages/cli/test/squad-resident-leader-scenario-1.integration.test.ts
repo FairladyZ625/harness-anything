@@ -62,11 +62,6 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
 
   run(root, env, ["daemon", "start", "--service"]);
   await signInProcessPolicyTestUser(userRoot, "owner", ["squad-resident"], "admin");
-  run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
-  const remote = path.join(parent, "remote.git");
-  git(parent, ["init", "--bare", remote]);
-  git(root, ["switch", "-c", "codex/squad-control-result"]);
-  git(root, ["remote", "add", "origin", remote]);
   run(root, env, [
     "runtime",
     "instance",
@@ -84,7 +79,11 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
     "--auth",
     "subscription",
   ]);
-  run(root, env, ["settings", "update", "--runtime-allowed-instance", "resident-worker"]);
+  run(root, env, ["init", "--repo-id", "squad-resident", "--person-id", "owner", "--display-name", "Owner"]);
+  const remote = path.join(parent, "remote.git");
+  git(parent, ["init", "--bare", remote]);
+  git(root, ["switch", "-c", "codex/squad-control-result"]);
+  git(root, ["remote", "add", "origin", remote]);
   for (const id of ["fable", "terra", "luna"]) {
     const source = path.join(parent, id);
     writeIdentity(
@@ -311,7 +310,6 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
 
   run(root, env, ["daemon", "start", "--service"]);
   await signInProcessPolicyTestUser(userRoot, "owner", ["squad-mixed-runtime"], "admin");
-  run(root, env, ["init", "--repo-id", "squad-mixed-runtime", "--person-id", "owner", "--display-name", "Owner"]);
   for (const [id, name, kind, provider, model] of [
     ["claude-lee", "Claude Leader", "claude", "anthropic", "fable"],
     ["test-codex-sol", "Codex Workers", "codex", "openai", "gpt-5.6-terra"],
@@ -335,16 +333,7 @@ test("a Claude leader dispatches Codex workers by each worker declaration and re
       "--auth",
       "subscription",
     ]);
-  run(root, env, [
-    "settings",
-    "update",
-    "--runtime-allowed-instance",
-    "claude-lee",
-    "--runtime-allowed-instance",
-    "test-codex-sol",
-    "--runtime-allowed-instance",
-    "missing-agy",
-  ]);
+  run(root, env, ["init", "--repo-id", "squad-mixed-runtime", "--person-id", "owner", "--display-name", "Owner"]);
   for (const [id, name, runtimeType, model] of [
     ["mixed-leader", "Mixed Leader", "claude", "fable"],
     ["mixed-reconcile", "Mixed Reconcile", "codex", "gpt-5.6-terra"],
@@ -553,7 +542,6 @@ test(
     assert.equal(stored.status, 0, stored.stderr);
     run(root, env, ["daemon", "start", "--service"]);
     await signInProcessPolicyTestUser(userRoot, "owner", ["squad-api-key"], "admin");
-    run(root, env, ["init", "--repo-id", "squad-api-key", "--person-id", "owner", "--display-name", "Owner"]);
     run(root, env, [
       "runtime",
       "instance",
@@ -578,7 +566,7 @@ test(
       "--credential-ref",
       "credential:v1:squad-key",
     ]);
-    run(root, env, ["settings", "update", "--runtime-allowed-instance", "squad-api"]);
+    run(root, env, ["init", "--repo-id", "squad-api-key", "--person-id", "owner", "--display-name", "Owner"]);
     for (const id of ["fable", "terra", "luna"]) {
       const source = path.join(parent, id);
       writeIdentity(

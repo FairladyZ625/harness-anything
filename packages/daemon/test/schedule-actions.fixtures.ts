@@ -2,7 +2,12 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import {
+  readSettingsFacet,
+  writeRepositorySettingsFacet,
+  type AgentDefinitionSnapshot,
+} from "@harness-anything/kernel";
+import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 
@@ -83,15 +88,20 @@ export async function pullScheduleView(
   );
 }
 
+export function scheduleRepositoryDocument(name: string): string {
+  const body = `schema: harness-anything/v1\nname: ${name}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`;
+  return writeRepositorySettingsFacet(
+    body,
+    initialRuntimeInstanceSettings(readSettingsFacet(body), scheduleRuntimePorts().runtimeInstances()),
+  );
+}
+
 export function initHarnessRepo(root: string, name: string): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   git(root, "init", "-q");
   git(root, "config", "user.name", "Schedule Test");
   git(root, "config", "user.email", "schedule@example.invalid");
-  writeFileSync(
-    path.join(root, "harness/harness.yaml"),
-    `schema: harness-anything/v1\nname: ${name}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`,
-  );
+  writeFileSync(path.join(root, "harness/harness.yaml"), scheduleRepositoryDocument(name));
   git(root, "add", "harness");
   git(root, "commit", "-qm", "base");
 }

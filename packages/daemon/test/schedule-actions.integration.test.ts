@@ -563,11 +563,6 @@ test(
     const edgeRuntimes: ReturnType<typeof openFleetEdgeRuntime>[] = [];
     try {
       initHarnessRepo(repo, "schedule-center");
-      writeFileSync(
-        path.join(repo, "harness/harness.yaml"),
-        readFileSync(path.join(repo, "harness/harness.yaml"), "utf8") +
-          "settings:\n  runtime:\n    allowedInstances:\n      - codex-schedule\n",
-      );
       registerDaemonRepo({
         canonicalRoot: repo,
         repoId,

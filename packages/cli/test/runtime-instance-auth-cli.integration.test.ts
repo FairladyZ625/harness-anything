@@ -37,7 +37,6 @@ test("real CLI signs in interactively, refreshes through login, runs real provid
   await signInProcessPolicyTestUser(userRoot, "owner", ["runtime-auth-cli"], "admin");
   try {
     assert.equal(run(root, env, ["daemon", "start", "--service"]).ok, true);
-    run(root, env, ["init", "--repo-id", "runtime-auth-cli", "--person-id", "owner", "--display-name", "Owner"]);
     const inventory = run(root, env, ["runtime", "instance", "list"]),
       installation = (inventory.installations as Array<Record<string, unknown>>).find(
         (row) => row.kindId === "codex" && row.version === `codex ${version}`,
@@ -81,14 +80,7 @@ test("real CLI signs in interactively, refreshes through login, runs real provid
       ];
     run(root, env, [...create, "subscription"]);
     run(root, env, [...apiCreate, "api-key", "--credential-ref", "keychain:harness/cli-keyed"]);
-    run(root, env, [
-      "settings",
-      "update",
-      "--runtime-allowed-instance",
-      "cli-worker",
-      "--runtime-allowed-instance",
-      "cli-keyed",
-    ]);
+    run(root, env, ["init", "--repo-id", "runtime-auth-cli", "--person-id", "owner", "--display-name", "Owner"]);
     const blocked = runMaybe(root, env, ["runtime", "run", "cli-worker", "--prompt", "too early", "--no-stream"]);
     assert.notEqual(blocked.status, 0, JSON.stringify(blocked));
     assert.equal((blocked.receipt.error as Record<string, unknown>).code, "runtime_subscription_required");

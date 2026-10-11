@@ -294,15 +294,11 @@ test(
         authMode: "subscription",
       },
     });
-    assert.equal(
-      (
-        await rpcB("repo.settings.update", {
-          repo: { repoId },
-          payload: { runtimeAllowedInstances: ["proxy-codex"], expectedVersion: 1 },
-        })
-      ).outcome,
-      "applied",
-    );
+    const projectAccess = await rpcB("repo.settings.update", {
+      repo: { repoId },
+      payload: { runtimeAllowedInstances: ["proxy-codex"], expectedVersion: 1, idempotencyKey: "allow-proxy-codex" },
+    });
+    assert.equal(projectAccess.outcome, "applied", JSON.stringify(projectAccess));
     const spawned = await rpcA("repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {

@@ -289,4 +289,10 @@ export async function allowFixtureRuntimeInstances(
     auth,
   );
   assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  const published = await host.run(
+    repoId,
+    { kind: "receipt-show", opId: receipt.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+    auth,
+  );
+  assert.equal(published.wait?.state, "satisfied", JSON.stringify(published));
 }

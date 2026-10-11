@@ -208,7 +208,11 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       (
         await rpc("repo.settings.update", {
           repo: { repoId: "alpha" },
-          payload: { runtimeAllowedInstances: ["resident-codex"], expectedVersion: 1 },
+          payload: {
+            runtimeAllowedInstances: ["resident-codex"],
+            expectedVersion: 1,
+            idempotencyKey: "allow-resident-codex",
+          },
         })
       ).outcome,
       "applied",

@@ -19,6 +19,7 @@ import {
 } from "./fleet-store.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
+import { scheduleRepositoryDocument } from "./schedule-actions.fixtures.ts";
 type FleetTestSubject = {
   nodeId: string;
   repoId: string;
@@ -78,10 +79,7 @@ export async function fleetFixture(
     mkdirSync(path.join(repo, ".github"));
     writeFileSync(path.join(repo, ".github/pull_request_template.md"), prTemplate);
   }
-  writeFileSync(
-    path.join(repo, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: fleet\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  runtime:\n    allowedInstances:\n      - codex-schedule\n",
-  );
+  writeFileSync(path.join(repo, "harness/harness.yaml"), scheduleRepositoryDocument("fleet"));
   git(repo, "add", "harness");
   git(repo, "commit", "-qm", "harness");
   registerDaemonRepo({ canonicalRoot: repo, repoId: "fleet-repo", mode, userRoot, createConvenienceLinks: false });

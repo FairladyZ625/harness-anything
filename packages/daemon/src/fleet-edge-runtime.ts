@@ -2,7 +2,7 @@ import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
-import type { TaskProjection } from "@harness-anything/kernel";
+import type { RepositorySettingsV1, TaskProjection } from "@harness-anything/kernel";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
@@ -178,9 +178,12 @@ export function openFleetEdgeRuntime(input: {
     writePeer: FleetPeerOptions = { ...peer, timeoutMs: centerWriteWaitMs + 10_000 },
     now = input.now ?? (() => new Date().toISOString()),
     stream = { publish: () => ({}) as never },
-    // Every node reads the same Settings: the edge's materialized harness.yaml is the center's facet.
+    // Repository settings follow the authorized replica cut, including before workspace materialization.
     readSettings = () =>
-      readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8"));
+      withEdgeReadModel({ ...request, principalId: replicaOwner }, (projection) => ({
+        ...readSettingsFacet(readFileSync(resolveHarnessLayout(request.workspaceRoot).configPath!, "utf8")),
+        ...(projection.getEntity("settings", "repository")!.value as RepositorySettingsV1),
+      }));
   let replicaOwner: string | undefined;
   const readReplica = (method: Parameters<typeof readEdgeRuntimeRepository>[1], payload: JsonObject) =>
     readEdgeRuntimeRepository({ ...request, principalId: replicaOwner }, method, payload);
