@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import tls from "node:tls";
@@ -41,11 +41,26 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       throw new Error("Center must not launch Squad processes");
     },
   });
-  await allowFixtureRuntimeInstances(f.host, "lease-repo", localAuthFixture(), [
-    "center-codex",
-    "squad-runtime",
-    "successor-runtime",
-  ]);
+  // Seed the center settings before edge mirrors are created; edge hosts still
+  // register their local declarations through the same helper below.
+  await registerFixtureRuntimeInstance(f.host, "lease-repo", localAuthFixture(), {
+    instanceId: "squad-runtime",
+    name: "Squad runtime",
+    kindId: "codex",
+    installationId: "squad-install",
+    providerId: "openai",
+    models: ["gpt-5.6-sol"],
+    authMode: "subscription",
+  });
+  await registerFixtureRuntimeInstance(f.host, "lease-repo", localAuthFixture(), {
+    instanceId: "successor-runtime",
+    name: "Successor",
+    kindId: "codex",
+    installationId: "squad-install",
+    providerId: "openai",
+    models: ["gpt-5.6-sol"],
+    authMode: "subscription",
+  });
   const vertical = await f.host.run("lease-repo", { kind: "vertical-declaration-migrate" }, localAuthFixture());
   assert.equal(vertical.outcome, "applied", JSON.stringify(vertical));
   const schedule = await f.host.run(
@@ -67,19 +82,15 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     localAuthFixture(),
   );
   assert.equal(schedule.outcome, "applied", JSON.stringify(schedule));
-  await f.host.runtimeInstance(
-    "daemon.runtimeInstance.create",
-    {
-      instanceId: "center-codex",
-      name: "Center declaration witness",
-      kindId: "codex",
-      installationId: "squad-install",
-      providerId: "openai",
-      models: ["gpt-5.6-sol"],
-      authMode: "subscription",
-    },
-    localAuthFixture(),
-  );
+  await registerFixtureRuntimeInstance(f.host, "lease-repo", localAuthFixture(), {
+    instanceId: "center-codex",
+    name: "Center declaration witness",
+    kindId: "codex",
+    installationId: "squad-install",
+    providerId: "openai",
+    models: ["gpt-5.6-sol"],
+    authMode: "subscription",
+  });
   for (const id of ["squad-leader", "squad-worker"]) {
     const receipt = await f.host.run(
       "lease-repo",
@@ -159,8 +170,10 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       };
     },
   });
-  const instance = await a.host.runtimeInstance(
-    "daemon.runtimeInstance.create",
+  await registerFixtureRuntimeInstance(
+    a.host,
+    "lease-repo",
+    localAuthFixture(),
     {
       instanceId: "squad-runtime",
       name: "Squad runtime",
@@ -170,9 +183,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       models: ["gpt-5.6-sol"],
       authMode: "subscription",
     },
-    localAuthFixture(),
+    { allowHost: f.host },
   );
-  assert.equal(instance.outcome, "applied", JSON.stringify(instance));
   const { schema: _schema, ...configuration } = a.config;
   const started = await a.host.fleet.edgeRuntime(
     {
@@ -378,8 +390,10 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     }),
     /runtime_task_lease_required|execution_scope_mismatch/iu,
   );
-  const bInstance = await b.host.runtimeInstance(
-    "daemon.runtimeInstance.create",
+  await registerFixtureRuntimeInstance(
+    b.host,
+    "lease-repo",
+    localAuthFixture(),
     {
       instanceId: "successor-runtime",
       name: "Successor",
@@ -389,9 +403,8 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       models: ["gpt-5.6-sol"],
       authMode: "subscription",
     },
-    localAuthFixture(),
+    { allowHost: f.host },
   );
-  assert.equal(bInstance.outcome, "applied", JSON.stringify(bInstance));
   const { schema: _bSchema, ...bConfiguration } = b.config;
   const nextRun = await b.host.fleet.edgeRuntime(
     {

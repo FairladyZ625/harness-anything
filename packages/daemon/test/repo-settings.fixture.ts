@@ -288,7 +288,8 @@ export async function allowFixtureRuntimeInstances(
     },
     auth,
   );
-  assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+  assert.ok(receipt.outcome === "applied" || receipt.outcome === "no_changes", JSON.stringify(receipt));
+  if (receipt.outcome === "no_changes") return;
   const published = await host.run(
     repoId,
     { kind: "receipt-show", opId: receipt.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
@@ -303,7 +304,14 @@ export async function registerFixtureRuntimeInstance(
   repoId: string,
   auth: Parameters<DaemonHost["run"]>[2],
   declaration: Readonly<Record<string, unknown>>,
+  options: {
+    readonly allowHost?: Pick<DaemonHost, "read" | "run">;
+    readonly allowRepoId?: string;
+  } = {},
 ): Promise<void> {
-  await host.runtimeInstance("daemon.runtimeInstance.create", declaration, auth);
-  await allowFixtureRuntimeInstances(host, repoId, auth, [String(declaration.instanceId)]);
+  const created = await host.runtimeInstance("daemon.runtimeInstance.create", declaration, auth);
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
+  await allowFixtureRuntimeInstances(options.allowHost ?? host, options.allowRepoId ?? repoId, auth, [
+    String(declaration.instanceId),
+  ]);
 }
