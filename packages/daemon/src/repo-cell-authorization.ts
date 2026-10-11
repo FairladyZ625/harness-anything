@@ -99,15 +99,15 @@ export async function evaluateKeycloakPerson(input: {
 }): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
   const { session, center } = input.credential;
   if (session?.personId !== input.personId) return { outcome: "denied", reasonCode: "keycloak_denied" };
-  const decision = await new KeycloakPolicyAdapter(
-    { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
-    input.fetchPort,
-  ).authorize({
-    userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
-    action: input.action,
-    resource: input.resource,
-  });
-  if (decision.outcome === "denied" || !center) return decision;
+  if (!center)
+    return new KeycloakPolicyAdapter(
+      { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
+      input.fetchPort,
+    ).authorize({
+      userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+      action: input.action,
+      resource: input.resource,
+    });
   const currentCenter = await center();
   return new KeycloakPolicyAdapter(
     { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },

@@ -81,13 +81,28 @@ const grantUsersPrefix = "grant-users:",
   customGroupAttribute = "harness_policy_group",
   groupScopesAttribute = "harness_scopes";
 
+interface PolicyReadCache {
+  clientUuid?: string;
+  readonly userIds: Map<string, string>;
+  readonly resourceIds: Map<string, string>;
+}
+
+const policyReadCaches = new WeakMap<FetchPort, Map<string, PolicyReadCache>>();
+
 export class KeycloakPolicyAdapter {
   readonly #config: KeycloakPolicyAdapterConfig;
   readonly #fetch: FetchPort;
   readonly #knownScopes = new Set(actionDeclarations.map((item) => item.policyAction));
+  readonly #readCache: PolicyReadCache;
 
   constructor(config: KeycloakPolicyAdapterConfig, fetchPort: FetchPort = fetch) {
     this.#config = config;
+    const cacheOwner = fetchPort ?? fetch,
+      caches = policyReadCaches.get(cacheOwner) ?? new Map<string, PolicyReadCache>(),
+      cacheKey = `${config.url}\0${config.realm}\0${config.resourceServerClientId}`;
+    this.#readCache = caches.get(cacheKey) ?? { userIds: new Map(), resourceIds: new Map() };
+    caches.set(cacheKey, this.#readCache);
+    policyReadCaches.set(cacheOwner, caches);
     // Authorization runs inside the repository write queue, so a Keycloak peer that accepts but
     // never answers must release that queue within the same 10s bound runtime credentials use.
     this.#fetch = async (input, init) => {
@@ -570,15 +585,11 @@ export class KeycloakPolicyAdapter {
       denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
         Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
     if (!this.#knownScopes.has(input.action)) return denied("unknown_scope");
-    const userId = await this.findUserId(input.adminAccessToken, input.personId);
+    const userId = await this.#cachedUserId(input.adminAccessToken, input.personId);
     if (!userId) return denied("keycloak_denied");
     const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
     for (const candidate of coveringResources(input.resource)) {
-      const found = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
-          input.adminAccessToken,
-          `${server}/resource?name=${encodeURIComponent(candidate)}&exactName=true`,
-        ),
-        resourceId = found.find((item) => item.name === candidate)?._id;
+      const resourceId = await this.#cachedResourceId(input.adminAccessToken, server, candidate);
       // A resource nobody was ever granted on has no permission to evaluate.
       if (!resourceId) continue;
       const evaluation = (await (
@@ -611,13 +622,35 @@ export class KeycloakPolicyAdapter {
   }
 
   async #clientUuid(token: string): Promise<string> {
+    if (this.#readCache.clientUuid) return this.#readCache.clientUuid;
     const clients = await this.#json<readonly { readonly id?: unknown }[]>(
       token,
       `/clients?clientId=${encodeURIComponent(this.#config.resourceServerClientId)}`,
     );
     const id = clients[0]?.id;
     if (typeof id !== "string" || !id) throw new Error(`Keycloak resource-server client is missing.`);
+    this.#readCache.clientUuid = id;
     return id;
+  }
+
+  async #cachedUserId(token: string, personId: string): Promise<string | undefined> {
+    const cached = this.#readCache.userIds.get(personId);
+    if (cached) return cached;
+    const userId = await this.findUserId(token, personId);
+    if (userId) this.#readCache.userIds.set(personId, userId);
+    return userId;
+  }
+
+  async #cachedResourceId(token: string, server: string, resource: string): Promise<string | undefined> {
+    const cached = this.#readCache.resourceIds.get(resource);
+    if (cached) return cached;
+    const found = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
+      token,
+      `${server}/resource?name=${encodeURIComponent(resource)}&exactName=true`,
+    );
+    const resourceId = found.find((item) => item.name === resource)?._id;
+    if (resourceId) this.#readCache.resourceIds.set(resource, resourceId);
+    return resourceId;
   }
 
   async #named(token: string, server: string, name: string): Promise<{ readonly id: string } | undefined> {

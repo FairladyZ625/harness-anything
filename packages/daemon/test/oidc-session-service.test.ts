@@ -694,3 +694,25 @@ test("center token HTTP rejection retains its service authentication code", asyn
   writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
   await assert.rejects(active.service.center(), { code: "rbac_admin_unavailable" });
 });
+
+test("center token is reused until its own expiry, then acquired again", async (t) => {
+  let calls = 0;
+  const active = fixture(
+    1_000,
+    {
+      fetch: async () => {
+        calls += 1;
+        return Response.json({ access_token: "center-1", expires_in: 10 });
+      },
+    },
+    t,
+  );
+  writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
+  assert.equal((await active.service.center()).accessToken, "center-1");
+  active.clock.now += 9_000;
+  assert.equal((await active.service.center()).accessToken, "center-1");
+  assert.equal(calls, 1);
+  active.clock.now += 1_001;
+  assert.equal((await active.service.center()).accessToken, "center-1");
+  assert.equal(calls, 2);
+});

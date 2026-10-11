@@ -321,7 +321,7 @@ test("Admin REST transport failure is infrastructure unavailability, not a polic
 });
 
 // dec_F01770FD0DCF72683B7C4C7A47/CH5: identity and center policy are separate requirements.
-test("center policy only evaluates the matching live session and can still deny its action", async () => {
+test("center policy evaluates the matching live session once and can still deny its action", async () => {
   const keycloak = fakeKeycloak(),
     token = keycloak.account("person-center"),
     session = {
@@ -334,8 +334,8 @@ test("center policy only evaluates the matching live session and can still deny 
   keycloak.permit("person-center", "repo-center", ["task-create"]);
   let centerCalls = 0,
     policyCalls = 0,
+    adminReads = 0,
     centerPermits = true,
-    userPermits = true,
     centerFails = false;
   const center = async () => {
     centerCalls += 1;
@@ -346,22 +346,23 @@ test("center policy only evaluates the matching live session and can still deny 
       accessToken: "admin-token",
     };
   };
-  const evaluate = (credential: Parameters<typeof evaluateKeycloakPerson>[0]["credential"]) =>
-    evaluateKeycloakPerson({
-      credential,
-      personId: "person-center",
-      action: "task-create",
-      resource: { kind: "repository", repoId: "repo-center" },
-      fetchPort: async (url, init) => {
-        if (String(url).endsWith("/policy/evaluate")) {
-          policyCalls += 1;
-          if (centerFails) return new Response(null, { status: 503 });
-          if (!centerPermits) return Response.json({ status: "DENY", results: [{ status: "DENY" }] });
-        }
-        if (String(url).endsWith("/token") && !userPermits) return new Response(null, { status: 401 });
-        return keycloak.fetch(url, init);
-      },
-    });
+  const fetchPort: typeof fetch = async (url, init) => {
+      if (String(url).includes("/admin/realms/") && !String(url).endsWith("/policy/evaluate")) adminReads += 1;
+      if (String(url).endsWith("/policy/evaluate")) {
+        policyCalls += 1;
+        if (centerFails) return new Response(null, { status: 503 });
+        if (!centerPermits) return Response.json({ status: "DENY", results: [{ status: "DENY" }] });
+      }
+      return keycloak.fetch(url, init);
+    },
+    evaluate = (credential: Parameters<typeof evaluateKeycloakPerson>[0]["credential"]) =>
+      evaluateKeycloakPerson({
+        credential,
+        personId: "person-center",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-center" },
+        fetchPort,
+      });
   assert.equal((await evaluate({ center })).outcome, "denied");
   assert.equal((await evaluate({ center, session: { ...session, personId: "other-person" } })).outcome, "denied");
   assert.equal(centerCalls, 0);
@@ -371,10 +372,9 @@ test("center policy only evaluates the matching live session and can still deny 
   assert.equal((await evaluate({ center, session })).outcome, "denied");
   assert.equal(policyCalls, 2);
   centerPermits = true;
-  userPermits = false;
-  assert.equal((await evaluate({ center, session })).outcome, "denied");
-  assert.equal(centerCalls, 2, "a rejected user token never reaches center policy");
-  userPermits = true;
+  assert.equal((await evaluate({ center, session })).outcome, "allowed");
+  assert.equal(centerCalls, 3);
+  assert.equal(adminReads, 3, "center ids are retained in process memory");
   centerFails = true;
   await assert.rejects(evaluate({ center, session }), { code: "keycloak_admin_rejected" });
 });

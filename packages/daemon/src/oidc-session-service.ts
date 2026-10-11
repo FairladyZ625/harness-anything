@@ -76,6 +76,13 @@ interface SessionUse {
   readonly unavailable?: Error;
 }
 
+interface CenterToken {
+  readonly accessToken: string;
+  readonly expiresAt: number;
+  readonly url: string;
+  readonly realm: string;
+}
+
 /** A use this close to the access token's end renews it, so the token a request carries outlives the request. */
 const renewalMarginMs = 30_000;
 
@@ -98,6 +105,7 @@ export class OidcSessionService {
   readonly #rbacRoot: string;
   readonly #ports: OidcSessionPorts;
   #pending: PendingLogin | undefined;
+  #centerTokenCache: CenterToken | undefined;
   #loginGeneration = 0;
   #device: PendingDeviceLogin | undefined;
   readonly #deviceRequests = new Map<string, DeviceLoginRequest>();
@@ -601,6 +609,9 @@ export class OidcSessionService {
       secretFile = path.join(this.#rbacRoot, "center-client-secret");
     if (!existsSync(secretFile))
       throw coded("rbac_admin_unavailable", "Keycloak center credentials are not configured.");
+    const cached = this.#centerTokenCache;
+    if (cached && cached.url === config.url && cached.realm === config.realm && cached.expiresAt > this.#ports.now())
+      return cached.accessToken;
     const response = await this.#ports
       .fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`, {
         method: "POST",
@@ -618,7 +629,18 @@ export class OidcSessionService {
       });
     if (!response.ok)
       throw coded("rbac_admin_unavailable", `Keycloak service authentication returned HTTP ${response.status}.`);
-    return requiredString(((await response.json()) as Record<string, unknown>).access_token, "access_token");
+    const payload = (await response.json()) as Record<string, unknown>,
+      accessToken = requiredString(payload.access_token, "access_token"),
+      expiresIn =
+        typeof payload.expires_in === "number" && Number.isFinite(payload.expires_in) ? payload.expires_in : 0;
+    if (expiresIn > 0)
+      this.#centerTokenCache = {
+        accessToken,
+        expiresAt: this.#ports.now() + expiresIn * 1_000,
+        url: config.url,
+        realm: config.realm,
+      };
+    return accessToken;
   }
 
   async #ensureAccessAdminRole(token: string): Promise<void> {
