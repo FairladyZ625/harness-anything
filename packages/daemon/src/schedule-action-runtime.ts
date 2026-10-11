@@ -84,6 +84,7 @@ export function makeScheduleActionRuntime(
         repoId: cell.input.repoId,
         revision,
         now: cell.now(),
+        readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
       });
     if (authorizationDecision.outcome === "denied")
       throw cell.cellCodedError(

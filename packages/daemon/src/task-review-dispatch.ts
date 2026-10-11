@@ -171,6 +171,7 @@ export async function dispatchDecisionReview(
       actionId: ids.dispatchOpId,
       revision,
       now: cell.now(),
+      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
     });
   if (authorizationDecision.outcome !== "allowed")
     throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
@@ -357,6 +358,7 @@ export async function spawnCutReviewDispatch(
       actionId: ids.dispatchOpId,
       revision: input.revision,
       now: cell.now(),
+      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
     });
   if (authorizationDecision.outcome !== "allowed")
     return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
@@ -576,6 +578,7 @@ export async function dispatchTaskReview(
         actionId: ids.dispatchOpId,
         revision,
         now: cell.now(),
+        readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
       });
     if (authorizationDecision.outcome !== "allowed") {
       fail(`authorization_denied: ${authorizationDecision.nextActions.join(" ")}`, execution.executionId);

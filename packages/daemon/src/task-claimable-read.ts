@@ -2,13 +2,13 @@ import {
   canStartExecution,
   isNativeExecution,
   taskAssignmentMatches,
-  effectivePolicyGroupScopes,
   type SettingsV1,
   type TaskClaimScope,
   type TaskProjection,
+  type TaskV2,
 } from "@harness-anything/kernel";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
+import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
 import type { TaskClaimableResult } from "./protocol/daemon-protocol-gui-types.ts";
@@ -20,6 +20,7 @@ export async function readClaimableTasks(input: {
   readonly settings: SettingsV1;
   readonly now: string;
   readonly page: (cursor?: string) => Promise<ReturnType<TaskProjection["list"]>>;
+  readonly readTask?: (taskId: string) => Promise<TaskV2 | null>;
 }): Promise<TaskClaimableResult> {
   const { binding, repoId, now } = input,
     source = binding.source,
@@ -42,27 +43,8 @@ export async function readClaimableTasks(input: {
     });
   if (permission.reasonCode === "keycloak_unavailable")
     throw cellCodedError("keycloak_unavailable", "Cannot refresh task claim permissions.");
-  const teamIds = await adapter.readPersonTeams(center.accessToken, personId),
-    permitted = new Set<string>();
-  if (permission.outcome !== "allowed") {
-    // The same effective-permissions read as access management; never persisted or used to accept a write.
-    const [userId, grants, groups] = await Promise.all([
-      adapter.findUserId(center.accessToken, personId),
-      adapter.readGrants(center.accessToken),
-      adapter.readPolicyGroups(center.accessToken),
-    ]);
-    for (const grant of grants)
-      if (
-        userId &&
-        grant.userIds.includes(userId) &&
-        groups.some((group) => group.id === grant.groupId) &&
-        effectivePolicyGroupScopes(groups, grant.groupId).includes("task-start") &&
-        grant.resource.startsWith(`${repoId}:task/`)
-      )
-        permitted.add(grant.resource.slice(`${repoId}:task/`.length));
-    if (permitted.size === 0)
-      throw cellCodedError("authorization_denied", "No permission to start tasks in this repository.");
-  }
+  const teamIds = await adapter.readPersonTeams(center.accessToken, personId);
+  let sawPermittedTask = permission.outcome === "allowed";
   const scope = input.settings.fleet.claim.scope as TaskClaimScope,
     claimant = { personId, nodeId: source.nodeId, teamIds },
     candidates: {
@@ -80,12 +62,22 @@ export async function readClaimableTasks(input: {
     for (const row of page.rows) {
       const snapshot = row.snapshot,
         task = snapshot.task;
-      if (
-        !task ||
-        task.packageDisposition !== "active" ||
-        (permission.outcome !== "allowed" && !permitted.has(task.taskId))
-      )
-        continue;
+      if (!task || task.packageDisposition !== "active") continue;
+      if (permission.outcome !== "allowed") {
+        const taskPermission = await evaluateKeycloakPerson({
+          credential: { session: binding.keycloakAuthorization!.session },
+          personId,
+          action: "task-start",
+          resource: { kind: "entity", repoId, entityRef: `task/${task.taskId}` },
+          resourceAncestors: await canonicalResourceAncestors(input.readTask, {
+            kind: "entity",
+            repoId,
+            entityRef: `task/${task.taskId}`,
+          }),
+        });
+        if (taskPermission.outcome !== "allowed") continue;
+        sawPermittedTask = true;
+      }
       const execution = snapshot.executions.find(
         (entry) => isNativeExecution(entry) && entry.iteration === task.iteration && entry.state === "active",
       );
@@ -108,6 +100,8 @@ export async function readClaimableTasks(input: {
     }
     cursor = page.page?.nextCursor ?? undefined;
   } while (cursor);
+  if (!sawPermittedTask)
+    throw cellCodedError("authorization_denied", "No permission to start tasks in this repository.");
   candidates.sort(
     (a, b) =>
       a.priority - b.priority ||

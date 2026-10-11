@@ -98,6 +98,7 @@ export function makeRepoCellCommandRunner(
               repoId: context.input.repoId,
               revision,
               now: context.now(),
+              readTask: (taskId) => context.projection.read(taskId).snapshot.task,
             });
           return withAuthorizationDecision(
             context.failed(actionId, error),

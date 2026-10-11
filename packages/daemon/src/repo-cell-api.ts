@@ -232,6 +232,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
               ),
               revision: context.store.readHead()?.revision ?? 0,
               now: context.now(),
+              readTask: (taskId) => context.projection.read(taskId).snapshot.task,
             })
           : undefined,
       reject = (code: string): PresetRunReceiptV1 => ({

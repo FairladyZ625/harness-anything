@@ -21,6 +21,8 @@ import {
   type EntityRef,
   type ReceiptDiagnostic,
   type TaskProjection,
+  type TaskV2,
+  isWorkRoot,
 } from "@harness-anything/kernel";
 import type { ExecutionDelegationRecord } from "@harness-anything/kernel";
 import { authorizeAction } from "./authorization.ts";
@@ -37,6 +39,7 @@ export async function evaluateRepoCellAction(input: {
   readonly revision: number;
   readonly now: string;
   readonly targetOverride?: EntityRef;
+  readonly readTask?: (taskId: string) => TaskV2 | null | Promise<TaskV2 | null>;
   readonly fetchPort?: typeof fetch;
 }): Promise<AuthorizationDecision> {
   const target = input.targetOverride ?? actionTarget(input.action),
@@ -57,14 +60,17 @@ export async function evaluateRepoCellAction(input: {
     if (!credential.center) throw executionCredentialRejected();
     await verifyRuntimeExecutionPrincipal(await credential.center(), input.binding.executionPrincipal, input.fetchPort);
   }
+  const resource: AuthorizationResource =
+      target === repositoryTarget
+        ? { kind: "repository", repoId: input.repoId }
+        : { kind: "entity", repoId: input.repoId, entityRef: target },
+    resourceAncestors = await canonicalResourceAncestors(input.readTask, resource);
   const result = await evaluateKeycloakPerson({
     credential,
     personId: envelope.actor.principal.personId,
     action: input.action.kind,
-    resource:
-      target === repositoryTarget
-        ? { kind: "repository", repoId: input.repoId }
-        : { kind: "entity", repoId: input.repoId, entityRef: target },
+    resource,
+    resourceAncestors,
     fetchPort: input.fetchPort,
   });
   const decision = keycloakDecision(envelope, `canonical:${input.revision}`, result.outcome, result.reasonCode),
@@ -85,6 +91,29 @@ export async function evaluateRepoCellAction(input: {
     : decision;
 }
 
+/** Resolve Work ancestors from the current writer projection; caller payloads cannot supply them. */
+export async function canonicalResourceAncestors(
+  read: ((taskId: string) => TaskV2 | null | Promise<TaskV2 | null>) | undefined,
+  resource: AuthorizationResource,
+): Promise<readonly AuthorizationResource[]> {
+  if (!read || resource.kind !== "entity" || !resource.entityRef.startsWith("task/")) return [];
+  const target = await read(resource.entityRef.slice("task/".length)),
+    ancestors: AuthorizationResource[] = [],
+    seen = new Set<string>();
+  let taskId = target?.metadata?.parentTaskId ?? null;
+  for (; taskId !== null; ) {
+    if (seen.has(taskId)) return [];
+    seen.add(taskId);
+    const task = await read(taskId);
+    if (!task) break;
+    const parentTaskId = task.metadata?.parentTaskId ?? null;
+    if (isWorkRoot(task.taskClass, parentTaskId, 1))
+      ancestors.push({ kind: "entity", repoId: resource.repoId, entityRef: `task/${taskId}` });
+    taskId = parentTaskId;
+  }
+  return ancestors;
+}
+
 /**
  * One evaluation for every entry point: the acting person's Keycloak grants on one action and one
  * resource. Every caller evaluates its acting person, so center administration cannot substitute
@@ -95,17 +124,18 @@ export async function evaluateKeycloakPerson(input: {
   readonly personId: string;
   readonly action: string;
   readonly resource: AuthorizationResource;
+  readonly resourceAncestors?: readonly AuthorizationResource[];
   readonly fetchPort?: typeof fetch;
 }): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
   const { session, center } = input.credential;
   if (session?.personId !== input.personId) return { outcome: "denied", reasonCode: "keycloak_denied" };
+  const resourceAncestors = input.resourceAncestors ?? [];
   if (center) {
     const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
       userSession = new KeycloakPolicyAdapter(
         { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
         input.fetchPort,
       );
-    // dec_B0B79908FE04BBA7766035765B/CH1: the center must not replace live user-token validation.
     if (!(await userSession.validateUserAccessToken(userToken, input.personId)))
       return { outcome: "denied", reasonCode: "keycloak_denied" };
   }
@@ -117,6 +147,7 @@ export async function evaluateKeycloakPerson(input: {
       userAccessToken: session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
       action: input.action,
       resource: input.resource,
+      resourceAncestors,
     });
   const currentCenter = await center();
   return new KeycloakPolicyAdapter(
@@ -128,6 +159,7 @@ export async function evaluateKeycloakPerson(input: {
     personId: input.personId,
     action: input.action,
     resource: input.resource,
+    resourceAncestors,
   });
 }
 

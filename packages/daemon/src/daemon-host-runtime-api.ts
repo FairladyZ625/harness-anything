@@ -207,6 +207,8 @@ export function createDaemonHostRuntimeApi(
           repoId,
           revision: cell.status().ledgerRevision ?? 0,
           now: new Date().toISOString(),
+          readTask: async (taskId) =>
+            cell.read("repo.tasks.runtimeContext.read", { taskId }, binding).then((result) => result.snapshot.task),
         });
       return evaluateFleetAction({
         kind,

@@ -1,7 +1,8 @@
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
+import { canonicalResourceAncestors, evaluateKeycloakPerson } from "./repo-cell-authorization.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import type { RepoCellBinding } from "./repo-cell-types.ts";
+import type { TaskV2 } from "@harness-anything/kernel";
 import type { TaskAssignmentDirectory } from "./protocol/daemon-protocol-gui-types.ts";
 
 /** Selection data for one task; no grants, team membership, credentials or repository contents. */
@@ -9,6 +10,7 @@ export async function readTaskAssignmentDirectory(
   repoId: string,
   taskId: string,
   binding: RepoCellBinding,
+  readTask?: (taskId: string) => Promise<TaskV2 | null>,
 ): Promise<TaskAssignmentDirectory> {
   const credential = binding.keycloakAuthorization;
   if (!credential?.center) throw cellCodedError("authentication_required", "Task assignment requires Keycloak.");
@@ -18,6 +20,11 @@ export async function readTaskAssignmentDirectory(
     personId: binding.actor.principal.personId,
     action: "task-assign",
     resource: { kind: "entity", repoId, entityRef: `task/${taskId}` },
+    resourceAncestors: await canonicalResourceAncestors(readTask, {
+      kind: "entity",
+      repoId,
+      entityRef: `task/${taskId}`,
+    }),
   });
   if (decision.outcome !== "allowed")
     throw cellCodedError("authorization_denied", `Task assignment directory denied: ${decision.reasonCode}.`);
