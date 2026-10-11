@@ -77,6 +77,7 @@
     "packages/daemon/src/repo-cell-command-witness.ts",
     "packages/daemon/src/request-log.ts",
     "packages/daemon/src/runtime-callback-relay.ts",
+    "packages/daemon/src/runtime-provider-health.ts",
     "packages/daemon/src/runtime.ts",
     "packages/daemon/src/schedule-builtin-executor.ts",
     "packages/daemon/src/transport/unix-socket.ts",

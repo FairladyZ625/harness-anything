@@ -25,18 +25,15 @@ const empty = (instanceId: string): RuntimeProviderHealth => ({
 
 export function openRuntimeProviderHealthStore(userRoot: string) {
   const target = path.join(userRoot, "runtime-provider-health.json");
-  let cache: Record<string, RuntimeProviderHealth> | null = null;
   const read = (): Record<string, RuntimeProviderHealth> => {
-    if (cache) return cache;
-    if (!existsSync(target)) return (cache = {});
-    return (cache = JSON.parse(readFileSync(target, "utf8")) as Record<string, RuntimeProviderHealth>);
+    if (!existsSync(target)) return {};
+    return JSON.parse(readFileSync(target, "utf8")) as Record<string, RuntimeProviderHealth>;
   };
   const persist = (next: Record<string, RuntimeProviderHealth>): void => {
     mkdirSync(userRoot, { recursive: true });
     const temporary = `${target}.${process.pid}.tmp`;
     writeFileSync(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
     renameSync(temporary, target);
-    cache = next;
   };
   const get = (instanceId: string): RuntimeProviderHealth => read()[instanceId] ?? empty(instanceId);
   const list = (): readonly RuntimeProviderHealth[] => Object.values(read());

@@ -21,6 +21,20 @@ test("write-road registry rejects an undeclared physical write sink", () =>
     assert.match(findWriteRoadRegistryViolations(root).join("\n"), /physical write sink is not declared/u);
   }));
 
+// dec_FCD38D503B0C0752B83A417246: the node-local health file has one declared owner.
+test("write-road registry rejects a second path writing the provider health file", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/daemon/src/provider-health-copy.ts",
+      `import { writeFileSync } from "node:fs";\nwriteFileSync("runtime-provider-health.json", body);\n`,
+    );
+    assert.match(
+      findWriteRoadRegistryViolations(root).join("\n"),
+      /provider-health-copy\.ts: physical write sink is not declared/u,
+    );
+  }));
+
 test("write-road registry rejects an undeclared promise-based write sink", () =>
   withFixture((root) => {
     write(

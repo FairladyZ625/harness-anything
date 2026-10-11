@@ -76,3 +76,18 @@ test("provider supplied reset time is preserved and auth failures freeze permane
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+test("separately opened node stores merge updates instead of overwriting another instance", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-provider-health-"));
+  try {
+    const first = openRuntimeProviderHealthStore(root),
+      second = openRuntimeProviderHealthStore(root);
+    first.recordFailure({ instanceId: "codex-a", reason: "HTTP 429", occurredAt: "2026-10-12T00:00:00.000Z" });
+    second.recordFailure({ instanceId: "codex-b", reason: "HTTP 503", occurredAt: "2026-10-12T00:00:01.000Z" });
+    assert.equal(first.get("codex-a").failureStreak, 1);
+    assert.equal(first.get("codex-b").failureStreak, 1);
+    assert.equal(second.list().length, 2);
+  } finally {
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});

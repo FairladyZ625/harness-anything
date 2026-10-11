@@ -582,6 +582,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
               allowedInstances: instances.map((row) => row.instanceId),
               providerRoundBackoffBaseSeconds: 1,
               providerRoundBackoffMaxSeconds: 1,
+              providerMaxRetries: 0,
             },
           }) as never,
         runtimeInstances: () => instances,
@@ -693,6 +694,7 @@ async function installAgent(
       runtimeAllowedInstances: allowedInstances,
       runtimeProviderRoundBackoffBaseSeconds: 0,
       runtimeProviderRoundBackoffMaxSeconds: 0,
+      runtimeProviderMaxRetries: 0,
     },
     binding,
   );

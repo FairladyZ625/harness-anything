@@ -145,6 +145,7 @@ export interface DispatchStreamWriter {
           readonly state: "scheduled";
           readonly delayMs: number;
           readonly notBeforeAt: string;
+          readonly waitStartedAt?: string;
           readonly nextProvider: { readonly instance: string; readonly model?: string };
         }
       | { readonly state: "dispatched"; readonly nextDispatchId: string; readonly nextRuntimeSessionId: string }
@@ -470,6 +471,7 @@ export function readDispatchStream(
   readonly fallbackState: "scheduled" | "dispatched" | "exhausted" | null;
   readonly fallbackSchedule: {
     readonly notBeforeAt: string;
+    readonly waitStartedAt?: string;
     readonly nextProvider: { readonly instance: string; readonly model?: string };
   } | null;
   readonly nextDispatchId: string | null;
@@ -774,7 +776,11 @@ function summarizeDispatch(
         record.state === "scheduled" &&
         typeof record.notBeforeAt === "string" &&
         isFallbackProvider(record.nextProvider)
-          ? { notBeforeAt: record.notBeforeAt, nextProvider: record.nextProvider }
+          ? {
+              notBeforeAt: record.notBeforeAt,
+              ...(typeof record.waitStartedAt === "string" ? { waitStartedAt: record.waitStartedAt } : {}),
+              nextProvider: record.nextProvider,
+            }
           : null;
       nextDispatchId = typeof record.nextDispatchId === "string" ? record.nextDispatchId : nextDispatchId;
     }

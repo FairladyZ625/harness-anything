@@ -374,7 +374,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const selection = await prepareRuntimeInstance(
         {
           requested:
-            inheritedFallback?.candidates[inheritedFallback.attemptIndex]?.instance ??
+            inheritedFallback?.candidates[inheritedFallback.candidateIndex ?? inheritedFallback.attemptIndex]
+              ?.instance ??
             explicitRuntimeInstanceId ??
             agent?.instance,
           providerSessionId: providerSessionId ?? undefined,
@@ -404,7 +405,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               ),
             fallbackAttempt =
               initialFallback &&
-              initialFallback.candidates[initialFallback.attemptIndex]?.instance !== runtimeInstanceId
+              initialFallback.candidates[initialFallback.candidateIndex ?? initialFallback.attemptIndex]?.instance !==
+                runtimeInstanceId
                 ? initialFallbackAttempt(
                     agent,
                     runtimeInstanceId,
@@ -419,7 +421,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     input.now(),
                   )
                 : initialFallback,
-            fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
+            fallbackCandidate =
+              fallbackAttempt?.candidates[fallbackAttempt.candidateIndex ?? fallbackAttempt.attemptIndex],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
             // Model resolution: dispatch override, agent kind, then instance default.
             selectedModel =
