@@ -1703,6 +1703,6 @@
   "views.settingsView.settingsGroup.presentation.description": "How the interface presents information. These settings change display only, never ledger data or dispatch.",
   "views.settingsView.overviewWatchedActivityDaysLabel": "Watched-works activity days",
   "views.settingsView.overviewWatchedActivityDaysDescription": "How many days back the overview's watched-works activity window reaches.",
-  "views.settingsView.overviewWatchedActivityDaysEffect": "The overview lists works with activity inside this window ahead of the pinned ones; older works stay on the works page.",
+  "views.settingsView.overviewWatchedActivityDaysEffect": "The overview keeps pinned works ahead, then works with activity inside this window; works with only older activity stay on the works page.",
   "views.overviewView.regionCountOf": "{count} artifacts"
 }

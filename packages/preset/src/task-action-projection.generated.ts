@@ -849,7 +849,7 @@ export const settingsFieldProtocolProjection = {
       description: "How many days back the overview's watched-works activity window reaches.",
       group: "presentation",
       effect:
-        "Works with activity inside this window list ahead of the pinned ones; older works stay on the works page.",
+        "The overview keeps pinned works ahead, then works with activity inside this window; works with only older activity stay on the works page.",
       name: "--overview-watched-activity-days",
       kind: "single",
       regex: "^[1-9][0-9]*$",

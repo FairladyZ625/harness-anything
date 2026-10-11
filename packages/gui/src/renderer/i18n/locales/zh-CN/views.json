@@ -1703,6 +1703,6 @@
   "views.settingsView.settingsGroup.presentation.description": "界面上信息怎么呈现。这里的设置只改显示口径，不影响台账数据与派工。",
   "views.settingsView.overviewWatchedActivityDaysLabel": "关注的工作活动天数",
   "views.settingsView.overviewWatchedActivityDaysDescription": "总览「关注的工作」默认只列最近多少天内有活动的工作。",
-  "views.settingsView.overviewWatchedActivityDaysEffect": "总览按这个窗口列工作；更早没有活动的工作仍在工作页可见。",
+  "views.settingsView.overviewWatchedActivityDaysEffect": "总览「关注的工作」先列置顶工作，再列窗口内有活动的工作；更早没有活动的工作仍在工作页可见。",
   "views.overviewView.regionCountOf": "共 {count} 件"
 }
