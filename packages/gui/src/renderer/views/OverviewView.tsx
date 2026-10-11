@@ -6,6 +6,7 @@ import { FocusLayer } from "../components/primitives/FocusLayer";
 import { PageRegions } from "../components/primitives/page-regions.tsx";
 import { Region } from "../components/primitives/Region";
 import { StatusTag } from "../components/primitives/StatusTag";
+import type { AppLocation, OverviewFocusLocation } from "../navigation/viewHistory.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
 import { useOverviewArtifacts, useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
 import { useSettingsQuery } from "../settings-data.ts";
@@ -53,7 +54,8 @@ import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
  * 最近活动信息,「在飞任务」区块已删除),下格是最新 HTML 产物速览架;右列是关注的工作
  * (默认列最近 N 天内有活动的工作,N 是设置项「关注的工作活动天数」,置顶工作保留在
  * 前;行内给进度、进行中子任务数、最近活动与等你处理数)。点产物行或「查看全部」进
- * 接近全屏的产物二级页:左窄列表、右大预览、默认选中最新。系统状态弱化成一行小字。
+ * 接近全屏的产物二级页:左窄列表、右大预览、默认选中最新;二级页与各名单的放大层都
+ * 走全局导航历史(开层推栈、后退回原位)。系统状态弱化成一行小字。
  * 数据全部来自已挂载读面,页面不另发第二套请求;区域板沿用 PageRegions。
  */
 export function OverviewView({
@@ -73,6 +75,10 @@ export function OverviewView({
   onOpenTasks,
   onOpenCollaboration,
   onUnpin,
+  overviewLayer,
+  onOverviewLayerNavigate,
+  onOverviewLayerPatch,
+  onOverviewLayerClose,
 }: {
   readonly repoId: string;
   readonly connectionId: string | null;
@@ -102,12 +108,27 @@ export function OverviewView({
   readonly onOpenCollaboration?: () => void;
   /** 取消置顶(pin 写通道,taskActions.setTaskPin)。 */
   readonly onUnpin: (taskId: string) => void;
+  /** 总览页内层位置(AppLocation 的总览层字段子集,App 从 location 派生):null = 层关着。 */
+  readonly overviewLayer: {
+    readonly overviewArtifactId: string | null;
+    readonly overviewFocus: OverviewFocusLocation | null;
+  };
+  /** 开层/换层(导航性):推栈,后退回到开层前的位置。 */
+  readonly onOverviewLayerNavigate: (
+    fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>,
+  ) => void;
+  /** 层内精修(换选中行):原地改当前位置,不占历史条目。 */
+  readonly onOverviewLayerPatch: (fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>) => void;
+  /** 关层:能退则弹栈回上一位置,栈底(会话恢复的孤立层条目)原地收层。 */
+  readonly onOverviewLayerClose: (fields: Partial<Pick<AppLocation, "overviewArtifactId" | "overviewFocus">>) => void;
 }) {
   const [panel, setPanel] = useState<AwaitsPanelSubject | null>(null);
-  const [focus, setFocus] = useState<DrillFocusKey | null>(null);
-  const [selected, setSelected] = useState<Partial<Record<DrillFocusKey, string>>>({});
-  // 产物详情层的选中行(键 = artifactRowKey;null = 层关着)。点速览架行打开,不离开总览。
-  const [artifactFocus, setArtifactFocus] = useState<string | null>(null);
+  // 放大层与产物二级页的开关/选中都在全局导航历史(AppLocation 的总览层字段):
+  // 开层推栈、层内换选中原地改、关层弹栈——原地 useState 会让后退失灵(业主
+  // 2026-10-11 全局导航返工)。焦点键与选中行从层位置派生,不再各持一份。
+  const focus = overviewLayer.overviewFocus?.key ?? null;
+  const layerSelectedId = overviewLayer.overviewFocus?.selectedId ?? null;
+  const artifactFocus = overviewLayer.overviewArtifactId;
   const [fetchCiDetails, setFetchCiDetails] = useState(false);
   const ciQuery = useOverviewCi(repoId, fetchCiDetails);
   const runtimeQuery = useOverviewRuntime(repoId);
@@ -183,36 +204,26 @@ export function OverviewView({
   const deps: OverviewBoardDeps = {
     now,
     workTitleOf,
+    // 答复卡点:收放大层(能退则弹栈)再开答复面板;其余导航直接透传——推栈后层留在
+    // 原条目里,后退自然回到带着层的总览,不需要(也不应该)先把层就地清掉。
     onAnswer: (subject) => {
-      setFocus(null);
+      onOverviewLayerClose({ overviewFocus: null });
       setPanel(subject);
     },
-    onNavigateEntity: (ref) => {
-      setFocus(null);
-      onNavigateEntity(ref);
-    },
-    onOpenTask: (taskId) => {
-      setFocus(null);
-      onOpenTask(taskId);
-    },
-    onOpenWorks: () => {
-      setFocus(null);
-      onOpenWorks();
-    },
+    onNavigateEntity,
+    onOpenTask,
+    onOpenWorks,
     onOpenTasks,
     onOpenSessions,
     onUnpin,
   };
 
-  // 点行开层:内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
+  // 点行开层(推栈):内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
   const openFocus = (key: DrillFocusKey, selectedId?: string) => {
-    if (selectedId !== undefined) {
-      setSelected((current) => ({ ...current, [key]: selectedId }));
-      // WIP 层的可见集合出自 wipFilter:上次遗留的分组/搜索会把被点行滤出集合,选中被
-      // focusSelected 复算回首行、详情显示错任务——进入即重置,被点行必然可见且被选中。
-      if (key === "wip") setWipFilter({ group: "all", search: "" });
-    }
-    setFocus(key);
+    // WIP 层的可见集合出自 wipFilter:上次遗留的分组/搜索会把被点行滤出集合,选中被
+    // focusSelected 复算回首行、详情显示错任务——进入即重置,被点行必然可见且被选中。
+    if (selectedId !== undefined && key === "wip") setWipFilter({ group: "all", search: "" });
+    onOverviewLayerNavigate({ overviewFocus: { key, selectedId: selectedId ?? null } });
   };
 
   // 键盘导航的可选中集合:WIP 用当前过滤后的可见名单(过滤隐藏的行不可被 ↑↓ 选中),
@@ -230,7 +241,7 @@ export function OverviewView({
               ? pinned.map(({ taskId }) => taskId)
               : ciRuns.map(({ eventId }) => eventId);
   const focusSelected =
-    focus === null ? null : focusIds.includes(selected[focus] ?? "") ? selected[focus]! : (focusIds[0] ?? null);
+    focus === null ? null : focusIds.includes(layerSelectedId ?? "") ? layerSelectedId! : (focusIds[0] ?? null);
 
   const quietLine =
     health.daemon.state === "responsive" &&
@@ -438,7 +449,7 @@ export function OverviewView({
                         <button
                           type="button"
                           data-testid="overview-artifacts-open-all"
-                          onClick={() => setArtifactFocus(artifactKeys[0] ?? "")}
+                          onClick={() => onOverviewLayerNavigate({ overviewArtifactId: artifactKeys[0] ?? "" })}
                           className="text-accent underline-offset-2 hover:underline"
                         >
                           {t("views.overviewView.artifactsOpenPage")}
@@ -451,7 +462,7 @@ export function OverviewView({
                       rows={artifactsQuery.data?.artifacts ?? []}
                       pending={artifactsQuery.isPending}
                       error={artifactsErrorText}
-                      onOpenArtifact={(row) => setArtifactFocus(artifactRowKey(row))}
+                      onOpenArtifact={(row) => onOverviewLayerNavigate({ overviewArtifactId: artifactRowKey(row) })}
                     />
                   </Region>
                 </div>
@@ -509,15 +520,15 @@ export function OverviewView({
           }
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, wip: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "wip", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <WipFocusList
               snapshot={wipQuery.data}
               loading={wipQuery.isPending}
               error={wipErrorText}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, wip: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "wip", selectedId: id } })}
               onOpenTask={onOpenTask}
               filter={wipFilter}
               onFilterChange={setWipFilter}
@@ -546,13 +557,13 @@ export function OverviewView({
           big={reviewDrill.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, review: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "review", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <ReviewFocusList
               rows={reviewDrill}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, review: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "review", selectedId: id } })}
               deps={deps}
             />
           }
@@ -571,13 +582,13 @@ export function OverviewView({
           big={followUps.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, followups: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "followups", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <FollowUpsFocusList
               rows={followUps}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, followups: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "followups", selectedId: id } })}
               deps={deps}
             />
           }
@@ -602,13 +613,13 @@ export function OverviewView({
           big={pinned.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, pinned: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <PinnedFocusList
               rows={pinned}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, pinned: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
               deps={deps}
             />
           }
@@ -628,13 +639,13 @@ export function OverviewView({
           big={ciRuns.length}
           itemIds={focusIds}
           selectedId={focusSelected}
-          onSelect={(id) => setSelected((current) => ({ ...current, ci: id }))}
-          onClose={() => setFocus(null)}
+          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "ci", selectedId: id } })}
+          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
           list={
             <CiFocusList
               ci={ciQuery.data}
               selectedId={focusSelected}
-              onSelect={(id) => setSelected((current) => ({ ...current, ci: id }))}
+              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "ci", selectedId: id } })}
             />
           }
           detail={
@@ -653,8 +664,9 @@ export function OverviewView({
       )}
 
       {/* 产物二级页面(2026-10-11 意见 1):接近全屏,左窄列表、右大预览,默认选中最新
-          一条(daemon 倒序首行);「跳到所属 task」保留 task_15b1bb96 的落点(任务页直接
-          选中该产物文档)。 */}
+          一条(daemon 倒序首行);开层/换选中/关层走全局历史(开层推栈、层内换选中原地
+          改、关层弹栈)。「跳到所属 task」保留 task_15b1bb96 的落点并直接推栈——后退
+          回到带着产物页的总览位置。 */}
       {artifactFocus !== null && (
         <OverviewArtifactsPage
           open
@@ -662,12 +674,9 @@ export function OverviewView({
           rows={artifactRows}
           total={artifactsQuery.data?.counts.html ?? artifactRows.length}
           selectedId={artifactSelected}
-          onSelect={setArtifactFocus}
-          onClose={() => setArtifactFocus(null)}
-          onOpenTask={(taskId, docPath) => {
-            setArtifactFocus(null);
-            onOpenTask(taskId, docPath);
-          }}
+          onSelect={(key) => onOverviewLayerPatch({ overviewArtifactId: key })}
+          onClose={() => onOverviewLayerClose({ overviewArtifactId: null })}
+          onOpenTask={(taskId, docPath) => onOpenTask(taskId, docPath)}
         />
       )}
 

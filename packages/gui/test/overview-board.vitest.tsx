@@ -22,6 +22,7 @@ import {
   agenda,
   setupOverviewBoardEnvironment,
   mountOverview as mount,
+  historyOf,
   textOf,
   flushUntil,
   unmountOverview as unmount,
@@ -558,6 +559,49 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
       const detail = textOf(reopened.querySelector("[data-focus-detail]"));
       expect(detail).toContain("task_wipactive0");
       expect(detail).toContain("占位任务 active0");
+    } finally {
+      unmount();
+      restore();
+    }
+  });
+
+  it("「进行中的任务」行下钻走全局历史:点行推栈,层内换选中原地改,后退关层前进原路返回", async () => {
+    // 业主 2026-10-11「有的页面能退能进,有的不能」:下钻放大层不再各持 useState,
+    // 层位置(键 + 选中行)进 AppLocation——开层推栈、层内换选中原地精修、后退回总览。
+    const counted = defaultCounted();
+    const restore = stubBridge({ getTaskWip: () => wipSnapshot(counted) });
+    const container = mount();
+    try {
+      await flushUntil(
+        () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/30") === true,
+      );
+      expect(historyOf().location.overviewFocus ?? null).toBeNull();
+      act(() =>
+        (
+          container.querySelector('[data-drill-row="task_wipblocked0"]')!.querySelector("button") as HTMLElement
+        ).click(),
+      );
+      // 点行 = 推栈:层键与被点行进位置,canBack 变真(开层前还能无脑后退就是失灵)。
+      expect(historyOf().location.overviewFocus).toEqual({ key: "wip", selectedId: "task_wipblocked0" });
+      expect(historyOf().canBack).toBe(true);
+      // 层内换选中是原地精修不占历史:后退必须直接回总览,而不是上一个选中。
+      const otherRow = document.body.querySelector(
+        '[role="dialog"] [data-focus-list] [data-dense-row]:not([data-selected])',
+      )!;
+      act(() => (otherRow.querySelector("button") as HTMLElement).click());
+      expect(historyOf().location.overviewFocus?.selectedId).not.toBe("task_wipblocked0");
+      // 后退回到开层前的总览位置(放大层收起);前进原路返回,层与最后选中一起还原。
+      act(() => historyOf().back());
+      expect(historyOf().location.overviewFocus ?? null).toBeNull();
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+      act(() => historyOf().forward());
+      expect(historyOf().location.overviewFocus?.key).toBe("wip");
+      expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(
+        document.body
+          .querySelector('[role="dialog"] [data-focus-list] [data-dense-row][data-selected]')
+          ?.getAttribute("title"),
+      ).toBe(historyOf().location.overviewFocus?.selectedId);
     } finally {
       unmount();
       restore();

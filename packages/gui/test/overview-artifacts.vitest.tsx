@@ -7,6 +7,7 @@ import {
   AT,
   setupOverviewBoardEnvironment,
   mountOverview as mount,
+  historyOf,
   textOf,
   flushUntil,
   unmountOverview as unmount,
@@ -215,5 +216,117 @@ describe("总览:最新产物速览架与产物二级页", () => {
     expect(textOf(page)).toContain("还没有 HTML 产物");
     unmount();
     restore();
+  });
+
+  it("产物二级页走全局历史:开页推栈,页内换选中原地改,后退收页前进原路返回", async () => {
+    // 业主 2026-10-11 全局导航返工:二级页不再各持 useState,层位置进 AppLocation——
+    // 与「进行中的任务」下钻放大层同一条推栈路径,Esc/X 收页即弹栈。
+    const rows = Array.from({ length: 3 }, (_, index) => artifactRow({ path: `artifacts/reports/h-${index}.html` }));
+    const restore = stubShelfBridge({
+      listArtifacts: async () => ({
+        ok: true,
+        status: "ready",
+        repoId: "probe-repo",
+        kind: "html",
+        artifacts: rows.map((row) => ({
+          taskId: row.taskId,
+          taskTitle: row.taskTitle,
+          packagePath: row.packagePath,
+          path: row.path,
+          kind: "html",
+          mediaType: "text/html",
+          sizeBytes: 128,
+          time: AT,
+          timeSource: "ledger",
+        })),
+        counts: { html: 3, md: 0, raw: 0 },
+        watermark: 12,
+        sourceRevision: 12,
+      }),
+    });
+    const container = mount();
+    // 二级页挂在 document.body:断言中途失败也要卸载,泄出去会顶掉下一例的页查询。
+    try {
+      await flushUntil(
+        () =>
+          container.querySelector('[data-testid="overview-region-artifacts"]')?.textContent?.includes("h-0.html") ===
+          true,
+      );
+      expect(historyOf().location.overviewArtifactId ?? null).toBeNull();
+      // 点速览架行开页 = 推栈:被点行键进位置。
+      act(() =>
+        (container.querySelector("[data-shelf-artifact]")!.querySelector("button") as HTMLButtonElement).click(),
+      );
+      expect(historyOf().location.overviewArtifactId).toBe("task_art_owner/artifacts/reports/h-0.html");
+      expect(historyOf().canBack).toBe(true);
+      // 页内点列表换预览是原地精修:后退必须直接回总览(页关掉),而不是上一个产物。
+      // (列表行无 action,DenseRow 整行即 button。)
+      const other = document.body.querySelector(
+        '[data-testid="overview-artifacts-page-list"] [data-dense-row]:not([data-selected])',
+      )! as HTMLButtonElement;
+      act(() => other.click());
+      expect(historyOf().location.overviewArtifactId).toBe("task_art_owner/artifacts/reports/h-1.html");
+      // Esc 收页 = 弹栈:位置回到无层的总览;前进原路返回,页与最后选中的产物一起还原。
+      act(() => {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      });
+      expect(historyOf().location.overviewArtifactId ?? null).toBeNull();
+      expect(document.body.querySelector('[data-testid="overview-artifacts-page"]')).toBeNull();
+      act(() => historyOf().forward());
+      expect(historyOf().location.overviewArtifactId).toBe("task_art_owner/artifacts/reports/h-1.html");
+      expect(textOf(document.body.querySelector('[data-testid="overview-artifact-detail"]'))).toContain("h-1.html");
+    } finally {
+      unmount();
+      restore();
+    }
+  });
+
+  it("产物页「跳到所属 task」推栈后,后退回到带着产物页的总览位置", async () => {
+    const rows = [artifactRow({ path: "artifacts/reports/back.html" })];
+    const onOpenTask = vi.fn();
+    const restore = stubShelfBridge({
+      listArtifacts: async () => ({
+        ok: true,
+        status: "ready",
+        repoId: "probe-repo",
+        kind: "html",
+        artifacts: rows.map((row) => ({
+          taskId: row.taskId,
+          taskTitle: row.taskTitle,
+          packagePath: row.packagePath,
+          path: row.path,
+          kind: "html",
+          mediaType: "text/html",
+          sizeBytes: 128,
+          time: AT,
+          timeSource: "ledger",
+        })),
+        counts: { html: 1, md: 0, raw: 0 },
+        watermark: 12,
+        sourceRevision: 12,
+      }),
+    });
+    const container = mount({ onOpenTask });
+    try {
+      await flushUntil(
+        () =>
+          container.querySelector('[data-testid="overview-region-artifacts"]')?.textContent?.includes("back.html") ===
+          true,
+      );
+      act(() =>
+        (container.querySelector("[data-shelf-artifact]")!.querySelector("button") as HTMLButtonElement).click(),
+      );
+      const page = document.body.querySelector('[data-testid="overview-artifacts-page"]')!;
+      // 跳任务走 App 的实体导航(真实 App 里推栈);夹具里回调被记录,位置留在产物页条目。
+      act(() =>
+        (page.querySelector('[data-testid="overview-artifact-detail-open-task"]') as HTMLButtonElement).click(),
+      );
+      expect(onOpenTask).toHaveBeenCalledWith("task_art_owner", "artifacts/reports/back.html");
+      // 产物页条目仍带着层位置:真实 App 后退即回到产物页(此处直接断言位置未被动过)。
+      expect(historyOf().location.overviewArtifactId).toBe("task_art_owner/artifacts/reports/back.html");
+    } finally {
+      unmount();
+      restore();
+    }
   });
 });

@@ -9,6 +9,9 @@ import { prefersReducedMotion } from "motion/react";
 import { OverviewView } from "../src/renderer/views/OverviewView.tsx";
 import { AppMotionConfig } from "../src/renderer/motion-config.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { useViewHistory } from "../src/renderer/navigation/useViewHistory.ts";
+import { initialLocation } from "../src/renderer/navigation/viewHistoryStorage.ts";
+import type { AppLocation } from "../src/renderer/navigation/viewHistory.ts";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgendaAwaitsRow, WorkIndexRead, WorkspaceSummaryRead } from "../src/api/renderer-dto.ts";
 import type { RuntimeHealth } from "../src/renderer/model/runtime-health.ts";
@@ -271,39 +274,75 @@ export const agenda = (patch: Partial<AgendaSuccess> = {}): AgendaSuccess =>
 
 let root: Root | null = null;
 
-/** 每个用例一个干净 client:上一例的 error 态不能泄进下一例的读面。 */
+/** 当前挂载的导航历史手柄:总览层位置(AppLocation 的层字段)与 back/forward,供用例
+ *  断言「开层推栈、后退回原位」(层走全局导航历史,不再各持 useState)。 */
+export interface OverviewHistoryHandle {
+  readonly location: AppLocation;
+  readonly canBack: boolean;
+  readonly canForward: boolean;
+  back: () => void;
+  forward: () => void;
+}
+
+let historyHandle: OverviewHistoryHandle | null = null;
+
+/** 每次挂载后取当前历史手柄(location 随渲染前进,取手柄要新鲜调用)。 */
+export const historyOf = (): OverviewHistoryHandle => {
+  if (historyHandle === null) throw new Error("history handle only exists while an overview is mounted");
+  return historyHandle;
+};
+
+/**
+ * 与 App.tsx 同一接线的导航 harness:真实 useViewHistory,总览层字段从 location 派生,
+ * 开层/换选中/关层分别走 navigate/updateLocation/back(栈底原地收层)。
+ */
+function OverviewHistoryHarness(props: Partial<Parameters<typeof OverviewView>[0]> = {}) {
+  const { location, navigate, updateLocation, back, forward, canBack, canForward } = useViewHistory(
+    "probe-repo",
+    initialLocation(),
+  );
+  historyHandle = { location, canBack, canForward, back, forward };
+  const noop = () => undefined;
+  return createElement(OverviewView, {
+    repoId: "probe-repo",
+    connectionId: "local",
+    agenda: agenda(),
+    works: WORKS,
+    titles: TITLES,
+    workspaceSummary: SUMMARY,
+    health: HEALTH,
+    onNavigateEntity: noop,
+    onOpenTask: noop,
+    onOpenSearch: noop,
+    onOpenSessions: noop,
+    onOpenWorks: noop,
+    onOpenTasks: noop,
+    onUnpin: noop,
+    overviewLayer: {
+      overviewArtifactId: location.overviewArtifactId ?? null,
+      overviewFocus: location.overviewFocus ?? null,
+    },
+    onOverviewLayerNavigate: navigate,
+    onOverviewLayerPatch: updateLocation,
+    onOverviewLayerClose: (fields) => (canBack ? back() : updateLocation(fields)),
+    ...props,
+  });
+}
+
+/** 每个用例一个干净 client:上一例的 error 态不能泄进下一例的读面;导航栈同理,
+ *  sessionStorage 里 probe-repo 的历史键随挂载清空(否则上一例的层条目会泄进下一例)。 */
 export function mountOverview(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLElement {
+  window.sessionStorage.removeItem("harness-view-history:probe-repo");
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
-  const noop = () => undefined;
   act(() =>
     root!.render(
       createElement(
         QueryClientProvider,
         { client: queryClient },
-        createElement(
-          AppMotionConfig,
-          null,
-          createElement(OverviewView, {
-            repoId: "probe-repo",
-            connectionId: "local",
-            agenda: agenda(),
-            works: WORKS,
-            titles: TITLES,
-            workspaceSummary: SUMMARY,
-            health: HEALTH,
-            onNavigateEntity: noop,
-            onOpenTask: noop,
-            onOpenSearch: noop,
-            onOpenSessions: noop,
-            onOpenWorks: noop,
-            onOpenTasks: noop,
-            onUnpin: noop,
-            ...props,
-          }),
-        ),
+        createElement(AppMotionConfig, null, createElement(OverviewHistoryHarness, props)),
       ),
     ),
   );
@@ -322,4 +361,7 @@ export async function flushUntil(predicate: () => boolean, rounds = 200): Promis
   }
 }
 
-export const unmountOverview = (): void => act(() => root?.unmount());
+export const unmountOverview = (): void => {
+  act(() => root?.unmount());
+  historyHandle = null;
+};
