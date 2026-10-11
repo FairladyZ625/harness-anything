@@ -30,7 +30,6 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
           source: flags.get("--source")!,
           dryRun: flags.get("--mode") === "dry-run",
           ...(flags.has("--destination") ? { destination: flags.get("--destination")! } : {}),
-          ...(flags.has("--user-root") ? { userRoot: flags.get("--user-root")! } : {}),
         });
       emitReceipt({ ok: true, schema: "completion-migration-receipt/v1", ...result });
       return 0;

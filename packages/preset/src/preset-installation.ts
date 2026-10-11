@@ -150,7 +150,6 @@ export function activeDigest(pointer: string): string | undefined {
 export function migrateCompletion(input: {
   readonly source: string;
   readonly destination?: string;
-  readonly userRoot?: string;
   readonly dryRun: boolean;
 }) {
   const source = path.resolve(input.source),
@@ -159,7 +158,6 @@ export function migrateCompletion(input: {
     serialize = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
   if (stat.isSymbolicLink()) throw new Error("Migration source must be a regular file or package directory.");
   if (stat.isFile()) {
-    if (input.userRoot) throw new Error("--user-root applies only to preset packages.");
     const original = json(readFileSync(source, "utf8")),
       converted = convertCompletionDeclaration(original),
       changed = JSON.stringify(original) !== JSON.stringify(converted);
@@ -174,7 +172,7 @@ export function migrateCompletion(input: {
     };
   }
   // Historical external input has not crossed the current package writer. Scan before copying;
-  // validate the entire converted candidate before the existing installer can move its active pin.
+  // validate the entire converted candidate before returning it for queued preset installation.
   const files = scan(source),
     original = json(files.get("preset.json") ?? "null"),
     manifest = convertCompletionManifest(original),
@@ -184,23 +182,18 @@ export function migrateCompletion(input: {
     const candidate = path.join(temporary, "package");
     cpSync(source, candidate, { recursive: true });
     writeFileSync(path.join(candidate, "preset.json"), changed ? serialize(manifest) : files.get("preset.json")!);
-    const decoded = decodePresetPackageV3(candidate);
-    if (input.destination && input.userRoot) throw new Error("Choose --destination or --user-root, not both.");
-    if (input.userRoot) {
-      const installed = installPresetPackage({
-        source: candidate,
-        userRoot: input.userRoot,
-        dryRun: input.dryRun,
-        decoded,
-      });
-      return { kind: "preset", changed, installed, source };
-    }
+    decodePresetPackageV3(candidate);
     if (!input.dryRun) {
-      if (!input.destination) throw new Error("Package conversion requires --destination or --user-root.");
+      if (!input.destination) throw new Error("Package conversion requires --destination <new-directory>.");
       mkdirSync(input.destination);
       cpSync(candidate, input.destination, { recursive: true, errorOnExist: true, force: false });
     }
-    return { kind: "preset", changed, source };
+    return {
+      kind: "preset",
+      changed,
+      source,
+      next: "Review the candidate; run ha preset install --source <candidate-directory> for the target repository. The center repository writer queues pin activation.",
+    };
   } finally {
     rmSync(temporary, { recursive: true, force: true });
   }

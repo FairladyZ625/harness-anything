@@ -25,14 +25,13 @@ export const completionMigrationCommand = {
   id: "migrate-completion",
   path: ["migrate", "completion"],
   usage:
-    "ha migrate completion --source <declaration-file|preset-package> --mode <dry-run|convert> [--destination <new-path> | --user-root <preset-install-root>]",
+    "ha migrate completion --source <declaration-file|preset-package> --mode <dry-run|convert> [--destination <new-path>]",
   summary: "Convert retired checkerProfile declarations and installed preset packages once, preserving the source.",
-  help: "    For an installed pin, use its preset-objects/<digest> directory as --source and the containing presets directory as --user-root.\n    Declaration candidates must be reviewed and accepted with ha doc sync --submit --path harness/vertical.json.\n    Historical ledger/snapshot conversion uses ha migrate ledger --help; this command does not rewrite accepted history.",
+  help: "    For an installed pin, use its preset-objects/<digest> directory as --source and a new directory as --destination. Activate with ha preset install --source <candidate-directory> through the target repository writer.\n    Declaration candidates must be reviewed and accepted with ha doc sync --submit --path harness/vertical.json.\n    Historical ledger/snapshot conversion uses ha migrate ledger --help; this command does not rewrite accepted history.",
   helpCommand: "ha migrate completion --help",
   inputs: [
     { name: "--source", kind: "single", required: true, error: { code: "missing_field" } },
     { name: "--mode", kind: "single", required: true, enum: ["dry-run", "convert"], error: { code: "invalid_field" } },
     { name: "--destination", kind: "single", required: false, error: { code: "invalid_field" } },
-    { name: "--user-root", kind: "single", required: false, error: { code: "invalid_field" } },
   ],
 } as const;
