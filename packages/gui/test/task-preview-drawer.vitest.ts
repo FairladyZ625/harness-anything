@@ -288,4 +288,53 @@ describe("task preview dismissal", () => {
       container.remove();
     }
   });
+
+  it("ignores outside presses owned by another control: interactive elements and non-primary buttons (F-9280B707)", async () => {
+    const onClose = vi.fn();
+    const task = makeTask();
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    try {
+      await act(async () =>
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: new QueryClient({ defaultOptions: { queries: { retry: false } } }) },
+            createElement(TaskPreviewDrawer, {
+              task,
+              tasks: [task],
+              relations: [],
+              onClose,
+              onOpenDetail: noop,
+              onPreviewTask: noop,
+            }),
+          ),
+        ),
+      );
+      // 压在自身会激活的控件(顶栏前进/后退、看板卡)上:那次按下归控件自己,
+      // 抽屉不再抢先关闭——否则 onClose 的弹栈与控件自身的导航相互抵消/叠加。
+      const navButton = document.createElement("button");
+      navButton.textContent = "forward";
+      document.body.append(navButton);
+      act(() => {
+        navButton.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true }));
+        navButton.click();
+      });
+      expect(onClose).not.toHaveBeenCalled();
+      // 侧键 3/4 是 App 级前进/后退的按下,不是「点外部关闭」。
+      act(() => navButton.dispatchEvent(new MouseEvent("mousedown", { button: 3, bubbles: true })));
+      expect(onClose).not.toHaveBeenCalled();
+      navButton.remove();
+      // 对照:惰性空白上的主键按下仍关闭——收窄没有把「点外部关闭」收没。
+      const blank = document.createElement("div");
+      document.body.append(blank);
+      act(() => blank.dispatchEvent(new MouseEvent("mousedown", { button: 0, bubbles: true })));
+      blank.remove();
+      expect(onClose).toHaveBeenCalledTimes(1);
+    } finally {
+      act(() => root.unmount());
+      container.remove();
+    }
+  });
 });
