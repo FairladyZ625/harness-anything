@@ -1,4 +1,4 @@
-import { decodePresetPackageV3, parsePresetJson } from "./preset-package.ts";
+import { decodePresetPackageV3, parsePresetJson, scan } from "./preset-package.ts";
 import { defaultBundled, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
 import type { DecodedPresetPackageV3 } from "./preset-resolver-types.ts";
 import { consumeKnownError } from "./preset.contract.ts";
@@ -8,6 +8,7 @@ import {
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   renameSync,
@@ -16,6 +17,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { tmpdir } from "node:os";
+import { convertCompletionDeclaration, convertCompletionManifest } from "./completion-migration.ts";
 
 export function seedPresetPackages(input: {
   readonly userRoot: string;
@@ -141,5 +144,57 @@ export function activeDigest(pointer: string): string | undefined {
   } catch (error) {
     consumeKnownError(error);
     return undefined;
+  }
+}
+
+export function migrateCompletion(input: {
+  readonly source: string;
+  readonly destination?: string;
+  readonly dryRun: boolean;
+}) {
+  const source = path.resolve(input.source),
+    stat = lstatSync(source),
+    json = (body: string) => parsePresetJson(body, "invalid_migration_input"),
+    serialize = (value: unknown) => `${JSON.stringify(value, null, 2)}\n`;
+  if (stat.isSymbolicLink()) throw new Error("Migration source must be a regular file or package directory.");
+  if (stat.isFile()) {
+    const original = json(readFileSync(source, "utf8")),
+      converted = convertCompletionDeclaration(original),
+      changed = JSON.stringify(original) !== JSON.stringify(converted);
+    if (!input.dryRun) {
+      if (!input.destination) throw new Error("Declaration conversion requires --destination <new-file>.");
+      writeFileSync(input.destination, serialize(converted), { flag: "wx" });
+    }
+    return {
+      kind: "declaration",
+      changed,
+      next: "Review the candidate; place it at harness/vertical.json and run ha doc sync --submit --path harness/vertical.json. Reopen the repository before using it.",
+    };
+  }
+  // Historical external input has not crossed the current package writer. Scan before copying;
+  // validate the entire converted candidate before returning it for queued preset installation.
+  const files = scan(source),
+    original = json(files.get("preset.json") ?? "null"),
+    manifest = convertCompletionManifest(original),
+    changed = JSON.stringify(original) !== JSON.stringify(manifest),
+    temporary = mkdtempSync(path.join(tmpdir(), "ha-completion-migration-"));
+  try {
+    const candidate = path.join(temporary, "package");
+    cpSync(source, candidate, { recursive: true });
+    writeFileSync(path.join(candidate, "preset.json"), changed ? serialize(manifest) : files.get("preset.json")!);
+    decodePresetPackageV3(candidate);
+    if (!input.dryRun) {
+      if (!input.destination) throw new Error("Package conversion requires --destination <new-directory>.");
+      mkdirSync(input.destination);
+      cpSync(candidate, input.destination, { recursive: true, errorOnExist: true, force: false });
+    }
+    return {
+      kind: "preset",
+      changed,
+      source,
+      next: "Review the candidate; run ha preset install --source <candidate-directory> for the target repository. The center repository writer queues pin activation.",
+    };
+  } finally {
+    rmSync(temporary, { recursive: true, force: true });
   }
 }

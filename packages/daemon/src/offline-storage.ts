@@ -10,7 +10,8 @@ import { canonicalRoot } from "./protocol/daemon-protocol-identifiers.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
 import { openReplicaAckStore } from "./fleet/replica-ack-store.ts";
 import { invalidateReplicaCutsOffline } from "./fleet/replica-cut-store.ts";
-import { generationMigrationCommand } from "./offline-storage-command.ts";
+import { completionMigrationCommand, generationMigrationCommand } from "./offline-storage-command.ts";
+import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 
 export async function runOfflineStorageCommand(argv: readonly string[]): Promise<number> {
   try {
@@ -19,6 +20,20 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
       throw new Error("--generation must be 1 or 2");
     const rootInput = option(argv, "--root") ?? process.cwd();
     const commandIndex = firstCommandIndex(argv);
+    if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "completion") {
+      if (argv.includes("--help")) {
+        emitReceipt({ ok: true, usage: completionMigrationCommand.usage, hint: completionMigrationCommand.help });
+        return 0;
+      }
+      const flags = commandFlags(argv.slice(commandIndex + 2), completionMigrationCommand),
+        result = migrateCompletion({
+          source: flags.get("--source")!,
+          dryRun: flags.get("--mode") === "dry-run",
+          ...(flags.has("--destination") ? { destination: flags.get("--destination")! } : {}),
+        });
+      emitReceipt({ ok: true, schema: "completion-migration-receipt/v1", ...result });
+      return 0;
+    }
     if (argv[commandIndex] === "migrate" && argv[commandIndex + 1] === "ledger") {
       if (argv.includes("--help")) {
         emitReceipt({ ok: true, usage: generationMigrationCommand.usage, hint: generationMigrationCommand.help });
@@ -148,12 +163,25 @@ function migrationFlags(argv: readonly string[]): {
   readonly fleetStateRoot?: string;
   readonly snapshotGaps?: string;
 } {
-  const inputs = new Set<string>(generationMigrationCommand.inputs.map((input) => input.name)),
+  const values = commandFlags(argv, generationMigrationCommand);
+  return {
+    source: values.get("--source")!,
+    mode: values.get("--mode")! as "dry-run" | "convert" | "verify" | "activate",
+    ...(values.has("--destination") ? { destination: values.get("--destination")! } : {}),
+    ...(values.has("--fleet-state-root") ? { fleetStateRoot: values.get("--fleet-state-root")! } : {}),
+    ...(values.has("--snapshot-gaps") ? { snapshotGaps: values.get("--snapshot-gaps")! } : {}),
+  };
+}
+function commandFlags(
+  argv: readonly string[],
+  command: typeof generationMigrationCommand | typeof completionMigrationCommand,
+): Map<string, string> {
+  const inputs = new Set<string>(command.inputs.map((input) => input.name)),
     values = new Map<string, string>();
   for (let index = 0; index < argv.length; index += 1) {
     const name = argv[index]!;
     if (name === "--json") continue;
-    if (!inputs.has(name)) throw new Error(`Unknown input ${name}. Run ${generationMigrationCommand.helpCommand}.`);
+    if (!inputs.has(name)) throw new Error(`Unknown input ${name}. Run ${command.helpCommand}.`);
     const value = argv[index + 1];
     if (!value || value.startsWith("--")) throw new Error(`Add a value for ${name}.`);
     if (values.has(name)) throw new Error(`Provide ${name} only once.`);
@@ -162,16 +190,9 @@ function migrationFlags(argv: readonly string[]): {
   }
   const source = values.get("--source"),
     mode = values.get("--mode");
-  if (!source) throw new Error(`Add --source. Run ${generationMigrationCommand.helpCommand}.`);
-  if (!mode) throw new Error(`Add --mode. Run ${generationMigrationCommand.helpCommand}.`);
-  const modes = generationMigrationCommand.inputs.find((input) => input.name === "--mode")!.enum;
-  if (!modes.includes(mode as (typeof modes)[number]))
-    throw new Error("Use dry-run, convert, verify, or activate for --mode.");
-  return {
-    source,
-    mode: mode as (typeof modes)[number],
-    ...(values.has("--destination") ? { destination: values.get("--destination")! } : {}),
-    ...(values.has("--fleet-state-root") ? { fleetStateRoot: values.get("--fleet-state-root")! } : {}),
-    ...(values.has("--snapshot-gaps") ? { snapshotGaps: values.get("--snapshot-gaps")! } : {}),
-  };
+  if (!source) throw new Error(`Add --source. Run ${command.helpCommand}.`);
+  if (!mode) throw new Error(`Add --mode. Run ${command.helpCommand}.`);
+  const modes: readonly string[] = command.inputs.find((input) => input.name === "--mode")!.enum;
+  if (!modes.includes(mode as (typeof modes)[number])) throw new Error(`Use ${modes.join(", ")} for --mode.`);
+  return values;
 }

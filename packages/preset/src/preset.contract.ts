@@ -495,7 +495,11 @@ function profileErrors(value: unknown, index: number): readonly string[] {
   const at = `profiles[${index}]`,
     errors: string[] = [];
   for (const field of Object.keys(value).filter((field) => !profileFields.includes(field)))
-    errors.push(`preset.json ${at} contains unknown field "${field}"; remove it or use a declared v3 field.`);
+    errors.push(
+      `preset.json ${at} contains unknown field "${field}"; ${
+        field === "checkerProfile" ? "run ha migrate completion --help." : "remove it or use a declared v3 field."
+      }`,
+    );
   for (const field of requiredProfileFields)
     if (!Object.hasOwn(value, field)) errors.push(`preset.json ${at} is missing required field "${field}".`);
   for (const field of ["id", "title"] as const)

@@ -59,7 +59,7 @@ export function selectGenerationThree(input: SelectionInput): 3 {
   if (history.some((candidate) => files.exists(candidate)))
     throw new TaskEventStoreError(
       "invalid_store",
-      "generation 3 upgrade is incomplete; run offline conversion before attaching this repository",
+      "generation 3 upgrade is incomplete; run offline conversion before attaching this repository. Run ha migrate ledger --help for backup, conversion, verification and activation.",
     );
   return 3;
 }
