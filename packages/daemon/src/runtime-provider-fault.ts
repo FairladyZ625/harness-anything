@@ -109,9 +109,13 @@ export function classifyRuntimeExit(
   )
     return classified("provider_fault", "Provider completed a turn but produced no output.");
   if (attemptFailed && !active.toolCallObserved) {
+    if (active.failureText?.startsWith("ACP provider exited before the session completed (exit "))
+      return classified("provider_fault", active.failureText);
     const reason = active.errorOverflowed
       ? `Provider exited with code ${String(exitCode)} before any tool call; stderr exceeded the diagnostic limit.`
-      : active.errorBuffer.trim() || `Provider exited with code ${String(exitCode)} before any tool call.`;
+      : active.failureText ||
+        active.errorBuffer.trim() ||
+        `Provider exited with code ${String(exitCode)} before any tool call.`;
     return classified("gate_red", reason);
   }
   if (attemptFailed)
