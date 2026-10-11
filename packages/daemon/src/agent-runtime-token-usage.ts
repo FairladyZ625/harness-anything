@@ -99,7 +99,9 @@ export type AgentRuntimeTokenUsageRange = (typeof agentRuntimeTokenUsageRangeWor
 export const agentRuntimeTokenUsageRanges: readonly AgentRuntimeTokenUsageRange[] = agentRuntimeTokenUsageRangeWords;
 /** One time-slice of the window: `today` slices by local hour, multi-day ranges by local day.
  * `dispatchCount` counts dispatches started in the slice (session ids repeat across attempts). */
-export interface AgentRuntimeTokenUsageBucket extends AgentRuntimeTokenUsageReporting {
+export interface AgentRuntimeTokenUsageBucket
+  extends AgentRuntimeTokenUsageReporting,
+    AgentRuntimeTokenUsageCacheWriteProvenance {
   readonly bucketStart: string;
   readonly dispatchCount: number;
   readonly inputTokens: number;
@@ -597,6 +599,8 @@ function taskOf(
 
 /** The accumulating form of a bucket; frozen into the readonly result shape once filled. */
 type MutableBucket = {
+  cacheWriteUnreportedDispatches: number;
+  cacheWriteUnitemizedDispatches: number;
   bucketStart: string;
   dispatchCount: number;
   inputTokens: number;
@@ -614,6 +618,8 @@ function bucketLadder(sinceMs: number, nowMs: number, bucketMs: number): Mutable
   for (let start = sinceMs; start <= nowMs; start += bucketMs)
     buckets.push({
       bucketStart: new Date(start).toISOString(),
+      cacheWriteUnreportedDispatches: 0,
+      cacheWriteUnitemizedDispatches: 0,
       dispatchCount: 0,
       inputTokens: 0,
       cacheReadTokens: 0,
@@ -654,6 +660,9 @@ function accumulateBucket(
     bucket.toolCallCount += metrics.toolCallCount;
     bucket.costUsd += dispatchCost(model, metrics).costUsd;
   }
+  const provenance = cacheWriteProvenanceOf(summary);
+  if (provenance === "unreported") bucket.cacheWriteUnreportedDispatches += 1;
+  else if (provenance === "unitemized") bucket.cacheWriteUnitemizedDispatches += 1;
   const usage = usageOf(summary);
   if (usage === "unavailable") bucket.usageUnavailableDispatches += 1;
   else if (usage === "reported") bucket.usageReportedDispatches += 1;
@@ -871,13 +880,18 @@ function validTotals(value: unknown): boolean {
 function validBucket(value: unknown): boolean {
   return (
     isRecord(value) &&
-    Object.keys(value).length === 11 &&
+    Object.keys(value).length === 13 &&
     isoTimestamp(value.bucketStart) &&
     nonNegativeInteger(value.dispatchCount) &&
     ["inputTokens", "cacheReadTokens", "cacheWriteTokens", "outputTokens", "totalTokens", "toolCallCount"].every(
       (field) => nonNegativeInteger(value[field]),
     ) &&
-    ["usageReportedDispatches", "usageUnavailableDispatches"].every((field) => nonNegativeInteger(value[field])) &&
+    [
+      "usageReportedDispatches",
+      "usageUnavailableDispatches",
+      "cacheWriteUnreportedDispatches",
+      "cacheWriteUnitemizedDispatches",
+    ].every((field) => nonNegativeInteger(value[field])) &&
     nonNegativeNumber(value.costUsd)
   );
 }

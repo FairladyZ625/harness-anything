@@ -1,3 +1,4 @@
+import { CacheWriteValue } from "./CacheWriteValue.tsx";
 import { useLayoutEffect, useRef, useState, type KeyboardEvent, type RefObject } from "react";
 import type {
   AgentRuntimeTokenUsageBucket,
@@ -230,7 +231,7 @@ export function UsageTrendChart({
           }
         />
       ) : null}
-      <TrendLegend layers={layers} total={totals.reduce((sum, value) => sum + value, 0)} />
+      <TrendLegend layers={layers} buckets={buckets} total={totals.reduce((sum, value) => sum + value, 0)} />
     </div>
   );
 }
@@ -389,7 +390,7 @@ export function UsageTrendLine({
           }
         />
       ) : null}
-      <TrendLegend layers={layers} total={totals.reduce((sum, value) => sum + value, 0)} />
+      <TrendLegend layers={layers} buckets={buckets} total={totals.reduce((sum, value) => sum + value, 0)} />
     </div>
   );
 }
@@ -422,7 +423,7 @@ function TrendReadout({
       </p>
       <ul className="mt-1.5 flex flex-col gap-0.5 border-t border-border pt-1.5">
         {layers
-          .filter((layer) => (layer.values[index] ?? 0) > 0)
+          .filter((layer) => layer.key === "cacheWrite" || (layer.values[index] ?? 0) > 0)
           .map((layer) => {
             const value = layer.values[index] ?? 0;
             return (
@@ -432,9 +433,14 @@ function TrendReadout({
               >
                 <span aria-hidden="true" className="h-[3px] w-2.5 rounded-full" style={{ background: layer.color }} />
                 <span className="truncate text-text-muted">{layer.name}</span>
-                <span className="font-mono tabular-nums text-text">{preciseTokens(value)}</span>
+                <span className="font-mono tabular-nums text-text">
+                  {layer.key === "cacheWrite" ? <CacheWriteValue row={bucket} /> : preciseTokens(value)}
+                </span>
                 <span className="w-10 text-right font-mono tabular-nums text-text-faint">
-                  {percentText(bucket.totalTokens > 0 ? value / bucket.totalTokens : 0)}
+                  {layer.key === "cacheWrite" &&
+                  (bucket.cacheWriteUnreportedDispatches > 0 || bucket.cacheWriteUnitemizedDispatches > 0)
+                    ? "—"
+                    : percentText(bucket.totalTokens > 0 ? value / bucket.totalTokens : 0)}
                 </span>
               </li>
             );
@@ -453,7 +459,22 @@ function TrendReadout({
 }
 
 /** 图例带窗口合计与占比:颜色之外,每一层都有名字和数。 */
-function TrendLegend({ layers, total }: { readonly layers: readonly TrendLayer[]; readonly total: number }) {
+function TrendLegend({
+  layers,
+  total,
+  buckets,
+}: {
+  readonly layers: readonly TrendLayer[];
+  readonly total: number;
+  readonly buckets: readonly AgentRuntimeTokenUsageBucket[];
+}) {
+  const writes = {
+    cacheWriteTokens: buckets.reduce((sum, row) => sum + row.cacheWriteTokens, 0),
+    usageReportedDispatches: buckets.reduce((sum, row) => sum + row.usageReportedDispatches, 0),
+    usageUnavailableDispatches: buckets.reduce((sum, row) => sum + row.usageUnavailableDispatches, 0),
+    cacheWriteUnreportedDispatches: buckets.reduce((sum, row) => sum + row.cacheWriteUnreportedDispatches, 0),
+    cacheWriteUnitemizedDispatches: buckets.reduce((sum, row) => sum + row.cacheWriteUnitemizedDispatches, 0),
+  };
   return (
     <ul data-testid="token-usage-trend-legend" className="mt-1 flex flex-wrap gap-x-4 gap-y-1 pl-[46px] ui-meta">
       {layers.map((layer) => {
@@ -462,8 +483,15 @@ function TrendLegend({ layers, total }: { readonly layers: readonly TrendLayer[]
           <li key={layer.key} className="flex min-w-0 items-center gap-1.5">
             <span aria-hidden="true" className="size-2.5 shrink-0 rounded-[2px]" style={{ background: layer.color }} />
             <span className="truncate text-text-muted">{layer.name}</span>
-            <span className="font-mono tabular-nums text-text">{preciseTokens(value)}</span>
-            <span className="font-mono tabular-nums text-text-faint">{percentText(total > 0 ? value / total : 0)}</span>
+            <span className="font-mono tabular-nums text-text">
+              {layer.key === "cacheWrite" ? <CacheWriteValue row={writes} /> : preciseTokens(value)}
+            </span>
+            <span className="font-mono tabular-nums text-text-faint">
+              {layer.key === "cacheWrite" &&
+              (writes.cacheWriteUnreportedDispatches > 0 || writes.cacheWriteUnitemizedDispatches > 0)
+                ? "—"
+                : percentText(total > 0 ? value / total : 0)}
+            </span>
           </li>
         );
       })}
@@ -514,8 +542,16 @@ export function UsageTrendTable({
               </td>
               <td className={cell}>{bucket.dispatchCount}</td>
               {layers.map((layer) => (
-                <td key={layer.key} className={cell} title={exactTokens(layer.values[index] ?? 0)}>
-                  {preciseTokens(layer.values[index] ?? 0)}
+                <td
+                  key={layer.key}
+                  className={cell}
+                  title={layer.key === "cacheWrite" ? undefined : exactTokens(layer.values[index] ?? 0)}
+                >
+                  {layer.key === "cacheWrite" ? (
+                    <CacheWriteValue row={bucket} />
+                  ) : (
+                    preciseTokens(layer.values[index] ?? 0)
+                  )}
                 </td>
               ))}
               <td

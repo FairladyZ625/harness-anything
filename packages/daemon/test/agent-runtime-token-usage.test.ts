@@ -1299,6 +1299,14 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
           [1, 1],
           "neutral usage without a cache-write field is unreported; a reported-but-pre-counter record is unitemized",
         );
+        assert.deepEqual(
+          [
+            result.buckets.reduce((sum, bucket) => sum + bucket.cacheWriteUnreportedDispatches, 0),
+            result.buckets.reduce((sum, bucket) => sum + bucket.cacheWriteUnitemizedDispatches, 0),
+          ],
+          [1, 1],
+          "trend buckets retain the same missing-write provenance as the totals",
+        );
         const rowOf = (model: string) => result.models.find((row) => row.model === model)!;
         assert.equal(rowOf("glm-itemized").cacheWriteTokens, 0);
         assert.deepEqual(
