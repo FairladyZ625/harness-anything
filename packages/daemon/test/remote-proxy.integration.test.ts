@@ -11,7 +11,7 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { runDaemonControl } from "@harness-anything/cli/internal/daemon/control";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { streamDaemonFacetAt } from "../src/client/local-json-rpc-stream.ts";
@@ -294,6 +294,11 @@ test(
         authMode: "subscription",
       },
     });
+    const projectAccess = await rpcB("repo.settings.update", {
+      repo: { repoId },
+      payload: { runtimeAllowedInstances: ["proxy-codex"], expectedVersion: 1, idempotencyKey: "allow-proxy-codex" },
+    });
+    assert.equal(projectAccess.outcome, "applied", JSON.stringify(projectAccess));
     const spawned = await rpcA("repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {

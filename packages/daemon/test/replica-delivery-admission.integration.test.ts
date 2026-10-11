@@ -26,6 +26,7 @@ test("waiting for the cut owner does not consume the delivery lease", async (t) 
     return pin(...args);
   });
   const pulling = runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${f.subject.nodeId}`,
     port: center.port,
     ca: f.cert,
     nodeId: f.subject.nodeId,
@@ -73,6 +74,7 @@ test("edge collection waits until the center accepts the durable ACK", async (t)
     syncBuiltinESMExports();
   });
   const result = await runFleetReplicaPullClient({
+    readAccessToken: async () => `device-token-${f.subject.nodeId}`,
     port: center.port,
     ca: f.cert,
     nodeId: f.subject.nodeId,
@@ -129,6 +131,7 @@ for (const phase of ["makeOffer", "manifestPage"] as const) {
       timeoutMs: 55_000,
     };
     const pulling = runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       ...options,
       nodeId: f.subject.nodeId,
       viewRoot: path.join(f.root, "stalled"),
@@ -141,6 +144,7 @@ for (const phase of ["makeOffer", "manifestPage"] as const) {
     await held;
     const slowLease = center.status().replicas.find((row) => row.nodeId === f.subject.nodeId)!.deliveryLease!;
     const healthy = await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.peerSubject.nodeId}`,
       ...options,
       nodeId: f.peerSubject.nodeId,
       viewRoot: path.join(f.root, "healthy"),

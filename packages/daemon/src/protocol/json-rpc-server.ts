@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
+import { localDefaultBinding } from "../daemon-host-binding.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
@@ -497,6 +498,8 @@ export function createJsonRpcProtocolServer(options: {
         const { runFleetEdgeTask, runFleetEdgeRepositoryRead, isFleetEdgeRepositoryRead } = await import(
           "../fleet-edge-task.ts"
         );
+        if (executionCredential !== undefined)
+          localDefaultBinding({ ...options.authContext, oidcPrincipal: await options.sessionPrincipal?.() });
         const relayedExecutionPrincipal =
           executionCredential === undefined
             ? undefined
@@ -522,6 +525,7 @@ export function createJsonRpcProtocolServer(options: {
               { payload: { ...params.payload, action: fleetAction as DaemonFleetTaskAction } as never },
               async () =>
                 (await options.host.run(String(fleetPayload.repoId), fleetAction as never, readAuth)) as never,
+              async () => (await options.sessionPrincipal?.())?.accessToken,
             ),
           );
         }
@@ -543,7 +547,7 @@ export function createJsonRpcProtocolServer(options: {
                 action: fleetAction as DaemonFleetTaskAction,
               },
             },
-            executionCredential ? undefined : async () => (await options.sessionPrincipal?.())?.accessToken,
+            async () => (await options.sessionPrincipal?.())?.accessToken,
           ),
         );
       } catch (error) {
@@ -560,10 +564,16 @@ export function createJsonRpcProtocolServer(options: {
         return reply(
           method,
           await (method === "daemon.fleet.doc.sync"
-            ? runFleetEdgeDocSync({ payload: params.payload })
-            : runFleetEdgeConflictExit({
-                payload: params.payload,
-              })),
+            ? runFleetEdgeDocSync(
+                { payload: params.payload },
+                async () => (await options.sessionPrincipal?.())?.accessToken,
+              )
+            : runFleetEdgeConflictExit(
+                {
+                  payload: params.payload,
+                },
+                async () => (await options.sessionPrincipal?.())?.accessToken,
+              )),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));

@@ -9,8 +9,10 @@ import path from "node:path";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { detachedProcessOptions } from "@harness-anything/daemon/internal/process-port";
-import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import {
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+  seedSettingsEvent,
+} from "../../daemon/test/repo-settings.fixture.ts";
 import { runGuiLaunch, type GuiLaunchDependencies } from "../src/cli/gui-launch.ts";
 import { emit } from "../src/index.ts";
 

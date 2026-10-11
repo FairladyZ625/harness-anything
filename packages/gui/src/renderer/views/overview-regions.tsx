@@ -20,7 +20,6 @@ import { taskReviewRef } from "../navigation/entityRoutes.ts";
 import { OverviewTaskWipBody, type WipFilter } from "./OverviewTaskWip.tsx";
 import { STEP_META } from "./workspace/WorkOverview.tsx";
 import {
-  ATTENTION_META,
   type AttentionSource,
   type DecisionRow,
   type DrillWipRow,
@@ -118,9 +117,9 @@ function decisionAction(
 }
 
 /**
- * 页面顶部的紧凑决策带(2026-10-04 视觉返工):不按条数瓜分列高——默认只铺
- * COMPACT_DECISIONS 条,其余「一键展开」;展开态给 42dvh 上限内部滚动,关注工作始终
- * 是首屏主体。空态收成一行正向信息,不占版面。
+ * 页面顶部的紧凑决策带(2026-10-04 视觉返工;2026-10-11 意见 2:计数并入标签,不再
+ * 单独占大号数字位):不按条数瓜分列高——默认只铺 COMPACT_DECISIONS 条,其余「一键
+ * 展开」;展开态给 42dvh 上限内部滚动,关注工作始终是首屏主体。空态收成一行正向信息。
  */
 export function OverviewDecisionsBand({
   rows,
@@ -155,11 +154,10 @@ export function OverviewDecisionsBand({
           tone={urgent > 0 ? "bad" : "wait"}
           label={
             urgent > 0
-              ? t("views.overviewView.mineUrgent", { count: String(urgent) })
-              : t("views.overviewView.decisionsPending")
+              ? t("views.overviewView.mineUrgentOf", { urgent: String(urgent), count: String(rows.length) })
+              : t("views.overviewView.decisionsPendingCount", { count: String(rows.length) })
           }
         />
-        <span className="ml-auto font-mono font-semibold leading-none tabular-nums ui-heading">{rows.length}</span>
         {hidden > 0 && (
           <button
             type="button"
@@ -249,6 +247,7 @@ const STAGE_ORDER: readonly SnapshotStatus[] = ["done", "active", "submitted", "
 export function OverviewWorksBody({
   watched,
   pinnedClosed,
+  activityDays,
   attentionOf,
   handlersOf,
   recentOf,
@@ -257,6 +256,8 @@ export function OverviewWorksBody({
   readonly watched: readonly WatchedWork[];
   /** 已收尾的置顶工作数:不进列表,如实计数提及(收尾工作去侧栏置顶块管理)。 */
   readonly pinnedClosed: number;
+  /** 近期窗口天数(设置项「关注的工作活动天数」);行内展示与列表口径一致。 */
+  readonly activityDays: number;
   /** 工作根 id → 名下的注意力项(卡点行;全部类别,首块三类也会在此汇合)。 */
   readonly attentionOf: (
     workTaskId: string,
@@ -268,7 +269,7 @@ export function OverviewWorksBody({
   if (watched.length === 0) {
     return (
       <div data-testid="overview-works-empty" className="flex flex-col items-start gap-2 px-3.5 pb-3 pt-1">
-        <Empty>{t("views.overviewView.worksNoneHint")}</Empty>
+        <Empty>{t("views.overviewView.worksNoneRecent", { days: String(activityDays) })}</Empty>
         <OverviewActionButton primary onClick={deps.onOpenWorks}>
           {t("views.overviewView.worksPickAction")}
         </OverviewActionButton>
@@ -301,12 +302,14 @@ export function OverviewWorksBody({
             STAGE_ORDER.reduce((sum, status) => sum + (status === "done" ? 0 : (work.counts[status] ?? 0)), 0) +
             (work.counts.done ?? 0),
           done = work.counts.done ?? 0,
+          running = work.counts.active ?? 0,
           remaining = effective - done,
           remainingParts = STAGE_ORDER.filter((status) => status !== "done").flatMap((status) => {
             const count = work.counts[status] ?? 0;
             return count > 0 ? [`${STATUS_META[status].label} ${count}`] : [];
           }),
           blockers = attentionOf(work.taskId),
+          mine = blockers.filter(({ item }) => item.region === "mine").length,
           handlers = handlersOf(entry),
           recent = recentOf(work.taskId),
           // 悬停给完整明细(视觉基线 v2:主文字收束,原始信息悬停可见):子任务/未完成/最近。
@@ -326,61 +329,65 @@ export function OverviewWorksBody({
                 ]
               : []),
           ].join(" · ");
-        // 第二行只有有值才出现:卡点芯片 + 处理者(在飞而无会话给「无 agent」诚实信号)。
-        // 卡点芯片只读:动作落点在同页的决策带与「跟进与返工」名单,点行进工作详情。
-        const second: ReactNode[] = [];
-        if (blockers.length > 0) {
-          second.push(
-            <span key="blockers" className="inline-flex min-w-0 items-center gap-1">
-              <span className="shrink-0 text-text-faint">
-                {t("views.overviewView.worksBlockersLabel")} {blockers.length}:
-              </span>
-              {blockers.map(({ item }) => (
-                <span key={item.ref} title={item.title} className="inline-flex min-w-0 items-center gap-1">
-                  <StatusTag tone={ATTENTION_META[item.kind].tone} label={KIND_LABEL[item.kind]()} />
-                  <span className="truncate">{item.title}</span>
-                </span>
-              ))}
-            </span>,
-          );
-        }
-        if (handlers.length > 0) {
-          second.push(
-            <span key="handlers" className="truncate">
+        // 第二行是行内信息面(2026-10-11 意见 4):进度、进行中子任务数、执行者、等你处理
+        // 的事项数;卡点芯片只读(动作落点在决策带与「跟进与返工」),点行进工作详情。
+        const second = [
+          <span key="progress" className="shrink-0 font-mono tabular-nums text-text-muted">
+            {t("views.overviewView.worksProgress", {
+              done: String(done),
+              total: String(effective),
+              ratio: String(Math.round(work.doneRatio * 100)),
+            })}
+          </span>,
+          running > 0 ? (
+            <span key="running" className="shrink-0">
+              {t("views.overviewView.worksRunning", { count: String(running) })}
+            </span>
+          ) : null,
+          handlers.length > 0 ? (
+            <span key="handlers" className="min-w-0 truncate">
               <span className="text-text-faint">{t("views.overviewView.worksHandlersLabel")}</span>{" "}
               <span className="text-text-muted">{handlers.join(" · ")}</span>
-            </span>,
-          );
-        } else if ((work.counts.active ?? 0) > 0) {
-          second.push(
-            <span key="no-agent" className="truncate text-status-submitted">
+            </span>
+          ) : running > 0 ? (
+            <span key="no-agent" className="shrink-0 text-status-submitted">
               {t("views.overviewView.worksNoAgent")}
-            </span>,
-          );
-        }
+            </span>
+          ) : null,
+          mine > 0 ? (
+            <span key="mine" className="shrink-0 text-status-blocked">
+              {t("views.overviewView.worksMine", { count: String(mine) })}
+            </span>
+          ) : null,
+        ].filter((part) => part !== null);
         return (
           <div key={work.taskId} data-work-card={work.taskId}>
             <DenseRow
               tag={<StatusTag status={work.status} />}
               title={work.title}
-              relaxed={second.length > 0}
+              relaxed
               reason={
-                second.length > 0 ? (
-                  <>
-                    {second.flatMap((part, index) =>
-                      index === 0
-                        ? [part]
-                        : [
-                            <span key={`sep-${index}`} className="text-text-faint">
-                              {" · "}
-                            </span>,
-                            part,
-                          ],
-                    )}
-                  </>
-                ) : undefined
+                <>
+                  {second.flatMap((part, index) =>
+                    index === 0
+                      ? [part]
+                      : [
+                          <span key={`sep-${index}`} className="text-text-faint">
+                            {" · "}
+                          </span>,
+                          part,
+                        ],
+                  )}
+                </>
               }
-              time={`${done}/${effective} · ${Math.round(work.doneRatio * 100)}%`}
+              time={
+                <span
+                  title={formatTime(work.lastActivityAt, { style: "date-time", now: deps.now }) ?? work.lastActivityAt}
+                  className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta"
+                >
+                  {formatRelative(work.lastActivityAt, { now: deps.now })}
+                </span>
+              }
               hoverTitle={hoverTitle}
               onClick={() => deps.onOpenTask(work.taskId)}
             />
@@ -419,11 +426,12 @@ export function reviewDrillRows(rows: readonly ReviewRow[]): readonly ReviewRow[
 export type DrillTabKey = "wip" | "review" | "followups" | "pinned";
 
 /**
- * 「执行与下钻」区(2026-10-07 三块区域返工):顶部 FilterChips tab(WIP 占用 / 跟进与
- * 返工 / 置顶承诺;有评审行时加评审执行 tab),tab 下是内联名单——全部条目直接可见、
- * 区内滚动,排序沿用原设计的重要性口径(议程注意力分);点行弹既有 FocusLayer 详情并
- * 选中该行。不再是「点开才有内容」:WIP 名单四态全量在此平铺,跟进/置顶同理;全部
- * 工作/全部任务/会话入口收进区域页脚(宿主 Region footer),列表滚动时保持可达。
+ * 「执行与下钻」区(2026-10-07 三块区域返工;2026-10-11 意见 3 合并在飞任务流):顶部
+ * FilterChips tab(进行中的任务 / 跟进与返工 / 置顶承诺;有评审行时加评审执行 tab),
+ * tab 下是内联名单——全部条目直接可见、区内滚动,排序沿用原设计的重要性口径(议程注意
+ * 力分)。「进行中的任务」行并进原在飞任务流的执行信息:最近活动时间与当前在跑的
+ * agent(没有在跑就明确写「无 agent 在跑」)。点行弹既有 FocusLayer 详情并选中该行。
+ * 全部工作/全部任务/会话入口收进区域页脚(宿主 Region footer),列表滚动时保持可达。
  */
 export function OverviewDrillBody({
   wipRows,
@@ -437,7 +445,7 @@ export function OverviewDrillBody({
   onOpenFocus,
   deps,
 }: {
-  /** drillWipRows 的当前行(注意力分降序,blocked 与其余三态同列)。 */
+  /** drillWipRows 的当前行(注意力分降序,行内含执行者与最近活动)。 */
   readonly wipRows: readonly DrillWipRow[];
   /** 占用/上限(快照未到给「…/—」);WIP 是常驻观察面,tab 恒在。 */
   readonly wipOccupancy: string;
@@ -468,7 +476,7 @@ export function OverviewDrillBody({
             {
               key: "wip" as const,
               testId: "overview-drill-wip",
-              label: t("views.overviewTaskWip.title"),
+              label: t("views.overviewView.drillWipTab"),
               count: wipOccupancy,
             },
             ...(review.length > 0
@@ -515,6 +523,24 @@ export function OverviewDrillBody({
                   tag={<StatusTag status={row.status} />}
                   title={row.title}
                   hoverTitle={row.taskId}
+                  relaxed
+                  reason={
+                    row.handlers.length > 0 ? (
+                      row.handlers.join(" · ")
+                    ) : (
+                      <span className="text-status-submitted">{t("views.overviewView.worksNoAgent")}</span>
+                    )
+                  }
+                  time={
+                    row.since === null ? undefined : (
+                      <span
+                        title={formatTime(row.since, { style: "date-time", now: deps.now }) ?? row.since}
+                        className="whitespace-nowrap font-mono tabular-nums text-text-muted ui-meta"
+                      >
+                        {formatRelative(row.since, { now: deps.now })}
+                      </span>
+                    )
+                  }
                   onClick={() => onOpenFocus("wip", row.taskId)}
                 />
               </div>
@@ -584,9 +610,9 @@ export function OverviewDrillBody({
   );
 }
 
-/* ------------------------------------------------------------------ 左列:在飞任务流与产物速览架 */
+/* ------------------------------------------------------------------ 左列:最新产物速览架 */
 
-export { ARTIFACTS_SHELF_LIMIT, OverviewArtifactsShelf, OverviewInflightBody } from "./overview-inflight-shelf.tsx";
+export { ARTIFACTS_SHELF_LIMIT, OverviewArtifactsShelf } from "./overview-artifacts.tsx";
 
 /* ------------------------------------------------------------------ 放大层列表与详情 */
 

@@ -267,6 +267,12 @@ export async function fleetFixture(
           replicaDiskQuotaBytes: diskQuotaBytes,
           ...timing,
           verifyHuman: (auth) => new OidcSessionService(userRoot).bind(auth),
+          loginAuthority: (nodeId) => ({
+            url: "https://keycloak.example.invalid",
+            realm: "harness",
+            clientId: `harness-node-${nodeId}`,
+          }),
+          revokeDeviceSessions: (nodeId) => new OidcSessionService(userRoot).revokeDeviceSessions(nodeId),
           onError: (entry) => transportErrors.push(entry),
           authenticate: async (nodeId, credential) => {
             const barrier = authenticateBarrier;
@@ -342,7 +348,7 @@ export async function rawPeer(
   const next = () =>
       frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
     request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame(frame));
+      socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
       return next();
     },
     raw = async (frame: unknown) => {
@@ -350,7 +356,7 @@ export async function rawPeer(
       return next();
     },
     split = async (frame: FleetFrameV1, marker: string) => {
-      splitWrite(socket, frame, marker);
+      splitWrite(socket, { ...frame, accessToken: `device-token-${nodeId}` }, marker);
       return next();
     };
   const hello = await request({

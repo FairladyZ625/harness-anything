@@ -71,6 +71,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       repoId: workspaceId("provider-fallback"),
       rootDir: canonicalRoot(root),
       ownerId: "provider-fallback",
+      keycloakSession: async () => binding.keycloakAuthorization.session,
       runtimeDaemonRoute: {
         userRoot,
         daemonId: "provider-fallback",
@@ -529,6 +530,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         remote,
         stream: { publish: () => ({}) as never },
         now,
+        readSettings: () => ({ runtime: { allowedInstances: instances.map((row) => row.instanceId) } }) as never,
         runtimeInstances: () => instances,
         prepareLaunch: async (instanceId, request) => ({
           definition: definition(instanceId, request.model ?? `${instanceId}-model`),

@@ -12,7 +12,7 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { definition, eventually, git } from "./schedule-actions.fixtures.ts";
 import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { registerDaemonRepo } from "@harness-anything/kernel";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
@@ -43,6 +43,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
       repoId: workspaceId("schedule-actions"),
       rootDir: canonicalRoot(root),
       ownerId: "schedule-test",
+      keycloakSession: async () => actor.keycloakAuthorization!.session!,
       runtimeDaemonRoute: {
         userRoot: path.join(root, ".daemon"),
         daemonId: "schedule-test",
@@ -650,6 +651,7 @@ test(
         replicaDiskQuotaBytes: 64 * 1024 * 1024,
         authenticate: (nodeId, credential) => credential === `credential-${nodeId}`,
         nodeOwner,
+        verifyHuman: owners.verifyHuman,
       });
       const terminalCallbacks: Array<(() => void) | undefined> = [],
         settlementErrors = t.mock.method(Object, "assign"),
@@ -657,8 +659,9 @@ test(
         workspaces = subjects.map((subject, index) => {
           const workspaceRoot = path.join(root, `edge-${index + 1}`),
             viewRoot = path.join(root, `view-${index + 1}`);
-          initHarnessRepo(workspaceRoot, `schedule-edge-${index + 1}`);
+          initHarnessRepo(workspaceRoot, "schedule-center");
           const runtime = openFleetEdgeRuntime({
+            readBinding: () => owners!.binding(subject.nodeId),
             request: {
               host: "127.0.0.1",
               port: center!.port,

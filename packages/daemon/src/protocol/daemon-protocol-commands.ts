@@ -42,6 +42,7 @@ const settingsWriteTopology = {
       false,
       { code: "invalid_field" },
       {
+        field: input.field,
         description: input.description,
         effect: input.effect,
         group: input.group,

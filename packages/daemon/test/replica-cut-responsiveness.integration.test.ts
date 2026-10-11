@@ -101,6 +101,7 @@ test("default TLS name remains localhost and explicit servername is honored", as
   const center = await f.center();
   for (const hostname of [undefined, "localhost", "127.0.0.1"]) {
     const peer = await openPeer({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       hostname,
       port: center.port,
       ca: f.cert,
@@ -112,6 +113,7 @@ test("default TLS name remains localhost and explicit servername is honored", as
   }
   await assert.rejects(
     openPeer({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
       hostname: "127.0.0.1",
       port: center.port,
       ca: f.cert,
@@ -130,20 +132,23 @@ test("internal admission failure retains its code without registration advice", 
   const center = await f.center();
   f.failOwnerLookup(new Error("registry unreadable"));
   await assert.rejects(
-    syncFleetEdgeMirror({
-      payload: {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: f.certFile,
-        servername: "localhost",
-        nodeId: f.subject.nodeId,
-        credential: "machine-secret",
-        repoId: f.subject.repoId,
-        viewRoot: path.join(f.root, "failed-edge"),
-        quotaBytes: 64 * 1024 * 1024,
-        workspaceRoot: f.repo,
-      },
-    } as Parameters<typeof syncFleetEdgeMirror>[0]),
+    syncFleetEdgeMirror(
+      {
+        payload: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: f.certFile,
+          servername: "localhost",
+          nodeId: f.subject.nodeId,
+          credential: "machine-secret",
+          repoId: f.subject.repoId,
+          viewRoot: path.join(f.root, "failed-edge"),
+          quotaBytes: 64 * 1024 * 1024,
+          workspaceRoot: f.repo,
+        },
+      } as Parameters<typeof syncFleetEdgeMirror>[0],
+      async () => `device-token-${f.subject.nodeId}`,
+    ),
     (error: unknown) => {
       assert.equal((error as { code: string }).code, "handler_failed");
       assert.match(String(error), /Center replica admission failed/u);
@@ -167,19 +172,22 @@ test("worker cut failure reaches edge admission with its original cause", async 
     db.close();
   }
   await assert.rejects(
-    syncFleetEdgeMirror({
-      payload: {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: f.certFile,
-        nodeId: f.subject.nodeId,
-        credential: "machine-secret",
-        repoId: f.subject.repoId,
-        viewRoot: path.join(f.root, "failed-worker-edge"),
-        quotaBytes: 64 * 1024 * 1024,
-        workspaceRoot: f.repo,
+    syncFleetEdgeMirror(
+      {
+        payload: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: f.certFile,
+          nodeId: f.subject.nodeId,
+          credential: "machine-secret",
+          repoId: f.subject.repoId,
+          viewRoot: path.join(f.root, "failed-worker-edge"),
+          quotaBytes: 64 * 1024 * 1024,
+          workspaceRoot: f.repo,
+        },
       },
-    }),
+      async () => `device-token-${f.subject.nodeId}`,
+    ),
     (error: unknown) => {
       assert.equal((error as { code: string }).code, "handler_failed");
       assert.match(String(error), /Center replica admission failed: handler_failed:.*JSON/u);
@@ -197,19 +205,22 @@ test("captured worker OOM error reaches the edge without a closed-schema rejecti
   const message = "Worker terminated due to reaching memory limit: JS heap out of memory";
   f.failOwnerLookup(Object.assign(new Error(message), { code: "ERR_WORKER_OUT_OF_MEMORY" }));
   await assert.rejects(
-    syncFleetEdgeMirror({
-      payload: {
-        host: "127.0.0.1",
-        port: center.port,
-        caPath: f.certFile,
-        nodeId: f.subject.nodeId,
-        credential: "machine-secret",
-        repoId: f.subject.repoId,
-        viewRoot: path.join(f.root, "oom-edge"),
-        quotaBytes: 64 * 1024 * 1024,
-        workspaceRoot: f.repo,
+    syncFleetEdgeMirror(
+      {
+        payload: {
+          host: "127.0.0.1",
+          port: center.port,
+          caPath: f.certFile,
+          nodeId: f.subject.nodeId,
+          credential: "machine-secret",
+          repoId: f.subject.repoId,
+          viewRoot: path.join(f.root, "oom-edge"),
+          quotaBytes: 64 * 1024 * 1024,
+          workspaceRoot: f.repo,
+        },
       },
-    }),
+      async () => `device-token-${f.subject.nodeId}`,
+    ),
     (error: unknown) => {
       assert.equal((error as { code: string }).code, "handler_failed");
       assert.equal((error as Error).message, `Center replica admission failed: handler_failed: ${message}`);
@@ -241,6 +252,7 @@ for (const phase of ["prepare", "checkpoint"] as const) {
     let progress = 0;
     await assert.rejects(
       runFleetReplicaPullClient({
+        readAccessToken: async () => `device-token-${f.subject.nodeId}`,
         port: center.port,
         ca: f.cert,
         nodeId: f.subject.nodeId,
@@ -284,12 +296,13 @@ test("closing a preparing connection releases its wait without claiming a delive
   };
   const center = await f.center();
   const peer = await openPeer({
+    readAccessToken: async () => `device-token-${f.subject.nodeId}`,
     port: center.port,
     ca: f.cert,
     nodeId: f.subject.nodeId,
     credential: "machine-secret",
   });
-  peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: f.subject.repoId });
+  await peer.send({ schema: "fleet.replica.pull/v1", messageId: peer.messageId(), repoId: f.subject.repoId });
   assert.equal((await peer.next()).schema, "fleet.replica.preparing/v1");
   peer.close();
   await center.close();
@@ -304,6 +317,12 @@ test("repository authorization fails before any preparing frame", async (t) => {
   t.after(() => f.close());
   f.owners.keycloak.account("person-denied");
   f.owners.keycloak.node(f.subject.nodeId, "person-denied");
+  f.owners.keycloak.interactiveSession(
+    "person-denied",
+    f.subject.nodeId,
+    f.owners.url,
+    `device-token-${f.subject.nodeId}`,
+  );
   const center = await f.center();
   const peer = await rawPeer(f.track, center.port, f.cert, f.subject.nodeId, "machine-secret");
   const response = await peer.request({

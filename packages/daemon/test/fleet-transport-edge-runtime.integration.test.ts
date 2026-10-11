@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { makeTaskEventReader, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import assert from "node:assert/strict";
 
@@ -22,6 +23,7 @@ import {
   runFaultChild,
 } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
+import { signOutAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;
@@ -74,6 +76,7 @@ test(
         transportKind: "unix-socket",
         unixSocketOwnerBoundary: { ownerUid: uid, source: "unix-socket-filesystem-owner-boundary" },
       } as const;
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -83,6 +86,7 @@ test(
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -142,26 +146,29 @@ test(
             exit = listener;
             queueMicrotask(async () => {
               if (launchIndex === 0)
-                await runFleetEdgeTask({
-                  payload: {
-                    host: "127.0.0.1",
-                    port: center.port,
-                    caPath: fixture.certFile,
-                    nodeId: fixture.subject.nodeId,
-                    credential: "machine-secret",
-                    repoId: fixture.subject.repoId,
-                    viewRoot,
-                    quotaBytes: replicaQuota,
-                    workspaceRoot: edgeRoot,
-                    action: {
-                      kind: "task-progress-append",
-                      taskId: fixture.subject.taskId,
-                      executionId: fixture.subject.executionId,
-                      text: unique,
-                      evidence: [],
+                await runFleetEdgeTask(
+                  {
+                    payload: {
+                      host: "127.0.0.1",
+                      port: center.port,
+                      caPath: fixture.certFile,
+                      nodeId: fixture.subject.nodeId,
+                      credential: "machine-secret",
+                      repoId: fixture.subject.repoId,
+                      viewRoot,
+                      quotaBytes: replicaQuota,
+                      workspaceRoot: edgeRoot,
+                      action: {
+                        kind: "task-progress-append",
+                        taskId: fixture.subject.taskId,
+                        executionId: fixture.subject.executionId,
+                        text: unique,
+                        evidence: [],
+                      },
                     },
                   },
-                });
+                  async () => `device-token-${fixture.subject.nodeId}`,
+                );
               output?.(
                 `${JSON.stringify({ type: "thread.started", thread_id: "edge-provider-session" })}\n${JSON.stringify({ type: "item.completed", item: { id: "write", type: "file_change", status: "completed" } })}\n${JSON.stringify({ type: "item.completed", item: { id: "message", type: "agent_message", text: "edge runtime done" } })}\n${JSON.stringify({ type: "turn.completed" })}\n`,
               );
@@ -178,8 +185,10 @@ test(
       [runtimeDefinition.instanceId, "Edge Codex"],
       [alternateInstanceId, "Alternate Codex"],
     ])
-      await edgeHost.runtimeInstance(
-        "daemon.runtimeInstance.create",
+      await registerFixtureRuntimeInstance(
+        edgeHost,
+        fixture.subject.repoId,
+        localAuth,
         {
           instanceId,
           name,
@@ -190,7 +199,7 @@ test(
           codex: { reasoningEffort: runtimeDefinition.reasoningEffort },
           authMode: runtimeDefinition.authMode,
         },
-        localAuth,
+        { allowHost: fixture.host },
       );
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
@@ -369,11 +378,13 @@ test(
       );
 
       // Public queries require a repository principal and cannot drive recovery writes.
+      signOutAt(edgeUserRoot);
       await assert.rejects(
         edgeHost.read(fixture.subject.repoId, "repo.agentRuntime.overview", { limit: 1 }, localAuth),
         { code: "authentication_required" },
       );
-      // The supported sync path reconciles with node authority, without an interactive login.
+      // dec_F01770FD0DCF72683B7C4C7A47: recovery requires the device owner to sign in again.
+      fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
       const sync = await edgeHost.fleet.edgeSync(
         {
           host: "127.0.0.1",
@@ -398,7 +409,7 @@ test(
         // The recovered verdict is the settled unknown: no delivery was witnessed on the edge,
         // and recovery restores the published outcome rather than restating success.
         { liveness: "exited", outcome: "unknown" },
-        "edge sync without an interactive login recovers the outcome after the center accepted exited",
+        "edge sync with the device session recovers the outcome after the center accepted exited",
       );
       assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
       assert.equal(
@@ -445,6 +456,7 @@ test(
       }
     });
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -499,7 +511,7 @@ test(
       },
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
-    await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
+    await registerFixtureRuntimeInstance(fixture.host, fixture.subject.repoId, localAuthFixture(), codexInstance);
     const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
       packageSource = path.join(fixture.repo, "source", "edge-worker");
@@ -528,6 +540,7 @@ test(
       viewRoot = path.join(fixture.root, "worker-edge-view"),
       remote = path.join(fixture.root, "worker-remote.git"),
       localAuth = localAuthFixture();
+    fixture.owners.signIn(edgeUserRoot, fixture.subject.nodeId);
     mkdirSync(path.join(edgeRoot, "harness"), { recursive: true });
     initRepo(edgeRoot);
     writeFileSync(
@@ -536,11 +549,13 @@ test(
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
-    git(fixture.root, "init", "--bare", "-q", remote);
+    git(fixture.root, "clone", "--bare", "-q", edgeRoot, remote);
     git(edgeRoot, "remote", "add", "origin", remote);
-    git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
+    git(edgeRoot, "fetch", "-q", "origin");
+    git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
     const base = git(edgeRoot, "rev-parse", "HEAD");
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
@@ -590,7 +605,7 @@ test(
       });
     t.after(() => edgeHost.close());
     await edgeHost.attachmentsSettled();
-    await edgeHost.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuth);
+    await registerFixtureRuntimeInstance(edgeHost, repoId, localAuth, codexInstance, { allowHost: fixture.host });
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
@@ -653,6 +668,7 @@ test("remote-edge control retries startup adoption after the center recovers", {
       "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
   const runtime = openFleetEdgeRuntime({
+    readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
     request: {
       host: "127.0.0.1",
       port: unavailablePort,
@@ -717,6 +733,7 @@ test(
         "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
     const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
       request: {
         host: "127.0.0.1",
         port: center.port,
@@ -758,6 +775,33 @@ test(
       sessionIds.push(String(launched.runtimeSessionId));
     }
     await runtime.reconcile();
+    const settings = await fixture.host.read(fixture.subject.repoId, "repo.settings.read", {}, localAuthFixture());
+    const revoked = await fixture.host.run(
+      fixture.subject.repoId,
+      { kind: "settings-update", runtimeAllowedInstances: [], expectedVersion: settings.lastChanged.revision },
+      localAuthFixture(),
+    );
+    assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, revoked.opId, localAuthFixture());
+    await runFleetReplicaPullClient({
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    await assert.rejects(
+      runtime.run("repo.agentRuntime.spawn", {
+        runtimeInstanceId: definition.instanceId,
+        cwd: { scope: "repo-root" },
+        prompt: "Project access was revoked in the replica, without materializing the workspace.",
+        idempotencyKey: "replica-revoked",
+      }),
+      { code: "runtime_instance_not_allowed" },
+    );
     await center.close();
     const payloads: Record<string, unknown>[] = [],
       pageSizes: number[] = [];

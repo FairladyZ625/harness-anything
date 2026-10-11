@@ -13,6 +13,12 @@ export function accessAdminPreloadApi(
   return {
     forRepository: (repoId) => accessAdminPreloadApi(invoke, repoId),
     nodes: () => ask({ operation: "node-list" }),
+    devices: () => ask({ operation: "device-list" }),
+    renameDevice: (input) => ask({ operation: "device-rename", ...input }),
+    pauseDevice: (input) => ask({ operation: "device-pause", ...input }),
+    resumeDevice: (input) => ask({ operation: "device-resume", ...input }),
+    removeDevice: (input) => ask({ operation: "device-remove", ...input }),
+    logoutDevices: (input) => ask({ operation: "device-logout-all", ...input }),
     teams: () => ask({ operation: "team-list" }),
     createTeam: (input) => ask({ operation: "team-create", ...input }),
     updateTeam: (input) => ask({ operation: "team-update", ...input }),

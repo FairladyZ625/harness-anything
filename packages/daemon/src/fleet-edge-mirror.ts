@@ -1,3 +1,4 @@
+import type { EdgeReaderProfile } from "@harness-anything/kernel";
 import {
   edgeManifestEntries,
   edgeManifestPaths,
@@ -41,7 +42,7 @@ export interface FleetMirrorView {
   readonly schemaGeneration: number;
   readonly headDigest: string;
   readonly manifestDigest: string;
-  readonly authorizationOwner: string | null;
+  readonly readerProfile: EdgeReaderProfile | null;
   readonly authorizationShapeDigest: string;
   readonly entries: ReadonlyMap<string, FleetMirrorBlob>;
 }
@@ -231,7 +232,7 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
         cut: { revision: number; headDigest: string };
         schemaGeneration: number;
         manifestDigest: string;
-        authorizationOwner: string | null;
+        readerProfile: EdgeReaderProfile | null;
         authorizationShapeDigest: string;
       }>(path.join(viewDir, "current.json"));
     if (current === null) continue;
@@ -245,7 +246,7 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
       schemaGeneration: current.schemaGeneration,
       headDigest: current.cut.headDigest,
       manifestDigest: current.manifestDigest,
-      authorizationOwner: current.authorizationOwner,
+      readerProfile: current.readerProfile,
       authorizationShapeDigest: current.authorizationShapeDigest,
       entries: manifest,
     };

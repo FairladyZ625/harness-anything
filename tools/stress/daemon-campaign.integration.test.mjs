@@ -116,7 +116,7 @@ test(
           },
           cases,
           replayCommand:
-            "node tools/dispatch-isolated-test.mjs --target ubuntu " +
+            "node tools/dispatch-isolated-test.mjs --target server " +
             "--file tools/stress/daemon-campaign.integration.test.mjs",
           residualRisks: [
             "The staged fleet-upload protocol is orthogonal to eight local daemon clients and remains a separate packet.",

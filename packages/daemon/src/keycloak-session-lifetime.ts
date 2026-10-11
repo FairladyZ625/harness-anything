@@ -21,8 +21,19 @@ export interface KeycloakRealmAdmin {
 export function sessionLifetimeRealmSettings(seconds: number): {
   readonly ssoSessionIdleTimeout: number;
   readonly ssoSessionMaxLifespan: number;
+  readonly offlineSessionIdleTimeout: number;
+  readonly offlineSessionMaxLifespanEnabled: boolean;
+  readonly revokeRefreshToken: boolean;
+  readonly refreshTokenMaxReuse: number;
 } {
-  return { ssoSessionIdleTimeout: seconds, ssoSessionMaxLifespan: sessionLifetimeBounds.maximumSeconds };
+  return {
+    ssoSessionIdleTimeout: seconds,
+    ssoSessionMaxLifespan: sessionLifetimeBounds.maximumSeconds,
+    offlineSessionIdleTimeout: 90 * 24 * 60 * 60,
+    offlineSessionMaxLifespanEnabled: false,
+    revokeRefreshToken: true,
+    refreshTokenMaxReuse: 0,
+  };
 }
 
 export async function readSessionLifetime(admin: KeycloakRealmAdmin, fetchPort: typeof fetch): Promise<number> {
@@ -49,14 +60,23 @@ export async function writeSessionLifetime(
  * lifetime and receives the default. A realm that carries it keeps whatever lifetime was set.
  */
 export async function alignSessionLifetime(admin: KeycloakRealmAdmin, fetchPort: typeof fetch): Promise<void> {
-  if ((await readRealm(admin, fetchPort)).ssoSessionMaxLifespan === sessionLifetimeBounds.maximumSeconds) return;
-  await writeSessionLifetime(admin, sessionLifetimeBounds.defaultSeconds, fetchPort);
+  const realm = await readRealm(admin, fetchPort),
+    initialized = realm.ssoSessionMaxLifespan === sessionLifetimeBounds.maximumSeconds,
+    settings = sessionLifetimeRealmSettings(
+      initialized ? realm.ssoSessionIdleTimeout : sessionLifetimeBounds.defaultSeconds,
+    );
+  if (Object.entries(settings).every(([key, value]) => realm[key] === value)) return;
+  await writeSessionLifetime(admin, settings.ssoSessionIdleTimeout, fetchPort);
 }
 
 async function readRealm(
   admin: KeycloakRealmAdmin,
   fetchPort: typeof fetch,
-): Promise<{ readonly ssoSessionIdleTimeout: number; readonly ssoSessionMaxLifespan: number }> {
+): Promise<{
+  readonly ssoSessionIdleTimeout: number;
+  readonly ssoSessionMaxLifespan: number;
+  readonly [key: string]: unknown;
+}> {
   const response = await realmRequest(admin, fetchPort, {});
   if (!response.ok) throw rejected(response);
   const realm = (await response.json()) as Record<string, unknown>;
@@ -64,7 +84,11 @@ async function readRealm(
     throw Object.assign(new Error("Keycloak did not disclose the realm's session settings to the center."), {
       code: "keycloak_admin_rejected",
     });
-  return { ssoSessionIdleTimeout: realm.ssoSessionIdleTimeout, ssoSessionMaxLifespan: realm.ssoSessionMaxLifespan };
+  return {
+    ...realm,
+    ssoSessionIdleTimeout: realm.ssoSessionIdleTimeout,
+    ssoSessionMaxLifespan: realm.ssoSessionMaxLifespan,
+  };
 }
 
 function realmRequest(admin: KeycloakRealmAdmin, fetchPort: typeof fetch, init: RequestInit): Promise<Response> {

@@ -86,6 +86,7 @@ for (const restart of [false, true])
           authenticate: (nodeId, credential) =>
             [subject.nodeId, "node-two"].includes(nodeId) && credential === "machine-secret",
           nodeOwner: fixture.owners.nodeOwner,
+          verifyHuman: fixture.owners.verifyHuman,
           onError: ({ error }) => t.diagnostic(`center publication: ${String(error)}`),
         }),
       );
@@ -96,6 +97,7 @@ for (const restart of [false, true])
     let terminal: (() => void) | undefined;
     const createRuntime = () =>
       openFleetEdgeRuntime({
+        readBinding: () => fixture.owners.binding(subject.nodeId),
         request: {
           host: "127.0.0.1",
           port: center.port,
@@ -215,6 +217,7 @@ for (const restart of [false, true])
         false,
       );
       await runFleetReplicaPullClient({
+        readAccessToken: async () => `device-token-${"node-two"}`,
         host: "127.0.0.1",
         port: restoredCenter.port,
         ca: fixture.cert,
@@ -248,6 +251,7 @@ for (const restart of [false, true])
         // schedule-show itself must never pull or trigger terminal publication.
         await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
         await runFleetReplicaPullClient({
+          readAccessToken: async () => `device-token-${subject.nodeId}`,
           port: restoredCenter.port,
           ca: fixture.cert,
           servername: "localhost",
@@ -303,6 +307,7 @@ for (const restart of [false, true])
     assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
     await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
     await runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${"node-two"}`,
       host: "127.0.0.1",
       port: restoredCenter.port,
       ca: fixture.cert,

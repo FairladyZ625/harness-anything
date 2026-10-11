@@ -96,24 +96,62 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly model?: string;
   /** The concrete kind selected for an unbound runtime dispatch. */
   readonly runtimeKind?: string;
+  /** Repository-scoped allowlist; undefined means the repository has not been initialized yet. */
+  readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
 }): string[] {
+  const configured = input.allowedInstanceIds !== undefined,
+    allowed = input.allowedInstanceIds ?? [],
+    allowedNames = allowed.length ? allowed.join(", ") : "none";
+  const assertAllowed = (instanceId: string): void => {
+    if (configured && allowed.includes(instanceId)) return;
+    if (!input.instances.some((instance) => instance.instanceId === instanceId))
+      throw runtimeSpawnError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
+    if (!configured)
+      throw runtimeSpawnError(
+        "runtime_instance_allowlist_uninitialized",
+        "This repository has no runtime instance allowlist. Run ha init or enable the instance in repository settings before dispatching.",
+      );
+    if (allowed.includes(instanceId)) return;
+    throw runtimeSpawnError(
+      "runtime_instance_not_allowed",
+      `Runtime instance ${instanceId} is not allowed for this repository. ` +
+        `Allowed instances: ${allowedNames}. Enable it with ha settings update --runtime-allowed-instance ${instanceId}.`,
+    );
+  };
   if (input.providerSessionId) {
     const session = input.sessions.find((row) => row.providerSessionId === input.providerSessionId);
-    if (session) return [session.instanceId];
+    if (session) {
+      assertAllowed(session.instanceId);
+      return [session.instanceId];
+    }
   }
-  if (input.requested) return [input.requested];
+  if (input.requested) {
+    assertAllowed(input.requested);
+    return [input.requested];
+  }
   // input.model is the dispatch-level override (--model); the per-kind declared model lives
   // on the matching runtimes row and applies only when no override was given.
   const declaredModel = input.model,
     declaredType = input.runtimeKind,
     declaredTargets = input.agent?.runtimes;
-  const unavailable = input.unavailableReasons ?? [];
+  if (!configured && input.instances.length > 0)
+    throw runtimeSpawnError(
+      "runtime_instance_allowlist_uninitialized",
+      "This repository has no runtime instance allowlist. Run ha init or enable an instance in repository settings before dispatching.",
+    );
+  const unavailable = input.unavailableReasons ?? [],
+    instances = input.instances.filter((instance) => allowed.includes(instance.instanceId));
+  for (const instance of input.instances)
+    if (!allowed.includes(instance.instanceId))
+      unavailable.push(
+        `${instance.kindId}/${instance.instanceId}: runtime_instance_not_allowed (enable with ha settings update --runtime-allowed-instance ${instance.instanceId})`,
+      );
   for (const target of declaredTargets ?? (declaredType ? [{ type: declaredType }] : []))
-    if (!input.instances.some((instance) => instance.kindId === target.type))
+    if (!instances.some((instance) => instance.kindId === target.type))
       unavailable.push(`${target.type}: runtime_instance_not_found (no local instance)`);
-  for (const instance of input.instances) {
+  for (const instance of instances) {
     if (
       (declaredType !== undefined && declaredType !== instance.kindId) ||
       (declaredTargets !== undefined && !agentRuntimeKindMatches(declaredTargets, instance.kindId))
@@ -130,7 +168,7 @@ export function resolveRuntimeInstanceCandidates(input: {
     if (reason) unavailable.push(`${instance.kindId}/${instance.instanceId}: ${reason}`);
   }
   const detail = unavailable.length ? ` Candidates: ${unavailable.join("; ")}` : "";
-  const typed = input.instances.filter(
+  const typed = instances.filter(
     (instance) =>
       instance.enabled &&
       (declaredType === undefined || declaredType === instance.kindId) &&
@@ -146,6 +184,13 @@ export function resolveRuntimeInstanceCandidates(input: {
     declaredTargets === undefined ? (declaredType ?? "any") : agentRuntimeTargetSummary(declaredTargets);
   if (declared.length === 0) {
     const typeCandidates = typed.length > 0;
+    if (instances.length === 0)
+      throw runtimeSpawnError(
+        "runtime_instance_not_allowed",
+        `No runtime instance is allowed for this repository. Allowed instances: ${allowedNames}. ` +
+          "Enable one with ha settings update --runtime-allowed-instance <instance-id>." +
+          detail,
+      );
     if (input.agent && !typeCandidates)
       throw runtimeSpawnError(
         "agent_runtime_unavailable",

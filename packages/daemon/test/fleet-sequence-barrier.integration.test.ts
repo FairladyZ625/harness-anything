@@ -54,6 +54,7 @@ test(
     const base = (await source.prepare())!;
     const center = await f.center();
     const peer = (nodeId: string) => ({
+      readAccessToken: async () => `device-token-${nodeId}`,
       port: center.port,
       ca: f.cert,
       nodeId,
@@ -107,21 +108,24 @@ test(
       }
       const workspace = path.join(f.root, "command-workspace");
       applyFleetMirrorCut(options("node-two").viewRoot, f.subject.repoId, workspace, "pull");
-      const commandResult = await runFleetEdgeTask({
-        payload: {
-          host: "127.0.0.1",
-          port: center.port,
-          caPath: f.certFile,
-          servername: "localhost",
-          nodeId: "node-two",
-          credential: "machine-secret",
-          repoId: f.subject.repoId,
-          viewRoot: options("node-two").viewRoot,
-          quotaBytes: 64 * 1024 * 1024,
-          workspaceRoot: workspace,
-          action: { kind: "task-create", taskId: "task-command-return", title: "Command return" },
+      const commandResult = await runFleetEdgeTask(
+        {
+          payload: {
+            host: "127.0.0.1",
+            port: center.port,
+            caPath: f.certFile,
+            servername: "localhost",
+            nodeId: "node-two",
+            credential: "machine-secret",
+            repoId: f.subject.repoId,
+            viewRoot: options("node-two").viewRoot,
+            quotaBytes: 64 * 1024 * 1024,
+            workspaceRoot: workspace,
+            action: { kind: "task-create", taskId: "task-command-return", title: "Command return" },
+          },
         },
-      });
+        async () => `device-token-${"node-two"}`,
+      );
       assert.equal(commandResult.outcome, "applied", JSON.stringify(commandResult));
       assert.equal(commandResult.mirrorOutcome, "applied", JSON.stringify(commandResult));
       assert.equal(Atomics.load(control, 0), 1, "real edge command returns while full checkpoint is blocked");

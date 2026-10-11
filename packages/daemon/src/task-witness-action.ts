@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { githubActionsWitnessEvidence, submittedGithubActionsRequirement } from "./repo-cell-ci-evidence.ts";
 import {
   claimGateRun,
   compileGateRunChange,
@@ -49,10 +50,9 @@ export function runTaskWitnessAction(
   let run: GateRun, operation: "claim" | "settle" | "revoke";
   if (action.kind === "task-witness-claim" || action.kind === "task-witness-rerun") {
     const prior = currentGateRun(execution, gateId);
-    if (prior && action.kind === "task-witness-claim")
-      return { outcome: "no_changes", opId, revision: snapshot.revision, evidence: JSON.stringify({ run: prior }) };
     run = claimGateRun({
       execution,
+      reuseCurrent: action.kind === "task-witness-claim",
       repoId: cell.input.repoId,
       requirement,
       runId: `gate-${opId}`,
@@ -72,6 +72,15 @@ export function runTaskWitnessAction(
           }
         : {}),
     });
+    if (run.runId === prior?.runId)
+      return (
+        (requirement.witness.kind === "github-actions" ? settleGithubActionsClaim(cell, taskId, binding) : null) ?? {
+          outcome: "no_changes",
+          opId,
+          revision: snapshot.revision,
+          evidence: JSON.stringify({ run: prior }),
+        }
+      );
     operation = "claim";
   } else if (action.kind === "task-witness-settle") {
     if (action.evidence !== undefined) {
@@ -138,10 +147,62 @@ export function runTaskWitnessAction(
   const appended = cell.store.append(compiled),
     publication = cell.publicPublication(appended);
   cell.projection.apply(compiled.event, compiled.plan);
-  return cell.lifecycleReceipt(
+  const receipt = cell.lifecycleReceipt(
     compiled.event,
     cell.projection.read(taskId).snapshot,
     publication,
     cell.receiptProof(compiled.event, publication),
   );
+  return operation === "claim" && requirement.witness.kind === "github-actions"
+    ? (settleGithubActionsClaim(cell, taskId, binding) ?? receipt)
+    : receipt;
+}
+
+/** Runs within the caller's center writer turn, after any claim has been published. */
+function settleGithubActionsClaim(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  binding: RepoCellBinding,
+): WriteReceiptDraft | null {
+  const read = cell.projection.read(taskId),
+    target = submittedGithubActionsRequirement(read.snapshot);
+  if (!target || target.execution.schema !== "execution/v1") return null;
+  const evidence = githubActionsWitnessEvidence(cell, target.requirement, target.execution);
+  if (!evidence) return null;
+  const run = currentGateRun(target.execution, target.requirement.gateId)!;
+  return cell.publishGateWitness(
+    taskId,
+    target.execution.executionId,
+    read.snapshot,
+    read.packagePath,
+    { ...binding, actor: run.actor },
+    evidence,
+  );
+}
+
+/** CI imports already hold the center writer; reconcile their durable submitted demands there. */
+export function settleImportedGithubActionsClaims(cell: RepoCellOperationalContext, binding: RepoCellBinding): void {
+  for (const status of ["submitted", "in_review"] as const) {
+    for (const { taskId, snapshot } of cell.projection.list({ status }).rows) {
+      const target = submittedGithubActionsRequirement(snapshot);
+      if (!target || target.execution.schema !== "execution/v1") continue;
+      runTaskWitnessAction(
+        cell,
+        {
+          kind: "task-witness-claim",
+          taskId,
+          executionId: target.execution.executionId,
+          gateId: target.requirement.gateId,
+          [centerWitnessAction]: true,
+        },
+        {
+          ...binding,
+          actor: {
+            principal: snapshot.task!.createdBy.principal,
+            executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
+          },
+        },
+      );
+    }
+  }
 }

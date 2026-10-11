@@ -153,6 +153,7 @@ export interface RepoCellApiContext {
   readonly store: CanonicalEventStore;
   readonly projection: TaskProjection;
   readonly now: () => string;
+  readonly onlineBinding: (binding: RepoCellBinding) => Promise<RepoCellBinding>;
   readonly executeAction: RepoCellOperationalContext["executeAction"];
   readonly squadCoordinator: ReturnType<typeof makeSquadCoordinator>;
   readonly presetProcess: ReturnType<typeof createPresetProcessService>;
@@ -850,7 +851,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 [preparedCiObservation]: fetched,
               },
               {
-                ...binding,
+                ...(await context.onlineBinding(binding)),
                 withWriterEpochFence: writerFence ?? undefined,
                 writerEpochFence: writerDescriptor ?? undefined,
               },
@@ -868,7 +869,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           const completed = await run(
             { kind: "task-complete", taskId: candidate.taskId },
             {
-              ...binding,
+              ...(await context.onlineBinding(binding)),
               withWriterEpochFence: writerFence ?? undefined,
               writerEpochFence: writerDescriptor ?? undefined,
             },
@@ -927,7 +928,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           idempotencyKey: String(action.idempotencyKey ?? `builtin:${active.claimFence}`),
           binding,
           runInternal: async (settlement, actor) => {
-            const result = await run(settlement, actor);
+            const result = await run(settlement, await context.onlineBinding(actor));
             if (isSquadControlResult(result))
               throw context.cellCodedError("invalid_command", "Builtin settlement requires a write receipt.");
             return result;

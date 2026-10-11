@@ -1,8 +1,19 @@
 #!/usr/bin/env node
 
 import { randomUUID } from "node:crypto";
-import { execFileSync, spawn } from "node:child_process";
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFileSync, spawn, spawnSync } from "node:child_process";
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  realpathSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -14,6 +25,8 @@ import {
   toolValue,
 } from "./tool-command-contract.mjs";
 import { guiVitestFilePattern } from "./gui-test-runner-lib.mjs";
+
+const server = JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url)));
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
@@ -95,20 +108,52 @@ export function sourceArchiveArgs(platform = process.platform, sourceRoot = repo
   return [...(platform === "darwin" ? ["--no-xattrs"] : []), "-cf", "-", "-C", sourceRoot, "--null", "-T", "-"];
 }
 
-export function sourceRsyncArgs(sourceRoot, destination) {
-  return ["-a", "--delete", "--from0", "--files-from=-", `${sourceRoot}/`, destination];
-}
-
 export function sourceFileList(sourceRoot = repoRoot) {
+  const deleted = new Set(
+    execFileSync("git", ["-C", sourceRoot, "ls-files", "--deleted", "-z"]).toString().split("\0"),
+  );
   return execFileSync("git", ["-C", sourceRoot, "ls-files", "--cached", "-z"])
     .toString("utf8")
     .split("\0")
-    .filter(Boolean)
+    .filter((file) => file !== "" && !deleted.has(file))
     .sort();
+}
+
+function assertPublicPath(file) {
+  if (
+    ["harness", ".harness-private", "AGENTS.md", "CLAUDE.md"].some(
+      (privatePath) => file === privatePath || file.startsWith(`${privatePath}/`),
+    )
+  ) {
+    throw new Error(`private source path cannot be sent: ${file}`);
+  }
 }
 
 export function prepareSource(sourceRoot, snapshotRoot) {
   const files = sourceFileList(sourceRoot);
+  const generations = execFileSync("git", ["-C", sourceRoot, "rev-parse", "HEAD", "HEAD^@"])
+    .toString()
+    .trim()
+    .split("\n");
+  for (const ref of generations) {
+    const tree = execFileSync("git", ["-C", sourceRoot, "ls-tree", "-r", "--name-only", "-z", ref])
+      .toString()
+      .split("\0")
+      .filter(Boolean);
+    for (const file of tree) assertPublicPath(file);
+  }
+  for (const file of files) {
+    assertPublicPath(file);
+    if (lstatSync(path.join(sourceRoot, file)).isSymbolicLink()) {
+      const relative = path
+        .relative(sourceRoot, realpathSync(path.join(sourceRoot, file)))
+        .split(path.sep)
+        .join("/");
+      if (relative.startsWith("../") || path.isAbsolute(relative))
+        throw new Error(`source link leaves repository: ${file}`);
+      assertPublicPath(relative);
+    }
+  }
   // Two generations support both source identity (HEAD) and the clean-tree shard baseline (HEAD^).
   execFileSync("git", [
     "clone",
@@ -144,10 +189,18 @@ export function posixTestScript(workspaceRoot, stateRoot, options) {
   return [
     "set -eu",
     `cd ${shellQuote(workspaceRoot)}`,
-    "node tools/isolated-test-dependencies.mjs",
+    ...(options.prepareDependencies === false ? [] : ["node tools/isolated-test-dependencies.mjs"]),
     `node tools/test-hermetic-preflight.mjs --user-root ${shellQuote(stateRoot)}`,
-    `HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} ${command}`,
+    `HARNESS_TEST_CONCURRENCY=2 HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} PLAYWRIGHT_BROWSERS_PATH=${shellQuote(path.join(workspaceRoot, ".test-runtime/playwright"))} ELECTRON_CACHE=${shellQuote(path.join(workspaceRoot, ".test-runtime/electron"))} ${command}`,
   ].join("\n");
+}
+
+export function localQueueConfig() {
+  return {
+    mode: "local",
+    root: path.join(tmpdir(), "harness-test-isolation-local"),
+    capacity: 2,
+  };
 }
 
 export function powerShellTestScript(workspaceRoot, stateRoot, options) {
@@ -166,6 +219,8 @@ export function powerShellTestScript(workspaceRoot, stateRoot, options) {
     `& node tools/test-hermetic-preflight.mjs --user-root ${powerShellLiteral(stateRoot)}`,
     "if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
     `$env:HARNESS_DAEMON_USER_ROOT = ${powerShellLiteral(stateRoot)}`,
+    `$env:PLAYWRIGHT_BROWSERS_PATH = ${powerShellLiteral(path.join(workspaceRoot, ".test-runtime/playwright"))}`,
+    `$env:ELECTRON_CACHE = ${powerShellLiteral(path.join(workspaceRoot, ".test-runtime/electron"))}`,
     `& ${command}`,
     "exit $LASTEXITCODE",
   ].join("\n");
@@ -207,10 +262,10 @@ export async function main(argv = process.argv.slice(2)) {
       exitCode = 2;
     } else {
       exitCode =
-        options.target === "ubuntu"
-          ? await runUbuntu(options, runId, snapshotRoot, files)
-          : options.target === "docker"
-            ? await runDocker(options, runId, snapshotRoot, files)
+        options.target === "server"
+          ? await runServer(options, runId, snapshotRoot, files)
+          : options.target === "local"
+            ? await runLocal(options, runId, snapshotRoot, files)
             : await runWindows(options, runId, snapshotRoot, files);
     }
   } finally {
@@ -220,20 +275,33 @@ export async function main(argv = process.argv.slice(2)) {
   return exitCode;
 }
 
-export function ubuntuQueueCommand(workspaceRoot) {
+export function serverQueueCommand(runId, configPath = `${server.root}/config.json`) {
   const script = readFileSync(new URL("./isolated-test-queue.py", import.meta.url), "utf8");
-  return `python3 -u -c ${shellQuote(script)} ${shellQuote(workspaceRoot)}`;
+  return `python3 -u -c ${shellQuote(script)} ${shellQuote(runId)} ${shellQuote(configPath)}`;
 }
 
-async function runUbuntu(options, runId, snapshotRoot, files) {
-  const workspaceRoot = `/tmp/${runId}`;
-  const stateRoot = `${workspaceRoot}/.test-isolation-state`;
-  const owner = spawn("ssh", ["ubuntu", ubuntuQueueCommand(workspaceRoot)], {
-    stdio: ["pipe", "pipe", "inherit"],
-  });
-  let admitted, finished;
+export function localQueueCommand(runId, configPath) {
+  const script = readFileSync(new URL("./isolated-test-queue.py", import.meta.url), "utf8");
+  return `python3 -u -c ${shellQuote(script)} ${shellQuote(runId)} ${shellQuote(configPath)}`;
+}
+
+async function runServer(options, runId, snapshotRoot, files) {
+  const workspaceRoot = `${server.root}/runs/${runId}`;
+  const stateRoot = "/workspace/.test-isolation-state";
+  const destination = `${server.user}@${server.host}`;
+  const owner = spawn(
+    "ssh",
+    ["-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", destination, serverQueueCommand(runId)],
+    {
+      stdio: ["pipe", "pipe", "inherit"],
+    },
+  );
+  let admitted, synced, finished;
   const admission = new Promise((resolve) => {
     admitted = resolve;
+  });
+  const synchronization = new Promise((resolve) => {
+    synced = resolve;
   });
   const completion = new Promise((resolve) => {
     finished = resolve;
@@ -249,11 +317,13 @@ async function runUbuntu(options, runId, snapshotRoot, files) {
       if (!line.startsWith("[test-isolation-queue] ")) continue;
       const event = JSON.parse(line.slice("[test-isolation-queue] ".length));
       if (event.event === "admitted") admitted(true);
+      if (event.event === "synced") synced(true);
       if (event.event === "finished") finished(event.code);
     }
   });
   const closed = waitFor(owner).then((code) => {
     admitted(false);
+    synced(false);
     finished(code);
     return code;
   });
@@ -271,20 +341,36 @@ async function runUbuntu(options, runId, snapshotRoot, files) {
   let exitCode = 1;
   try {
     if (await admission) {
-      console.log(`[test-isolation] sync=rsync destination=ubuntu:${workspaceRoot}`);
-      exitCode = await runWithInput(
-        "rsync",
-        sourceRsyncArgs(snapshotRoot, `ubuntu:${workspaceRoot}/`),
-        encodeFileList(files),
-      );
+      console.log(`[test-isolation] sync=tar destination=${destination}:${workspaceRoot}`);
+      const archive = spawnSync("tar", sourceArchiveArgs(process.platform, snapshotRoot), {
+        input: encodeFileList(files),
+        maxBuffer: 128 * 1024 * 1024,
+        env: { ...process.env, COPYFILE_DISABLE: "1" },
+      });
+      if (archive.error) throw archive.error;
+      if (archive.status !== 0) {
+        process.stderr.write(archive.stderr);
+        exitCode = archive.status ?? 1;
+      } else if (!cancelled) {
+        owner.stdin.write(`${archive.stdout.length}\n`);
+        owner.stdin.write(archive.stdout);
+        exitCode = (await synchronization) ? 0 : await closed;
+      }
       if (exitCode === 0 && !cancelled) {
-        owner.stdin.write(`${JSON.stringify(posixTestScript(workspaceRoot, stateRoot, options))}\n`);
+        owner.stdin.write(
+          `${JSON.stringify(posixTestScript("/workspace", stateRoot, { ...options, prepareDependencies: false }))}\n`,
+        );
         exitCode = await completion;
         if (exitCode === 0 && options.coverage !== undefined && !cancelled) {
-          exitCode = await returnCoverage(options.coverage, "rsync", ["-a", `ubuntu:${coveragePath(workspaceRoot)}`]);
+          exitCode = await returnCoverage(options.coverage, "rsync", [
+            "-e",
+            "ssh -o BatchMode=yes -o StrictHostKeyChecking=yes",
+            "-a",
+            `${destination}:${coveragePath(workspaceRoot)}`,
+          ]);
         }
       }
-    }
+    } else exitCode = await closed;
   } finally {
     owner.stdin.end();
     const cleanupCode = await closed;
@@ -294,45 +380,80 @@ async function runUbuntu(options, runId, snapshotRoot, files) {
   return cancelled ? 130 : exitCode;
 }
 
-async function runDocker(options, runId, snapshotRoot, files) {
-  const container = runId;
-  const workspaceRoot = "/workspace";
-  const stateRoot = `/tmp/${runId}`;
-  let created = false;
+async function runLocal(options, runId, snapshotRoot, files) {
+  const config = localQueueConfig();
+  mkdirSync(config.root, { recursive: true });
+  const configPath = path.join(config.root, "config.json");
+  writeFileSync(configPath, JSON.stringify(config));
+  const workspaceRoot = path.join(config.root, "runs", runId);
+  const owner = spawn("sh", ["-c", `exec ${localQueueCommand(runId, configPath)}`], {
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  let admitted, synced, finished;
+  const admission = new Promise((resolve) => (admitted = resolve));
+  const synchronization = new Promise((resolve) => (synced = resolve));
+  const completion = new Promise((resolve) => (finished = resolve));
+  let pending = "";
+  owner.stdout.on("data", (chunk) => {
+    process.stdout.write(chunk);
+    pending += chunk.toString();
+    let newline;
+    while ((newline = pending.indexOf("\n")) !== -1) {
+      const line = pending.slice(0, newline);
+      pending = pending.slice(newline + 1);
+      if (!line.startsWith("[test-isolation-queue] ")) continue;
+      const event = JSON.parse(line.slice("[test-isolation-queue] ".length));
+      if (event.event === "admitted") admitted(true);
+      if (event.event === "synced") synced(true);
+      if (event.event === "finished") finished(event.code);
+    }
+  });
+  const closed = waitFor(owner).then((code) => {
+    admitted(false);
+    synced(false);
+    finished(code);
+    return code;
+  });
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+    owner.stdin.end();
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, cancel);
+  owner.stdin.on("error", (error) => {
+    if (error.code !== "EPIPE") throw error;
+  });
   let exitCode = 1;
   try {
-    if (
-      (await run("docker", [
-        "create",
-        "--name",
-        container,
-        "--workdir",
-        workspaceRoot,
-        "--entrypoint",
-        "sh",
-        "plt-center-testbed/source:latest",
-        "-lc",
-        posixTestScript(workspaceRoot, stateRoot, options),
-      ])) === 0
-    ) {
-      created = true;
-      console.log(`[test-isolation] sync=tar destination=docker:${container}:${workspaceRoot}`);
-      if ((await copyArchive(["docker", "cp", "-", `${container}:${workspaceRoot}`], snapshotRoot, files)) === 0)
-        exitCode = await run("docker", ["start", "-a", container]);
-      if (exitCode === 0 && options.coverage !== undefined) {
-        exitCode = await returnCoverage(options.coverage, "docker", [
-          "cp",
-          `${container}:${coveragePath(workspaceRoot)}`,
-        ]);
+    if (await admission) {
+      const archive = spawnSync("tar", sourceArchiveArgs(process.platform, snapshotRoot), {
+        input: encodeFileList(files),
+        maxBuffer: 128 * 1024 * 1024,
+        env: { ...process.env, COPYFILE_DISABLE: "1" },
+      });
+      if (archive.error) throw archive.error;
+      if (archive.status !== 0) {
+        process.stderr.write(archive.stderr);
+        exitCode = archive.status ?? 1;
+      } else if (!cancelled) {
+        owner.stdin.write(`${archive.stdout.length}\n`);
+        owner.stdin.write(archive.stdout);
+        exitCode = (await synchronization) ? 0 : await closed;
       }
-    }
+      if (exitCode === 0 && !cancelled) {
+        owner.stdin.write(
+          `${JSON.stringify(posixTestScript(workspaceRoot, path.join(workspaceRoot, ".test-isolation-state"), options))}\n`,
+        );
+        exitCode = await completion;
+      }
+    } else exitCode = await closed;
   } finally {
-    if (created) {
-      const cleanupCode = await run("docker", ["rm", "-f", container], { quiet: true });
-      if (exitCode === 0 && cleanupCode !== 0) exitCode = cleanupCode;
-    }
+    owner.stdin.end();
+    const cleanupCode = await closed;
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.off(signal, cancel);
+    if (exitCode === 0 && cleanupCode !== 0) exitCode = cleanupCode;
   }
-  return exitCode;
+  return cancelled ? 130 : exitCode;
 }
 
 async function runWindows(options, runId, snapshotRoot, files) {
@@ -419,13 +540,6 @@ async function copyArchive(destinationArgs, snapshotRoot, files) {
 async function run(command, args, options = {}) {
   if (!options.quiet) console.log(`[test-isolation] exec=${formatCommand(command, args)}`);
   const child = spawn(command, args, { stdio: "inherit" });
-  return waitFor(child);
-}
-
-async function runWithInput(command, args, input) {
-  console.log(`[test-isolation] exec=${formatCommand(command, args)}`);
-  const child = spawn(command, args, { stdio: ["pipe", "inherit", "inherit"] });
-  child.stdin.end(input);
   return waitFor(child);
 }
 

@@ -587,6 +587,7 @@ export async function openRepoCellProxy(
             nodeId: config.nodeId,
             credential: config.credential,
             repoId: config.repoId,
+            readAccessToken: async () => binding?.keycloakAuthorization?.session?.accessToken,
           },
           viewRoot: config.viewRoot,
           view: selected.view,

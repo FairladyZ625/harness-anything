@@ -255,15 +255,21 @@ export interface EdgeReadModelMeta {
   readonly rootThreshold: number;
 }
 
+/** A repository read admitted by the center for one signed-in person on one device. */
+export interface EdgeReaderProfile {
+  readonly personId: string;
+  readonly nodeId: string;
+}
+
 export const EDGE_READ_AUTHORIZATION_DOMAINS = ["repository-read"] as const;
 export function edgeReadAuthorizationShapeDigest(input: {
   readonly repoId: string;
-  readonly owner: string | null;
+  readonly readerProfile: EdgeReaderProfile | null;
 }): string {
   return sha256Text(
     stableStringify({
       repoId: input.repoId,
-      owner: input.owner,
+      readerProfile: input.readerProfile,
       domains: EDGE_READ_AUTHORIZATION_DOMAINS,
     }),
   );

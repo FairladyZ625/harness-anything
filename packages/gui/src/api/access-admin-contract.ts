@@ -115,8 +115,18 @@ export interface AccessGroupWrite {
 /** What the renderer may ask of access administration; the main process adds the operation id of each write. */
 export type AccessAdminRequest = { readonly repoId?: string } & (
   | {
-      readonly operation: "node-list" | "team-list" | "group-list" | "grant-list" | "receipt-list" | "session-lifetime";
+      readonly operation:
+        | "device-list"
+        | "node-list"
+        | "team-list"
+        | "group-list"
+        | "grant-list"
+        | "receipt-list"
+        | "session-lifetime";
     }
+  | ({ readonly operation: "device-rename"; readonly displayName: string } & AccessDeviceChange)
+  | ({ readonly operation: "device-pause" | "device-resume" | "device-remove" } & AccessDeviceChange)
+  | { readonly operation: "device-logout-all"; readonly expectedVersion: string }
   | { readonly operation: "team-create"; readonly teamName: string }
   | ({ readonly operation: "team-update"; readonly teamName: string } & AccessTeamChange)
   | ({ readonly operation: "team-delete" } & AccessTeamChange)
@@ -134,11 +144,33 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
     }
 );
 
+export interface AccessDevice {
+  readonly nodeId: string;
+  readonly personId: string;
+  readonly systemName: string;
+  readonly displayName: string;
+  readonly platform: string;
+  readonly registeredAt: string;
+  readonly state: "active" | "paused" | "removed";
+  readonly revocation: "pending" | "complete";
+  readonly version: string;
+}
+export interface AccessDeviceChange {
+  readonly nodeId: string;
+  readonly expectedVersion: string;
+}
+
 export interface AccessAdminApi {
   readonly forRepository: (repoId?: string) => AccessAdminApi;
   readonly nodes: () => Reply<{
     readonly nodes: readonly { readonly nodeId: string; readonly personId: string; readonly version: string }[];
   }>;
+  readonly devices: () => Reply<{ readonly nodes: readonly AccessDevice[]; readonly version: string }>;
+  readonly renameDevice: (input: AccessDeviceChange & { readonly displayName: string }) => Reply<AccessReceipt>;
+  readonly pauseDevice: (input: AccessDeviceChange) => Reply<AccessReceipt>;
+  readonly resumeDevice: (input: AccessDeviceChange) => Reply<AccessReceipt>;
+  readonly removeDevice: (input: AccessDeviceChange) => Reply<AccessReceipt>;
+  readonly logoutDevices: (input: { readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly teams: () => Reply<AccessTeamsReply>;
   readonly createTeam: (input: { readonly teamName: string }) => Reply<AccessReceipt>;
   readonly updateTeam: (input: AccessTeamChange & { readonly teamName: string }) => Reply<AccessReceipt>;

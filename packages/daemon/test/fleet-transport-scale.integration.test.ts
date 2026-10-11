@@ -372,6 +372,7 @@ async function scaleFixture(t: TestContext) {
           replicaDiskQuotaBytes: replicaQuota,
           authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
           nodeOwner: owners.nodeOwner,
+          verifyHuman: owners.verifyHuman,
         }),
       ),
     ledgerRevisions: () => new Map(repos.map((repo) => [repo.repoId, fleetLedgerRevision(repo.rootDir, repo.repoId)])),

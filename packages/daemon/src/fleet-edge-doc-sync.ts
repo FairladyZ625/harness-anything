@@ -60,10 +60,14 @@ export interface FleetEdgeConflictExitRequest {
   };
 }
 
-export async function runFleetEdgeDocSync(input: FleetEdgeDocSyncRequest): Promise<Record<string, unknown>> {
+export async function runFleetEdgeDocSync(
+  input: FleetEdgeDocSyncRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
   const payload = input.payload,
     credential = payload.credential;
   const peer = {
+      readAccessToken,
       hostname: payload.host,
       port: payload.port,
       ca: readFileSync(payload.caPath, "utf8"),
@@ -287,7 +291,10 @@ export async function settlePushRejection(
   };
 }
 
-export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitRequest): Promise<Record<string, unknown>> {
+export async function runFleetEdgeConflictExit(
+  input: FleetEdgeConflictExitRequest,
+  readAccessToken?: () => Promise<string | undefined>,
+): Promise<Record<string, unknown>> {
   const payload = input.payload;
   return withFleetMirrorLock(payload.viewRoot, payload.repoId, async () => {
     const record = readFleetConflictRecord(payload.workspaceRoot, payload.conflictId);
@@ -315,6 +322,7 @@ export async function runFleetEdgeConflictExit(input: FleetEdgeConflictExitReque
     }
     const credential = payload.credential;
     const peer = {
+      readAccessToken,
       hostname: payload.host,
       port: payload.port,
       ca: readFileSync(payload.caPath, "utf8"),

@@ -289,6 +289,11 @@ function chromiumExecutable(parent: string): string {
     candidates = [configured, "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome"];
   const executable = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));
   if (executable) return executable;
+  if (process.env.PLAYWRIGHT_BROWSERS_PATH) {
+    const cached = findFile(process.env.PLAYWRIGHT_BROWSERS_PATH, "chrome");
+    assert.ok(cached, "isolated dependency preparation did not cache Playwright Chromium");
+    return cached;
+  }
   process.env.PLAYWRIGHT_BROWSERS_PATH = path.join(parent, "playwright-browsers");
   execFileSync(process.execPath, [path.resolve("node_modules/playwright-core/cli.js"), "install", "chromium"], {
     stdio: "pipe",

@@ -37,7 +37,9 @@ export function ledgerRevision(fixture: Fixture): number {
 const replicaQuota = 64 * 1024 * 1024,
   nodes = ["node-one", "node-two"] as const;
 type NodeId = (typeof nodes)[number];
-export async function dualSyncFixture() {
+export async function dualSyncFixture(
+  runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[],
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-dual-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -58,7 +60,13 @@ export async function dualSyncFixture() {
   const ownerUid = process.getuid?.() ?? 0;
   git("add", "harness");
   git("commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "dual-repo", userRoot, createConvenienceLinks: false });
+  registerDaemonRepo({
+    canonicalRoot: repo,
+    repoId: "dual-repo",
+    userRoot,
+    createConvenienceLinks: false,
+    runtimeInstances,
+  });
   execFileSync(
     "openssl",
     [
@@ -109,6 +117,7 @@ export async function dualSyncFixture() {
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
     nodeOwner: owners.nodeOwner,
+    verifyHuman: owners.verifyHuman,
   });
   const edgeRoot = (nodeId: NodeId): string => path.join(root, `${nodeId}-edge`),
     workspace = (nodeId: NodeId): string => path.join(root, `${nodeId}-workspace`);
@@ -120,6 +129,7 @@ export async function dualSyncFixture() {
     servername: "localhost",
     nodeId,
     credential: `secret-${nodeId}`,
+    readAccessToken: owners.readAccessToken(nodeId),
     principalId: owners.nodeOwner(nodeId),
     repoId: "dual-repo",
     viewRoot: edgeRoot(nodeId),
@@ -127,17 +137,21 @@ export async function dualSyncFixture() {
     workspaceRoot: workspace(nodeId),
   });
   const edgeTask = (nodeId: NodeId, action: Record<string, unknown>): Promise<Record<string, unknown>> =>
-    runFleetEdgeTask({ payload: { ...channel(nodeId), action: action as never } });
+    runFleetEdgeTask({ payload: { ...channel(nodeId), action: action as never } }, owners.readAccessToken(nodeId));
   const edgeDocSync = (
     nodeId: NodeId,
     options: { readonly dryRun?: boolean; readonly paths?: readonly string[] } = {},
-  ): Promise<Record<string, unknown>> => runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } as never });
+  ): Promise<Record<string, unknown>> =>
+    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } as never }, owners.readAccessToken(nodeId));
   const conflictExit = (
     nodeId: NodeId,
     action: "resolve" | "discard-local" | "overwrite-center",
     conflictId: string,
   ): Promise<Record<string, unknown>> =>
-    runFleetEdgeConflictExit({ payload: { ...channel(nodeId), action, conflictId } as never });
+    runFleetEdgeConflictExit(
+      { payload: { ...channel(nodeId), action, conflictId } as never },
+      owners.readAccessToken(nodeId),
+    );
   const rawWrite = (
     nodeId: NodeId,
     changes: readonly { readonly path: string; readonly body: string; readonly baseBlobSha256?: string | null }[],
@@ -150,6 +164,7 @@ export async function dualSyncFixture() {
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: owners.readAccessToken(nodeId),
       repoId: "dual-repo",
       timeoutMs: 30_000,
       channel: "collaborator",

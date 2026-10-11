@@ -486,6 +486,7 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
   };
   const open = () =>
     openBootstrappedRepoCell({
+      keycloakSession: async () => binding.keycloakAuthorization.session,
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: `squad-${slug}`,

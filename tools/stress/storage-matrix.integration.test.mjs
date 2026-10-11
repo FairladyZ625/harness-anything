@@ -85,7 +85,7 @@ test(
         },
         cases: [f02.caseResult, f03.caseResult, ...f06.caseResults, f07.caseResult, f08.caseResult],
         replayCommand:
-          "node tools/dispatch-isolated-test.mjs --target ubuntu " +
+          "node tools/dispatch-isolated-test.mjs --target server " +
           "--file tools/stress/storage-matrix.integration.test.mjs",
         residualRisks: [
           "Power-loss reordering remains BLOCKED because the assigned Ubuntu target has no dedicated disposable device or verified VFS simulator.",

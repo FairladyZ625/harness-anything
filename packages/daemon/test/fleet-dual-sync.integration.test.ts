@@ -625,6 +625,7 @@ test(
       servername: "localhost",
       nodeId: "node-one",
       credential: "secret-node-one",
+      readAccessToken: fixture.channel("node-one").readAccessToken,
       repoId: "dual-repo",
     };
     const diverged = await settlePushRejection({ ...fixture.channel("node-one") }, peer, 30_000, "base_blob_changed");
@@ -653,6 +654,7 @@ test(
       servername: "localhost",
       nodeId: "node-two",
       credential: "secret-node-two",
+      readAccessToken: fixture.channel("node-two").readAccessToken,
       repoId: "dual-repo",
     };
     const clean = await settlePushRejection(
@@ -737,6 +739,7 @@ test(
       servername: "localhost",
       nodeId: "node-one",
       credential: "secret-node-one",
+      readAccessToken: fixture.channel("node-one").readAccessToken,
       repoId: "dual-repo",
     };
     const staged = await settlePushRejection({ ...fixture.channel("node-one") }, peer, 30_000, "base_blob_changed");

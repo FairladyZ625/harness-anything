@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -98,7 +99,7 @@ for (const row of [{type:'thread.started',thread_id:id},
         codex: { reasoningEffort: "high" },
       },
       localAuth = localAuthFixture();
-    await f.host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
+    await registerFixtureRuntimeInstance(f.host, f.subject.repoId, localAuth, instance);
     const packageSource = path.join(f.root, "handoff-agent");
     mkdirSync(packageSource);
     writeFileSync(
@@ -130,6 +131,7 @@ for (const row of [{type:'thread.started',thread_id:id},
           replicaDiskQuotaBytes: 64 * 1024 * 1024,
           authenticate: (_node, credential) => credential === "machine-secret",
           nodeOwner: f.owners.nodeOwner,
+          verifyHuman: f.owners.verifyHuman,
         }),
       ),
       remote = path.join(f.root, "code.git");
@@ -155,6 +157,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       const userRoot = path.join(f.root, `${nodeId}-user`),
         viewRoot = path.join(f.root, `${nodeId}-view`);
       await runFleetReplicaPullClient({
+        readAccessToken: async () => `device-token-${nodeId}`,
         port: center.port,
         ca: f.cert,
         nodeId,
@@ -171,6 +174,7 @@ for (const row of [{type:'thread.started',thread_id:id},
         userRoot,
         createConvenienceLinks: false,
       });
+      f.owners.signIn(userRoot, nodeId);
       const host = await openDaemonHost({ daemonId: nodeId, userRoot, runtimeDiscover: () => [installation] });
       t.after(() => host.close());
       await host.attachmentsSettled();

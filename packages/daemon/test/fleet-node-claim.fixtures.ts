@@ -33,6 +33,7 @@ export async function fleetNodeClaimFixture(
   seedCenterSettings = false,
   runtimeOptions: Pick<Parameters<typeof openDaemonHost>[0], "runtimeDiscover" | "runtimeLaunch"> = {},
   seedRepository?: (rootDir: string) => Promise<void>,
+  revokeDeviceSessions?: Parameters<typeof listenFleetTls>[0]["revokeDeviceSessions"],
 ) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-lease-")),
     repo = path.join(root, "repo"),
@@ -99,8 +100,9 @@ export async function fleetNodeClaimFixture(
       replicaDiskQuotaBytes: replicaQuota,
       authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
       nodeOwner: owners.nodeOwner,
-      ...(verifyHuman ? { verifyHuman } : {}),
+      verifyHuman: verifyHuman ?? owners.verifyHuman,
       ...(loginAuthority ? { loginAuthority } : {}),
+      ...(revokeDeviceSessions ? { revokeDeviceSessions } : {}),
     });
     centers.push(center);
     return center;
@@ -150,6 +152,7 @@ export async function fleetNodeClaimFixture(
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: async () => accessToken ?? (await owners.readAccessToken(nodeId)()),
       opId: randomUUID(),
       repoId: "lease-repo",
       taskId,
@@ -175,6 +178,7 @@ export async function fleetNodeClaimFixture(
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: owners.readAccessToken(nodeId),
       opId: randomUUID(),
       repoId: "lease-repo",
       taskId: typeof action.taskId === "string" ? action.taskId : null,
@@ -196,6 +200,7 @@ export async function fleetNodeClaimFixture(
       servername: "localhost",
       nodeId,
       credential: `secret-${nodeId}`,
+      readAccessToken: owners.readAccessToken(nodeId),
       repoId: "lease-repo",
     }),
     command,

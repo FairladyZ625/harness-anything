@@ -4,12 +4,13 @@ import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { createScheduleV1, registerDaemonRepo } from "@harness-anything/kernel";
+import { createScheduleV1 } from "@harness-anything/kernel";
 import { performOpenRegistered } from "../src/daemon-host-registry.ts";
 import type { DaemonHostRegistryContext } from "../src/daemon-host-context.ts";
 import type { RepoCell, RepoCellStatus } from "../src/repo-cell-types.ts";
 import { makeScheduleScheduler } from "../src/schedule-scheduler.ts";
 import { rosterRepo } from "./daemon-host-recovery.fixture.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 test("A: registry attached recovery wakes a skipped due builtin without refreshing duplicate status", async (t) => {
   const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-attached-wakeup-"))),

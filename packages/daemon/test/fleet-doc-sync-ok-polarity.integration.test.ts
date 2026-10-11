@@ -6,12 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { registerDaemonRepo, sha256Bytes } from "@harness-anything/kernel";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
 const nodes = ["node-one", "node-two"] as const;
@@ -93,6 +94,7 @@ async function pushRejectionFixture() {
     cert,
     replicaDiskQuotaBytes: replicaQuota,
     authenticate: (nodeId, credential) => credential === `secret-${nodeId}`,
+    verifyHuman: owners.verifyHuman,
     nodeOwner: async (nodeId) => {
       // Compare pull reads owner twice; the next metadata lookup precedes its cut capture.
       if (race !== null && nodeId === "node-one" && ++raceOwnerReads === 3) {
@@ -100,6 +102,7 @@ async function pushRejectionFixture() {
         race = null;
         if (center === null) throw new Error("fleet center is not ready");
         const moved = await runFleetWriteClient({
+          readAccessToken: async () => `device-token-${"node-two"}`,
           hostname: "127.0.0.1",
           port: center.port,
           ca: cert,
@@ -144,6 +147,7 @@ async function pushRejectionFixture() {
   ) =>
     runFleetWriteClient({
       ...channel(nodeId),
+      readAccessToken: owners.readAccessToken(nodeId),
       ca: cert,
       hostname: "127.0.0.1",
       timeoutMs: 30_000,
@@ -151,7 +155,7 @@ async function pushRejectionFixture() {
       changes,
     });
   const edgeDocSync = (nodeId: NodeId, options: { readonly all?: true; readonly paths?: readonly string[] } = {}) =>
-    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } });
+    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } }, owners.readAccessToken(nodeId));
   const writeWorktree = (nodeId: NodeId, logicalPath: string, body: string): void => {
     const view = locateFleetMirrorView(edgeRoot(nodeId), "fleet-doc-sync-repo");
     assert.ok(view, "mirror view must exist before its registered harness is changed");

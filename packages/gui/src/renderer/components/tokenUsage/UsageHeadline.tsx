@@ -1,3 +1,4 @@
+import { CacheWriteValue } from "./CacheWriteValue.tsx";
 import type { ReactNode } from "react";
 import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 import type { AgentRuntimeTokenUsageResult } from "@harness-anything/daemon/protocol";
@@ -131,12 +132,18 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
                   <span className="truncate">{t(tokenKindKey[kind])}</span>
                 </dt>
                 <dd className="mt-0.5 flex items-baseline gap-1.5 font-mono tabular-nums">
-                  <span className="ui-title font-semibold text-text" title={exactTokens(parts[kind])}>
-                    {preciseTokens(parts[kind])}
+                  <span
+                    className="ui-title font-semibold text-text"
+                    title={kind === "cacheWrite" ? undefined : exactTokens(parts[kind])}
+                  >
+                    {kind === "cacheWrite" ? <CacheWriteValue row={totals} /> : preciseTokens(parts[kind])}
                   </span>
-                  <span className="ui-meta text-text-faint">
-                    {percentText(totals.totalTokens > 0 ? parts[kind] / totals.totalTokens : 0)}
-                  </span>
+                  {kind !== "cacheWrite" ||
+                  (totals.cacheWriteUnreportedDispatches === 0 && totals.cacheWriteUnitemizedDispatches === 0) ? (
+                    <span className="ui-meta text-text-faint">
+                      {percentText(totals.totalTokens > 0 ? parts[kind] / totals.totalTokens : 0)}
+                    </span>
+                  ) : null}
                 </dd>
               </div>
             ))}

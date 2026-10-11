@@ -1,5 +1,8 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
   authenticateRuntimeExecutionCredential,
@@ -12,6 +15,7 @@ import {
   requireExecutionRequestScope,
   requireExecutionActionScope,
 } from "../src/runtime-execution-scope.ts";
+import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
 
 const center = {
@@ -315,7 +319,7 @@ test("execution event list permits repository reads without widening task or wri
   }
 });
 
-test("reviewer frozen document requests use a path without granting implementation document reads", () => {
+test("reviewer frozen document requests use a path without granting catalog reads", () => {
   const p = { ...principal(), role: "reviewer" as const };
   const action = { kind: "doc-show", path: "tasks/task-worker/artifacts/report.md", raw: true };
   assert.doesNotThrow(() =>
@@ -331,5 +335,84 @@ test("reviewer frozen document requests use a path without granting implementati
     { ...action, executionId: "execution-other" },
   ])
     assert.throws(() => requireExecutionActionScope(p, denied), { code: "execution_credential_rejected" });
-  assert.throws(() => requireExecutionActionScope(principal(), action), { code: "execution_credential_rejected" });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "preset-list" }), {
+    code: "execution_credential_rejected",
+  });
+});
+
+test("implementers read the preset catalog and their own documents without gaining writes (dec_9DFDC635180975FDFC0CDB33D7)", () => {
+  const p = principal();
+  const request = (method: string, payload: object, repoId = p.repoId) =>
+    requireExecutionRequestScope(p, method, { repo: { repoId }, payload });
+  for (const [method, payload] of [
+    ["repo.preset.list", { verticalId: "software/coding" }],
+    ["repo.preset.inspect", { presetId: "standard-task", verticalId: "software/coding" }],
+    ["repo.vertical.validate", { verticalSource: "verticals/ai4s" }],
+    ["repo.preset.check", { presetId: "standard-task" }],
+    ["repo.preset.audit", {}],
+    ["repo.template.list", {}],
+    ["repo.script.list", {}],
+  ] as const)
+    assert.doesNotThrow(() => request(method, payload));
+  assert.doesNotThrow(() =>
+    request("repo.task.read", { action: { kind: "doc-show", path: "tasks/task-worker/artifacts/report.md" } }),
+  );
+  // Catalog reads stay inside the dispatch's repository and away from the write lifecycle.
+  assert.throws(() => request("repo.preset.list", {}, "other-repo"), { code: "execution_credential_rejected" });
+  for (const action of [
+    { kind: "preset-install", packageSource: "pkg" },
+    { kind: "preset-seed" },
+    { kind: "preset-upgrade", taskId: p.taskId },
+    { kind: "script-run", scriptId: "vertical:a:b" },
+    { kind: "task-create", title: "x" },
+  ])
+    assert.throws(() => requireExecutionActionScope(p, action), { code: "execution_credential_rejected" });
+  // The gate passes document reads without a task binding; the doc-sync read owns the path bound.
+  assert.throws(
+    () => requireExecutionActionScope(p, { kind: "doc-show", path: "tasks/task-worker/x.md", taskId: "task-other" }),
+    { code: "execution_credential_rejected" },
+  );
+});
+
+test("execution credentials keep validator sources inside the dispatched repository", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-source-scope-"));
+  try {
+    const cell = {
+        rootDir,
+        cellCodedError: (code: string, text: string) => Object.assign(new Error(text), { code }),
+        settings: {
+          read: () => ({
+            defaultVertical: "software/coding",
+            defaultPreset: "standard-task",
+            locale: "en-US",
+            scaffolds: { task: "t", repository: "r" },
+            ci: { workflows: [] },
+          }),
+        },
+        store: { readHead: () => null },
+        projection: { readCut: () => ({ status: "ready", watermark: 1 }) },
+        operationId: () => "op",
+        input: { repoId: "repo" },
+      } as never,
+      principalBinding = {
+        actor: { principal: { personId: "person-worker" }, executor: null },
+        source: "local" as const,
+        executionPrincipal: principal(),
+      },
+      localBinding = { actor: { principal: { personId: "person-worker" } }, source: "local" as const },
+      validate = async (binding: object, verticalSource: string) =>
+        executeRepoAction(cell, { kind: "vertical-validate", verticalSource } as never, binding as never);
+    for (const outside of ["../neighbor/vertical.json", "/etc/vertical.json"])
+      await assert.rejects(validate(principalBinding, outside), { code: "execution_credential_rejected" });
+    // The same source stays reachable for the repository's own local principals.
+    const receipt = (await validate(localBinding, "/etc/vertical.json")) as { readonly outcome: string };
+    assert.equal(receipt.outcome, "applied");
+    // Inside the repository the validator runs and reports availability itself.
+    assert.equal(
+      ((await validate(principalBinding, "verticals/none")) as { readonly outcome: string }).outcome,
+      "applied",
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
