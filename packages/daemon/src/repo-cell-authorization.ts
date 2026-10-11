@@ -64,7 +64,7 @@ export async function evaluateRepoCellAction(input: {
       target === repositoryTarget
         ? { kind: "repository", repoId: input.repoId }
         : { kind: "entity", repoId: input.repoId, entityRef: target },
-    resourceAncestors = await canonicalResourceAncestors(input.readTask ?? input.binding.readTask, resource);
+    resourceAncestors = await canonicalResourceAncestors(input.readTask, resource);
   const result = await evaluateKeycloakPerson({
     credential,
     personId: envelope.actor.principal.personId,

@@ -38,8 +38,6 @@ export type RepoTaskAction = Readonly<Record<string, unknown>> & {
 };
 
 export interface RepoCellBinding {
-  /** Internal current-cut lookup used by authorization; never populated from transport. */
-  readonly readTask?: (taskId: string) => import("@harness-anything/kernel").TaskV2 | null;
   readonly executionPrincipal?: import("./runtime-execution-credential.ts").RuntimeExecutionPrincipal;
   /** Online directory facts resolved inside the center writer, never accepted from transport. */
   readonly taskClaimant?: TaskClaimant;

@@ -264,7 +264,6 @@ export function readTaskActionExplanation(
 /** Resolve Person identity and action decisions online before entering the synchronous read cut. */
 export async function preparePersonActionExplanationBinding(
   input: {
-    readonly projection: Pick<import("@harness-anything/kernel").TaskProjection, "read">;
     readonly revision: number;
     readonly repoId: string;
     readonly now: () => string;
@@ -332,7 +331,6 @@ export async function preparePersonActionExplanationBinding(
             revision,
             now: input.now(),
             targetOverride: entity.ref,
-            readTask: (taskId) => input.projection.read(taskId).snapshot.task,
           }).catch((cause: unknown) => {
             throw Object.assign(
               new Error(`Live action authorization is unavailable: ${runtimeErrorMessage(cause)}`, { cause }),

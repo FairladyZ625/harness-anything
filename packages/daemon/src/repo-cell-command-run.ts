@@ -59,7 +59,6 @@ export function makeRepoCellCommandRunner(
     binding: RepoCellBinding,
     signal?: AbortSignal,
   ): Promise<WriteReceipt | SquadControlResult> => {
-    binding = { ...binding, readTask: (taskId) => context.projection.read(taskId).snapshot.task };
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
     const requested = { action, binding },

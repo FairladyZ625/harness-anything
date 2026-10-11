@@ -546,7 +546,6 @@ export async function openRepoCellProxy(
         const session = <T>(read: (projection: TaskProjectionQueries, frame?: RepositoryReadFrame) => T): T =>
           input.mode === "remote-edge" ? edgeReplicaRead(binding, read) : query(read);
         const at = session((projection) => ({
-          projection,
           revision: projection.readCut().sourceRevision,
           binding: bindVerifiedExecutorClaim({
             action: { kind: "entity-action-explain", executor: payload.executor },
@@ -558,7 +557,6 @@ export async function openRepoCellProxy(
         const prepared = await preparePersonActionExplanationBinding(
           {
             revision: at.revision,
-            projection: at.projection,
             repoId: input.repoId,
             now: () => input.now?.() ?? new Date().toISOString(),
             binding: at.binding,
