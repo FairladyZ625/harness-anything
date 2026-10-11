@@ -48,6 +48,17 @@ export async function runCompletionSources(
       },
       source: "local",
     };
+    if (requirement.witness.kind === "github-actions") {
+      const claimed = await accept(
+        { kind: "task-witness-claim", taskId, executionId: execution.executionId, gateId: requirement.gateId },
+        sourceActor,
+      );
+      if (!["applied", "no_changes"].includes(claimed.receipt.outcome))
+        warnings.push(
+          `${claimed.receipt.code ?? claimed.receipt.outcome}: ${claimed.receipt.rejectionExplanation ?? claimed.receipt.evidence ?? "CI source rejected."}`,
+        );
+      continue;
+    }
     const current = currentGateRun(execution, requirement.gateId);
     // A command is executed only by the request that accepted its claim. Existing running
     // commands are owned by that invocation; terminal runs require an explicit owner rerun.
@@ -101,7 +112,9 @@ export async function runCompletionSources(
       { actor: run.actor, source: "local" },
     );
     if (settled.receipt.outcome !== "applied")
-      warnings.push(settled.receipt.evidence ?? `Gate ${requirement.gateId} settlement was rejected.`);
+      warnings.push(
+        `${settled.receipt.code ?? settled.receipt.outcome}: ${settled.receipt.rejectionExplanation ?? settled.receipt.evidence ?? `Gate ${requirement.gateId} settlement was rejected.`}`,
+      );
     else if (unavailable || evidence?.result === "fail") warnings.push(unavailable ?? evidence!.diagnostic);
   }
   return warnings;

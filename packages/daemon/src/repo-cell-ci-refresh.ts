@@ -43,7 +43,7 @@ export function makeCiRefreshQueue(input: {
   const recordedWitnessReceipt = (taskId: string): WriteReceipt | null => {
     const target = submittedGithubActionsRequirement(context.projection.read(taskId).snapshot);
     if (!target) return null;
-    if (githubActionsGateResult(context.extracted, target.requirement, target.execution) !== "pass") return null;
+    if (githubActionsGateResult(target.requirement, target.execution) !== "pass") return null;
     return {
       outcome: "no_changes",
       opId: `ci-observe-pull:${taskId}`,
