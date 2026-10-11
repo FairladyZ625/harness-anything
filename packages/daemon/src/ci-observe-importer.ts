@@ -185,9 +185,15 @@ export async function reconcileCiOccurrence(input: {
         if (githubActionsGateResult(requirement, execution!) === "pass") continue;
         const result = await fetchCiRequest(cell, { kind: "ci-observe-pull", taskId }, gh);
         if ("failure" in result) {
-          // Durable submissions are re-derived next occurrence after a transient provider failure.
+          // Durable submissions are re-derived next occurrence after a transient provider failure or
+          // a return/resubmit that landed after this occurrence listed the task.
           // Authentication, rate limits and local IO still fail the occurrence.
-          if (cellErrorCode(result.failure) !== "ci_witness_not_found" && !isTransientCiProviderFailure(result.failure))
+          const code = cellErrorCode(result.failure);
+          if (
+            code !== "ci_witness_not_found" &&
+            code !== "ci_witness_delivery_unresolved" &&
+            !isTransientCiProviderFailure(result.failure)
+          )
             throw result.failure;
           failedTargets += 1;
           continue;
