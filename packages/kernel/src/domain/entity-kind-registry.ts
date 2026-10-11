@@ -848,10 +848,10 @@ export const entityKindContracts = withDeclaredEntityActions([
     },
     statusVocabulary: [
       { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
-      { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
+      { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled", "stopped"] },
       {
         field: "semanticState",
-        words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+        words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
       },
     ],
     actionCatalog: runtimeSessionActionCatalog,

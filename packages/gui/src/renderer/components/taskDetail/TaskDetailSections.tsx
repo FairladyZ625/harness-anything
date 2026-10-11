@@ -643,6 +643,8 @@ const dispatchStatusColor: Readonly<Record<TaskDispatchProjectionRow["status"], 
   cancelled: "bg-text-faint",
   unknown: "bg-text-faint",
   lost: "bg-text-faint",
+  stopped: "bg-text-faint",
+  blocked: "bg-danger",
 };
 function StatusDot({ status }: { readonly status: TaskDispatchProjectionRow["status"] }) {
   return <span className={`size-2 rounded-full ${dispatchStatusColor[status]}`} aria-label={status} />;

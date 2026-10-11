@@ -16,7 +16,7 @@ export function scheduleOutcomeFromRuntime(
   runtimeOutcome: RuntimeExitOutcome,
   finalText: string | null,
 ): ScheduleRunOutcome {
-  if (runtimeOutcome !== "succeeded") return runtimeOutcome;
+  if (runtimeOutcome !== "succeeded") return runtimeOutcome === "stopped" ? "unknown" : runtimeOutcome;
   const lastNonEmptyLine = finalText?.split(/\r?\n/u).findLast((line) => line.trim().length > 0);
   if (lastNonEmptyLine === "HARNESS-OUTCOME: succeeded") return "succeeded";
   if (lastNonEmptyLine === "HARNESS-OUTCOME: failed") return "failed";

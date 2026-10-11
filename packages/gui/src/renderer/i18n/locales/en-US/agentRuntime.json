@@ -212,6 +212,8 @@
   "agentRuntime.sessionStatusSucceeded": "Succeeded",
   "agentRuntime.sessionStatusFailed": "Failed",
   "agentRuntime.sessionStatusCancelled": "Cancelled",
+  "agentRuntime.sessionStatusStopped": "Stopped · not delivered",
+  "agentRuntime.sessionStatusBlocked": "Blocked · awaiting a decision",
   "agentRuntime.sessionStatusUnknown": "Unknown",
   "agentRuntime.sessionStatusEndedIndeterminate": "Ended · outcome indeterminate",
   "agentRuntime.sessionStatusUnavailable": "Status unavailable",

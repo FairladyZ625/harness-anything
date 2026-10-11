@@ -37,20 +37,20 @@ test("path-like runtime missions produce an actionable receipt without exposing 
   context.diagnostic(`invalid_runtime_mission receipt=${JSON.stringify(receipt)}`);
 });
 
-test("exit zero without a declared delivery witness is unknown", () => {
-  const result = classifyRuntimeExit(active({ protocolError: true }), 0);
-  assert.equal(result.outcome, "unknown");
+test("exit zero without a declared delivery witness is stopped when the worker reported a final message", () => {
+  const result = classifyRuntimeExit(active({ protocolError: true, finalText: "stopped at checkpoint" }), 0);
+  assert.equal(result.outcome, "stopped");
 });
 
-test("exit zero is not promoted by write or plan heuristics", () => {
+test("exit zero without final output is failed even when write or plan heuristics are present", () => {
   const result = classifyRuntimeExit(active({ writeItemObserved: false, planObserved: false }), 0);
-  assert.equal(result.outcome, "unknown");
+  assert.equal(result.outcome, "failed");
 });
 
-test("exit zero does not turn an internal plan heuristic into an unknown outcome", () => {
+test("exit zero without final output remains failed despite an internal plan heuristic", () => {
   assert.equal(
     classifyRuntimeExit(active({ writeItemObserved: true, planObserved: true, planIncomplete: true }), 0).outcome,
-    "unknown",
+    "failed",
   );
 });
 
@@ -59,7 +59,7 @@ test("taskless settlement requires the provider's completed turn and final resul
   try {
     for (const sample of [
       { finalText: "completed result", expected: "succeeded" },
-      { finalText: null, expected: "unknown" },
+      { finalText: null, expected: "failed" },
     ] as const) {
       const outcomes: Record<string, unknown>[] = [],
         runtime = tasklessSettlementRuntime(rootDir, sample.finalText),
@@ -164,8 +164,8 @@ test("a read-only task attach requires its dispatch report, while a reviewer sti
   try {
     for (const sample of [
       { report: true, role: null, expected: "succeeded" },
-      { report: false, role: null, expected: "unknown" },
-      { report: true, role: "reviewer", expected: "unknown" },
+      { report: false, role: null, expected: "stopped" },
+      { report: true, role: "reviewer", expected: "stopped" },
     ] as const) {
       const outcomes: Record<string, unknown>[] = [],
         runtime = {
@@ -337,7 +337,7 @@ test("runtime result text caps provider frame failure text", () => {
   assert.ok(text.length <= 1200, String(text.length));
 });
 
-test("a taskless squad leader result is not a delivery witness", () => {
+test("a taskless squad leader result is stopped without a delivery witness", () => {
   const result = classifyRuntimeExit(
     active({
       squadId: "core-squad",
@@ -348,7 +348,7 @@ test("a taskless squad leader result is not a delivery witness", () => {
     }),
     0,
   );
-  assert.equal(result.outcome, "unknown");
+  assert.equal(result.outcome, "stopped");
 });
 
 test("a non-zero squad leader exit is failed even when its final text declares convergence", () => {
@@ -687,7 +687,7 @@ test("terminal settlement keeps a clean task exit unknown without its execution 
       return {};
     });
   await publishExit({ ...settleContext, requiredRuntimeProjection: () => deliveryProjection(null) }, runtime, 0);
-  assert.equal(outcomes[0]?.outcome, "unknown");
+  assert.equal(outcomes[0]?.outcome, "stopped");
   assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
 });
 
@@ -773,10 +773,10 @@ test("a reviewer's branch commit does not witness success without the registered
     runtime,
     0,
   );
-  assert.equal(outcomes[0]?.outcome, "unknown");
+  assert.equal(outcomes[0]?.outcome, "stopped");
 });
 
-test("an edge reviewer without a local projection settles unknown", async (context) => {
+test("an edge reviewer without a local projection settles stopped", async (context) => {
   const fixture = workerGitFixture(context, "settle-review-edge", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, {
       finalText: "review registered elsewhere",
@@ -801,7 +801,7 @@ test("an edge reviewer without a local projection settles unknown", async (conte
     runtime,
     0,
   );
-  assert.equal(outcomes[0]?.outcome, "unknown");
+  assert.equal(outcomes[0]?.outcome, "stopped");
 });
 
 test("squad leader settlement preserves its machine-readable control result", async (context) => {
@@ -895,7 +895,7 @@ test("commander-owned settlement without a local commit does not report a delive
 
 test("a squad leader turn is witnessed by its structured control result", async (context) => {
   // The leader owes no repository artifacts (children deliver the commits), so without this
-  // witness every leader turn settles unknown and the coordinator retries instead of parsing
+  // Without this witness a leader turn settles stopped and the coordinator retries instead of parsing
   // the decision — the squad loop itself depended on the removed unknown-to-succeeded restating.
   const fixture = workerGitFixture(context, "squad-leader-witness", { reachableRemote: true, delivery: false }),
     controlResult = JSON.stringify({
@@ -929,7 +929,7 @@ test("a squad leader turn is witnessed by its structured control result", async 
   assert.equal(outcomes[0]?.outcome, "succeeded");
 });
 
-test("a squad leader turn without the provider's structured success settles unknown", async (context) => {
+test("a squad leader turn without the provider's structured success settles stopped", async (context) => {
   const fixture = workerGitFixture(context, "squad-leader-unstructured", { reachableRemote: true, delivery: false }),
     runtime = workerSettlementRuntime(fixture, {
       agent: { id: "fable", name: "Fable" },
@@ -951,7 +951,7 @@ test("a squad leader turn without the provider's structured success settles unkn
     runtime,
     0,
   );
-  assert.equal(outcomes[0]?.outcome, "unknown");
+  assert.equal(outcomes[0]?.outcome, "stopped");
 });
 
 test("a squad worker's delivery is the commits on its commander-cut branch", async (context) => {

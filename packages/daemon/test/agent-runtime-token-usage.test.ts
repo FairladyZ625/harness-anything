@@ -674,7 +674,7 @@ function seedDispatch(
     readonly usageUnavailable?: boolean;
     readonly exit?: { readonly code: number | null; readonly afterMs: number };
     /** Settled 通过 runtime-spawn-settlement 写入的已接受终局;省略 = 该流没有终局记录。 */
-    readonly terminal?: "succeeded" | "failed" | "unknown" | "cancelled";
+    readonly terminal?: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped";
     readonly classification?: "provider_fault" | "provider_quota" | "worker_stop" | "gate_red";
   },
 ): void {
@@ -907,6 +907,7 @@ test("the aggregate answers who spent, on what, how sessions ended and what the 
       { outcome: "succeeded", sessionCount: 3, totalTokens: 510_000 },
       { outcome: "failed", sessionCount: 1, totalTokens: 50_000 },
       { outcome: "cancelled", sessionCount: 1, totalTokens: 25_000_000 },
+      { outcome: "stopped", sessionCount: 0, totalTokens: 0 },
       { outcome: "running", sessionCount: 0, totalTokens: 0 },
       { outcome: "unknown", sessionCount: 1, totalTokens: 300 },
     ]);
@@ -1210,6 +1211,7 @@ test("an externally cancelled dispatch keeps the domain word in the member detai
             ["succeeded", 1],
             ["failed", 1],
             ["cancelled", 1],
+            ["stopped", 0],
             ["running", 0],
             ["unknown", 3],
           ],
