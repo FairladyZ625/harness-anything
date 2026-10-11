@@ -1,9 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { execFileSync, spawnSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
 
@@ -63,30 +63,54 @@ test("provider environment excludes host Git and SSH credentials", () => {
 });
 
 test(
-  "an SSH git push cannot use the provider environment",
+  "Git SSH cannot use host credentials in the provider environment",
   { skip: process.platform === "win32" ? "requires POSIX executable SSH fixture semantics" : false },
   () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-host-")),
-      repo = path.join(parent, "repo");
+      bin = path.join(parent, "bin"),
+      sshStub = path.join(bin, "ssh"),
+      logPath = path.join(parent, "ssh-log.json");
     try {
-      execFileSync("git", ["init", "-q", repo]);
-      execFileSync("git", ["-C", repo, "config", "user.name", "Provider Test"]);
-      execFileSync("git", ["-C", repo, "config", "user.email", "provider@example.invalid"]);
-      writeFileSync(path.join(repo, "change.txt"), "provider change\n");
-      execFileSync("git", ["-C", repo, "add", "change.txt"]);
-      execFileSync("git", ["-C", repo, "commit", "-q", "-m", "change"]);
-      const environment = runtimeWorkerProviderEnvironment({
+      mkdirSync(bin);
+      writeFileSync(
+        sshStub,
+        "#!/usr/bin/env node\n" +
+          "const fs = require('node:fs');\n" +
+          "fs.writeFileSync(process.env.SSH_STUB_LOG, JSON.stringify({ args: process.argv.slice(2), agent: process.env.SSH_AUTH_SOCK ?? null }));\n",
+      );
+      chmodSync(sshStub, 0o755);
+
+      const baseEnvironment = {
         ...process.env,
+        PATH: `${bin}:${process.env.PATH ?? ""}`,
+        SSH_STUB_LOG: logPath,
         SSH_AUTH_SOCK: "/operator/agent.sock",
-        GIT_SSH_COMMAND: "ssh -i /operator/.ssh/id_ed25519",
+        GIT_SSH_COMMAND: sshStub,
+      };
+      const before = spawnSync("git", ["ls-remote", "ssh://git@example.invalid/repo"], {
+        env: baseEnvironment,
+        encoding: "utf8",
+        timeout: 5_000,
       });
-      delete environment.HARNESS_TASK_BOUND;
-      const result = spawnSync("git", ["-C", repo, "push", "ssh://git@127.0.0.1:1/repo", "HEAD:main"], {
+      assert.notEqual(before.status, 0, before.stderr);
+      const beforeLog = JSON.parse(readFileSync(logPath, "utf8")) as { args: string[]; agent: string | null };
+      assert.equal(beforeLog.agent, "/operator/agent.sock");
+      assert.equal(beforeLog.args.includes("IdentityAgent=none"), false);
+
+      const environment = runtimeWorkerProviderEnvironment(baseEnvironment);
+      environment.GIT_SSH_COMMAND = environment.GIT_SSH_COMMAND?.replace(/^ssh/u, sshStub);
+      const after = spawnSync("git", ["ls-remote", "ssh://git@example.invalid/repo"], {
         env: environment,
         encoding: "utf8",
         timeout: 5_000,
       });
-      assert.notEqual(result.status, 0, result.stderr);
+      assert.notEqual(after.status, 0, after.stderr);
+      const afterLog = JSON.parse(readFileSync(logPath, "utf8")) as { args: string[]; agent: string | null };
+      assert.equal(afterLog.agent, null);
+      assert.deepEqual(
+        new Set(afterLog.args.filter((arg) => arg.startsWith("Identity") || arg.startsWith("Identities"))),
+        new Set(["IdentityAgent=none", "IdentityFile=/dev/null", "IdentitiesOnly=yes"]),
+      );
     } finally {
       rmSync(parent, { recursive: true, force: true });
     }
