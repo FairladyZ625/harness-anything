@@ -642,6 +642,7 @@ test("runtime update accepts exactly the fields the registry declares", () => {
   assert.deepEqual([...declared].sort(), [
     "apiKey",
     "baseUrl",
+    "clearFreeze",
     "defaultModel",
     "effort",
     "enabled",

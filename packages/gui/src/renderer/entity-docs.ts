@@ -645,7 +645,6 @@ const agentDoc: EntityKindDoc = {
     field("role", false, "enum", "worker / commander。"),
     field("skills", false, "array", "技能引用:{id, path}。"),
     field("prompts", false, "array", "提示词引用。"),
-    field("fallback", false, "object", "provider 故障时的候选链与退避策略。"),
   ],
   nestedFields: noNested,
   edges: [{ type: "dispatches", sourceKind: "agent", targetKind: "runtime-session" }],
