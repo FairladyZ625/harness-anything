@@ -109,7 +109,7 @@ function emptyRelationFacet(facet: string) {
 
 /** 直接以某个视图启动(等价于「会话停在这个页面」),避免先经过总览。 */
 function startOnView(view: string) {
-  window.sessionStorage.setItem(
+  window.localStorage.setItem(
     `harness-view-history:${REPO_ID}`,
     JSON.stringify({
       schema: "gui-view-history/v1",

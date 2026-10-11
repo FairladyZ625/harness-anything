@@ -238,6 +238,8 @@
    "packages/gui/src/renderer/model/time.ts#validTimeZone",
    "packages/gui/src/renderer/navigation/useLocationRestore.ts#useLocationRestore",
    "packages/gui/src/renderer/navigation/viewHistoryStorage.ts#writeViewHistory",
+  "packages/gui/src/renderer/project-order-preferences.ts#readProjectOrder",
+  "packages/gui/src/renderer/project-order-preferences.ts#writeProjectOrder",
    "packages/gui/src/renderer/split-layout-preferences.ts#readSplitPreferences",
    "packages/gui/src/renderer/split-layout-preferences.ts#writeSplitPreferences",
    "packages/gui/src/renderer/terminal-layout.ts#readTerminalLayout",

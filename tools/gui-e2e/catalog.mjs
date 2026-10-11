@@ -10,6 +10,7 @@ import workTeams from "./scenarios/work-teams.mjs";
 import externalKeycloak from "./scenarios/external-keycloak.mjs";
 import shellNavigation from "./scenarios/shell-navigation.mjs";
 import navigationHistory from "./scenarios/navigation-history.mjs";
+import projectSwitchRestore from "./scenarios/project-switch-restore.mjs";
 import overview from "./scenarios/overview-first-usable.mjs";
 import board from "./scenarios/board-preview-detail.mjs";
 import taskTimelineRecordNavigation from "./scenarios/task-timeline-record-navigation.mjs";
@@ -59,6 +60,7 @@ export const catalog = [
   externalKeycloak,
   shellNavigation,
   navigationHistory,
+  projectSwitchRestore,
   overview,
   board,
   taskTerminal,
