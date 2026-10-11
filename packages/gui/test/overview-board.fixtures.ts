@@ -103,6 +103,11 @@ const awaitsRow = (relationId: string): AgendaAwaitsRow => ({
   askedBy: "person_worker",
 });
 
+/** 工作的活动时间相对挂载时刻生成:总览「关注的工作」默认只列最近 3 天(设置项)有
+ * 活动的工作,静态历史日期会被窗口诚实地滤掉。w1 两小时前、w2 两天前(都在默认窗口
+ * 内),已收尾工作任意旧。 */
+const hoursAgo = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+
 export const WORKS: WorkIndexRead = {
   schema: "daemon.work-index/v1",
   ok: true,
@@ -116,7 +121,7 @@ export const WORKS: WorkIndexRead = {
       parentTaskId: null,
       taskCount: 3,
       counts: { done: 2, executing: 1, pending: 0, blocked: 0, planned: 0, cancelled: 0 },
-      lastActivityAt: "2026-09-28T00:00:00.000Z",
+      lastActivityAt: hoursAgo(2),
       memberTaskIds: ["task_m1"],
     },
     {
@@ -127,7 +132,7 @@ export const WORKS: WorkIndexRead = {
       parentTaskId: null,
       taskCount: 3,
       counts: { done: 0, executing: 0, pending: 0, blocked: 1, planned: 2, cancelled: 0 },
-      lastActivityAt: "2026-09-20T00:00:00.000Z",
+      lastActivityAt: hoursAgo(48),
       memberTaskIds: [],
     },
     {

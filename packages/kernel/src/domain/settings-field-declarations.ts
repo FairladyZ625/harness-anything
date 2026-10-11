@@ -272,6 +272,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     cli: { name: "--locale", kind: "single", enum: settingsLocales },
   }),
   defineSettingsField({
+    path: ["overview", "watchedActivityDays"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: 3,
+    minimum: 1,
+    description: "How many days back the overview's watched-works activity window reaches.",
+    effect:
+      "The overview lists works with activity inside this window ahead of the pinned ones; older works stay on the works page.",
+    group: "presentation",
+    action: { field: "overviewWatchedActivityDays", type: "number" },
+    cli: { name: "--overview-watched-activity-days", kind: "single", regex: "^[1-9][0-9]*$" },
+  }),
+  defineSettingsField({
     path: ["scaffolds", "task"],
     ownership: repository,
     ...settingId,

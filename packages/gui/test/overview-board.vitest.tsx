@@ -28,12 +28,13 @@ import {
 } from "./overview-board.fixtures.ts";
 
 /**
- * 总览(2026-10-04 注意力优先重构)的行为面:首块只列真实待人事项并给真实动作;主区
- * 关注的工作(置顶优先,零置顶回退活跃工作);WIP/评审执行/跟进返工/置顶承诺收成紧凑
- * 下钻入口且列表可达;系统状态弱化、异常(daemon/CI/投影)提升。旧九区瀑布板与
- * overview-layout 已删除,布局断言不再适用;注意力派生的纯函数另测。左列在飞任务流
- * 与产物速览架(task_8a83698)的行为面在 overview-inflight-shelf.vitest.tsx;共享挂载
- * 夹具在 overview-board.fixtures.ts。
+ * 总览(2026-10-04 注意力优先重构;2026-10-11 业主意见返工)的行为面:首块只列真实待人
+ * 事项并给真实动作;主区关注的工作(置顶在前,其余按「关注的工作活动天数」设置项的
+ * 活动窗口列);「执行与下钻」的「进行中的任务」并进原在飞任务流的执行者/最近活动
+ * 信息(在飞任务流区块已删除)。旧九区瀑布板与 overview-layout 已删除,布局断言不再
+ * 适用;注意力派生的纯函数另测。左列最新产物速览架与产物二级页(task_8a83698;
+ * 2026-10-11 意见 1)的行为面在 overview-artifacts.vitest.tsx;共享挂载夹具在
+ * overview-board.fixtures.ts。
  */
 
 beforeAll(() => {
@@ -206,7 +207,7 @@ describe("总览:顶部「需要你处理」紧凑决策带", () => {
 });
 
 describe("总览:主区「关注的工作」", () => {
-  it("置顶的非终态工作优先,来源如实标示;已收尾的置顶工作只计数", () => {
+  it("置顶的非终态工作保留在前,其余近期工作随后;已收尾的置顶工作只计数", () => {
     const container = mount({
       agenda: agenda({
         pinnedEntities: [
@@ -219,8 +220,9 @@ describe("总览:主区「关注的工作」", () => {
     expect(textOf(works)).toContain("置顶 1 项");
     expect(textOf(works)).toContain("代码质量长期检验");
     expect(textOf(works)).toContain("1 项置顶工作已收尾");
-    // 置顶模式下列活跃的置顶工作,不把全部工作铺开。
-    expect(textOf(works)).not.toContain("网关读面加缓存");
+    // 置顶在前,近期有活动的工作随后(意见 4 的默认口径),已收尾的不进列表。
+    const cards = [...works.querySelectorAll("[data-work-card]")].map((card) => card.getAttribute("data-work-card"));
+    expect(cards).toEqual(["task_w1", "task_w2"]);
     unmount();
   });
 
@@ -240,7 +242,7 @@ describe("总览:主区「关注的工作」", () => {
     unmount();
   });
 
-  it("工作行压缩为一到两行:计数/百分比同行,卡点与处理者有值才进第二行", async () => {
+  it("工作行压缩为一到两行:进度/进行中/处理者/等你处理有值才进第二行", async () => {
     vi.stubGlobal("harness", {
       request: (method: string) =>
         method === "getAgentRuntimeOverview"
@@ -271,20 +273,18 @@ describe("总览:主区「关注的工作」", () => {
     );
     const card = container.querySelector("[data-work-card='task_w1']")!;
     const text = textOf(card);
-    // 状态标签 + 标题 + 「子任务 done/总数 · 百分比」同一行;完整子任务/未完成明细悬停给。
-    expect(text).toMatch(/2\/3 · \d+%/);
+    // 第二行是行内信息面(2026-10-11 意见 4):进度、进行中子任务数、执行者、等你处理数;
+    // 完整子任务/未完成/最近明细悬停给。
+    expect(text).toMatch(/进度 2\/3 · \d+%/);
+    expect(text).toContain("进行中 1");
+    expect(text).toContain("等你处理 2");
     const hover = card.querySelector("[data-dense-row]")!.getAttribute("title")!;
     expect(hover).toContain("子任务完成 2/3");
     expect(hover).toContain("未完成 1");
-    // 可用交付与阶段摘要:投影没有就如实说明,不编造。
-    expect(textOf(container.querySelector('[data-testid="overview-region-works"]')!)).toContain(
-      "可用交付与阶段摘要当前投影未提供",
-    );
-    // 卡点第二行点名该工作上的注意力项(只读芯片;动作在同页决策带与跟进名单)。
-    expect(text).toContain("卡点");
-    expect(text).toContain("边缘 RBAC 设计裁决");
     // 处理者来自 runtime overview 的 live 会话(who = kind · model)。
     expect(text).toContain("codex · glm-5.3");
+    // 行尾时间给最近活动的相对年龄(活动窗口的口径本体)。
+    expect(text).toMatch(/分钟前|小时前|刚刚|天/u);
     // 点行进工作详情,不再需要行内「打开工作」按钮。
     act(() => (card.querySelector("button") as HTMLButtonElement).click());
     expect(onOpenTask).toHaveBeenCalledWith("task_w1");
@@ -293,16 +293,16 @@ describe("总览:主区「关注的工作」", () => {
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
   });
 
-  it("在飞而无会话的工作行如实标注;无卡点的工作第二行只给处理者档", () => {
-    // 默认夹具:task_w1 在飞(executing 1)且无 live 会话 → 「无 agent」诚实信号进第二行。
+  it("在跑而无会话的工作行如实标注;无进行中子任务的工作不冒充「无 agent」", () => {
+    // 默认夹具:task_w1 在跑(executing 1)且无 live 会话 → 「无 agent」诚实信号进第二行。
     const container = mount();
     const w1 = container.querySelector("[data-work-card='task_w1']")!;
-    expect(textOf(w1)).toContain("在飞任务无 agent 在跑");
-    // task_w2 只有卡点没有在飞占用:第二行不冒充「无 agent」(active 计数为 0)。
+    expect(textOf(w1)).toContain("进行中的任务无 agent 在跑");
+    // task_w2 只有卡点没有在跑子任务:第二行不冒充「无 agent」(active 计数为 0)。
     const w2 = container.querySelector("[data-work-card='task_w2']")!;
-    expect(textOf(w2)).toContain("被阻塞的成员任务");
-    expect(textOf(w2)).not.toContain("在飞任务无 agent 在跑");
-    // 卡点与处理者都有值才进第二行:两行档的标题/原因各占一个 block 行,不超过两行。
+    expect(textOf(w2)).toMatch(/进度 0\/3 · 0%/);
+    expect(textOf(w2)).not.toContain("进行中的任务无 agent 在跑");
+    // 两行档的标题/原因各占一个 block 行,不超过两行。
     expect(w1.querySelectorAll("[data-dense-row] .block").length).toBe(2);
     unmount();
   });
@@ -364,7 +364,7 @@ describe("总览:主区「关注的工作」", () => {
     const onOpenWorks = vi.fn();
     const container = mount({ works: WORKS_EMPTY, onOpenWorks });
     const works = container.querySelector('[data-testid="overview-region-works"]')!;
-    expect(textOf(works)).toContain("没有可关注的工作");
+    expect(textOf(works)).toContain("最近 3 天没有有活动的工作");
     const open = [...works.querySelectorAll("button")].find((button) => textOf(button).includes("去工作页"));
     act(() => open!.click());
     expect(onOpenWorks).toHaveBeenCalledTimes(1);
@@ -585,6 +585,50 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     act(() => (drill.querySelector('[data-testid="overview-drill-pinned"]') as HTMLElement).click());
     expect(drill.querySelector('[data-testid="overview-drill-pinned-empty"]')).not.toBeNull();
     expect(textOf(container.querySelector('[data-testid="overview-drill-pinned-empty"]')!)).toContain("没有置顶承诺");
+    unmount();
+    restore();
+  });
+
+  it("「进行中的任务」行并进执行者与最近活动;没有在跑的如实写「无 agent 在跑」", async () => {
+    // 意见 3 的合并面:原在飞任务流的信息(时间、当前哪个 agent 在跑)进「执行与下钻」
+    // 的「进行中的任务」行,四态仍同列(blocked 不再被过滤——放大层与跟进名单另有分组)。
+    const restore = stubBridge({
+      getTaskWip: () =>
+        wipSnapshot([
+          { taskId: "task_run", status: "active" as const, title: "有会话的进行中任务" },
+          { taskId: "task_idle", status: "submitted" as const, title: "无会话的进行中任务" },
+        ]),
+      getAgentRuntimeOverview: () =>
+        ({
+          ok: true,
+          status: "ready",
+          installations: [],
+          instances: [],
+          sessions: [
+            {
+              runtimeSessionId: "rs_run",
+              kindId: "codex",
+              liveness: "live",
+              definitionSnapshot: { model: "glm-5.3" },
+              associations: [{ taskId: "task_run" }],
+              activity: { lastObservedAt: AT },
+            },
+          ],
+          watermark: 7,
+          sourceRevision: 7,
+        }) as unknown as AgentRuntimeOverviewResult,
+    });
+    const container = mount();
+    await flushUntil(() => container.querySelector('[data-drill-row="task_run"]') !== null);
+    const drill = container.querySelector('[data-testid="overview-region-drill"]')!;
+    // tab 名是「进行中的任务」(「在飞任务」字样全部退役),占用仍在 tab 计数。
+    expect(textOf(drill.querySelector('[data-testid="overview-drill-wip"]'))).toContain("进行中的任务");
+    expect(textOf(drill)).toContain("进行中的任务");
+    expect(textOf(drill)).not.toContain("在飞");
+    const running = textOf(container.querySelector('[data-drill-row="task_run"]'));
+    expect(running).toContain("codex · glm-5.3");
+    const idle = textOf(container.querySelector('[data-drill-row="task_idle"]'));
+    expect(idle).toContain("进行中的任务无 agent 在跑");
     unmount();
     restore();
   });
@@ -950,7 +994,7 @@ describe("总览派生(纯函数)", () => {
     ).toEqual(["adjudication", "answered", "blocked", "stalled"]);
   });
 
-  it("watchedWorks:置顶优先、终态置顶只计数;零置顶回退全部活跃工作", () => {
+  it("watchedWorks:置顶保留在前不受窗口限制;其余按活动窗口过滤、终态置顶只计数", () => {
     const base = agenda();
     const pinned = watchedWorks(WORKS, {
       ...base,
@@ -958,15 +1002,32 @@ describe("总览派生(纯函数)", () => {
         { ref: "task/task_w1", kind: "task", title: "代码质量长期检验", status: "active", pinnedAt: AT },
       ],
     });
-    expect(pinned.watched.map(({ work }) => work.taskId)).toEqual(["task_w1"]);
-    expect(pinned.watched.every(({ source }) => source === "pinned")).toBe(true);
+    expect(pinned.watched.map(({ work, source }) => [work.taskId, source])).toEqual([
+      ["task_w1", "pinned"],
+      ["task_w2", "recent"],
+    ]);
     const closed = watchedWorks(WORKS, {
       ...base,
       pinnedEntities: [{ ref: "task/task_w_done", kind: "task", title: "已收尾的工作", status: "done", pinnedAt: AT }],
     });
     expect(closed.pinnedClosed).toBe(1);
     expect(closed.watched.map(({ work }) => work.taskId)).toEqual(["task_w1", "task_w2"]);
-    expect(closed.watched.every(({ source }) => source === "active")).toBe(true);
+    expect(closed.watched.every(({ source }) => source === "recent")).toBe(true);
+    // 活动窗口(意见 4):未置顶工作只在窗口内才列,置顶不受窗口限制。
+    const stale = { ...WORKS.works[1]!, lastActivityAt: "2026-09-01T00:00:00.000Z" },
+      fresh = WORKS.works[0]!,
+      windowed = watchedWorks(
+        { ...WORKS, works: [stale, fresh, WORKS.works[2]!] },
+        {
+          ...base,
+          pinnedEntities: [
+            { ref: "task/task_w2", kind: "task", title: "网关读面加缓存", status: "active", pinnedAt: AT },
+          ],
+        },
+        { days: 3, now: new Date().toISOString() },
+      );
+    expect(windowed.watched.map(({ work }) => work.taskId)).toEqual(["task_w2", "task_w1"]);
+    expect(windowed.watched.map(({ source }) => source)).toEqual(["pinned", "recent"]);
   });
 
   it("工作行排序:已收尾沉底;注意力优先于最近活动", () => {
@@ -1008,7 +1069,7 @@ describe("总览派生(纯函数)", () => {
     expect(reviewCounts(rows).decisionPending).toBe(0);
   });
 
-  it("drillWipRows:注意力分降序,平分按占位状态生命周期序,再按 taskId 定序", () => {
+  it("drillWipRows:注意力分降序,平分按占位状态生命周期序,再按 taskId 定序;行带执行者与最近活动", () => {
     const counted = [
       { taskId: "task_c", status: "active" as const, title: "c" },
       { taskId: "task_a", status: "blocked" as const, title: "a" },
@@ -1028,24 +1089,48 @@ describe("总览派生(纯函数)", () => {
         },
       ],
     });
+    const runtime = {
+      ok: true,
+      status: "ready",
+      installations: [],
+      instances: [],
+      sessions: [
+        {
+          runtimeSessionId: "rs_d",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "glm-5.3" },
+          associations: [{ taskId: "task_d" }],
+          activity: { lastObservedAt: AT },
+        },
+      ],
+      watermark: 7,
+      sourceRevision: 7,
+    } as unknown as AgentRuntimeOverviewResult;
     const snapshot = { ok: true, limit: 30, limitLabel: "l", counted, roots: [], threshold: 3 } as never;
     // 高分行最前;平分(active 的 c/e)按 taskId;随后 in_review,blocked 殿后(状态生命周期序)。
-    expect(drillWipRows(snapshot, read).map(({ taskId, score }) => [taskId, score])).toEqual([
+    // 行内并进原在飞任务流的执行信息:有 live 会话的行给执行者与 lastObservedAt,没有的
+    // 如实给空执行者与议程 updatedAt 兜底(合并自 overview-inflight-shelf 的行为面)。
+    expect(drillWipRows(snapshot, runtime, read).map(({ taskId, score }) => [taskId, score])).toEqual([
       ["task_d", 42],
       ["task_c", 0],
       ["task_e", 0],
       ["task_b", 0],
       ["task_a", 0],
     ]);
+    const rows = drillWipRows(snapshot, runtime, read);
+    expect(rows.find(({ taskId }) => taskId === "task_d")!.handlers).toEqual(["codex · glm-5.3"]);
+    expect(rows.find(({ taskId }) => taskId === "task_d")!.since).toBe(AT);
+    expect(rows.find(({ taskId }) => taskId === "task_c")!.handlers).toEqual([]);
     // 无 agenda(读面未到)时仍有确定序;无快照给空名单。
-    expect(drillWipRows(snapshot, undefined).map(({ taskId }) => taskId)).toEqual([
+    expect(drillWipRows(snapshot, undefined, undefined).map(({ taskId }) => taskId)).toEqual([
       "task_c",
       "task_d",
       "task_e",
       "task_b",
       "task_a",
     ]);
-    expect(drillWipRows(undefined, read)).toEqual([]);
+    expect(drillWipRows(undefined, runtime, read)).toEqual([]);
   });
 
   it("pinnedTaskRows:可派在前,其余按议程注意力分降序", () => {
