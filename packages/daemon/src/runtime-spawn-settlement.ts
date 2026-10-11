@@ -31,6 +31,9 @@ export async function publishExit(
   )
     return;
   context.exiting.add(active.runtimeSessionId);
+  // Every terminal path — success, failure, cancellation, and the daemon-restart loss
+  // settlement — flows through here, so the run's own temp directory goes with it.
+  context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId);
   const cancelled = active.cancelRequested,
     cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
     terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),

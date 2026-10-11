@@ -508,6 +508,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(fast === undefined ? {} : { fast }),
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),
+                  runtimeSessionId,
                 }),
             result = {
               fallbackAttempt,
@@ -664,6 +665,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.release?.();
       cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      input.reclaimRuntimeTempDirectory?.(runtimeInstanceId, runtimeSessionId);
       if (!taskLeaseHandoff || !taskBinding) return;
       await input.onAttemptTerminal?.({
         runtimeSessionId,

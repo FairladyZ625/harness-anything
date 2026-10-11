@@ -181,6 +181,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     runtimePorts = {
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
+      reclaimRuntimeTempDirectory: instances.reclaimRuntimeTempDirectory,
       prepareWorkerGitEnvironment: instances.prepareWorkerGitEnvironment,
     },
     startedAt = input.startedAt ?? new Date().toISOString(),

@@ -68,6 +68,21 @@ import {
   runtimeKindIds,
 } from "./runtime-inventory.ts";
 
+/** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
+ *  this id into a filesystem path that settlement recursively deletes, so the shape is pinned
+ *  here: adopted dispatch-stream headers read the id back from disk, and the stream write
+ *  boundary does not validate it. */
+const runtimeTempSessionPattern = /^runtime_[0-9a-f]{24}$/u;
+
+function runtimeTempDirectory(instancesRoot: string, instanceId: string, runtimeSessionId: string): string {
+  if (!runtimeTempSessionPattern.test(runtimeSessionId))
+    throw runtimeInstanceError(
+      "invalid_runtime_session_id",
+      "A per-run temp directory requires the spawner-minted runtime session id shape runtime_<24 hex>.",
+    );
+  return path.join(instancesRoot, instanceId, "tmp", runtimeSessionId);
+}
+
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
   readonly discover: () => readonly RuntimeInstallationWitness[];
@@ -239,6 +254,7 @@ export function openRuntimeInstanceStore(input: {
       readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly runtimeSessionId?: string;
     },
   ): Promise<PreparedRuntimeLaunch> {
     const config = readOne(instanceId);
@@ -267,7 +283,11 @@ export function openRuntimeInstanceStore(input: {
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
     if (config.isolationState === "enforced") ensureStateRoot(config);
-    const env = authEnvironment(config),
+    const launchTempDirectory =
+        config.isolationState === "enforced" && request.runtimeSessionId !== undefined
+          ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
+          : null,
+      env = authEnvironment(config, launchTempDirectory ?? undefined),
       args = launchArgs(
         config,
         model,
@@ -285,6 +305,7 @@ export function openRuntimeInstanceStore(input: {
         await probeSubscription(installation, env, config.isolationState),
       );
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
+      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
       return {
         definition,
         installation,
@@ -323,6 +344,7 @@ export function openRuntimeInstanceStore(input: {
       writeZcodeConfig(path.join(home, ".zcode", "cli", "config.json"), config, secret);
     } else if (protocolFamily !== "acp") env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
+    if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
     return {
       definition,
       installation,
@@ -624,6 +646,21 @@ export function openRuntimeInstanceStore(input: {
     }
     throw runtimeInstanceError("unsupported_command", `Unsupported runtime instance command: ${kind}.`);
   }
+  function reclaimRuntimeTempDirectory(instanceId: string, runtimeSessionId: string): void {
+    if (!runtimeTempSessionPattern.test(runtimeSessionId)) return;
+    const config = read().find((entry) => entry.instanceId === instanceId);
+    if (!config || config.isolationState !== "enforced") return;
+    // Reclamation is opportunistic: a file the dying provider still locks must not block
+    // terminal settlement, and the next daemon start's adoption sweep gets another pass.
+    try {
+      rmSync(runtimeTempDirectory(instancesRoot, config.instanceId, runtimeSessionId), {
+        recursive: true,
+        force: true,
+      });
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  }
   return {
     create,
     list: read,
@@ -636,6 +673,7 @@ export function openRuntimeInstanceStore(input: {
     authStatus,
     prepareAuthCommand,
     prepareLaunch,
+    reclaimRuntimeTempDirectory,
     prepareWorkerGitEnvironment,
     refreshInstallations,
     command,
@@ -735,7 +773,7 @@ export function openRuntimeInstanceStore(input: {
       if (authFile && shared) ensureSharedAuthFile(path.join(shared, authFile), path.join(provider, authFile));
     }
   }
-  function authEnvironment(config: RuntimeInstanceConfig): NodeJS.ProcessEnv {
+  function authEnvironment(config: RuntimeInstanceConfig, tempDirectory?: string): NodeJS.ProcessEnv {
     const env =
       config.isolationState === "enforced"
         ? isolatedEnvironment(
@@ -743,6 +781,7 @@ export function openRuntimeInstanceStore(input: {
             path.join(instancesRoot, config.instanceId),
             config.kindId,
             platform,
+            tempDirectory,
           )
         : { ...(input.env ?? process.env) };
     if (platform === "darwin" && config.kindId === "claude" && config.isolationState === "operator-environment")

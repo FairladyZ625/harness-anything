@@ -318,8 +318,12 @@ export interface RuntimeSpawnerInput {
       readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly runtimeSessionId?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  /** Reclaims one runtime session's per-run temp directory under its instance state root;
+   *  a no-op for instances without enforced isolation. */
+  readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => void;
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly resolveAgent?: (agentId: string) => RuntimeAgent;

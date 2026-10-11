@@ -93,8 +93,10 @@ type RuntimePorts = {
       readonly effort?: string;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly runtimeSessionId?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => void;
   readonly prepareWorkerGitEnvironment: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
 };
 const runtimeOverviewPageLimit = 16;
@@ -397,6 +399,7 @@ export function openFleetEdgeRuntime(input: {
     readSettings,
     runtimeInstances: input.ports.runtimeInstances,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
+    reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
     prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
     resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>

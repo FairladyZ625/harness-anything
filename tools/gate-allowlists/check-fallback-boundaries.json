@@ -46,6 +46,7 @@
    "packages/daemon/src/agent-runtime-instance-store.ts#prepareLaunch",
    "packages/daemon/src/agent-runtime-instance-store.ts#prepareWorkerGitEnvironment",
    "packages/daemon/src/agent-runtime-instance-store.ts#probeSubscription",
+   "packages/daemon/src/agent-runtime-instance-store.ts#reclaimRuntimeTempDirectory",
    "packages/daemon/src/agent-runtime-launch-config.ts#providerSubscriptionReadiness",
    "packages/daemon/src/artifacts-gui-read.ts#walkAllTaskArtifacts",
    "packages/daemon/src/artifacts-gui-read.ts#walkArtifactTree",

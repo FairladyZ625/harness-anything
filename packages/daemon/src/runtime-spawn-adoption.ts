@@ -51,6 +51,9 @@ export async function adoptRuntimes(
     const session = byId.get(header.runtimeSessionId);
     if (sessionRead.status === "fulfilled" && (!session || session.outcome !== null)) {
       removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
+      // A session the center already settled while this daemon was down never re-enters
+      // publishExit here, so its per-run temp directory is reclaimed in this sweep instead.
+      context.input.reclaimRuntimeTempDirectory?.(header.instanceId, header.runtimeSessionId);
       continue;
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),

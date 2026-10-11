@@ -90,6 +90,37 @@ test("taskless settlement requires the provider's completed turn and final resul
   }
 });
 
+test("settlement reclaims the run's per-instance temp directory", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-temp-reclaim-"));
+  try {
+    const reclaimed: readonly [string, string][] = [],
+      runtime = tasklessSettlementRuntime(rootDir, "temp reclaimed"),
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-11T00:01:00.000Z",
+          stream: { publish: () => ({}) },
+          remote: { archive: async () => ({ outcome: "applied" }) },
+          reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => {
+            reclaimed.push([instanceId, runtimeSessionId]);
+          },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "temp reclaimed",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, 0);
+    assert.deepEqual(reclaimed, [["provider-a", runtime.runtimeSessionId]]);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("settlement keeps the cache-write counter out of the kernel event metrics copy", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-settlement-metrics-copy-"));
   try {
