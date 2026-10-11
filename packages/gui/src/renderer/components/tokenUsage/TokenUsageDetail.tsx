@@ -1,3 +1,4 @@
+import { CacheWriteValue } from "./CacheWriteValue.tsx";
 import { Notice } from "../primitives/Notice";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { useState } from "react";
@@ -12,7 +13,7 @@ import type { SnapshotStatus } from "../../model/types";
 import { agentRuntimeClient, runtimeQueryKeys } from "../../agent-runtime-client.ts";
 import { compactTokens, exactTokens, preciseTokens, usdText } from "../../token-format.ts";
 import { formatDuration, formatTime } from "../../model/time.ts";
-import { cacheWriteCaveat, usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
+import { usageIsUnreported, usageOutcomeKey, usageStateKey } from "../../token-usage-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { QUERY_PACING_MS } from "../../query-pacing.ts";
 import { Card, CardBody, CardHead, CardTitle, Right } from "../runtime/parts.tsx";
@@ -118,9 +119,7 @@ export function TokenUsageDetail({
                     {exactTokens(data.totals.cacheReadTokens ?? 0)}
                   </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageKindCacheWrite")}>
-                    {cacheWriteCaveat(data.totals) === null
-                      ? exactTokens(data.totals.cacheWriteTokens ?? 0)
-                      : t(cacheWriteCaveat(data.totals)!)}
+                    <CacheWriteValue row={data.totals} exact />
                   </KVRow>
                   <KVRow name={t("agentRuntime.tokenUsageColOutput")}>
                     {exactTokens(data.totals.outputTokens ?? 0)}
