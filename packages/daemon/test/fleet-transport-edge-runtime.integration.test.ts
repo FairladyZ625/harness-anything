@@ -794,6 +794,7 @@ test(
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
     await waitForFleetPublication(fixture.host, fixture.subject.repoId, revoked.opId, localAuthFixture());
     await runFleetReplicaPullClient({
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       port: center.port,
       ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
