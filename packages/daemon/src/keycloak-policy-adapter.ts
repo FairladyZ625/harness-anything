@@ -85,6 +85,7 @@ interface PolicyReadCache {
   clientUuid?: string;
   readonly userIds: Map<string, string>;
   readonly resourceIds: Map<string, string>;
+  readonly userTokenValidity: Map<string, { readonly personId: string; readonly expiresAt: number }>;
 }
 
 const policyReadCaches = new WeakMap<FetchPort, Map<string, PolicyReadCache>>();
@@ -107,7 +108,11 @@ export class KeycloakPolicyAdapter {
     const cacheOwner = fetchPort ?? fetch,
       caches = policyReadCaches.get(cacheOwner) ?? new Map<string, PolicyReadCache>(),
       cacheKey = `${config.url}\0${config.realm}\0${config.resourceServerClientId}`;
-    this.#readCache = caches.get(cacheKey) ?? { userIds: new Map(), resourceIds: new Map() };
+    this.#readCache = caches.get(cacheKey) ?? {
+      userIds: new Map(),
+      resourceIds: new Map(),
+      userTokenValidity: new Map(),
+    };
     caches.set(cacheKey, this.#readCache);
     policyReadCaches.set(cacheOwner, caches);
     // Authorization runs inside the repository write queue, so a Keycloak peer that accepts but
@@ -588,6 +593,60 @@ export class KeycloakPolicyAdapter {
     readonly action: string;
     readonly resource: AuthorizationResource;
   }): Promise<KeycloakPermissionDecision> {
+    const first = await this.#attemptAuthorizePerson(input);
+    if ("value" in first) return first.value;
+    if (!staleIdentifierResponse(first.error)) throw first.error;
+    this.#readCache.clientUuid = undefined;
+    this.#readCache.userIds.delete(input.personId);
+    this.#readCache.resourceIds.clear();
+    return this.#authorizePersonOnce(input);
+  }
+
+  async #attemptAuthorizePerson(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly resource: AuthorizationResource;
+  }): Promise<{ readonly value: KeycloakPermissionDecision } | { readonly error: unknown }> {
+    try {
+      return { value: await this.#authorizePersonOnce(input) };
+    } catch (error) {
+      return { error };
+    }
+  }
+
+  /** Confirms the acting session token independently of the center's Admin REST principal. */
+  async validateUserAccessToken(token: string, personId: string): Promise<boolean> {
+    const now = Date.now(),
+      expiresAt = jwtExpiry(token),
+      cached = this.#readCache.userTokenValidity.get(token);
+    if (expiresAt > 0 && expiresAt <= now) return false;
+    if (cached && cached.expiresAt > now) return cached.personId === personId;
+    const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/userinfo"), {
+      headers: { authorization: `Bearer ${token}` },
+    }).catch((cause: unknown) => {
+      throw Object.assign(new Error("Keycloak userinfo could not be reached.", { cause }), { code: "daemon_error" });
+    });
+    if (response.status === 401 || response.status === 403) return false;
+    if (!response.ok)
+      throw Object.assign(new Error(`Keycloak userinfo returned HTTP ${response.status}.`), {
+        code: "keycloak_admin_rejected",
+        status: response.status,
+      });
+    const identity = (await response.json()) as { readonly sub?: unknown; readonly harness_person_id?: unknown },
+      valid =
+        identity.harness_person_id === personId ||
+        (identity.harness_person_id === undefined && identity.sub === personId);
+    if (valid && expiresAt > now) this.#readCache.userTokenValidity.set(token, { personId, expiresAt });
+    return valid;
+  }
+
+  async #authorizePersonOnce(input: {
+    readonly adminAccessToken: string;
+    readonly personId: string;
+    readonly action: string;
+    readonly resource: AuthorizationResource;
+  }): Promise<KeycloakPermissionDecision> {
     const resource = encodeAuthorizationResource(input.resource),
       denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
         Object.freeze({ outcome: "denied" as const, reasonCode, resource, scope: input.action });
@@ -725,6 +784,7 @@ export class KeycloakPolicyAdapter {
       throw Object.assign(new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`), {
         code: "keycloak_admin_rejected",
         status: response.status,
+        path,
       });
     return response;
   }
@@ -735,6 +795,26 @@ export class KeycloakPolicyAdapter {
 
   #realmUrl(path: string): string {
     return `${this.#config.url.replace(/\/$/u, "")}/realms/${encodeURIComponent(this.#config.realm)}${path}`;
+  }
+}
+
+function staleIdentifierResponse(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { readonly status?: unknown; readonly path?: unknown };
+  return (
+    candidate.status === 404 ||
+    (candidate.status === 400 && typeof candidate.path === "string" && candidate.path.endsWith("/policy/evaluate"))
+  );
+}
+
+function jwtExpiry(token: string): number {
+  const encoded = token.split(".")[1];
+  if (!encoded) return 0;
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as { readonly exp?: unknown };
+    return typeof payload.exp === "number" && Number.isFinite(payload.exp) ? payload.exp * 1_000 : 0;
+  } catch {
+    return 0;
   }
 }
 

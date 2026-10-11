@@ -379,6 +379,160 @@ test("center policy evaluates the matching live session once and can still deny 
   await assert.rejects(evaluate({ center, session }), { code: "keycloak_admin_rejected" });
 });
 
+test("center policy rejects a session after its current user token is rejected", async () => {
+  const keycloak = fakeKeycloak(),
+    token = keycloak.account("person-live-token");
+  keycloak.permit("person-live-token", "repo-live-token", ["task-create"]);
+  let userinfoCalls = 0,
+    policyCalls = 0,
+    revoked = false;
+  const fetchPort: typeof fetch = async (url, init) => {
+      const route = String(url);
+      if (route.endsWith("/userinfo")) {
+        userinfoCalls += 1;
+        return revoked ? new Response(null, { status: 401 }) : keycloak.fetch(url, init);
+      }
+      if (route.endsWith("/policy/evaluate")) policyCalls += 1;
+      return keycloak.fetch(url, init);
+    },
+    credential = {
+      session: {
+        personId: "person-live-token",
+        accessToken: token,
+        url: config.url,
+        realm: config.realm,
+        clientId: config.resourceServerClientId,
+      },
+      center: async () => ({ ...config, accessToken: "admin-token" }),
+    },
+    evaluate = () =>
+      evaluateKeycloakPerson({
+        credential,
+        personId: "person-live-token",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-live-token" },
+        fetchPort,
+      });
+  assert.equal((await evaluate()).outcome, "allowed");
+  revoked = true;
+  assert.deepEqual(await evaluate(), { outcome: "denied", reasonCode: "keycloak_denied" });
+  assert.equal(userinfoCalls, 2);
+  assert.equal(policyCalls, 1, "a rejected user token must stop before center policy evaluation");
+});
+
+test("center policy reuses a valid JWT user token check", async () => {
+  const keycloak = fakeKeycloak(),
+    token =
+      "header." +
+      Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1_000) + 60 })).toString("base64url") +
+      ".signature";
+  keycloak.account("person-jwt-token");
+  keycloak.interactiveSession("person-jwt-token", "jwt", config.url, token);
+  keycloak.permit("person-jwt-token", "repo-jwt-token", ["task-create"]);
+  const userinfoTokens: string[] = [],
+    fetchPort: typeof fetch = async (url, init) => {
+      if (String(url).endsWith("/userinfo")) {
+        userinfoTokens.push(new Headers(init?.headers).get("authorization") ?? "");
+        return keycloak.fetch(config.url + "/realms/harness/protocol/openid-connect/userinfo", init);
+      }
+      return keycloak.fetch(url, init);
+    },
+    credential = {
+      session: {
+        personId: "person-jwt-token",
+        accessToken: token,
+        url: config.url,
+        realm: config.realm,
+        clientId: config.resourceServerClientId,
+      },
+      center: async () => ({ ...config, accessToken: "admin-token" }),
+    },
+    evaluate = () =>
+      evaluateKeycloakPerson({
+        credential,
+        personId: "person-jwt-token",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-jwt-token" },
+        fetchPort,
+      });
+  assert.equal((await evaluate()).outcome, "allowed");
+  assert.equal((await evaluate()).outcome, "allowed");
+  assert.equal(userinfoTokens.length, 1);
+});
+
+test("center policy rejects an expired JWT before center evaluation", async () => {
+  const keycloak = fakeKeycloak(),
+    token =
+      "header." +
+      Buffer.from(JSON.stringify({ exp: Math.floor(Date.now() / 1_000) - 1 })).toString("base64url") +
+      ".signature";
+  keycloak.account("person-expired-jwt");
+  keycloak.interactiveSession("person-expired-jwt", "expired", config.url, token);
+  const requests: string[] = [],
+    fetchPort: typeof fetch = async (url, init) => {
+      requests.push(String(url));
+      return keycloak.fetch(url, init);
+    },
+    decision = await evaluateKeycloakPerson({
+      credential: {
+        session: {
+          personId: "person-expired-jwt",
+          accessToken: token,
+          url: config.url,
+          realm: config.realm,
+          clientId: config.resourceServerClientId,
+        },
+        center: async () => ({ ...config, accessToken: "admin-token" }),
+      },
+      personId: "person-expired-jwt",
+      action: "task-create",
+      resource: { kind: "repository", repoId: "repo-expired-jwt" },
+      fetchPort,
+    });
+  assert.deepEqual(decision, { outcome: "denied", reasonCode: "keycloak_denied" });
+  assert.equal(
+    requests.some((url) => url.endsWith("/policy/evaluate")),
+    false,
+  );
+});
+
+test("a stale cached resource id is discarded and refreshed once after the center rejects it", async () => {
+  let resourceReads = 0,
+    policyCalls = 0;
+  const fetchPort: typeof fetch = async (input, init) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/users")) return Response.json([{ id: "user-current" }]);
+      if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-current" }]);
+      if (url.pathname.endsWith("/resource")) {
+        resourceReads += 1;
+        return Response.json([{ _id: resourceReads === 1 ? "resource-old" : "resource-new", name: "repo-rebuilt" }]);
+      }
+      if (url.pathname.endsWith("/policy/evaluate")) {
+        policyCalls += 1;
+        const body = JSON.parse(String(init?.body ?? "{}")) as {
+          resources?: readonly { readonly _id?: string }[];
+        };
+        if (body.resources?.[0]?.["_id"] === "resource-old") return new Response(null, { status: 404 });
+        return Response.json({ status: "PERMIT", results: [{ status: "PERMIT" }] });
+      }
+      throw new Error(`unexpected route ${url.pathname}`);
+    },
+    adapter = new KeycloakPolicyAdapter({ ...config, realm: "stale-resource-recovery" }, fetchPort);
+  assert.equal(
+    (
+      await adapter.authorizePerson({
+        adminAccessToken: "center-token",
+        personId: "person-rebuilt",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-rebuilt" },
+      })
+    ).outcome,
+    "allowed",
+  );
+  assert.equal(resourceReads, 2);
+  assert.equal(policyCalls, 2);
+});
+
 // dec_B0B79908FE04BBA7766035765B/CH2: identifiers share only a fetch/realm/client namespace.
 test("policy identifiers are shared across adapters but isolated across fetch ports and Keycloak configurations", async () => {
   const reads = new Map<string, number>(),

@@ -99,6 +99,16 @@ export async function evaluateKeycloakPerson(input: {
 }): Promise<Pick<KeycloakPermissionDecision, "outcome" | "reasonCode">> {
   const { session, center } = input.credential;
   if (session?.personId !== input.personId) return { outcome: "denied", reasonCode: "keycloak_denied" };
+  if (center) {
+    const userToken = session.currentAccessToken ? await session.currentAccessToken() : session.accessToken,
+      userSession = new KeycloakPolicyAdapter(
+        { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
+        input.fetchPort,
+      );
+    // dec_B0B79908FE04BBA7766035765B/CH1: the center must not replace live user-token validation.
+    if (!(await userSession.validateUserAccessToken(userToken, input.personId)))
+      return { outcome: "denied", reasonCode: "keycloak_denied" };
+  }
   if (!center)
     return new KeycloakPolicyAdapter(
       { url: session.url, realm: session.realm, resourceServerClientId: session.clientId },
