@@ -47,6 +47,15 @@ export function parseTask(
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
+  if (id === "task-push") {
+    const flags = readFlags(id, args.slice(3), inputs);
+    return flags.ok
+      ? accepted(rootDir, repoId, json, {
+          kind: id,
+          taskId,
+        })
+      : rejected(flags.code, flags.nextAction, json);
+  }
   if (
     id === "task-assign" ||
     id === "task-unassign" ||
