@@ -80,7 +80,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
     );
   };
   try {
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: ingressDefinition.instanceId,
