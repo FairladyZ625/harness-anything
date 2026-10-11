@@ -24,7 +24,6 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   readDaemonRegistry,
-  registerDaemonRepo as registerProductDaemonRepo,
   restoreLedgerBackup,
   taskLifecycleWritePlan,
 } from "@harness-anything/kernel";
@@ -43,6 +42,7 @@ import {
   openBootstrappedRepoCell as openRepoCell,
   registerBootstrappedDaemonRepo as registerDaemonRepo,
 } from "./repo-settings.fixture.ts";
+import { registerDaemonRepo as registerProductDaemonRepo } from "@harness-anything/kernel";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 
 function assertValidWriteReceipt(value: unknown): void {

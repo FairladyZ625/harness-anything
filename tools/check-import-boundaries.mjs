@@ -229,6 +229,42 @@ function isTestOrFixturePath(rel) {
   return /(?:^|\/)(?:__fixtures__|fixtures|test|tests)\//.test(rel) || /\.test\.[cm]?[jt]s$/.test(rel);
 }
 
+// Repository setup in tests is intentionally funneled through the daemon fixture. These
+// exceptions are the small set of tests that exercise the product registration/open boundary
+// itself or need an unprojected/remote lifecycle; the classification is documented in the task
+// package and kept explicit so a new direct import fails closed.
+const repoFixtureBoundaryExceptions = new Set([
+  "packages/kernel/test/store/daemon-registry.test.ts",
+  "packages/daemon/test/repo-settings.fixture.ts",
+  "packages/daemon/test/repo-bootstrap-configure-only.test.ts",
+  "packages/daemon/test/json-rpc-task-settlement.integration.test.ts",
+  "packages/daemon/test/json-rpc-repocell-lifecycle.integration.test.ts",
+  "packages/daemon/test/replica-cut-store.integration.test.ts",
+  "packages/daemon/test/fleet-center-lifecycle.integration.test.ts",
+  "packages/daemon/test/fleet-edge-startup-read.integration.test.ts",
+  "packages/daemon/test/fleet-transport-scale.integration.test.ts",
+  "packages/daemon/test/fixtures/g1-write-cost-scaling.ts",
+  "packages/daemon/test/daemon-host-recovery.test.ts",
+  "packages/cli/test/daemon-autostart-cli.fixture.ts",
+  "packages/cli/test/offline-storage.integration.test.ts",
+  "packages/daemon/test/daemon-build-drain.integration.test.ts",
+  "packages/daemon/test/runtime-execution-logout.integration.test.ts",
+  "packages/daemon/test/schedule-fleet-agent-claim.integration.test.ts",
+  "packages/daemon/test/worker-catalog-reads.integration.test.ts",
+  "packages/daemon/test/worker-catalog-reads.integration.test.ts",
+]);
+
+function hasDirectRepoFixtureImport(text) {
+  return [...text.matchAll(importPattern)].some((match) => {
+    const statement = match[0],
+      specifier = match[1] ?? match[2] ?? match[3];
+    return (
+      /\b(?:registerDaemonRepo|openRepoCell)\b/u.test(statement) &&
+      /(?:@harness-anything\/kernel|(?:repo-cell|repo-cell-open))/u.test(specifier)
+    );
+  });
+}
+
 function packageSourceRootFromPath(rel) {
   const match = /^(packages\/.+?\/src)\//u.exec(rel);
   return match?.[1];
@@ -297,6 +333,13 @@ for (const file of packageSourceFiles) {
   const text = await readFile(file, "utf8");
   const rel = relative(file);
   const isTestOrFixture = isTestOrFixturePath(rel);
+
+  if (isTestOrFixture && !repoFixtureBoundaryExceptions.has(rel) && hasDirectRepoFixtureImport(text)) {
+    record(
+      file,
+      "tests must obtain registered/open repositories through packages/daemon/test/repo-settings.fixture.ts",
+    );
+  }
 
   if (rel.startsWith("packages/kernel/src/domain/")) {
     if (/\bfrom\s+["'][^"']*(?:legacy|scripts\/kernel\/task)[^"']*["']/.test(text)) {

@@ -296,3 +296,14 @@ export async function allowFixtureRuntimeInstances(
   );
   assert.equal(published.wait?.state, "satisfied", JSON.stringify(published));
 }
+
+/** Register a fixture runtime and opt it into the already bootstrapped repository in one step. */
+export async function registerFixtureRuntimeInstance(
+  host: Pick<DaemonHost, "runtimeInstance" | "read" | "run">,
+  repoId: string,
+  auth: Parameters<DaemonHost["run"]>[2],
+  declaration: Readonly<Record<string, unknown>>,
+): Promise<void> {
+  await host.runtimeInstance("daemon.runtimeInstance.create", declaration, auth);
+  await allowFixtureRuntimeInstances(host, repoId, auth, [String(declaration.instanceId)]);
+}

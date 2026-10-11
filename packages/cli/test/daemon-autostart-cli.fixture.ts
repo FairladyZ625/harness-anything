@@ -52,13 +52,13 @@ import {
   canonicalEventWritePlan,
   makeTaskEventStore,
   activateEmptyCanonicalGeneration,
-  registerDaemonRepo,
   REPLAY_TASK_GRAPH,
   taskLifecycleWritePlan,
   type AgentDefinitionSnapshot,
   type AgentRuntimeEventV1,
   type TaskEventV1,
 } from "@harness-anything/kernel";
+import { registerDaemonRepo } from "@harness-anything/kernel";
 
 import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/receipt-domain-registry";
 

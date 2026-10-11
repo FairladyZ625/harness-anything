@@ -12,9 +12,9 @@ import {
   makeTaskProjection,
 } from "@harness-anything/kernel";
 import { openRepoCell } from "../src/repo-cell-open.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
 import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";

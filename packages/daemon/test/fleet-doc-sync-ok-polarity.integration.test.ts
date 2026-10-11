@@ -6,12 +6,13 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { registerDaemonRepo, sha256Bytes } from "@harness-anything/kernel";
+import { sha256Bytes } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetCenterOptions, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { runFleetWriteClient } from "../src/fleet/edge.ts";
+import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 
 const replicaQuota = 64 * 1024 * 1024;
 const nodes = ["node-one", "node-two"] as const;
