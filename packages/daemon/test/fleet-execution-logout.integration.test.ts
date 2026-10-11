@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
 import { readRuntimeExecutionPrincipal } from "../src/runtime-execution-principal-store.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
@@ -26,7 +27,9 @@ test(
     let cleanup = async () => {};
     t.after(() => cleanup());
     const live = new Set<string>();
-    const f = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
+    const f = await fleetFixture(t, ["tasks/task-fleet-fleet"], [], "local", undefined, [
+      { instanceId: "edge-worker", enabled: true },
+    ]);
     const loginAuthorityUrl = "https://keycloak.fixture:443";
     const centerConfigPath = path.join(f.root, "user/rbac/config.json");
     writeFileSync(
@@ -61,14 +64,13 @@ test(
       userRoot = path.join(f.root, "edge-user"),
       viewRoot = path.join(f.root, "view");
     const remote = path.join(f.root, "delivery.git");
-    mkdirSync(remote);
-    git(remote, "init", "--bare", "--initial-branch=main");
-    git(f.repo, "remote", "add", "origin", remote);
-    // Clone the code baseline, before center-authored task publications. The center's
-    // compatibility event exports are not an edge ledger activation certificate.
+    // Preserve the pre-publication code cut without publishing a fixture branch.
     const codeBaseline = git(f.repo, "log", "--reverse", "--format=%H").split("\n")[1]!;
-    git(f.repo, "push", "origin", `${codeBaseline}:refs/heads/main`);
-    git(f.root, "clone", remote, edgeRoot);
+    git(f.root, "clone", "--bare", f.repo, remote);
+    git(remote, "update-ref", "refs/heads/main", codeBaseline);
+    git(remote, "symbolic-ref", "HEAD", "refs/heads/main");
+    git(f.repo, "remote", "add", "origin", remote);
+    git(f.root, "clone", "--branch", "main", remote, edgeRoot);
     git(edgeRoot, "config", "user.name", "Fleet Test");
     git(edgeRoot, "config", "user.email", "fleet@example.invalid");
     const config = {
@@ -314,6 +316,7 @@ test(
       "evidence.bin",
     ]);
     assert.equal(artifact.outcome, "applied", JSON.stringify(artifact));
+    await waitForFleetPublication(f.host, repoId, String(artifact.opId), f.auth);
     assert.deepEqual(
       readFileSync(path.join(f.repo, "harness/tasks/task-fleet-fleet/artifacts/evidence.bin")),
       artifactBytes,
@@ -560,7 +563,8 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
-    assert.equal((await reviewCli(["task", "show", taskId])).code, "authentication_required");
+    const loggedOutReview = await reviewCli(["task", "show", taskId]);
+    assert.equal(loggedOutReview.code, "authentication_required", JSON.stringify(loggedOutReview));
     approveDeviceAgain(reviewUser, "node-slow", savedReviewSession);
     const reviewedTask = await reviewCli(["task", "show", taskId]);
     assert.equal(reviewedTask.outcome, "applied", JSON.stringify(reviewedTask));

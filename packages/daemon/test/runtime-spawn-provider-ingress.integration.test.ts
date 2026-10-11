@@ -494,19 +494,32 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
         };
       },
     });
+  const definitions = {
+    claude: {
+      instanceId: "claude-resume",
+      name: "claude resume",
+      kindId: "claude",
+      installationId: "installation-claude",
+      providerId: "anthropic",
+      models: ["claude-model"],
+      authMode: "subscription",
+    },
+    codex: {
+      instanceId: "codex-resume",
+      name: "codex resume",
+      kindId: "codex",
+      installationId: "installation-codex",
+      providerId: "openai",
+      models: ["codex-model"],
+      authMode: "subscription",
+    },
+  } as const;
   try {
+    for (const definition of Object.values(definitions))
+      await host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
     for (const kindId of ["claude", "codex"] as const)
       await t.test(kindId, async () => {
-        const definition = {
-          instanceId: `${kindId}-resume`,
-          name: `${kindId} resume`,
-          kindId,
-          installationId: `installation-${kindId}`,
-          providerId: kindId === "claude" ? "anthropic" : "openai",
-          models: [`${kindId}-model`],
-          authMode: "subscription",
-        };
-        host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
+        const definition = definitions[kindId];
         const first = await rpc(host, auth, "repo.agentRuntime.spawn", {
           repo: { repoId },
           payload: {

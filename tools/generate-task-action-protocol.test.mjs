@@ -73,6 +73,7 @@ test("Task Action transport has one current build-time projection", async () => 
       "worktreeSetup",
       "taskAssignmentTtlMs",
       "fleetClaimScope",
+      "runtimeAllowedInstances",
       "scheduleAdmissionWindowMs",
       "restoreDrillRetention",
       "gatesFromDocument",

@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -64,6 +65,7 @@ test("a dist rebuild is observable while the daemon keeps serving and its runtim
       },
       auth,
     );
+    await allowFixtureRuntimeInstances(host, repoId, auth, ["build-drift-worker"]);
     const worker = await host.spawnRuntime(
       repoId,
       {

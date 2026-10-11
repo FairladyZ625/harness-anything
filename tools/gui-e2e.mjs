@@ -41,6 +41,7 @@ export async function runGuiE2E(options = {}) {
         env: process.env,
         runRoot: scenarioRoot,
         startDriver: startGuiDriver,
+        runtimeInstance: scenario.runtimeInstance,
       });
       try {
         results.push(await runScenario(active.driver, { ...scenario, lane }, { shots: options.shots }));

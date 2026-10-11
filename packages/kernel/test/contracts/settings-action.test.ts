@@ -61,6 +61,30 @@ test("Settings updates populate an empty settings mapping", () => {
   assert.match(written, /^settings:\n  agenda:\n    pinLimit: 3$/mu);
 });
 
+test("Settings updates create a missing settings mapping for a non-default field", () => {
+  const authoredBody = [
+      "schema: harness-anything/v1",
+      "name: settings-missing-block",
+      "layout:",
+      "  authoredRoot: harness",
+      "",
+    ].join("\n"),
+    settings = repositorySettings(readSettingsFacet(authoredBody)),
+    written = writeRepositorySettingsFacet(authoredBody, {
+      ...settings,
+      runtime: { allowedInstances: ["machine-codex"] },
+    });
+  assert.deepEqual(readSettingsFacet(written).runtime?.allowedInstances, ["machine-codex"]);
+  assert.match(written, /^settings:\n  runtime:\n    allowedInstances:\n      - machine-codex$/mu);
+});
+
+test("Settings updates preserve an explicit empty runtime allowlist", () => {
+  const settings = repositorySettings(readSettingsFacet(documentBody)),
+    written = writeRepositorySettingsFacet(documentBody, { ...settings, runtime: { allowedInstances: [] } });
+  assert.deepEqual(readSettingsFacet(written).runtime?.allowedInstances, []);
+  assert.match(written, /allowedInstances:\s*\[\]/u);
+});
+
 test("Settings arrays are written in their declared YAML sequence styles", () => {
   const settings = repositorySettings(readSettingsFacet(documentBody)),
     written = writeRepositorySettingsFacet(documentBody, {
@@ -576,7 +600,7 @@ test("Settings update rejects invalid or duplicate worktree setup steps", () => 
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
   const populated = repositorySettings(
     readSettingsFacet(
-      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n`,
+      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n`,
     ),
   );
   const values = repositorySettingsActionValues(populated),

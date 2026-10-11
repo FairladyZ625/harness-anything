@@ -1,10 +1,10 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader, readSettingsFacet, writeRepositorySettingsFacet } from "@harness-anything/kernel";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
@@ -164,7 +164,15 @@ test("the authorized Schedule creator and an operator write a remote-center cell
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initHarnessRepo(root, "center-system");
-    appendFileSync(path.join(root, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [center-ci]\n");
+    const settingsPath = path.join(root, "harness/harness.yaml"),
+      settingsBody = readFileSync(settingsPath, "utf8");
+    writeFileSync(
+      settingsPath,
+      writeRepositorySettingsFacet(settingsBody, {
+        ...readSettingsFacet(settingsBody),
+        ci: { workflows: ["center-ci"] },
+      }),
+    );
     cell = await openRepoCell({
       repoId: workspaceId("center-system"),
       rootDir: canonicalRoot(root),

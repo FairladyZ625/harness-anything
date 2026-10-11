@@ -378,6 +378,20 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           },
           auth,
         );
+        const settings = (await host.read(repoId, "repo.settings.read", {}, auth)) as {
+          settings: { runtime?: { allowedInstances?: readonly string[] } };
+          entityRevision: number;
+        };
+        const allowed = await host.run(
+          repoId,
+          {
+            kind: "settings-update",
+            runtimeAllowedInstances: [...(settings.settings.runtime?.allowedInstances ?? []), runtime.id],
+            expectedVersion: settings.entityRevision,
+          },
+          auth,
+        );
+        assert.equal(allowed.outcome, "applied", JSON.stringify(allowed));
         const taskId = `task-runtime-direct-route-${String(index)}`;
         await createReadyTask(taskId, `Direct route ${runtime.id}`);
         assert.equal(

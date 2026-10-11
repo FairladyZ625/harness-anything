@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { allowFixtureRuntimeInstances } from "./repo-settings.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -76,6 +77,7 @@ async function withAcpDaemon(
       },
       auth,
     );
+    await allowFixtureRuntimeInstances(host, repoId, auth, ["devin-provider"]);
     await body({ host, root, capture, executablePath });
   } finally {
     await host.close();
