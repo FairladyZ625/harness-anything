@@ -116,7 +116,7 @@ export default {
     await shot("project-switch-restore-forward-again");
 
     // ⑥ 重启模拟:清掉会话存储再 reload,位置仍从 localStorage 恢复。
-    await page.evaluate(() => window.sessionStorage.clear());
+    await page.evaluate(() => globalThis.sessionStorage.clear());
     await page.reload();
     await bridgeReady(page);
     await page.getByTestId("task-detail-view").waitFor({ timeout: 20_000 });
