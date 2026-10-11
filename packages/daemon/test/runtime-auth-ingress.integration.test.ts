@@ -62,7 +62,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
   const stateRoot = path.join(userRoot, "runtime-instances", "codex-signin"),
     authFile = path.join(stateRoot, "home", ".codex", "auth.json");
   try {
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "codex-signin",
@@ -75,7 +75,7 @@ test("daemon ingress spawns interactive sign-in terminals on the isolated state 
       },
       auth,
     );
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "codex-keyed",

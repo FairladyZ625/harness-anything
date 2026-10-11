@@ -929,7 +929,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
       auth,
     );
     assert.equal(settings.outcome, "applied", JSON.stringify(settings));
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "codex-skill",

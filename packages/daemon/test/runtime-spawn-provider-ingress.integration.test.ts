@@ -69,7 +69,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
   await host.attachmentsSettled();
   try {
     for (const kindId of ["claude", "codex"] as const)
-      host.runtimeInstance(
+      await host.runtimeInstance(
         "daemon.runtimeInstance.create",
         {
           instanceId: `${kindId}-provider`,
@@ -82,7 +82,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         },
         auth,
       );
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "codex-read-only",
@@ -633,7 +633,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
       models: ["codex-model"],
       authMode: "subscription" as const,
     };
-    host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
+    await host.runtimeInstance("daemon.runtimeInstance.create", definition, auth);
     const spawned = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },
       payload: {
@@ -803,7 +803,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
       },
     });
   try {
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "agy-provider",
@@ -920,7 +920,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
   await transport.start();
   try {
     await host.attachmentsSettled();
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "claude-effort-provider",
@@ -934,7 +934,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
       },
       auth,
     );
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: "codex-fast-provider",
