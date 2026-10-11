@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -13,6 +14,15 @@ const actor = { principal: { personId: "ci-import-test" }, executor: null } as c
 const binding = { actor, source: "local" as const };
 const now = "2026-10-08T10:00:00.000Z";
 const sha = "a".repeat(40);
+function commitIn(rootDir: string): string {
+  const git = (...args: string[]) =>
+    execFileSync("git", ["-C", rootDir, "-c", "user.name=t", "-c", "user.email=t@example.invalid", ...args], {
+      encoding: "utf8",
+    }).trim();
+  git("commit", "-q", "--allow-empty", "-m", "delivery");
+  return git("rev-parse", "HEAD");
+}
+
 function schedule(): ScheduleV1 {
   return createScheduleV1({
     scheduleId: "builtin-ci-observe",
@@ -209,6 +219,7 @@ async function fixture(
     current: () => ScheduleV1;
     seedPending: (count: number) => void;
     request: (runId: number) => void;
+    returnDuringOccurrence: (taskId: string) => void;
     crash: (point: "before-accept" | "after-accept" | null) => void;
   }) => Promise<void>,
 ) {
@@ -217,11 +228,23 @@ async function fixture(
     const projection = makeTaskProjection({ rootDir, eventStore: store });
     const { state, gh } = provider();
     let current = schedule(),
-      crash: "before-accept" | "after-accept" | null = null;
+      crash: "before-accept" | "after-accept" | null = null,
+      returnedTask: { readonly taskId: string; readonly snapshot: unknown } | null = null;
+    // A task listed as submitted when the occurrence starts and returned before its witness is read.
+    const occurrenceProjection = Object.assign(Object.create(projection) as typeof projection, {
+      list: (query: { readonly status?: string }) =>
+        returnedTask && query.status === "submitted"
+          ? { rows: [returnedTask, ...projection.list(query as never).rows] }
+          : projection.list(query as never),
+      read: (taskId: string) =>
+        returnedTask?.taskId === taskId
+          ? { snapshot: { task: { iteration: 2 }, executions: [] } }
+          : projection.read(taskId),
+    });
     const cell = {
       rootDir,
       store,
-      projection,
+      projection: occurrenceProjection,
       now: () => now,
       settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
@@ -280,6 +303,28 @@ async function fixture(
         request: (runId) => requests.push({ kind: "ci-observe-pull", runs: [runId], attempts: { [runId]: 1 } }),
         crash: (point) => {
           crash = point;
+        },
+        returnDuringOccurrence: (taskId) => {
+          execFileSync("git", ["init", "-q", rootDir]);
+          const delivery = commitIn(rootDir);
+          returnedTask = {
+            taskId,
+            snapshot: {
+              task: { iteration: 1 },
+              executions: [
+                {
+                  iteration: 1,
+                  gateRuns: [],
+                  submission: {
+                    commitSha: delivery,
+                    completionContract: {
+                      gates: [{ gateId: "ci", witness: { kind: "github-actions", adapterId: "github-actions" } }],
+                    },
+                  },
+                },
+              ],
+            },
+          };
         },
       });
     } finally {
@@ -698,5 +743,17 @@ test("a stale gate-run target is unavailable while the remaining pending targets
     assert.deepEqual(current().status.ciObserve!.pending, []);
     assert.deepEqual(current().status.ciObserve!.unavailable, [{ runId: 1, attempt: 1, reason: "gate-run-stale" }]);
     assert.ok(state.seen.includes("2.1"), "the stale target must not starve the next target");
+  });
+});
+
+test("a task returned during the occurrence is skipped while the remaining targets finish", async () => {
+  await fixture(async ({ run, state, seedPending, current, returnDuringOccurrence }) => {
+    seedPending(1);
+    state.runs = 0;
+    returnDuringOccurrence("task_returned_mid_occurrence");
+    const result = await run();
+    assert.equal(result.outcome, "succeeded", result.detail);
+    assert.ok(state.seen.includes("1.1"), "the returned task must not stop the pending diagnostics");
+    assert.equal(current().status.ciObserve!.error, null);
   });
 });
