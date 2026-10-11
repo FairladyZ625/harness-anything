@@ -2,7 +2,10 @@ import {
   daemonProtocolCommands,
   thinCliCommands,
 } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { generationMigrationCommand } from "@harness-anything/daemon/internal/offline-storage-command";
+import {
+  completionMigrationCommand,
+  generationMigrationCommand,
+} from "@harness-anything/daemon/internal/offline-storage-command";
 import { renderCliGuidance } from "./guidance-plane.ts";
 
 export type ThinHelpCatalogEntry = {
@@ -15,6 +18,7 @@ export type ThinHelpCatalogEntry = {
 
 export const clientLocalCommands = [
   generationMigrationCommand,
+  completionMigrationCommand,
   {
     id: "backup-retention",
     path: ["backup", "retention"],

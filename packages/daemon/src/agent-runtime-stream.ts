@@ -6,7 +6,7 @@ export type AgentRuntimeActivity = "thinking" | "tool" | "message";
 export type AgentRuntimeNativeSignal =
   | { readonly type: "activity"; readonly activity: AgentRuntimeActivity; readonly content?: string }
   | { readonly type: "heartbeat" }
-  | { readonly type: "exit"; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" }
+  | { readonly type: "exit"; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" }
   | { readonly type: "error"; readonly code: "provider_disconnected" | "provider_protocol_error" };
 type RuntimeStreamBase = {
   readonly schema: "agent-runtime-attach-event/v1";
@@ -18,7 +18,7 @@ export type AgentRuntimeAttachEvent = RuntimeStreamBase &
   (
     | { readonly type: "activity"; readonly activity: AgentRuntimeActivity; readonly content?: string }
     | { readonly type: "heartbeat" }
-    | { readonly type: "exit"; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" }
+    | { readonly type: "exit"; readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" }
     | { readonly type: "error"; readonly code: "provider_disconnected" | "provider_protocol_error" }
     | { readonly type: "gap"; readonly required: "snapshot" }
   );
@@ -277,7 +277,7 @@ export function validateAgentRuntimeAttachEvent(value: unknown): readonly string
         ? ["thinking", "tool", "message"].includes(String(value.activity)) &&
           (!hasContent || typeof value.content === "string")
         : value.type === "exit"
-          ? ["succeeded", "failed", "unknown", "cancelled"].includes(String(value.outcome))
+          ? ["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(String(value.outcome))
           : value.type === "error"
             ? ["provider_disconnected", "provider_protocol_error"].includes(String(value.code))
             : value.type === "gap"

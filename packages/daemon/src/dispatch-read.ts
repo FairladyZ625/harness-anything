@@ -29,6 +29,10 @@ type DispatchQueries = Pick<
   | "readRuntimeSessionEvents"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesByAttemptGroup"
+  | "readTaskRelationsBySources"
+  | "readLeaseIntervals"
+  | "readCanonicalEvents"
+  | "readEventWitness"
 >;
 
 export interface RuntimeSessionActivityEvidence {
@@ -122,7 +126,7 @@ export function taskDispatchesOutcome(
   dispatches: readonly TaskDispatchRow[],
   resumedDispatches: ReadonlyMap<string, string>,
 ): {
-  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown";
+  readonly outcome: "succeeded" | "failed" | "cancelled" | "unknown" | "stopped";
   readonly exitCode: number;
 } {
   const finalRows = dispatches.filter(
@@ -130,7 +134,9 @@ export function taskDispatchesOutcome(
     ),
     unsettled =
       finalRows.length === 0 ||
-      finalRows.some((row) => !["succeeded", "failed", "cancelled", "lost", "unknown"].includes(row.status)),
+      finalRows.some(
+        (row) => !["succeeded", "failed", "cancelled", "stopped", "blocked", "lost", "unknown"].includes(row.status),
+      ),
     outcome =
       unsettled || finalRows.some((row) => row.status === "lost" || row.status === "unknown")
         ? "unknown"
@@ -138,7 +144,9 @@ export function taskDispatchesOutcome(
           ? "failed"
           : finalRows.some((row) => row.status === "cancelled")
             ? "cancelled"
-            : "succeeded";
+            : finalRows.some((row) => row.status === "stopped" || row.status === "blocked")
+              ? "stopped"
+              : "succeeded";
   return { outcome, exitCode: unsettled || outcome === "succeeded" ? 0 : 1 };
 }
 
@@ -149,7 +157,14 @@ export function taskDispatchRowSettled(row: TaskDispatchRow, dispatchIds: readon
   if (row.fallbackState === "scheduled") return false;
   if (row.fallbackState === "dispatched" && (row.nextDispatchId === null || !dispatchIds.includes(row.nextDispatchId)))
     return false;
-  if (row.status === "succeeded" || row.status === "failed" || row.status === "cancelled" || row.status === "lost")
+  if (
+    row.status === "succeeded" ||
+    row.status === "failed" ||
+    row.status === "cancelled" ||
+    row.status === "stopped" ||
+    row.status === "blocked" ||
+    row.status === "lost"
+  )
     return true;
   return row.status === "unknown" && row.outcome === "unknown";
 }
@@ -344,7 +359,10 @@ function canonicalDispatchRow(
     startedAt: payload.startedAt ?? event.occurredAt,
     endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
     outcome,
-    status: outcome ?? (session?.liveness === "live" ? "running" : "unknown"),
+    status:
+      outcome === "stopped" && taskHasStructuredBlock(projection, event)
+        ? "blocked"
+        : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
     resultRef,
     exitCode,
     ...(documentPath && document ? { dispatchPath: documentPath } : {}),
@@ -389,8 +407,46 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 function isOutcome(value: unknown): value is NonNullable<TaskDispatchRow["outcome"]> {
-  return value === "succeeded" || value === "failed" || value === "unknown" || value === "cancelled";
+  return (
+    value === "succeeded" || value === "failed" || value === "unknown" || value === "cancelled" || value === "stopped"
+  );
 }
 function isClassification(value: unknown): value is NonNullable<TaskDispatchRow["classification"]> {
   return value === "provider_fault" || value === "provider_quota" || value === "worker_stop" || value === "gate_red";
+}
+
+/** CH2 (dec_614F7BBB18C8687E7EFC72173D): current task state alone cannot
+ * attribute another dispatch's blocker to this worker. Select its lease interval
+ * and the canonical blocker write made inside that interval. */
+function taskHasStructuredBlock(projection: DispatchQueries, dispatch: DispatchEvent): boolean {
+  const { taskId, executionId, runtimeSessionId } = dispatch.payload;
+  if (!taskId || !executionId) return false;
+  const executorId = `runtime-session:${runtimeSessionId}`,
+    leases = projection.readLeaseIntervals(taskId),
+    intervals = leases.filter(
+      (interval) => interval.executionId === executionId && interval.holder.actor.executor?.id === executorId,
+    );
+  if (projection.read(taskId).snapshot.task?.status === "blocked")
+    for (const interval of intervals) {
+      if (interval !== leases.at(-1) || interval.releasedRevision === null) continue;
+      const release = projection.readCanonicalEvents(interval.releasedRevision - 1, 1).events[0];
+      if (
+        release?.schema === "task-event/v1" &&
+        release.type === "lease_released" &&
+        release.payload.task.status === "blocked" &&
+        release.payload.mutation.fields.includes("status")
+      )
+        return true;
+    }
+  return projection.readTaskRelationsBySources([`task/${taskId}`], "awaits").rows.some((row) => {
+    if (row.state !== "active" || row.sourceRef !== `task/${taskId}` || row.workspaceRevision === null) return false;
+    const revision = row.workspaceRevision;
+    const interval = intervals.find(
+      (lease) =>
+        revision >= lease.acquiredRevision && (lease.releasedRevision === null || revision <= lease.releasedRevision),
+    );
+    if (!interval) return false;
+    const write = projection.readEventWitness(revision);
+    return write !== null && Date.parse(write.occurredAt) <= Date.parse(interval.leaseExpiresAt);
+  });
 }

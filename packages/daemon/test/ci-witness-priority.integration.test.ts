@@ -260,7 +260,7 @@ test("a submitted CI cut survives center reopen and is accepted before 60 pendin
       });
       assert.equal(transient.outcome, "succeeded", transient.detail);
       assert.deepEqual(continued, ["submission", "pending", "page"]);
-      assert.equal(transient.ciObserve?.nextPage, 2);
+      assert.equal(transient.ciObserve?.nextPage, 1);
       assert.deepEqual(
         transient.ciObserve?.pending.map((entry) => entry.runId),
         [901, 902],

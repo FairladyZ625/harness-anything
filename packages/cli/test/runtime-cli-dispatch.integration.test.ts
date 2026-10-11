@@ -29,21 +29,21 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   const { parent, root, env, userRoot, daemonId } = fixture;
   installIdentities(parent, root, env);
   // The stub worker completes its provider turn but never commits, so every task-bound dispatch in
-  // this file settles unknown and each wait/report command honestly exits 1 (F-4C182EEE).
-  const runUnknown = (args: readonly string[]): Record<string, unknown> => {
+  // this file settles stopped and each wait/report command honestly exits 1 (F-4C182EEE).
+  const runStopped = (args: readonly string[]): Record<string, unknown> => {
     const result = runMaybe(root, env, args);
     assert.equal(result.status, 1, `${result.stderr}\n${JSON.stringify(result.receipt)}`);
     return result.receipt;
   };
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "archive");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const first = runUnknown(["agent", "run", "terra", "--prompt", "first report", "--task", taskId, "--no-stream"]);
+  const first = runStopped(["agent", "run", "terra", "--prompt", "first report", "--task", taskId, "--no-stream"]);
   const firstDispatchId = String((first.spawn as Record<string, unknown>).dispatchId);
   await readPublishedDispatch(path.join(artifactRoot, "dispatches", `${firstDispatchId}.json`));
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const assembledPromptPrefix =
       "# Agent Identity: Terra (terra)\n\nReview precisely.\n\n# Harness Execution Discipline",
-    bound = runUnknown([
+    bound = runStopped([
       "agent",
       "run",
       "fable",
@@ -131,7 +131,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     providerSessionId: "provider-cli-session",
     startedAt: boundDispatch.startedAt,
     endedAt: boundDispatch.endedAt,
-    outcome: "unknown",
+    outcome: "stopped",
     exitCode: 0,
     resultRef: (bound.result as Record<string, unknown>).ref,
     eventStreamRef: `file:.harness/runtime/dispatches/${boundDispatchId}.jsonl`,
@@ -139,14 +139,14 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     attemptIndex: 0,
     provider: { instance: "cli-worker", model: "runtime-test-model" },
     classification: "worker_stop",
-    reason: "Worker exited without a structured provider outcome; outcome is unknown.",
+    reason: "Worker stopped after a normal exit without a submitted delivery.",
   });
   assert.match(String(boundDispatch.startedAt), /^\d{4}-\d{2}-\d{2}T/u);
   assert.match(String(boundDispatch.endedAt), /^\d{4}-\d{2}-\d{2}T/u);
   assert.doesNotMatch(JSON.stringify(boundDispatch), /(?:api.?key|credential|environment|token)/iu);
   assert.ok(readDispatchRecords(root, boundDispatchId).length > 0);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const dispatchRow = (runUnknown(["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
+  const dispatchRow = (runStopped(["task", "dispatches", taskId]).dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === boundDispatchId,
   );
   assert.deepEqual(
@@ -174,7 +174,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   // Runtime type is a default-instance selection hint, not an admission condition: an
   // opencode-typed agent dispatches on a codex instance when the operator names it.
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const crossKind = runUnknown([
+  const crossKind = runStopped([
     "agent",
     "run",
     "fable",
@@ -323,15 +323,15 @@ test("Task-bound batch enforces one lease holder and archives successful dispatc
   const batch = runMaybe(root, env, ["runtime", "batch", "batch.json"]);
   assert.equal(batch.status, 1, `${batch.stderr}\n${JSON.stringify(batch.receipt)}`);
   assert.equal(batch.receipt.command, "runtime-batch");
-  // The no-delivery task workers settle unknown, so the batch aggregate reports unknown
-  // alongside its one rejected dispatch instead of partial_failure over restated successes.
-  assert.equal(batch.receipt.outcome, "unknown");
+  // The no-delivery task workers settle stopped, so the batch aggregate reports partial_failure
+  // alongside its rejected dispatch instead of restated successes.
+  assert.equal(batch.receipt.outcome, "partial_failure");
   const batchRows = batch.receipt.dispatches as Array<Record<string, unknown>>;
   assert.equal(batchRows.length, 5);
   const taskBatchRows = batchRows.slice(1),
-    // The dispatched task workers settle unknown (no delivery); the ones that lost the single
+    // The dispatched task workers settle stopped (no delivery); the ones that lost the single
     // lease race stay rejected. Both together must cover every task-bound row.
-    settledTaskBatchRows = taskBatchRows.filter((row) => row.status === "unknown"),
+    settledTaskBatchRows = taskBatchRows.filter((row) => row.status === "stopped"),
     rejectedTaskBatchRows = taskBatchRows.filter((row) => row.status === "rejected");
   assert.ok(settledTaskBatchRows.length >= 1, JSON.stringify(batch.receipt));
   assert.equal(
@@ -671,7 +671,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       taskQueryGuidance(taskId) +
       "\n\n" +
       livingDeliverableProtocol("baseline")!;
-  // The task-derived mission run also settles unknown (no delivery), so it exits 1 with its result.
+  // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
   const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.receipt.result as Record<string, unknown>).text);
   assert.match(
@@ -738,7 +738,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
       controlNotification,
       controlNotificationWait.receipt,
     );
-  assert.equal(controlNotificationWait.status, 1, "an unknown-settled wait must not exit 0");
+  assert.equal(controlNotificationWait.status, 1, "a stopped-settled wait must not exit 0");
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const missingNotifier = path.join(parent, "missing-notifier"),
     missingNotification = run(root, env, [
@@ -822,7 +822,7 @@ test("Missing and nonzero callbacks preserve runtime outcome and redact callback
   assert.deepEqual(callbackPayload, {
     schema: "runtime-session-exited/v1",
     runtimeSessionId: nonzeroNotification.runtimeSessionId,
-    outcome: "unknown",
+    outcome: "stopped",
     exitCode: 0,
   });
   assert.doesNotMatch(JSON.stringify(callbackPayload), /notification nonzero|final:|credential|token|api.?key/iu);
@@ -878,7 +878,7 @@ test("Repository writes commit while an exit callback is still running", async (
     "--wait",
     "--no-stream",
   ]);
-  assert.equal(queueSettled.status, 1, "the no-delivery worker settles unknown and its wait exits 1");
+  assert.equal(queueSettled.status, 1, "the no-delivery worker settles stopped and its wait exits 1");
   await eventuallyFile(notificationStarted);
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const revisionBefore = makeTaskEventReader({ repoId: "runtime-cli", rootDir: root }).readHead()?.revision ?? 0,

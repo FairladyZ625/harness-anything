@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Schema } from "effect";
+import { runtimeSessionEntityV1Schema } from "../../src/domain/agent-runtime.ts";
 import { domainStatuses } from "../../src/domain/lifecycle-status.ts";
 import { decisionStates } from "../../src/domain/decision-event.ts";
 import { packageDispositions } from "../../src/domain/package-disposition.ts";
@@ -123,3 +124,24 @@ function taskFixture(metadata: {
     ],
   };
 }
+
+// dec_614F7BBB18C8687E7EFC72173D/CH4: published entity schema shares the stopped vocabulary.
+test("runtime entity schema accepts stopped and retains all prior terminal states", () => {
+  const properties = runtimeSessionEntityV1Schema.properties!,
+    outcomes = properties.outcome!.enum!,
+    semantics = properties.semanticState!.enum!;
+  assert.ok(outcomes.includes("stopped"));
+  assert.ok(semantics.includes("stopped"));
+  assert.equal(outcomes.includes("invented"), false);
+  assert.equal(semantics.includes("invented"), false);
+  assert.deepEqual(outcomes, ["succeeded", "failed", "unknown", "cancelled", "stopped"]);
+  assert.deepEqual(semantics, [
+    "running",
+    "succeeded",
+    "failed",
+    "cancelled",
+    "stopped",
+    "ended-indeterminate",
+    "unavailable",
+  ]);
+});

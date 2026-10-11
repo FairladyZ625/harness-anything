@@ -149,7 +149,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(result.outcome, "applied", JSON.stringify(result));
       assert.match(String(result.evidence), /^doc-scan:/u);
     });
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: ingressDefinition.instanceId,
@@ -360,7 +360,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           },
         ];
       for (const [index, runtime] of cases.entries()) {
-        host.runtimeInstance(
+        await host.runtimeInstance(
           "daemon.runtimeInstance.create",
           {
             instanceId: runtime.id,

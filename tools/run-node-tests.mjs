@@ -46,6 +46,9 @@ const WORKER_ENVIRONMENT_VARIABLES = [
   "HARNESS_EXECUTION_CREDENTIAL",
   "HARNESS_EXECUTION_EXPIRES_AT",
   "HARNESS_TASK_BOUND",
+  "CLAUDE_CODE_SESSION_ID",
+  "CODEX_THREAD_ID",
+  "CODEX_SESSION_ID",
 ];
 
 // Reuse type-strip/compile output across the test host and every CLI

@@ -727,7 +727,8 @@ test(
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const { dispatchId, runtimeSessionId } = dispatchesOf(receipt)[0]! as Required<DispatchStep>;
       const outcome = await f.settleReview(dispatchId, runtimeSessionId, "done", "# Review\n\nApproved.\n");
-      assert.equal(outcome, "unknown", "a report file alone is not a registered review witness");
+      // dec_614F7BBB18C8687E7EFC72173D: a final report without a submitted delivery is stopped.
+      assert.equal(outcome, "stopped", "a report file alone is not a registered review witness");
       const report = path.join(f.root, "harness", f.packagePath, "artifacts", "reports", `${dispatchId}.md`);
       assert.ok(existsSync(report), `expected the authored report at ${report}`);
       const packet = report.replace(/\.md$/u, ".json");

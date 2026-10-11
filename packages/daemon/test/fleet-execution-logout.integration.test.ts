@@ -881,9 +881,9 @@ test(
       return result.session.activity.outcome ? result.session : null;
     });
     // The edge settles without a local projection, so its reviewer settlement cannot witness the
-    // registered review; the receipt stays honestly unknown instead of restating success from the
+    // registered review; the receipt stays honestly stopped instead of restating success from the
     // exit/result pair. The registered review itself is asserted through `show()` below.
-    assert.equal(reviewSettled.activity.outcome, "unknown", JSON.stringify(f.runtimeArchiveReceipts));
+    assert.equal(reviewSettled.activity.outcome, "stopped", JSON.stringify(f.runtimeArchiveReceipts));
     reviewLive.delete(reviewRuntime);
     writeFileSync(path.join(f.root, `${runtimeId}.finish`), "finish");
     const settled = await eventuallyValue(async () => {
@@ -896,12 +896,12 @@ test(
       return result.session.activity.outcome ? result.session : null;
     });
     assert.equal(settled.liveness, "exited");
-    // Same edge honesty: no local delivery witness, so the session reports its settled unknown.
-    assert.equal(settled.activity.outcome, "unknown", JSON.stringify(f.runtimeArchiveReceipts));
+    // Same edge honesty: no local delivery witness, so the session reports its settled stopped.
+    assert.equal(settled.activity.outcome, "stopped", JSON.stringify(f.runtimeArchiveReceipts));
     live.delete(runtimeId);
     signInAt(path.join(f.root, "user"), "person-owner");
     assert.ok((await show()).reviews.some((review) => review.reviewId === `review-${reviewDispatch}`));
-    t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest unknown settlement passed after logout.");
+    t.diagnostic("Fresh S2 reviewer read, fixed receipt and honest stopped settlement passed after logout.");
     // The settled execution's edge-local identity is no longer available, so the write is refused.
     const after = await cli(["task", "progress", "append", taskId, "--text", "After settlement."]);
     assert.equal(after.code, "authorization_denied", JSON.stringify(after));

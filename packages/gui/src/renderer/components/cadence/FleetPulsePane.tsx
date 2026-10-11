@@ -35,6 +35,8 @@ const STATUS_TONE: Readonly<Record<SessionStatus, StatusTone>> = {
   lost: "wait",
   unavailable: "wait",
   "ended-indeterminate": "wait",
+  stopped: "wait",
+  blocked: "bad",
 };
 
 const CLAIM_KEY: Readonly<Record<Exclude<FleetTaskClaim, null>, string>> = {

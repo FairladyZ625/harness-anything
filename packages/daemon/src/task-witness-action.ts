@@ -11,6 +11,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 
 /** An in-process source invocation, never supplied by a transport or execution credential. */
 export const centerWitnessAction = Symbol("centerWitnessAction");
@@ -186,23 +187,28 @@ export function settleImportedGithubActionsClaims(cell: RepoCellOperationalConte
     for (const { taskId, snapshot } of cell.projection.list({ status }).rows) {
       const target = submittedGithubActionsRequirement(snapshot);
       if (!target || target.execution.schema !== "execution/v1") continue;
-      runTaskWitnessAction(
-        cell,
-        {
-          kind: "task-witness-claim",
-          taskId,
-          executionId: target.execution.executionId,
-          gateId: target.requirement.gateId,
-          [centerWitnessAction]: true,
-        },
-        {
-          ...binding,
-          actor: {
-            principal: snapshot.task!.createdBy.principal,
-            executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
+      try {
+        runTaskWitnessAction(
+          cell,
+          {
+            kind: "task-witness-claim",
+            taskId,
+            executionId: target.execution.executionId,
+            gateId: target.requirement.gateId,
+            [centerWitnessAction]: true,
           },
-        },
-      );
+          {
+            ...binding,
+            actor: {
+              principal: snapshot.task!.createdBy.principal,
+              executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
+            },
+          },
+        );
+      } catch (error) {
+        if (cellErrorCode(error) === "gate_run_stale") continue;
+        throw error;
+      }
     }
   }
 }

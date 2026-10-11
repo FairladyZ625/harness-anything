@@ -59,6 +59,7 @@ export async function reconcileCiOccurrence(input: {
     JSON.parse(await gh("gh", ["api", endpoint], { cwd: cell.rootDir })) as T;
   const unavailable: CiObserveProgress["unavailable"][number][] = [];
   const pending = new Map(progress.pending.map((target) => [key(target), target]));
+  const observed = new Set<string>();
   const accept = async (fetched: CiObservationFetch) => {
     const receipt = await input.accept(fetched);
     if (receipt.outcome !== "applied" && receipt.outcome !== "no_changes")
@@ -76,7 +77,28 @@ export async function reconcileCiOccurrence(input: {
         });
     }
   };
+  const acceptFetched = async (fetched: CiObservationFetch): Promise<boolean> => {
+    return accept(fetched).then(
+      () => true,
+      (error) => {
+        if (cellErrorCode(error) !== "gate_run_stale") throw error;
+        for (const run of fetched.runs) {
+          pending.delete(`${run.databaseId}.${run.summary.attempt}`);
+          if (!unavailable.some((target) => target.runId === run.databaseId && target.attempt === run.summary.attempt))
+            unavailable.push({ runId: run.databaseId, attempt: run.summary.attempt, reason: "gate-run-stale" });
+        }
+        return false;
+      },
+    );
+  };
   const retain = (target: Target) => {
+    // Diagnostic history is bounded; the canonical submitted-task demand is re-derived above.
+    // Drop the oldest diagnostic before admitting a newer run or attempt so a full queue cannot
+    // hide the provider state that completion actually needs.
+    if (!pending.has(key(target)) && pending.size >= 100) {
+      const oldest = pending.keys().next().value as string | undefined;
+      if (oldest !== undefined) pending.delete(oldest);
+    }
     pending.set(key(target), target);
   };
   let failedTargets = 0;
@@ -104,7 +126,7 @@ export async function reconcileCiOccurrence(input: {
       unavailable.push({ runId: target.runId, attempt: target.attempt, reason: "provider-run-unavailable" });
       throw error;
     }
-    await accept(fetched);
+    if (!(await acceptFetched(fetched))) return;
     const run = fetched.runs[0];
     if (!run) {
       retain(target);
@@ -140,7 +162,7 @@ export async function reconcileCiOccurrence(input: {
         failedTargets += 1;
         continue;
       }
-      await accept(result.fetched);
+      await acceptFetched(result.fetched);
     }
     // The canonical submission is the durable demand. Re-derive it on every center occurrence;
     // accept publishes the witness before any diagnostic backlog or scan settlement.
@@ -170,11 +192,12 @@ export async function reconcileCiOccurrence(input: {
           failedTargets += 1;
           continue;
         }
-        await accept(result.fetched);
+        await acceptFetched(result.fetched);
       }
     }
     await accept(privateLedgerCiObservations(cell));
     for (const target of [...pending.values()].slice(0, 5)) {
+      observed.add(key(target));
       if ((await observe(target))?.outcome === "pending") retain(target);
       // Rotate unfinished targets so later pending diagnostics cannot starve.
       if (pending.has(key(target))) {
@@ -183,64 +206,30 @@ export async function reconcileCiOccurrence(input: {
       }
     }
     if (workflows.length) {
-      const workflowIndex = Math.min(progress.workflowIndex, workflows.length - 1),
+      const workflowIndex = 0,
         workflow = workflows[workflowIndex]!;
-      if (progress.workflow !== workflow)
-        progress = { ...progress, workflow, workflowIndex, nextPage: 1, nextRunId: null, nextAttempt: 1 };
       const page = await readApi<{ workflow_runs: readonly Run[] }>(
-        `repos/:owner/:repo/actions/workflows/${encodeURIComponent(workflow)}.yml/runs?per_page=20&page=${progress.nextPage}`,
+        `repos/:owner/:repo/actions/workflows/${encodeURIComponent(workflow)}.yml/runs?per_page=20&page=1`,
       );
       const runs = page.workflow_runs.filter((run) => run.head_branch === "main");
-      const resume =
-        progress.nextRunId === null
-          ? 0
-          : Math.max(
-              0,
-              runs.findIndex((run) => run.id === progress.nextRunId),
-            );
-      let processed = 0,
-        complete = true;
-      for (const run of runs.slice(resume)) {
-        const firstAttempt = run.id === progress.nextRunId ? progress.nextAttempt : 1;
-        // The attempt increases monotonically. A bounded subpage cursor preserves an old
-        // run with many reruns; it must not restart at attempt 1 after each rate-limit window.
-        for (let attempt = firstAttempt; attempt <= run.run_attempt; attempt += 1) {
-          progress = { ...progress, nextRunId: run.id, nextAttempt: attempt };
-          const target = { runId: run.id, attempt, workflow };
-          // Reserve diagnostic capacity before observing a new target: an incomplete
-          // observation must have room to retain this exact run/attempt.
-          if (processed === 20 || (pending.size === 100 && !pending.has(key(target)))) {
-            complete = false;
-            break;
-          }
-          processed += 1;
-          if (run.status !== "completed" && attempt === run.run_attempt) retain(target);
-          else if ((await observe(target))?.outcome === "pending") retain(target);
-        }
-        if (!complete) break;
+      for (const run of runs.slice(0, 20)) {
+        const target = { runId: run.id, attempt: run.run_attempt, workflow };
+        if (observed.has(key(target))) continue;
+        observed.add(key(target));
+        if (run.status !== "completed") retain(target);
+        else if ((await observe(target))?.outcome === "pending") retain(target);
       }
-      if (complete) {
-        progress = { ...progress, nextRunId: null, nextAttempt: 1 };
-        if (page.workflow_runs.length) progress = { ...progress, nextPage: progress.nextPage + 1 };
-        else if (workflowIndex + 1 < workflows.length)
-          progress = {
-            ...progress,
-            workflow: workflows[workflowIndex + 1]!,
-            workflowIndex: workflowIndex + 1,
-            nextPage: 1,
-            nextRunId: null,
-            nextAttempt: 1,
-          };
-        else
-          progress = {
-            ...progress,
-            workflow: workflows[0]!,
-            workflowIndex: 0,
-            nextPage: 1,
-            scanPass: progress.scanPass + 1,
-            lastCompletedScanAt: cell.now(),
-          };
-      }
+      // The first page is the source of truth for current main runs. Historical pages and
+      // per-attempt cursors only delayed newer provider conclusions while serving no completion
+      // demand, so the persisted cursor remains at the first page after every occurrence.
+      progress = {
+        ...progress,
+        workflow,
+        workflowIndex,
+        nextPage: 1,
+        nextRunId: null,
+        nextAttempt: 1,
+      };
     }
     return {
       outcome: "succeeded",

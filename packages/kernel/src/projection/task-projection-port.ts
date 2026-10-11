@@ -83,7 +83,7 @@ export interface RuntimeDispatchProjectionRow {
   readonly event: Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }>;
   readonly metrics: RuntimeDispatchMetrics | null;
   readonly endedAt: string | null;
-  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+  readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
 }
 export interface RuntimeDispatchPage {
   readonly rows: readonly RuntimeDispatchProjectionRow[];

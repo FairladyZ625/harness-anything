@@ -154,7 +154,8 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   fixture.setOwner("person-owner");
   await runtime.reconcile();
   assert.equal(await eventually(async () => outcomes().length > 0), true);
-  assert.equal(outcomes()[0]?.outcome, "failed", JSON.stringify(outcomes()));
+  // dec_614F7BBB18C8687E7EFC72173D: no recorded process means no exit evidence, so outcome stays unknown.
+  assert.equal(outcomes()[0]?.outcome, "unknown", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. This injected process has no
   // worker-host record, so restored ownership recovers an explicit lost-session result.
   const recovered = await runtime.run("repo.agentRuntime.sessions.read", {

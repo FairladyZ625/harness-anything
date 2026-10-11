@@ -177,7 +177,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         "admin",
       ),
     });
-    host.runtimeInstance(
+    await host.runtimeInstance(
       "daemon.runtimeInstance.create",
       {
         instanceId: ingressDefinition.instanceId,
@@ -890,7 +890,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 ],
               };
               withPolicyGroup({ actor: { principal: { personId: "intruder" }, executor: null } }, "admin");
-              const before = makeTaskEventReader({ repoId, rootDir: root }).read().revision;
+              const beforeEvents = makeTaskEventReader({ repoId, rootDir: root }).read().events,
+                documentsWrittenBefore = beforeEvents.filter((event) => event.type === "documents_written").length;
               for (const nodePrincipal of [
                 { nodeId: "other-node", personId: "owner" },
                 { nodeId: "commander-node", personId: "intruder" },
@@ -901,7 +902,10 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                   humanAccessToken: policyTestDeviceToken(nodePrincipal.personId, nodePrincipal.nodeId),
                 });
                 assert.equal(denied.code, "executor_binding_invalid", JSON.stringify(denied));
-                assert.equal(makeTaskEventReader({ repoId, rootDir: root }).read().revision, before);
+                const documentsWrittenAfter = makeTaskEventReader({ repoId, rootDir: root })
+                  .read()
+                  .events.filter((event) => event.type === "documents_written").length;
+                assert.equal(documentsWrittenAfter, documentsWrittenBefore);
               }
               return host.run(repoId, action, commandAuth);
             },

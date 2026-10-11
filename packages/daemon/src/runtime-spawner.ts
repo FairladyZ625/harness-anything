@@ -1038,7 +1038,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   function runtimeResultText(
     active: ActiveRuntime,
     code: number | null,
-    outcome: "succeeded" | "failed" | "unknown" | "cancelled",
+    outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
   ): string {
     return runtimeResultTextImpl(extracted, active, code, outcome);
   }

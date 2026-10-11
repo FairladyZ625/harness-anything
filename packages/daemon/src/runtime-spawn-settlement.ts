@@ -69,7 +69,12 @@ export async function publishExit(
     const { outcome: initialOutcome, ...classifiedAttempt } = classifyRuntimeExit(active, code);
     let outcome = initialOutcome,
       reviewResultMissing = false;
-    if (outcome === "unknown" && code === 0 && (await runtimeDeliveryWitness(context, active))) outcome = "succeeded";
+    if (
+      (outcome === "unknown" || outcome === "stopped") &&
+      code === 0 &&
+      (await runtimeDeliveryWitness(context, active))
+    )
+      outcome = "succeeded";
     if (outcome === "succeeded" && active.decisionReviewTarget) {
       if (!decisionReviewRegistered(context, active.decisionReviewTarget, active.dispatchId)) {
         outcome = "failed";
@@ -405,7 +410,7 @@ async function publishTerminalOutcome(
 function unsubmittedDeliveryRecovery(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
-  outcome: "succeeded" | "failed" | "unknown" | "cancelled",
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
   hasDelivery: boolean,
 ): string | null {
   if (outcome !== "succeeded" || !active.task || active.role === "reviewer" || !hasDelivery) return null;
@@ -520,7 +525,7 @@ export function runtimeResultText(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   code: number | null,
-  outcome: "succeeded" | "failed" | "unknown" | "cancelled",
+  outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped",
 ): string {
   if (active.lossReason)
     return `Runtime session lost: ${active.lossReason}${active.lossSignal ? ` (${active.lossSignal})` : ""}.`;

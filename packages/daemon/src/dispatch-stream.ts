@@ -825,7 +825,9 @@ function isDispatchTerminalOutcome(
     typeof payload === "object" &&
     !Array.isArray(payload) &&
     (payload as Record<string, unknown>).runtimeSessionId === runtimeSessionId &&
-    ["succeeded", "failed", "unknown", "cancelled"].includes(String((payload as Record<string, unknown>).outcome)) &&
+    ["succeeded", "failed", "unknown", "cancelled", "stopped"].includes(
+      String((payload as Record<string, unknown>).outcome),
+    ) &&
     typeof (payload as Record<string, unknown>).resultRef === "string" &&
     (payload as Record<string, unknown>).result !== undefined &&
     typeof (payload as Record<string, unknown>).endedAt === "string"

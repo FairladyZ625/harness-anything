@@ -31,7 +31,15 @@ const installation: RuntimeInstallationWitness = {
   version: "1.0.0",
   observedAt: "2026-08-26T00:00:00.000Z",
 };
-type Behavior = "429" | "success" | "worker_stop" | "empty_success" | "stderr_fail";
+type Behavior =
+  | "429"
+  | "success"
+  | "worker_stop"
+  | "empty_success"
+  | "stderr_fail"
+  | "task_input"
+  | "model_error"
+  | "policy_error";
 const behaviors = new Map<string, Behavior>([
   ["provider-rate-first", "429"],
   ["provider-success-second", "success"],
@@ -47,6 +55,9 @@ const behaviors = new Map<string, Behavior>([
   ["provider-bare-second", "success"],
   ["provider-bare-cross-kind", "success"],
   ["provider-bare-other-model", "success"],
+  ["provider-input-first", "task_input"],
+  ["provider-model-first", "model_error"],
+  ["provider-policy-first", "policy_error"],
   ["provider-stderr-first", "stderr_fail"],
   ["provider-stderr-second", "success"],
 ]);
@@ -128,7 +139,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
@@ -136,7 +147,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       ["provider_quota", "worker_stop"],
     );
     assert.match(completed[0]?.reason ?? "", /HTTP 429/u);
-    assert.match(completed[1]?.reason ?? "", /outcome is unknown/u);
+    assert.match(completed[1]?.reason ?? "", /without a submitted delivery/u);
     assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
     assert.match(prompts.get("provider-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
     assert.match(
@@ -272,7 +283,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const threeAttempts = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_three_attempts" })).dispatches;
-      return rows.length === 3 && rows[2]?.outcome === "unknown" ? rows : null;
+      return rows.length === 3 && rows[2]?.outcome === "stopped" ? rows : null;
     });
     assertAttemptChain(threeAttempts, ["provider-rate-a", "provider-rate-b", "provider-rate-c"]);
 
@@ -322,7 +333,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stopped = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_worker_stop" })).dispatches;
-      return rows.length === 1 && rows[0]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 1 && rows[0]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assert.equal(stopped[0]?.classification, "worker_stop");
     assert.equal(stopped[0]?.fallbackState, null);
@@ -379,7 +390,14 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      const successor = rows[1],
+        outcomeMatchesEvidence =
+          successor?.exitCode === null
+            ? successor.outcome === "unknown"
+            : successor?.exitCode === 0
+              ? successor.outcome === "stopped"
+              : false;
+      return rows.length === 2 && outcomeMatchesEvidence && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(restarted, ["provider-restart-first", "provider-restart-second"]);
 
@@ -399,13 +417,47 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
     assert.equal(models.get("provider-bare-first"), "bare-model");
     assert.equal(models.get("provider-bare-second"), "bare-model");
     assert.equal(models.has("provider-bare-cross-kind"), false);
     assert.equal(models.has("provider-bare-other-model"), false);
+
+    // decision/dec_FCD38D503B0C0752B83A417246/CH2: task/configuration errors never retry.
+    for (const [suffix, first] of [
+      ["input", "provider-input-first"],
+      ["model", "provider-model-first"],
+      ["policy", "provider-policy-first"],
+    ]) {
+      const taskId = `task_provider_no_fallback_${suffix}`;
+      await installAgent(cell, `no-fallback-${suffix}`, [{ instance: first! }, { instance: "provider-unused-second" }]);
+      await startTask(cell, root, taskId, `execution-provider-no-fallback-${suffix}`);
+      await cell.spawnRuntime(
+        {
+          agentId: `no-fallback-${suffix}`,
+          cwd: { scope: "repo-root" },
+          prompt: "Surface this task failure without changing provider.",
+          taskId,
+          idempotencyKey: `no-fallback-${suffix}`,
+        },
+        binding,
+      );
+      const rows = await eventually(async () => {
+        const rows = (await cell.read("repo.task.dispatches", { taskId })).dispatches;
+        return taskDispatchRowsSettled(rows) && rows.length > 0 ? rows : null;
+      });
+      assert.equal(rows.length, 1, JSON.stringify(rows));
+      assert.equal(rows[0]?.classification, "gate_red");
+      assert.equal(rows[0]?.fallbackState, null);
+      assert.equal(rows[0]?.nextDispatchId, null);
+      assert.equal(prompts.has("provider-unused-second"), false);
+      assert.match(
+        rows[0]?.reason ?? "",
+        suffix === "input" ? /Task input file missing/u : suffix === "model" ? /model_not_found/u : /content policy/u,
+      );
+    }
 
     await installAgent(cell, "fallback-stderr-bounded", [
       { instance: "provider-stderr-first" },
@@ -427,13 +479,13 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
     assert.equal(stderrBounded[0]?.classification, "provider_fault");
     const stderrReason = stderrBounded[0]?.reason ?? "";
     assert.equal(stderrReason.includes("\n"), false, JSON.stringify(stderrReason));
-    assert.match(stderrReason, /^PROVIDER-STDERR-FIRST-LINE startup log/u);
+    assert.match(stderrReason, /^HTTP 503: PROVIDER-STDERR-FIRST-LINE startup log/u);
     assert.match(stderrReason, /full diagnostics: file:\.harness\/runtime\/dispatches\//u);
     assert.doesNotMatch(stderrReason, /PROVIDER-STDERR-RAW-LINE-3/u);
     const stderrContinuation = prompts.get("provider-stderr-second")?.[0] ?? "";
@@ -744,7 +796,35 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
       exit = listener;
       setImmediate(() => {
         if (terminated) return;
+        if (behavior === "task_input") {
+          errorOutput?.("Task input file missing: mission.md\n");
+          exit?.(1);
+          return;
+        }
+        if (behavior === "model_error" || behavior === "policy_error") {
+          output?.(
+            JSON.stringify({
+              type: "turn.failed",
+              error:
+                behavior === "model_error"
+                  ? { code: "unknown_model", message: "model_not_found" }
+                  : { http_status: 403, message: "content policy rejected the request" },
+            }) + "\n",
+          );
+          exit?.(1);
+          return;
+        }
         if (behavior === "stderr_fail") {
+          // Preserve bounded/redacted provider diagnostics coverage using an explicit service fault.
+          output?.(
+            JSON.stringify({
+              type: "turn.failed",
+              error: {
+                http_status: 503,
+                message: "PROVIDER-STDERR-FIRST-LINE startup log\nPROVIDER-STDERR-RAW-LINE-3",
+              },
+            }) + "\n",
+          );
           errorOutput?.(
             [
               "PROVIDER-STDERR-FIRST-LINE startup log",
