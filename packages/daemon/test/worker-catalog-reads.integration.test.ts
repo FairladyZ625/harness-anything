@@ -113,6 +113,17 @@ test(
       },
     });
     assert.equal(instance.ok, true, JSON.stringify(instance));
+    const settings = await run({ kind: "settings-read" });
+    assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+    const projectUse = await run({
+      kind: "settings-update",
+      runtimeAllowedInstances: [
+        ...((settings.settings as { runtime?: { allowedInstances?: string[] } }).runtime?.allowedInstances ?? []),
+        "codex-worker",
+      ],
+      expectedVersion: settings.entityRevision,
+    });
+    assert.equal(projectUse.outcome, "applied", JSON.stringify(projectUse));
     const taskId = "task-reads";
     await createRealizedTaskPlanFixture(
       root,

@@ -24,6 +24,7 @@ import {
 } from "../src/protocol/daemon-protocol.contract.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
+import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
 import { decisionSummaryRead } from "./fixtures/decision-summary-read.ts";
 function assertValidationDiagnostic(errors: readonly string[], entity: RegExp, field: string): void {
   assert.equal(errors.length, 1);
@@ -51,6 +52,72 @@ test("local Fleet runtime envelope admits the paged overview read", async () => 
     assert.ok(response && !Array.isArray(response) && "result" in response); assert.equal(response && !Array.isArray(response) && "result" in response && (response.result as Record<string, unknown>).ok, true);
     assert.deepEqual(observed, { ...payload, method: "repo.agentRuntime.overview", action: { limit: 16 } });
   } finally { server.close(); }
+});
+test("relayed execution authenticates the device session before inspecting its grant", async () => {
+  let authenticated = false;
+  const observed: string[] = [],
+    server = createJsonRpcProtocolServer({
+      host: {} as never,
+      build: { commit: null },
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+      sessionPrincipal: async () => {
+        observed.push("session");
+        return authenticated
+          ? {
+              personId: "owner",
+              subject: "owner",
+              accessToken: "token",
+              expiresAt: Date.now() + 60_000,
+              authority: { url: "https://authority.invalid", realm: "test", clientId: "harness-center" },
+            }
+          : undefined;
+      },
+      edgeExecutionPrincipal: async () => {
+        observed.push("grant");
+        throw Object.assign(new Error("Grant is unavailable."), { code: "authorization_denied" });
+      },
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion, executionCredential: "fixture-grant" },
+    });
+    const request = () =>
+      server.handle({
+        jsonrpc: "2.0",
+        id: 2,
+        method: "daemon.fleet.task.run",
+        params: {
+          payload: {
+            host: "center",
+            port: 7443,
+            caPath: "/fleet/ca.pem",
+            nodeId: "edge-one",
+            credential: "node-secret",
+            repoId: "repo",
+            viewRoot: "/view",
+            quotaBytes: 1_048_576,
+            workspaceRoot: "/workspace",
+            action: { kind: "task-show", taskId: "task-one" },
+          },
+        },
+      });
+    const signedOut = await request();
+    assert.ok(signedOut && !Array.isArray(signedOut) && "result" in signedOut);
+    assert.equal((signedOut.result as JsonObject).code, "authentication_required");
+    assert.deepEqual(observed, ["session"]);
+    authenticated = true;
+    observed.length = 0;
+    const denied = await request();
+    assert.ok(denied && !Array.isArray(denied) && "result" in denied);
+    assert.equal((denied.result as JsonObject).code, "authorization_denied");
+    assert.deepEqual(observed, ["session", "grant"]);
+  } finally {
+    server.close();
+  }
 });
 // prettier-ignore
 

@@ -563,7 +563,8 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
-    assert.equal((await reviewCli(["task", "show", taskId])).code, "authentication_required");
+    const loggedOutReview = await reviewCli(["task", "show", taskId]);
+    assert.equal(loggedOutReview.code, "authentication_required", JSON.stringify(loggedOutReview));
     approveDeviceAgain(reviewUser, "node-slow", savedReviewSession);
     const reviewedTask = await reviewCli(["task", "show", taskId]);
     assert.equal(reviewedTask.outcome, "applied", JSON.stringify(reviewedTask));

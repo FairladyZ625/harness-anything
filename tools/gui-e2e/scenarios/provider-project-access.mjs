@@ -1,4 +1,3 @@
-/* global document */
 import assert from "node:assert/strict";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
 
@@ -31,10 +30,8 @@ export default {
     await shot("provider-project-blocked");
     await toggle.click();
     await page.waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="runtime-card-project-access"] [role="switch"]')
-          ?.getAttribute("aria-checked") === "true",
+      (element) => element.getAttribute("aria-checked") === "true",
+      await toggle.elementHandle(),
     );
     const readSettings = () =>
       requestDaemonJsonRpcAt(fixture.endpoint, "repo.settings.read", { repo: { repoId: fixture.repoId } }, 1_000);
@@ -42,10 +39,8 @@ export default {
     await shot("provider-project-allowed");
     await toggle.click();
     await page.waitForFunction(
-      () =>
-        document
-          .querySelector('[data-testid="runtime-card-project-access"] [role="switch"]')
-          ?.getAttribute("aria-checked") === "false",
+      (element) => element.getAttribute("aria-checked") === "false",
+      await toggle.elementHandle(),
     );
     assert.deepEqual((await readSettings()).settings.runtime.allowedInstances, []);
     const machine = await requestDaemonJsonRpcAt(
