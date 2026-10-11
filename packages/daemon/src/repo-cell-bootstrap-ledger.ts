@@ -30,6 +30,7 @@ export async function initializeBootstrapLedger(
       actionId: `repo-bootstrap:${cell.input.repoId}:${revision}`,
       revision,
       now: now(),
+      readTask: (taskId) => projection.read(taskId).snapshot.task,
     });
   if (authorizationDecision.outcome === "denied")
     throw cellCodedError(
@@ -82,6 +83,7 @@ export async function initializeBootstrapLedger(
             actionId: `repo-bootstrap-scaffold:${cell.input.repoId}:${scaffoldRevision}`,
             revision: scaffoldRevision,
             now: now(),
+            readTask: (taskId) => projection.read(taskId).snapshot.task,
           }),
         },
         workspaceId: cell.input.repoId,

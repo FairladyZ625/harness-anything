@@ -237,6 +237,7 @@ export async function appendSquadRunObservation(
       actionId: `squad-closeout:${run.squadRunId}:${String(command.taskId)}:${command.kind}`,
       revision: cell.store.readHead()?.revision ?? 0,
       now: cell.now(),
+      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
     });
     if (authorizationDecision.outcome !== "allowed")
       throw cell.cellCodedError("authorization_denied", "Squad assignment closeout requires task write authority.");

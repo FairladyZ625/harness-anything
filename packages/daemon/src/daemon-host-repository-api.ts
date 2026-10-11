@@ -823,9 +823,16 @@ export function createDaemonHostRepositoryApi(
           now: new Date().toISOString(),
           settings: (await cell.read("repo.settings.read", {}, binding)).settings,
           page: (cursor) => cell.read("repo.tasks.list", { limit: 500, ...(cursor ? { cursor } : {}) }, binding),
+          readTask: async (taskId) =>
+            (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
         });
       else if (method === "repo.tasks.assignmentDirectory")
-        result = await readTaskAssignmentDirectory(repoId, String(payload.taskId), binding);
+        result = await readTaskAssignmentDirectory(
+          repoId,
+          String(payload.taskId),
+          binding,
+          async (taskId) => (await cell.read("repo.tasks.runtimeContext.read", { taskId }, binding)).snapshot.task,
+        );
       else if (method === "observe.tail")
         result = await cell.observeTail(
           payload,

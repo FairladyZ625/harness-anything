@@ -40,6 +40,7 @@ export function enqueueRuntimePublication(
         repoId: context.input.repoId,
         revision,
         now: context.now(),
+        readTask: (taskId) => context.projection.read(taskId).snapshot.task,
       });
     if (authorizationDecision.outcome === "denied")
       throw Object.assign(new Error(authorizationDecision.nextActions.join(" ")), {

@@ -562,11 +562,12 @@ export class KeycloakPolicyAdapter {
     readonly userAccessToken: string;
     readonly action: string;
     readonly resource: AuthorizationResource;
+    readonly resourceAncestors?: readonly AuthorizationResource[];
   }): Promise<KeycloakPermissionDecision> {
     const resource = encodeAuthorizationResource(input.resource);
     if (!this.#knownScopes.has(input.action))
       return Object.freeze({ outcome: "denied", reasonCode: "unknown_scope", resource, scope: input.action });
-    for (const candidate of coveringResources(input.resource)) {
+    for (const candidate of coveringResources(input.resource, input.resourceAncestors)) {
       const response = await this.#fetch(this.#realmUrl("/protocol/openid-connect/token"), {
         method: "POST",
         headers: {
@@ -592,6 +593,7 @@ export class KeycloakPolicyAdapter {
     readonly personId: string;
     readonly action: string;
     readonly resource: AuthorizationResource;
+    readonly resourceAncestors?: readonly AuthorizationResource[];
   }): Promise<KeycloakPermissionDecision> {
     const first = await this.#attemptAuthorizePerson(input);
     if ("value" in first) return first.value;
@@ -607,6 +609,7 @@ export class KeycloakPolicyAdapter {
     readonly personId: string;
     readonly action: string;
     readonly resource: AuthorizationResource;
+    readonly resourceAncestors?: readonly AuthorizationResource[];
   }): Promise<{ readonly value: KeycloakPermissionDecision } | { readonly error: unknown }> {
     try {
       return { value: await this.#authorizePersonOnce(input) };
@@ -646,6 +649,7 @@ export class KeycloakPolicyAdapter {
     readonly personId: string;
     readonly action: string;
     readonly resource: AuthorizationResource;
+    readonly resourceAncestors?: readonly AuthorizationResource[];
   }): Promise<KeycloakPermissionDecision> {
     const resource = encodeAuthorizationResource(input.resource),
       denied = (reasonCode: KeycloakPermissionDecision["reasonCode"]) =>
@@ -654,7 +658,7 @@ export class KeycloakPolicyAdapter {
     const userId = await this.#cachedUserId(input.adminAccessToken, input.personId);
     if (!userId) return denied("keycloak_denied");
     const server = `/clients/${await this.#clientUuid(input.adminAccessToken)}/authz/resource-server`;
-    for (const candidate of coveringResources(input.resource)) {
+    for (const candidate of coveringResources(input.resource, input.resourceAncestors)) {
       const resourceId = await this.#cachedResourceId(input.adminAccessToken, server, candidate);
       // A resource nobody was ever granted on has no permission to evaluate.
       if (!resourceId) continue;
@@ -818,10 +822,19 @@ function jwtExpiry(token: string): number {
   }
 }
 
-function coveringResources(resource: AuthorizationResource): readonly string[] {
+function coveringResources(
+  resource: AuthorizationResource,
+  ancestors: readonly AuthorizationResource[] = [],
+): readonly string[] {
   const encoded = encodeAuthorizationResource(resource);
   return resource.kind === "entity"
-    ? [encodeAuthorizationResource({ kind: "repository", repoId: resource.repoId }), encoded]
+    ? [
+        ...new Set([
+          encodeAuthorizationResource({ kind: "repository", repoId: resource.repoId }),
+          ...ancestors.map(encodeAuthorizationResource),
+          encoded,
+        ]),
+      ]
     : [encoded];
 }
 

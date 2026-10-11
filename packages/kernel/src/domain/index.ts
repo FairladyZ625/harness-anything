@@ -28,6 +28,15 @@ export {
   encodeAuthorizationResource,
 } from "./policy-groups.ts";
 export type { AuthorizationResource, PolicyGroup } from "./policy-groups.ts";
+export {
+  beginPermissionApproval,
+  createPermissionRequest,
+  PermissionRequestError,
+  rejectPermissionRequest,
+  settlePermissionApproval,
+  withdrawPermissionRequest,
+} from "./permission-request.ts";
+export type { PermissionRequestDecision, PermissionRequestStatus, PermissionRequestV1 } from "./permission-request.ts";
 export { durablePolicyActions } from "./action-declaration.ts";
 export { REPLAY_TASK_GRAPH } from "./task-graph.ts";
 export { TASK_LIFECYCLE_TRANSITIONS } from "./task-lifecycle.contract.ts";

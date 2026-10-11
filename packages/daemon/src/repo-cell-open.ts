@@ -603,6 +603,7 @@ export async function openRepoWriterCell(
           const action = { kind: "task-start", taskId, ...(executionId ? { executionId } : {}) },
             revision = store.readHead()?.revision ?? 0,
             authorizationDecision = await evaluateRepoCellAction({
+              readTask: (taskId) => projection.read(taskId).snapshot.task,
               repoId: input.repoId,
               action,
               binding: await onlineBinding(binding),
@@ -653,6 +654,7 @@ export async function openRepoWriterCell(
         const action = { kind: "runtime-spawn", ...payload },
           revision = store.readHead()?.revision ?? 0,
           authorizationDecision = await evaluateRepoCellAction({
+            readTask: (taskId) => projection.read(taskId).snapshot.task,
             repoId: input.repoId,
             action,
             binding: await onlineBinding(binding),
@@ -673,6 +675,7 @@ export async function openRepoWriterCell(
         const action = { kind: "runtime-cancel", ...payload },
           revision = store.readHead()?.revision ?? 0,
           authorizationDecision = await evaluateRepoCellAction({
+            readTask: (taskId) => projection.read(taskId).snapshot.task,
             repoId: input.repoId,
             action,
             binding: await onlineBinding(binding),
