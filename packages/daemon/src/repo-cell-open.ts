@@ -133,7 +133,7 @@ export interface RepoCellOpenInput {
   ) => Promise<PreparedRuntimeLaunch>;
   readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
   readonly reclaimSettledRuntimeTempDirectories?: (
-    isSettled: (runtimeSessionId: string) => boolean,
+    settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly bootstrap?: RepoBootstrapInput;

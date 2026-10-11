@@ -325,12 +325,12 @@ export interface RuntimeSpawnerInput {
    *  a no-op for instances without enforced isolation. Returns the filesystem failure (if
    *  any) so terminal settlement can record it honestly instead of swallowing it. */
   readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
-  /** Startup-only sweep: reclaims every per-run temp directory whose session the caller's
-   *  predicate reports as settled. This — not the dispatch-stream-driven adoption branch —
+  /** Startup-only sweep: reclaims every per-run temp directory named in the caller's
+   *  repository-scoped terminal session set. This — not the dispatch-stream-driven adoption branch —
    *  is the retry path for a reclaim that failed at settlement, because settlement archives
    *  the stream and archived streams do not drive adoption. */
   readonly reclaimSettledRuntimeTempDirectories?: (
-    isSettled: (runtimeSessionId: string) => boolean,
+    settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;

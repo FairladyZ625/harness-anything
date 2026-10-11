@@ -111,8 +111,9 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
   const settled = "runtime_0123456789abcdef01234567",
     live = "runtime_89abcdef0123456789abcdef",
     adopted = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
-    neverRegistered = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
-  let predicate: ((runtimeSessionId: string) => boolean) | null = null;
+    neverRegistered = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb",
+    exiting = "runtime_cccccccccccccccccccccccc";
+  let selected: readonly string[] = [];
   const logged: string[] = [],
     originalError = console.error;
   console.error = ((line: string) => {
@@ -120,11 +121,11 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
   }) as typeof console.error;
   try {
     const context = {
-      exiting: new Set<string>(),
+      exiting: new Set<string>([exiting]),
       processes: new Map([[adopted, { runtimeSessionId: adopted }]]),
       input: {
-        reclaimSettledRuntimeTempDirectories: (isSettled: (runtimeSessionId: string) => boolean) => {
-          predicate = isSettled;
+        reclaimSettledRuntimeTempDirectories: (ids: readonly string[]) => {
+          selected = ids;
           return [{ instanceId: "provider-a", runtimeSessionId: settled, error: new Error("EBUSY: locked") }];
         },
       },
@@ -132,16 +133,17 @@ test("the startup sweep treats only settled sessions as reclaimable and reports 
         readRuntimeSessions: () => [
           { runtimeSessionId: settled, outcome: "succeeded" },
           { runtimeSessionId: live, outcome: null },
-          { runtimeSessionId: adopted, outcome: null },
+          { runtimeSessionId: adopted, outcome: "failed" },
+          { runtimeSessionId: exiting, outcome: "succeeded" },
         ],
       }),
     };
     await sweepSettledRuntimeTempDirectories(context as never);
-    assert.equal(typeof predicate, "function");
-    assert.equal(predicate!(settled), true, "a settled session's directory is reclaimed");
-    assert.equal(predicate!(live), false, "a live-at-center session keeps its directory");
-    assert.equal(predicate!(adopted), false, "a locally re-adopted session keeps its directory");
-    assert.equal(predicate!(neverRegistered), true, "a session the center never registered is an orphan");
+    assert.deepEqual(selected, [settled]);
+    assert.equal(selected.includes(live), false, "live-at-center session stays");
+    assert.equal(selected.includes(adopted), false, "locally re-adopted session stays");
+    assert.equal(selected.includes(exiting), false, "locally settling session stays");
+    assert.equal(selected.includes(neverRegistered), false, "unknown ownership is retained");
     assert.equal(
       logged.some((line) => line.includes("EBUSY: locked")),
       true,

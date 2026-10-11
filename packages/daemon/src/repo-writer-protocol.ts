@@ -33,6 +33,8 @@ export interface RepoWriterBootstrapV1 {
     readonly keycloakCenter: boolean;
     readonly keycloakSession: boolean;
     readonly prepareRuntimeLaunch: boolean;
+    readonly reclaimRuntimeTempDirectory: boolean;
+    readonly reclaimSettledRuntimeTempDirectories: boolean;
     readonly prepareWorkerGitEnvironment: boolean;
     readonly runtimeLaunch: boolean;
     readonly runtimeSignal: boolean;
@@ -148,6 +150,8 @@ export type RepoWriterCapabilityName =
   | "currentAccessToken"
   | "releaseCurrentAccessToken"
   | "prepareRuntimeLaunch"
+  | "reclaimRuntimeTempDirectory"
+  | "reclaimSettledRuntimeTempDirectories"
   | "prepareWorkerGitEnvironment"
   | "runtimeLaunch"
   | "runtimeTerminate"

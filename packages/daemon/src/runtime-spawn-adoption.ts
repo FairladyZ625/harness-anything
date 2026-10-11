@@ -182,13 +182,9 @@ export async function adoptRuntimes(
   if (failures.length > 0) throw failures[0];
 }
 
-/** Startup-only retry for per-run temp directories whose settlement-time reclaim failed, or
- *  whose daemon died before settling them: it enumerates the directories themselves — not
- *  dispatch streams, which settlement archives — and reclaims every one whose session the
- *  center no longer considers live. It is safe exactly where adoption's sweep flag is set:
- *  daemon open serves nothing yet, and an edge's readiness attempt only runs after the
- *  previous attempt rejected — a spawn that passed a rejected attempt threw before
- *  prepareLaunch — so no launch can be mid-flight while this runs. */
+/** Startup-only retry for this repository's explicitly terminal sessions, independent of
+ *  archived dispatch streams. Other repositories share the node's instance store, so an
+ *  unknown session must be retained. Locally adopted/settling sessions are still in use. */
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
   if (!context.input.reclaimSettledRuntimeTempDirectories) return;
   const [sessionRead] = await Promise.allSettled([
@@ -201,21 +197,21 @@ export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawner
   // Without an authoritative session read, settled-ness cannot be verified; leave every
   // directory for the next start instead of guessing.
   if (sessionRead.status !== "fulfilled") return;
-  const byId = new Map(sessionRead.value.map((session) => [session.runtimeSessionId, session]));
-  const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories((runtimeSessionId) => {
-    // A session this daemon just re-adopted, or is still settling, is live locally: its
-    // temp directory is in use regardless of what the center read says.
-    if (context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId)) return false;
-    const session = byId.get(runtimeSessionId);
-    return !session || session.outcome !== null;
-  });
+  const settledRuntimeSessionIds = sessionRead.value
+    .filter(
+      (session) =>
+        session.outcome !== null &&
+        !context.processes.has(session.runtimeSessionId) &&
+        !context.exiting.has(session.runtimeSessionId),
+    )
+    .map((session) => session.runtimeSessionId);
+  const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories(settledRuntimeSessionIds);
   for (const failure of reclaimFailures)
     logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);
 }
 
-/** A launch that failed before its dispatch event never registered at the center, so the
- *  startup sweep — which reclaims sessions the center does not know — is this directory's
- *  only remaining reclaim path; the refusal is logged, not swallowed. */
+/** A failed launch reclaims immediately. If that fails before registration, no repository
+ *  can prove ownership on a later sweep; the directory stays and the refusal is logged. */
 export function reclaimFailedLaunchTempDirectory(
   input: Pick<RuntimeSpawnerInput, "reclaimRuntimeTempDirectory">,
   instanceId: string,

@@ -674,15 +674,15 @@ export function openRuntimeInstanceStore(input: {
     }
   }
 
-  /** Reclaims every per-run temp directory under this node's instances whose session the caller
-   *  reports as settled (the center already terminated it, or it never registered — a launch
-   *  that crashed before its dispatch event). Enumerating the directories themselves, not
-   *  dispatch streams, is what makes this the retry path for a reclaim that failed at
-   *  settlement: the stream is archived by then and no longer drives adoption. */
+  /** Reclaims only directories named by the caller's repository-scoped terminal session set.
+   *  Unknown ids may belong to another repository sharing this node's instances; directory
+   *  absence from one repository's session table is never evidence of an orphan. Enumerating
+   *  directories still retries settled runs after their dispatch streams are archived. */
   function reclaimSettledRuntimeTempDirectories(
-    isSettled: (runtimeSessionId: string) => boolean,
+    settledRuntimeSessionIds: readonly string[],
   ): RuntimeTempReclaimFailure[] {
-    const failures: RuntimeTempReclaimFailure[] = [];
+    const failures: RuntimeTempReclaimFailure[] = [],
+      settled = new Set(settledRuntimeSessionIds);
     for (const config of read()) {
       if (config.isolationState !== "enforced") continue;
       const instanceTmpRoot = path.join(instancesRoot, config.instanceId, "tmp");
@@ -691,7 +691,7 @@ export function openRuntimeInstanceStore(input: {
         // Only spawner-minted session ids name per-run directories; anything else an operator
         // or provider left in the instance tmp root stays untouched.
         if (!entry.isDirectory() || !runtimeTempSessionPattern.test(entry.name)) continue;
-        if (!isSettled(entry.name)) continue;
+        if (!settled.has(entry.name)) continue;
         const error = reclaimRuntimeTempDirectory(config.instanceId, entry.name);
         if (error) failures.push({ instanceId: config.instanceId, runtimeSessionId: entry.name, error });
       }

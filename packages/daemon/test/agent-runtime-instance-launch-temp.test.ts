@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
+import { sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 
 const sessionA = "runtime_0123456789abcdef01234567",
@@ -283,16 +284,7 @@ test("the settled-session sweep reclaims only settled per-run directories it own
     mkdirSync(path.join(lockedRoot, "scratch"));
     writeFileSync(path.join(lockedRoot, "scratch", "payload.txt"), "one-off fixture");
     chmodSync(lockedRoot, 0o500);
-    const asked: string[] = [],
-      failures = store.reclaimSettledRuntimeTempDirectories((runtimeSessionId) => {
-        asked.push(runtimeSessionId);
-        return runtimeSessionId !== sessionB;
-      });
-    assert.deepEqual(
-      asked.sort(),
-      [sessionA, sessionB, sessionC, sessionD],
-      "every spawner-minted session directory under enforced instances is consulted; the predicate settles it",
-    );
+    const failures = store.reclaimSettledRuntimeTempDirectories([sessionA, sessionC, sessionD]);
     assert.deepEqual(
       failures.map((failure) => [failure.instanceId, failure.runtimeSessionId]),
       [["codex-sweep", sessionA]],
@@ -306,6 +298,67 @@ test("the settled-session sweep reclaims only settled per-run directories it own
     assert.equal(existsSync(path.join(sweepTmpRoot, "operator-notes")), true, "non-session entries stay");
     // Unlock for the cleanup below.
     chmodSync(sessionTemp(userRoot, "codex-sweep", sessionA), 0o700);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a repository sweep preserves another repository's live, settled and unregistered temp directories", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-two-repos-"));
+  try {
+    const store = openRuntimeInstanceStore({ userRoot, discover: () => [observed], resolveCredential: () => "secret" });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-shared",
+      name: "Shared",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: {},
+      auth: { mode: "api-key", credentialRef: "credential:v1:shared" },
+    });
+    const ids = Array.from({ length: 6 }, (_, index) => `runtime_${String(index + 1).repeat(24)}`);
+    for (const [index, runtimeSessionId] of ids.entries()) {
+      await store.prepareLaunch("codex-shared", {
+        cwd: index < 3 ? "/workspace/repo-a" : "/workspace/repo-b",
+        prompt: "Fixture",
+        runtimeSessionId,
+      });
+      writeFileSync(path.join(sessionTemp(userRoot, "codex-shared", runtimeSessionId), "scratch"), "payload");
+    }
+    const sweep = (sessions: { runtimeSessionId: string; outcome: string | null }[]) =>
+      sweepSettledRuntimeTempDirectories({
+        input: { reclaimSettledRuntimeTempDirectories: store.reclaimSettledRuntimeTempDirectories },
+        processes: new Map(),
+        exiting: new Set(),
+        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => sessions }),
+      } as never);
+    await sweep([]);
+    for (const id of ids)
+      assert.equal(existsSync(sessionTemp(userRoot, "codex-shared", id)), true, "empty repo owns none");
+    await sweep([
+      { runtimeSessionId: ids[0]!, outcome: null },
+      { runtimeSessionId: ids[1]!, outcome: "succeeded" },
+    ]);
+    for (const [index, id] of ids.entries())
+      assert.equal(
+        existsSync(sessionTemp(userRoot, "codex-shared", id)),
+        index !== 1,
+        "A reclaims only its settled session; A/B live and orphan plus B settled stay",
+      );
+    await sweep([
+      { runtimeSessionId: ids[3]!, outcome: null },
+      { runtimeSessionId: ids[4]!, outcome: "failed" },
+    ]);
+    for (const [index, id] of ids.entries())
+      assert.equal(
+        existsSync(sessionTemp(userRoot, "codex-shared", id)),
+        index !== 1 && index !== 4,
+        "B reclaims only its settled session; both repositories' live and orphan stay",
+      );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }
