@@ -184,7 +184,8 @@ describe("every task exit goes through the shared judgement", () => {
     act(() => nav.api().openTaskDetail("child"));
     act(() => nav.api().openTaskPreview("child"));
     expect(nav.navigate).toHaveBeenCalledWith({ selectedId: "child", previewId: null, focusedEntityRef: "task/child" });
-    expect(nav.updateLocation).toHaveBeenCalledWith({ selectedId: null, previewId: "child" });
+    // 预览抽屉与详情同一条推栈路径(2026-10-11 统一导航历史)。
+    expect(nav.navigate).toHaveBeenLastCalledWith({ selectedId: null, previewId: "child" });
   });
 
   it("opens the territory work zone title into the work page, keeping chip and fold clicks as they were", async () => {

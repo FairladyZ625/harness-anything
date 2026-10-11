@@ -792,6 +792,7 @@ const VIEW_RENDERERS = {
       focusedEntityRef: "schedule/heartbeat-probe",
       onSelectEntity: noop,
       onFocusSchedule: noop,
+      onBack: noop,
     }),
   agentSquad: () =>
     createElement(AgentSquadView, {

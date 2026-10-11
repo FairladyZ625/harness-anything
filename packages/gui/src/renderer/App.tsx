@@ -473,7 +473,6 @@ function AppShell() {
         onSetPin={handleSetPin}
         onOpenTerminal={(target) => {
           setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: target.taskId, title: target.title });
-          updateLocation({ selectedId: null });
           goto("terminal");
         }}
         onFocusGraph={focusEntityInGraph}
@@ -582,7 +581,10 @@ function AppShell() {
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
-                  onBack: () => updateLocation({ selectedId: null }),
+                  // 详情的局部返回与全局后退是同一能力:弹栈回上一位置(业主
+                  // 2026-10-11)。原地清 selectedId 会在栈里留下与上一条目相同的
+                  // 幻影条目,按侧键后退看起来毫无反应。
+                  onBack: back,
                   fromViewLabel: navLabel(view),
                 })
               ) : decisionReadError ? (
@@ -848,7 +850,7 @@ function AppShell() {
                   onOpenPreset={(presetId) =>
                     navigate({ focusedEntityRef: `preset/${presetId}`, selectedId: null, previewId: null })
                   }
-                  onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                  onExitDetail={back}
                   projectName={project.name}
                 />
               ) : view === "entities" ? (
@@ -861,7 +863,7 @@ function AppShell() {
                     navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
                   }
                   onOpenEntityRef={(ref) => navigateToEntity(ref)}
-                  onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                  onExitDetail={back}
                   onOpenView={goto}
                   projectName={project.name}
                 />
@@ -883,6 +885,7 @@ function AppShell() {
                   onSelectEntity={selectRuntimeEntity}
                   onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
                   onFocusGraph={focusEntityInGraph}
+                  onBack={back}
                 />
               ) : view === "artifacts" ? (
                 <ArtifactsView repoId={projectId} onNavigateTask={openTaskDetail} />
@@ -984,7 +987,9 @@ function AppShell() {
           task={previewTask}
           tasks={projectTasks}
           relations={edgeRelations}
-          onClose={() => updateLocation({ previewId: null })}
+          // 抽屉开/关与任务详情同一条推栈路径(openTaskPreview 推栈):X 键即弹栈
+          // 回列表;栈底(仅旧存储的孤立抽屉条目)无处可退,原地清预览。
+          onClose={() => (canBack ? back() : updateLocation({ previewId: null }))}
           onOpenDetail={openTaskDetail}
           onPreviewTask={openTaskPreview}
           onSetPin={handleSetPin}

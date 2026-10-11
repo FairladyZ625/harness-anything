@@ -126,6 +126,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     const text = container.textContent ?? "";
@@ -178,6 +179,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     const row = container.querySelector('[data-testid="schedule-row-builtin-ledger-backup"]');
@@ -222,6 +224,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
           focusedEntityRef: null,
           onSelectEntity: noop,
           onFocusSchedule: noop,
+          onBack: noop,
         }),
       );
     expect(container.textContent).toContain("Missing");
@@ -260,6 +263,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     // 默认就是「全部」:不先藏起来。
@@ -327,6 +331,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     // 需要关注的排在前面;降级的卡写出结论与人能读的失败详情,历史条每次结果一个色块。
@@ -374,6 +379,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     // 点卡直接进详情,不设预览抽屉(标准 §5.1)。
@@ -399,6 +405,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     await click(container, "schedule-run-now-heartbeat-probe");
@@ -431,6 +438,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     const runNow = container.querySelector<HTMLButtonElement>('[data-testid="schedule-run-now-heartbeat-probe"]')!;
@@ -461,6 +469,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: null,
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     const sizes = (tier: string) =>
@@ -488,6 +497,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     const detail = container.querySelector('[data-testid="schedule-detail"]')!;
@@ -521,6 +531,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     await click(container, "schedule-action-edit");
@@ -557,6 +568,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
           focusedEntityRef: "schedule/heartbeat-probe",
           onSelectEntity: noop,
           onFocusSchedule: noop,
+          onBack: noop,
         }),
       );
       await click(container, "schedule-action-edit");
@@ -602,6 +614,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     const text = container.textContent ?? "";
@@ -635,6 +648,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     await click(container, "schedule-action-disable");
@@ -788,6 +802,7 @@ describe("schedules plane (S4) — matrix list (M1)", () => {
         focusedEntityRef: "schedule/heartbeat-probe",
         onSelectEntity: noop,
         onFocusSchedule: noop,
+        onBack: noop,
       }),
     );
     await act(async () => {
