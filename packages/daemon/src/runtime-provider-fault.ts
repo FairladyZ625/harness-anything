@@ -6,7 +6,7 @@ const quota =
     /\b(?:quota|usage limit|credit balance|insufficient[_ -]?quota|resource[_ -]?exhausted)\b|使用上限|配额/iu,
   capacity = /\b(?:capacity issues?|at capacity|overloaded)\b/iu,
   model = /\b(?:unrecognized[_ -]?model|model[_ -]?not[_ -]?found|unknown[_ -]?model)\b/iu,
-  auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token)|forbidden)\b/iu;
+  auth = /\b(?:unauthorized|unauthenticated|authentication failed|invalid[_ -]?(?:api[_ -]?key|token))\b/iu;
 
 export function providerFaultFromFrame(
   kindId: RuntimeInstanceKind,
@@ -54,7 +54,7 @@ export function providerFaultFromStderr(kindId: RuntimeInstanceKind, stderr: str
   if (kindId === "claude") {
     const tagged = /^\[claude-code:([^\]]+)\]/imu.exec(normalized)?.[1] ?? null;
     if (tagged === "unrecognized_model") return fault("unrecognized_model", normalized);
-    if (tagged && /auth|unauthor|forbidden/iu.test(tagged)) return fault("auth_failed", normalized);
+    if (tagged && /auth|unauthor/iu.test(tagged)) return fault("auth_failed", normalized);
   }
   if (
     kindId === "agy" &&
@@ -88,6 +88,8 @@ export function classifyRuntimeExit(
       attemptIndex,
     });
   if (active.cancelRequested) return classified("worker_stop", "Worker stop was requested.");
+  if (attemptFailed && providerFault?.code === "unrecognized_model")
+    return classified("gate_red", providerFault.reason);
   if (attemptFailed && providerFault)
     return {
       ...classified(providerFault.faultClass ? "provider_quota" : "provider_fault", providerFault.reason),
@@ -110,7 +112,7 @@ export function classifyRuntimeExit(
     const reason = active.errorOverflowed
       ? `Provider exited with code ${String(exitCode)} before any tool call; stderr exceeded the diagnostic limit.`
       : active.errorBuffer.trim() || `Provider exited with code ${String(exitCode)} before any tool call.`;
-    return classified("provider_fault", reason);
+    return classified("gate_red", reason);
   }
   if (attemptFailed)
     return classified(
@@ -168,7 +170,7 @@ function providerFaultFromDiagnostic(
   if (capacity.test(joined)) return fault("server_error", reason);
   if (responseCode !== null && responseCode >= 500 && responseCode <= 599) return fault("server_error", reason);
   if (model.test(joined)) return fault("unrecognized_model", reason);
-  if (responseCode === 401 || responseCode === 403 || auth.test(joined)) return fault("auth_failed", reason);
+  if (responseCode === 401 || auth.test(joined)) return fault("auth_failed", reason);
   return null;
 }
 
@@ -196,10 +198,8 @@ function resetAtFrom(value: Record<string, unknown>): string | undefined {
       value[key] === undefined ? [] : [value[key]],
     ),
     headers = diagnosticRecord(value.headers) ?? diagnosticRecord(value.response_headers),
-    headerReset = headers
-      ? (headers["x-ratelimit-reset"] ?? headers["ratelimit-reset"] ?? headers["retry-after"])
-      : undefined,
-    retryAfter = value.retry_after ?? value.retryAfter;
+    headerReset = headers ? (headers["x-ratelimit-reset"] ?? headers["ratelimit-reset"]) : undefined,
+    retryAfter = headers?.["retry-after"] ?? value.retry_after ?? value.retryAfter;
   for (const candidate of [...direct, headerReset]) {
     const absolute = absoluteResetAt(candidate);
     if (absolute) return absolute;
@@ -209,9 +209,9 @@ function resetAtFrom(value: Record<string, unknown>): string | undefined {
 
 function absoluteResetAt(value: unknown): string | undefined {
   if (typeof value === "string" && value.trim()) {
+    if (/^\d+(?:\.\d+)?$/u.test(value.trim())) return epochResetAt(Number(value));
     const milliseconds = Date.parse(value);
     if (Number.isFinite(milliseconds)) return new Date(milliseconds).toISOString();
-    if (/^\d+(?:\.\d+)?$/u.test(value.trim())) return epochResetAt(Number(value));
   }
   return typeof value === "number" && Number.isFinite(value) ? epochResetAt(value) : undefined;
 }
@@ -222,7 +222,10 @@ function epochResetAt(value: number): string | undefined {
 }
 
 function retryAfterAt(value: unknown): string | undefined {
-  if (typeof value === "string" && !/^\d+(?:\.\d+)?$/u.test(value.trim())) return absoluteResetAt(value);
+  if (typeof value === "string") {
+    if (!value.trim()) return undefined;
+    if (!/^-?\d+(?:\.\d+)?$/u.test(value.trim())) return absoluteResetAt(value);
+  }
   const seconds = typeof value === "number" ? value : typeof value === "string" ? Number(value) : NaN;
   return Number.isFinite(seconds) && seconds >= 0 ? new Date(Date.now() + seconds * 1_000).toISOString() : undefined;
 }
