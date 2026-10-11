@@ -506,6 +506,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-artifact-add",
       "task-assign",
       "task-attest",
+      "task-ci",
       "task-code-doc-reconcile",
       "task-code-doc-repoint",
       "task-complete",
@@ -1035,6 +1036,21 @@ test("thin parser exposes task push as a task-bound daemon action", () => {
   }
   assert.equal(parseThinCommand(["task", "push"]).ok, false);
   assert.equal(parseThinCommand(["task", "push", "task-1", "--main"]).ok, false);
+});
+
+test("thin parser exposes read-only task CI with JSON and rejects ref/run selectors", () => {
+  const parsed = parseThinCommand(["task", "ci", "task-1", "--json"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) {
+    assert.equal(parsed.command.method, "repo.task.read");
+    assert.equal(parsed.command.json, true);
+    assert.deepEqual(parsed.command.action, { kind: "task-ci", taskId: "task-1" });
+  }
+  const ci = { taskId: "task-1", headSha: "a".repeat(40), conclusion: "pending", checks: [], runs: [] };
+  assert.deepEqual(JSON.parse(renderCliReceipt({ ok: true, command: "task-ci", ci }).text), ci);
+  assert.equal(parseThinCommand(["task", "ci"]).ok, false);
+  for (const flag of ["--branch", "--sha", "--run", "--rerun"])
+    assert.equal(parseThinCommand(["task", "ci", "task-1", flag, "other"]).ok, false);
 });
 
 test("thin parser validates only the selected command descriptor", () => {
