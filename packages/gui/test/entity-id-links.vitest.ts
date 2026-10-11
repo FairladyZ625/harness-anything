@@ -765,6 +765,7 @@ const VIEW_RENDERERS = {
       focusedEntityRef: `session/${SESSION_ID}`,
       onSelectEntity: noop,
       onOpenTask: noop,
+      onBack: noop,
     }),
   artifacts: () => createElement(ArtifactsView, { repoId: REPO_ID, onNavigateTask: noop }),
   // Token 消耗页:行 id 是 daemon 聚合行的归因文本(非可导航实体链接),fixture 用
@@ -792,6 +793,7 @@ const VIEW_RENDERERS = {
       focusedEntityRef: "schedule/heartbeat-probe",
       onSelectEntity: noop,
       onFocusSchedule: noop,
+      onBack: noop,
     }),
   agentSquad: () =>
     createElement(AgentSquadView, {

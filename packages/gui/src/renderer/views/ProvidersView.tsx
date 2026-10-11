@@ -27,6 +27,8 @@ export interface ProvidersViewProps {
   readonly repoId: string;
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
+  /** 窄容器返回键:全局导航弹栈(App 注入,与顶栏后退/侧键同一条路径)。 */
+  readonly onBack: () => void;
 }
 
 /** 页头插槽:主动作(检查器开关)由工作区实况派生,页面/面板各自决定要不要装。 */
@@ -72,6 +74,7 @@ export function ProvidersWorkspace({
   repoId,
   focusedEntityRef,
   onSelectEntity,
+  onBack,
   renderHeader,
 }: ProvidersViewProps & {
   /** 页面组合的页头渲染;工作台面板不传(面板标签即标题)。 */
@@ -79,8 +82,8 @@ export function ProvidersWorkspace({
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
   const refId = refSelection?.type === "runtime" ? refSelection.id : null;
-  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情、
-  // 返回键回目录;宽容器常驻双栏,该状态不参与。深链/跨页实体跳转视为一次点行。
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行 =
+  // 推栈选中引用进详情、全局后退/返回键弹回目录;宽容器常驻双栏,该状态不参与。
   const narrow = useCatalogDetailPane(refId);
   const workspace = useProviderWorkspace(repoId, refId);
   const [dialog, setDialog] = useState(false),
@@ -136,10 +139,7 @@ export function ProvidersWorkspace({
           authProbeStates={workspace.authProbeStates}
           selectedId={selectedId}
           liveByInstance={workspace.liveByInstance}
-          onSelect={(instanceId) => {
-            onSelectEntity(`provider/${instanceId}`);
-            narrow.openDetail();
-          }}
+          onSelect={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
           onNew={() => setDialog(true)}
         />
         <main
@@ -147,7 +147,7 @@ export function ProvidersWorkspace({
           data-pane="detail"
           className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6"
         >
-          <CatalogBackButton testId="providers-back-to-list" onBack={narrow.backToList} />
+          <CatalogBackButton testId="providers-back-to-list" onBack={onBack} />
           {instance === null ? (
             <>
               {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}

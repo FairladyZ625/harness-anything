@@ -435,9 +435,13 @@ function AppShell() {
   });
 
   useEffect(() => {
-    if (selectedWorkRootId !== null)
-      updateLocation({ ...workTargetOf(selectedWorkRootId), selectedId: null, previewId: null });
-  }, [selectedWorkRootId, updateLocation]);
+    if (selectedWorkRootId === null) return;
+    // selectedId 落在工作根有两种含义:已经在该工作页时是「根任务详情分区打开」
+    // (一条可后退的历史条目,WorkspaceView 的下钻推栈),不动;跨页深链(works 读面
+    // 落地前后路由判定不一致)才归位到工作页落地。
+    if (view === "workspace" && (location.scopeRootTaskId ?? null) === selectedWorkRootId) return;
+    updateLocation({ ...workTargetOf(selectedWorkRootId), selectedId: null, previewId: null });
+  }, [selectedWorkRootId, view, location.scopeRootTaskId, updateLocation]);
 
   const renderTaskDetail = (
     task: TaskRow,
@@ -473,7 +477,6 @@ function AppShell() {
         onSetPin={handleSetPin}
         onOpenTerminal={(target) => {
           setTerminalLaunch({ requestId: crypto.randomUUID(), taskId: target.taskId, title: target.title });
-          updateLocation({ selectedId: null });
           goto("terminal");
         }}
         onFocusGraph={focusEntityInGraph}
@@ -582,7 +585,10 @@ function AppShell() {
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {
-                  onBack: () => updateLocation({ selectedId: null }),
+                  // 详情的局部返回与全局后退是同一能力:弹栈回上一位置(业主
+                  // 2026-10-11)。原地清 selectedId 会在栈里留下与上一条目相同的
+                  // 幻影条目,按侧键后退看起来毫无反应。
+                  onBack: back,
                   fromViewLabel: navLabel(view),
                 })
               ) : decisionReadError ? (
@@ -669,10 +675,19 @@ function AppShell() {
                     }}
                     loadingMore={workspaceScopeQuery.isFetchingNextPage}
                     onOpenTask={openTaskDetail}
-                    renderRootTask={(onBack) => {
+                    onPreviewTask={openTaskPreview}
+                    // 根任务详情分区(业主 2026-10-11 全局导航):下钻推栈使 selectedId
+                    // 落在工作根,后退弹栈回本页、前进重开;页签离开走原地改。
+                    rootTaskOpen={selectedId === workspaceScope.root.taskId}
+                    onOpenRootTask={() =>
+                      navigate({ selectedId: workspaceScope.root.taskId, previewId: null, focusedEntityRef: null })
+                    }
+                    onCloseRootTask={() => updateLocation({ selectedId: null })}
+                    renderRootTask={() => {
                       const root = tasks.find(({ taskId }) => taskId === workspaceScope.root.taskId);
+                      // 根任务详情的局部返回与全局后退是同一能力:弹栈(与任务详情页同构)。
                       return root
-                        ? renderTaskDetail(root, { onBack, fromViewLabel: navLabel("workspace"), embedded: true })
+                        ? renderTaskDetail(root, { onBack: back, fromViewLabel: navLabel("workspace"), embedded: true })
                         : null;
                     }}
                   />
@@ -848,7 +863,7 @@ function AppShell() {
                   onOpenPreset={(presetId) =>
                     navigate({ focusedEntityRef: `preset/${presetId}`, selectedId: null, previewId: null })
                   }
-                  onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                  onExitDetail={back}
                   projectName={project.name}
                 />
               ) : view === "entities" ? (
@@ -861,7 +876,7 @@ function AppShell() {
                     navigate({ focusedEntityRef: `entitydoc/${kind}`, selectedId: null, previewId: null })
                   }
                   onOpenEntityRef={(ref) => navigateToEntity(ref)}
-                  onExitDetail={() => updateLocation({ focusedEntityRef: null })}
+                  onExitDetail={back}
                   onOpenView={goto}
                   projectName={project.name}
                 />
@@ -873,6 +888,8 @@ function AppShell() {
                   relations={edgeRelations}
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
+                  // 窄容器返回键走全局弹栈;栈底(孤立深链条目)无处可退时原地清引用回列表。
+                  onBack={() => (canBack ? back() : updateLocation({ focusedEntityRef: null }))}
                   // W5:「编排」段随入口撤销;session → task 的出口改指 Task 详情(派工链所在)。
                   onOpenTask={openTaskDetail}
                 />
@@ -883,6 +900,7 @@ function AppShell() {
                   onSelectEntity={selectRuntimeEntity}
                   onFocusSchedule={(ref) => updateLocation({ focusedEntityRef: ref })}
                   onFocusGraph={focusEntityInGraph}
+                  onBack={back}
                 />
               ) : view === "artifacts" ? (
                 <ArtifactsView repoId={projectId} onNavigateTask={openTaskDetail} />
@@ -896,6 +914,7 @@ function AppShell() {
                   }))}
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
+                  onBack={() => (canBack ? back() : updateLocation({ focusedEntityRef: null }))}
                   onFocusGraph={focusEntityInGraph}
                 />
               ) : view === "providers" ? (
@@ -903,6 +922,7 @@ function AppShell() {
                   repoId={projectId}
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
+                  onBack={() => (canBack ? back() : updateLocation({ focusedEntityRef: null }))}
                 />
               ) : view === "tokenUsage" ? (
                 <TokenUsageView
@@ -984,7 +1004,9 @@ function AppShell() {
           task={previewTask}
           tasks={projectTasks}
           relations={edgeRelations}
-          onClose={() => updateLocation({ previewId: null })}
+          // 抽屉开/关与任务详情同一条推栈路径(openTaskPreview 推栈):X 键即弹栈
+          // 回列表;栈底(仅旧存储的孤立抽屉条目)无处可退,原地清预览。
+          onClose={() => (canBack ? back() : updateLocation({ previewId: null }))}
           onOpenDetail={openTaskDetail}
           onPreviewTask={openTaskPreview}
           onSetPin={handleSetPin}

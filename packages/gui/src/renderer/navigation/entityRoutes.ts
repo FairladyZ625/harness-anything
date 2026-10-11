@@ -109,9 +109,14 @@ export function entityDetailTargetOf(
     if (!kind) return null;
     return { view: "entities", focusedEntityRef: `entitydoc/${kind}` };
   }
-  // 会话页的 Task 详情反向入口只落单会话段并展开该任务组;小队编排当前没有跨页
-  // producer,因此不预埋对应的 consumer 路由。
+  // 会话页的 Task 详情反向入口只落单会话段并展开该任务组;squadrun/<id> 是小队编排段
+  // 的行选中落点(点行/后退前进经同一条推栈路径,业主 2026-10-11 全局导航)。
   if (ref.startsWith("tasksessions/")) {
+    const id = ref.split("/")[1];
+    if (!id) return null;
+    return { view: "sessions", focusedEntityRef: ref };
+  }
+  if (ref.startsWith("squadrun/")) {
     const id = ref.split("/")[1];
     if (!id) return null;
     return { view: "sessions", focusedEntityRef: ref };
