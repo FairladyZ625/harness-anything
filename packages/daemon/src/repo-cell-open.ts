@@ -128,8 +128,13 @@ export interface RepoCellOpenInput {
       readonly effort?: string;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly runtimeSessionId?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
+  readonly reclaimSettledRuntimeTempDirectories?: (
+    settledRuntimeSessionIds: readonly string[],
+  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly bootstrap?: RepoBootstrapInput;
   readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
@@ -466,6 +471,10 @@ export async function openRepoWriterCell(
     runtimeInstances: input.runtimeInstances,
     keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
+    ...(input.reclaimRuntimeTempDirectory ? { reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory } : {}),
+    ...(input.reclaimSettledRuntimeTempDirectories
+      ? { reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories }
+      : {}),
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
     resolveAgent: (agentId) => {
       const projected = projection.getEntity("agent", agentId);

@@ -20,6 +20,16 @@ export const clientLocalCommands = [
   generationMigrationCommand,
   completionMigrationCommand,
   {
+    id: "backup-retention",
+    path: ["backup", "retention"],
+    usage: "ha backup retention [--days <n>] [--user-root <path>] [--json]",
+    summary: "List ~/.harness/backups entries and mark which exceed the retention window.",
+    help: [
+      "    Read-only, no daemon contact. A backup entry is kept 30 days from its last write by default",
+      "    (--days overrides); expired entries are listed only, deletion stays manual.",
+    ].join("\n"),
+  },
+  {
     id: "daemon-metrics",
     path: ["daemon", "metrics"],
     usage:

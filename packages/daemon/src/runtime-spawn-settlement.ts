@@ -31,6 +31,16 @@ export async function publishExit(
   )
     return;
   context.exiting.add(active.runtimeSessionId);
+  // Every terminal path — success, failure, cancellation, and the daemon-restart loss
+  // settlement — flows through here, so the run's own temp directory goes with it. A
+  // filesystem refusal (a dying provider can still hold a lock) is recorded below in the
+  // terminal body; the next daemon start's settled-session sweep is the retry.
+  const tempReclaimFailure =
+    context.input.reclaimRuntimeTempDirectory?.(active.instanceId, active.runtimeSessionId) ?? null;
+  if (tempReclaimFailure)
+    console.error(
+      `[runtime-temp] ${active.instanceId}/${active.runtimeSessionId} could not be reclaimed: ${tempReclaimFailure.message}`,
+    );
   const cancelled = active.cancelRequested,
     cancelBinding = cancelled && active.cancelBinding ? active.cancelBinding : active.binding,
     terminalBinding = runtimeSessionBinding(active.binding, active.runtimeSessionId),
@@ -103,6 +113,10 @@ export async function publishExit(
     // usage read side picks it up.
     const { cacheWriteTokens: _cacheWriteTokens, ...kernelMetrics } = runtimeMetrics;
     let body = context.runtimeResultText(active, code, outcome);
+    // Settlement carries the reclaim failure in its result text: the outcome itself is
+    // unaffected (per-run temp is node hygiene, not part of the delivery cut), but the
+    // terminal record must not claim a clean reclamation that did not happen.
+    if (tempReclaimFailure) body = `${body}\n\nPer-run temp directory reclaim failed: ${tempReclaimFailure.message}`;
     let hasDelivery =
       active.task && outcome === "succeeded" && active.publicationOwner === "commander" && !squadLeaderControl
         ? await workerBranchHasDelivery({

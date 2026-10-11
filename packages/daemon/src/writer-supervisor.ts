@@ -367,6 +367,16 @@ export async function openWriterSupervisor(
         };
         return input.prepareRuntimeLaunch!(payload.instanceId, payload.request);
       }
+      case "reclaimRuntimeTempDirectory": {
+        const payload = call.payload as { instanceId: string; runtimeSessionId: string };
+        const error = input.reclaimRuntimeTempDirectory!(payload.instanceId, payload.runtimeSessionId);
+        return error ? serializeWriterError(error) : null;
+      }
+      case "reclaimSettledRuntimeTempDirectories":
+        return input.reclaimSettledRuntimeTempDirectories!(call.payload as readonly string[]).map((failure) => ({
+          ...failure,
+          error: serializeWriterError(failure.error),
+        }));
       case "prepareWorkerGitEnvironment":
         return input.prepareWorkerGitEnvironment!((call.payload as { instanceId: string }).instanceId);
       case "runtimeLaunch": {
@@ -471,6 +481,8 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       keycloakCenter: input.keycloakCenter !== undefined,
       keycloakSession: input.keycloakSession !== undefined,
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
+      reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory !== undefined,
+      reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories !== undefined,
       prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
       // Runtime worker hosts belong to the daemon process, not the replaceable
       // writer thread, so the daemon can reap them after a Cell restart.

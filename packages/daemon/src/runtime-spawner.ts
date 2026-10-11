@@ -28,7 +28,7 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -499,6 +499,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(fast === undefined ? {} : { fast }),
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),
+                  runtimeSessionId,
                 }),
             result = {
               fallbackAttempt,
@@ -655,6 +656,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.release?.();
       cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
+      reclaimFailedLaunchTempDirectory(input, runtimeInstanceId, runtimeSessionId);
       if (!taskLeaseHandoff || !taskBinding) return;
       await input.onAttemptTerminal?.({
         runtimeSessionId,
@@ -985,7 +987,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         scheduled,
         undefined,
       ),
-    adopt: (onProgress?: (completed: number) => void) => adoptRuntimes(extracted, onProgress),
+    // Startup adoption only: cancel's mid-operation adoption call passes no sweep flag,
+    // because a just-minted temp directory whose dispatch event has not committed yet must
+    // not be reclaimed out from under an in-flight launch.
+    adopt: (onProgress?: (completed: number) => void) =>
+      adoptRuntimes(extracted, onProgress, { sweepTempDirectories: true }),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => {
       fallbackClosed = true;

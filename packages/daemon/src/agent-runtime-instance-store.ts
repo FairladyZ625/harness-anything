@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -67,6 +68,29 @@ import {
   runtimeKindForId,
   runtimeKindIds,
 } from "./runtime-inventory.ts";
+
+/** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
+ *  this id into a filesystem path that settlement recursively deletes, so the shape is pinned
+ *  here: adopted dispatch-stream headers read the id back from disk, and the stream write
+ *  boundary does not validate it. */
+const runtimeTempSessionPattern = /^runtime_[0-9a-f]{24}$/u;
+
+function runtimeTempDirectory(instancesRoot: string, instanceId: string, runtimeSessionId: string): string {
+  if (!runtimeTempSessionPattern.test(runtimeSessionId))
+    throw runtimeInstanceError(
+      "invalid_runtime_session_id",
+      "A per-run temp directory requires the spawner-minted runtime session id shape runtime_<24 hex>.",
+    );
+  return path.join(instancesRoot, instanceId, "tmp", runtimeSessionId);
+}
+
+/** One entry the settled-session sweep could not reclaim; the daemon logs these and retries
+ *  on its next start. */
+export type RuntimeTempReclaimFailure = {
+  readonly instanceId: string;
+  readonly runtimeSessionId: string;
+  readonly error: Error;
+};
 
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
@@ -239,6 +263,7 @@ export function openRuntimeInstanceStore(input: {
       readonly fast?: boolean;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly runtimeSessionId?: string;
     },
   ): Promise<PreparedRuntimeLaunch> {
     const config = readOne(instanceId);
@@ -267,7 +292,11 @@ export function openRuntimeInstanceStore(input: {
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
     if (config.isolationState === "enforced") ensureStateRoot(config);
-    const env = authEnvironment(config),
+    const launchTempDirectory =
+        config.isolationState === "enforced" && request.runtimeSessionId !== undefined
+          ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
+          : null,
+      env = authEnvironment(config, launchTempDirectory ?? undefined),
       args = launchArgs(
         config,
         model,
@@ -285,6 +314,7 @@ export function openRuntimeInstanceStore(input: {
         await probeSubscription(installation, env, config.isolationState),
       );
       if (readiness.code !== null) throw runtimeInstanceError(readiness.code, readiness.hint!);
+      if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
       return {
         definition,
         installation,
@@ -323,6 +353,7 @@ export function openRuntimeInstanceStore(input: {
       writeZcodeConfig(path.join(home, ".zcode", "cli", "config.json"), config, secret);
     } else if (protocolFamily !== "acp") env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
+    if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
     return {
       definition,
       installation,
@@ -624,6 +655,49 @@ export function openRuntimeInstanceStore(input: {
     }
     throw runtimeInstanceError("unsupported_command", `Unsupported runtime instance command: ${kind}.`);
   }
+  /** Reclaims one runtime session's per-run temp directory. Returns the filesystem failure
+   *  instead of throwing, so terminal settlement can record it; a session id outside the
+   *  spawner-minted shape and an instance without enforced isolation are no-ops, not failures. */
+  function reclaimRuntimeTempDirectory(instanceId: string, runtimeSessionId: string): Error | null {
+    if (!runtimeTempSessionPattern.test(runtimeSessionId)) return null;
+    const config = read().find((entry) => entry.instanceId === instanceId);
+    if (!config || config.isolationState !== "enforced") return null;
+    try {
+      rmSync(runtimeTempDirectory(instancesRoot, config.instanceId, runtimeSessionId), {
+        recursive: true,
+        force: true,
+      });
+      return null;
+    } catch (error) {
+      // The next daemon start's settled-session sweep (below) retries this directory.
+      return error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  /** Reclaims only directories named by the caller's repository-scoped terminal session set.
+   *  Unknown ids may belong to another repository sharing this node's instances; directory
+   *  absence from one repository's session table is never evidence of an orphan. Enumerating
+   *  directories still retries settled runs after their dispatch streams are archived. */
+  function reclaimSettledRuntimeTempDirectories(
+    settledRuntimeSessionIds: readonly string[],
+  ): RuntimeTempReclaimFailure[] {
+    const failures: RuntimeTempReclaimFailure[] = [],
+      settled = new Set(settledRuntimeSessionIds);
+    for (const config of read()) {
+      if (config.isolationState !== "enforced") continue;
+      const instanceTmpRoot = path.join(instancesRoot, config.instanceId, "tmp");
+      if (!existsSync(instanceTmpRoot)) continue;
+      for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true })) {
+        // Only spawner-minted session ids name per-run directories; anything else an operator
+        // or provider left in the instance tmp root stays untouched.
+        if (!entry.isDirectory() || !runtimeTempSessionPattern.test(entry.name)) continue;
+        if (!settled.has(entry.name)) continue;
+        const error = reclaimRuntimeTempDirectory(config.instanceId, entry.name);
+        if (error) failures.push({ instanceId: config.instanceId, runtimeSessionId: entry.name, error });
+      }
+    }
+    return failures;
+  }
   return {
     create,
     list: read,
@@ -636,6 +710,8 @@ export function openRuntimeInstanceStore(input: {
     authStatus,
     prepareAuthCommand,
     prepareLaunch,
+    reclaimRuntimeTempDirectory,
+    reclaimSettledRuntimeTempDirectories,
     prepareWorkerGitEnvironment,
     refreshInstallations,
     command,
@@ -735,7 +811,7 @@ export function openRuntimeInstanceStore(input: {
       if (authFile && shared) ensureSharedAuthFile(path.join(shared, authFile), path.join(provider, authFile));
     }
   }
-  function authEnvironment(config: RuntimeInstanceConfig): NodeJS.ProcessEnv {
+  function authEnvironment(config: RuntimeInstanceConfig, tempDirectory?: string): NodeJS.ProcessEnv {
     const env =
       config.isolationState === "enforced"
         ? isolatedEnvironment(
@@ -743,6 +819,7 @@ export function openRuntimeInstanceStore(input: {
             path.join(instancesRoot, config.instanceId),
             config.kindId,
             platform,
+            tempDirectory,
           )
         : { ...(input.env ?? process.env) };
     if (platform === "darwin" && config.kindId === "claude" && config.isolationState === "operator-environment")

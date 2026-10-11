@@ -22,14 +22,17 @@ import { runtimeKindForId, type RuntimeProviderDeclaration } from "./runtime-inv
 // semantics; Windows derives the same guarantees from USERPROFILE/TEMP/APPDATA and
 // must not inject XDG_RUNTIME_DIR. Pass-through stays an explicit allowlist of
 // machine/user-neutral variables; host credentials never leak in.
+// A launch scoped to one runtime session passes its own tempDirectory so one-off
+// scratch never piles up in the instance-wide root; settlement reclaims it.
 export function isolatedEnvironment(
   source: NodeJS.ProcessEnv,
   stateRoot: string,
   kindId: RuntimeInstanceKind,
   platform: NodeJS.Platform,
+  tempDirectory?: string,
 ): NodeJS.ProcessEnv {
   const home = path.join(stateRoot, "home"),
-    tmp = path.join(stateRoot, "tmp"),
+    tmp = tempDirectory ?? path.join(stateRoot, "tmp"),
     environment = runtimeKindForId(kindId).executable.configHomeEnvironment,
     kind = environment ? { [environment]: providerConfigDirectory(home, kindId) } : {};
   if (platform === "win32") {

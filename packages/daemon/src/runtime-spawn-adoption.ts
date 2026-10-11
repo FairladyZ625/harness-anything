@@ -25,6 +25,7 @@ import { isRuntimeKindId } from "./runtime-inventory.ts";
 export async function adoptRuntimes(
   context: RuntimeSpawnerContext,
   onProgress?: (completed: number) => void,
+  options?: { readonly sweepTempDirectories?: boolean },
 ): Promise<void> {
   // Reconstruct owner handles even when the center cannot answer. Publication errors remain
   // errors; they cannot erase independently verified local process control.
@@ -172,7 +173,56 @@ export async function adoptRuntimes(
       onProgress?.(++completed);
     }
   }
+  // The sweep runs after the header loop, so sessions re-adopted above are live in
+  // context.processes and their directories are skipped. Startup adoption (daemon open, or an
+  // edge's readiness gate) passes the flag; cancel's mid-operation adoption call does not — a
+  // just-minted directory whose dispatch event has not committed yet would be
+  // indistinguishable here from an orphaned one.
+  if (options?.sweepTempDirectories) await sweepSettledRuntimeTempDirectories(context);
   if (failures.length > 0) throw failures[0];
+}
+
+/** Startup-only retry for this repository's explicitly terminal sessions, independent of
+ *  archived dispatch streams. Other repositories share the node's instance store, so an
+ *  unknown session must be retained. Locally adopted/settling sessions are still in use. */
+export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
+  if (!context.input.reclaimSettledRuntimeTempDirectories) return;
+  const [sessionRead] = await Promise.allSettled([
+    Promise.resolve().then(() =>
+      context.input.remote
+        ? context.input.remote.readRuntimeSessions()
+        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
+    ),
+  ]);
+  // Without an authoritative session read, settled-ness cannot be verified; leave every
+  // directory for the next start instead of guessing.
+  if (sessionRead.status !== "fulfilled") return;
+  const settledRuntimeSessionIds = sessionRead.value
+    .filter(
+      (session) =>
+        session.outcome !== null &&
+        !context.processes.has(session.runtimeSessionId) &&
+        !context.exiting.has(session.runtimeSessionId),
+    )
+    .map((session) => session.runtimeSessionId);
+  const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories(settledRuntimeSessionIds);
+  for (const failure of reclaimFailures)
+    logRuntimeTempReclaimFailure(failure.instanceId, failure.runtimeSessionId, "by the startup sweep", failure.error);
+}
+
+/** A failed launch reclaims immediately. If that fails before registration, no repository
+ *  can prove ownership on a later sweep; the directory stays and the refusal is logged. */
+export function reclaimFailedLaunchTempDirectory(
+  input: Pick<RuntimeSpawnerInput, "reclaimRuntimeTempDirectory">,
+  instanceId: string,
+  runtimeSessionId: string,
+): void {
+  const failure = input.reclaimRuntimeTempDirectory?.(instanceId, runtimeSessionId);
+  if (failure) logRuntimeTempReclaimFailure(instanceId, runtimeSessionId, "after a failed launch", failure);
+}
+
+function logRuntimeTempReclaimFailure(instanceId: string, runtimeSessionId: string, stage: string, error: Error): void {
+  console.error(`[runtime-temp] ${instanceId}/${runtimeSessionId} could not be reclaimed ${stage}: ${error.message}`);
 }
 
 export function ownedByRuntimeSpawner(

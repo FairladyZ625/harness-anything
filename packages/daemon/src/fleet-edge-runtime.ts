@@ -93,8 +93,13 @@ type RuntimePorts = {
       readonly effort?: string;
       readonly providerSessionId?: string;
       readonly permissionMode?: string;
+      readonly runtimeSessionId?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
+  readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
+  readonly reclaimSettledRuntimeTempDirectories: (
+    settledRuntimeSessionIds: readonly string[],
+  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly prepareWorkerGitEnvironment: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
 };
 const runtimeOverviewPageLimit = 16;
@@ -401,6 +406,8 @@ export function openFleetEdgeRuntime(input: {
     readSettings,
     runtimeInstances: input.ports.runtimeInstances,
     prepareLaunch: input.ports.prepareRuntimeLaunch,
+    reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
+    reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
     prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
     resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>
@@ -508,6 +515,9 @@ export function openFleetEdgeRuntime(input: {
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
+      // adopt() runs with the temp-directory sweep enabled: a readiness attempt only ever
+      // runs after the previous one rejected, and a spawn that passed a rejected attempt
+      // threw before prepareLaunch — so no launch is mid-flight while the sweep runs.
       const attempt = pullRuntimeReplica()
         .then(() => spawner.adopt())
         .then(() => squad.reconcile());

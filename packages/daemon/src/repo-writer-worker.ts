@@ -10,6 +10,7 @@ import {
   serializableRepoCellBinding,
   serializeWriterError,
   type RepoWriterBootstrapV1,
+  type SerializedWriterErrorV1,
   type RepoWriterCancelV1,
   type RepoWriterCapabilityCallV1,
   type RepoWriterCapabilityResultV1,
@@ -135,6 +136,26 @@ async function startRepoWriterWorker(): Promise<void> {
                 asyncCapability("prepareRuntimeLaunch", { instanceId, request }) as ReturnType<
                   NonNullable<RepoCellOpenInput["prepareRuntimeLaunch"]>
                 >,
+            }
+          : {}),
+        ...(bootstrap.capabilities.reclaimRuntimeTempDirectory
+          ? {
+              reclaimRuntimeTempDirectory: (instanceId, runtimeSessionId) => {
+                const error = syncCapability<SerializedWriterErrorV1 | null>("reclaimRuntimeTempDirectory", {
+                  instanceId,
+                  runtimeSessionId,
+                });
+                return error ? deserializeWriterError(error) : null;
+              },
+            }
+          : {}),
+        ...(bootstrap.capabilities.reclaimSettledRuntimeTempDirectories
+          ? {
+              reclaimSettledRuntimeTempDirectories: (ids) =>
+                syncCapability<{ instanceId: string; runtimeSessionId: string; error: SerializedWriterErrorV1 }[]>(
+                  "reclaimSettledRuntimeTempDirectories",
+                  ids,
+                ).map((failure) => ({ ...failure, error: deserializeWriterError(failure.error) })),
             }
           : {}),
         ...(bootstrap.capabilities.prepareWorkerGitEnvironment
