@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import {
+  pushTaskWorkerBranch,
   pushWorkerBranch,
   readWorkerGitIdentity,
   squadWorkerBranchHasDelivery,
@@ -58,7 +59,7 @@ test("worker push publishes only the dispatched task's own branch with force-wit
   git(worker, "add", "change.txt");
   git(worker, "commit", "--quiet", "-m", "feat: worker change");
 
-  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_push_test" });
+  const result = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_push_test" });
   assert.equal(result.attempted, true);
   assert.equal(result.ok, true);
   assert.equal(result.branch, "task_push_test");

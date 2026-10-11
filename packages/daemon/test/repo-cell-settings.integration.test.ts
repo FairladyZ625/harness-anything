@@ -54,17 +54,36 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
       actor: "person:fixture",
       revision: 1,
     });
-    for (const selection of [
-      { defaultVertical: "software/coding", defaultPreset: "standard-task", defaultProfile: "prose" },
-      { defaultVertical: "other/vertical", defaultPreset: "standard-task", defaultProfile: "baseline" },
-    ]) {
+    // dec_9DFDC635180975FDFC0CDB33D7/CH1: repository and bundled verticals share
+    // resolution; an unknown vertical fails there before preset/profile selection.
+    for (const [selection, code] of [
+      [
+        { defaultVertical: "software/coding", defaultPreset: "standard-task", defaultProfile: "prose" },
+        "invalid_settings_catalog_selection",
+      ],
+      [
+        { defaultVertical: "software/coding", defaultPreset: "unknown-preset", defaultProfile: "baseline" },
+        "invalid_settings_catalog_selection",
+      ],
+      [
+        { defaultVertical: "other/vertical", defaultPreset: "standard-task", defaultProfile: "baseline" },
+        "missing_vertical",
+      ],
+    ] as const) {
       const rejected = await cell.run(
-        { kind: "settings-update", ...selection, idempotencyKey: `reject-${selection.defaultVertical}` },
+        {
+          kind: "settings-update",
+          ...selection,
+          idempotencyKey: `reject-${selection.defaultVertical}-${selection.defaultPreset}-${selection.defaultProfile}`,
+        },
         binding,
       );
       assert.equal(rejected.outcome, "op_rejected");
-      assert.equal(rejected.code, "invalid_settings_catalog_selection");
+      assert.equal(rejected.code, code);
       assert.equal(readFileSync(configPath, "utf8"), before);
+      const unchanged = await cell.run({ kind: "settings-read" }, binding);
+      assert.equal(unchanged.revision, initialRevision);
+      assert.deepEqual(unchanged.settings, catalogSettings);
     }
 
     const repositoryUpdate = {

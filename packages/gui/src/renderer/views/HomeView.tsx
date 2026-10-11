@@ -4,6 +4,7 @@ import { Region } from "../components/primitives/Region.tsx";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import { groupProjects, repoNeedsAttention, type ProjectGroupId } from "../model/repo-state.ts";
+import { orderProjects } from "../project-order-preferences.ts";
 import { canManageProjects, useAddProject } from "./home/add-project.ts";
 import { ProjectEntry } from "./home/ProjectEntry.tsx";
 import { useProjectActivity } from "./home/project-activity.ts";
@@ -23,10 +24,15 @@ const GROUP_TITLE = {
 export function HomeView({
   repos,
   currentRepoId,
+  pinnedRepoIds,
+  onToggleProjectPin,
   onOpenProject,
 }: {
   readonly repos: ReadonlyArray<SystemRepoRow>;
   readonly currentRepoId: string | null;
+  /** 置顶的 repoId(与切换器同一条顺序):组内置顶在前,其余保持既有组内顺序。 */
+  readonly pinnedRepoIds: ReadonlyArray<string>;
+  readonly onToggleProjectPin: (repoId: string) => void;
   readonly onOpenProject: (repoId: string, targetView?: "agenda" | "work") => void;
 }) {
   const readOf = useProjectActivity(repos),
@@ -89,12 +95,14 @@ export function HomeView({
                   edge={group === "attention" ? attentionTone : undefined}
                 >
                   <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,32rem),1fr))] gap-x-4">
-                    {groups[group].map((repo) => (
+                    {orderProjects(groups[group], pinnedRepoIds).map((repo) => (
                       <ProjectEntry
                         key={repo.repoId}
                         repo={repo}
                         read={readOf(repo)}
                         isCurrent={repo.repoId === currentRepoId}
+                        isPinned={pinnedRepoIds.includes(repo.repoId)}
+                        onTogglePin={() => onToggleProjectPin(repo.repoId)}
                         canManage={canManage}
                         onOpen={onOpenProject}
                       />

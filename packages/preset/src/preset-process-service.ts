@@ -24,6 +24,7 @@ import {
   type PresetRunReceiptV1,
 } from "./preset.contract.ts";
 import { createRuntime, decodePresetPackageV3, type InternalPresetResolution } from "./preset-resolver.ts";
+import { assertSupportedScriptInterpreter } from "./preset-resolver-common.ts";
 import { presetRuntimeDefaults } from "./preset-system.ts";
 
 export interface PresetRunStartInput {
@@ -181,7 +182,11 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
         ? undefined
         : (() => {
             const defaults = presetRuntimeDefaults(options.readSettings());
-            return createRuntime({ userRoot: options.userRoot, ciWorkflows: defaults.ciWorkflows }).resolveInternal({
+            return createRuntime({
+              repoRoot: options.rootDir,
+              userRoot: options.userRoot,
+              ciWorkflows: defaults.ciWorkflows,
+            }).resolveInternal({
               presetId: input.presetId,
               entrypoint: input.entrypoint,
               verticalId: defaults.verticalId,
@@ -195,6 +200,7 @@ export function createPresetProcessService(options: PresetProcessServiceOptions)
           : resolved!.snapshot.entrypoints[input.entrypoint]!,
         produceActions = frozen?.package.produceActions ?? resolved!.produceActions;
       const port = executionPort ?? (options as PresetProcessExecutionPort);
+      assertSupportedScriptInterpreter(entrypoint.commandRef);
       validateInputs(entrypoint.inputs, input.inputs ?? {});
       for (const capability of entrypoint.produces) {
         const provider = produceActions[capability.id];

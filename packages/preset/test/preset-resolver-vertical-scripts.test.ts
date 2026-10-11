@@ -426,6 +426,7 @@ test("builtin script preparation binds one declared command and rejects undeclar
         dryRun: true,
       } as const,
       prepared = prepareBuiltinVerticalScriptExecution({
+        verticalId: "software/coding",
         rootDir,
         action,
         commitSha: "a".repeat(40),
@@ -471,6 +472,7 @@ test("builtin script preparation binds one declared command and rejects undeclar
     assert.throws(
       () =>
         prepareBuiltinVerticalScriptExecution({
+          verticalId: "software/coding",
           rootDir,
           action: {
             ...action,
@@ -509,6 +511,7 @@ test("all four declared builtin script assets emit accepted deterministic plans"
             dryRun: true,
           } as const,
           prepared = prepareBuiltinVerticalScriptExecution({
+            verticalId: "software/coding",
             rootDir,
             action,
             commitSha,

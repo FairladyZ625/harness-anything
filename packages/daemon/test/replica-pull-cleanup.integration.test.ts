@@ -9,6 +9,7 @@ import type { FleetFrameV1 } from "../src/fleet/contract.ts";
 import { FleetFault } from "../src/fleet/center-types.ts";
 import { edgeContentBytes, withEdgeManifest } from "../src/fleet/replica-read-model.ts";
 import { locateFleetMirrorView, fleetMirrorCutFile } from "../src/fleet-edge-mirror.ts";
+import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 
 for (const phase of ["after_page", "after_chunk", "before_current_rename"] as const) {
   test(`failed first pull at ${phase} removes staging, unpublished cuts and orphan content`, async (t) => {
@@ -100,6 +101,66 @@ test("lost ACK preserves the published cut while removing transfer staging", asy
   assert.ok(view);
   assert.deepEqual(readdirSync(path.join(view.viewDir, ".staging")), []);
   for (const [entryPath] of view.entries) assert.ok(fleetMirrorCutFile(view, entryPath));
+});
+
+test("a lost ACK followed by a newer checkpoint catches up from the published cut", async (t) => {
+  const f = await fleetFixture(t),
+    center = await f.center(),
+    viewRoot = path.join(f.root, "lost-ack-progress"),
+    { nodeId, repoId } = f.subject,
+    options = {
+      readAccessToken: f.owners.readAccessToken(nodeId),
+      port: center.port,
+      ca: f.cert,
+      nodeId,
+      credential: "machine-secret",
+      repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+      through: "known-head" as const,
+    };
+  await runFleetReplicaPullClient(options);
+  const acknowledged = locateFleetMirrorView(viewRoot, repoId, nodeId)!.revision;
+  const create = async (taskId: string) => {
+    const result = await f.host.run(repoId, { kind: "task-create", taskId, title: taskId }, f.auth);
+    assert.equal(result.outcome, "applied", JSON.stringify(result));
+    await waitForFleetPublication(f.host, repoId, result.opId, f.auth);
+  };
+  await create("before-lost-ack");
+  await assert.rejects(
+    runFleetReplicaPullClient({
+      ...options,
+      beforeAck: () => {
+        throw new Error("lost ACK");
+      },
+    }),
+    /lost ACK/u,
+  );
+  const published = locateFleetMirrorView(viewRoot, repoId, nodeId)!.revision;
+  assert.ok(published > acknowledged);
+  await create("after-lost-ack");
+  let deltaSeen = false;
+  await runFleetReplicaPullClient({
+    ...options,
+    onFrame: (frame) => {
+      if (frame.schema !== "fleet.delta.begin/v1") return;
+      deltaSeen = true;
+      assert.equal(frame.fromCut.revision, acknowledged);
+      assert.ok(frame.toCut.revision > published);
+      const receiver = openFleetEdgeView(viewRoot, replicaQuota);
+      assert.throws(
+        () => receiver.receive({ ...frame, fromCut: { ...frame.fromCut, headDigest: `sha256:${"0".repeat(64)}` } }),
+        /snapshot_required/u,
+      );
+      assert.throws(
+        () => receiver.receive({ ...frame, fromCut: { ...frame.fromCut, revision: acknowledged - 1 } }),
+        /snapshot_required/u,
+      );
+      assert.throws(() => receiver.receive({ ...frame, toCut: frame.fromCut }), /snapshot_required/u);
+    },
+  });
+  assert.equal(deltaSeen, true);
+  assert.ok(locateFleetMirrorView(viewRoot, repoId, nodeId)!.revision > published);
 });
 
 test("the next pull removes staging left by a stopped receiver before accepting a new offer", async (t) => {

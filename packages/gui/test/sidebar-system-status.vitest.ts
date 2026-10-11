@@ -277,6 +277,8 @@ describe("current repository mode badge and endpoint (PLT-EdgeGUI-W3)", () => {
           onProjectSwitcherToggle: () => undefined,
           onOpenProject: () => undefined,
           onOpenProjectManager: () => undefined,
+          pinnedRepoIds: [],
+          onToggleProjectPin: () => undefined,
           onNavigate: () => undefined,
           ledgerStatus,
           onRefreshLedger: () => undefined,
@@ -317,6 +319,8 @@ describe("quick switcher overflow regression", () => {
           onProjectSwitcherToggle: () => undefined,
           onOpenProject,
           onOpenProjectManager,
+          pinnedRepoIds: [],
+          onToggleProjectPin: () => undefined,
           onNavigate: () => undefined,
           ledgerStatus,
           onRefreshLedger: () => undefined,
@@ -335,18 +339,29 @@ describe("quick switcher overflow regression", () => {
     expect(panel.className).toContain("w-max");
     expect(panel.className).toContain("min-w-[min(320px,90vw)]");
     expect(panel.className).toContain("max-w-[min(480px,90vw)]");
+    // 卡片只留项目名与一行状态(业主 2026-10-11):诊断字段(queue/lock/失败原因)
+    // 从版面移进悬停 title;长 id 换行不截断。
     expect(panel.innerHTML).not.toContain("truncate");
     expect(panel.textContent).toContain("Migration rehearsal / legacy workspace import");
-    expect(panel.textContent).toContain("unavailable");
-    expect(panel.textContent).toContain("queue 0");
-    expect(panel.textContent).toContain("migration task entity is invalid: missing canonical source relation");
+    expect(panel.textContent).toContain("migration-rehearsal-with-long-identifier");
+    expect(panel.textContent).not.toContain("queue");
+    const migrationCard = panel.querySelector('[title*="migration-rehearsal-with-long-identifier"]') as HTMLElement;
+    expect(migrationCard.getAttribute("title")).toContain("queue 0");
+    expect(migrationCard.getAttribute("title")).toContain("unavailable");
+    expect(migrationCard.getAttribute("title")).toContain(
+      "migration task entity is invalid: missing canonical source relation",
+    );
 
     await act(async () => {
       (panel.querySelector("button") as HTMLButtonElement).click();
     });
     expect(onOpenProject).toHaveBeenCalledWith("repo");
     await act(async () => {
-      (panel.querySelectorAll("button")[2] as HTMLButtonElement).click();
+      (
+        [...panel.querySelectorAll("button")].find((button) =>
+          button.textContent?.includes("管理全部"),
+        ) as HTMLButtonElement
+      ).click();
     });
     expect(onOpenProjectManager).toHaveBeenCalledTimes(1);
 
@@ -372,6 +387,8 @@ describe("quick switcher overflow regression", () => {
           onProjectSwitcherToggle: () => undefined,
           onOpenProject: () => undefined,
           onOpenProjectManager: () => undefined,
+          pinnedRepoIds: [],
+          onToggleProjectPin: () => undefined,
           onNavigate: () => undefined,
           ledgerStatus,
           onRefreshLedger: () => undefined,

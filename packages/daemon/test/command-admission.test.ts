@@ -120,6 +120,21 @@ test("the center admits its own local source on every ledger write an edge canno
   let ledgerWrites = 0;
   for (const command of daemonProtocolCommands) {
     if (command.commandClass !== "repo-write") continue;
+    // dec_2AAF1D0612D3295C80F87E49FE CH1: publish where the managed checkout lives.
+    if (command.id === "task-push") {
+      assert.deepEqual(command.admission, {
+        local: "direct",
+        "remote-proxy": "rejected",
+        "remote-center": "direct",
+        "remote-edge": "direct",
+      });
+      for (const source of [localSource, nodeSource]) {
+        assert.equal(admitRepoMode("remote-center", command, source).ok, true, command.id);
+        assert.equal(admitRepoMode("remote-edge", command, source).ok, source === localSource, command.id);
+        assert.equal(admitRepoMode("remote-proxy", command, source).ok, false, command.id);
+      }
+      continue;
+    }
     const runsOnEdge = command.admission["remote-edge"] === "direct";
     // Only runtime-local execution keeps the center on assignment ingress; a ledger write that an
     // edge cannot execute itself must have a center entrance, or nobody in the topology can run it.

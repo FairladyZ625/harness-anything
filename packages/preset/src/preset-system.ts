@@ -29,6 +29,7 @@ import {
   type InternalPresetResolution,
   type RepositoryScaffoldPlan,
 } from "./preset-resolver.ts";
+import { resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { asFailure } from "./preset-resolver-common.ts";
 
 type TaskWorkKind = NonNullable<Parameters<typeof compileTaskPackage>[0]["workKind"]>;
@@ -55,13 +56,19 @@ export async function runPresetAction(input: {
     dryRun = action.dryRun === true;
   if (action.kind === "vertical-validate")
     return validateVerticalSource({
-      source: optionalActionText(action.verticalSource),
+      source: optionalActionText(action.verticalSource) ?? input.settings?.defaultVertical,
       rootDir: input.rootDir,
       presetId: optionalActionText(action.presetId),
       userRoot: presetUserRoot(input.rootDir),
     });
   if (["template-list", "template-render", "script-list", "script-inspect"].includes(action.kind))
-    return runVerticalDiscoveryAction(action);
+    return runVerticalDiscoveryAction(
+      action,
+      resolveVerticalAssetsRoot(
+        optionalActionText(action.verticalId) ?? requiredSettings(input.settings).defaultVertical,
+        input.rootDir,
+      ),
+    );
   if (action.kind === "preset-validate")
     return validatePresetPackage({
       source: path.resolve(input.rootDir, required(action.packageSource, "packageSource")),

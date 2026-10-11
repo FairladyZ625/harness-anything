@@ -388,8 +388,26 @@ export function commitEdgeManifest(
           "UPDATE edge_entry SET end_revision=? WHERE view_id=? AND generation=? AND end_revision IS NULL",
         ).run(header.cut.revision, viewId, header.schemaGeneration);
       }
+      const replacements = [...changes];
+      if (from) {
+        // A lost ACK can leave newer local rows than the delta's acknowledged base. Paths restored
+        // to their base value disappear from the center's net delta; retire their local intermediates.
+        const changed = new Set(changes.map((change) => change.path));
+        const intermediates = db
+          .prepare(
+            `SELECT DISTINCT path FROM edge_entry INDEXED BY edge_entry_revision
+             WHERE view_id=? AND generation=? AND revision>? AND revision<?`,
+          )
+          .all(viewId, from.schemaGeneration, from.revision, header.cut.revision);
+        for (const row of intermediates) {
+          const entryPath = String(row.path);
+          if (changed.has(entryPath)) continue;
+          const base = entryAt(db, viewId, from, root, entryPath);
+          replacements.push(base ? { op: "put", ...base } : { op: "delete", path: entryPath });
+        }
+      }
       const seen = new Set<string>();
-      for (const change of changes) {
+      for (const change of replacements) {
         // A repeated wire path would otherwise cancel its XOR contribution and make the
         // declared state ambiguous. The center writer cannot validate received wire bytes.
         if (seen.has(change.path)) throw new Error("duplicate manifest path");

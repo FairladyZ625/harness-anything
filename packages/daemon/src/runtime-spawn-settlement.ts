@@ -9,7 +9,7 @@ import {
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushWorkerBranch, squadWorkerBranchHasDelivery, workerBranchHasDelivery } from "./runtime-worker-push.ts";
+import { pushTaskWorkerBranch, squadWorkerBranchHasDelivery, workerBranchHasDelivery } from "./runtime-worker-push.ts";
 import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
@@ -137,7 +137,7 @@ export async function publishExit(
             .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)
             ?.submission?.commitSha,
           env = await context.prepareWorkerGitEnvironment(active.instanceId),
-          push = await pushWorkerBranch({
+          push = await pushTaskWorkerBranch({
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,
             taskId: active.task.taskId,

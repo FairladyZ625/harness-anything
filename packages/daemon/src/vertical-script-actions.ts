@@ -21,6 +21,7 @@ type ExecutionInput = {
   readonly action: unknown;
   readonly rootDir: string;
   readonly commitSha: string;
+  readonly verticalId: string;
   readonly signal?: AbortSignal;
 };
 type PublicationInput = {
@@ -43,6 +44,7 @@ export async function executeVerticalScriptAction(input: ExecutionInput): Promis
       rootDir: input.rootDir,
       action: input.action,
       commitSha: input.commitSha,
+      verticalId: input.verticalId,
     }),
     blocker = process.env.HARNESS_TEST_VERTICAL_SCRIPT_BLOCK_FILE;
   const testPermissions = blocker
