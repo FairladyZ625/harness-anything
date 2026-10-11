@@ -85,7 +85,6 @@ export interface AgentEntityGuiDetail {
   readonly preset: string | null;
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
-  readonly fallback?: AgentDeclarationV1["fallback"] | null;
 }
 export interface AgentSkillGuiRead {
   readonly schema: "agent-skill-catalog/v1";
@@ -209,7 +208,6 @@ export function readAgentEntityGuiProjection<
         skills: agent.skills ?? [],
         prompts: agent.prompts ?? [],
         preset: agent.preset ?? null,
-        fallback: agent.fallback ?? null,
       },
     } as never;
   }
@@ -787,7 +785,7 @@ function agentRuntimeSelectionIssue(
     return null;
   }
   // Ambiguity between enabled compatible instances is not an install-time fault: dispatch ranks
-  // the candidates deterministically (explicit providerPriority, otherwise runtimes row order,
+  // the candidates deterministically (runtimes row order,
   // then live load and instance id) and the declaration only pins `instance` when the author wants
   // that node-local binding.
   if (compatible.length > 0) return null;

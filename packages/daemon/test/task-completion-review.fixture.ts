@@ -368,7 +368,6 @@ export async function fixture(
           runtimes: [{ type: "codex", model: "review-model" }],
           instance: "review-first",
           role: "worker",
-          fallback: { providerPriority: ["review-first", "review-second"], backoff: { baseMs: 1, maxMs: 2 } },
         },
       });
       assert.equal(installed.outcome, "applied", JSON.stringify(installed));

@@ -40,6 +40,8 @@ export function initialFallbackAttempt(
   instances: readonly RuntimeInstanceSummary[] = [],
   sessions: readonly RuntimeSessionSelection[] = [],
   allowedInstanceIds?: readonly string[],
+  health?: Parameters<typeof resolveRuntimeInstanceCandidates>[0]["health"],
+  now?: string,
 ): RuntimeFallbackAttempt | undefined {
   if (providerSessionId) return undefined;
   const pin = requestedInstance ?? agent?.instance;
@@ -57,9 +59,10 @@ export function initialFallbackAttempt(
             instances,
             allowedInstanceIds,
             sessions,
+            health,
+            now,
           })
         : undefined,
-    declared = agent?.fallback,
     anchorId = pin ?? candidatesForAnchor?.[0],
     anchor = instances.find((instance) => instance.instanceId === anchorId);
   // Each candidate kind resolves its own model: --model override > the runtimes row for
@@ -87,6 +90,8 @@ export function initialFallbackAttempt(
       instances,
       allowedInstanceIds,
       sessions,
+      health,
+      now,
     }),
     requestedIndex = pin ? derivedInstances.indexOf(pin) : 0,
     candidates = derivedInstances.slice(requestedIndex).map((instanceId) => ({
@@ -94,18 +99,15 @@ export function initialFallbackAttempt(
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
     }));
   if (requestedIndex < 0) return undefined;
-  if (candidates.length < 2) return undefined;
-  const backoff = declared?.backoff ?? { baseMs: 0, maxMs: 0 },
-    digest = createHash("sha256")
-      .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
-      .digest("hex");
+  const digest = createHash("sha256")
+    .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
+    .digest("hex");
   return {
     attemptGroupId: `attempt_${digest.slice(0, 24)}`,
     attemptIndex: 0,
     rootIdempotencyKey: idempotencyKey,
     originalMission: mission,
     candidates,
-    backoff,
   };
 }
 
@@ -136,6 +138,25 @@ export async function settleFallbackAttempt(
 ): Promise<void> {
   const { input } = context;
   const fallback = active.fallbackAttempt;
+  if (isProviderFailureClassification(outcome.classification)) {
+    const settings = input.readSettings?.(),
+      runtime = settings?.runtime;
+    input.runtimeProviderHealth?.recordFailure({
+      instanceId: outcome.provider.instance,
+      reason: outcome.reason,
+      occurredAt: input.now(),
+      ...(outcome.resetAt ? { resetAt: outcome.resetAt } : {}),
+      cooldownBaseSeconds: runtime?.providerCooldownBaseSeconds,
+      cooldownMaxSeconds: runtime?.providerCooldownMaxSeconds,
+      freezeAfter: runtime?.providerFreezeAfter,
+      freezeDurationSeconds: runtime?.providerFreezeDurationSeconds,
+      permanentFreeze:
+        active.providerFault?.code === "auth_failed" ||
+        (active.providerFault?.faultClass === "quota_exhausted" && outcome.resetAt === undefined),
+    });
+  } else if (active.providerOutcome === "succeeded") {
+    input.runtimeProviderHealth?.recordSuccess(outcome.provider.instance, active.startedAt);
+  }
   if (!isProviderFailureClassification(outcome.classification) || !fallback) {
     await input.onAttemptTerminal?.(terminal);
     return;
@@ -159,7 +180,10 @@ export async function settleFallbackAttempt(
     return;
   }
   const next = fallback.candidates[nextAttemptIndex]!,
-    delayMs = Math.min(fallback.backoff.maxMs, fallback.backoff.baseMs * 2 ** fallback.attemptIndex),
+    runtimeSettings = input.readSettings?.()?.runtime,
+    roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
+    roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
+    delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** Math.max(0, fallback.attemptIndex)),
     notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
   active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
   context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));

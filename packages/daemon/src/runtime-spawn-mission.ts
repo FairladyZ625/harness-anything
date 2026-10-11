@@ -4,6 +4,7 @@ import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kerne
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
 import type { RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { RuntimeProviderHealth } from "./runtime-provider-health.ts";
 import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -100,6 +101,8 @@ export function resolveRuntimeInstanceCandidates(input: {
   readonly allowedInstanceIds?: readonly string[];
   readonly instances: readonly RuntimeInstanceSummary[];
   readonly sessions: readonly RuntimeSessionSelection[];
+  readonly health?: readonly RuntimeProviderHealth[];
+  readonly now?: string;
 }): string[] {
   const configured = input.allowedInstanceIds !== undefined,
     allowed = input.allowedInstanceIds ?? [],
@@ -158,13 +161,22 @@ export function resolveRuntimeInstanceCandidates(input: {
     )
       continue;
     const model = declaredModel ?? declaredTargets?.find((row) => row.type === instance.kindId)?.model;
-    const reason = !instance.enabled
-      ? "runtime_instance_disabled"
-      : model !== undefined && !instance.models.includes(model)
-        ? `agent_model_unavailable (${model})`
-        : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
-          ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
-          : undefined;
+    const providerHealth = input.health?.find((row) => row.instanceId === instance.instanceId),
+      healthUntil = providerHealth?.frozen ? null : (providerHealth?.frozenUntil ?? providerHealth?.cooldownUntil),
+      healthBlocked =
+        providerHealth?.frozen === true ||
+        (healthUntil !== null &&
+          healthUntil !== undefined &&
+          Date.parse(healthUntil) > Date.parse(input.now ?? new Date().toISOString())),
+      reason = !instance.enabled
+        ? "runtime_instance_disabled"
+        : healthBlocked
+          ? `runtime_provider_unavailable (${providerHealth?.reason ?? "cooldown"}; recover at ${healthUntil})`
+          : model !== undefined && !instance.models.includes(model)
+            ? `agent_model_unavailable (${model})`
+            : instance.authReadiness.status !== "ready" && instance.authReadiness.code !== "runtime_auth_not_checked"
+              ? `${instance.authReadiness.code}: ${instance.authReadiness.hint}`
+              : undefined;
     if (reason) unavailable.push(`${instance.kindId}/${instance.instanceId}: ${reason}`);
   }
   const detail = unavailable.length ? ` Candidates: ${unavailable.join("; ")}` : "";
@@ -225,10 +237,19 @@ export function resolveRuntimeInstanceCandidates(input: {
           : `No enabled runtime instance is compatible with runtime type ${targetSummary}.`) + detail,
     );
   }
-  const ready = declared.filter(
-    (instance) =>
-      instance.authReadiness.status === "ready" || instance.authReadiness.code === "runtime_auth_not_checked",
-  );
+  const ready = declared
+    .filter(
+      (instance) =>
+        instance.authReadiness.status === "ready" || instance.authReadiness.code === "runtime_auth_not_checked",
+    )
+    .filter((instance) => {
+      const health = input.health?.find((row) => row.instanceId === instance.instanceId),
+        blockedUntil = health?.frozenUntil ?? health?.cooldownUntil;
+      return !(
+        health?.frozen ||
+        (blockedUntil && Date.parse(blockedUntil) > Date.parse(input.now ?? new Date().toISOString()))
+      );
+    });
   if (ready.length === 0)
     throw runtimeSpawnError(
       "runtime_model_not_ready",
@@ -236,22 +257,13 @@ export function resolveRuntimeInstanceCandidates(input: {
         ? `Runtime instances declare model ${declaredModel}, but none are authentication-ready.`
         : `Compatible runtime instances exist for ${targetSummary}, but none are authentication-ready.`) + detail,
     );
-  const active = new Map<string, number>(ready.map((instance) => [instance.instanceId, 0]));
-  for (const session of input.sessions)
-    if (session.liveness === "live" && active.has(session.instanceId))
-      active.set(session.instanceId, (active.get(session.instanceId) ?? 0) + 1);
-  const providerPriority = input.agent?.fallback?.providerPriority,
-    providerRank = new Map(providerPriority?.map((provider, index) => [provider, index])),
+  const allowedRank = new Map(allowed.map((instanceId, index) => [instanceId, index])),
     runtimeRank = new Map(declaredTargets?.map((target, index) => [target.type, index]));
   return [...ready]
     .sort(
       (a, b) =>
-        (providerPriority === undefined
-          ? (runtimeRank.get(a.kindId) ?? runtimeRank.size) - (runtimeRank.get(b.kindId) ?? runtimeRank.size)
-          : (providerRank.get(a.providerId) ?? providerPriority.length) -
-            (providerRank.get(b.providerId) ?? providerPriority.length)) ||
-        (active.get(a.instanceId) ?? 0) - (active.get(b.instanceId) ?? 0) ||
-        a.instanceId.localeCompare(b.instanceId),
+        (runtimeRank.get(a.kindId) ?? runtimeRank.size) - (runtimeRank.get(b.kindId) ?? runtimeRank.size) ||
+        (allowedRank.get(a.instanceId) ?? allowed.length) - (allowedRank.get(b.instanceId) ?? allowed.length),
     )
     .map((instance) => instance.instanceId);
 }

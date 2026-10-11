@@ -50,6 +50,7 @@ import { TextInput } from "../primitives/TextInput.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { RuntimeModelEditor } from "./RuntimeModelEditor.tsx";
+import { ArrowDown, ArrowUp } from "@phosphor-icons/react";
 
 type Props = {
   readonly instance: RuntimeInstanceSummary;
@@ -65,6 +66,17 @@ type Props = {
   readonly onSetEnabled: (enabled: boolean) => void;
   readonly projectAllowed: boolean;
   readonly onSetProjectAllowed: (allowed: boolean) => void;
+  readonly providerHealth?: {
+    readonly nodeId: string;
+    readonly failureStreak: number;
+    readonly cooldownUntil: string | null;
+    readonly frozen: boolean;
+    readonly frozenUntil: string | null;
+    readonly reason: string | null;
+  };
+  readonly onClearFreeze?: () => void;
+  readonly projectOrder?: number;
+  readonly onMoveProjectOrder?: (direction: -1 | 1) => void;
   readonly onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>;
   readonly onDelete: () => void;
   readonly onSelfTest: (model: string) => Promise<string | null>;
@@ -88,6 +100,10 @@ export function RuntimeCard({
   onSetEnabled,
   projectAllowed,
   onSetProjectAllowed,
+  providerHealth,
+  onClearFreeze,
+  projectOrder,
+  onMoveProjectOrder,
   onUpdate,
   onDelete,
   onSelfTest,
@@ -127,6 +143,31 @@ export function RuntimeCard({
             <StatusTag status="planned" label={t("agentRuntime.idle")} />
           )}
           <Right>
+            {projectOrder !== undefined && onMoveProjectOrder ? (
+              <span className="flex items-center gap-1" data-testid="runtime-project-order">
+                <span className="font-mono ui-micro">{projectOrder}</span>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy || projectOrder <= 1}
+                  tip={t("agentRuntime.moveProjectOrderUp")}
+                  ariaLabel={t("agentRuntime.moveProjectOrderUp")}
+                  onClick={() => onMoveProjectOrder(-1)}
+                >
+                  <ArrowUp aria-hidden="true" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  tip={t("agentRuntime.moveProjectOrderDown")}
+                  ariaLabel={t("agentRuntime.moveProjectOrderDown")}
+                  onClick={() => onMoveProjectOrder(1)}
+                >
+                  <ArrowDown aria-hidden="true" />
+                </Button>
+              </span>
+            ) : null}
             {!editing && (
               <Button size="sm" testId="runtime-provider-edit" disabled={busy} onClick={() => setEditing(true)}>
                 {t("agentRuntime.editProvider")}
@@ -172,6 +213,39 @@ export function RuntimeCard({
           )}
         </CardBody>
       </Card>
+
+      {providerHealth && (
+        <Card testId="runtime-card-health">
+          <CardHead>
+            <CardTitle>{t("agentRuntime.providerHealthTitle", { node: providerHealth.nodeId })}</CardTitle>
+            <StatusTag
+              tone={providerHealth.frozen ? "bad" : providerHealth.cooldownUntil ? "wait" : "neutral"}
+              label={t(
+                providerHealth.frozen
+                  ? "agentRuntime.providerHealthFrozen"
+                  : providerHealth.cooldownUntil
+                    ? "agentRuntime.providerHealthCooldown"
+                    : "agentRuntime.providerHealthReady",
+              )}
+            />
+          </CardHead>
+          <CardBody>
+            <FieldGrid>
+              <Field label={t("agentRuntime.providerFailureStreak")} value={String(providerHealth.failureStreak)} />
+              <Field label={t("agentRuntime.providerFailureReason")} value={providerHealth.reason ?? "-"} />
+              <Field
+                label={t("agentRuntime.providerRecoverAt")}
+                value={providerHealth.frozenUntil ?? providerHealth.cooldownUntil ?? "-"}
+              />
+            </FieldGrid>
+            {providerHealth.frozen && onClearFreeze ? (
+              <Button size="sm" disabled={busy} onClick={onClearFreeze}>
+                {t("agentRuntime.clearProviderFreeze")}
+              </Button>
+            ) : null}
+          </CardBody>
+        </Card>
+      )}
 
       <Card testId="runtime-card-auth">
         <CardHead>

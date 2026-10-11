@@ -360,12 +360,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
-      [localRuntimeSessions, runtimeInstances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
-        input,
-        input.remote,
-        projection!,
-        processes,
-      ),
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
+        await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
         binding,
@@ -387,6 +383,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           instances: runtimeInstances,
           allowedInstanceIds,
           sessions: localRuntimeSessions,
+          health: providerHealth,
+          now: input.now(),
         },
         async (runtimeInstanceId) => {
           const initialFallback =
@@ -401,6 +399,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 runtimeInstances,
                 localRuntimeSessions,
                 allowedInstanceIds,
+                providerHealth,
+                input.now(),
               ),
             fallbackAttempt =
               initialFallback &&
@@ -415,6 +415,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     runtimeInstances,
                     localRuntimeSessions,
                     allowedInstanceIds,
+                    providerHealth,
+                    input.now(),
                   )
                 : initialFallback,
             fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],

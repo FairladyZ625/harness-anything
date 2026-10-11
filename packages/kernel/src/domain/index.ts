@@ -312,7 +312,6 @@ export {
 export type {
   AgentDeclarationV1,
   AgentEntityKind,
-  AgentFallbackDeclarationV1,
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,

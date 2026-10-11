@@ -74,7 +74,6 @@ async function renderAgentCardProps(
           instructions: "Do the work.",
           instance,
           permissionMode: null,
-          fallback: undefined,
           skills: [],
           prompts: [],
           preset: null,

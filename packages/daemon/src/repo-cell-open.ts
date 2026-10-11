@@ -119,6 +119,7 @@ export interface RepoCellOpenInput {
     Omit<NonNullable<NonNullable<RepoCellBinding["keycloakAuthorization"]>["session"]>, "currentAccessToken">
   >;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+  readonly runtimeProviderHealth?: import("./runtime-provider-health.ts").RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch?: (
     instanceId: string,
     request: {
@@ -469,6 +470,7 @@ export async function openRepoWriterCell(
     now,
     schedule,
     runtimeInstances: input.runtimeInstances,
+    runtimeProviderHealth: input.runtimeProviderHealth,
     keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.reclaimRuntimeTempDirectory ? { reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory } : {}),

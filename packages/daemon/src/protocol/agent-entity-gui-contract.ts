@@ -27,38 +27,6 @@ function agentSkills(value: unknown): value is readonly AgentSkillDeclarationV1[
     new Set(value.map((item) => (item as AgentSkillDeclarationV1).id)).size === value.length
   );
 }
-function agentFallbackErrors(value: unknown): readonly string[] {
-  if (!isEntityRecord(value)) return ['agent declaration field "fallback" must be an object.'];
-  const errors: string[] = [],
-    fields = ["providerPriority", "backoff"];
-  if (Object.keys(value).some((key) => !fields.includes(key)) || !Object.hasOwn(value, "backoff"))
-    errors.push('agent declaration field "fallback" must contain backoff and optional providerPriority.');
-  const providerPriority = value.providerPriority;
-  if (
-    providerPriority !== undefined &&
-    (!Array.isArray(providerPriority) ||
-      !nonEmptyStrings(providerPriority) ||
-      new Set(providerPriority).size !== providerPriority.length)
-  )
-    errors.push('agent declaration field "fallback.providerPriority" must be a unique array of provider identities.');
-  if (!isEntityRecord(value.backoff)) {
-    errors.push('agent declaration field "fallback.backoff" must be an object.');
-    return errors;
-  }
-  const backoff = value.backoff;
-  const backoffFields = ["baseMs", "maxMs"];
-  if (
-    Object.keys(backoff).some((key) => !backoffFields.includes(key)) ||
-    backoffFields.some((key) => !Object.hasOwn(backoff, key))
-  )
-    errors.push('agent declaration field "fallback.backoff" must contain exactly baseMs and maxMs.');
-  const { baseMs, maxMs } = backoff;
-  if (!Number.isSafeInteger(baseMs) || Number(baseMs) < 0)
-    errors.push('agent declaration field "fallback.backoff.baseMs" must be a non-negative integer.');
-  if (!Number.isSafeInteger(maxMs) || Number(maxMs) < Number(baseMs))
-    errors.push('agent declaration field "fallback.backoff.maxMs" must be an integer greater than or equal to baseMs.');
-  return errors;
-}
 // GUI read envelopes for the identity layers. This module has no runtime imports so the
 // schema-closure gate can import it from a checkout with no installed dependencies.
 const entityWireSecretKeys = /(?:^|[-_])(?:api[-_]?key|credential|passphrase|password|secret|token)(?:$|[-_])/iu;
@@ -100,7 +68,6 @@ const agentCatalogRowFields = Object.freeze(["id", "name", "runtimes", "instance
     "skills",
     "prompts",
     "preset",
-    "fallback",
   ]),
   squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "leaderTurnBudget", "roster"]);
 function catalogErrors(
@@ -200,7 +167,6 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset)
       ? ["agent detail preset must be null or a non-empty preset id."]
       : [],
-    row.fallback !== null && row.fallback !== undefined ? agentFallbackErrors(row.fallback) : [],
   ].flat();
 const squadDetailChecks = (row: Record<string, unknown>): readonly string[] =>
   [

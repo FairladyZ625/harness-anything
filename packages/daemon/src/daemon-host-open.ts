@@ -83,6 +83,7 @@ import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
+import { openRuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import { causeClassOf, latchReprobeThrottleMs, openRepoCell, type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
@@ -180,6 +181,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
     runtimePorts = {
       runtimeInstances: instances.listPublic,
+      runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
       prepareRuntimeLaunch: instances.prepareLaunch,
       reclaimRuntimeTempDirectory: instances.reclaimRuntimeTempDirectory,
       reclaimSettledRuntimeTempDirectories: instances.reclaimSettledRuntimeTempDirectories,

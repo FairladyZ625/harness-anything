@@ -129,34 +129,8 @@ test("registered declaration Entity kinds explain the same contract shape from t
   );
 });
 
-test("Agent fallback declares local provider priority without runtime instances", () => {
-  const fallback = {
-    providerPriority: ["provider-a", "provider-b"],
-    backoff: { baseMs: 25, maxMs: 100 },
-  };
-  assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
-  assert.match(
-    validateAgentDeclarationV1({ ...agent, fallback: { ...fallback, unknown: true } }).join("\n"),
-    /fallback.*unknown/u,
-  );
-  assert.match(
-    validateAgentDeclarationV1({
-      ...agent,
-      fallback: { ...fallback, providerPriority: ["provider-a", "provider-a"] },
-    }).join("\n"),
-    /providerPriority/u,
-  );
-  assert.match(
-    validateAgentDeclarationV1({ ...agent, fallback: { ...fallback, enabled: true } }).join("\n"),
-    /enabled.*unknown/u,
-  );
-  assert.match(
-    validateAgentDeclarationV1({
-      ...agent,
-      fallback: { ...fallback, backoff: { ...fallback.backoff, maxAttempts: 3 } },
-    }).join("\n"),
-    /maxAttempts.*unknown/u,
-  );
+test("Agent declaration rejects the retired provider fallback authority", () => {
+  assert.match(validateAgentDeclarationV1({ ...agent, fallback: {} }).join("\n"), /fallback.*unknown/u);
 });
 
 test("RuntimeSession explains its identity, task handoff, status vocabulary, and executes edge", () => {
@@ -216,11 +190,7 @@ test("EntityStore get isolates current-schema rejection to the requested declara
   const stale = {
       ...agent,
       id: "glm-5-3",
-      fallback: {
-        enabled: true,
-        chain: [{ instance: "provider-a" }],
-        backoff: { baseMs: 25, maxMs: 100, maxAttempts: 3 },
-      },
+      fallback: { enabled: true },
     },
     staleBody = `${JSON.stringify(stale, null, 2)}\n`,
     currentBody = `${JSON.stringify(agent, null, 2)}\n`,

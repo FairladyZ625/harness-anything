@@ -26,18 +26,14 @@ const instance = (
     authReadiness,
   }) as never;
 
-const agent = (providerPriority?: readonly string[]): RuntimeAgent => ({
+const agent = (): RuntimeAgent => ({
   id: "multi-runtime",
   name: "Multi Runtime",
   instructions: "Run the mission.",
   runtimes: [{ type: "codex" }, { type: "devin" }],
-  fallback:
-    providerPriority === undefined
-      ? { backoff: { baseMs: 1, maxMs: 2 } }
-      : { providerPriority, backoff: { baseMs: 1, maxMs: 2 } },
 });
 
-test("runtime candidates use runtimes row order only when providerPriority is absent", () => {
+test("runtime candidates use runtimes row order then project allowlist order", () => {
   const instances = [
       instance("aaa-devin", "devin", "provider-devin"),
       instance("zzz-codex", "codex", "provider-codex"),
@@ -48,19 +44,10 @@ test("runtime candidates use runtimes row order only when providerPriority is ab
     "zzz-codex",
     "aaa-devin",
   ]);
-  assert.deepEqual(
-    resolveRuntimeInstanceCandidates({
-      agent: agent(["provider-devin", "provider-codex"]),
-      instances,
-      sessions: [],
-      allowedInstanceIds,
-    }),
-    ["aaa-devin", "zzz-codex"],
-  );
-  assert.deepEqual(
-    resolveRuntimeInstanceCandidates({ agent: agent([]), instances, sessions: [], allowedInstanceIds }),
-    ["aaa-devin", "zzz-codex"],
-  );
+  assert.deepEqual(resolveRuntimeInstanceCandidates({ agent: agent(), instances, sessions: [], allowedInstanceIds }), [
+    "zzz-codex",
+    "aaa-devin",
+  ]);
 });
 
 test("repository allowlist filters automatic candidates and reports the blocked instance", () => {
@@ -122,13 +109,13 @@ test("an uninitialized repository allowlist never falls back to machine-enabled 
   );
 });
 
-test("runtime candidates retain live-load and instance-id ordering within one runtime kind", () => {
+test("runtime candidates retain project list ordering within one runtime kind regardless of live load", () => {
   const instances = [
       instance("codex-b", "codex", "provider-b"),
       instance("codex-a", "codex", "provider-a"),
       instance("devin-a", "devin", "provider-devin"),
     ],
-    allowedInstanceIds = instances.map((row) => row.instanceId);
+    allowedInstanceIds = ["codex-a", "codex-b", "devin-a"];
 
   assert.deepEqual(
     resolveRuntimeInstanceCandidates({
@@ -137,7 +124,7 @@ test("runtime candidates retain live-load and instance-id ordering within one ru
       sessions: [{ instanceId: "codex-a", liveness: "live" } as never],
       allowedInstanceIds,
     }),
-    ["codex-b", "codex-a", "devin-a"],
+    ["codex-a", "codex-b", "devin-a"],
   );
 });
 
@@ -168,6 +155,33 @@ test("runtime row ranking retains explicit instance, model, and auth filtering",
     }),
     ["devin-ready"],
   );
+});
+
+test("runtime candidates skip a locally cooling instance and report its recovery time", () => {
+  const instances = [instance("codex-a", "codex", "provider-codex"), instance("codex-b", "codex", "provider-codex")],
+    reasons: string[] = [],
+    candidates = resolveRuntimeInstanceCandidates({
+      agent: { ...agent(), runtimes: [{ type: "codex" }] },
+      instances,
+      sessions: [],
+      allowedInstanceIds: ["codex-a", "codex-b"],
+      now: "2026-10-12T00:00:00.000Z",
+      health: [
+        {
+          instanceId: "codex-a",
+          failureStreak: 1,
+          cooldownUntil: "2026-10-12T00:00:30.000Z",
+          frozenUntil: null,
+          frozen: false,
+          reason: "HTTP 429",
+          lastFailureAt: "2026-10-12T00:00:00.000Z",
+          lastResetAt: null,
+        },
+      ],
+      unavailableReasons: reasons,
+    });
+  assert.deepEqual(candidates, ["codex-b"]);
+  assert.match(reasons.join(";"), /codex-a.*recover at 2026-10-12T00:00:30.000Z/u);
 });
 
 test("all unavailable reports each declared runtime and local instance reason", () => {

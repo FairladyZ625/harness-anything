@@ -10,8 +10,8 @@ import type {
   GeneratedSettingsFieldProtocolProjection,
   RpcShape,
 } from "./preset-command-contract-support.ts";
-import { settingsFieldProtocolProjection, taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
-import { taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
+import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
+import { settingsFieldProtocolProjection, taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
 
 export type {
   CliInputError,

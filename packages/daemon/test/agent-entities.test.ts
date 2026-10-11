@@ -189,19 +189,8 @@ test("a runtime-row model is optional but must be non-empty when declared", () =
   assert.match(validateAgentDeclarationV1({ ...agent, model: "orphan-model" }).join("\n"), /field "model" is unknown/u);
 });
 
-test("daemon Agent fallback validation mirrors the kernel authority", () => {
-  const fallback = {
-    providerPriority: ["provider-a", "provider-b"],
-    backoff: { baseMs: 25, maxMs: 100 },
-  };
-  assert.deepEqual(validateAgentDeclarationV1({ ...agent, fallback }), []);
-  assert.match(
-    validateAgentDeclarationV1({
-      ...agent,
-      fallback: { ...fallback, backoff: { ...fallback.backoff, maxMs: 20 } },
-    }).join("\n"),
-    /maxMs.*greater than or equal to baseMs/u,
-  );
+test("daemon Agent validation rejects the retired provider fallback authority", () => {
+  assert.match(validateAgentDeclarationV1({ ...agent, fallback: {} }).join("\n"), /fallback.*unknown/u);
 });
 
 test("install preparation repairs a stored declaration rejected by the current schema", () => {
@@ -604,7 +593,6 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       skills: [{ id: "review", path: "skills/review" }],
       prompts: ["prompt://review"],
       preset: "standard-task",
-      fallback: null,
     });
     assert.deepEqual(squadDetail.squad, {
       id: "core-squad",
