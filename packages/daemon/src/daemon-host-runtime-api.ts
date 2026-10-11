@@ -411,6 +411,8 @@ export function createDaemonHostRuntimeApi(
           instances === undefined
             ? receipt.summary
             : [
+                receipt.summary,
+                "",
                 "NODE\tID\tNAME\tKIND\tMODEL\tENABLED\tHEALTH\tREASON\tRECOVER AT",
                 ...(instances as Record<string, unknown>[]).map((row) => {
                   const health = row.providerHealth as Record<string, unknown>;
@@ -426,7 +428,9 @@ export function createDaemonHostRuntimeApi(
                     health.frozenUntil ?? health.cooldownUntil ?? "-",
                   ].join("\t");
                 }),
-              ].join("\n");
+              ]
+                .filter((value): value is string => typeof value === "string")
+                .join("\n");
       return {
         ...receipt,
         ...(instances === undefined ? {} : { instances }),

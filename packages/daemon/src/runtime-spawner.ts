@@ -421,7 +421,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     input.now(),
                   )
                 : initialFallback,
-            fallbackAttemptForDispatch = fallbackAttempt && { ...fallbackAttempt, attemptGroupId: newDispatchId },
+            fallbackAttemptForDispatch = fallbackAttempt,
             fallbackCandidate =
               fallbackAttemptForDispatch?.candidates[
                 fallbackAttemptForDispatch.candidateIndex ?? fallbackAttemptForDispatch.attemptIndex

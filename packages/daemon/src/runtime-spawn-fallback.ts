@@ -99,6 +99,10 @@ export function initialFallbackAttempt(
       model: candidateModel(instances.find((row) => row.instanceId === instanceId)!),
     }));
   if (requestedIndex < 0) return undefined;
+  // A fallback group is a provider switch chain. A single eligible instance has no
+  // successor to switch to, so preserve the existing terminal path instead of
+  // retrying the same scheduled runtime indefinitely.
+  if (candidates.length < 2) return undefined;
   const digest = createHash("sha256")
     .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
     .digest("hex");
