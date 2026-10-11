@@ -15,7 +15,9 @@ test("retired repository declaration points to the explicit migration without ac
 });
 
 test("retired installed preset points to the explicit migration without accepting it", () => {
-  assert.match(validatePresetManifestV3(fixture("gui-development")).join("; "), /ha migrate completion --help/u);
+  const errors = validatePresetManifestV3(fixture("gui-development")).join("; ");
+  assert.match(errors, /ha migrate completion --help/u);
+  assert.match(errors, /profiles\[0\] contains unknown field "checkerProfile"/u);
 });
 
 test("bare vertical conversion preserves explicit completion and rejects unmapped missing declarations", () => {
@@ -30,4 +32,16 @@ test("bare vertical conversion preserves explicit completion and rejects unmappe
     () => convertCompletionDeclaration({ ...old, checkerProfile: "custom" }),
     /No completion migration mapping/u,
   );
+});
+
+test("unrelated profile errors keep field diagnostics without a completion migration hint", () => {
+  const current = fixture("gui-development");
+  for (const profile of current.profiles) delete profile.checkerProfile;
+  assert.deepEqual(validatePresetManifestV3(current), []);
+  current.profiles[0].unexpected = true;
+  current.defaultProfile = "missing";
+  const errors = validatePresetManifestV3(current).join("; ");
+  assert.match(errors, /profiles\[0\] contains unknown field "unexpected"/u);
+  assert.match(errors, /"defaultProfile" must match the id of a declared profile/u);
+  assert.doesNotMatch(errors, /ha migrate completion/u);
 });

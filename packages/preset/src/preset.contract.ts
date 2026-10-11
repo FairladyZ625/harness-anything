@@ -311,15 +311,13 @@ export function validatePresetManifestV3(value: unknown): readonly string[] {
     errors.push(
       'preset.json field "capabilityImports" is invalid; expected an array of capability refs with required booleans.',
     );
-  if (
-    !Array.isArray(value.profiles) ||
-    value.profiles.length === 0 ||
-    !value.profiles.every(profile) ||
-    !value.profiles.some((item) => isPresetContractRecord(item) && item.id === value.defaultProfile)
-  )
-    errors.push(
-      'preset.json field "profiles" or "defaultProfile" is invalid; expected at least one valid profile matching defaultProfile. For retired checkerProfile fields, run ha migrate completion --help.',
-    );
+  if (!Array.isArray(value.profiles) || value.profiles.length === 0)
+    errors.push('preset.json field "profiles" must be a non-empty array of task profiles.');
+  else {
+    value.profiles.forEach((item, index) => errors.push(...profileErrors(item, index)));
+    if (!value.profiles.some((item) => isPresetContractRecord(item) && item.id === value.defaultProfile))
+      errors.push('preset.json field "defaultProfile" must match the id of a declared profile.');
+  }
   if (
     (value.extends !== undefined && !nonEmpty(value.extends)) ||
     (value.policyPath !== undefined && !nonEmpty(value.policyPath)) ||
@@ -481,47 +479,82 @@ function closeoutOverrides(value: unknown): boolean {
     )
   );
 }
-function profile(value: unknown): boolean {
-  return (
-    isPresetContractRecord(value) &&
-    allowed(
-      value,
-      [
-        "id",
-        "title",
-        "completionGates",
-        "templateSelections",
-        "capabilityImports",
-        "closeoutOverrides",
-        "archiveOnComplete",
-      ],
-      ["id", "title", "completionGates", "templateSelections"],
-    ) &&
-    nonEmpty(value.id) &&
-    nonEmpty(value.title) &&
-    hasNonEmptyContractStrings(value.completionGates) &&
-    Array.isArray(value.templateSelections) &&
-    value.templateSelections.every(selection) &&
-    (value.capabilityImports === undefined ||
-      (Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false)))) &&
-    (value.closeoutOverrides === undefined || closeoutOverrides(value.closeoutOverrides)) &&
-    (value.archiveOnComplete === undefined || typeof value.archiveOnComplete === "boolean")
-  );
+const profileFields = [
+    "id",
+    "title",
+    "completionGates",
+    "templateSelections",
+    "capabilityImports",
+    "closeoutOverrides",
+    "archiveOnComplete",
+  ],
+  requiredProfileFields = ["id", "title", "completionGates", "templateSelections"];
+function profileErrors(value: unknown, index: number): readonly string[] {
+  if (!isPresetContractRecord(value))
+    return [`preset.json profiles[${index}] must be a JSON object; expected a task profile.`];
+  const at = `profiles[${index}]`,
+    errors: string[] = [];
+  for (const field of Object.keys(value).filter((field) => !profileFields.includes(field)))
+    errors.push(
+      `preset.json ${at} contains unknown field "${field}"; ${
+        field === "checkerProfile" ? "run ha migrate completion --help." : "remove it or use a declared v3 field."
+      }`,
+    );
+  for (const field of requiredProfileFields)
+    if (!Object.hasOwn(value, field)) errors.push(`preset.json ${at} is missing required field "${field}".`);
+  for (const field of ["id", "title"] as const)
+    if (Object.hasOwn(value, field) && !nonEmpty(value[field]))
+      errors.push(`preset.json ${at} field "${field}" must be a non-empty string.`);
+  if (Object.hasOwn(value, "completionGates") && !hasNonEmptyContractStrings(value.completionGates))
+    errors.push(`preset.json ${at} field "completionGates" must be an array of non-empty gate ids.`);
+  if (Object.hasOwn(value, "templateSelections")) {
+    if (!Array.isArray(value.templateSelections))
+      errors.push(`preset.json ${at} field "templateSelections" must be an array of template selections.`);
+    else
+      value.templateSelections.forEach((selection, selectionIndex) =>
+        errors.push(...selectionErrors(selection, at, selectionIndex)),
+      );
+  }
+  if (
+    value.capabilityImports !== undefined &&
+    !(Array.isArray(value.capabilityImports) && value.capabilityImports.every((item) => capability(item, false)))
+  )
+    errors.push(`preset.json ${at} field "capabilityImports" must be an array of capability refs.`);
+  if (value.closeoutOverrides !== undefined && !closeoutOverrides(value.closeoutOverrides))
+    errors.push(`preset.json ${at} field "closeoutOverrides" must map closeout gate keys to booleans.`);
+  if (value.archiveOnComplete !== undefined && typeof value.archiveOnComplete !== "boolean")
+    errors.push(`preset.json ${at} field "archiveOnComplete" must be a boolean.`);
+  return errors;
 }
-function selection(value: unknown): boolean {
-  return (
-    isPresetContractRecord(value) &&
-    allowed(
-      value,
-      ["slot", "templateRef", "materializeAs", "localePolicy"],
-      ["slot", "templateRef", "materializeAs", "localePolicy"],
-    ) &&
-    [value.slot, value.templateRef, value.materializeAs].every(nonEmpty) &&
-    isPresetContractRecord(value.localePolicy) &&
-    allowed(value.localePolicy, ["prefer", "fallback"], ["prefer", "fallback"]) &&
-    ["project", "preset", "explicit"].includes(String(value.localePolicy.prefer)) &&
-    ["zh-CN", "en-US"].includes(String(value.localePolicy.fallback))
-  );
+function selectionErrors(value: unknown, profileAt: string, index: number): readonly string[] {
+  if (!isPresetContractRecord(value))
+    return [
+      `preset.json ${profileAt}.templateSelections[${index}] must be a JSON object; expected a template selection.`,
+    ];
+  const at = `${profileAt}.templateSelections[${index}]`,
+    errors: string[] = [];
+  for (const field of Object.keys(value).filter(
+    (field) => !["slot", "templateRef", "materializeAs", "localePolicy"].includes(field),
+  ))
+    errors.push(`preset.json ${at} contains unknown field "${field}"; remove it or use a declared v3 field.`);
+  for (const field of ["slot", "templateRef", "materializeAs", "localePolicy"] as const)
+    if (!Object.hasOwn(value, field)) errors.push(`preset.json ${at} is missing required field "${field}".`);
+  for (const field of ["slot", "templateRef", "materializeAs"] as const)
+    if (Object.hasOwn(value, field) && !nonEmpty(value[field]))
+      errors.push(`preset.json ${at} field "${field}" must be a non-empty string.`);
+  if (
+    Object.hasOwn(value, "localePolicy") &&
+    !(
+      isPresetContractRecord(value.localePolicy) &&
+      allowed(value.localePolicy, ["prefer", "fallback"], ["prefer", "fallback"]) &&
+      ["project", "preset", "explicit"].includes(String(value.localePolicy.prefer)) &&
+      ["zh-CN", "en-US"].includes(String(value.localePolicy.fallback))
+    )
+  )
+    errors.push(
+      `preset.json ${at} field "localePolicy" must declare prefer (project, preset, explicit) and fallback (zh-CN, en-US).`,
+    );
+  return errors;
 }
 function capability(value: unknown, required: boolean): boolean {
   const needed = required ? ["id", "kind", "version", "required"] : ["id", "kind", "version"];
