@@ -39,7 +39,7 @@ export function replayGateRunChange(
       prior &&
       event.actor.executor !== null &&
       (expiredGithubActionsClaim(requirement, prior, event.occurredAt) ||
-        (requirement.witness.kind === "github-actions" && run.diagnostic.startsWith("CI provider attempt advanced:")));
+        (requirement.witness.kind === "github-actions" && run.supersedesRunId === prior.runId));
   const ownerAction =
     event.payload.operation === "revoke" ||
     (event.payload.operation === "claim" && run.supersedesRunId !== null && !sourceRenewal);

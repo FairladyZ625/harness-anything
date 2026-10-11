@@ -11,6 +11,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 
 /** An in-process source invocation, never supplied by a transport or execution credential. */
 export const centerWitnessAction = Symbol("centerWitnessAction");
@@ -191,22 +192,42 @@ export function settleImportedGithubActionsClaims(cell: RepoCellOperationalConte
       // A completed source run is terminal for its provider attempt, but a later settled
       // attempt of the same GitHub run is a new source result. Advance the source claim once
       // so the normal witness publication path can bind the latest verdict.
-      if (
-        current &&
-        current.state === "completed" &&
-        latest &&
-        latest.diagnostic !== current.diagnostic &&
-        target.requirement.witness.kind === "github-actions"
-      ) {
+      try {
+        if (
+          current &&
+          current.state === "completed" &&
+          latest &&
+          latest.diagnostic !== current.diagnostic &&
+          target.requirement.witness.kind === "github-actions"
+        ) {
+          runTaskWitnessAction(
+            cell,
+            {
+              kind: "task-witness-rerun",
+              taskId,
+              executionId: target.execution.executionId,
+              gateId: target.requirement.gateId,
+              runId: current.runId,
+              reason: latest.diagnostic,
+              [centerWitnessAction]: true,
+            },
+            {
+              ...binding,
+              actor: {
+                principal: snapshot.task!.createdBy.principal,
+                executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
+              },
+            },
+          );
+          continue;
+        }
         runTaskWitnessAction(
           cell,
           {
-            kind: "task-witness-rerun",
+            kind: "task-witness-claim",
             taskId,
             executionId: target.execution.executionId,
             gateId: target.requirement.gateId,
-            runId: current.runId,
-            reason: `CI provider attempt advanced: ${latest.diagnostic}`,
             [centerWitnessAction]: true,
           },
           {
@@ -217,25 +238,10 @@ export function settleImportedGithubActionsClaims(cell: RepoCellOperationalConte
             },
           },
         );
-        continue;
+      } catch (error) {
+        if (cellErrorCode(error) === "gate_run_stale") continue;
+        throw error;
       }
-      runTaskWitnessAction(
-        cell,
-        {
-          kind: "task-witness-claim",
-          taskId,
-          executionId: target.execution.executionId,
-          gateId: target.requirement.gateId,
-          [centerWitnessAction]: true,
-        },
-        {
-          ...binding,
-          actor: {
-            principal: snapshot.task!.createdBy.principal,
-            executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
-          },
-        },
-      );
     }
   }
 }
