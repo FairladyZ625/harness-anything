@@ -5,7 +5,11 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { adoptRuntimes, sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
+import {
+  adoptRuntimes,
+  reclaimFailedLaunchTempDirectory,
+  sweepSettledRuntimeTempDirectories,
+} from "../src/runtime-spawn-adoption.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
@@ -65,6 +69,42 @@ test("a dispatch hands its runtime session id to the launch preparation", async 
     /stop at the launch boundary/u,
   );
   assert.deepEqual(launches, [{ instanceId: "worker", runtimeSessionId: expectedSessionId }]);
+});
+
+test("a failed launch's temp reclaim surfaces its refusal instead of swallowing it", async () => {
+  const logged: string[] = [],
+    originalError = console.error,
+    reclaimCalls: { instanceId: string; runtimeSessionId: string }[] = [];
+  console.error = ((line: string) => {
+    logged.push(line);
+  }) as typeof console.error;
+  try {
+    const input = {
+      reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => {
+        reclaimCalls.push({ instanceId, runtimeSessionId });
+        return new Error("EBUSY: locked");
+      },
+    };
+    reclaimFailedLaunchTempDirectory(input, "worker", "runtime_0123456789abcdef01234567");
+    assert.deepEqual(reclaimCalls, [{ instanceId: "worker", runtimeSessionId: "runtime_0123456789abcdef01234567" }]);
+    assert.equal(
+      logged.some((line) =>
+        line.includes(
+          "[runtime-temp] worker/runtime_0123456789abcdef01234567 could not be reclaimed after a failed launch: EBUSY: locked",
+        ),
+      ),
+      true,
+      "the refusal is logged with its original error",
+    );
+    reclaimFailedLaunchTempDirectory(
+      { reclaimRuntimeTempDirectory: () => null },
+      "worker",
+      "runtime_0123456789abcdef01234567",
+    );
+    assert.equal(logged.length, 1, "a successful reclaim logs nothing");
+  } finally {
+    console.error = originalError;
+  }
 });
 
 test("the startup sweep treats only settled sessions as reclaimable and reports failures", async () => {
