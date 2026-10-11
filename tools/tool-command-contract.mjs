@@ -37,16 +37,16 @@ export const dispatchTaskCommand = command({
 export const dispatchIsolatedTestCommand = command({
   id: "dispatch-isolated-test",
   entry: "tools/dispatch-isolated-test.mjs",
-  summary: "Run one registered test tier or file in an isolated Ubuntu, Docker, or Windows target.",
+  summary: "Run one registered test tier or file in a remote server container or local/remote isolated target.",
   unknownOptionPrefix: "unknown dispatch-isolated-test option: ",
   options: [
     {
       name: "--target",
       placeholder: "<target>",
-      values: Object.freeze(["ubuntu", "docker", "windows"]),
-      defaultValue: "ubuntu",
-      missingValue: "--target requires ubuntu, docker, or windows",
-      invalidValue: (value) => `unknown target: ${value}; expected ubuntu, docker, or windows`,
+      values: Object.freeze(["server", "local", "windows"]),
+      defaultValue: "server",
+      missingValue: "--target requires server or windows",
+      invalidValue: (value) => `unknown target: ${value}; expected server, local or windows`,
       description: "Isolation target.",
     },
     {

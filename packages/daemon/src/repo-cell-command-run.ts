@@ -339,9 +339,14 @@ export function makeRepoCellCommandRunner(
     const externalRead: ReturnType<typeof readBeforeWriteQueue> =
       action.kind === "task-complete" && typeof action.taskId === "string"
         ? authorizeAtCurrentCut()!.then(async (authorization) => {
-            if (authorization.outcome === "allowed")
-              await runCompletionSources(context, action.taskId as string, binding);
-            return (nextAction, nextBinding) => context.executeAction(nextAction, nextBinding);
+            const warnings =
+              authorization.outcome === "allowed"
+                ? await runCompletionSources(context, action.taskId as string, binding)
+                : [];
+            return async (nextAction, nextBinding) => {
+              const receipt = await context.executeAction(nextAction, nextBinding);
+              return warnings.length ? { ...receipt, warnings: [...(receipt.warnings ?? []), ...warnings] } : receipt;
+            };
           })
         : readBeforeWriteQueue(context, action, binding, context.refreshCi);
     if (externalRead)

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
+import { localDefaultBinding } from "../daemon-host-binding.ts";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import type { DaemonTrafficLogEntry } from "../conn-log.ts";
@@ -497,6 +498,8 @@ export function createJsonRpcProtocolServer(options: {
         const { runFleetEdgeTask, runFleetEdgeRepositoryRead, isFleetEdgeRepositoryRead } = await import(
           "../fleet-edge-task.ts"
         );
+        if (executionCredential !== undefined)
+          localDefaultBinding({ ...options.authContext, oidcPrincipal: await options.sessionPrincipal?.() });
         const relayedExecutionPrincipal =
           executionCredential === undefined
             ? undefined

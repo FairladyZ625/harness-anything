@@ -7,8 +7,27 @@ import { AnimatePresence, motion } from "motion/react";
  * 由调用方组合;关闭按钮也归内容侧(头部归调用方,Esc 与点背景已覆盖壳层)。
  *
  * modal=false 为非模态:压暗层不接指针事件,点它下面的列表那一次点击直接生效
- * (实测:遮罩接事件时换一张卡要点两次);关闭判据为「按下位置不在抽屉里」。
+ * (实测:遮罩接事件时换一张卡要点两次);关闭判据为「主键按在抽屉外的惰性空白上」
+ * ——压在交互控件上的按下归控件自己的激活,侧键 3/4 归 App 级前进/后退
+ * (F-9280B707:任务预览的 onClose 是弹栈,抢先关闭会与控件自身的导航相互抵消/叠加)。
  */
+
+/** 自身会被这次按下滑动的控件:那次按下由控件的激活语义接管,不构成「点外部关闭」。 */
+const INTERACTIVE_PRESS_SELECTOR = [
+  "button",
+  "a",
+  "input",
+  "select",
+  "textarea",
+  "label",
+  "summary",
+  "[role='button']",
+  "[role='link']",
+  "[role='tab']",
+  "[role='option']",
+  "[role='menuitem']",
+].join(",");
+
 export function Drawer({
   open,
   onClose,
@@ -35,7 +54,11 @@ export function Drawer({
   useEffect(() => {
     if (!open || modal) return;
     const onPointerDown = (event: MouseEvent) => {
-      if (event.target instanceof Node && panelRef.current?.contains(event.target) === true) return;
+      // 侧键 3/4 是 App 级前进/后退的按下(useAppShortcuts),右/中键同样不是「点外部关闭」。
+      if (event.button !== 0) return;
+      const target = event.target;
+      if (target instanceof Node && panelRef.current?.contains(target) === true) return;
+      if (target instanceof Element && target.closest(INTERACTIVE_PRESS_SELECTOR) !== null) return;
       onClose();
     };
     window.addEventListener("mousedown", onPointerDown);

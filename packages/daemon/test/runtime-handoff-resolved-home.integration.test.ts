@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { existsSync, globSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
@@ -92,7 +93,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       codex: { reasoningEffort: "high" },
     },
     localAuth = localAuthFixture();
-  await f.host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
+  await registerFixtureRuntimeInstance(f.host, f.subject.repoId, localAuth, instance);
   const packageSource = path.join(f.root, "handoff-agent");
   mkdirSync(packageSource);
   writeFileSync(

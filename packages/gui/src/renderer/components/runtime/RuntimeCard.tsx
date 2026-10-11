@@ -63,6 +63,8 @@ type Props = {
   readonly onValidate: () => void;
   readonly onSelectRuntime: (instanceId: string) => void;
   readonly onSetEnabled: (enabled: boolean) => void;
+  readonly projectAllowed: boolean;
+  readonly onSetProjectAllowed: (allowed: boolean) => void;
   readonly onUpdate: (input: RuntimeInstanceUpdateInput) => Promise<unknown>;
   readonly onDelete: () => void;
   readonly onSelfTest: (model: string) => Promise<string | null>;
@@ -84,6 +86,8 @@ export function RuntimeCard({
   onAuth,
   onValidate,
   onSetEnabled,
+  projectAllowed,
+  onSetProjectAllowed,
   onUpdate,
   onDelete,
   onSelfTest,
@@ -130,6 +134,14 @@ export function RuntimeCard({
             )}
             <Hint>{t("agentRuntime.enabled")}</Hint>
             <Toggle checked={instance.enabled} label={t("agentRuntime.enabled")} onChange={onSetEnabled} />
+            <span data-testid="runtime-card-project-access" className="flex items-center gap-2">
+              <Hint>{t("agentRuntime.projectAllowed")}</Hint>
+              <Toggle
+                checked={projectAllowed}
+                label={t("agentRuntime.projectAllowed")}
+                onChange={onSetProjectAllowed}
+              />
+            </span>
           </Right>
         </CardHead>
         <CardBody>

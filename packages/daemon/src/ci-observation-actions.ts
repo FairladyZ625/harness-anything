@@ -618,8 +618,10 @@ async function selectTaskWitnessRun(
   for (const head of heads) {
     // Main's first-parent history is linear: once a head does not contain the delivery, no older one does.
     if (options.coverage !== "exact" && !(await coversCommit(runGh, cwd, delivery, head))) break;
-    const runs = (
-      JSON.parse(
+    type WitnessRunEntry = Pick<CiRunListEntry, "databaseId" | "headBranch" | "event" | "status" | "conclusion"> & {
+      readonly path: string;
+    };
+    const response = JSON.parse(
         await runGh(
           "gh",
           [
@@ -630,12 +632,13 @@ async function selectTaskWitnessRun(
           ],
           { cwd },
         ),
-      ) as readonly (Pick<CiRunListEntry, "databaseId" | "headBranch" | "event" | "status" | "conclusion"> & {
-        readonly path: string;
-      })[]
-    )
-      .filter((run) => run.headBranch === "main" && run.event === options.event && workflowPaths.has(run.path))
-      .sort((left, right) => right.databaseId - left.databaseId);
+      ) as readonly WitnessRunEntry[] | { readonly workflow_runs: readonly WitnessRunEntry[] },
+      entries: readonly WitnessRunEntry[] = Array.isArray(response)
+        ? response
+        : (response as { readonly workflow_runs: readonly WitnessRunEntry[] }).workflow_runs,
+      runs = entries
+        .filter((run) => run.headBranch === "main" && run.event === options.event && workflowPaths.has(run.path))
+        .sort((left, right) => right.databaseId - left.databaseId);
     const verdict = runs.find(
       (run) => run.status === "completed" && run.conclusion !== "cancelled" && run.conclusion !== "skipped",
     );

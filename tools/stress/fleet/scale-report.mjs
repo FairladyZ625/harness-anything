@@ -80,7 +80,7 @@ export async function scaleReport({ seed, command, blobs, rebuild, calibration, 
       },
     ],
     replayCommand:
-      "node tools/dispatch-isolated-test.mjs --target ubuntu --file " + path.relative(repoRoot, process.argv[1]),
+      "node tools/dispatch-isolated-test.mjs --target server --file " + path.relative(repoRoot, process.argv[1]),
     residualRisks: [
       "This seed report covers the full-scale workload; the consolidated campaign also requires F12/F13 generation-1 and F14 fault arms.",
       "Device-backed ENOSPC and power-loss arms require the operator-created VM mounts.",

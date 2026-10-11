@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -85,20 +86,16 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
 
   let host = await open("lease-reservation-before");
   try {
-    await host.runtimeInstance(
-      "daemon.runtimeInstance.create",
-      {
-        instanceId: definition.instanceId,
-        name: "Codex Lease Worker",
-        kindId: definition.kindId,
-        installationId: definition.installationId,
-        providerId: definition.providerId,
-        models: [definition.model],
-        codex: { reasoningEffort: definition.reasoningEffort },
-        authMode: definition.authMode,
-      },
-      auth,
-    );
+    await registerFixtureRuntimeInstance(host, repoId, auth, {
+      instanceId: definition.instanceId,
+      name: "Codex Lease Worker",
+      kindId: definition.kindId,
+      installationId: definition.installationId,
+      providerId: definition.providerId,
+      models: [definition.model],
+      codex: { reasoningEffort: definition.reasoningEffort },
+      authMode: definition.authMode,
+    });
     const created = await host.run(repoId, { kind: "task-create", taskId, title: "Lease reservation" }, auth);
     assert.equal(created.outcome, "applied");
     const publication = await host.run(

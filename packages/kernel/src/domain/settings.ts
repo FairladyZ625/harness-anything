@@ -482,7 +482,6 @@ function writeDeclaredValue(
     return;
   }
   if (!exists && stableStringify(value) === stableStringify(declaration.defaultValue)) return;
-  if (!document.has("settings")) throw new Error("Missing settings block in harness.yaml.");
   ensureSettingsMap(document);
   const authoredValue =
     declaration.valueKind === "gate-mappings"
@@ -494,7 +493,14 @@ function writeDeclaredValue(
         : value;
   document.setIn(path, Array.isArray(authoredValue) ? document.createNode(authoredValue) : authoredValue);
   const node = document.getIn(path, true);
-  if (isSeq(node) && declaration.yamlStyle !== undefined) node.flow = declaration.yamlStyle === "inline";
+  if (isSeq(node) && declaration.yamlStyle !== undefined) {
+    node.flow = declaration.yamlStyle === "inline";
+    if (declaration.yamlStyle === "block-list")
+      for (let depth = 1; depth < path.length; depth += 1) {
+        const parent = document.getIn(path.slice(0, depth), true);
+        if (isMap(parent)) parent.flow = false;
+      }
+  }
 }
 
 function applyDeclaredRepositoryAction(

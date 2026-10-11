@@ -76,11 +76,15 @@ export function RepositorySettingsPanel({
   // 仓库设置的字段面来自 settings 动作契约(目录快照的 settingsFields,daemon 与动作目录
   // 同一单源);分组与逐项解释(effect/默认值)同样由声明源投影进快照。目录选择器
   // (vertical/preset/profile/scaffold/reviewer/ciWorkflows)的选项来自 daemon 目录快照与
-  // agent 目录共享缓存。两者都不是手打清单。目录读不到时选择器停用(fail closed),
+  // agent 目录共享缓存。两者都不是手打清单。locale 有专属的语言页签(本地偏好),
+  // 不在仓库面板重复给第二个编辑面。目录读不到时选择器停用(fail closed),
   // 不回退成自由文本输入。
   const snapshot = catalogQuery.data,
     catalogBlocked = catalogQuery.isPending || !!catalogQuery.error,
-    groups = settingsGroupedRows(snapshot?.settingsFields ?? [], snapshot?.settingsGroups ?? []),
+    groups = settingsGroupedRows(
+      (snapshot?.settingsFields ?? []).filter(({ field }) => field !== "locale"),
+      snapshot?.settingsGroups ?? [],
+    ),
     ciWorkflowFace = snapshot?.ciWorkflows ?? [],
     ciWorkflowValue = Array.isArray(draft.ciWorkflows) ? draft.ciWorkflows : [],
     verticalOptions = selectorOptions(

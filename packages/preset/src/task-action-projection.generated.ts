@@ -662,6 +662,12 @@ export const settingsFieldProtocolProjection = {
       enum: ["en-US", "zh-CN"],
     },
     {
+      field: "overviewWatchedActivityDays",
+      description: "How many days back the overview's watched-works activity window reaches.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "taskScaffold",
       description: "Repository file that adds to or replaces the preset's documents in every new task package.",
       type: "string",
@@ -746,6 +752,12 @@ export const settingsFieldProtocolProjection = {
       type: "string",
       required: false,
       enum: ["node", "reserved", "startable"],
+    },
+    {
+      field: "runtimeAllowedInstances",
+      description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
+      type: "string-array",
+      required: false,
     },
     {
       field: "scheduleAdmissionWindowMs",
@@ -837,6 +849,17 @@ export const settingsFieldProtocolProjection = {
       name: "--locale",
       kind: "single",
       enum: ["en-US", "zh-CN"],
+    },
+    {
+      field: "overviewWatchedActivityDays",
+      description: "How many days back the overview's watched-works activity window reaches.",
+      group: "presentation",
+      effect:
+        "The overview keeps pinned works first, then works active in this window; older ones stay on the works page.",
+      name: "--overview-watched-activity-days",
+      kind: "single",
+      regex: "^[1-9][0-9]*$",
+      projection: "number",
     },
     {
       field: "taskScaffold",
@@ -975,6 +998,17 @@ export const settingsFieldProtocolProjection = {
       name: "--fleet-claim-scope",
       kind: "single",
       enum: ["node", "reserved", "startable"],
+    },
+    {
+      field: "runtimeAllowedInstances",
+      description: "Runtime instance ids this repository may use from the machine-level instance catalog.",
+      group: "schedules-nodes",
+      effect:
+        "Only enabled instances in this list can receive dispatches; an explicit empty list blocks all instances.",
+      name: "--runtime-allowed-instance",
+      kind: "repeated",
+      regex: "^[A-Za-z0-9][A-Za-z0-9/_.@-]*$",
+      format: "runtime instance ids, or none to block all machine instances",
     },
     {
       field: "scheduleAdmissionWindowMs",

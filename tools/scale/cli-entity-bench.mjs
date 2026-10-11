@@ -3,7 +3,6 @@
  * Scale bench: every `ha` CLI command and every entity read/write path at 1k-10k Tasks, for data
  * correctness and latency. Run from the repository root; see tools/scale/README.md.
  *
- *   node tools/scale/cli-entity-bench.mjs --docker --tasks 1000 --out <host-dir>   # one-shot container
  *   node tools/scale/cli-entity-bench.mjs --tasks 1000 --out <dir>                  # inside the container
  *   node tools/scale/cli-entity-bench.mjs --matrix                                  # coverage matrix only
  *   node tools/scale/cli-entity-bench.mjs --compare a.json,b.json                   # latency ratios
@@ -13,10 +12,9 @@
  * `ha` child processes (the CLI arm, with HA_CLI_TIMING phases); reads are also sampled on the
  * RPC arm. No SQL is written; the ledger is only opened read-only for the oracles.
  */
-import { spawn, spawnSync } from "node:child_process";
-import { randomUUID, createHash } from "node:crypto";
+import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { loadavg } from "node:os";
 import path from "node:path";
 import { fixture, resourceSnapshot } from "../stress/entity-cli-calibration.fixture.mjs";
 import { cli } from "../../packages/cli/test/daemon-multi-repo-lifecycle-cli.fixtures.ts";
@@ -29,7 +27,7 @@ function parseArgs(argv) {
   const options = { tasks: 1000, samples: 5, clients: 8, seed: 20260911, out: null, populateBudgetS: Infinity };
   for (let index = 0; index < argv.length; index++) {
     const key = argv[index];
-    if (["--matrix", "--docker"].includes(key)) options[key.slice(2)] = true;
+    if (key === "--matrix") options.matrix = true;
     else if (key === "--compare") options.compare = argv[++index].split(",");
     else if (["--tasks", "--samples", "--clients", "--seed"].includes(key))
       options[key.slice(2)] = Number(argv[++index]);
@@ -38,79 +36,6 @@ function parseArgs(argv) {
     else throw new Error(`unknown option ${key}`);
   }
   return options;
-}
-
-async function runDocker() {
-  const hostSamples = [];
-  const name = `harness-test-isolation-scale-bench-${randomUUID().slice(0, 8)}`,
-    inner = process.argv
-      .slice(2)
-      .filter((value, index, all) => value !== "--docker" && value !== "--out" && all[index - 1] !== "--out");
-  const script = [
-    "set -eu",
-    "cd /workspace",
-    "npm ci --no-audit --no-fund >/dev/null 2>&1",
-    `node tools/test-hermetic-preflight.mjs --user-root /tmp/${name}`,
-    `node tools/scale/cli-entity-bench.mjs ${inner.join(" ")} --out /out`,
-  ].join("\n");
-  const host = () => ({
-    at: new Date().toISOString(),
-    load: loadavg(),
-    ncpu: spawnSync("sysctl", ["-n", "hw.ncpu"], { encoding: "utf8" }).stdout.trim(),
-  });
-  const hostBefore = host();
-  const step = (command, commandArgs, options = {}) =>
-    spawnSync(command, commandArgs, { stdio: "inherit", ...options }).status;
-  let status = step("docker", [
-    "create",
-    "--init",
-    "--name",
-    name,
-    "--workdir",
-    "/workspace",
-    "--entrypoint",
-    "sh",
-    "-e",
-    `CLI_ENTITY_BENCH_SOURCE=${JSON.stringify(report.sourceIdentity())}`,
-    "plt-center-testbed/source:latest",
-    "-lc",
-    script,
-  ]);
-  if (status !== 0) return status;
-  try {
-    const files = spawnSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], {
-      encoding: "buffer",
-    }).stdout;
-    const tar = spawnSync("tar", ["--no-xattrs", "-cf", "-", "--null", "-T", "-"], {
-      input: files,
-      maxBuffer: 2 ** 31,
-      env: { ...process.env, COPYFILE_DISABLE: "1" },
-    });
-    status =
-      tar.status === 0
-        ? step("docker", ["cp", "-", `${name}:/workspace`], {
-            input: tar.stdout,
-            stdio: ["pipe", "inherit", "inherit"],
-          })
-        : tar.status;
-    const samples = [],
-      sampler = setInterval(() => samples.push(host()), 15_000);
-    if (status === 0)
-      status = await new Promise((resolve) =>
-        spawn("docker", ["start", "-a", name], { stdio: "inherit" }).on("close", resolve),
-      );
-    clearInterval(sampler);
-    hostSamples.push(...samples);
-    mkdirSync(args.out, { recursive: true });
-    step("docker", ["cp", `${name}:/out/.`, args.out]);
-    writeFileSync(
-      path.join(args.out, "host-load.json"),
-      JSON.stringify({ container: name, before: hostBefore, during: hostSamples, after: host() }, null, 2),
-    );
-  } finally {
-    step("docker", ["rm", "-f", name], { stdio: "ignore" });
-  }
-  return status;
 }
 
 async function main() {
@@ -464,5 +389,4 @@ const args = parseArgs(process.argv.slice(2));
 if (args.matrix) console.log(report.matrixMarkdown(await report.coverage()));
 else if (args.compare)
   console.log(report.compareMarkdown(...args.compare.map((file) => JSON.parse(readFileSync(file, "utf8")))));
-else if (args.docker) process.exitCode = await runDocker();
 else await main();

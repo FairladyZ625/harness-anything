@@ -4,6 +4,7 @@ import { settleTask, submitTask } from "./repo-cell-submit.ts";
 import { adjudicateTask } from "./repo-cell-task-progress.ts";
 import { doctorHealth } from "./repo-cell-doctor.ts";
 import { createHash } from "node:crypto";
+import path from "node:path";
 import {
   compileExecutionAnnotation,
   compileExecutionExecutorDeclaration,
@@ -314,6 +315,24 @@ export function executeRepoAction(
     action.kind.startsWith("preset-") ||
     /^(?:vertical-validate|template-(?:list|render)|script-(?:list|inspect))$/u.test(action.kind)
   ) {
+    // Execution credentials scope their reads to the dispatched repository (dec_9DFDC635180975FDFC0CDB33D7):
+    // a caller-supplied validator source resolving outside the repository root would turn the
+    // catalog validators into an arbitrary file read. path.resolve accepts ../ and absolute paths,
+    // so the bound is checked here, where the repository root is known.
+    const source =
+      action.kind === "vertical-validate"
+        ? action.verticalSource
+        : action.kind === "preset-validate"
+          ? action.packageSource
+          : undefined;
+    if (binding.executionPrincipal && typeof source === "string") {
+      const resolved = path.resolve(cell.rootDir, source);
+      if (resolved !== cell.rootDir && !resolved.startsWith(`${cell.rootDir}${path.sep}`))
+        throw cell.cellCodedError(
+          "execution_credential_rejected",
+          "Validator sources must stay inside the dispatched repository.",
+        );
+    }
     return runPresetAction({
       rootDir: cell.rootDir,
       action,
