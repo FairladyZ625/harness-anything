@@ -53,6 +53,11 @@ export async function runCompletionSources(
         { kind: "task-witness-claim", taskId, executionId: execution.executionId, gateId: requirement.gateId },
         sourceActor,
       );
+      if (claimed.receipt.code === "invalid_proof")
+        throw context.cellCodedError(
+          "invalid_proof",
+          claimed.receipt.rejectionExplanation ?? claimed.receipt.evidence ?? "CI witness evidence is invalid.",
+        );
       if (!["applied", "no_changes"].includes(claimed.receipt.outcome))
         warnings.push(
           `${claimed.receipt.code ?? claimed.receipt.outcome}: ${claimed.receipt.rejectionExplanation ?? claimed.receipt.evidence ?? "CI source rejected."}`,
