@@ -221,6 +221,7 @@ afterEach(async () => {
   });
   document.body.replaceChildren();
   window.sessionStorage.clear();
+  window.localStorage.clear();
   vi.restoreAllMocks();
 });
 

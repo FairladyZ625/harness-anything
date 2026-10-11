@@ -1,3 +1,4 @@
+import { resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { decodePackage, parsePresetJson } from "./preset-package.ts";
 import { asFailure, defaultBundled, key, presetFailure } from "./preset-resolver-common.ts";
 import type { Candidate } from "./preset-resolver-types.ts";
@@ -6,11 +7,12 @@ import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
 // Bundled packages ship inside this package and cannot change under a running process, so their
-// decode is cached per process; user packages are the mutable surface and stay enumerated live.
+// decode is cached per process; repository and user packages stay enumerated live.
 const bundledCache = new Map<string, readonly Candidate[]>();
 
 function cachedBundled(bundledRoot: string): readonly Candidate[] {
   const resolved = path.resolve(bundledRoot);
+  if (resolved !== path.resolve(defaultBundled)) return enumerateBundled(resolved);
   let cached = bundledCache.get(resolved);
   if (cached === undefined) {
     cached = enumerateBundled(resolved);
@@ -54,13 +56,15 @@ export function effectiveCatalog(bundledRoot: string, userRoot: string): Map<str
 /** Returns the selected package's PRESET.md body without running a full preset resolution. */
 export function presetDocumentBody(input: {
   readonly bundledRoot?: string;
+  readonly repoRoot?: string;
   readonly userRoot: string;
   readonly verticalId: string;
   readonly presetId: string;
 }): string {
-  const selected = effectiveCatalog(input.bundledRoot ?? defaultBundled, input.userRoot).get(
-    key(input.verticalId, input.presetId),
-  );
+  const selected = effectiveCatalog(
+    input.bundledRoot ?? path.join(resolveVerticalAssetsRoot(input.verticalId, input.repoRoot), "presets"),
+    input.userRoot,
+  ).get(key(input.verticalId, input.presetId));
   if (!selected?.decoded)
     throw selected?.error ?? presetFailure("preset_not_found", `Preset ${input.presetId} is not installed.`);
   return selected.decoded.document.body;

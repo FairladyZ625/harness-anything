@@ -30,6 +30,9 @@ export interface AppSidebarProps {
   readonly onProjectSwitcherToggle: () => void;
   readonly onOpenProject: (repoId: string) => void;
   readonly onOpenProjectManager: () => void;
+  /** 置顶的 repoId(与项目管理页同一条顺序,App 唯一实例下传)。 */
+  readonly pinnedRepoIds: ReadonlyArray<string>;
+  readonly onToggleProjectPin: (repoId: string) => void;
   readonly onNavigate: (view: ViewId) => void;
   /** 全部置顶任务(App 从议程读面取);侧栏只展示其中的工作根,其余在总览置顶区。 */
   readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
@@ -66,6 +69,8 @@ export function AppSidebar({
   onProjectSwitcherToggle,
   onOpenProject,
   onOpenProjectManager,
+  pinnedRepoIds,
+  onToggleProjectPin,
   onNavigate,
   pinnedWork = [],
   onOpenPinned,
@@ -181,6 +186,8 @@ export function AppSidebar({
               anchorRef={projectSwitcherAnchor}
               repos={repos}
               activeRepoId={activeRepoId}
+              pinnedRepoIds={pinnedRepoIds}
+              onToggleProjectPin={onToggleProjectPin}
               onOpenProject={onOpenProject}
               onOpenProjectManager={onOpenProjectManager}
             />

@@ -97,8 +97,8 @@ async function startRepoWriterWorker(): Promise<void> {
                 ? reviveKeycloakAuthorization(
                     config.bootstrap.keycloakAuthorization,
                     () => asyncCapability("currentAccessToken", null) as Promise<string>,
-                    () =>
-                      asyncCapability("keycloakCenter", null) as ReturnType<
+                    (rejectedAccessToken) =>
+                      asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
                         NonNullable<RepoCellOpenInput["keycloakCenter"]>
                       >,
                   )
@@ -123,8 +123,10 @@ async function startRepoWriterWorker(): Promise<void> {
           : {}),
         ...(bootstrap.capabilities.keycloakCenter
           ? {
-              keycloakCenter: () =>
-                asyncCapability("keycloakCenter", null) as ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>,
+              keycloakCenter: (rejectedAccessToken) =>
+                asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
+                  NonNullable<RepoCellOpenInput["keycloakCenter"]>
+                >,
             }
           : {}),
         ...(bootstrap.capabilities.prepareRuntimeLaunch
@@ -212,7 +214,10 @@ async function startRepoWriterWorker(): Promise<void> {
         request.binding,
         request.writerEpoch,
         () => asyncCapability("currentAccessToken", request.requestId) as Promise<string>,
-        () => asyncCapability("keycloakCenter", null) as ReturnType<NonNullable<RepoCellOpenInput["keycloakCenter"]>>,
+        (rejectedAccessToken) =>
+          asyncCapability("keycloakCenter", rejectedAccessToken ?? null) as ReturnType<
+            NonNullable<RepoCellOpenInput["keycloakCenter"]>
+          >,
       );
       // Reject a stale descriptor before any effect: runtime cancel terminates a process and a
       // resumed spawn launches one before their first ledger append reaches the append fence.

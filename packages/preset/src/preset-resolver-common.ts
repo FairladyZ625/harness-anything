@@ -60,3 +60,12 @@ export function compareVersion(left: string, right: string): number {
     if ((a[index] ?? 0) !== (b[index] ?? 0)) return (a[index] ?? 0) > (b[index] ?? 0) ? 1 : -1;
   return 0;
 }
+
+/** Interpreter support is a host capability, not a frozen-package validity check. */
+export function assertSupportedScriptInterpreter(command: string): void {
+  if (path.extname(command).toLowerCase() === ".py")
+    throw presetFailure(
+      "unsupported_interpreter",
+      "The Python interpreter is not supported yet for this script entrypoint.",
+    );
+}

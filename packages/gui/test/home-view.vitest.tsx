@@ -78,9 +78,11 @@ async function mountHome(
   readonly container: HTMLElement;
   readonly opened: readonly string[];
   readonly targets: readonly (string | undefined)[];
+  readonly pinned: readonly string[];
 }> {
   const opened: string[] = [];
   const targets: (string | undefined)[] = [];
+  const pinned: string[] = [];
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   for (const [repoId, data] of Object.entries(seed)) {
     client.setQueryData(workspaceSummaryQueryKeys.read(repoId), data.summary);
@@ -98,6 +100,10 @@ async function mountHome(
         createElement(HomeView, {
           repos,
           currentRepoId,
+          pinnedRepoIds: [],
+          onToggleProjectPin: (repoId: string) => {
+            pinned.push(repoId);
+          },
           onOpenProject: (repoId: string, target?: "agenda" | "work") => {
             opened.push(repoId);
             targets.push(target);
@@ -109,7 +115,7 @@ async function mountHome(
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });
-  return { container, opened, targets };
+  return { container, opened, targets, pinned };
 }
 
 /** 点击后等 mutation 的结果落到状态里(react-query 在后续 tick 通知)。 */
@@ -280,10 +286,10 @@ describe("HomeView 项目管理页", () => {
     const broken = container.querySelector<HTMLElement>('[data-testid="home-repo-e-broken"]')!;
     expect(broken.querySelector("[data-status-tone]")?.getAttribute("data-status-tone")).toBe("bad");
     expect(broken.style.getPropertyValue("--status-edge")).toContain("var(--color-status-blocked)");
-    // 停用的项目不可进入:第一行不是按钮,也没有「进入」。
+    // 停用的项目不可进入:没有「进入」;「⋯」常驻(置顶人人可用,启用/移除收在里面)。
     const disabled = container.querySelector('[data-testid="home-repo-d-disabled"]')!;
-    expect(disabled.querySelector("button")).toBeNull();
     expect(disabled.querySelector('[data-testid="home-entry-open"]')).toBeNull();
+    expect(disabled.querySelector('[data-testid="home-entry-more"]')).not.toBeNull();
   });
 
   it("某个项目读取失败只影响它自己:那一行显示原因并进「需要处理」,其他项目照常", async () => {
@@ -319,8 +325,17 @@ describe("HomeView 项目管理页", () => {
     ];
     const seed = { on: { summary: summary({}), runtime: sessions() } };
     const bare = await mountHome(repos, null, seed);
-    expect(bare.container.querySelector('[data-testid="home-entry-more"]')).toBeNull();
+    // 「⋯」常驻(置顶是本地偏好,不依赖宿主能力);宿主能力项全部不出现。
+    await click(more(bare.container.querySelector<HTMLElement>('[data-testid="home-repo-on"]')!));
+    expect(panel().querySelector('[data-testid="home-entry-directory"]')).toBeNull();
+    expect(panel().querySelector('[data-testid="home-entry-disable"]')).toBeNull();
+    expect(panel().querySelector('[data-testid="home-entry-enable"]')).toBeNull();
+    expect(panel().querySelector('[data-testid="home-entry-remove"]')).toBeNull();
+    expect(panel().querySelector('[data-testid="home-entry-toggle-pin"]')?.textContent).toContain("置顶");
+    await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-toggle-pin"]')!);
+    expect(bare.pinned).toEqual(["on"]);
     expect(bare.container.querySelector('[data-testid="home-add-project"]')).toBeNull();
+    // 置顶点击后气泡自关(与 App 的管理动作同构),后续用例按 document 查 panel 不受残留。
 
     const receipt = { schema: "command-receipt/v2", ok: true };
     const update = vi.fn(async () => receipt),
@@ -496,7 +511,8 @@ describe("项目页补齐答复与数字跳转", () => {
     await click(more(container.querySelector<HTMLElement>('[data-testid="home-repo-local"]')!));
     await click(panel().querySelector<HTMLElement>('[data-testid="home-entry-directory"]')!);
     expect(openDirectory).toHaveBeenCalledExactlyOnceWith({ repoId: "local" });
-    expect(more(container.querySelector<HTMLElement>('[data-testid="home-repo-remote"]')!)).toBeNull();
+    await click(more(container.querySelector<HTMLElement>('[data-testid="home-repo-remote"]')!));
+    expect(panel().querySelector('[data-testid="home-entry-directory"]')).toBeNull();
   });
 });
 

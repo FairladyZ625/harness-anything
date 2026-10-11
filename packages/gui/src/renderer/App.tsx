@@ -54,6 +54,7 @@ import {
 } from "./triadic-data.ts";
 import { useSearchIndex } from "./search-index-data.ts";
 import { useFavorites } from "./model/favorites.ts";
+import { useProjectOrder } from "./project-order-preferences.ts";
 import { deriveRuntimeHealth } from "./model/runtime-health.ts";
 import { SessionsView } from "./views/SessionsView.tsx";
 import { SchedulesView } from "./views/SchedulesView.tsx";
@@ -72,7 +73,8 @@ import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useViewHistory } from "./navigation/useViewHistory.ts";
 import { useLocationRestore } from "./navigation/useLocationRestore.ts";
-import { initialLocation, resetViewHistory } from "./navigation/viewHistoryStorage.ts";
+import { initialLocation } from "./navigation/viewHistoryStorage.ts";
+import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
@@ -241,6 +243,8 @@ function AppShell() {
     tasks[0]?.lastKnownAt ?? systemQuery.data?.observedAt ?? new Date(0).toISOString(),
   );
   const { favorites, toggleFavorite } = useFavorites(projectId);
+  // 项目置顶顺序(业主 2026-10-11):App 唯一实例,切换器与项目管理页同一条顺序。
+  const { pinned: pinnedRepoIds, togglePin: toggleProjectPin } = useProjectOrder();
   // 终端链接(W2)的文档落点:本机文档预览浮层的既有打开入口,repo 相对路径在
   // TerminalView 侧解析成绝对路径后从这里进浮层,存在性由只读桥打开时校验。
   const { openLocalDocument } = useLocalDocOpener();
@@ -382,32 +386,19 @@ function AppShell() {
     });
   }, [activeRepo, projectTasks, systemQuery.data, systemQuery.isError, tasksQuery.data]);
 
-  const goto = (v: ViewId) => {
-    navigate({
-      view: v,
-      focusedEntityRef: null,
-      selectedId: null,
-      previewId: null,
-      // 总览页内层(产物二级页/放大层)随离页显式收起:侧栏再进总览给干净首屏,
-      // 后退仍能回到带着层的那一条(层字段留在原条目里)。
-      overviewArtifactId: null,
-      overviewFocus: null,
-      ...(v !== "board" ? { drill: null } : {}),
-    });
-  };
-
-  const openProject = async (repoId: string, targetView: ViewId = "overview") => {
-    if (repoId !== activeRepoId) {
-      // 终端页(若挂载)随 goto("overview") 卸载,卸载清理自会停流并 detach 全部附件。
+  // 切仓策略(业主 2026-10-11:切回项目直接回到它上次停留的位置):useViewHistory
+  // 切仓时自己重读目标仓的栈,栈顶即上次位置、跨重启保留;显式目标(管理页活动
+  // 链接/跨仓实体导航)经 pending intent 在重读落地后推栈。
+  const { openProject, goto } = useProjectSwitch({
+    projectId,
+    navigate,
+    switchProject: setActiveRepoId,
+    leaveProject: async () => {
+      // 终端页(若挂载)随切仓卸载,卸载清理自会停流并 detach 全部附件。
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
-      // 新仓以干净初始栈打开(overview + 默认筛选);仓内 back/forward 仍持久化。
-      resetViewHistory(window.sessionStorage, repoId);
-      resetRecentRefs();
-      setActiveRepoId(repoId);
-    }
-    setProjectSwitcherOpen(false);
-    goto(targetView);
-  };
+    },
+    onProjectOpened: () => setProjectSwitcherOpen(false),
+  });
 
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
   const {
@@ -428,7 +419,7 @@ function AppShell() {
     activeRepoId,
     enabledRepoIds: enabledRepos.map((repo) => repo.repoId),
     openInRepo: (repoId, continueInRepo) => {
-      void openProject(repoId).then(continueInRepo);
+      void openProject(repoId, undefined, continueInRepo);
     },
     onRepoUnavailable: () => {
       navigate({ view: "home" });
@@ -437,6 +428,11 @@ function AppShell() {
     declaredKinds,
     isWorkRoot: works.isWorkRoot,
   });
+
+  // 最近访问是「当前仓」的邻域记录:切仓即清空,不在新仓里展示旧仓实体。
+  useEffect(() => {
+    resetRecentRefs();
+  }, [projectId, resetRecentRefs]);
 
   useEffect(() => {
     if (selectedWorkRootId === null) return;
@@ -557,6 +553,8 @@ function AppShell() {
             setProjectSwitcherOpen(false);
             goto("home");
           }}
+          pinnedRepoIds={pinnedRepoIds}
+          onToggleProjectPin={toggleProjectPin}
           onNavigate={goto}
           pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
@@ -601,6 +599,8 @@ function AppShell() {
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}
                   currentRepoId={activeRepoId}
+                  pinnedRepoIds={pinnedRepoIds}
+                  onToggleProjectPin={toggleProjectPin}
                   onOpenProject={(repoId, targetView) => {
                     void openProject(repoId, targetView);
                   }}

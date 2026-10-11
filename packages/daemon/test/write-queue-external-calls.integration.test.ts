@@ -9,6 +9,7 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { credentialPort, runCredentialCommand } from "../src/agent-runtime-credential-port.ts";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
+import { fakeKeycloak } from "./keycloak.fixtures.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -138,8 +139,41 @@ test(
 test("a Keycloak authorization that never answers times out and releases the repository write queue", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-keycloak-hang-")),
     rootDir = path.join(parent, "repo"),
-    // A Keycloak that accepts the connection and never answers, like a wedged reverse proxy.
-    hanging = createServer(() => {});
+    keycloak = fakeKeycloak(),
+    // dec_B0B79908FE04BBA7766035765B/CH1: only policy/evaluate remains on every warm read.
+    hanging = createServer((request, response) => {
+      void (async () => {
+        let raw = "";
+        for await (const chunk of request) raw += String(chunk);
+        if (
+          request.url?.endsWith("/policy/evaluate") &&
+          request.headers.authorization === "Bearer stale-center-token"
+        ) {
+          response.writeHead(401).end();
+          return;
+        }
+        if (request.url?.endsWith("/policy/evaluate") && hangPolicy) {
+          hangingPolicies += 1;
+          request.socket.once("close", () => {
+            abortedPolicies += 1;
+          });
+          return;
+        }
+        const answer = await keycloak.fetch(`http://127.0.0.1${request.url}`, {
+          method: request.method,
+          headers: request.headers as Record<string, string>,
+          ...(raw ? { body: raw } : {}),
+        });
+        response.writeHead(answer.status, { "content-type": "application/json" }).end(await answer.text());
+      })().catch((error: unknown) => {
+        response.writeHead(500).end(String(error));
+      });
+    });
+  let hangPolicy = false,
+    hangingPolicies = 0,
+    abortedPolicies = 0,
+    centerToken = "stale-center-token";
+  const rejectedTokens: string[] = [];
   let connections = 0;
   let closedConnections = 0;
   hanging.on("connection", (socket) => {
@@ -157,8 +191,18 @@ test("a Keycloak authorization that never answers times out and releases the rep
     hungBinding = {
       ...authorized,
       keycloakAuthorization: {
-        session: { ...authorized.keycloakAuthorization.session, url: hangUrl },
-        center: async () => ({ ...(await authorized.keycloakAuthorization.center()), url: hangUrl }),
+        session: {
+          ...authorized.keycloakAuthorization.session,
+          url: hangUrl,
+          accessToken: keycloak.account("person-keycloak-hang"),
+        },
+        center: async (rejectedAccessToken?: string) => {
+          if (rejectedAccessToken !== undefined) {
+            rejectedTokens.push(rejectedAccessToken);
+            centerToken = "live-center-token";
+          }
+          return { ...(await authorized.keycloakAuthorization.center()), url: hangUrl, accessToken: centerToken };
+        },
       },
     };
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
@@ -169,8 +213,22 @@ test("a Keycloak authorization that never answers times out and releases the rep
       repoId: workspaceId("keycloak-hang"),
       rootDir: canonicalRoot(rootDir),
       ownerId: "keycloak-hang-center",
+      // The worker revives center callbacks from the open input, not from the transported binding.
+      keycloakCenter: hungBinding.keycloakAuthorization.center,
       now: () => "2026-09-11T02:00:00.000Z",
     });
+    keycloak.permit("person-keycloak-hang", "keycloak-hang", ["task-create"]);
+    const warm = await cell.run(
+      { kind: "task-create", taskId: "keycloak-warm", title: "Warm identifiers" },
+      hungBinding,
+    );
+    assert.equal(warm.outcome, "applied", JSON.stringify(warm));
+    assert.deepEqual(
+      rejectedTokens,
+      ["stale-center-token"],
+      "401 refresh crosses the real writer capability bridge once",
+    );
+    hangPolicy = true;
     const write = cell.run(
       { kind: "task-create", taskId: "keycloak-hang-write", title: "Hanging authorization" },
       hungBinding,
@@ -179,12 +237,18 @@ test("a Keycloak authorization that never answers times out and releases the rep
     // so awaiting it asserts the timeout behavior without racing a second clock against it.
     const receipt = await write;
     assert.ok(connections >= 1, "the authorization never reached the hanging Keycloak");
+    assert.equal(hangingPolicies, 1, "the warm authorization must reach policy/evaluate");
     assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
-    assert.equal(receipt.code, "service_rejected", JSON.stringify(receipt));
+    // The decision-covered Admin REST path preserves its infrastructure error code.
+    assert.equal(receipt.code, "daemon_error", JSON.stringify(receipt));
     // The abort that failed the write destroys the socket before the fetch rejects, so the close
     // has already reached this process; one loop turn lets its event dispatch before asserting.
     await new Promise((resolve) => setImmediate(resolve));
     assert.ok(closedConnections >= 1, "the Keycloak request was not aborted");
+    assert.equal(abortedPolicies, 1, "the hung policy socket itself must close, not an idle warm-up socket");
+    hangPolicy = false;
+    keycloak.account("person-write-queue");
+    keycloak.permit("person-write-queue", "keycloak-hang", ["task-create"]);
     const after = await cell.run(
       { kind: "task-create", taskId: "keycloak-after-hang", title: "After the timeout" },
       binding,

@@ -1,10 +1,10 @@
+import { existsSync } from "node:fs";
 import { createRuntime } from "./preset-runtime.ts";
-import { loadCanonicalAssets } from "./preset-assets.ts";
+import { loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { decodePackage, parsePresetJson, presetDocumentValue, scan } from "./preset-package.ts";
-import { asFailure, defaultAssets, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
+import { asFailure, isPresetResolutionRecord, presetFailure } from "./preset-resolver-common.ts";
 import type { PresetFailure } from "./preset-resolver-types.ts";
 import { consumeKnownError, validatePresetDocumentV1, validatePresetManifestV3 } from "./preset.contract.ts";
-import { existsSync } from "node:fs";
 import path from "node:path";
 
 export function validatePresetPackage(input: { readonly source: string }) {
@@ -92,11 +92,16 @@ export function validateVerticalSource(
   } = {},
 ) {
   const requested = input.source ?? "software/coding",
-    builtin = ["software/coding", "builtin:software/coding"].includes(requested),
-    source = builtin
-      ? path.resolve(input.assetsRoot ?? defaultAssets)
-      : path.resolve(input.rootDir ?? process.cwd(), requested);
+    builtin = ["software/coding", "builtin:software/coding"].includes(requested);
+  let source = path.resolve(input.rootDir ?? process.cwd(), requested);
   try {
+    source =
+      input.assetsRoot ??
+      (builtin
+        ? resolveVerticalAssetsRoot("software/coding", input.rootDir)
+        : existsSync(source)
+          ? source
+          : resolveVerticalAssetsRoot(requested, input.rootDir));
     const assets = loadCanonicalAssets(source),
       vertical = assets.compiledVertical.definition,
       refs = [

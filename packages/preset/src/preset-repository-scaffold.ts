@@ -1,8 +1,7 @@
 import { normalizeRelativeDocumentPath, resolveHarnessLayout } from "@harness-anything/kernel";
-import { assertCanonicalVertical, loadCanonicalAssets } from "./preset-assets.ts";
+import { assertCanonicalVertical, loadCanonicalAssets, resolveVerticalAssetsRoot } from "./preset-assets.ts";
 import { catalogAnchors, materializeSelections } from "./preset-materialization.ts";
 import {
-  defaultAssets,
   isWithinPresetAssetRoot,
   normalizeLocale,
   presetFailure,
@@ -28,7 +27,9 @@ export function compileRepositoryScaffold(input: {
 }): RepositoryScaffoldPlan {
   const rootDir = path.resolve(input.rootDir),
     layout = resolveHarnessLayout(rootDir),
-    assets = loadCanonicalAssets(path.resolve(input.assetsRoot ?? defaultAssets)),
+    assets = loadCanonicalAssets(
+      path.resolve(input.assetsRoot ?? resolveVerticalAssetsRoot(input.verticalId, rootDir)),
+    ),
     locale = normalizeLocale(input.locale);
   assertCanonicalVertical(assets, input.verticalId);
   const overlayTarget = input.projectScaffold ? path.resolve(input.projectScaffold) : undefined;
