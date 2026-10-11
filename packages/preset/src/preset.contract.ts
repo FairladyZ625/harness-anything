@@ -318,7 +318,7 @@ export function validatePresetManifestV3(value: unknown): readonly string[] {
     !value.profiles.some((item) => isPresetContractRecord(item) && item.id === value.defaultProfile)
   )
     errors.push(
-      'preset.json field "profiles" or "defaultProfile" is invalid; expected at least one valid profile matching defaultProfile.',
+      'preset.json field "profiles" or "defaultProfile" is invalid; expected at least one valid profile matching defaultProfile. For retired checkerProfile fields, run ha migrate completion --help.',
     );
   if (
     (value.extends !== undefined && !nonEmpty(value.extends)) ||

@@ -1,0 +1,497 @@
+{
+  "schema": "repository-vertical-declaration/v1",
+  "revision": 65820,
+  "definition": {
+    "schema": "vertical-definition/v1",
+    "id": "software/coding",
+    "title": "Software Coding",
+    "version": "1.4.0",
+    "entityFieldExtensions": [
+      {
+        "extends": "task",
+        "field": "taskClass",
+        "kind": "enum-facet",
+        "values": [
+          "milestone",
+          "epic"
+        ],
+        "default": null,
+        "mutability": "amendable",
+        "projection": {
+          "column": "task_class",
+          "queryable": true
+        },
+        "reason": "Software delivery planning may explicitly classify milestone or epic tasks."
+      }
+    ],
+    "entityKinds": [
+      {
+        "id": "task",
+        "entityType": "lifecycle",
+        "packageKind": "task-package/v2",
+        "contractEntity": true
+      },
+      {
+        "id": "decision",
+        "entityType": "lifecycle",
+        "packageKind": "decision-event/v1",
+        "contractEntity": true
+      },
+      {
+        "id": "fact",
+        "entityType": "schema",
+        "schemaRef": "schema://fact-event",
+        "contractEntity": true
+      },
+      {
+        "kindId": "KND-1f5c0a7e9b3d4c6a8e2f0b1d3c5a7e94",
+        "id": "architecture-decision-record",
+        "entityType": "artifact",
+        "schemaVersions": [
+          {
+            "version": 1,
+            "attributes": {}
+          }
+        ],
+        "idPrefix": "ADR",
+        "display": {
+          "singular": "Architecture Decision Record",
+          "plural": "Architecture Decision Records"
+        },
+        "descriptorSchemaRef": "schema://artifact-descriptor",
+        "store": {
+          "pathTemplate": "entities/architecture-decision-records/{id}.json"
+        },
+        "locatorKinds": [
+          "repository-path"
+        ],
+        "relations": [
+          {
+            "type": "relates",
+            "sourceKind": "architecture-decision-record",
+            "targetKind": "decision",
+            "reads": "the architecture decision record relates to the target decision",
+            "strength": "weak",
+            "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+            "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+          }
+        ],
+        "revision": 65820
+      },
+      {
+        "kindId": "KND-2a6d1b8f0c4e5d7b9f3a1c2e4d6b8f05",
+        "id": "external-issue",
+        "entityType": "artifact",
+        "schemaVersions": [
+          {
+            "version": 1,
+            "attributes": {}
+          }
+        ],
+        "idPrefix": "ISSUE",
+        "display": {
+          "singular": "External Issue",
+          "plural": "External Issues"
+        },
+        "descriptorSchemaRef": "schema://artifact-descriptor",
+        "store": {
+          "pathTemplate": "entities/external-issues/{id}.json"
+        },
+        "locatorKinds": [
+          "url",
+          "external-key"
+        ],
+        "relations": [
+          {
+            "type": "relates",
+            "sourceKind": "external-issue",
+            "targetKind": "task",
+            "reads": "the external issue relates to the target task for traceability",
+            "strength": "weak",
+            "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+            "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+          }
+        ],
+        "revision": 65820
+      },
+      {
+        "kindId": "KND-3b7e2c9a1d5f6e8c0a4b2d3f5e7c9a16",
+        "id": "research",
+        "entityType": "artifact",
+        "schemaVersions": [
+          {
+            "version": 1,
+            "attributes": {}
+          }
+        ],
+        "idPrefix": "RES",
+        "display": {
+          "singular": "Research Package",
+          "plural": "Research Packages"
+        },
+        "descriptorSchemaRef": "schema://artifact-descriptor",
+        "store": {
+          "pathTemplate": "entities/research/{id}.json"
+        },
+        "locatorKinds": [
+          "repository-path"
+        ],
+        "relations": [
+          {
+            "type": "relates",
+            "sourceKind": "research",
+            "targetKind": "decision",
+            "reads": "the research package relates to the target decision",
+            "strength": "weak",
+            "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+            "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+          },
+          {
+            "type": "relates",
+            "sourceKind": "research",
+            "targetKind": "task",
+            "reads": "the research package relates to the target task",
+            "strength": "weak",
+            "decisionClaimRef": "decision/dec_29CCC98CD0241D0C9806AC1CF1/CH1",
+            "decisionContentPin": "sha256:f8ccb58e91a8da7c67fe57d1e02e78bdb1bf1972abc721d4a542d27f5919ffdb"
+          }
+        ],
+        "revision": 65820
+      }
+    ],
+    "contractEntityKinds": [
+      "task",
+      "decision",
+      "fact"
+    ],
+    "packageScaffolds": [
+      {
+        "entityKind": "task",
+        "templateSelections": [
+          {
+            "slot": "task.plan",
+            "templateRef": "template://planning/task-plan@1",
+            "materializeAs": "task_plan.md",
+            "localePolicy": {
+              "prefer": "project",
+              "fallback": "en-US"
+            }
+          },
+          {
+            "slot": "task.closeout",
+            "templateRef": "template://planning/closeout@1",
+            "materializeAs": "closeout.md",
+            "localePolicy": {
+              "prefer": "project",
+              "fallback": "en-US"
+            }
+          },
+          {
+            "slot": "task.artifacts.keep",
+            "templateRef": "template://planning/keep-file@1",
+            "materializeAs": "artifacts/.gitkeep",
+            "localePolicy": {
+              "prefer": "project",
+              "fallback": "en-US"
+            }
+          }
+        ]
+      },
+      {
+        "entityKind": "decision",
+        "templateSelections": []
+      }
+    ],
+    "repositoryScaffold": {
+      "entityRoots": [
+        {
+          "entityKind": "task",
+          "path": "{{paths.tasksRoot}}",
+          "create": "init"
+        },
+        {
+          "entityKind": "decision",
+          "path": "{{paths.decisionsRoot}}",
+          "create": "lazy"
+        }
+      ],
+      "dirs": [
+        {
+          "path": "{{paths.standardsRoot}}",
+          "create": "init"
+        },
+        {
+          "path": "{{paths.contextRoot}}",
+          "create": "init"
+        },
+        {
+          "path": "{{paths.contextRoot}}/architecture",
+          "create": "init"
+        },
+        {
+          "path": "{{paths.milestonesRoot}}",
+          "create": "init"
+        },
+        {
+          "path": "{{paths.sessionsRoot}}",
+          "create": "lazy"
+        }
+      ],
+      "seededDocs": [
+        {
+          "slot": "repository.context.index",
+          "templateRef": "template://repository/context-index@1",
+          "materializeAs": "{{paths.contextRoot}}/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.context.architecture",
+          "templateRef": "template://repository/context-architecture@1",
+          "materializeAs": "{{paths.contextRoot}}/architecture/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.context.development",
+          "templateRef": "template://repository/context-development@1",
+          "materializeAs": "{{paths.contextRoot}}/development/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.context.integrations",
+          "templateRef": "template://repository/context-integrations@1",
+          "materializeAs": "{{paths.contextRoot}}/integrations/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.context.research",
+          "templateRef": "template://repository/context-research@1",
+          "materializeAs": "{{paths.contextRoot}}/research/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.standard.index",
+          "templateRef": "template://repository/standards-index@1",
+          "materializeAs": "{{paths.standardsRoot}}/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.standard.governance",
+          "templateRef": "template://repository/repository-governance@1",
+          "materializeAs": "{{paths.standardsRoot}}/repository-governance.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.standard.decision-writing",
+          "templateRef": "template://repository/decision-writing@1",
+          "materializeAs": "{{paths.standardsRoot}}/decision-writing.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.milestones.index",
+          "templateRef": "template://repository/milestones-index@1",
+          "materializeAs": "{{paths.milestonesRoot}}/README.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.walls.manifest",
+          "templateRef": "template://repository/walls-manifest@1",
+          "materializeAs": "{{paths.governanceRoot}}/walls/walls.json",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.walls.runner",
+          "templateRef": "template://repository/walls-runner@1",
+          "materializeAs": "{{paths.governanceRoot}}/walls/run-walls.mjs",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.gitattributes",
+          "templateRef": "template://repository/gitattributes@1",
+          "materializeAs": "{{paths.authoredRoot}}/.gitattributes",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        },
+        {
+          "slot": "repository.claude.entry",
+          "templateRef": "template://repository/claude-entry@1",
+          "materializeAs": "{{paths.rootDir}}/CLAUDE.md",
+          "localePolicy": {
+            "prefer": "project",
+            "fallback": "en-US"
+          }
+        }
+      ],
+      "agentsEntry": {
+        "materializeAs": "{{paths.rootDir}}/AGENTS.md",
+        "localePolicy": {
+          "prefer": "project",
+          "fallback": "en-US"
+        },
+        "baseRef": "template://repository/agent-base@1",
+        "overlayRef": "template://repository/agent-overlay@1",
+        "repoSpecificsAnchor": "## Repository Specifics"
+      }
+    },
+    "scripts": [
+      {
+        "id": "vertical:software-coding:architecture-init",
+        "type": "script",
+        "command": "scripts/architecture-init.mjs",
+        "reads": [
+          "{{outputRoot}}/architecture/**"
+        ],
+        "writes": [
+          "{{outputRoot}}/architecture/**"
+        ],
+        "inputs": {},
+        "metadata": {
+          "description": "Materialize the opt-in repository architecture manifest and LikeC4 scaffold without overwriting authored content.",
+          "purpose": "scaffold",
+          "contractVersion": "script-entry/v1",
+          "produces": [
+            "{{outputRoot}}/architecture/**"
+          ]
+        }
+      },
+      {
+        "id": "vertical:software-coding:architecture-snapshot",
+        "type": "script",
+        "command": "scripts/architecture-snapshot.mjs",
+        "reads": [
+          "{{paths.contextRoot}}/architecture/**"
+        ],
+        "writes": [
+          "{{outputRoot}}/artifacts/architecture/**"
+        ],
+        "inputs": {},
+        "metadata": {
+          "description": "Run declared architecture adapters and write a reproducible code-fact snapshot as a task artifact.",
+          "purpose": "generate",
+          "contractVersion": "script-entry/v1",
+          "produces": [
+            "{{outputRoot}}/artifacts/architecture/**"
+          ]
+        }
+      },
+      {
+        "id": "vertical:software-coding:repository-audit",
+        "type": "script",
+        "command": "scripts/repository-audit.mjs",
+        "reads": [],
+        "writes": [],
+        "inputs": {},
+        "metadata": {
+          "description": "Inspect the bundled software/coding repository scaffold contract.",
+          "purpose": "audit",
+          "contractVersion": "script-entry/v1",
+          "produces": []
+        }
+      },
+      {
+        "id": "vertical:software-coding:decision-conformance",
+        "type": "script",
+        "command": "scripts/decision-conformance-check.mjs",
+        "reads": [
+          "{{paths.tasksRoot}}/**",
+          "{{paths.decisionsRoot}}/**",
+          "{{paths.sessionsRoot}}/**"
+        ],
+        "writes": [],
+        "inputs": {},
+        "metadata": {
+          "description": "Inspect decision conformance across task derivation, relation coverage, fact coverage, supersession, and proposed-decision drift.",
+          "purpose": "audit",
+          "kind": "check",
+          "contractVersion": "script-entry/v1",
+          "produces": []
+        }
+      }
+    ],
+    "templateSelections": [],
+    "projectionSchemas": [
+      {
+        "id": "task-frontmatter",
+        "schemaRef": "schema://task-frontmatter"
+      },
+      {
+        "id": "decision-frontmatter",
+        "schemaRef": "schema://decision-frontmatter"
+      },
+      {
+        "id": "fact-event",
+        "schemaRef": "schema://fact-event"
+      },
+      {
+        "id": "artifact-descriptor",
+        "schemaRef": "schema://artifact-descriptor"
+      }
+    ],
+    "completion": {
+      "sources": {
+        "github-actions": {
+          "kind": "github-actions",
+          "predicateType": "harness/ci/v1",
+          "resultSchema": {
+            "type": "object",
+            "additionalProperties": false
+          }
+        },
+        "manual-attest": {
+          "kind": "manual",
+          "predicateType": "harness/attestation/v1",
+          "resultSchema": {
+            "type": "object",
+            "additionalProperties": false
+          }
+        }
+      },
+      "gates": {
+        "ci": {
+          "source": "github-actions",
+          "appliesTo": "code"
+        }
+      },
+      "closeoutDefaults": {
+        "review": false,
+        "consent": false,
+        "factDisposition": false,
+        "codeDoc": true
+      }
+    }
+  }
+}

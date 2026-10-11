@@ -249,7 +249,13 @@ export type EntityAttributeDeclaration = EntityKindSchemaVersion["attributes"][s
 
 /** Decode once, fail closed on every unknown field, and preserve that exact value for compilation consumers. */
 export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
-  return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
+  try {
+    return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
+  } catch (error) {
+    throw new Error(`${String(error)}\nFor a pre-completion declaration, run ha migrate completion --help.`, {
+      cause: error,
+    });
+  }
 }
 
 /** Parse an authored `harness/vertical.json` materialization back into its decoded document shape. */

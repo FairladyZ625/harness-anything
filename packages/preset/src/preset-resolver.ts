@@ -10,6 +10,7 @@ export { uninstallPresetPackage } from "./preset-installation.ts";
 export { createRuntime } from "./preset-runtime.ts";
 export { presetDocumentBody } from "./preset-catalog.ts";
 export { decodePresetPackageV3 } from "./preset-package.ts";
+export { migrateCompletion } from "./preset-installation.ts";
 export type { DecodedPresetPackageV3 } from "./preset-resolver-types.ts";
 export type { PresetResolverOptions } from "./preset-resolver-types.ts";
 export type { PresetPackageScript } from "./preset-resolver-types.ts";

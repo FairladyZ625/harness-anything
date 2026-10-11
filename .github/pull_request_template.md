@@ -14,6 +14,8 @@
 
 ## What Changed
 
+Persisted format changes ship an explicit `ha migrate` conversion and a frozen old-sample rejection → migration → current-reader test in the same PR; see `docs-release/data-format-migrations.md`.
+
 -
 
 ## Gate Harvest / 门收割
@@ -156,6 +158,8 @@ G1 command: node tools/gates/cost-budget.mjs (compare its 200/2000 measured coun
 
 
 ## 改动内容
+
+落盘格式变更须在同一 PR 交付显式 `ha migrate` 转换与冻结旧样本「拒绝 → 迁移 → 现行读取」测试，见 `docs-release/data-format-migrations.md`。
 
 -
 
