@@ -99,7 +99,12 @@ function preflight(selector) {
     throw new Error(`Run this helper from the main worktree: ${mainWorktree.path}`);
   }
 
-  const pr = readPr(selector, mainWorktree.path);
+  let pr = readPr(selector, mainWorktree.path);
+  // GitHub reports UNKNOWN while it computes mergeability after a push or check result.
+  for (let attempt = 0; pr.state === "OPEN" && pr.mergeable === "UNKNOWN" && attempt < 12; attempt += 1) {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 5_000);
+    pr = readPr(selector, mainWorktree.path);
+  }
   if (!Number.isInteger(pr.number) || !pr.headRefName || !pr.headRefOid) {
     throw new Error("GitHub returned incomplete PR identity data.");
   }
