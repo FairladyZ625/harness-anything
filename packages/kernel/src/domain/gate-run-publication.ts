@@ -36,10 +36,7 @@ export function replayGateRunChange(
   if (!requirement) throw gateRunError("gate_run_stale", "Run gate is absent from the frozen contract.");
   const prior = currentGateRun(current, run.gateId),
     sourceRenewal =
-      prior &&
-      event.actor.executor !== null &&
-      (expiredGithubActionsClaim(requirement, prior, event.occurredAt) ||
-        (requirement.witness.kind === "github-actions" && run.supersedesRunId === prior.runId));
+      prior && event.actor.executor !== null && expiredGithubActionsClaim(requirement, prior, event.occurredAt);
   const ownerAction =
     event.payload.operation === "revoke" ||
     (event.payload.operation === "claim" && run.supersedesRunId !== null && !sourceRenewal);
