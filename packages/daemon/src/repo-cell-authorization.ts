@@ -112,6 +112,7 @@ export async function evaluateKeycloakPerson(input: {
   return new KeycloakPolicyAdapter(
     { url: currentCenter.url, realm: currentCenter.realm, resourceServerClientId: currentCenter.clientId },
     input.fetchPort,
+    async (rejectedAccessToken) => (await center(rejectedAccessToken)).accessToken,
   ).authorizePerson({
     adminAccessToken: currentCenter.accessToken,
     personId: input.personId,

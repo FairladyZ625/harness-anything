@@ -94,8 +94,15 @@ export class KeycloakPolicyAdapter {
   readonly #fetch: FetchPort;
   readonly #knownScopes = new Set(actionDeclarations.map((item) => item.policyAction));
   readonly #readCache: PolicyReadCache;
+  readonly #refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>;
+  #refreshedAdminAccessToken: string | undefined;
 
-  constructor(config: KeycloakPolicyAdapterConfig, fetchPort: FetchPort = fetch) {
+  constructor(
+    config: KeycloakPolicyAdapterConfig,
+    fetchPort: FetchPort = fetch,
+    refreshAdminAccessToken?: (rejectedAccessToken: string) => Promise<string>,
+  ) {
+    this.#refreshAdminAccessToken = refreshAdminAccessToken;
     this.#config = config;
     const cacheOwner = fetchPort ?? fetch,
       caches = policyReadCaches.get(cacheOwner) ?? new Map<string, PolicyReadCache>(),
@@ -699,17 +706,25 @@ export class KeycloakPolicyAdapter {
   }
 
   async #request(token: string, path: string, init: RequestInit = {}): Promise<Response> {
-    const response = await this.#fetch(this.#adminUrl(path), {
-      ...init,
-      headers: { authorization: `Bearer ${token}`, "content-type": "application/json", ...init.headers },
-    }).catch((cause: unknown) => {
-      throw Object.assign(new Error(`Keycloak Admin REST ${path} could not be reached.`, { cause }), {
-        code: "daemon_error",
+    const send = (accessToken: string) =>
+      this.#fetch(this.#adminUrl(path), {
+        ...init,
+        headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json", ...init.headers },
+      }).catch((cause: unknown) => {
+        throw Object.assign(new Error(`Keycloak Admin REST ${path} could not be reached.`, { cause }), {
+          code: "daemon_error",
+        });
       });
-    });
+    let response = await send(this.#refreshedAdminAccessToken ?? token);
+    // dec_B0B79908FE04BBA7766035765B/CH3: at most one refresh per evaluation, even across lookups.
+    if (response.status === 401 && this.#refreshAdminAccessToken && this.#refreshedAdminAccessToken === undefined) {
+      this.#refreshedAdminAccessToken = await this.#refreshAdminAccessToken(token);
+      response = await send(this.#refreshedAdminAccessToken);
+    }
     if (!response.ok)
       throw Object.assign(new Error(`Keycloak Admin REST ${path} returned HTTP ${response.status}.`), {
         code: "keycloak_admin_rejected",
+        status: response.status,
       });
     return response;
   }

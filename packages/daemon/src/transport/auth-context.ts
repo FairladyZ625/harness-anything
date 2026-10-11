@@ -10,8 +10,8 @@ export interface KeycloakCenterCredential {
   readonly accessToken: string;
 }
 
-/** Mints a fresh center credential; the host calls it once per request that needs one. */
-export type KeycloakCenterAuthority = () => Promise<KeycloakCenterCredential>;
+/** Supplies a current center credential; a rejected token is evicted after a Keycloak 401. */
+export type KeycloakCenterAuthority = (rejectedAccessToken?: string) => Promise<KeycloakCenterCredential>;
 
 export interface UnixSocketOwnerBoundary {
   readonly ownerUid: number;

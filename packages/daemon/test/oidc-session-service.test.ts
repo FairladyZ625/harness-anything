@@ -695,7 +695,7 @@ test("center token HTTP rejection retains its service authentication code", asyn
   await assert.rejects(active.service.center(), { code: "rbac_admin_unavailable" });
 });
 
-test("center token is reused until its own expiry, then acquired again", async (t) => {
+test("center token is reused until its renewal margin, then acquired again", async (t) => {
   let calls = 0;
   const active = fixture(
     1_000,
@@ -709,10 +709,135 @@ test("center token is reused until its own expiry, then acquired again", async (
   );
   writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
   assert.equal((await active.service.center()).accessToken, "center-1");
-  active.clock.now += 9_000;
+  active.clock.now += 8_000;
   assert.equal((await active.service.center()).accessToken, "center-1");
   assert.equal(calls, 1);
   active.clock.now += 1_001;
   assert.equal((await active.service.center()).accessToken, "center-1");
+  assert.equal(calls, 2);
+});
+
+// dec_B0B79908FE04BBA7766035765B/CH3: a cached token can expire in transit.
+for (const rejectedStatus of [401, 403, 503]) {
+  test(`center authorization refreshes once only for HTTP ${rejectedStatus}`, async (t) => {
+    let tokenCalls = 0;
+    const policyTokens: string[] = [],
+      fetchPort: typeof fetch = async (input, init) => {
+        const url = new URL(String(input));
+        if (url.pathname.endsWith("/token"))
+          return Response.json({ access_token: `center-${++tokenCalls}`, expires_in: 300 });
+        if (url.pathname.endsWith("/users")) return Response.json([{ id: "user-1" }]);
+        if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
+        if (url.pathname.endsWith("/resource")) return Response.json([{ _id: "resource-1", name: "repo-1" }]);
+        assert.ok(url.pathname.endsWith("/policy/evaluate"));
+        const token = new Headers(init?.headers).get("authorization")!;
+        policyTokens.push(token);
+        return token === "Bearer center-1"
+          ? new Response(null, { status: rejectedStatus })
+          : Response.json({ status: "PERMIT", results: [{ status: "PERMIT" }] });
+      },
+      active = fixture(1_000, { fetch: fetchPort }, t);
+    writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
+    const evaluate = () =>
+      evaluateKeycloakPerson({
+        credential: {
+          session: {
+            personId: "person-1",
+            accessToken: "user-token",
+            url: "http://127.0.0.1:8080",
+            realm: "harness",
+            clientId: "harness-center",
+          },
+          center: async (rejectedAccessToken?: string) => ({
+            ...(await active.service.center(rejectedAccessToken)),
+            clientId: "harness-center",
+          }),
+        },
+        personId: "person-1",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-1" },
+        fetchPort,
+      });
+    if (rejectedStatus === 401) {
+      assert.equal((await evaluate()).outcome, "allowed");
+      assert.deepEqual(policyTokens, ["Bearer center-1", "Bearer center-2"]);
+      assert.equal((await evaluate()).outcome, "allowed");
+      assert.deepEqual(policyTokens, ["Bearer center-1", "Bearer center-2", "Bearer center-2"]);
+      assert.equal(tokenCalls, 2, "the replacement token remains cached");
+    } else {
+      await assert.rejects(evaluate(), { code: "keycloak_admin_rejected" });
+      assert.deepEqual(policyTokens, ["Bearer center-1"]);
+      assert.equal(tokenCalls, 1);
+    }
+  });
+}
+
+test("a second center 401 surfaces without a third policy request or token acquisition", async (t) => {
+  let tokenCalls = 0,
+    policyCalls = 0;
+  const fetchPort: typeof fetch = async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname.endsWith("/token"))
+        return Response.json({ access_token: `center-${++tokenCalls}`, expires_in: 300 });
+      if (url.pathname.endsWith("/users")) return Response.json([{ id: "user-1" }]);
+      if (url.pathname.endsWith("/clients")) return Response.json([{ id: "client-1" }]);
+      if (url.pathname.endsWith("/resource")) return Response.json([{ _id: "resource-1", name: "repo-1" }]);
+      policyCalls += 1;
+      return new Response(null, { status: 401 });
+    },
+    active = fixture(1_000, { fetch: fetchPort }, t);
+  writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
+  await assert.rejects(
+    evaluateKeycloakPerson({
+      credential: {
+        session: {
+          personId: "person-1",
+          accessToken: "user-token",
+          url: "http://127.0.0.1:8080",
+          realm: "harness",
+          clientId: "harness-center",
+        },
+        center: async (rejectedAccessToken?: string) => ({
+          ...(await active.service.center(rejectedAccessToken)),
+          clientId: "harness-center",
+        }),
+      },
+      personId: "person-1",
+      action: "task-create",
+      resource: { kind: "repository", repoId: "repo-1" },
+      fetchPort,
+    }),
+    { code: "keycloak_admin_rejected", status: 401 },
+  );
+  assert.equal(tokenCalls, 2);
+  assert.equal(policyCalls, 2);
+  assert.equal((await active.service.center()).accessToken, "center-2");
+});
+
+test("center token expiry starts before acquisition and leaves a clock margin", async (t) => {
+  let calls = 0;
+  const active = fixture(
+    1_000,
+    {
+      fetch: async () => {
+        calls += 1;
+        active.clock.now += 500;
+        return Response.json({ access_token: `center-${calls}`, expires_in: 10 });
+      },
+    },
+    t,
+  );
+  writeFileSync(path.join(active.root, "rbac", "center-client-secret"), "fixture-secret");
+  assert.equal((await active.service.center()).accessToken, "center-1");
+  active.clock.now = 9_999;
+  assert.equal((await active.service.center()).accessToken, "center-1");
+  active.clock.now = 10_000;
+  assert.equal((await active.service.center()).accessToken, "center-2");
+  assert.equal(calls, 2);
+  assert.equal(
+    (await active.service.center("center-1")).accessToken,
+    "center-2",
+    "a late rejection must not discard its replacement",
+  );
   assert.equal(calls, 2);
 });

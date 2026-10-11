@@ -378,3 +378,71 @@ test("center policy evaluates the matching live session once and can still deny 
   centerFails = true;
   await assert.rejects(evaluate({ center, session }), { code: "keycloak_admin_rejected" });
 });
+
+// dec_B0B79908FE04BBA7766035765B/CH2: identifiers share only a fetch/realm/client namespace.
+test("policy identifiers are shared across adapters but isolated across fetch ports and Keycloak configurations", async () => {
+  const reads = new Map<string, number>(),
+    requests: string[] = [],
+    makeFetch =
+      (owner: string): typeof fetch =>
+      async (input) => {
+        const url = new URL(String(input)),
+          namespace = `${owner}:${url.origin}:${url.pathname.split("/")[3]}`;
+        requests.push(String(input));
+        if (url.pathname.endsWith("/users")) {
+          reads.set(namespace, (reads.get(namespace) ?? 0) + 1);
+          return Response.json([{ id: `${namespace}:user` }]);
+        }
+        if (url.pathname.endsWith("/clients")) return Response.json([{ id: url.searchParams.get("clientId") }]);
+        if (url.pathname.endsWith("/resource"))
+          return Response.json([{ _id: `${namespace}:resource`, name: "repo-shared" }]);
+        assert.ok(url.pathname.endsWith("/policy/evaluate"));
+        return Response.json({ status: "PERMIT", results: [{ status: "PERMIT" }] });
+      },
+    sharedFetch = makeFetch("first"),
+    evaluate = (fetchPort: typeof fetch, overrides: Partial<typeof config> = {}) =>
+      new KeycloakPolicyAdapter({ ...config, ...overrides }, fetchPort).authorizePerson({
+        adminAccessToken: "center-token",
+        personId: "person-shared",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-shared" },
+      });
+  assert.equal((await evaluate(sharedFetch)).outcome, "allowed");
+  assert.equal((await evaluate(sharedFetch)).outcome, "allowed");
+  assert.equal(requests.length, 5, "new adapters reuse the same three ids and still evaluate each request");
+  assert.equal((await evaluate(makeFetch("second"))).outcome, "allowed");
+  assert.equal((await evaluate(sharedFetch, { realm: "another-realm" })).outcome, "allowed");
+  assert.equal((await evaluate(sharedFetch, { url: "http://127.0.0.1:8081" })).outcome, "allowed");
+  assert.equal((await evaluate(sharedFetch, { resourceServerClientId: "another-client" })).outcome, "allowed");
+  assert.equal(requests.filter((url) => new URL(url).pathname.endsWith("/users")).length, 5);
+  assert.equal(requests.filter((url) => new URL(url).pathname.endsWith("/clients")).length, 5);
+  assert.equal(requests.filter((url) => new URL(url).pathname.endsWith("/resource")).length, 5);
+  assert.equal(requests.filter((url) => url.endsWith("/policy/evaluate")).length, 6);
+  assert.equal(reads.size, 4);
+});
+
+test("missing person and resource identifiers deny without caching misses or substituting another grant", async () => {
+  const keycloak = fakeKeycloak(),
+    calls: string[] = [],
+    fetchPort: typeof fetch = async (input, init) => {
+      calls.push(String(input));
+      return keycloak.fetch(input, init);
+    },
+    evaluate = () =>
+      new KeycloakPolicyAdapter(config, fetchPort).authorizePerson({
+        adminAccessToken: "center-token",
+        personId: "person-missing",
+        action: "task-create",
+        resource: { kind: "repository", repoId: "repo-missing" },
+      });
+  assert.equal((await evaluate()).outcome, "denied");
+  assert.equal(calls.length, 1, "an absent person never reaches policy evaluation");
+  keycloak.account("person-missing");
+  assert.equal((await evaluate()).outcome, "denied");
+  assert.equal(calls.filter((url) => url.endsWith("/policy/evaluate")).length, 0);
+  keycloak.permit("person-missing", "repo-missing", ["task-create"]);
+  assert.equal((await evaluate()).outcome, "allowed");
+  assert.equal(calls.filter((url) => new URL(url).pathname.endsWith("/users")).length, 2);
+  assert.equal(calls.filter((url) => new URL(url).pathname.endsWith("/resource")).length, 2);
+  assert.equal(calls.filter((url) => url.endsWith("/policy/evaluate")).length, 1);
+});

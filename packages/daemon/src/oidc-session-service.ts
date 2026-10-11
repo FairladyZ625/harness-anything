@@ -565,8 +565,10 @@ export class OidcSessionService {
     return members.length === 0;
   }
 
-  async center(): Promise<{ readonly url: string; readonly realm: string; readonly accessToken: string }> {
-    return { ...this.#config(), accessToken: await this.#centerToken() };
+  async center(
+    rejectedAccessToken?: string,
+  ): Promise<{ readonly url: string; readonly realm: string; readonly accessToken: string }> {
+    return { ...this.#config(), accessToken: await this.#centerToken(rejectedAccessToken) };
   }
 
   bootstrapAdmin(input: {
@@ -604,13 +606,16 @@ export class OidcSessionService {
     return { ok: true, invited: true, personId: input.personId };
   }
 
-  async #centerToken(): Promise<string> {
+  async #centerToken(rejectedAccessToken?: string): Promise<string> {
     const config = this.#config(),
       secretFile = path.join(this.#rbacRoot, "center-client-secret");
     if (!existsSync(secretFile))
       throw coded("rbac_admin_unavailable", "Keycloak center credentials are not configured.");
-    const cached = this.#centerTokenCache;
-    if (cached && cached.url === config.url && cached.realm === config.realm && cached.expiresAt > this.#ports.now())
+    if (rejectedAccessToken !== undefined && this.#centerTokenCache?.accessToken === rejectedAccessToken)
+      this.#centerTokenCache = undefined;
+    const requestedAt = this.#ports.now(),
+      cached = this.#centerTokenCache;
+    if (cached && cached.url === config.url && cached.realm === config.realm && cached.expiresAt > requestedAt)
       return cached.accessToken;
     const response = await this.#ports
       .fetch(`${config.url}/realms/${encodeURIComponent(config.realm)}/protocol/openid-connect/token`, {
@@ -636,7 +641,8 @@ export class OidcSessionService {
     if (expiresIn > 0)
       this.#centerTokenCache = {
         accessToken,
-        expiresAt: this.#ports.now() + expiresIn * 1_000,
+        // dec_B0B79908FE04BBA7766035765B/CH3: include acquisition time and clock skew.
+        expiresAt: requestedAt + expiresIn * 1_000 - Math.min(renewalMarginMs, expiresIn * 100),
         url: config.url,
         realm: config.realm,
       };
