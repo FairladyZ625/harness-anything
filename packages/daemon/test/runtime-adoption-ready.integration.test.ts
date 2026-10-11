@@ -139,7 +139,8 @@ test("the real writer relays completed runtime restorations before ready without
     assert.equal(launches, 2);
     for (const runtimeSessionId of sessions) {
       const session = await cell.read("repo.agentRuntime.sessions.read", { runtimeSessionId });
-      assert.equal((session as AgentRuntimeSessionResult).session.activity.outcome, "failed");
+      // dec_614F7BBB18C8687E7EFC72173D/CH3: a missing process record has no exit evidence.
+      assert.equal((session as AgentRuntimeSessionResult).session.activity.outcome, "unknown");
     }
     await cell.close();
     cell = undefined;
