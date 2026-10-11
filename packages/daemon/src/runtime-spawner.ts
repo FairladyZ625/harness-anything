@@ -421,10 +421,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     input.now(),
                   )
                 : initialFallback,
+            fallbackAttemptForDispatch = fallbackAttempt && { ...fallbackAttempt, attemptGroupId: newDispatchId },
             fallbackCandidate =
-              fallbackAttempt?.candidates[fallbackAttempt.candidateIndex ?? fallbackAttempt.attemptIndex],
+              fallbackAttemptForDispatch?.candidates[
+                fallbackAttemptForDispatch.candidateIndex ?? fallbackAttemptForDispatch.attemptIndex
+              ],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            // Model resolution: dispatch override, agent kind, then instance default.
             selectedModel =
               fallbackCandidate?.model ??
               model ??
@@ -507,7 +509,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   runtimeSessionId,
                 }),
             result = {
-              fallbackAttempt,
+              fallbackAttempt: fallbackAttemptForDispatch,
               runtimeInstance,
               effectivePermissionMode,
               callbackRelay,
@@ -739,7 +741,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         providerSessionId,
       );
     };
-    // Remote resumes must first win center admission, just like fresh provider launches.
     if (providerSessionId && !input.remote && !handoff) {
       if (!requestedDispatchId) assertNativeResumeNotExported(input.rootDir, providerSessionId, projection!);
       try {

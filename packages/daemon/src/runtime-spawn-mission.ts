@@ -275,6 +275,10 @@ export async function prepareRuntimeInstance<T>(
 ): Promise<{ readonly instanceId: string; readonly launch: T }> {
   const reasons: string[] = [],
     candidates = resolveRuntimeInstanceCandidates({ ...input, unavailableReasons: reasons });
+  const active = new Map<string, number>();
+  for (const session of input.sessions)
+    if (session.liveness === "live") active.set(session.instanceId, (active.get(session.instanceId) ?? 0) + 1);
+  candidates.sort((a, b) => (active.get(a) ?? 0) - (active.get(b) ?? 0));
   for (const instanceId of candidates) {
     try {
       return { instanceId, launch: await prepare(instanceId) };
