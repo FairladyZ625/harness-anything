@@ -11,7 +11,11 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { openFleetEdgeRuntime, readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
+import {
+  createFleetEdgeRuntimeWorkQueue,
+  openFleetEdgeRuntime,
+  readFleetRuntimeSessionsPaged,
+} from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import {
@@ -717,6 +721,30 @@ test("remote-edge control retries startup adoption after the center recovers", {
   assert.deepEqual(recovered.sessions, []);
   assert.ok(recovered.cut, "successful control preparation materializes the owner-bound read cut");
 });
+
+test("closing an edge runtime skips work queued behind an unfinished reconciliation", async () => {
+  let releaseBinding!: () => void;
+  const bindingGate = new Promise<void>((resolve) => {
+    releaseBinding = resolve;
+  });
+  const started: string[] = [];
+  const queue = createFleetEdgeRuntimeWorkQueue((error) => {
+    throw error;
+  });
+  const first = queue.schedule(async () => {
+    started.push("first");
+    await bindingGate;
+  });
+  await Promise.resolve();
+  const second = queue.schedule(() => {
+    started.push("second");
+  });
+  queue.close();
+  releaseBinding();
+  await Promise.all([first, second]);
+  assert.deepEqual(started, ["first"], "close must prevent queued work from reading the ended Keycloak session");
+});
+
 test(
   "fleet runtime pages every session from an owner-bound replica while the center is offline",
   { timeout: 60_000 },
