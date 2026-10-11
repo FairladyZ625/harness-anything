@@ -73,6 +73,8 @@ export interface SessionsViewProps {
   readonly focusedEntityRef: string | null;
   readonly onSelectEntity: (ref: string) => void;
   readonly onOpenTask: (taskId: string) => void;
+  /** 窄容器返回键:全局导航弹栈(App 注入,与顶栏后退/侧键同一条路径)。 */
+  readonly onBack: () => void;
 }
 
 /** 页头插槽:计数结论与主动作由工作区实况派生,页面/面板各自决定要不要装。 */
@@ -91,6 +93,7 @@ export function SessionsView({
   focusedEntityRef,
   onSelectEntity,
   onOpenTask,
+  onBack,
   renderHeader = renderSessionsPageHeader,
 }: SessionsViewProps & {
   /** 页面组合的页头渲染;工作台面板传空渲染(面板标签即标题)。 */
@@ -107,7 +110,6 @@ export function SessionsView({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
-  const [selectedSquadRunId, setSelectedSquadRunId] = useState<string | null>(null);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
     readonly runtimeSessionId: string;
     readonly taskId: string;
@@ -117,6 +119,8 @@ export function SessionsView({
   const taskRouteId = focusedEntityRef?.startsWith("tasksessions/")
     ? focusedEntityRef.slice("tasksessions/".length) || null
     : null;
+  // 小队编排段的行选中落点(squadrun/<id>,推栈;点行与后退前进共用一条路径)。
+  const squadRunRefId = focusedEntityRef?.startsWith("squadrun/") ? focusedEntityRef.slice("squadrun/".length) : null;
   // Decision 评审会话的落点(decisionsessions/<decisionId>[/<runtimeSessionId>]):按被评审
   // Decision 归组(daemon 按派工头 reviewTarget 分组),不从 session.taskId 猜 Decision。
   const decisionFocus = decisionSessionsLocation(focusedEntityRef);
@@ -128,10 +132,15 @@ export function SessionsView({
   }, [search]);
 
   // 深链落点:tasksessions/<taskId> 切单会话段、Task 分组并把读范围收窄到该
-  // task;session/<id> 切单会话段,精确 read 返回后再展开其 task binding。
+  // task;session/<id> 切单会话段,精确 read 返回后再展开其 task binding;
+  // squadrun/<id> 切小队编排段并选中该 run。
   useEffect(() => {
     if (focusedEntityRef === null) {
       setSessionTaskScope(null);
+      return;
+    }
+    if (focusedEntityRef.startsWith("squadrun/")) {
+      setSegment("squads");
       return;
     }
     setSegment("sessions");
@@ -158,10 +167,12 @@ export function SessionsView({
     // decisionFocus 由 focusedEntityRef 派生,依赖 ref 本身即可。
   }, [focusedEntityRef, focusedSessionId]);
 
-  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:点行进详情、返回键回
-  // 列表;宽容器常驻双栏,该状态不参与显隐。深链/跨页实体跳转让详情取代列表(等价一次
-  // 点行);返回键只清 open,不动导航栈。机制与小组件在 primitives/CatalogSplit。
-  const narrow = useCatalogDetailPane(focusedSessionId ?? decisionFocus?.runtimeSessionId ?? null);
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:点行进详情 = 推栈
+  // 选中引用;全局后退/返回键弹回无引用条目即回列表。宽容器常驻双栏,该状态不参与
+  // 显隐。机制与小组件在 primitives/CatalogSplit;focusKey 按段落取各自的选中引用。
+  const narrow = useCatalogDetailPane(
+    segment === "squads" ? squadRunRefId : (focusedSessionId ?? decisionFocus?.runtimeSessionId ?? null),
+  );
 
   // 两段各自的读窗:单会话段与会话分组共用,小队编排段独立(见 DEFAULT_RANGE)。
   const since = useMemo(() => rangeToSince(rangeBySegment.sessions), [rangeBySegment.sessions]),
@@ -399,11 +410,8 @@ export function SessionsView({
   // 重渲染,行级 memo(SessionGroupList 的 GroupSection)靠这些稳定引用跳过未变组。
   const groupDecisionRefsFor = useCallback((taskId: string) => sessionDecisionRefs(relations, taskId), [relations]);
   const selectSessionFromRail = useCallback(
-    (runtimeSessionId: string) => {
-      narrow.openDetail();
-      onSelectEntity(`session/${runtimeSessionId}`);
-    },
-    [narrow.openDetail, onSelectEntity],
+    (runtimeSessionId: string) => onSelectEntity(`session/${runtimeSessionId}`),
+    [onSelectEntity],
   );
   const toggleGroup = useCallback((key: string) => {
     setExpandedGroups((current) => {
@@ -422,11 +430,11 @@ export function SessionsView({
     });
   }, []);
 
-  // 小队编排详情(G12 §2b/§2c):选中行的 repo.squad.run.read,渲染 leader 轮次 →
-  // worker 派工链扇出树;只有显式点击行才读取详情,切换范围后若该 run 不在列表则
-  // 回到空选中。读面收敛在 useSquadRunDetail(与失效键同源)。
+  // 小队编排详情(G12 §2b/§2c):选中行(可寻址 squadrun/<id>)的 repo.squad.run.read,
+  // 渲染 leader 轮次 → worker 派工链扇出树;只有显式点击行才读取详情(深链引用不在
+  // 列表时 selectedSquadRun 为 null,回到空选中)。读面收敛在 useSquadRunDetail(与失效键同源)。
   const selectedSquadRun =
-    selectedSquadRunId === null ? null : (availableRuns.find((run) => run.squadRunId === selectedSquadRunId) ?? null);
+    squadRunRefId === null ? null : (availableRuns.find((run) => run.squadRunId === squadRunRefId) ?? null);
   const squadRunDetail = useSquadRunDetail(
     repoId,
     segment === "squads" && selectedSquadRun !== null ? selectedSquadRun.squadRunId : null,
@@ -484,10 +492,7 @@ export function SessionsView({
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
-          onChange={(value) => {
-            setSegment(value);
-            narrow.backToList();
-          }}
+          onChange={setSegment}
           options={[
             { value: "sessions", label: t("agentRuntime.sessionsSegmentSingle") },
             { value: "squads", label: t("agentRuntime.sessionsSegmentSquad") },
@@ -623,7 +628,7 @@ export function SessionsView({
             data-pane="detail"
             className="min-w-0 flex-1 overflow-y-auto px-5 pt-4 pb-6"
           >
-            <CatalogBackButton testId="sessions-back-to-list" onBack={narrow.backToList} />
+            <CatalogBackButton testId="sessions-back-to-list" onBack={onBack} />
             {selectedSessionId === null ? (
               <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
             ) : (
@@ -680,13 +685,10 @@ export function SessionsView({
             query={debouncedSearch}
             range={rangeLabel[rangeBySegment.squads]}
             selectedId={selectedSquadRun?.squadRunId ?? null}
-            onSelectRun={(squadRunId) => {
-              setSelectedSquadRunId(squadRunId);
-              narrow.openDetail();
-            }}
+            onSelectRun={(squadRunId) => onSelectEntity(`squadrun/${squadRunId}`)}
           />
           <main data-pane="detail" className="min-w-0 flex-1 overflow-y-auto">
-            <CatalogBackButton testId="sessions-back-to-list" onBack={narrow.backToList} />
+            <CatalogBackButton testId="sessions-back-to-list" onBack={onBack} />
             {selectedSquadRun === null ? (
               <Empty>{t("agentRuntime.squadRunSelectEmpty")}</Empty>
             ) : (

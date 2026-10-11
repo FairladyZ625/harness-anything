@@ -1,4 +1,5 @@
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
+import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
@@ -93,6 +94,13 @@ export function createMainWindow(): BrowserWindow {
     }
   });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
+  // 鼠标侧键(Windows/Linux):OS 把侧键转成 app-command 而不是 DOM mousedown 3/4,
+  // 这里把它转发给 renderer 的统一导航历史;macOS 侧键走 DOM,不会重复触发。
+  mainWindow.on("app-command", (_event, command) => {
+    const navigation: AppNavigationCommand | null =
+      command === "browser-backward" ? "back" : command === "browser-forward" ? "forward" : null;
+    if (navigation) mainWindow.webContents.send(APP_COMMAND_CHANNEL, navigation);
+  });
   // 单文档应用:窗口只可停在入口文档上。dev 态同源任意路径(Markdown 外链的绝对
   // 路径会解析到 dev origin 之下)同样拒绝 —— 那会把窗口带离应用,落在 dev server
   // 的 404 白屏上(task_89d324b5 详情面外链白屏的壳侧成因;渲染层拦截是根修)。

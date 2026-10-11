@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { TabPanel } from "../components/primitives/EntryBoundary.tsx";
 import { SegBar } from "../components/primitives/SegBar";
 import { Tabs } from "../components/primitives/Tabs";
-import { TaskPreviewDrawer } from "../components/TaskPreviewDrawer.tsx";
 import { PinButton } from "../components/PinButton.tsx";
 import type { WorkspaceScopeRead } from "../../api/renderer-dto.ts";
 import type { DecisionRow, FactRef, RelationEdge, SnapshotStatus, TaskRow } from "../model/types.ts";
@@ -37,7 +36,9 @@ export interface WorkspaceViewProps {
   /** 当前仓所属连接(system status 仓行);分割偏好按连接+仓隔离,缺省时仅会话内态。 */
   readonly connectionId?: string | null;
   readonly projectName: string;
-  /** 行点击进抽屉;抽屉里的「打开完整详情」仍走这里(工作根由共享路由落回本页)。 */
+  /** 行点击进任务预览抽屉(全局 previewId 推栈);读面未落地的行退到任务详情页。 */
+  readonly onPreviewTask: (taskId: string) => void;
+  /** 行点击进完整任务详情页。 */
   readonly onOpenTask: (taskId: string) => void;
   readonly tasks?: readonly TaskRow[];
   readonly decisions?: readonly DecisionRow[];
@@ -52,8 +53,14 @@ export interface WorkspaceViewProps {
   readonly feedback?: (taskId: string) => TaskMutationFeedback | undefined;
   readonly onLoadMore?: () => void;
   readonly loadingMore?: boolean;
+  /** 根任务详情是否打开(全局历史条目的 selectedId 落在工作根;业主 2026-10-11)。 */
+  readonly rootTaskOpen: boolean;
+  /** 下钻进根任务详情:推栈,后退/前进原路返回。 */
+  readonly onOpenRootTask: () => void;
+  /** 关闭根任务详情回到之前的页签:原地改当前条目,不额外占历史条目。 */
+  readonly onCloseRootTask: () => void;
   /** 根任务即工作:根任务自己的详情是本页一个分区。 */
-  readonly renderRootTask?: (onBack: () => void) => ReactNode;
+  readonly renderRootTask?: () => ReactNode;
 }
 
 interface MemberRow {
@@ -71,6 +78,7 @@ export function WorkspaceView({
   repoId = "unselected",
   connectionId = null,
   projectName,
+  onPreviewTask,
   onOpenTask,
   tasks = [],
   decisions = [],
@@ -84,30 +92,30 @@ export function WorkspaceView({
   feedback,
   onLoadMore,
   loadingMore = false,
+  rootTaskOpen,
+  onOpenRootTask,
+  onCloseRootTask,
   renderRootTask,
 }: WorkspaceViewProps) {
-  const [tab, setTab] = useState<WorkspaceTab>("overview");
+  const [tab, setTab] = useState<Exclude<WorkspaceTab, "root">>("overview");
   const [statusFilter, setStatusFilter] = useState("");
   const [groupFilter, setGroupFilter] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [drawerTaskId, setDrawerTaskId] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
 
-  // 页内指向根任务的入口切到根任务分区,不离开工作页。
+  // 页内指向根任务的入口下钻进根任务分区(全局历史推栈),不离开工作页。
   const rootRef = `task/${scope.root.taskId}`;
   const openTask = (taskId: string) => {
     if (renderRootTask !== undefined && taskId === scope.root.taskId) {
-      setTab("root");
+      onOpenRootTask();
       return;
     }
     // 抽屉吃完整 TaskRow;行还没投影到(读面未落地)就退到任务详情页。
-    if (tasks.some(({ taskId: id }) => id === taskId)) setDrawerTaskId(taskId);
+    if (tasks.some(({ taskId: id }) => id === taskId)) onPreviewTask(taskId);
     else onOpenTask(taskId);
   };
-  const openFullDetail = (taskId: string) =>
-    renderRootTask !== undefined && taskId === scope.root.taskId ? setTab("root") : onOpenTask(taskId);
   const navigateEntity = (ref: string) =>
-    renderRootTask !== undefined && ref === rootRef ? setTab("root") : onNavigateEntity?.(ref);
+    renderRootTask !== undefined && ref === rootRef ? onOpenRootTask() : onNavigateEntity?.(ref);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -261,9 +269,10 @@ export function WorkspaceView({
       [scope, decisions, relations],
     );
 
-  const drawerTask = drawerTaskId === null ? null : (tasks.find(({ taskId }) => taskId === drawerTaskId) ?? null),
-    effectiveTotal = Math.max(1, scope.scope.executableLeafCount),
+  const effectiveTotal = Math.max(1, scope.scope.executableLeafCount),
     lastActivityAt = events.at(-1)?.at ?? scope.root.updatedAt,
+    // 根任务分区由全局历史条目驱动(rootTaskOpen),页签栏只在有根任务详情可下钻时列出。
+    activeTab: WorkspaceTab = rootTaskOpen ? "root" : tab,
     tabs = [
       {
         key: "overview" as const,
@@ -328,7 +337,21 @@ export function WorkspaceView({
             {t("views.workspace.lastActivity", { ago: agoOf(lastActivityAt) })}
           </span>
           <div className="ml-auto min-w-0">
-            <Tabs ariaLabel="工作分区" idPrefix="workspace" value={tab} onChange={setTab} tabs={tabs} />
+            <Tabs
+              ariaLabel="工作分区"
+              idPrefix="workspace"
+              value={activeTab}
+              onChange={(next) => {
+                // 根任务分区是下钻(推栈),其余页签是页内切换:离开根任务分区时原地关掉。
+                if (next === "root") {
+                  onOpenRootTask();
+                  return;
+                }
+                if (rootTaskOpen) onCloseRootTask();
+                setTab(next);
+              }}
+              tabs={tabs}
+            />
           </div>
           <input
             ref={searchRef}
@@ -339,8 +362,10 @@ export function WorkspaceView({
             onChange={(event) => {
               const next = event.target.value;
               setQuery(next);
-              // 任务页与「决策与事实」页都吃页内搜索;搜索时停在原页,其余页跳去任务页。
+              // 任务页与「决策与事实」页都吃页内搜索;搜索是「去看任务」的意图,
+              // 根任务分区开着时一并关掉,回到列表页签。
               if (next.trim() !== "") {
+                if (rootTaskOpen) onCloseRootTask();
                 setTab((current) => (current === "tasks" || current === "decisions" ? current : "tasks"));
               }
             }}
@@ -356,11 +381,11 @@ export function WorkspaceView({
             其余页签是随内容往下排的文档型版式。 */}
         <TabPanel
           idPrefix="workspace"
-          value={tab}
+          value={activeTab}
           className={
-            tab === "overview"
+            activeTab === "overview"
               ? "flex h-full min-h-0 flex-col gap-1 p-1"
-              : tab === "graph" || tab === "root" || tab === "explainer"
+              : activeTab === "graph" || activeTab === "root" || activeTab === "explainer"
                 ? "flex h-full min-h-0 flex-col p-1"
                 : "grid grid-cols-1 gap-9 px-5 pb-16 pt-4 md:px-7"
           }
@@ -379,7 +404,7 @@ export function WorkspaceView({
 
           {/* 工作页默认落概况:概览内嵌同一份工作说明(WorkOverview 的 explainer 区域),
               「工作说明」页签只经显式交互进入(打开完整工作说明/直接点页签)。 */}
-          {tab === "overview" ? (
+          {activeTab === "overview" ? (
             <WorkOverview
               connectionId={connectionId}
               repoId={repoId}
@@ -417,8 +442,8 @@ export function WorkspaceView({
               }}
             />
           ) : null}
-          {tab === "explainer" ? <WorkExplainerDocument repoId={repoId} taskId={scope.root.taskId} fill /> : null}
-          {tab === "tasks" ? (
+          {activeTab === "explainer" ? <WorkExplainerDocument repoId={repoId} taskId={scope.root.taskId} fill /> : null}
+          {activeTab === "tasks" ? (
             <div>
               <WorkTasksTab
                 leaves={leafRows}
@@ -435,7 +460,7 @@ export function WorkspaceView({
               />
             </div>
           ) : null}
-          {tab === "progress" ? (
+          {activeTab === "progress" ? (
             <div className="max-w-[900px]">
               {dayGroups.length > 0 ? (
                 <WorkDayList
@@ -452,7 +477,7 @@ export function WorkspaceView({
               </p>
             </div>
           ) : null}
-          {tab === "decisions" ? (
+          {activeTab === "decisions" ? (
             <div>
               <WorkDecisionsTab
                 decisions={workDecisions}
@@ -466,7 +491,7 @@ export function WorkspaceView({
               />
             </div>
           ) : null}
-          {tab === "inspect" ? (
+          {activeTab === "inspect" ? (
             <div>
               <WorkInspectTab
                 events={evidence.events}
@@ -477,7 +502,7 @@ export function WorkspaceView({
             </div>
           ) : null}
           {/* 关系图保持挂载:焦点与展开累积在页签切换间保留,active 只卸画布 DOM。 */}
-          <div hidden={tab !== "graph"} className="flex min-h-0 flex-1 flex-col">
+          <div hidden={activeTab !== "graph"} className="flex min-h-0 flex-1 flex-col">
             <WorkGraphTab
               repoId={repoId}
               memberTaskIds={[scope.root.taskId, ...scope.memberTaskIds]}
@@ -487,29 +512,19 @@ export function WorkspaceView({
               relations={relations}
               onNavigateEntity={navigateEntity}
               onSetTaskPin={onSetTaskPin}
-              active={tab === "graph"}
+              active={activeTab === "graph"}
             />
           </div>
-          {tab === "root" && renderRootTask !== undefined ? (
+          {rootTaskOpen && renderRootTask !== undefined ? (
             <section
               data-testid="workspace-root-task"
               className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-sm border border-border"
             >
-              {renderRootTask(() => setTab("overview"))}
+              {renderRootTask()}
             </section>
           ) : null}
         </TabPanel>
       </div>
-
-      <TaskPreviewDrawer
-        task={drawerTask}
-        tasks={tasks}
-        relations={relations}
-        onClose={() => setDrawerTaskId(null)}
-        onOpenDetail={openFullDetail}
-        onPreviewTask={openTask}
-        onSetPin={onSetTaskPin}
-      />
     </div>
   );
 }

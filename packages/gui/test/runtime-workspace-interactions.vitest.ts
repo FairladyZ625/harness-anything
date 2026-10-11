@@ -1,7 +1,7 @@
 // harness-test-tier: integration
 // @vitest-environment happy-dom
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { act, createElement } from "react";
+import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { RuntimeCard } from "../src/renderer/components/runtime/RuntimeCard.tsx";
@@ -15,6 +15,9 @@ import {
   useAgentSquadWorkspace,
 } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
+import { useViewHistory } from "../src/renderer/navigation/useViewHistory.ts";
+import { initialLocation } from "../src/renderer/navigation/viewHistoryStorage.ts";
+import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import { runtimeCommandClient } from "../src/renderer/runtime-command-client.ts";
@@ -217,6 +220,7 @@ afterEach(async () => {
     }
   });
   document.body.replaceChildren();
+  window.sessionStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -651,6 +655,45 @@ describe("runtime entry split (W6 IA)", () => {
     expect(byTestId("squad-run-attempt-worker-1")).toBeTruthy();
     expect(byTestId("squad-run-detail").textContent).toContain("after worker session");
     expect(byTestId("squad-run-detail").textContent).toContain("declared converged");
+  });
+
+  it("squad run drill-down rides the global history: back returns to the list, forward reopens (owner 2026-10-11)", async () => {
+    await mountSessions(null, {}, undefined, sessionGroups, async () => squadRunsListFixture);
+    const squadSegment = [...byTestId("sessions-view").querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Squad orchestration"),
+    );
+    await act(async () => {
+      squadSegment!.click();
+    });
+    await flushEffects();
+
+    // 点行 = 推栈:squadrun/<id> 成为当前条目,窄容器详情已开。
+    await click(`squad-run-toggle-${squadRunSummaryRow.squadRunId}`);
+    expect(latestRuntimeHistory!.location.focusedEntityRef).toBe(`squadrun/${squadRunSummaryRow.squadRunId}`);
+    expect(byTestId("squad-run-detail")).toBeTruthy();
+    expect(document.querySelector(".catalog-split")!.getAttribute("data-detail-open")).toBe("true");
+
+    // 返回键与全局后退同一条路径:弹栈回无引用条目,详情关闭;前进原路重开。
+    await click("sessions-back-to-list");
+    expect(latestRuntimeHistory!.location.focusedEntityRef).toBeNull();
+    expect(document.querySelector(".catalog-split")!.getAttribute("data-detail-open")).toBe("false");
+    await act(async () => {
+      latestRuntimeHistory!.forward();
+    });
+    await flushEffects();
+    expect(latestRuntimeHistory!.location.focusedEntityRef).toBe(`squadrun/${squadRunSummaryRow.squadRunId}`);
+    expect(byTestId("squad-run-detail")).toBeTruthy();
+  });
+
+  it("narrow session detail follows the global history: back from a session ref returns to the list (owner 2026-10-11)", async () => {
+    await mountSessions("session/runtime-bound");
+    // 深链 session/<id>:点行同路径,窄容器详情已开。
+    expect(latestRuntimeHistory!.location.focusedEntityRef).toBe("session/runtime-bound");
+    expect(document.querySelector(".catalog-split")!.getAttribute("data-detail-open")).toBe("true");
+    // 返回键走全局弹栈:回无引用条目(列表),不再持有本地 detailOpen 开关。
+    await click("sessions-back-to-list");
+    expect(latestRuntimeHistory!.location.focusedEntityRef).toBeNull();
+    expect(document.querySelector(".catalog-split")!.getAttribute("data-detail-open")).toBe("false");
   });
 
   it("collapses the status filter into a menu driving the same read; the toolbar wraps instead of scrolling (B1)", async () => {
@@ -1273,6 +1316,36 @@ async function mountView(
   return container;
 }
 
+/** 与 App 同接线的导航 harness:useViewHistory 持位置,ref 经路由表推栈,
+ * 返回键走全局弹栈;最新实例暴露给断言侧做后退/前进驱动。 */
+let latestRuntimeHistory: ReturnType<typeof useViewHistory> | null = null;
+
+function RuntimeRefHarness({
+  initialRef,
+  view,
+  makeView,
+  onSelectEntity,
+}: {
+  readonly initialRef: string | null;
+  readonly view: "sessions" | "agentSquad" | "providers";
+  /** (当前 ref, 全局返回, 选择出口) → 被测视图;与 App 的 prop 接线一致。 */
+  readonly makeView: (ref: string | null, onBack: () => void, onSelectEntity: (ref: string) => void) => ReactElement;
+  readonly onSelectEntity?: (ref: string) => void;
+}) {
+  const history = useViewHistory("repo-a", { ...initialLocation(), view, focusedEntityRef: initialRef });
+  latestRuntimeHistory = history;
+  const selectEntity = (ref: string) => {
+    onSelectEntity?.(ref);
+    const target = entityDetailTargetOf(ref, [], () => false);
+    if (target) history.navigate({ selectedId: null, previewId: null, ...target });
+  };
+  return makeView(
+    history.location.focusedEntityRef,
+    () => (history.canBack ? history.back() : history.updateLocation({ focusedEntityRef: null })),
+    selectEntity,
+  );
+}
+
 async function mountSessions(
   focusedEntityRef: string | null,
   handlers: { readonly onOpenTask?: (taskId: string) => void; readonly onSelectEntity?: (ref: string) => void } = {},
@@ -1282,19 +1355,26 @@ async function mountSessions(
   sessionGroupsResult = sessionGroups,
   listSquadRuns?: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>>,
 ) {
-  const element = createElement(SessionsView, {
-    repoId: "repo-a",
-    relations: [
-      {
-        from: "decision/dec_decisions0000000000000000",
-        to: `task/${boundDispatch.taskId}`,
-        kind: "derives",
-        provenance: "local-document",
-      },
-    ],
-    focusedEntityRef,
-    onSelectEntity: handlers.onSelectEntity ?? (() => undefined),
-    onOpenTask: handlers.onOpenTask ?? (() => undefined),
+  const element = createElement(RuntimeRefHarness, {
+    initialRef: focusedEntityRef,
+    view: "sessions" as const,
+    onSelectEntity: handlers.onSelectEntity,
+    makeView: (ref: string | null, onBack: () => void, onSelectEntity: (ref: string) => void) =>
+      createElement(SessionsView, {
+        repoId: "repo-a",
+        relations: [
+          {
+            from: "decision/dec_decisions0000000000000000",
+            to: `task/${boundDispatch.taskId}`,
+            kind: "derives",
+            provenance: "local-document",
+          },
+        ],
+        focusedEntityRef: ref,
+        onSelectEntity,
+        onOpenTask: handlers.onOpenTask ?? (() => undefined),
+        onBack,
+      }),
   });
   return mountView(element, tailImpl, sessionGroupsResult, listSquadRuns);
 }
@@ -1302,11 +1382,18 @@ async function mountAgentSquad(
   focusedEntityRef: string | null,
   handlers: { readonly onSelectEntity?: (ref: string) => void } = {},
 ) {
-  const element = createElement(AgentSquadView, {
-    repoId: "repo-a",
-    tasks: tasks.map(({ taskId, title }) => ({ taskId, title, heldLease: false })),
-    focusedEntityRef,
-    onSelectEntity: handlers.onSelectEntity ?? (() => undefined),
+  const element = createElement(RuntimeRefHarness, {
+    initialRef: focusedEntityRef,
+    view: "agentSquad" as const,
+    onSelectEntity: handlers.onSelectEntity,
+    makeView: (ref: string | null, onBack: () => void, onSelectEntity: (ref: string) => void) =>
+      createElement(AgentSquadView, {
+        repoId: "repo-a",
+        tasks: tasks.map(({ taskId, title }) => ({ taskId, title, heldLease: false })),
+        focusedEntityRef: ref,
+        onSelectEntity,
+        onBack,
+      }),
   });
   return mountView(element);
 }
@@ -1314,10 +1401,17 @@ async function mountProviders(
   focusedEntityRef: string | null,
   handlers: { readonly onSelectEntity?: (ref: string) => void } = {},
 ) {
-  const element = createElement(ProvidersView, {
-    repoId: "repo-a",
-    focusedEntityRef,
-    onSelectEntity: handlers.onSelectEntity ?? (() => undefined),
+  const element = createElement(RuntimeRefHarness, {
+    initialRef: focusedEntityRef,
+    view: "providers" as const,
+    onSelectEntity: handlers.onSelectEntity,
+    makeView: (ref: string | null, onBack: () => void, onSelectEntity: (ref: string) => void) =>
+      createElement(ProvidersView, {
+        repoId: "repo-a",
+        focusedEntityRef: ref,
+        onSelectEntity,
+        onBack,
+      }),
   });
   return mountView(element);
 }

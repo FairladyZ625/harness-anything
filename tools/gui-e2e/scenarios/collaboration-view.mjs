@@ -209,6 +209,9 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
               submittedAt: null,
               closedAt: null,
               submission: null,
+              // kernel 9e8dc33ff1 起 Execution/v1 必带 gateRuns;种子停在旧契约上会让
+              // 整条 isolated lane 在 reduceTaskEvent 处红(无 gate 的租约场景为空数组)。
+              gateRuns: [],
             },
             lease: {
               schema: "lease/v1",

@@ -122,6 +122,10 @@ function render(tab: "inspect" | "decisions", inspect?: (host: HTMLDivElement) =
           facts={facts}
           relations={relations}
           onOpenTask={() => {}}
+          onPreviewTask={() => {}}
+          rootTaskOpen={false}
+          onOpenRootTask={() => {}}
+          onCloseRootTask={() => {}}
         />
       </QueryClientProvider>,
     ),
@@ -200,6 +204,10 @@ describe("workspace readability under real ledger shapes", () => {
             facts={facts}
             relations={relations}
             onOpenTask={() => {}}
+            onPreviewTask={() => {}}
+            rootTaskOpen={false}
+            onOpenRootTask={() => {}}
+            onCloseRootTask={() => {}}
             onNavigateEntity={onNavigateEntity}
           />
         </QueryClientProvider>,
@@ -262,6 +270,10 @@ describe("workspace readability under real ledger shapes", () => {
             facts={digestFacts}
             relations={digestRelations}
             onOpenTask={() => {}}
+            onPreviewTask={() => {}}
+            rootTaskOpen={false}
+            onOpenRootTask={() => {}}
+            onCloseRootTask={() => {}}
           />
         </QueryClientProvider>,
       ),
@@ -324,6 +336,10 @@ describe("workspace readability under real ledger shapes", () => {
               decision("dec_old2", "rejected", "已否决的决策"),
             ]}
             onOpenTask={() => {}}
+            onPreviewTask={() => {}}
+            rootTaskOpen={false}
+            onOpenRootTask={() => {}}
+            onCloseRootTask={() => {}}
           />
         </QueryClientProvider>,
       ),
