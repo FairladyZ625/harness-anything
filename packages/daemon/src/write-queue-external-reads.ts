@@ -69,7 +69,7 @@ export function readBeforeWriteQueue(
         if (!schedule?.status.activeRun || schedule.status.activeRun.claimFence !== action.claimFence)
           throw context.cellCodedError("schedule_claim_stale", "CI occurrence claim is no longer current.");
         const receipt = ingestCiObservations(context.extracted, binding, fetched);
-        settleImportedGithubActionsClaims(context.extracted);
+        settleImportedGithubActionsClaims(context.extracted, binding);
         return receipt;
       });
     return refreshCi(action, binding).then((receipt) => () => receipt);

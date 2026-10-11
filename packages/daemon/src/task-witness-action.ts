@@ -74,7 +74,7 @@ export function runTaskWitnessAction(
     });
     if (run.runId === prior?.runId)
       return (
-        (requirement.witness.kind === "github-actions" ? settleGithubActionsClaim(cell, taskId) : null) ?? {
+        (requirement.witness.kind === "github-actions" ? settleGithubActionsClaim(cell, taskId, binding) : null) ?? {
           outcome: "no_changes",
           opId,
           revision: snapshot.revision,
@@ -154,12 +154,16 @@ export function runTaskWitnessAction(
     cell.receiptProof(compiled.event, publication),
   );
   return operation === "claim" && requirement.witness.kind === "github-actions"
-    ? (settleGithubActionsClaim(cell, taskId) ?? receipt)
+    ? (settleGithubActionsClaim(cell, taskId, binding) ?? receipt)
     : receipt;
 }
 
 /** Runs within the caller's center writer turn, after any claim has been published. */
-function settleGithubActionsClaim(cell: RepoCellOperationalContext, taskId: string): WriteReceiptDraft | null {
+function settleGithubActionsClaim(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  binding: RepoCellBinding,
+): WriteReceiptDraft | null {
   const read = cell.projection.read(taskId),
     target = submittedGithubActionsRequirement(read.snapshot);
   if (!target || target.execution.schema !== "execution/v1") return null;
@@ -171,13 +175,13 @@ function settleGithubActionsClaim(cell: RepoCellOperationalContext, taskId: stri
     target.execution.executionId,
     read.snapshot,
     read.packagePath,
-    { actor: run.actor, source: "local" },
+    { ...binding, actor: run.actor },
     evidence,
   );
 }
 
 /** CI imports already hold the center writer; reconcile their durable submitted demands there. */
-export function settleImportedGithubActionsClaims(cell: RepoCellOperationalContext): void {
+export function settleImportedGithubActionsClaims(cell: RepoCellOperationalContext, binding: RepoCellBinding): void {
   for (const status of ["submitted", "in_review"] as const) {
     for (const { taskId, snapshot } of cell.projection.list({ status }).rows) {
       const target = submittedGithubActionsRequirement(snapshot);
@@ -192,11 +196,11 @@ export function settleImportedGithubActionsClaims(cell: RepoCellOperationalConte
           [centerWitnessAction]: true,
         },
         {
+          ...binding,
           actor: {
             principal: snapshot.task!.createdBy.principal,
             executor: { kind: "agent", id: `completion-source:${target.requirement.witness.adapterId}` },
           },
-          source: "local",
         },
       );
     }
