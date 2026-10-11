@@ -37,7 +37,9 @@ export function ledgerRevision(fixture: Fixture): number {
 const replicaQuota = 64 * 1024 * 1024,
   nodes = ["node-one", "node-two"] as const;
 type NodeId = (typeof nodes)[number];
-export async function dualSyncFixture() {
+export async function dualSyncFixture(
+  runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[],
+) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-fleet-dual-")),
     repo = path.join(root, "repo"),
     userRoot = path.join(root, "user"),
@@ -58,7 +60,13 @@ export async function dualSyncFixture() {
   const ownerUid = process.getuid?.() ?? 0;
   git("add", "harness");
   git("commit", "-qm", "harness");
-  registerDaemonRepo({ canonicalRoot: repo, repoId: "dual-repo", userRoot, createConvenienceLinks: false });
+  registerDaemonRepo({
+    canonicalRoot: repo,
+    repoId: "dual-repo",
+    userRoot,
+    createConvenienceLinks: false,
+    runtimeInstances,
+  });
   execFileSync(
     "openssl",
     [

@@ -369,7 +369,12 @@ async function runLiveRuntimeRestart(root) {
       "--auth",
       "subscription",
     ]);
-    runCli(fixture.repoRoot, env, ["settings", "update", "--runtime-allowed-instance", "stress-runtime"]);
+    runCli(fixture.repoRoot, { ...env, HARNESS_ACTOR: "person:owner" }, [
+      "settings",
+      "update",
+      "--runtime-allowed-instance",
+      "stress-runtime",
+    ]);
     const spawned = runCli(fixture.repoRoot, env, [
         "runtime",
         "run",

@@ -88,20 +88,30 @@ export async function pullScheduleView(
   );
 }
 
-export function scheduleRepositoryDocument(name: string): string {
+export function scheduleRepositoryDocument(
+  name: string,
+  instances: readonly {
+    readonly instanceId: string;
+    readonly enabled: boolean;
+  }[] = scheduleRuntimePorts().runtimeInstances(),
+): string {
   const body = `schema: harness-anything/v1\nname: ${name}\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n`;
-  return writeRepositorySettingsFacet(
-    body,
-    initialRuntimeInstanceSettings(readSettingsFacet(body), scheduleRuntimePorts().runtimeInstances()),
-  );
+  return writeRepositorySettingsFacet(body, initialRuntimeInstanceSettings(readSettingsFacet(body), instances));
 }
 
-export function initHarnessRepo(root: string, name: string): void {
+export function initHarnessRepo(
+  root: string,
+  name: string,
+  instances: readonly {
+    readonly instanceId: string;
+    readonly enabled: boolean;
+  }[] = scheduleRuntimePorts().runtimeInstances(),
+): void {
   mkdirSync(path.join(root, "harness"), { recursive: true });
   git(root, "init", "-q");
   git(root, "config", "user.name", "Schedule Test");
   git(root, "config", "user.email", "schedule@example.invalid");
-  writeFileSync(path.join(root, "harness/harness.yaml"), scheduleRepositoryDocument(name));
+  writeFileSync(path.join(root, "harness/harness.yaml"), scheduleRepositoryDocument(name, instances));
   git(root, "add", "harness");
   git(root, "commit", "-qm", "base");
 }

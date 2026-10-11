@@ -12,7 +12,7 @@ test(
   "edge reviewer binds each resubmitted canonical iteration and rejects historical explicit ids",
   { timeout: 90_000 },
   async (t) => {
-    const fixture = await dualSyncFixture();
+    const fixture = await dualSyncFixture(scheduleRuntimePorts().runtimeInstances());
     t.after(() => fixture.close());
     const created = await fixture.createTask("node-one", "task-rework", "Review rework", "docs-task");
     const config = fixture.channel("node-one");
