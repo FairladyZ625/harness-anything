@@ -279,7 +279,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     minimum: 1,
     description: "How many days back the overview's watched-works activity window reaches.",
     effect:
-      "The overview keeps pinned works ahead, then works with activity inside this window; works with only older activity stay on the works page.",
+      "The overview keeps pinned works first, then works active in this window; older ones stay on the works page.",
     group: "presentation",
     action: { field: "overviewWatchedActivityDays", type: "number" },
     cli: { name: "--overview-watched-activity-days", kind: "single", regex: "^[1-9][0-9]*$" },
