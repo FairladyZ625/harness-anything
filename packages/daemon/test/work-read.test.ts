@@ -34,7 +34,9 @@ const task = (
 });
 
 const rows = [
-  task("declared", null, "planned", "work"),
+  // The stubbed statuses are what the kernel's presentation SQL emits in production: a root whose
+  // members started presents active, so a planned root here would be a stale contract.
+  task("declared", null, "active", "work"),
   task("leaf-a", "declared", "active", "standard", "2026-09-22T00:00:00.000Z"),
   task("leaf-b", "declared", "done"),
   task("derived", null, "active"),
@@ -119,7 +121,7 @@ test("work reads consume the kernel's presented root status while open and child
     task("all-cancelled", null, "cancelled"),
     task("cancelled-leaf-a", "all-cancelled", "cancelled"),
     task("cancelled-leaf-b", "all-cancelled", "cancelled"),
-    task("open", null, "planned", "work"),
+    task("open", null, "active", "work"),
     task("open-leaf", "open", "active"),
     task("childless", null, "planned", "work"),
     task("closed", null, "done", "work"),
@@ -145,7 +147,7 @@ test("work reads consume the kernel's presented root status while open and child
       { taskId: "all-done", status: "done", root: "declared" },
       { taskId: "childless", status: "planned", root: "declared" },
       { taskId: "closed", status: "done", root: "declared" },
-      { taskId: "open", status: "planned", root: "declared" },
+      { taskId: "open", status: "active", root: "declared" },
     ],
   );
   const index = workIndexFromProjection(projection);
@@ -154,7 +156,7 @@ test("work reads consume the kernel's presented root status while open and child
     "all-done": "done",
     childless: "planned",
     closed: "done",
-    open: "planned",
+    open: "active",
   });
   assert.deepEqual(parseDaemonGuiReadResult("repo.works.index", index), index);
   const shown = workShowFromProjection(projection, { taskId: "all-done" });
@@ -195,9 +197,9 @@ test("work show names the goal, subtree counts and open tasks, and the renderer 
   );
   assert.equal(workShowFromProjection(projection(null), { taskId: "declared" }).goal, null);
   const rendered = renderWorkPayload(shown)!;
-  assert.match(rendered, /^work declared \[planned\] declared title\ngoal: Ship release two\./u);
+  assert.match(rendered, /^work declared \[active\] declared title\ngoal: Ship release two\./u);
   assert.match(rendered, /- leaf-a \[active\] leaf-a title/u);
   assert.match(rendered, /next: ha task create --work declared --title <title> · ha agenda --work declared$/u);
-  assert.match(renderWorkPayload(workListFromProjection(projection(), {}))!, /^works:\ndeclared\tplanned\tdeclared/u);
+  assert.match(renderWorkPayload(workListFromProjection(projection(), {}))!, /^works:\ndeclared\tactive\tdeclared/u);
   assert.equal(renderWorkPayload({ schema: "other/v1" }), null);
 });

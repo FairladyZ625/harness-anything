@@ -14,6 +14,7 @@ import {
   git,
   initRepo,
   runtimeEvent,
+  reviewRuntimeInstance,
   submissionOutcome,
   writeCloseout,
   writeSettingsFixture,
@@ -248,6 +249,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
       rootDir: canonicalRoot(rootDir),
       ownerId: "daemon-test",
       runtimeDaemonRoute: { userRoot: rootDir, daemonId: "daemon-test", endpoint: path.join(rootDir, "daemon.sock") },
+      runtimeInstances: () => [reviewRuntimeInstance],
       prepareRuntimeLaunch: (_instanceId, request) => ({
         definition: {
           schema: "agent-definition-snapshot/v1",
@@ -847,6 +849,7 @@ test("review binding permits independent runtimes but still rejects the executio
       rootDir: canonicalRoot(rootDir),
       ownerId: "daemon-test",
       runtimeDaemonRoute: { userRoot: rootDir, daemonId: "daemon-test", endpoint: path.join(rootDir, "daemon.sock") },
+      runtimeInstances: () => [reviewRuntimeInstance],
       prepareRuntimeLaunch: (_instanceId, request) => {
         const providerSessionId = request.providerSessionId ?? `provider-${++providerSequence}`;
         return {

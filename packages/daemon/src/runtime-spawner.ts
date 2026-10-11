@@ -22,12 +22,13 @@ import {
 } from "./dispatch-stream.ts";
 import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
+import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -102,6 +103,7 @@ import {
   assertNativeResumeNotExported,
   assertRuntimeHandoffLaunch,
   assertResumeAgent,
+  readOnlyAttachDispatch,
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
@@ -115,9 +117,6 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   exitNotificationTimeoutMs = 30_000;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
-
-import { readOnlyAttachDispatch } from "./runtime-spawn-read-only-attach.ts";
-
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
@@ -361,6 +360,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       };
     }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
+      [localRuntimeSessions, runtimeInstances, allowedInstanceIds] = await resolveRuntimeDispatchResources(
+        input,
+        input.remote,
+        projection!,
+        processes,
+      ),
       { squad, delegatedBy, agent, resolvedSkills, preset } = resolveDispatchAgent(
         input,
         binding,
@@ -368,23 +373,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         agentId,
         squadId,
         targetAgentId,
-      ),
-      runtimeSessions = input.remote ? await input.remote.readRuntimeSessions() : projection!.readRuntimeSessions(),
-      localRuntimeSessions = locallyObservedRuntimeSessions(runtimeSessions, processes),
-      runtimeInstances = input.runtimeInstances?.() ?? [],
-      initialFallback =
-        inheritedFallback ??
-        initialFallbackAttempt(
-          agent,
-          explicitRuntimeInstanceId,
-          model,
-          providerSessionId,
-          idempotencyKey,
-          mission,
-          runtimeInstances,
-          localRuntimeSessions,
-        ),
-      selection = await prepareRuntimeInstance(
+      );
+    if (agent) assertAgentDispatchable(agent);
+    const selection = await prepareRuntimeInstance(
         {
           requested:
             inheritedFallback?.candidates[inheritedFallback.attemptIndex]?.instance ??
@@ -394,10 +385,24 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           agent,
           model,
           instances: runtimeInstances,
+          allowedInstanceIds,
           sessions: localRuntimeSessions,
         },
         async (runtimeInstanceId) => {
-          const fallbackAttempt =
+          const initialFallback =
+              inheritedFallback ??
+              initialFallbackAttempt(
+                agent,
+                explicitRuntimeInstanceId,
+                model,
+                providerSessionId,
+                idempotencyKey,
+                mission,
+                runtimeInstances,
+                localRuntimeSessions,
+                allowedInstanceIds,
+              ),
+            fallbackAttempt =
               initialFallback &&
               initialFallback.candidates[initialFallback.attemptIndex]?.instance !== runtimeInstanceId
                 ? initialFallbackAttempt(
@@ -409,12 +414,12 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     mission,
                     runtimeInstances,
                     localRuntimeSessions,
+                    allowedInstanceIds,
                   )
                 : initialFallback,
             fallbackCandidate = fallbackAttempt?.candidates[fallbackAttempt.attemptIndex],
             runtimeInstance = runtimeInstances.find((instance) => instance.instanceId === runtimeInstanceId),
-            // Model resolution order: --model override > the runtimes row matching the selected
-            // instance's kind > the instance default (undefined defers to prepareLaunch).
+            // Model resolution: dispatch override, agent kind, then instance default.
             selectedModel =
               fallbackCandidate?.model ??
               model ??
@@ -470,7 +475,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
                 : dispatchMission,
             prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
-          if (agent) assertAgentDispatchable(agent);
+
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
           const preview = dryRun

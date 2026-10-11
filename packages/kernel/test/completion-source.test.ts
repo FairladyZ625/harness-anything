@@ -6,7 +6,7 @@ import { VerticalCompletionDeclarationSchema } from "../src/schemas/completion-s
 import { effectiveCloseoutGates } from "../src/domain/settings-closeout.ts";
 import { resolveCompletionContract } from "../src/domain/completion-contract.ts";
 import { completionPredicateIssues } from "../src/schemas/completion-predicate.ts";
-import { claimGateRun, currentGateRun, settleGateRun } from "../src/domain/gate-run.ts";
+import { claimGateRun, currentGateRun, settleGateRun, replaceGateRun } from "../src/domain/gate-run.ts";
 import type { ExecutionV1 } from "../src/domain/execution.ts";
 
 const declaration = {
@@ -195,4 +195,80 @@ test("domain defaults are reachable only when the repository left a value unset,
     { digest, completion: { ...declaration, closeoutDefaults: defaults } },
   );
   assert.equal(frozen.ok && frozen.contract.closeoutGates.consent, true);
+});
+
+test("expired GitHub claims can be replaced while command claims and terminal verdicts stay fenced", () => {
+  const ci = resolveCompletionContract(
+    ["ci"],
+    { gates: [], ci: { workflows: ["rewrite-ci"] } },
+    {
+      digest,
+      completion: {
+        sources: { "github-actions": { kind: "github-actions", predicateType: "ci/v1" } },
+        gates: { ci: { source: "github-actions", appliesTo: "code" } },
+      },
+    },
+  );
+  assert.ok(ci.ok);
+  const requirement = ci.contract.gates[0]!;
+  const cut = {
+    ...execution,
+    submission: { ...execution.submission!, commitSha: "a".repeat(40), completionContract: ci.contract },
+  };
+  const request = {
+    execution: cut,
+    requirement,
+    repoId: "repo",
+    runId: "ci-old",
+    claimFence: 8,
+    actor,
+    occurredAt: "2026-10-10T00:00:00Z",
+    expiresAt: "2026-10-10T01:00:00Z",
+  };
+  const old = claimGateRun(request);
+  const claimed = replaceGateRun(cut, old);
+  const next = {
+    ...request,
+    execution: claimed,
+    runId: "ci-new",
+    claimFence: 9,
+    occurredAt: old.expiresAt,
+    expiresAt: "2026-10-10T02:00:00Z",
+  };
+  assert.throws(() => claimGateRun({ ...next, occurredAt: "2026-10-10T00:59:59Z" }), /already has current run/);
+  const fresh = claimGateRun(next);
+  assert.equal(fresh.supersedesRunId, old.runId);
+  const renewed = replaceGateRun(claimed, fresh);
+  assert.equal(currentGateRun(renewed, "ci")!.runId, fresh.runId);
+  assert.throws(
+    () =>
+      settleGateRun({
+        execution: renewed,
+        runId: old.runId,
+        claimFence: old.claimFence,
+        actor,
+        occurredAt: next.occurredAt,
+        outcome: { availability: "available", result: "pass", diagnostic: "old" },
+      }),
+    /current submission run and fence/,
+  );
+  assert.throws(() => claimGateRun({ ...next, claimFence: 8 }), /advance its fence/);
+  for (const outcome of [
+    { availability: "available", result: "pass", diagnostic: "pass" },
+    { availability: "available", result: "fail", diagnostic: "fail" },
+    { availability: "unavailable", result: null, diagnostic: "unavailable" },
+  ] as const) {
+    const terminal = settleGateRun({
+      execution: claimed,
+      runId: old.runId,
+      claimFence: old.claimFence,
+      actor,
+      occurredAt: "2026-10-10T00:00:01Z",
+      outcome,
+    });
+    assert.throws(
+      () => claimGateRun({ ...next, execution: replaceGateRun(claimed, terminal) }),
+      /already has current run/,
+    );
+  }
 });

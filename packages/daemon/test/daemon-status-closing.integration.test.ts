@@ -4,10 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { registerDaemonRepo } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
-import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
+import {
+  openBootstrappedRepoCell as openRepoCell,
+  registerBootstrappedDaemonRepo as registerDaemonRepo,
+} from "./repo-settings.fixture.ts";
 
 test("daemon status omits projection cuts while a repository close is still settling", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-closing-status-")),

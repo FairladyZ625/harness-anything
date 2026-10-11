@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import assert from "node:assert/strict";
@@ -42,7 +43,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       },
       fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
     t.after(() => fixture.close());
-    await fixture.host.runtimeInstance("daemon.runtimeInstance.create", codexInstance, localAuthFixture());
+    await registerFixtureRuntimeInstance(fixture.host, fixture.subject.repoId, localAuthFixture(), codexInstance);
     const { repoId, taskId } = fixture.subject,
       // The Agent is installed at the center only; the edge has no ledger and reads it from its mirrored view.
       packageSource = path.join(fixture.repo, "source", "edge-worker");

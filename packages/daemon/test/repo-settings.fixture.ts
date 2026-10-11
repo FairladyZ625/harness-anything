@@ -22,6 +22,8 @@ import {
   readLedgerWriterEpoch,
   type WriterEpochFenceDescriptor,
 } from "../src/writer-epoch.ts";
+import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
+import type { DaemonHost } from "../src/daemon-host.ts";
 import { policyTestCenter, provisionPolicyTestRepository } from "./keycloak-policy.fixtures.ts";
 
 const seededSettings = new Set<string>();
@@ -54,6 +56,7 @@ export function seedSettingsEvent(input: {
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
   readonly keepOpen?: boolean;
+  readonly runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[];
 }): ReturnType<typeof makeTaskEventStore> | undefined {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
@@ -71,12 +74,15 @@ export function seedSettingsEvent(input: {
     return settleSeeded(store, fixtureKey, input.keepOpen);
   }
   const documentBody = settingsBase(rootDir),
+    parsed = readSettingsFacet(documentBody),
+    settings =
+      input.runtimeInstances === undefined ? parsed : initialRuntimeInstanceSettings(parsed, input.runtimeInstances),
     digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
   store.append(
     compileSettingsChangedEvent({
-      settings: readSettingsFacet(documentBody),
+      settings,
       baseDocumentBody: documentBody,
-      candidateDocumentBody: writeRepositorySettingsFacet(documentBody, readSettingsFacet(documentBody)),
+      candidateDocumentBody: writeRepositorySettingsFacet(documentBody, settings),
       eventId: `event-settings-fixture-${digest}`,
       opId: `settings-fixture-${digest}`,
       workspaceRevision: stream.revision + 1,
@@ -117,6 +123,7 @@ export async function registerSettledBootstrappedDaemonRepo(
         rootDir: input.canonicalRoot,
         writerEpochFence,
         keepOpen: true,
+        runtimeInstances: fixtureMachineInstances(daemonRegistryPaths(input).userRoot),
       });
     if (store) {
       store.materialize();
@@ -157,7 +164,11 @@ export const openBootstrappedRepoCell: typeof openProductRepoCell = async (input
       input.rootDir,
       path.join(resolveHarnessLayout(input.rootDir).localRoot, "fixture-writer-epochs"),
     );
-  await settleSettingsEvent({ ...input, writerEpochFence: defaultWriterEpochFence });
+  await settleSettingsEvent({
+    ...input,
+    ...(input.runtimeInstances ? { runtimeInstances: input.runtimeInstances() } : {}),
+    writerEpochFence: defaultWriterEpochFence,
+  });
   const cell = await openProductRepoCell({ keycloakCenter: policyTestCenter, ...input, defaultWriterEpochFence });
   try {
     await cell.read("repo.settings.read");
@@ -174,6 +185,7 @@ async function settleSettingsEvent(input: {
   readonly rootDir: string;
   readonly authoredBranch?: string;
   readonly writerEpochFence?: WriterEpochFenceDescriptor;
+  readonly runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[];
 }): Promise<void> {
   const repoId = workspaceId(input.repoId),
     rootDir = canonicalRoot(input.rootDir),
@@ -192,12 +204,15 @@ async function settleSettingsEvent(input: {
     stream = store.read();
   if (!stream.events.some((event) => event.schema === "settings-event/v1")) {
     const documentBody = settingsBase(rootDir),
+      parsed = readSettingsFacet(documentBody),
+      seededSettings =
+        input.runtimeInstances === undefined ? parsed : initialRuntimeInstanceSettings(parsed, input.runtimeInstances),
       digest = createHash("sha256").update(`${repoId}\0${documentBody}`).digest("hex");
     store.append(
       compileSettingsChangedEvent({
-        settings: readSettingsFacet(documentBody),
+        settings: seededSettings,
         baseDocumentBody: documentBody,
-        candidateDocumentBody: writeRepositorySettingsFacet(documentBody, readSettingsFacet(documentBody)),
+        candidateDocumentBody: writeRepositorySettingsFacet(documentBody, seededSettings),
         eventId: `event-settings-fixture-${digest}`,
         opId: `settings-fixture-${digest}`,
         workspaceRevision: stream.revision + 1,
@@ -226,14 +241,77 @@ async function settleSettingsEvent(input: {
   seededSettings.add(fixtureKey);
 }
 
-export const registerBootstrappedDaemonRepo: typeof registerProductDaemonRepo = (input) => {
+export const registerBootstrappedDaemonRepo = (
+  input: Parameters<typeof registerProductDaemonRepo>[0] & {
+    readonly runtimeInstances?: readonly { readonly instanceId: string; readonly enabled: boolean }[];
+  },
+): ReturnType<typeof registerProductDaemonRepo> => {
   if (input.mode !== "remote-edge" && input.repoId && input.canonicalRoot) {
     const writerEpochFence = fixtureFence(
       input.repoId,
       input.canonicalRoot,
       path.join(daemonRegistryPaths(input).userRoot, "fleet"),
     );
-    seedSettingsEvent({ repoId: input.repoId, rootDir: input.canonicalRoot, writerEpochFence });
+    seedSettingsEvent({
+      repoId: input.repoId,
+      rootDir: input.canonicalRoot,
+      writerEpochFence,
+      runtimeInstances: input.runtimeInstances ?? fixtureMachineInstances(daemonRegistryPaths(input).userRoot),
+    });
   }
   return registerProductDaemonRepo(input);
 };
+
+function fixtureMachineInstances(
+  userRoot: string,
+): readonly { readonly instanceId: string; readonly enabled: boolean }[] | undefined {
+  const target = path.join(userRoot, "runtime-instances.json");
+  return existsSync(target) ? JSON.parse(readFileSync(target, "utf8")).instances : undefined;
+}
+
+/** Explicit project opt-in for fixture instances created after repository setup. */
+export async function allowFixtureRuntimeInstances(
+  host: Pick<DaemonHost, "read" | "run">,
+  repoId: string,
+  auth: Parameters<DaemonHost["run"]>[2],
+  runtimeAllowedInstances: readonly string[],
+): Promise<void> {
+  const settings = await host.read(repoId, "repo.settings.read", {}, auth);
+  const receipt = await host.run(
+    repoId,
+    {
+      kind: "settings-update",
+      runtimeAllowedInstances: [
+        ...new Set([...(settings.settings.runtime?.allowedInstances ?? []), ...runtimeAllowedInstances]),
+      ],
+      expectedVersion: settings.lastChanged === "initial" ? 0 : settings.lastChanged.revision,
+    },
+    auth,
+  );
+  assert.ok(receipt.outcome === "applied" || receipt.outcome === "no_changes", JSON.stringify(receipt));
+  if (receipt.outcome === "no_changes") return;
+  const published = await host.run(
+    repoId,
+    { kind: "receipt-show", opId: receipt.opId, waitFor: ["git_verified", "worktree_visible"], timeoutMs: 5000 },
+    auth,
+  );
+  assert.equal(published.wait?.state, "satisfied", JSON.stringify(published));
+}
+
+/** Register a fixture runtime and opt it into the already bootstrapped repository in one step. */
+export async function registerFixtureRuntimeInstance(
+  host: Pick<DaemonHost, "runtimeInstance" | "read" | "run">,
+  repoId: string,
+  auth: Parameters<DaemonHost["run"]>[2],
+  declaration: Readonly<Record<string, unknown>>,
+  options: {
+    readonly allowHost?: Pick<DaemonHost, "read" | "run">;
+    readonly allowRepoId?: string;
+  } = {},
+): Promise<void> {
+  const created = await host.runtimeInstance("daemon.runtimeInstance.create", declaration, auth);
+  assert.equal(created.outcome, "applied", JSON.stringify(created));
+  await allowFixtureRuntimeInstances(options.allowHost ?? host, options.allowRepoId ?? repoId, auth, [
+    String(declaration.instanceId),
+  ]);
+}

@@ -317,7 +317,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       daemonWriterEpoch = null;
       daemonWriterLeases.clear();
     };
-  void refreshDiscovery().catch(consumeKnownError);
   const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
       const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
         runtime =

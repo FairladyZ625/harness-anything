@@ -41,7 +41,7 @@ export function strandedDelivery(rootDir: string, submission: SubmissionV1 | nul
 /**
  * The submitted execution of the task's current iteration and the github-actions requirement its
  * frozen contract judges, if the cut froze one. Callers that only need "is a passing witness
- * already recorded" pair this with githubActionsWitnessEvidence and stop before any provider IO.
+ * already recorded" pair this with githubActionsGateResult and stop before any provider IO.
  */
 export function submittedGithubActionsRequirement(
   snapshot: Snapshot,
@@ -54,17 +54,14 @@ export function submittedGithubActionsRequirement(
   return execution && submission && requirement ? { requirement, execution } : null;
 }
 
-/** A terminal run keeps its verdict until an explicit rerun; observations only judge a running run. */
+/** Only a settled source run records a verdict; an observation is not a published witness. */
 export function githubActionsGateResult(
-  cell: Parameters<typeof githubActionsWitnessEvidence>[0],
   requirement: FrozenGateRequirement,
   execution: Snapshot["executions"][number],
 ): CompletionEvidenceResult | null {
   if (!execution.submission?.commitSha) return null;
   const run = currentGateRun(execution, requirement.gateId);
-  return run?.state === "completed"
-    ? run.result
-    : (githubActionsWitnessEvidence(cell, requirement, execution)?.result ?? null);
+  return run?.state === "completed" ? run.result : null;
 }
 
 /**
