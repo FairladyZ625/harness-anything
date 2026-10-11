@@ -149,7 +149,7 @@ test(
           },
         ],
         replayCommand:
-          "node tools/dispatch-isolated-test.mjs --target ubuntu " +
+          "node tools/dispatch-isolated-test.mjs --target server " +
           "--file tools/stress/campaign.integration.test.mjs",
         residualRisks: [
           "S1 is intentionally below S4 scale and leaves all unmapped denominator items explicit.",

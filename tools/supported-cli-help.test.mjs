@@ -26,8 +26,8 @@ test("every supported CLI and tool entrypoint exposes non-empty --help", { timeo
 });
 
 test("sample tool parsers accept every documented flag and reject an undocumented flag", () => {
-  assert.deepEqual(parseIsolatedDispatchArgs(["--target", "docker", "--tier", "fast"]), {
-    target: "docker",
+  assert.deepEqual(parseIsolatedDispatchArgs(["--target", "server", "--tier", "fast"]), {
+    target: "server",
     tier: "fast",
     file: undefined,
     coverage: undefined,
@@ -38,7 +38,7 @@ test("sample tool parsers accept every documented flag and reject an undocumente
       dispatchIsolatedTestCommand,
       parseIsolatedDispatchArgs,
       [
-        ["--target", "docker", "--tier", "fast", "--coverage", "/tmp/fast.lcov"],
+        ["--target", "server", "--tier", "fast", "--coverage", "/tmp/fast.lcov"],
         ["--file", "tools/run-node-tests.test.mjs"],
       ],
     ],

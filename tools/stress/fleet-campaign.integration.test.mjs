@@ -128,7 +128,7 @@ test(
             },
           ],
           replayCommand:
-            "node tools/dispatch-isolated-test.mjs --target ubuntu " +
+            "node tools/dispatch-isolated-test.mjs --target server " +
             "--file tools/stress/fleet-campaign.integration.test.mjs",
           residualRisks: [
             "FleetCut generation and all generation-2 shapes are excluded by CEO ruling 2.",
