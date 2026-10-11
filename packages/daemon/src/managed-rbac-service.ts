@@ -786,6 +786,25 @@ export function managedRbacReceiptJournal(userRoot: string): {
   };
 }
 
+/** Pending permission requests are center-owned workflow state, separate from Keycloak's grant authority. */
+export function managedPermissionRequestStore(userRoot: string): {
+  readonly read: () => readonly string[];
+  readonly write: (lines: readonly string[]) => void;
+} {
+  const root = path.join(userRoot, "rbac"),
+    file = path.join(root, "permission-requests.json");
+  return {
+    read: () => (existsSync(file) ? (JSON.parse(readFileSync(file, "utf8")) as string[]) : []),
+    write: (lines) => {
+      mkdirSync(root, { recursive: true, mode: 0o700 });
+      const temporary = `${file}.tmp`;
+      writeFileSync(temporary, `${JSON.stringify(lines, null, 2)}\n`, { mode: 0o600 });
+      renameSync(temporary, file);
+      chmodSync(file, 0o600);
+    },
+  };
+}
+
 /**
  * Reserves a new file only its owner can read, for a credential the caller writes before the
  * external write that makes it real. A path that is already taken throws instead of being

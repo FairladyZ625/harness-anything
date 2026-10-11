@@ -74,7 +74,7 @@ import {
   requiredText,
 } from "./daemon-host-status.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
-import { requireAuthorizedHostAction } from "./host-action-authorization.ts";
+import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
@@ -726,7 +726,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),
     ...lifecycle,
-    manageRbac: (request, auth) => {
+    manageRbac: async (request, auth) => {
       localOnly(auth);
       if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
       const loginTarget =
@@ -783,8 +783,26 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           personId: request.personId!,
         });
       }
-      if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap"))
+      if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap")) {
+        const accessAction =
+          request.operation === "permission-request-create"
+            ? "permission-request-create"
+            : request.operation === "permission-request-decide"
+              ? "permission-request-decide"
+              : request.operation === "permission-request-withdraw"
+                ? "permission-request-withdraw"
+                : undefined;
+        if (accessAction)
+          await requireAuthorizedFleetAction({
+            kind: accessAction,
+            userRoot: input.userRoot,
+            auth,
+            actionId: `${accessAction}:${request.requestId ?? request.operationId ?? "request"}`,
+            evaluatedAtCut: "keycloak:current",
+            ...(request.repoId ? { repoId: request.repoId } : {}),
+          });
         return accessAdmin.run(request);
+      }
       if (request.operation === "listener-set") return oidc.configureAuthority(() => managedRbac.run(request));
       return requireAuthorizedHostAction({
         kind: "rbac-bootstrap",

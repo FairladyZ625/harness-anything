@@ -26,6 +26,20 @@ export interface AccessGrant {
   readonly resource: string;
 }
 
+export interface PermissionRequest {
+  readonly requestId: string;
+  readonly version: number;
+  readonly state: "pending" | "approved" | "rejected" | "withdrawn";
+  readonly personId: string;
+  readonly groupId: string;
+  readonly resource: string;
+  readonly actions: readonly string[];
+  readonly rationale: string;
+  readonly createdAt: string;
+  readonly decidedBy?: string;
+  readonly decidedAt?: string;
+}
+
 /** One administration operation as the audit journal holds it; `phase: "intent"` has no settled receipt yet. */
 export interface AccessReceipt {
   readonly operationId: string;
@@ -121,6 +135,7 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
         | "team-list"
         | "group-list"
         | "grant-list"
+        | "permission-request-list"
         | "receipt-list"
         | "session-lifetime";
     }
@@ -135,6 +150,19 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
   | ({ readonly operation: "group-update"; readonly expectedVersion: string } & AccessGroupWrite)
   | { readonly operation: "group-delete"; readonly groupId: string; readonly expectedVersion: string }
   | ({ readonly operation: "grant" | "revoke" } & AccessGrant)
+  | {
+      readonly operation: "permission-request-create";
+      readonly groupId: string;
+      readonly resource: string;
+      readonly rationale?: string;
+    }
+  | {
+      readonly operation: "permission-request-decide";
+      readonly requestId: string;
+      readonly requestVersion: number;
+      readonly decision: "approve" | "reject";
+    }
+  | { readonly operation: "permission-request-withdraw"; readonly requestId: string; readonly requestVersion: number }
   | { readonly operation: "effective-permissions"; readonly personId: string; readonly resource: string }
   | { readonly operation: "receipt-reconcile"; readonly operationId: string }
   | {
@@ -182,6 +210,21 @@ export interface AccessAdminApi {
   readonly updateGroup: (input: AccessGroupWrite & { readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly deleteGroup: (input: { readonly groupId: string; readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly grants: () => Reply<AccessGrantsReply>;
+  readonly permissionRequests: () => Reply<{ readonly requests: readonly PermissionRequest[] }>;
+  readonly requestPermission: (input: {
+    readonly groupId: string;
+    readonly resource: string;
+    readonly rationale?: string;
+  }) => Reply<{ readonly request: PermissionRequest }>;
+  readonly decidePermissionRequest: (input: {
+    readonly requestId: string;
+    readonly requestVersion: number;
+    readonly decision: "approve" | "reject";
+  }) => Reply<{ readonly request: PermissionRequest }>;
+  readonly withdrawPermissionRequest: (input: {
+    readonly requestId: string;
+    readonly requestVersion: number;
+  }) => Reply<{ readonly request: PermissionRequest }>;
   readonly grant: (input: AccessGrant) => Reply<AccessReceipt>;
   readonly revoke: (input: AccessGrant) => Reply<AccessReceipt>;
   readonly effectivePermissions: (input: {

@@ -383,6 +383,38 @@ test("access administration requires the access-admin role before anything reach
   assert.equal(keycloak.realm.ssoSessionIdleTimeout, 1_800);
 });
 
+test("permission requests bind exact versions and settle one concurrent decision", async (t) => {
+  const { keycloak, run, signIn } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.account("admin");
+  signIn("alice", ["offline_access"]);
+  const created = await run({
+    operation: "permission-request-create",
+    groupId: "viewer",
+    resource: "repo-a",
+    rationale: "read",
+  });
+  assert.equal(created.ok, true);
+  const request = created.request as { requestId: string; version: number };
+  signIn("admin");
+  const [first, second] = await Promise.all([
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "reject",
+    }),
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+  ]);
+  assert.equal([first, second].filter((result) => result.ok).length, 1);
+  assert.equal([first, second].filter((result) => result.code === "version_conflict").length, 1);
+});
+
 test("the session lifetime is read from and written to the realm, within bounds, against the value read", async (t) => {
   const { keycloak, admin, run, journal } = await fixture(t),
     realmAdmin = { url: keycloakUrl, realm: keycloakRealm, accessToken: "center-token" };
