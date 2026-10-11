@@ -74,7 +74,7 @@ function npm(root, args) {
 
 export function prepareDependencies(
   root,
-  cacheRoot = path.join(homedir(), ".cache", "harness-test-dependencies"),
+  cacheRoot = process.env.HARNESS_TEST_DEPENDENCY_CACHE || path.join(homedir(), ".cache", "harness-test-dependencies"),
   install = npm,
 ) {
   const started = Date.now();

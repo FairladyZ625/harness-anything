@@ -27,14 +27,15 @@ def cancelled(signum, frame):
     raise SystemExit(128 + signum)
 
 
-def cleanup(workspace, container):
+def cleanup(workspace, container, extra_containers=()):
     # A container belongs to the engine, not the SSH process group. Name is known
     # before create, including the create/SSH-death race; absence is harmless.
-    result = subprocess.run(['docker', 'container', 'ls', '-aq', '--filter', f'name=^/{container}$'],
-                            check=True, capture_output=True, text=True)
-    if result.stdout.strip():
-        subprocess.run(['docker', 'rm', '-f', container], check=True,
-                       stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    for owned in (container, *extra_containers):
+        result = subprocess.run(['docker', 'container', 'ls', '-aq', '--filter', f'name=^/{owned}$'],
+                                check=True, capture_output=True, text=True)
+        if result.stdout.strip():
+            subprocess.run(['docker', 'rm', '-f', owned], check=True,
+                           stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     if workspace.exists():
         shutil.rmtree(workspace)
 
@@ -56,7 +57,7 @@ def supervise(run_id, config):
             except BlockingIOError:
                 continue
             abandoned = workspace.parent / stale.name.split('-', 1)[1]
-            cleanup(abandoned, abandoned.name)
+            cleanup(abandoned, abandoned.name, (f'{abandoned.name}-dependencies',))
             stale.unlink()
     ticket = queue / f'{time.time_ns():020d}-{workspace.name}'
     ticket.touch()
@@ -95,7 +96,7 @@ def supervise(run_id, config):
                     group = message['pid']
         if group is not None:
             terminate(group)
-        cleanup(workspace, run_id)
+        cleanup(workspace, run_id, (f'{run_id}-dependencies',))
         fcntl.flock(mutex, fcntl.LOCK_EX)
         ticket.unlink()
         fcntl.flock(mutex, fcntl.LOCK_UN)
@@ -147,25 +148,67 @@ def supervise(run_id, config):
         if not line:
             return 130
         (workspace / '.home').mkdir()
-        create = [
-            'docker', 'create', '--init', '--name', run_id,
-            '--cpus', str(config['cpus']), '--memory', f"{config['memoryGiB']}g",
-            '--memory-swap', f"{config['memoryGiB']}g",
-            '--mount', f'type=bind,source={workspace},target=/workspace',
-            '--workdir', '/workspace', '--env', 'HOME=/workspace/.home',
-            '--user', f'{os.getuid()}:{os.getgid()}',
-            '--entrypoint', 'sh', config['image'], '-c', json.loads(line)
-        ]
-        emit('creating', run=run_id)
-        os.write(writer, (json.dumps({'create': create}) + '\n').encode())
-        if os.read(ready_reader, 3) != b'ok\n':
-            raise RuntimeError('container creation failed in isolation reaper')
-        # The child waits until the reaper owns its process group.
-        child = subprocess.Popen(['sh'], start_new_session=True, stdin=subprocess.PIPE)
-        os.write(writer, (json.dumps({'pid': child.pid}) + '\n').encode())
-        child.stdin.write(('exec ' + shlex.join(['docker', 'start', '-a', run_id]) + '\n').encode())
-        child.stdin.close()
-        emit('running', run=workspace.name, capacity=capacity, child_pid=child.pid)
+        mode = config.get('mode', 'docker')
+        script = json.loads(line)
+        if mode == 'local':
+            child = subprocess.Popen(['sh', '-c', script], cwd=workspace,
+                                     start_new_session=True)
+            os.write(writer, (json.dumps({'pid': child.pid}) + '\n').encode())
+            emit('running', run=workspace.name, capacity=capacity, child_pid=child.pid)
+        else:
+            dependency_volume = config.get('dependencyCacheVolume')
+            if dependency_volume:
+                prep_name = f'{run_id}-dependencies'
+                prep = [
+                    'docker', 'create', '--init', '--name', prep_name,
+                    '--cpus', str(config['cpus']), '--memory', f"{config['memoryGiB']}g",
+                    '--memory-swap', f"{config['memoryGiB']}g",
+                    '--mount', f'type=bind,source={workspace},target=/workspace',
+                    '--mount', f'type=volume,source={dependency_volume},target=/dependency-cache',
+                    '--workdir', '/workspace', '--env', 'HOME=/workspace/.home',
+                    '--env', 'HARNESS_TEST_DEPENDENCY_CACHE=/dependency-cache',
+                    '--env', 'PLAYWRIGHT_BROWSERS_PATH=/dependency-cache/playwright',
+                    '--env', 'ELECTRON_CACHE=/dependency-cache/electron',
+                    '--user', f'{os.getuid()}:{os.getgid()}',
+                    '--entrypoint', 'sh', config['image'], '-c',
+                    'node tools/isolated-test-dependencies.mjs',
+                ]
+                emit('creating', run=run_id, phase='dependencies')
+                os.write(writer, (json.dumps({'create': prep}) + '\n').encode())
+                if os.read(ready_reader, 3) != b'ok\n':
+                    raise RuntimeError('dependency container creation failed in isolation reaper')
+                child = subprocess.Popen(['sh'], start_new_session=True, stdin=subprocess.PIPE)
+                os.write(writer, (json.dumps({'pid': child.pid}) + '\n').encode())
+                child.stdin.write(('exec ' + shlex.join(['docker', 'start', '-a', prep_name]) + '\n').encode())
+                child.stdin.close()
+                prep_code = child.wait()
+                os.write(writer, b'{"pid": null}\n')
+                if prep_code != 0:
+                    return prep_code
+                subprocess.run(['docker', 'rm', '-f', prep_name], check=True,
+                               stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+            create = [
+                'docker', 'create', '--init', '--name', run_id,
+                '--cpus', str(config['cpus']), '--memory', f"{config['memoryGiB']}g",
+                '--memory-swap', f"{config['memoryGiB']}g",
+                '--mount', f'type=bind,source={workspace},target=/workspace',
+                '--workdir', '/workspace', '--env', 'HOME=/workspace/.home',
+                '--env', 'PLAYWRIGHT_BROWSERS_PATH=/dependency-cache/playwright',
+                '--env', 'ELECTRON_CACHE=/dependency-cache/electron',
+                '--user', f'{os.getuid()}:{os.getgid()}',
+            ]
+            if dependency_volume:
+                create.extend(['--mount', f'type=volume,source={dependency_volume},target=/dependency-cache,readonly'])
+            create.extend(['--entrypoint', 'sh', config['image'], '-c', script])
+            emit('creating', run=run_id, phase='test')
+            os.write(writer, (json.dumps({'create': create}) + '\n').encode())
+            if os.read(ready_reader, 3) != b'ok\n':
+                raise RuntimeError('container creation failed in isolation reaper')
+            child = subprocess.Popen(['sh'], start_new_session=True, stdin=subprocess.PIPE)
+            os.write(writer, (json.dumps({'pid': child.pid}) + '\n').encode())
+            child.stdin.write(('exec ' + shlex.join(['docker', 'start', '-a', run_id]) + '\n').encode())
+            child.stdin.close()
+            emit('running', run=workspace.name, capacity=capacity, child_pid=child.pid)
         while child.poll() is None:
             if select.select([sys.stdin], [], [], 1)[0] and not sys.stdin.buffer.peek(1):
                 return 130

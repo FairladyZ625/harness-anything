@@ -189,10 +189,18 @@ export function posixTestScript(workspaceRoot, stateRoot, options) {
   return [
     "set -eu",
     `cd ${shellQuote(workspaceRoot)}`,
-    "node tools/isolated-test-dependencies.mjs",
+    ...(options.prepareDependencies === false ? [] : ["node tools/isolated-test-dependencies.mjs"]),
     `node tools/test-hermetic-preflight.mjs --user-root ${shellQuote(stateRoot)}`,
     `HARNESS_TEST_CONCURRENCY=2 HARNESS_DAEMON_USER_ROOT=${shellQuote(stateRoot)} ${command}`,
   ].join("\n");
+}
+
+export function localQueueConfig() {
+  return {
+    mode: "local",
+    root: path.join(tmpdir(), "harness-test-isolation-local"),
+    capacity: 2,
+  };
 }
 
 export function powerShellTestScript(workspaceRoot, stateRoot, options) {
@@ -254,7 +262,9 @@ export async function main(argv = process.argv.slice(2)) {
       exitCode =
         options.target === "server"
           ? await runServer(options, runId, snapshotRoot, files)
-          : await runWindows(options, runId, snapshotRoot, files);
+          : options.target === "local"
+            ? await runLocal(options, runId, snapshotRoot, files)
+            : await runWindows(options, runId, snapshotRoot, files);
     }
   } finally {
     rmSync(snapshotRoot, { recursive: true, force: true });
@@ -264,6 +274,11 @@ export async function main(argv = process.argv.slice(2)) {
 }
 
 export function serverQueueCommand(runId, configPath = `${server.root}/config.json`) {
+  const script = readFileSync(new URL("./isolated-test-queue.py", import.meta.url), "utf8");
+  return `python3 -u -c ${shellQuote(script)} ${shellQuote(runId)} ${shellQuote(configPath)}`;
+}
+
+export function localQueueCommand(runId, configPath) {
   const script = readFileSync(new URL("./isolated-test-queue.py", import.meta.url), "utf8");
   return `python3 -u -c ${shellQuote(script)} ${shellQuote(runId)} ${shellQuote(configPath)}`;
 }
@@ -340,7 +355,9 @@ async function runServer(options, runId, snapshotRoot, files) {
         exitCode = (await synchronization) ? 0 : await closed;
       }
       if (exitCode === 0 && !cancelled) {
-        owner.stdin.write(`${JSON.stringify(posixTestScript("/workspace", stateRoot, options))}\n`);
+        owner.stdin.write(
+          `${JSON.stringify(posixTestScript("/workspace", stateRoot, { ...options, prepareDependencies: false }))}\n`,
+        );
         exitCode = await completion;
         if (exitCode === 0 && options.coverage !== undefined && !cancelled) {
           exitCode = await returnCoverage(options.coverage, "rsync", [
@@ -350,6 +367,82 @@ async function runServer(options, runId, snapshotRoot, files) {
             `${destination}:${coveragePath(workspaceRoot)}`,
           ]);
         }
+      }
+    } else exitCode = await closed;
+  } finally {
+    owner.stdin.end();
+    const cleanupCode = await closed;
+    for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.off(signal, cancel);
+    if (exitCode === 0 && cleanupCode !== 0) exitCode = cleanupCode;
+  }
+  return cancelled ? 130 : exitCode;
+}
+
+async function runLocal(options, runId, snapshotRoot, files) {
+  const config = localQueueConfig();
+  mkdirSync(config.root, { recursive: true });
+  const configPath = path.join(config.root, "config.json");
+  writeFileSync(configPath, JSON.stringify(config));
+  const workspaceRoot = path.join(config.root, "runs", runId);
+  const owner = spawn("sh", ["-c", `exec ${localQueueCommand(runId, configPath)}`], {
+    stdio: ["pipe", "pipe", "inherit"],
+  });
+  let admitted, synced, finished;
+  const admission = new Promise((resolve) => (admitted = resolve));
+  const synchronization = new Promise((resolve) => (synced = resolve));
+  const completion = new Promise((resolve) => (finished = resolve));
+  let pending = "";
+  owner.stdout.on("data", (chunk) => {
+    process.stdout.write(chunk);
+    pending += chunk.toString();
+    let newline;
+    while ((newline = pending.indexOf("\n")) !== -1) {
+      const line = pending.slice(0, newline);
+      pending = pending.slice(newline + 1);
+      if (!line.startsWith("[test-isolation-queue] ")) continue;
+      const event = JSON.parse(line.slice("[test-isolation-queue] ".length));
+      if (event.event === "admitted") admitted(true);
+      if (event.event === "synced") synced(true);
+      if (event.event === "finished") finished(event.code);
+    }
+  });
+  const closed = waitFor(owner).then((code) => {
+    admitted(false);
+    synced(false);
+    finished(code);
+    return code;
+  });
+  let cancelled = false;
+  const cancel = () => {
+    cancelled = true;
+    owner.stdin.end();
+  };
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) process.on(signal, cancel);
+  owner.stdin.on("error", (error) => {
+    if (error.code !== "EPIPE") throw error;
+  });
+  let exitCode = 1;
+  try {
+    if (await admission) {
+      const archive = spawnSync("tar", sourceArchiveArgs(process.platform, snapshotRoot), {
+        input: encodeFileList(files),
+        maxBuffer: 128 * 1024 * 1024,
+        env: { ...process.env, COPYFILE_DISABLE: "1" },
+      });
+      if (archive.error) throw archive.error;
+      if (archive.status !== 0) {
+        process.stderr.write(archive.stderr);
+        exitCode = archive.status ?? 1;
+      } else if (!cancelled) {
+        owner.stdin.write(`${archive.stdout.length}\n`);
+        owner.stdin.write(archive.stdout);
+        exitCode = (await synchronization) ? 0 : await closed;
+      }
+      if (exitCode === 0 && !cancelled) {
+        owner.stdin.write(
+          `${JSON.stringify(posixTestScript(workspaceRoot, path.join(workspaceRoot, ".test-isolation-state"), { ...options, prepareDependencies: false }))}\n`,
+        );
+        exitCode = await completion;
       }
     } else exitCode = await closed;
   } finally {

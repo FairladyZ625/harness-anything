@@ -18,6 +18,8 @@ import path from "node:path";
 import test from "node:test";
 import {
   serverQueueCommand,
+  localQueueCommand,
+  localQueueConfig,
   parseDispatchArgs,
   posixTestScript,
   powerShellTestScript,
@@ -48,7 +50,7 @@ test("dispatcher defaults to server and requires exactly one test selector", () 
 });
 
 test("dispatcher accepts all isolated targets and validates exact file paths", () => {
-  for (const target of ["server", "windows"]) {
+  for (const target of ["server", "local", "windows"]) {
     assert.deepEqual(
       parseDispatchArgs(["--target", target, "--file", "packages/cli/test/daemon-autostart-cli.test.ts"]),
       {
@@ -331,7 +333,11 @@ test(
   { skip: queueSkip, timeout: 20000 },
   async () => {
     const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-queue-"));
-    const config = { ...JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url))), root };
+    const config = {
+      ...JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url))),
+      root,
+      dependencyCacheVolume: null,
+    };
     writeFileSync(path.join(root, "config.json"), JSON.stringify(config));
     installFakeDocker(root);
     const jobs = [];
@@ -462,6 +468,11 @@ test(
   },
 );
 
+test("local target shares the queue command and capacity-two configuration", () => {
+  assert.equal(localQueueConfig().capacity, 2);
+  assert.match(localQueueCommand("local-test", "/tmp/local-config"), /python3 -u -c/u);
+});
+
 function installFakeDocker(root) {
   mkdirSync(path.join(root, "containers"));
   writeFileSync(
@@ -552,7 +563,11 @@ test(
     const configPath = path.join(root, "config.json");
     writeFileSync(
       configPath,
-      JSON.stringify({ ...JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url))), root }),
+      JSON.stringify({
+        ...JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url))),
+        root,
+        dependencyCacheVolume: null,
+      }),
     );
     installFakeDocker(root);
     writeFileSync(path.join(root, "fail-cleanup"), "");
@@ -605,7 +620,11 @@ for (const code of [0, 7, "killed"]) {
       const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-remote-"));
       writeFileSync(
         path.join(root, "config.json"),
-        JSON.stringify({ ...JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url))), root }),
+        JSON.stringify({
+          ...JSON.parse(readFileSync(new URL("./isolated-test-server.json", import.meta.url))),
+          root,
+          dependencyCacheVolume: null,
+        }),
       );
       installFakeDocker(root);
       writeFileSync(

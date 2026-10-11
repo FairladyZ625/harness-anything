@@ -26,6 +26,8 @@ FROM system
 COPY --from=git /git-install/usr/local/ /usr/local/
 COPY --from=node /usr/local/ /usr/local/
 ENV LANG=C.UTF-8 TZ=Etc/UTC
+# Keep Electron postinstall on the reachable domestic mirror in the server facility.
+ENV ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/
 # The runner UID must equal the dedicated host account's UID: the bind mount is owned by it.
 ARG RUNNER_UID=1001
 RUN git config --system init.defaultBranch main \
