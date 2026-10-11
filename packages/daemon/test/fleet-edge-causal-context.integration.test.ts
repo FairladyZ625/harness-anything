@@ -277,8 +277,8 @@ test(
         )
       ).session.activity.outcome;
     assert.equal(await eventually(async () => (await outcomeOf(explicit.runtimeSessionId)) !== null), true);
-    // The stub worker delivers nothing, so the remote edge settles it unknown (no delivery witness).
-    assert.equal(await outcomeOf(explicit.runtimeSessionId), "unknown", JSON.stringify(fixture.runtimeArchiveReceipts));
+    // dec_614F7BBB18C8687E7EFC72173D: normal exit with final output and no submitted delivery is stopped.
+    assert.equal(await outcomeOf(explicit.runtimeSessionId), "stopped", JSON.stringify(fixture.runtimeArchiveReceipts));
     const reclaimed = await fixture.host.run(
       fixture.subject.repoId,
       { kind: "task-start", taskId: fixture.subject.taskId, executionId: fixture.subject.executionId },

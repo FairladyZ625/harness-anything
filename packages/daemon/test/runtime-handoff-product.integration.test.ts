@@ -259,14 +259,14 @@ for (const row of [{type:'thread.started',thread_id:id},
       sourceWorktree = path.join(sourceRoot, ".worktrees", taskId);
     // The center's outcome wait is signalled after the worker's persisted process_exit,
     // local terminal record and task lease settlement have reached the publication path.
-    const waitForOutcome = async (runtimeSessionId: string, expected: "succeeded" | "unknown" = "unknown") => {
+    const waitForOutcome = async (runtimeSessionId: string, expected: "succeeded" | "stopped" = "stopped") => {
       const receipt = await f.host.awaitRuntimeSessions(
         repoId,
         { runtimeSessionIds: [runtimeSessionId], mode: "all" },
         { ...localAuth, connectionSignal: t.signal },
       );
-      // Task-bound handoff sessions settle unknown: their provider turn completed but no delivery
-      // was witnessed, and a zero exit plus a result reference no longer restates success.
+      // dec_614F7BBB18C8687E7EFC72173D: task-bound handoff sessions with final output
+      // settle stopped when no delivery was witnessed.
       assert.equal(receipt.outcome, expected, JSON.stringify(receipt));
       assert.deepEqual(receipt.unavailable, []);
       assert.equal(

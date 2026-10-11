@@ -201,8 +201,10 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     dispatchNullableText(value.eventStreamRef) &&
     dispatchText(value.startedAt) &&
     dispatchNullableText(value.endedAt) &&
-    [null, "succeeded", "failed", "unknown", "cancelled"].includes(value.outcome as never) &&
-    ["running", "succeeded", "failed", "unknown", "cancelled", "lost"].includes(String(value.status)) &&
+    [null, "succeeded", "failed", "unknown", "cancelled", "stopped"].includes(value.outcome as never) &&
+    ["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "blocked", "lost"].includes(
+      String(value.status),
+    ) &&
     [value.resultRef, value.dispatchPath, value.reportPath].every(
       (field) => field === undefined || dispatchNullableText(field),
     ) &&

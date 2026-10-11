@@ -210,6 +210,21 @@ test("sessions.await validates target shape and exclusivity", async () => {
   }
 });
 
+test("sessions.await preserves stopped as a terminal verdict without reporting success or parking", async () => {
+  for (const mode of ["any", "all"] as const) {
+    const { context, signals } = awaitContext({
+      sessions: { stopped: [sessionResult("stopped", { outcome: "stopped", exitCode: 1 }, "checkpoint")] },
+    });
+    const receipt = await orchestrateRuntimeSessionsAwait({ runtimeSessionIds: ["stopped"], mode }, context);
+    assert.equal(receipt.outcome, "stopped");
+    assert.equal(receipt.exitCode, 1);
+    assert.equal(signals.waits, 0);
+  }
+  for (const status of ["stopped", "blocked"] as const) {
+    assert.equal(taskDispatchRowSettled(dispatchRow({ status, outcome: "stopped" }), ["dispatch-1"]), true);
+  }
+});
+
 test("sessions.await on taskIds waits for every dispatch row to settle", async () => {
   const { context, signals } = awaitContext({
     dispatches: [

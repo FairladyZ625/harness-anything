@@ -250,7 +250,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   assert.equal(mismatchedAgent.status, 1);
   assert.equal(mismatchedAgent.receipt.code, "runtime_resume_agent_mismatch");
   // The resumed worker completes its provider turn but commits nothing, so the dispatch settles
-  // unknown and the no-stream wait exits 1 (F-4C182EEE).
+  // stopped and the no-stream wait exits 1 (F-4C182EEE).
   const resumedDispatch = runMaybe(root, env, [
     "agent",
     "run",
@@ -278,7 +278,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   const resumedRow = (
     runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
   ).find((row) => row.dispatchId === resumedDispatchId);
-  assert.equal(resumedRow?.status, "unknown");
+  assert.equal(resumedRow?.status, "stopped");
   const resumedHeader = readDispatchRecords(root, resumedDispatchId)[0];
   assert.equal(resumedHeader?.agentId, "terra");
   assert.equal(resumedHeader?.cwd, realpathSync(workerRoot));
@@ -543,7 +543,7 @@ test("Concurrent fact writes preserve runtime progress attribution and task wait
   assert.equal(unrelatedProgress.receipt.code, "progress_lease_required");
   const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
   assert.equal(taskWait.status, 1, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`);
-  assert.equal(taskWait.receipt.outcome, "unknown");
+  assert.equal(taskWait.receipt.outcome, "stopped");
   const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === progressDispatchId,
   );
@@ -777,7 +777,8 @@ for (const afterResult of [false, true])
           }),
         ]);
         context.diagnostic(`native host loss invocation: ${JSON.stringify(result)}`);
-        assert.equal(result.receipt.outcome, "failed", JSON.stringify(result));
+        // dec_614F7BBB18C8687E7EFC72173D/CH3: a lost host has no process-exit evidence.
+        assert.equal(result.receipt.outcome, "unknown", JSON.stringify(result));
         assert.equal(result.status, 1, JSON.stringify(result));
         assert.equal(typeof result.receipt.nextAction, "string", JSON.stringify(result));
         assert.ok(String(result.receipt.nextAction).includes(taskId));
@@ -787,7 +788,7 @@ for (const afterResult of [false, true])
         >[];
         const row = dispatches.find((candidate) => candidate.dispatchId === dispatchId)!;
         // Public dispatch status is the accepted outcome; process loss remains in the owner's stream below.
-        assert.deepEqual({ status: row.status, outcome: row.outcome }, { status: "failed", outcome: "failed" });
+        assert.deepEqual({ status: row.status, outcome: row.outcome }, { status: "unknown", outcome: "unknown" });
         assert.match(JSON.stringify(result.receipt), /no longer alive/u);
         const records = readDispatchRecords(root, dispatchId);
         assert.ok(records.some((record) => record.kind === "process_lost"));

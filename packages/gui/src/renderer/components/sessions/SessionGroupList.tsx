@@ -443,6 +443,8 @@ const statusTones: Record<SessionStatus, StatusTone> = {
   unknown: "neutral",
   "ended-indeterminate": "neutral",
   unavailable: "neutral",
+  stopped: "neutral",
+  blocked: "bad",
 };
 function SessionStatusTag({ status }: { readonly status: SessionStatus }) {
   return <StatusTag tone={statusTones[status]} label={t(sessionStatusKey[status] as never)} />;

@@ -71,6 +71,10 @@ function fixture(
       watermark: 1,
       sourceRevision: 1,
     }),
+    readLeaseIntervals: () => [],
+    readEventWitness: () => null,
+    readCanonicalEvents: () => ({ events: [] }),
+    readTaskRelationsBySources: () => ({ rows: [] }),
     readRuntimeSession: () => current,
     readRuntimeDispatch: () => event,
     readRuntimeDispatches: () => events,
@@ -200,13 +204,26 @@ test("canonical archive preserves result, artifact, delegation and provider quot
   assert.equal(row.reviewTarget?.kind, "decision");
 });
 
-test("unknown outcome is not promoted by a zero exit and result reference", () => {
+test("normal exit with a result is stopped rather than unknown", () => {
   assert.equal(
     fixture(
-      session("exited", "unknown", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+      session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
     ).rows()[0]?.status,
-    "unknown",
+    "stopped",
   );
+});
+
+test("stopped dispatch is shown as blocked only from a structured task state", () => {
+  const f = fixture(
+    session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+  );
+  const projection = {
+    ...f.projection,
+    read: () => ({ snapshot: { task: { taskId, status: "blocked" } }, packagePath: "tasks/task-1" }),
+    readLeaseIntervals: () => [blockLease()],
+    readCanonicalEvents: () => ({ events: [blockedRelease()] }),
+  } as unknown as TaskProjection;
+  assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, "blocked");
 });
 
 test("point dispatch lookup cannot attribute a canonical dispatch to a different task", () => {
@@ -257,4 +274,80 @@ test("a dispatch without canonical attempt-group attribution does not advertise 
     readRuntimeDispatchesBySession: () => [{ event: { ...f.event, payload } }],
   } as TaskProjection;
   assert.equal(readRuntimeAttemptChain(runtimeSessionId, projection), undefined);
+});
+
+function blockLease() {
+  return {
+    executionId: "execution-1",
+    acquiredRevision: 10,
+    releasedRevision: 20,
+    holder: { actor: { executor: { id: `runtime-session:${runtimeSessionId}` } } },
+    leaseExpiresAt: "2026-08-24T00:00:00.000Z",
+  };
+}
+
+function blockedRelease() {
+  return {
+    schema: "task-event/v1",
+    type: "lease_released",
+    actor: { executor: { id: `runtime-session:${runtimeSessionId}` } },
+    payload: { task: { status: "blocked" }, mutation: { fields: ["status"] } },
+  };
+}
+
+// dec_614F7BBB18C8687E7EFC72173D/CH2: prose, other executions and stale awaits cannot declare this stop blocked.
+test("stopped dispatch awaits must be active and written within its lease interval", () => {
+  const f = fixture(session("exited", "stopped"));
+  for (const sample of [
+    { state: "active", revision: 15, executor: `runtime-session:${runtimeSessionId}`, expected: "blocked" },
+    { state: "retired", revision: 15, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
+    { state: "active", revision: 9, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
+    { state: "active", revision: 21, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
+    { state: "active", revision: null, executor: `runtime-session:${runtimeSessionId}`, expected: "stopped" },
+    { state: "active", revision: 15, executor: "owner:register-awaits", expected: "blocked" },
+  ]) {
+    const projection = {
+      ...f.projection,
+      readLeaseIntervals: () => [blockLease()],
+      readTaskRelationsBySources: () => ({
+        rows: [{ state: sample.state, sourceRef: `task/${taskId}`, workspaceRevision: sample.revision }],
+      }),
+      readEventWitness: () => ({
+        actor: { executor: { id: sample.executor } },
+        occurredAt: "2026-08-23T12:00:00.000Z",
+      }),
+    } as unknown as TaskProjection;
+    assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, sample.expected);
+  }
+  const expired = {
+    ...f.projection,
+    readLeaseIntervals: () => [blockLease()],
+    readTaskRelationsBySources: () => ({
+      rows: [{ state: "active", sourceRef: `task/${taskId}`, workspaceRevision: 15 }],
+    }),
+    readEventWitness: () => ({ occurredAt: "2026-08-25T00:00:00.000Z" }),
+  } as unknown as TaskProjection;
+  assert.equal(readTaskDispatches({ projection: expired, taskId }).dispatches[0]?.status, "stopped");
+  const unrelated = {
+    ...f.projection,
+    read: () => ({ snapshot: { task: { taskId, status: "blocked" } }, packagePath: "tasks/task-1" }),
+  } as unknown as TaskProjection;
+  assert.equal(readTaskDispatches({ projection: unrelated, taskId }).dispatches[0]?.status, "stopped");
+  const supersededLease = {
+    ...unrelated,
+    readCanonicalEvents: () => ({ events: [blockedRelease()] }),
+    readLeaseIntervals: () => [
+      blockLease(),
+      { ...blockLease(), holder: { actor: { executor: { id: "runtime-session:next-worker" } } } },
+    ],
+  } as unknown as TaskProjection;
+  assert.equal(readTaskDispatches({ projection: supersededLease, taskId }).dispatches[0]?.status, "stopped");
+  const unchangedStatus = {
+    ...unrelated,
+    readLeaseIntervals: () => [blockLease()],
+    readCanonicalEvents: () => ({
+      events: [{ ...blockedRelease(), payload: { task: { status: "blocked" }, mutation: { fields: [] } } }],
+    }),
+  } as unknown as TaskProjection;
+  assert.equal(readTaskDispatches({ projection: unchangedStatus, taskId }).dispatches[0]?.status, "stopped");
 });

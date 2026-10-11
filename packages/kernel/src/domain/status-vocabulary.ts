@@ -477,7 +477,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "outcome",
     module: "packages/kernel/src/domain/agent-runtime.ts",
     anchor: "#outcome",
-    words: ["succeeded", "failed", "unknown", "cancelled"],
+    words: ["succeeded", "failed", "unknown", "cancelled", "stopped"],
   },
   {
     id: "runtime.installation-state",
@@ -494,7 +494,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "semantic state",
     module: "packages/kernel/src/domain/agent-runtime.ts",
     anchor: "RuntimeSessionSemanticState",
-    words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+    words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
     note: "A judgment derived from the independent liveness and outcome facts; not a stored field.",
   },
   {
@@ -503,9 +503,9 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     field: "status",
     module: "packages/daemon/src/protocol/daemon-protocol-gui-types.ts",
     anchor: "#status",
-    words: ["running", "succeeded", "failed", "unknown", "cancelled"],
+    words: ["running", "succeeded", "failed", "unknown", "cancelled", "stopped", "blocked"],
     mirrorOf: "runtime.outcome",
-    plusWords: ["running"],
+    plusWords: ["running", "blocked"],
     note: 'TaskDispatchRow.status is the session outcome plus "running" while a dispatch is in flight.',
   },
   {

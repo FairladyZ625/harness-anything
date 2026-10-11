@@ -202,7 +202,7 @@ type BatchRow = {
   readonly instance: string;
   readonly agent: string | null;
   readonly to: string | null;
-  readonly status: "succeeded" | "failed" | "unknown" | "rejected";
+  readonly status: "succeeded" | "failed" | "unknown" | "stopped" | "rejected";
   readonly outcome: string | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
@@ -289,7 +289,13 @@ export async function orchestrateRuntimeBatch(
         const settled = await settleSpawnedSession(context, runtimeSessionId),
           { settlement } = settled,
           status =
-            settlement.outcome === "succeeded" ? "succeeded" : settlement.outcome === "unknown" ? "unknown" : "failed";
+            settlement.outcome === "succeeded"
+              ? "succeeded"
+              : settlement.outcome === "unknown"
+                ? "unknown"
+                : settlement.outcome === "stopped"
+                  ? "stopped"
+                  : "failed";
         row = {
           index,
           instance: entry.instance,
@@ -426,7 +432,10 @@ async function awaitSessionSet(
           ? "succeeded"
           : settled.some((row) => row.outcome === "unknown") || settled.length === 0
             ? "unknown"
-            : "failed",
+            : unavailable.length === 0 &&
+                settled.every((row) => row.outcome === "succeeded" || row.outcome === "stopped")
+              ? "stopped"
+              : "failed",
     exitCode = mode === "any" ? (winner?.exitCode ?? 1) : outcome === "succeeded" ? 0 : 1,
     hint =
       unavailable.length > 0

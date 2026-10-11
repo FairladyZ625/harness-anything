@@ -163,13 +163,27 @@ test("attempt-bound classification falls back only before tools or for recognize
   );
   const cleanExit = classifyRuntimeExit(active({ providerOutcome: "succeeded" }), 0);
   assert.deepEqual(pick(cleanExit), { outcome: "unknown", classification: "worker_stop" });
+  assert.deepEqual(
+    pick(
+      classifyRuntimeExit(
+        active({ providerOutcome: "succeeded", toolCallObserved: true, providerUsageEmpty: true }),
+        0,
+      ),
+    ),
+    {
+      outcome: "unknown",
+      classification: "worker_stop",
+    },
+  );
+  const stopped = classifyRuntimeExit(active({ providerOutcome: "succeeded", finalText: "checkpoint reached" }), 0);
+  assert.deepEqual(pick(stopped), { outcome: "stopped", classification: "worker_stop" });
   assert.deepEqual(pick(classifyRuntimeExit(active({ cancelRequested: true, toolCallObserved: false }), 1)), {
     outcome: "cancelled",
     classification: "worker_stop",
   });
   assert.deepEqual(
     pick(classifyRuntimeExit(active({ lossReason: "runtime process disappeared", toolCallObserved: true }), null)),
-    { outcome: "failed", classification: "worker_stop" },
+    { outcome: "unknown", classification: "worker_stop" },
   );
   const recovered = active({ providerFault: { code: "rate_limited", reason: "transient 429" } });
   observeProviderFault(recovered, { toolCallObserved: true });
@@ -208,7 +222,7 @@ test("blank successful Codex turns classify as provider faults", () => {
     observeProviderFault(runtime, parsed);
   }
   const result = classifyRuntimeExit(runtime, 0);
-  assert.equal(result.outcome, "unknown");
+  assert.equal(result.outcome, "failed");
   assert.equal(result.classification, "provider_fault");
   assert.equal(result.reason, "Provider completed a turn but produced no output.");
 });
@@ -225,6 +239,21 @@ test("non-blank successful Codex turns remain worker stops", () => {
     observeProviderFault(runtime, parsed);
   }
   assert.equal(classifyRuntimeExit(runtime, 0).classification, "worker_stop");
+});
+
+test("missing process evidence remains unknown regardless of the loss description or final output", () => {
+  for (const lossReason of [
+    "runtime process was never recorded before daemon restart",
+    "runtime process disappeared",
+  ]) {
+    const result = classifyRuntimeExit(active({ lossReason, finalText: "checkpoint reached" }), null);
+    assert.equal(result.outcome, "unknown");
+    assert.equal(result.classification, "worker_stop");
+    assert.deepEqual(pick(classifyRuntimeExit(active({ lossReason }), 1)), {
+      outcome: "failed",
+      classification: "worker_stop",
+    });
+  }
 });
 
 test("observed provider fault takes precedence over a later runtime loss", () => {

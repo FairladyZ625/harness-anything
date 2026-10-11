@@ -167,10 +167,10 @@ test("RuntimeSession explains its identity, task handoff, status vocabulary, and
   ]);
   assert.deepEqual(explanation.statusVocabulary, [
     { field: "liveness", words: ["live", "stale", "unknown", "exited"] },
-    { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled"] },
+    { field: "outcome", words: ["succeeded", "failed", "unknown", "cancelled", "stopped"] },
     {
       field: "semanticState",
-      words: ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"],
+      words: ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"],
     },
   ]);
   assert.deepEqual(

@@ -212,6 +212,8 @@
   "agentRuntime.sessionStatusSucceeded": "已成功",
   "agentRuntime.sessionStatusFailed": "已失败",
   "agentRuntime.sessionStatusCancelled": "已取消",
+  "agentRuntime.sessionStatusStopped": "已停手·未交付",
+  "agentRuntime.sessionStatusBlocked": "受阻待裁决",
   "agentRuntime.sessionStatusUnknown": "未知",
   "agentRuntime.sessionStatusEndedIndeterminate": "已结束 · 结果无法判定",
   "agentRuntime.sessionStatusUnavailable": "状态不可用",

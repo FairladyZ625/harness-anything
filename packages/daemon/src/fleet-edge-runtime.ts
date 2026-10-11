@@ -105,7 +105,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     readonly providerSessionId: string | null;
     readonly instanceId: string;
     readonly liveness: "live" | "stale" | "unknown" | "exited";
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
   }[]
 > {
   const sessions: Array<{
@@ -113,7 +113,7 @@ export async function readFleetRuntimeSessionsPaged(readPage: (payload: JsonObje
     readonly providerSessionId: string | null;
     readonly instanceId: string;
     readonly liveness: "live" | "stale" | "unknown" | "exited";
-    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | null;
+    readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
   }> = [];
   const seen = new Set<string>();
   let cursor: string | null = null;

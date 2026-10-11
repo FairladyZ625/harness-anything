@@ -164,7 +164,14 @@ test("runner watchdog fails and names a file whose process keeps an open handle"
 // stops once the process named in HARNESS_DAEMON_OWNER_PID is gone. The runner has to name each
 // test file's own process, replacing whatever owner the invoking shell happened to carry.
 test("runner names each test file process as the owner of the daemons it starts", () => {
-  const childEnv = { ...process.env, HARNESS_RUNNER_DAEMON_OWNER_FIXTURE: "1", HARNESS_DAEMON_OWNER_PID: "1" };
+  const childEnv = {
+    ...process.env,
+    HARNESS_RUNNER_DAEMON_OWNER_FIXTURE: "1",
+    HARNESS_DAEMON_OWNER_PID: "1",
+    CLAUDE_CODE_SESSION_ID: "invoking-worker",
+    CODEX_THREAD_ID: "invoking-worker",
+    CODEX_SESSION_ID: "invoking-worker",
+  };
   delete childEnv.NODE_TEST_CONTEXT;
   const result = spawnSync(
     process.execPath,
