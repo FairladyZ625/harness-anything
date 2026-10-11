@@ -41,7 +41,9 @@ export function makeSettingsActionRuntime(
         "settings_write_requires_principal",
         `Repository settings can only be changed by the principal; executor ` +
           `${binding.actor.executor.kind}:${binding.actor.executor.id} cannot run settings-update. ` +
-          "Escalate to the dispatching principal so a person actor can apply the change.",
+          "Escalate to the dispatching principal — run the command yourself in your own terminal, " +
+          "outside agent sessions (a `!` shell inside a session still runs as the session's executor) " +
+          "— so a person actor can apply the change.",
       );
     const row = cell.projection.getEntity("settings", SETTINGS_ID),
       revision = row?.workspaceRevision ?? 0,
