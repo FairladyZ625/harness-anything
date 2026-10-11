@@ -204,10 +204,11 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 146 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 147 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
   // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
-  assert.equal(result.rows.length, 146);
+  // dec_2AAF1D0612D3295C80F87E49FE CH1 authorizes daemon-mediated task push.
+  assert.equal(result.rows.length, 147);
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });
@@ -304,6 +305,94 @@ const queuedWriteMutations = [
     after: "executeAction: uncheckedExecution",
   },
 ];
+
+// dec_2AAF1D0612D3295C80F87E49FE CH1: preserve the authorization boundary for prepared push.
+test("G0-2 traces task push through the authorized prepared publication", (t) => {
+  const result = auditDurableActionAuthorization(taskSnapshot(t), ["task-push"]);
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.rows[0].authorizationPort, true);
+});
+
+for (const mutation of [
+  ...queuedWriteMutations.filter(
+    ({ name }) => !["catalog dispatch", "catalog task callback", "lifecycle execution"].includes(name),
+  ),
+  {
+    name: "prepared handler import",
+    file: "repo-cell-command-run",
+    before: 'from "./write-queue-external-reads.ts"',
+    after: 'from "./unrelated-preparation.ts"',
+  },
+  {
+    name: "prepared handler call",
+    file: "repo-cell-command-run",
+    before: "readBeforeWriteQueue(context, action, binding, context.refreshCi)",
+    after: "unrelatedPreparation(context, action, binding, context.refreshCi)",
+  },
+  {
+    name: "prepared queue callback",
+    file: "repo-cell-command-run",
+    before: "publish(action, authorizationDecision ? { ...binding, authorizationDecision } : binding)",
+    after: "publishUnchecked(action, binding)",
+  },
+  {
+    name: "prepared side effect import",
+    file: "write-queue-external-reads",
+    before: 'from "./runtime-worker-push.ts"',
+    after: 'from "./unrelated-worker-push.ts"',
+  },
+  {
+    name: "prepared publication return",
+    file: "write-queue-external-reads",
+    before: "return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {",
+    after: "return async function (_action: RepoTaskAction, _binding: RepoCellBinding) {",
+  },
+]) {
+  test(`G0-2 rejects task push when ${mutation.name} is disconnected`, (t) => {
+    const root = taskSnapshot(t);
+    mutate(root, mutation.file, mutation.before, mutation.after);
+    if (mutation.extraBefore) mutate(root, mutation.file, mutation.extraBefore, mutation.extraAfter);
+    const result = auditDurableActionAuthorization(root, ["task-push"]);
+    assert.equal(result.rows[0].authorizationPort, false);
+    assert.equal(result.findings.length, 1);
+  });
+}
+
+test("G0-2 requires task push's durable repo-write declaration", (t) => {
+  const root = taskSnapshot(t),
+    file = "packages/kernel/src/domain/action-declaration.ts",
+    source = readFileSync(path.join(root, file), "utf8");
+  assert.ok(source.includes('canonical("task-push", null, "repo-write", "none")'));
+  writeRepoFile(
+    root,
+    file,
+    source.replace(
+      'canonical("task-push", null, "repo-write", "none")',
+      'canonical("task-push", null, "repo-read", "none")',
+    ),
+  );
+  const result = auditDurableActionAuthorization(root, ["task-push"]);
+  assert.equal(result.rows[0].authorizationPort, false);
+  assert.equal(result.findings.length, 1);
+});
+
+test("G0-2 follows the prepared route rather than allowing a task push action name", (t) => {
+  const root = taskSnapshot(t);
+  for (const file of [
+    "packages/kernel/src/domain/action-declaration.ts",
+    "packages/daemon/src/write-queue-external-reads.ts",
+  ]) {
+    const source = readFileSync(path.join(root, file), "utf8");
+    assert.ok(source.includes('"task-push"'));
+    writeRepoFile(root, file, source.replaceAll('"task-push"', '"fixture-prepared-write"'));
+  }
+  const result = auditDurableActionAuthorization(root, ["fixture-prepared-write", "task-push"]);
+  assert.deepEqual(
+    result.rows.map((row) => row.authorizationPort),
+    [true, false],
+  );
+  assert.equal(result.findings.length, 1);
+});
 
 for (const mutation of queuedWriteMutations) {
   test(`G0-2 rejects task writes when production ${mutation.name} is disconnected`, (t) => {

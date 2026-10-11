@@ -9,6 +9,7 @@ import {
   pruneEdgeManifests,
   readEdgeManifestHeader,
   discardUnpublishedEdgeManifests,
+  type EdgeManifestHeader,
 } from "./replica-read-model.ts";
 import { withFleetReplicaPullLock } from "../fleet-edge-mirror.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
@@ -189,12 +190,17 @@ export function openFleetEdgeView(
         const replayedTarget =
           JSON.stringify(activeCut?.cut) ===
           JSON.stringify(frame.schema === "fleet.snapshot.begin/v1" ? frame.cut : frame.toCut);
-        if (
-          frame.schema === "fleet.delta.begin/v1" &&
-          JSON.stringify(activeCut?.cut) !== JSON.stringify(frame.fromCut) &&
-          !replayedTarget
-        )
-          throw new Error("snapshot_required: delta base cut is not current");
+        if (frame.schema === "fleet.delta.begin/v1" && !replayedTarget) {
+          // Publication can precede a lost ACK. The center's delta still names the retained ACK cut.
+          const base = readJson<EdgeManifestHeader>(
+            path.join(root, "cuts", `${frame.fromCut.revision}-g${frame.fromCut.schemaGeneration}`, "manifest.json"),
+          );
+          if (
+            JSON.stringify(base?.cut) !== JSON.stringify(frame.fromCut) ||
+            (activeCut && frame.toCut.revision < activeCut.cut.revision)
+          )
+            throw new Error("snapshot_required: delta base cut is not current");
+        }
         exactJson(path.join(staging, frame.transferId, "begin.json"), frame);
         active.set(frame.transferId, root);
         incomingSizes.set(frame.transferId, new Map());
@@ -327,7 +333,9 @@ function finish(
     )
       throw new Error("snapshot manifest count mismatch");
   } else {
-    const previous = readJson<Current>(path.join(viewRoot, "current.json"));
+    const previous = readJson<EdgeManifestHeader>(
+      path.join(viewRoot, "cuts", `${begin.fromCut.revision}-g${begin.fromCut.schemaGeneration}`, "manifest.json"),
+    );
     if (!previous || JSON.stringify(previous.cut) !== JSON.stringify(begin.fromCut))
       throw new Error("snapshot_required: delta base changed");
     for (const page of pages()) if (page.schema === "fleet.delta.page/v1") changes.push(...page.changes);
@@ -795,15 +803,9 @@ export async function runFleetReplicaPullClient(
       return await pullReplica(options);
     } catch (error) {
       recordReplicaHealth(viewDir, { syncFailure: replicaFailure(error, "replica_pull_failed") });
-      if (
-        error instanceof FleetRemoteError &&
-        [
-          "authorization_denied",
-          "authentication_required",
-          "human_confirmation_required",
-          "node_owner_unregistered",
-        ].includes(error.code)
-      )
+      // Device session failures reject this request; they do not revoke the owner's admitted cut.
+      // The daemon checks device login on each local read, independently of repository revocation.
+      if (error instanceof FleetRemoteError && ["authorization_denied", "node_owner_unregistered"].includes(error.code))
         recordNodeReadDenied(options.viewRoot, options.repoId, options.nodeId);
       throw error;
     }

@@ -58,7 +58,16 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     writes =
       p.role === "reviewer"
         ? ["task-review-execution"]
-        : ["task-progress-append", "fact-record", "doc-submit", "task-submit", "task-artifact-add"];
+        : [
+            "task-progress-append",
+            "fact-record",
+            "doc-submit",
+            "task-submit",
+            "task-artifact-add",
+            "task-push",
+            "ci-observe-pull",
+          ],
+    taskCiPull = action.kind === "ci-observe-pull";
   if (
     (action.kind.startsWith("doc-") &&
       (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
@@ -66,6 +75,11 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     (action.kind !== "event-list" && !documentRead && !catalog && action.taskId !== p.taskId) ||
     (documentRead && action.taskId !== undefined && action.taskId !== p.taskId) ||
     (action.executionId !== undefined && action.executionId !== p.executionId) ||
+    (taskCiPull &&
+      (action.taskId !== p.taskId ||
+        action.runs !== undefined ||
+        action.limit !== undefined ||
+        action.attempts !== undefined)) ||
     (action.executor != null &&
       (!isJsonObject(action.executor) ||
         action.executor.kind !== "agent" ||

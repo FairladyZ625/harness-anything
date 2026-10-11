@@ -200,6 +200,35 @@ export async function pushWorkerBranch(input: {
   }
 }
 
+/**
+ * Publishes a task branch with a remote compare-and-swap cut. Runtime requests and terminal
+ * settlement both use this entry point, so two requests for the same execution cannot silently
+ * replace a newer branch tip.
+ */
+export async function pushTaskWorkerBranch(input: {
+  readonly cwd: string;
+  readonly canonicalRoot: string;
+  readonly taskId: string;
+  readonly submittedCommitSha?: string;
+  readonly env?: NodeJS.ProcessEnv;
+  readonly timeoutMs?: number;
+}): Promise<WorkerPushResult> {
+  let expectedRemoteCommit: string;
+  try {
+    expectedRemoteCommit = await readWorkerRemoteCommit(input.canonicalRoot, input.taskId, input.env);
+  } catch (error) {
+    return {
+      attempted: true,
+      ok: false,
+      branch: input.taskId,
+      head: null,
+      pushedCommit: input.submittedCommitSha ?? null,
+      detail: errorDetail(error),
+    };
+  }
+  return pushWorkerBranch({ ...input, expectedRemoteCommit });
+}
+
 // The first commit in `<default branch>..HEAD` whose author or committer email is not the
 // conventional identity, named with both of its emails; null when the whole range matches.
 // Without a default branch the worker's own commits cannot be bounded, so that also refuses.
@@ -301,9 +330,17 @@ function errorDetail(error: unknown): string {
 }
 
 /** Observe without updating tracking refs: later background fetches cannot relax this CAS. */
-export async function readWorkerRemoteCommit(cwd: string, taskId: string): Promise<string> {
+export async function readWorkerRemoteCommit(
+  cwd: string,
+  taskId: string,
+  extraEnv?: NodeJS.ProcessEnv,
+): Promise<string> {
   try {
-    const line = await readGitText(cwd, ["ls-remote", "--refs", "origin", `refs/heads/${taskId}`], gitEnvironment());
+    const line = await readGitText(
+      cwd,
+      ["ls-remote", "--refs", "origin", `refs/heads/${taskId}`],
+      gitEnvironment(extraEnv),
+    );
     return line.trim().split(/\s/u)[0] ?? "";
   } catch (error) {
     throw Object.assign(new Error(errorDetail(error)), { code: "delivery_publish_failed" });

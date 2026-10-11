@@ -518,6 +518,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-list",
       "task-pin",
       "task-progress-append",
+      "task-push",
       "task-read-set",
       "task-release",
       "task-rematerialize",
@@ -1023,6 +1024,17 @@ test("thin parser routes CI observation pulls through the repo task command", ()
   const conflicting = parseThinCommand(["ci", "observe", "pull", "--task", "task-1", "--run", "34091151001"]);
   assert.equal(conflicting.ok, false);
   if (!conflicting.ok) assert.match(conflicting.nextAction, /mutually exclusive/u);
+});
+
+test("thin parser exposes task push as a task-bound daemon action", () => {
+  const parsed = parseThinCommand(["task", "push", "task-1"]);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) {
+    assert.equal(parsed.command.method, "repo.task.run");
+    assert.deepEqual(parsed.command.action, { kind: "task-push", taskId: "task-1" });
+  }
+  assert.equal(parseThinCommand(["task", "push"]).ok, false);
+  assert.equal(parseThinCommand(["task", "push", "task-1", "--main"]).ok, false);
 });
 
 test("thin parser validates only the selected command descriptor", () => {
