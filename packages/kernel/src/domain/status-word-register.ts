@@ -6,6 +6,21 @@ import { squadRunStatusWordRegister } from "./status-word-register-squad.ts";
 
 /** Ordered cross-entity status registrations, assembled from bounded domains. */
 export const statusWordRegister: readonly StatusWordRegistration[] = [
+  ...["pending", "applying", "effective", "rejected", "failed", "withdrawn"].map((word) => ({
+    word,
+    entity: "PermissionRequest" as const,
+    field: "status",
+    meaning: `Permission request is ${word}.`,
+    divergence: "entity-scoped" as const,
+  })),
+  ...["effective", "rejected", "failed", "version_conflict"].map((word) => ({
+    word,
+    entity: "PermissionRequest" as const,
+    field: "outcome",
+    meaning: `Permission approval outcome is ${word}.`,
+    divergence: "entity-scoped" as const,
+  })),
+
   ...gateRunStatusWordRegister,
   {
     word: "scheduled",

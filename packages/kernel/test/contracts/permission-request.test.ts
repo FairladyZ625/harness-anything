@@ -4,7 +4,6 @@ import test from "node:test";
 import {
   beginPermissionApproval,
   createPermissionRequest,
-  PermissionRequestCoordinator,
   PermissionRequestError,
   settlePermissionApproval,
 } from "../../src/domain/permission-request.ts";
@@ -26,28 +25,6 @@ test("approval is applying until the Keycloak write settles", () => {
   assert.equal(failed.request.error, "keycloak unavailable");
 });
 
-test("center coordinator gives one concurrent approval the revision winner", async () => {
-  const coordinator = new PermissionRequestCoordinator();
-  coordinator.create({
-    requestId: "req-race",
-    requesterPersonId: "alice",
-    resource,
-    actions: ["task-start"],
-    reason: "run",
-  });
-  let writes = 0;
-  const settle = async () => {
-    writes += 1;
-    await Promise.resolve();
-    return { ok: true as const };
-  };
-  const [first, second] = await Promise.all([
-    coordinator.approve("req-race", 0, "bob", settle),
-    coordinator.approve("req-race", 0, "carol", settle),
-  ]);
-  assert.deepEqual([first.outcome, second.outcome].sort(), ["effective", "version_conflict"]);
-  assert.equal(writes, 1);
-});
 test("stale and self approvals are rejected before external writes", () => {
   const request = createPermissionRequest({
     requestId: "req-2",

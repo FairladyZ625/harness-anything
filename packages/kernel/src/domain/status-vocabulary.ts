@@ -27,7 +27,8 @@ export type StatusEntity =
   | "DaemonWire"
   | "CiTest"
   | "CiFile"
-  | "CiMeasurement";
+  | "CiMeasurement"
+  | "PermissionRequest";
 
 export type StatusDivergence = "entity-scoped" | "divergent";
 
@@ -80,7 +81,33 @@ import { statusWordRegister } from "./status-word-register.ts";
 
 export { statusWordRegister } from "./status-word-register.ts";
 
+export const permissionRequestStatusWords = [
+  "pending",
+  "applying",
+  "effective",
+  "rejected",
+  "failed",
+  "withdrawn",
+] as const;
+export const permissionRequestOutcomeWords = ["rejected", "failed"] as const;
+
 export const statusVocabularies: readonly StatusVocabulary[] = [
+  {
+    id: "permission-request.status",
+    entity: "PermissionRequest",
+    field: "status",
+    module: "packages/kernel/src/domain/permission-request.ts",
+    anchor: "PermissionRequestStatus",
+    words: permissionRequestStatusWords,
+  },
+  {
+    id: "permission-request.outcome",
+    entity: "PermissionRequest",
+    field: "outcome",
+    module: "packages/kernel/src/domain/permission-request.ts",
+    anchor: "#outcome",
+    words: permissionRequestOutcomeWords,
+  },
   {
     id: "gate-run.state",
     entity: "GateRun",
