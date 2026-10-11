@@ -247,7 +247,7 @@ export function coded(code: string, message: string): Error {
   return error;
 }
 const liveness = ["live", "stale", "unknown", "exited"];
-const semanticStates = ["running", "succeeded", "failed", "cancelled", "ended-indeterminate", "unavailable"];
+const semanticStates = ["running", "succeeded", "failed", "cancelled", "stopped", "ended-indeterminate", "unavailable"];
 const attachCapabilities = ["supported", "unsupported"];
 export function validateAgentRuntimeOverview(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&

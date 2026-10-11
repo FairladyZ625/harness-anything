@@ -185,6 +185,7 @@ const runtimeSessionSemanticStates = [
   "succeeded",
   "failed",
   "cancelled",
+  "stopped",
   "ended-indeterminate",
   "unavailable",
 ] as const;

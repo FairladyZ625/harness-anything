@@ -42,15 +42,15 @@ test("exit zero without a declared delivery witness is stopped when the worker r
   assert.equal(result.outcome, "stopped");
 });
 
-test("exit zero without final output is failed even when write or plan heuristics are present", () => {
+test("exit zero without final output is unknown even when write or plan heuristics are present", () => {
   const result = classifyRuntimeExit(active({ writeItemObserved: false, planObserved: false }), 0);
-  assert.equal(result.outcome, "failed");
+  assert.equal(result.outcome, "unknown");
 });
 
-test("exit zero without final output remains failed despite an internal plan heuristic", () => {
+test("exit zero without final output remains unknown despite an internal plan heuristic", () => {
   assert.equal(
     classifyRuntimeExit(active({ writeItemObserved: true, planObserved: true, planIncomplete: true }), 0).outcome,
-    "failed",
+    "unknown",
   );
 });
 
@@ -59,7 +59,7 @@ test("taskless settlement requires the provider's completed turn and final resul
   try {
     for (const sample of [
       { finalText: "completed result", expected: "succeeded" },
-      { finalText: null, expected: "failed" },
+      { finalText: null, expected: "unknown" },
     ] as const) {
       const outcomes: Record<string, unknown>[] = [],
         runtime = tasklessSettlementRuntime(rootDir, sample.finalText),

@@ -131,11 +131,17 @@ function runtimeExitOutcome(
   providerFault: RuntimeProviderFault | null,
 ): RuntimeExitOutcome {
   if (active.cancelRequested) return "cancelled";
-  if (active.lossReason || active.providerOutcome === "failed") return "failed";
+  if (active.providerOutcome === "failed" || (active.lossReason && providerFault)) return "failed";
   if (exitCode === null) return "unknown";
   if (exitCode !== 0) return "failed";
   if (providerFault?.code === "pre_tool_exit") return "failed";
-  if (active.providerOutcome === "succeeded" && !active.finalText?.trim()) return "failed";
+  if (
+    active.providerOutcome === "succeeded" &&
+    !active.toolCallObserved &&
+    !active.nonEmptyAgentOutputObserved &&
+    active.providerUsageEmpty
+  )
+    return "failed";
   if (active.finalText?.trim() || active.nonEmptyAgentOutputObserved) return "stopped";
   return "unknown";
 }
@@ -144,7 +150,7 @@ function workerStopReason(active: ActiveRuntime, outcome: RuntimeExitOutcome): s
   if (outcome === "succeeded") return "Worker completed the attempt successfully.";
   if (outcome === "stopped") return "Worker stopped after a normal exit without a submitted delivery.";
   if (active.protocolError) return "Worker exited with incomplete provider protocol evidence; outcome is unknown.";
-  return "Worker exited without a structured provider outcome; outcome is unknown.";
+  return "Worker exited without sufficient completion evidence; outcome is unknown.";
 }
 
 export function observeProviderFault(active: ActiveRuntime, frame: ProviderFrame): void {

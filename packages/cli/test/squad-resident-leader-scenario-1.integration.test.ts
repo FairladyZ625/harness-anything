@@ -192,7 +192,7 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
     assert.equal(typeof activity.resultRef, "string");
     const dispatchResult = runMaybe(root, env, ["task", "dispatches", String(worker.taskId)]);
     assert.equal(dispatchResult.status, 1, JSON.stringify(dispatchResult.receipt));
-    assert.equal(dispatchResult.receipt.outcome, worker.status === "failed" ? "failed" : "unknown");
+    assert.equal(dispatchResult.receipt.outcome, worker.status === "failed" ? "failed" : "stopped");
     const dispatches = dispatchResult.receipt.dispatches as Array<Record<string, unknown>>;
     assert.equal(typeof dispatches.find((row) => row.dispatchId === worker.dispatchId)?.reportPath, "string");
   }
@@ -639,9 +639,9 @@ test(
       ["terra", "luna"],
     );
     // The bearer-reuse workers emit their protocol and exit cleanly but commit nothing in their
-    // squad checkouts, so their dispatches settle unknown rather than success (F-4C182EEE).
+    // squad checkouts, so their dispatches settle stopped rather than success (F-4C182EEE).
     assert.equal(
-      workers.every((worker) => worker.status === "unknown"),
+      workers.every((worker) => worker.status === "stopped"),
       true,
     );
     const configPath = path.join(userRoot, "runtime-instances", "squad-api", "home", ".codex", "config.toml");

@@ -45,11 +45,7 @@ export function makeSquadCanonicalReader(input: {
         : null;
     const semantic = session ? runtimeSessionSemanticState(session) : null;
     const status: SquadRunTurnStatus | null =
-      semantic === "ended-indeterminate" || semantic === "stopped"
-        ? "unknown"
-        : semantic === "unavailable"
-          ? "lost"
-          : semantic;
+      semantic === "ended-indeterminate" ? "unknown" : semantic === "unavailable" ? "lost" : semantic;
     return {
       status,
       startedAt: dispatch?.payload.startedAt ?? dispatch?.occurredAt ?? null,

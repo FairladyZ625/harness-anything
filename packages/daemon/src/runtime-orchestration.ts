@@ -432,7 +432,10 @@ async function awaitSessionSet(
           ? "succeeded"
           : settled.some((row) => row.outcome === "unknown") || settled.length === 0
             ? "unknown"
-            : "failed",
+            : unavailable.length === 0 &&
+                settled.every((row) => row.outcome === "succeeded" || row.outcome === "stopped")
+              ? "stopped"
+              : "failed",
     exitCode = mode === "any" ? (winner?.exitCode ?? 1) : outcome === "succeeded" ? 0 : 1,
     hint =
       unavailable.length > 0

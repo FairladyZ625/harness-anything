@@ -294,8 +294,8 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         // all -- keep polling rather than crashing on that transient shape.
         return (value.session as { activity?: { outcome: unknown } } | undefined)?.activity?.outcome ? value : null;
       });
-    // Success with permission denials is the provider's own ambiguity: the frame parser declares
-    // the outcome unknown, and a zero exit does not restat it as success.
+    // Permission denials prevent a successful delivery witness. A final message and normal exit
+    // still establish a stopped turn instead of leaving its outcome unknown.
     assert.deepEqual(
       (
         deniedRead.session as {
@@ -305,7 +305,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         outcome: (deniedRead.session as { activity: { outcome: unknown } }).activity.outcome,
         exitCode: (deniedRead.session as { activity: { exitCode: unknown } }).activity.exitCode,
       },
-      { outcome: "unknown", exitCode: 0 },
+      { outcome: "stopped", exitCode: 0 },
     );
     const empty = await rpc(host, auth, "repo.agentRuntime.spawn", {
       repo: { repoId },

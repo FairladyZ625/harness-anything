@@ -250,7 +250,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   assert.equal(mismatchedAgent.status, 1);
   assert.equal(mismatchedAgent.receipt.code, "runtime_resume_agent_mismatch");
   // The resumed worker completes its provider turn but commits nothing, so the dispatch settles
-  // unknown and the no-stream wait exits 1 (F-4C182EEE).
+  // stopped and the no-stream wait exits 1 (F-4C182EEE).
   const resumedDispatch = runMaybe(root, env, [
     "agent",
     "run",
@@ -278,7 +278,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   const resumedRow = (
     runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
   ).find((row) => row.dispatchId === resumedDispatchId);
-  assert.equal(resumedRow?.status, "unknown");
+  assert.equal(resumedRow?.status, "stopped");
   const resumedHeader = readDispatchRecords(root, resumedDispatchId)[0];
   assert.equal(resumedHeader?.agentId, "terra");
   assert.equal(resumedHeader?.cwd, realpathSync(workerRoot));
@@ -543,7 +543,7 @@ test("Concurrent fact writes preserve runtime progress attribution and task wait
   assert.equal(unrelatedProgress.receipt.code, "progress_lease_required");
   const taskWait = runMaybe(root, env, ["runtime", "status", "--task", taskId, "--wait", "--no-stream"]);
   assert.equal(taskWait.status, 1, `${taskWait.stderr}\n${JSON.stringify(taskWait.receipt)}`);
-  assert.equal(taskWait.receipt.outcome, "unknown");
+  assert.equal(taskWait.receipt.outcome, "stopped");
   const waitedRow = (taskWait.receipt.dispatches as Array<Record<string, unknown>>).find(
     (row) => row.dispatchId === progressDispatchId,
   );

@@ -210,9 +210,9 @@ for (const row of [{type:'thread.started',thread_id:id},
       { runtimeSessionIds: [runtimeSessionId], mode: "all" },
       { ...localAuth, connectionSignal: t.signal },
     );
-    // The handoff source settles unknown (no witnessed delivery); a zero exit plus a result
-    // reference no longer restates success.
-    assert.equal(receipt.outcome, "unknown", JSON.stringify(receipt));
+    // The handoff source settles stopped (no witnessed delivery); a zero exit plus a result
+    // reference does not imply delivery.
+    assert.equal(receipt.outcome, "stopped", JSON.stringify(receipt));
     assert.deepEqual(receipt.unavailable, []);
   };
   const dispatch = async (idempotencyKey: string, prompt: string) => {

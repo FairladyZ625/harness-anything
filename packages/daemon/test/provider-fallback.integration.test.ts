@@ -128,7 +128,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(completed, ["provider-rate-first", "provider-success-second"]);
     assert.deepEqual(
@@ -136,7 +136,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       ["provider_quota", "worker_stop"],
     );
     assert.match(completed[0]?.reason ?? "", /HTTP 429/u);
-    assert.match(completed[1]?.reason ?? "", /outcome is unknown/u);
+    assert.match(completed[1]?.reason ?? "", /without a submitted delivery/u);
     assert.doesNotMatch(JSON.stringify(completed), /sk-provider-fallback-secret/u);
     assert.match(prompts.get("provider-success-second")?.[0] ?? "", /# Provider fallback continuation/u);
     assert.match(
@@ -272,7 +272,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const threeAttempts = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_three_attempts" })).dispatches;
-      return rows.length === 3 && rows[2]?.outcome === "unknown" ? rows : null;
+      return rows.length === 3 && rows[2]?.outcome === "stopped" ? rows : null;
     });
     assertAttemptChain(threeAttempts, ["provider-rate-a", "provider-rate-b", "provider-rate-c"]);
 
@@ -322,7 +322,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
     );
     const stopped = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_worker_stop" })).dispatches;
-      return rows.length === 1 && rows[0]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 1 && rows[0]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assert.equal(stopped[0]?.classification, "worker_stop");
     assert.equal(stopped[0]?.fallbackState, null);
@@ -399,7 +399,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(bare, ["provider-bare-first", "provider-bare-second"]);
     assert.equal(models.get("provider-bare-first"), "bare-model");
@@ -427,7 +427,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       // The successor is published only after its predecessor links to it, so no read may see both
       // rows with the predecessor still scheduled.
       if (rows.length === 2) assert.equal(rows[0]?.fallbackState, "dispatched", JSON.stringify(rows));
-      return rows.length === 2 && rows[1]?.outcome === "unknown" && taskDispatchRowsSettled(rows) ? rows : null;
+      return rows.length === 2 && rows[1]?.outcome === "stopped" && taskDispatchRowsSettled(rows) ? rows : null;
     });
     assertAttemptChain(stderrBounded, ["provider-stderr-first", "provider-stderr-second"]);
     assert.equal(stderrBounded[0]?.classification, "provider_fault");

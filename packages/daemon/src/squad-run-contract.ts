@@ -56,7 +56,7 @@ export type SquadRunTriggerDto =
 export type SquadRunDecisionDto =
   | { readonly kind: "converged" }
   | { readonly kind: "plan"; readonly dispatchCount: number };
-export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "lost";
+export type SquadRunTurnStatus = "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | "lost";
 export interface SquadRunAttemptMetricsDto {
   readonly tokenUsage: { readonly input: number | null; readonly output: number | null };
   readonly toolCallCount: number | null;
@@ -135,7 +135,15 @@ const phases: readonly SquadRunPhase[] = [
   "converged",
   "failed",
 ];
-const turnStatuses: readonly SquadRunTurnStatus[] = ["running", "succeeded", "failed", "unknown", "cancelled", "lost"];
+const turnStatuses: readonly SquadRunTurnStatus[] = [
+  "running",
+  "succeeded",
+  "failed",
+  "unknown",
+  "cancelled",
+  "stopped",
+  "lost",
+];
 
 export function validateSquadRunsList(value: unknown): readonly string[] {
   return squadRunRecord(value) &&

@@ -24,7 +24,7 @@ export type RuntimeBatchResult = {
   readonly instance: string;
   readonly agent: string | null;
   readonly to: string | null;
-  readonly status: "succeeded" | "failed" | "rejected" | "unknown";
+  readonly status: "succeeded" | "failed" | "rejected" | "unknown" | "stopped";
   readonly outcome: string | null;
   readonly dispatchId: string | null;
   readonly runtimeSessionId: string | null;
