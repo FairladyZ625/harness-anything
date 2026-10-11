@@ -50,6 +50,15 @@ import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
 
+// The GUI is the person's local viewer, never a dispatched execution. When an automated
+// entry (capture.mjs, e2e probe, gui-e2e lanes) launches the app from inside a task
+// dispatch, the ambient worker credential would otherwise ride into the daemon client,
+// attach to every request and be rejected as outside the dispatch scope
+// (execution_credential_rejected), leaving the window stuck on the daemon startup gate.
+// Drop it before the first client can read it; terminal sessions spawned from the GUI
+// inherit the cleaned environment as well.
+delete process.env.HARNESS_EXECUTION_CREDENTIAL;
+
 // Automated Electron runs render normally but never claim the user's desktop.
 const backgroundTest = app.commandLine.hasSwitch("headless");
 if (backgroundTest && process.platform === "darwin") app.setActivationPolicy("accessory");

@@ -170,10 +170,9 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver 
   writeRawArtifact(fixture.rootDir, fixture.packagePath);
   writeSpreadsheetArtifact(fixture.rootDir, fixture.packagePath);
   writeDeclaredEntitySource(fixture.rootDir);
-  // Electron 应用面对的是夹具 daemon:剥掉外层运行时注入的任务执行凭据,否则预载桥
-  // 会把它附到每个请求上而被夹具 daemon 拒绝(canonical lane 面向真实 daemon,不动)。
+  // Electron 应用面对的是夹具 daemon。外层运行时注入的任务执行凭据不需要在这里剥:
+  // GUI 主进程启动时已丢弃它(electron-main.ts),应用永远以本机会话连 daemon。
   const isolatedEnv = { ...env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
-  delete isolatedEnv.HARNESS_EXECUTION_CREDENTIAL;
   let driver;
   try {
     driver = await startDriver({
