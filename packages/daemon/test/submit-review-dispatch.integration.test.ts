@@ -11,6 +11,17 @@ import { executionId, fixture, owner, reviewerExecutionBinding, taskId } from ".
 
 type ChildFixture = Awaited<ReturnType<typeof fixture>>;
 
+// Temporary CI probe for the first two cases' bimodal duration. Remove with the fixture's
+// tracePhase hooks once CI identifies the slow phase, before merging the actual fix.
+function traceSubmitPhases(testName: string) {
+  const startedAt = performance.now();
+  return (phase: string) => {
+    console.error(
+      `[submit-phase] ${JSON.stringify({ testName, pid: process.pid, phase, elapsedMs: performance.now() - startedAt })}`,
+    );
+  };
+}
+
 async function runChildSlice(
   f: ChildFixture,
   childTaskId: string,
@@ -95,10 +106,11 @@ function createdTask(events: ReturnType<ChildFixture["events"]>, childTaskId: st
 test(
   "a submit under a review-disabled closeout profile freezes no dispatch and never launches a reviewer",
   { timeout: 20_000 },
-  async () => {
+  async (t) => {
     const f = await fixture(false, true, false, false, false, undefined, {
       closeoutProfile: "standard",
       autoForward: false,
+      tracePhase: traceSubmitPhases(t.name),
     });
     try {
       await f.install();
@@ -117,8 +129,11 @@ test(
 test(
   "submit leaves the accepted cut at owner triage and complete never dispatches a reviewer",
   { timeout: 20_000 },
-  async () => {
-    const f = await fixture(false, true, false, false, false, undefined, { autoSubmit: false });
+  async (t) => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      autoSubmit: false,
+      tracePhase: traceSubmitPhases(t.name),
+    });
     try {
       await f.install();
       const submitted = (await f.submit()) as Record<string, unknown>;

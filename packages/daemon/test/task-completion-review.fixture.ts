@@ -118,6 +118,8 @@ export async function fixture(
   reviewReturnBudget?: number,
   options: {
     readonly autoSubmit?: boolean;
+    /** Temporary CI phase probe; remove after the slow submit phase is captured, before merging the fix. */
+    readonly tracePhase?: (phase: string) => void;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
     /** False stops after submit: the cut awaits the owner's triage. */
@@ -132,6 +134,7 @@ export async function fixture(
     readonly legacyReviewer?: boolean;
   } = {},
 ) {
+  options.tracePhase?.("setup:start");
   const root = mkdtempSync(path.join(tmpdir(), "ha-completion-review-")),
     repoId = workspaceId("completion-review");
   git(root, "init", "-q", "-b", "main");
@@ -240,8 +243,19 @@ export async function fixture(
       `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n`,
   );
   if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
+  options.tracePhase?.("setup:end");
+  options.tracePhase?.("open:start");
   let cell = await open();
-  const run = (action: Parameters<typeof cell.run>[0]) => cell.run(action, owner);
+  options.tracePhase?.("open:end");
+  const run = (action: Parameters<typeof cell.run>[0]) => {
+    options.tracePhase?.(`${action.kind}:start`);
+    const receipt = cell.run(action, owner);
+    if (options.tracePhase === undefined) return receipt;
+    return receipt.then((result) => {
+      options.tracePhase?.(`${action.kind}:end`);
+      return result;
+    });
+  };
   const created = await run({
     kind: "task-create",
     taskId,
@@ -251,9 +265,13 @@ export async function fixture(
     ...options.create,
   });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
+  options.tracePhase?.("publication:start");
   await waitForFixturePublication(cell, created.opId, owner);
+  options.tracePhase?.("publication:end");
   const packagePath = String((created as Record<string, unknown>).packagePath);
+  options.tracePhase?.("plan:start");
   await realizeTaskPlanFixture(root, packagePath, (planPath) => run({ kind: "doc-submit", paths: [planPath] }));
+  options.tracePhase?.("plan:end");
   assert.equal((await run({ kind: "task-start", taskId, executionId })).outcome, "applied");
   assert.equal(
     (
@@ -295,11 +313,13 @@ export async function fixture(
     delivery = `${delivery} artifact:${report}@${accepted.revision}`;
   }
   const submit = async () => {
+    options.tracePhase?.("closeout-write:start");
     writeFileSync(
       path.join(root, "harness", packagePath, "closeout.md"),
       `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
     );
+    options.tracePhase?.("closeout-write:end");
     const receipt = await run({ kind: "task-submit", taskId, executionId });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
@@ -326,7 +346,12 @@ export async function fixture(
   // both cost a SQLite open and left the handle for the GC (which blocks deleting the fixture
   // tree on Windows). close() drains it before the tree goes away.
   let eventsReader: ReturnType<typeof makeTaskEventReader> | null = null;
-  const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
+  const events = () => {
+    options.tracePhase?.("events:start");
+    const result = (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
+    options.tracePhase?.("events:end");
+    return result;
+  };
   const awaitOutcome = async (runtimeSessionId: string) => {
     for (let attempt = 0; attempt < 500; attempt += 1) {
       const outcome = events().find(
@@ -582,9 +607,15 @@ export async function fixture(
       return awaitOutcome(runtimeSessionId);
     },
     close: async () => {
+      options.tracePhase?.("close:start");
       await cell.close();
+      options.tracePhase?.("close:end");
+      options.tracePhase?.("reader-drain:start");
       await eventsReader?.drain();
+      options.tracePhase?.("reader-drain:end");
+      options.tracePhase?.("cleanup:start");
       rmSync(root, { recursive: true, force: true });
+      options.tracePhase?.("cleanup:end");
     },
   };
 }
