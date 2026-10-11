@@ -9,6 +9,7 @@ import {
   listBackupRetention,
   parseBackupRetentionInvocation,
   renderBackupRetention,
+  runBackupRetention,
 } from "../src/cli/thin-command-backup-retention.ts";
 
 const now = "2026-10-11T00:00:00.000Z";
@@ -53,6 +54,24 @@ test("a missing backup root lists empty instead of failing", () => {
   rmSync(root, { recursive: true, force: true });
   assert.deepEqual(listBackupRetention({ backupRoot: root, now, keepDays: 30 }), []);
   assert.equal(renderBackupRetention([], 30, root), `No backup entries under ${root}.`);
+});
+
+test("an unreadable backup root fails with its own error code instead of listing empty", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-backup-retention-file-root-"));
+  try {
+    const backupRoot = path.join(userRoot, "backups");
+    writeFileSync(backupRoot, "a regular file where the backup root should be\n");
+    assert.throws(
+      () => listBackupRetention({ backupRoot, now, keepDays: 30 }),
+      (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOTDIR",
+    );
+    await assert.rejects(
+      runBackupRetention({ days: 30, userRoot, json: false }),
+      (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOTDIR",
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
 });
 
 test("the boundary day is retained and the day after expires", () => {

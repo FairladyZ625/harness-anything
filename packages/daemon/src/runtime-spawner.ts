@@ -27,7 +27,11 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
+import {
+  adoptRuntimes,
+  locallyObservedRuntimeSessions,
+  sweepSettledRuntimeTempDirectories,
+} from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -665,7 +669,14 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.release?.();
       cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      input.reclaimRuntimeTempDirectory?.(runtimeInstanceId, runtimeSessionId);
+      // The stream is gone, so this directory's only remaining reclaim path is the next
+      // daemon start's settled-session sweep (a launch that failed before its dispatch
+      // event never registers at the center, which the sweep treats as settled).
+      const reclaimFailure = input.reclaimRuntimeTempDirectory?.(runtimeInstanceId, runtimeSessionId) ?? null;
+      if (reclaimFailure)
+        console.error(
+          `[runtime-temp] ${runtimeInstanceId}/${runtimeSessionId} could not be reclaimed after a failed launch: ${reclaimFailure.message}`,
+        );
       if (!taskLeaseHandoff || !taskBinding) return;
       await input.onAttemptTerminal?.({
         runtimeSessionId,
@@ -997,6 +1008,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         undefined,
       ),
     adopt: (onProgress?: (completed: number) => void) => adoptRuntimes(extracted, onProgress),
+    // Startup-only; callers must not invoke it while a launch can be mid-flight.
+    sweepSettledRuntimeTempDirectories: () => sweepSettledRuntimeTempDirectories(extracted),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => {
       fallbackClosed = true;

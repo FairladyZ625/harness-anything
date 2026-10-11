@@ -29,6 +29,9 @@ export interface DaemonRuntimePorts {
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch: ReturnType<typeof openRuntimeInstanceStore>["prepareLaunch"];
   readonly reclaimRuntimeTempDirectory: ReturnType<typeof openRuntimeInstanceStore>["reclaimRuntimeTempDirectory"];
+  readonly reclaimSettledRuntimeTempDirectories: ReturnType<
+    typeof openRuntimeInstanceStore
+  >["reclaimSettledRuntimeTempDirectories"];
   readonly prepareWorkerGitEnvironment: ReturnType<typeof openRuntimeInstanceStore>["prepareWorkerGitEnvironment"];
 }
 

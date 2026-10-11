@@ -131,7 +131,10 @@ export interface RepoCellOpenInput {
       readonly runtimeSessionId?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
-  readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => void;
+  readonly reclaimRuntimeTempDirectory?: (instanceId: string, runtimeSessionId: string) => Error | null;
+  readonly reclaimSettledRuntimeTempDirectories?: (
+    isSettled: (runtimeSessionId: string) => boolean,
+  ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
   readonly bootstrap?: RepoBootstrapInput;
   readonly onBootstrap?: (receipt: RepoBootstrapReceipt) => void;
@@ -469,6 +472,9 @@ export async function openRepoWriterCell(
     keycloakCenter: input.keycloakCenter,
     prepareLaunch: input.prepareRuntimeLaunch ?? unavailableRuntimeInstanceStore,
     ...(input.reclaimRuntimeTempDirectory ? { reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory } : {}),
+    ...(input.reclaimSettledRuntimeTempDirectories
+      ? { reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories }
+      : {}),
     ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
     resolveAgent: (agentId) => {
       const projected = projection.getEntity("agent", agentId);
@@ -946,6 +952,9 @@ export async function openRepoWriterCell(
   await runtimeSpawner.adopt((completed) =>
     input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
   );
+  // Open runs before this cell serves anything, so no launch can be mid-flight here: the
+  // settled-session sweep reclaims per-run temp directories settlement could not.
+  await runtimeSpawner.sweepSettledRuntimeTempDirectories();
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
   schedule(() =>

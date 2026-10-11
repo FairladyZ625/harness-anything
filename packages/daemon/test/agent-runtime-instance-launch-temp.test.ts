@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -8,7 +8,9 @@ import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { codedAs, observed } from "./agent-runtime-instance-environment.fixture.ts";
 
 const sessionA = "runtime_0123456789abcdef01234567",
-  sessionB = "runtime_89abcdef0123456789abcdef";
+  sessionB = "runtime_89abcdef0123456789abcdef",
+  sessionC = "runtime_abababababababababababab",
+  sessionD = "runtime_cdcdcdcdcdcdcdcdcdcdcdcd";
 
 function sessionTemp(userRoot: string, instanceId: string, runtimeSessionId: string): string {
   return path.join(userRoot, "runtime-instances", instanceId, "tmp", runtimeSessionId);
@@ -170,9 +172,140 @@ test("a session id outside the spawner-minted shape never reaches the temp path 
       );
       // The reclaim path reads session ids back from disk (adopted dispatch streams), so it
       // skips a forged shape instead of throwing or deleting.
-      store.reclaimRuntimeTempDirectory("codex-temp-shape", forged);
+      assert.equal(store.reclaimRuntimeTempDirectory("codex-temp-shape", forged), null);
       assert.equal(existsSync(path.join(userRoot, "runtime-instances", "codex-temp-shape", "tmp", forged)), false);
     }
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("a reclaim the filesystem refuses returns the failure instead of swallowing it", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-reclaim-refused-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      resolveCredential: () => "instance-secret",
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-reclaim-refused",
+      name: "Codex Reclaim Refused",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: {},
+      auth: { mode: "api-key", credentialRef: "credential:v1:codex-reclaim-refused" },
+    });
+    for (const session of [sessionA, sessionB]) {
+      await store.prepareLaunch("codex-reclaim-refused", {
+        cwd: "/workspace/repo",
+        prompt: session,
+        runtimeSessionId: session,
+      });
+    }
+    // A directory holding content and without write permission refuses recursive removal for
+    // its owner: the reclaim returns that refusal (the terminal body records it; the startup
+    // sweep retries) while the sibling session still reclaims normally.
+    const lockedRoot = sessionTemp(userRoot, "codex-reclaim-refused", sessionA);
+    mkdirSync(path.join(lockedRoot, "scratch"));
+    writeFileSync(path.join(lockedRoot, "scratch", "payload.txt"), "one-off fixture");
+    chmodSync(lockedRoot, 0o500);
+    const refused = store.reclaimRuntimeTempDirectory("codex-reclaim-refused", sessionA);
+    assert.equal(refused instanceof Error, true);
+    assert.equal(typeof (refused as NodeJS.ErrnoException).message, "string");
+    assert.equal(existsSync(sessionTemp(userRoot, "codex-reclaim-refused", sessionA)), true);
+    assert.equal(store.reclaimRuntimeTempDirectory("codex-reclaim-refused", sessionB), null);
+    assert.equal(existsSync(sessionTemp(userRoot, "codex-reclaim-refused", sessionB)), false);
+    // Unlock for the cleanup below.
+    chmodSync(sessionTemp(userRoot, "codex-reclaim-refused", sessionA), 0o700);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("the settled-session sweep reclaims only settled per-run directories it owns", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-temp-sweep-"));
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed],
+      resolveCredential: () => "instance-secret",
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-sweep",
+      name: "Codex Sweep",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: {},
+      auth: { mode: "api-key", credentialRef: "credential:v1:codex-sweep" },
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-sweep-operator",
+      name: "Codex Sweep Operator",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      isolationState: "operator-environment",
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+    for (const session of [sessionA, sessionB, sessionC, sessionD]) {
+      await store.prepareLaunch("codex-sweep", {
+        cwd: "/workspace/repo",
+        prompt: session,
+        runtimeSessionId: session,
+      });
+    }
+    // An operator-environment instance never owns per-run directories; one planted manually
+    // under its state root must stay untouched, as must non-session entries in the tmp root.
+    const operatorSession = sessionTemp(userRoot, "codex-sweep-operator", sessionA);
+    mkdirSync(operatorSession, { recursive: true });
+    const sweepTmpRoot = path.join(userRoot, "runtime-instances", "codex-sweep", "tmp");
+    mkdirSync(path.join(sweepTmpRoot, "operator-notes"));
+    writeFileSync(path.join(sweepTmpRoot, "runtime_ffffffffffffffffffffffff"), "a file, not a session directory\n");
+    // sessionA: settled but locked (the failure the sweep retries every start); sessionB:
+    // still live; sessionC: settled; sessionD: settled.
+    const lockedRoot = sessionTemp(userRoot, "codex-sweep", sessionA);
+    mkdirSync(path.join(lockedRoot, "scratch"));
+    writeFileSync(path.join(lockedRoot, "scratch", "payload.txt"), "one-off fixture");
+    chmodSync(lockedRoot, 0o500);
+    const asked: string[] = [],
+      failures = store.reclaimSettledRuntimeTempDirectories((runtimeSessionId) => {
+        asked.push(runtimeSessionId);
+        return runtimeSessionId !== sessionB;
+      });
+    assert.deepEqual(
+      asked.sort(),
+      [sessionA, sessionB, sessionC, sessionD],
+      "every spawner-minted session directory under enforced instances is consulted; the predicate settles it",
+    );
+    assert.deepEqual(
+      failures.map((failure) => [failure.instanceId, failure.runtimeSessionId]),
+      [["codex-sweep", sessionA]],
+    );
+    assert.equal(failures[0]?.error instanceof Error, true);
+    assert.equal(existsSync(sessionTemp(userRoot, "codex-sweep", sessionA)), true, "locked directory stays");
+    assert.equal(existsSync(sessionTemp(userRoot, "codex-sweep", sessionB)), true, "live session stays");
+    assert.equal(existsSync(sessionTemp(userRoot, "codex-sweep", sessionC)), false, "settled session reclaimed");
+    assert.equal(existsSync(sessionTemp(userRoot, "codex-sweep", sessionD)), false, "settled session reclaimed");
+    assert.equal(existsSync(operatorSession), true, "another instance's directories stay");
+    assert.equal(existsSync(path.join(sweepTmpRoot, "operator-notes")), true, "non-session entries stay");
+    // Unlock for the cleanup below.
+    chmodSync(sessionTemp(userRoot, "codex-sweep", sessionA), 0o700);
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

@@ -2,6 +2,7 @@ import {
   chmodSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -82,6 +83,14 @@ function runtimeTempDirectory(instancesRoot: string, instanceId: string, runtime
     );
   return path.join(instancesRoot, instanceId, "tmp", runtimeSessionId);
 }
+
+/** One entry the settled-session sweep could not reclaim; the daemon logs these and retries
+ *  on its next start. */
+export type RuntimeTempReclaimFailure = {
+  readonly instanceId: string;
+  readonly runtimeSessionId: string;
+  readonly error: Error;
+};
 
 export function openRuntimeInstanceStore(input: {
   readonly userRoot: string;
@@ -646,20 +655,48 @@ export function openRuntimeInstanceStore(input: {
     }
     throw runtimeInstanceError("unsupported_command", `Unsupported runtime instance command: ${kind}.`);
   }
-  function reclaimRuntimeTempDirectory(instanceId: string, runtimeSessionId: string): void {
-    if (!runtimeTempSessionPattern.test(runtimeSessionId)) return;
+  /** Reclaims one runtime session's per-run temp directory. Returns the filesystem failure
+   *  instead of throwing, so terminal settlement can record it; a session id outside the
+   *  spawner-minted shape and an instance without enforced isolation are no-ops, not failures. */
+  function reclaimRuntimeTempDirectory(instanceId: string, runtimeSessionId: string): Error | null {
+    if (!runtimeTempSessionPattern.test(runtimeSessionId)) return null;
     const config = read().find((entry) => entry.instanceId === instanceId);
-    if (!config || config.isolationState !== "enforced") return;
-    // Reclamation is opportunistic: a file the dying provider still locks must not block
-    // terminal settlement, and the next daemon start's adoption sweep gets another pass.
+    if (!config || config.isolationState !== "enforced") return null;
     try {
       rmSync(runtimeTempDirectory(instancesRoot, config.instanceId, runtimeSessionId), {
         recursive: true,
         force: true,
       });
+      return null;
     } catch (error) {
-      consumeKnownError(error);
+      // The next daemon start's settled-session sweep (below) retries this directory.
+      return error instanceof Error ? error : new Error(String(error));
     }
+  }
+
+  /** Reclaims every per-run temp directory under this node's instances whose session the caller
+   *  reports as settled (the center already terminated it, or it never registered — a launch
+   *  that crashed before its dispatch event). Enumerating the directories themselves, not
+   *  dispatch streams, is what makes this the retry path for a reclaim that failed at
+   *  settlement: the stream is archived by then and no longer drives adoption. */
+  function reclaimSettledRuntimeTempDirectories(
+    isSettled: (runtimeSessionId: string) => boolean,
+  ): RuntimeTempReclaimFailure[] {
+    const failures: RuntimeTempReclaimFailure[] = [];
+    for (const config of read()) {
+      if (config.isolationState !== "enforced") continue;
+      const instanceTmpRoot = path.join(instancesRoot, config.instanceId, "tmp");
+      if (!existsSync(instanceTmpRoot)) continue;
+      for (const entry of readdirSync(instanceTmpRoot, { withFileTypes: true })) {
+        // Only spawner-minted session ids name per-run directories; anything else an operator
+        // or provider left in the instance tmp root stays untouched.
+        if (!entry.isDirectory() || !runtimeTempSessionPattern.test(entry.name)) continue;
+        if (!isSettled(entry.name)) continue;
+        const error = reclaimRuntimeTempDirectory(config.instanceId, entry.name);
+        if (error) failures.push({ instanceId: config.instanceId, runtimeSessionId: entry.name, error });
+      }
+    }
+    return failures;
   }
   return {
     create,
@@ -674,6 +711,7 @@ export function openRuntimeInstanceStore(input: {
     prepareAuthCommand,
     prepareLaunch,
     reclaimRuntimeTempDirectory,
+    reclaimSettledRuntimeTempDirectories,
     prepareWorkerGitEnvironment,
     refreshInstallations,
     command,

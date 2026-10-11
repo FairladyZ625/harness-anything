@@ -53,7 +53,10 @@ export function listBackupRetention(input: {
   let names: readonly string[];
   try {
     names = readdirSync(root);
-  } catch {
+  } catch (error) {
+    // Only an absent root is an empty listing; any other read failure (a file in the
+    // root's place, a permission denial) fails the command with its own error code.
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     return [];
   }
   const nowMs = Date.parse(input.now);

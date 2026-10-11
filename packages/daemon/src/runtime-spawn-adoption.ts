@@ -51,9 +51,6 @@ export async function adoptRuntimes(
     const session = byId.get(header.runtimeSessionId);
     if (sessionRead.status === "fulfilled" && (!session || session.outcome !== null)) {
       removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
-      // A session the center already settled while this daemon was down never re-enters
-      // publishExit here, so its per-run temp directory is reclaimed in this sweep instead.
-      context.input.reclaimRuntimeTempDirectory?.(header.instanceId, header.runtimeSessionId);
       continue;
     }
     const fullStream = readDispatchStream(context.input.rootDir, header.dispatchId),
@@ -176,6 +173,38 @@ export async function adoptRuntimes(
     }
   }
   if (failures.length > 0) throw failures[0];
+}
+
+/** Startup-only retry for per-run temp directories whose settlement-time reclaim failed, or
+ *  whose daemon died before settling them: it enumerates the directories themselves — not
+ *  dispatch streams, which settlement archives — and reclaims every one whose session the
+ *  center no longer considers live. Call it only where no launch can be mid-flight (daemon
+ *  open, or an edge's readiness gate): a just-minted directory whose dispatch event has not
+ *  committed yet is indistinguishable here from an orphaned one. */
+export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
+  if (!context.input.reclaimSettledRuntimeTempDirectories) return;
+  const [sessionRead] = await Promise.allSettled([
+    Promise.resolve().then(() =>
+      context.input.remote
+        ? context.input.remote.readRuntimeSessions()
+        : context.requiredRuntimeProjection(context.input).readRuntimeSessions(),
+    ),
+  ]);
+  // Without an authoritative session read, settled-ness cannot be verified; leave every
+  // directory for the next start instead of guessing.
+  if (sessionRead.status !== "fulfilled") return;
+  const byId = new Map(sessionRead.value.map((session) => [session.runtimeSessionId, session]));
+  const reclaimFailures = context.input.reclaimSettledRuntimeTempDirectories((runtimeSessionId) => {
+    // A session this daemon just re-adopted, or is still settling, is live locally: its
+    // temp directory is in use regardless of what the center read says.
+    if (context.processes.has(runtimeSessionId) || context.exiting.has(runtimeSessionId)) return false;
+    const session = byId.get(runtimeSessionId);
+    return !session || session.outcome !== null;
+  });
+  for (const failure of reclaimFailures)
+    console.error(
+      `[runtime-temp] ${failure.instanceId}/${failure.runtimeSessionId} could not be reclaimed by the startup sweep: ${failure.error.message}`,
+    );
 }
 
 export function ownedByRuntimeSpawner(

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import test from "node:test";
+import { sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
@@ -61,4 +62,68 @@ test("a dispatch hands its runtime session id to the launch preparation", async 
     /stop at the launch boundary/u,
   );
   assert.deepEqual(launches, [{ instanceId: "worker", runtimeSessionId: expectedSessionId }]);
+});
+
+test("the startup sweep treats only settled sessions as reclaimable and reports failures", async () => {
+  const settled = "runtime_0123456789abcdef01234567",
+    live = "runtime_89abcdef0123456789abcdef",
+    adopted = "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+    neverRegistered = "runtime_bbbbbbbbbbbbbbbbbbbbbbbb";
+  let predicate: ((runtimeSessionId: string) => boolean) | null = null;
+  const logged: string[] = [],
+    originalError = console.error;
+  console.error = ((line: string) => {
+    logged.push(line);
+  }) as typeof console.error;
+  try {
+    const context = {
+      exiting: new Set<string>(),
+      processes: new Map([[adopted, { runtimeSessionId: adopted }]]),
+      input: {
+        reclaimSettledRuntimeTempDirectories: (isSettled: (runtimeSessionId: string) => boolean) => {
+          predicate = isSettled;
+          return [{ instanceId: "provider-a", runtimeSessionId: settled, error: new Error("EBUSY: locked") }];
+        },
+      },
+      requiredRuntimeProjection: () => ({
+        readRuntimeSessions: () => [
+          { runtimeSessionId: settled, outcome: "succeeded" },
+          { runtimeSessionId: live, outcome: null },
+          { runtimeSessionId: adopted, outcome: null },
+        ],
+      }),
+    };
+    await sweepSettledRuntimeTempDirectories(context as never);
+    assert.equal(typeof predicate, "function");
+    assert.equal(predicate!(settled), true, "a settled session's directory is reclaimed");
+    assert.equal(predicate!(live), false, "a live-at-center session keeps its directory");
+    assert.equal(predicate!(adopted), false, "a locally re-adopted session keeps its directory");
+    assert.equal(predicate!(neverRegistered), true, "a session the center never registered is an orphan");
+    assert.equal(
+      logged.some((line) => line.includes("EBUSY: locked")),
+      true,
+      "the sweep's reclaim failure is logged, not swallowed",
+    );
+  } finally {
+    console.error = originalError;
+  }
+});
+
+test("the startup sweep leaves every directory alone when the center read fails", async () => {
+  let reclaimCalled = false;
+  const context = {
+    exiting: new Set<string>(),
+    processes: new Map(),
+    input: {
+      reclaimSettledRuntimeTempDirectories: () => {
+        reclaimCalled = true;
+        return [];
+      },
+    },
+    requiredRuntimeProjection: () => {
+      throw new Error("center disconnected");
+    },
+  };
+  await sweepSettledRuntimeTempDirectories(context as never);
+  assert.equal(reclaimCalled, false, "settled-ness is unverifiable without the session read");
 });
