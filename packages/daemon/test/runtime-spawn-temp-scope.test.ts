@@ -1,9 +1,11 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
-import { sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
+import { adoptRuntimes, sweepSettledRuntimeTempDirectories } from "../src/runtime-spawn-adoption.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
@@ -126,4 +128,30 @@ test("the startup sweep leaves every directory alone when the center read fails"
   };
   await sweepSettledRuntimeTempDirectories(context as never);
   assert.equal(reclaimCalled, false, "settled-ness is unverifiable without the session read");
+});
+
+test("startup adoption sweeps; cancel's mid-operation adoption call does not", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-adoption-sweep-flag-"));
+  try {
+    const sweeps: number[] = [],
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map(),
+        input: {
+          repoId: "repository",
+          rootDir,
+          reclaimSettledRuntimeTempDirectories: () => {
+            sweeps.push(sweeps.length);
+            return [];
+          },
+        },
+        requiredRuntimeProjection: () => ({ readRuntimeSessions: () => [] }),
+      };
+    await adoptRuntimes(context as never, undefined, { sweepTempDirectories: true });
+    assert.deepEqual(sweeps, [0], "startup adoption reclaims settled temp directories");
+    await adoptRuntimes(context as never);
+    assert.deepEqual(sweeps, [0], "cancel's mid-operation adoption must not sweep");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });

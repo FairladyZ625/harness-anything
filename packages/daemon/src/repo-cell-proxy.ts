@@ -334,7 +334,6 @@ export async function openRepoCellProxy(
         spawnCoordinated: unsupportedWrite,
         spawnScheduled: unsupportedWrite,
         adopt: unsupportedWrite,
-        sweepSettledRuntimeTempDirectories: unsupportedWrite,
         cancel: unsupportedWrite,
         close: unsupportedWrite,
       },

@@ -511,12 +511,11 @@ export function openFleetEdgeRuntime(input: {
   let ready: Promise<void> | null = null;
   const ensureReady = (): Promise<void> => {
     if (ready === null) {
-      // A readiness attempt only ever runs after the previous one rejected, and a spawn that
-      // passed a rejected attempt threw before prepareLaunch — so no launch is mid-flight
-      // while this sweep runs. That is what makes the sweep safe here.
+      // adopt() runs with the temp-directory sweep enabled: a readiness attempt only ever
+      // runs after the previous one rejected, and a spawn that passed a rejected attempt
+      // threw before prepareLaunch — so no launch is mid-flight while the sweep runs.
       const attempt = pullRuntimeReplica()
         .then(() => spawner.adopt())
-        .then(() => spawner.sweepSettledRuntimeTempDirectories())
         .then(() => squad.reconcile());
       ready = attempt.catch((error: unknown) => {
         ready = null;

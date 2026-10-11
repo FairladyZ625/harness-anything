@@ -952,9 +952,6 @@ export async function openRepoWriterCell(
   await runtimeSpawner.adopt((completed) =>
     input.onOpenProgress?.({ phase: "restoring-runtimes", applied: completed, total: null, watermark: null }),
   );
-  // Open runs before this cell serves anything, so no launch can be mid-flight here: the
-  // settled-session sweep reclaims per-run temp directories settlement could not.
-  await runtimeSpawner.sweepSettledRuntimeTempDirectories();
   schedule(() => squadCoordinator.reconcile());
   // The close-run reconciliation, once more at attach: failed reclaims and rejected Squad children get another chance.
   schedule(() =>

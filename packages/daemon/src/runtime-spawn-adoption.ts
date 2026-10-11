@@ -25,6 +25,7 @@ import { isRuntimeKindId } from "./runtime-inventory.ts";
 export async function adoptRuntimes(
   context: RuntimeSpawnerContext,
   onProgress?: (completed: number) => void,
+  options?: { readonly sweepTempDirectories?: boolean },
 ): Promise<void> {
   // Reconstruct owner handles even when the center cannot answer. Publication errors remain
   // errors; they cannot erase independently verified local process control.
@@ -172,15 +173,22 @@ export async function adoptRuntimes(
       onProgress?.(++completed);
     }
   }
+  // The sweep runs after the header loop, so sessions re-adopted above are live in
+  // context.processes and their directories are skipped. Startup adoption (daemon open, or an
+  // edge's readiness gate) passes the flag; cancel's mid-operation adoption call does not — a
+  // just-minted directory whose dispatch event has not committed yet would be
+  // indistinguishable here from an orphaned one.
+  if (options?.sweepTempDirectories) await sweepSettledRuntimeTempDirectories(context);
   if (failures.length > 0) throw failures[0];
 }
 
 /** Startup-only retry for per-run temp directories whose settlement-time reclaim failed, or
  *  whose daemon died before settling them: it enumerates the directories themselves — not
  *  dispatch streams, which settlement archives — and reclaims every one whose session the
- *  center no longer considers live. Call it only where no launch can be mid-flight (daemon
- *  open, or an edge's readiness gate): a just-minted directory whose dispatch event has not
- *  committed yet is indistinguishable here from an orphaned one. */
+ *  center no longer considers live. It is safe exactly where adoption's sweep flag is set:
+ *  daemon open serves nothing yet, and an edge's readiness attempt only runs after the
+ *  previous attempt rejected — a spawn that passed a rejected attempt threw before
+ *  prepareLaunch — so no launch can be mid-flight while this runs. */
 export async function sweepSettledRuntimeTempDirectories(context: RuntimeSpawnerContext): Promise<void> {
   if (!context.input.reclaimSettledRuntimeTempDirectories) return;
   const [sessionRead] = await Promise.allSettled([

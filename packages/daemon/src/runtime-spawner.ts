@@ -27,11 +27,7 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import {
-  adoptRuntimes,
-  locallyObservedRuntimeSessions,
-  sweepSettledRuntimeTempDirectories,
-} from "./runtime-spawn-adoption.ts";
+import { adoptRuntimes, locallyObservedRuntimeSessions } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -120,21 +116,7 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 
-/** A read-only attach reads the frozen round from the repository root — the reviewer dispatch's
- *  working-directory discipline — so its dispatch never checks out or advances the round's worktree.
- *  Resolution failures surface here exactly as they would in spawn: an Agent identity that does not
- *  resolve is a dispatch error, never a quiet read-only classification. */
-function readOnlyAttachDispatch(input: RuntimeSpawnerInput, payload: JsonObject): boolean {
-  const taskId = typeof payload.taskId === "string" ? payload.taskId : null;
-  if (taskId === null || payload.role === "reviewer" || payload.dryRun === true) return false;
-  const status = requireCurrentTaskProjection(requiredRuntimeProjection(input), taskId, "runtime.run").snapshot.task
-    ?.status;
-  if (status !== "submitted" && status !== "in_review") return false;
-  const agentId = typeof payload.agentId === "string" ? payload.agentId : undefined;
-  return agentId !== undefined && input.resolveAgent !== undefined
-    ? input.resolveAgent(agentId)?.permissionMode === "read-only"
-    : false;
-}
+import { readOnlyAttachDispatch } from "./runtime-spawn-read-only-attach.ts";
 
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
@@ -669,10 +651,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       process?.release?.();
       cleanupCallbackRelay();
       if (stream) removeDispatchStream(input.rootDir, newDispatchId);
-      // The stream is gone, so this directory's only remaining reclaim path is the next
-      // daemon start's settled-session sweep (a launch that failed before its dispatch
-      // event never registers at the center, which the sweep treats as settled).
-      const reclaimFailure = input.reclaimRuntimeTempDirectory?.(runtimeInstanceId, runtimeSessionId) ?? null;
+      // The stream is gone, so the startup sweep is this directory's only remaining reclaim
+      // path (a launch that failed before its dispatch event never registers at the center,
+      // which the sweep treats as settled); the refusal is logged, not swallowed.
+      const reclaimFailure = input.reclaimRuntimeTempDirectory?.(runtimeInstanceId, runtimeSessionId);
       if (reclaimFailure)
         console.error(
           `[runtime-temp] ${runtimeInstanceId}/${runtimeSessionId} could not be reclaimed after a failed launch: ${reclaimFailure.message}`,
@@ -1007,9 +989,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         scheduled,
         undefined,
       ),
-    adopt: (onProgress?: (completed: number) => void) => adoptRuntimes(extracted, onProgress),
-    // Startup-only; callers must not invoke it while a launch can be mid-flight.
-    sweepSettledRuntimeTempDirectories: () => sweepSettledRuntimeTempDirectories(extracted),
+    // Startup adoption only: cancel's mid-operation adoption call passes no sweep flag,
+    // because a just-minted temp directory whose dispatch event has not committed yet must
+    // not be reclaimed out from under an in-flight launch.
+    adopt: (onProgress?: (completed: number) => void) =>
+      adoptRuntimes(extracted, onProgress, { sweepTempDirectories: true }),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
     close: () => {
       fallbackClosed = true;
