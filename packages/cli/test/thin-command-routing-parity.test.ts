@@ -517,12 +517,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "task-dispatch-review",
       "task-dispatches",
       "task-list",
+      "task-move",
       "task-pin",
       "task-progress-append",
       "task-push",
       "task-read-set",
       "task-release",
       "task-rematerialize",
+      "task-rename",
       "task-reopen",
       "task-review",
       "task-review-consent",
@@ -953,6 +955,32 @@ test("work create, list, and show route to the task-create and work read actions
   }
   assert.equal(show.ok, true, JSON.stringify(show));
   if (show.ok) assert.deepEqual(show.command.action, { kind: "work-show", taskId: "task-root" });
+});
+
+test("task rename and move route onto the shared task-amend action", () => {
+  assert.equal(parseThinCommand(["task", "rename", "--title", "Missing task id"]).ok, false);
+  assert.equal(parseThinCommand(["task", "rename", "task_x", "--title"]).ok, false);
+  assert.equal(parseThinCommand(["task", "move", "task_x"]).ok, false);
+  const rename = parseThinCommand(["task", "rename", "task_x", "--title", "Production friction"]),
+    move = parseThinCommand(["task", "move", "task_x", "--parent", "task_work"]);
+  assert.equal(rename.ok, true, JSON.stringify(rename));
+  if (rename.ok) {
+    assert.equal(rename.command.method, "repo.task.run");
+    assert.deepEqual(rename.command.action, {
+      kind: "task-amend",
+      taskId: "task_x",
+      patches: [{ field: "title", value: "Production friction" }],
+    });
+  }
+  assert.equal(move.ok, true, JSON.stringify(move));
+  if (move.ok) {
+    assert.equal(move.command.method, "repo.task.run");
+    assert.deepEqual(move.command.action, {
+      kind: "task-amend",
+      taskId: "task_x",
+      patches: [{ field: "parentTaskId", value: "task_work" }],
+    });
+  }
 });
 
 test("runtime instance parser rejects repeated static headers regardless of spelling", () => {

@@ -1017,6 +1017,72 @@ test("contract migration keeps incomplete legacy L1 tasks in the manual queue", 
   }
 });
 
+test("task move refuses cyclic parents and the receipt names the landed work", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-move-guard-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    cell = await openRepoCell({
+      repoId: workspaceId("task-move-guard"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "task-move-guard",
+    });
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    for (const action of [
+      { kind: "task-create", taskId: "task_friction_work", title: "Friction work", taskClass: "work" },
+      { kind: "task-create", taskId: "task_other_work", title: "Other work", taskClass: "work" },
+      {
+        kind: "task-create",
+        taskId: "task_movable",
+        title: "Movable lane",
+        parentTaskId: "task_other_work",
+      },
+      {
+        kind: "task-create",
+        taskId: "task_movable_child",
+        title: "Movable lane child",
+        parentTaskId: "task_movable",
+      },
+    ] as const) {
+      const created = await cell.run(action, binding);
+      assert.equal(created.outcome, "applied", JSON.stringify(action));
+      await waitForFixturePublication(cell, created.opId, binding);
+    }
+    const move = (parentTaskId: string) =>
+      cell!.run(
+        { kind: "task-amend", taskId: "task_movable", patches: [{ field: "parentTaskId", value: parentTaskId }] },
+        binding,
+      );
+    // A task cannot become its own ancestor: self, own descendant, and a missing parent all refuse.
+    assert.equal((await move("task_movable")).code, "parent_cycle");
+    assert.equal((await move("task_movable_child")).code, "parent_cycle");
+    assert.equal((await move("task_missing_parent")).code, "parent_not_found");
+    // Moving to a task outside its own subtree applies; the subtree follows and the receipt
+    // names the work the task landed in as its calculated next step.
+    const landed = (await move("task_friction_work")) as Record<string, unknown>;
+    assert.equal(landed.outcome, "applied", JSON.stringify(landed));
+    await waitForFixturePublication(cell, String(landed.opId), binding);
+    assert.ok(
+      (landed.next as { readonly command?: string }[]).some(
+        ({ command }) => command === "ha work show task_friction_work",
+      ),
+      `move receipt must name the landed work: ${JSON.stringify(landed.next)}`,
+    );
+    const replay = makeTaskProjection({
+        rootDir,
+        eventStore: makeTaskEventReader({ repoId: "task-move-guard", rootDir }),
+      }),
+      moved = replay.read("task_movable").snapshot.task,
+      child = replay.read("task_movable_child").snapshot.task;
+    replay.close();
+    assert.equal(moved?.metadata?.parentTaskId, "task_friction_work");
+    assert.equal(child?.metadata?.parentTaskId, "task_movable");
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("task amend refuses to retitle a plan with unsynced local edits, then retitles once synced", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-amend-prose-"));
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
