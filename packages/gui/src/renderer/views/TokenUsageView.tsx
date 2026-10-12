@@ -37,7 +37,8 @@ import { TokenUsageDetail } from "../components/tokenUsage/TokenUsageDetail.tsx"
  * 与 token 同层级)→ 花在什么事上 → 单个会话的情况 → 值不值 → 哪些派工没上报用量。
  * 数据全部来自 daemon 的一次聚合读(repo.agentRuntime.tokenUsage),renderer 只做展示;成员
  * 详情另走 tokenUsageDetail,经 focusedEntityRef(tokenAgent/<id> · tokenSquad/<id>)推栈。
- * 区域用 Region 框,栏数只看内容区自己的宽度(容器查询):宽时两栏,窄时单列。
+ * 区域用 Region 框,栏数只看内容区自己的宽度(容器查询):宽时两列、每列独立纵向堆叠
+ * (列与列不共享行高,卡片按内容高度紧凑排布),窄时单列。
  */
 type Segment = "agents" | "squads" | "models";
 type Stack = "kinds" | "agents" | "models";
@@ -164,13 +165,15 @@ function UsageAnalysis({
       { value: "table" as const, label: t("agentRuntime.tokenUsageViewTable") },
     ];
   return (
-    // 网格项默认 min-width 是内容的 min-content,宽表格会把整页撑出横向滚动:每格 min-w-0,
-    // 宽内容在格内自滚。两栏断点量的是内容区(@container),不是窗口。
-    <div className="grid grid-cols-1 gap-3 @[900px]:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] [&>*]:min-w-0">
-      <div className="@container col-span-full">
+    // 两列各自独立纵向堆叠(列与列不共享行高):短卡下面不再被同行较高的长卡顶出空白,
+    // 卡片按内容高度紧凑排布;宽屏两列 3:2(basis 0 + grow),窄屏(内容区 <900px)退化
+    // 单列。断点量的是内容区(@container),不是窗口。列容器 min-w-0:宽表格在卡内自滚,
+    // 不把页面撑出横向滚动。
+    <div className="flex flex-col gap-3">
+      <div className="@container">
         <UsageHeadline data={data} />
       </div>
-      <div className="col-span-full" data-testid="token-usage-trend-card">
+      <div data-testid="token-usage-trend-card">
         <Region title={t("agentRuntime.tokenUsageTrendTitle")}>
           <Controls>
             <SegCtl
@@ -201,91 +204,96 @@ function UsageAnalysis({
           </div>
         </Region>
       </div>
-      <div data-testid="token-usage-ranking-card">
-        <Region title={t("agentRuntime.tokenUsageRankingTitle")}>
-          <Controls>
-            <SegCtl
-              label={t("agentRuntime.tokenUsageSegmentLabel")}
-              value={segment}
-              onChange={setSegment}
-              options={[
-                { value: "agents", label: t("agentRuntime.tokenUsageSegmentAgents") },
-                { value: "squads", label: t("agentRuntime.tokenUsageSegmentSquads") },
-                { value: "models", label: t("agentRuntime.tokenUsageSegmentModels") },
-              ]}
-            />
-            {rankingAs === "chart" ? (
-              <SegCtl
-                label={t("agentRuntime.tokenUsageScaleLabel")}
-                value={scale}
-                onChange={setChosenScale}
-                options={[
-                  {
-                    value: "log",
-                    label: t("agentRuntime.tokenUsageScaleLog"),
-                    tip: t("agentRuntime.tokenUsageScaleLogTip"),
-                  },
-                  { value: "linear", label: t("agentRuntime.tokenUsageScaleLinear") },
-                ]}
-              />
-            ) : null}
-            {rankingAs === "donut" ? (
-              <SegCtl
-                label={t("agentRuntime.tokenUsageShareBasisLabel")}
-                value={shareBasis}
-                onChange={setShareBasis}
-                options={[
-                  { value: "tokens", label: t("agentRuntime.tokenUsageShareBasisTokens") },
-                  { value: "cost", label: t("agentRuntime.tokenUsageShareBasisCost") },
-                ]}
-              />
-            ) : null}
-            <SegCtl
-              label={t("agentRuntime.tokenUsageViewLabel")}
-              value={rankingAs}
-              onChange={setRankingAs}
-              options={rankingOptions}
-            />
-          </Controls>
-          {rankingAs === "table" ? (
-            <UsageRankingTable rows={rows} onSelect={openMember} testId={`token-usage-${segment}-table`} />
-          ) : rankingAs === "donut" ? (
-            <UsageShareDonut rows={rows} totals={data.totals} basis={shareBasis} onSelect={openMember} />
-          ) : (
-            <UsageRanking rows={rows} total={data.totals.totalTokens} scale={scale} onSelect={openMember} />
-          )}
-        </Region>
-      </div>
-      <div>
-        <Region title={t("agentRuntime.tokenUsageSpendTitle")}>
-          <Controls>
-            <SegCtl
-              label={t("agentRuntime.tokenUsageSpendScopeLabel")}
-              value={spendScope}
-              onChange={setSpendScope}
-              options={[
-                { value: "tasks", label: t("agentRuntime.tokenUsageSpendTasks") },
-                { value: "works", label: t("agentRuntime.tokenUsageSpendWorks") },
-              ]}
-            />
-          </Controls>
-          <UsageSpend data={data} scope={spendScope} onOpenTask={onOpenTask} />
-        </Region>
-      </div>
-      <div className="@container">
-        <Region title={t("agentRuntime.tokenUsageSessionsRegionTitle")}>
-          <UsageSessions data={data} onSelectEntity={onSelectEntity} />
-        </Region>
-      </div>
-      <div className="flex flex-col gap-3">
-        <Region title={t("agentRuntime.tokenUsageWorthTitle")}>
-          <UsageWorth data={data} />
-        </Region>
-        {data.totals.usageUnavailableDispatches > 0 ? (
-          <Region title={t("agentRuntime.tokenUsageTotalsUnreported")} edge="wait">
-            <UsageUnreported data={data} />
+      {/* 左列(3 份):谁花的 + 单个会话;右列(2 份):花在什么事上 + 值不值 + 未上报。 */}
+      <div className="flex min-w-0 flex-col gap-3 @[900px]:flex-row">
+        <div className="flex min-w-0 flex-col gap-3 @[900px]:flex-[3]">
+          <div data-testid="token-usage-ranking-card">
+            <Region title={t("agentRuntime.tokenUsageRankingTitle")}>
+              <Controls>
+                <SegCtl
+                  label={t("agentRuntime.tokenUsageSegmentLabel")}
+                  value={segment}
+                  onChange={setSegment}
+                  options={[
+                    { value: "agents", label: t("agentRuntime.tokenUsageSegmentAgents") },
+                    { value: "squads", label: t("agentRuntime.tokenUsageSegmentSquads") },
+                    { value: "models", label: t("agentRuntime.tokenUsageSegmentModels") },
+                  ]}
+                />
+                {rankingAs === "chart" ? (
+                  <SegCtl
+                    label={t("agentRuntime.tokenUsageScaleLabel")}
+                    value={scale}
+                    onChange={setChosenScale}
+                    options={[
+                      {
+                        value: "log",
+                        label: t("agentRuntime.tokenUsageScaleLog"),
+                        tip: t("agentRuntime.tokenUsageScaleLogTip"),
+                      },
+                      { value: "linear", label: t("agentRuntime.tokenUsageScaleLinear") },
+                    ]}
+                  />
+                ) : null}
+                {rankingAs === "donut" ? (
+                  <SegCtl
+                    label={t("agentRuntime.tokenUsageShareBasisLabel")}
+                    value={shareBasis}
+                    onChange={setShareBasis}
+                    options={[
+                      { value: "tokens", label: t("agentRuntime.tokenUsageShareBasisTokens") },
+                      { value: "cost", label: t("agentRuntime.tokenUsageShareBasisCost") },
+                    ]}
+                  />
+                ) : null}
+                <SegCtl
+                  label={t("agentRuntime.tokenUsageViewLabel")}
+                  value={rankingAs}
+                  onChange={setRankingAs}
+                  options={rankingOptions}
+                />
+              </Controls>
+              {rankingAs === "table" ? (
+                <UsageRankingTable rows={rows} onSelect={openMember} testId={`token-usage-${segment}-table`} />
+              ) : rankingAs === "donut" ? (
+                <UsageShareDonut rows={rows} totals={data.totals} basis={shareBasis} onSelect={openMember} />
+              ) : (
+                <UsageRanking rows={rows} total={data.totals.totalTokens} scale={scale} onSelect={openMember} />
+              )}
+            </Region>
+          </div>
+          <div className="@container">
+            <Region title={t("agentRuntime.tokenUsageSessionsRegionTitle")}>
+              <UsageSessions data={data} onSelectEntity={onSelectEntity} />
+            </Region>
+          </div>
+        </div>
+        <div className="flex min-w-0 flex-col gap-3 @[900px]:flex-[2]">
+          <div>
+            <Region title={t("agentRuntime.tokenUsageSpendTitle")}>
+              <Controls>
+                <SegCtl
+                  label={t("agentRuntime.tokenUsageSpendScopeLabel")}
+                  value={spendScope}
+                  onChange={setSpendScope}
+                  options={[
+                    { value: "tasks", label: t("agentRuntime.tokenUsageSpendTasks") },
+                    { value: "works", label: t("agentRuntime.tokenUsageSpendWorks") },
+                  ]}
+                />
+              </Controls>
+              <UsageSpend data={data} scope={spendScope} onOpenTask={onOpenTask} />
+            </Region>
+          </div>
+          <Region title={t("agentRuntime.tokenUsageWorthTitle")}>
+            <UsageWorth data={data} />
           </Region>
-        ) : null}
+          {data.totals.usageUnavailableDispatches > 0 ? (
+            <Region title={t("agentRuntime.tokenUsageTotalsUnreported")} edge="wait">
+              <UsageUnreported data={data} />
+            </Region>
+          ) : null}
+        </div>
       </div>
     </div>
   );

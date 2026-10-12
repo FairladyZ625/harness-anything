@@ -417,6 +417,29 @@ export default {
     await page.getByTestId("token-usage-detail-back").click();
     await view.waitFor();
 
+    // ⑤b 布局(task_*-token 业主截图反馈):两列各自独立纵向堆叠,同列相邻卡片之间只有
+    // 栏间距(12px),不再被另一列的长卡顶出整行高的空白(旧缺陷签名:「单个会话」要等
+    // 右列「花在什么事上」结束才开始)。卡片 = 页内 section[data-entry-region],按各卡
+    // 内容钩子定位,量的是真实几何,不看 class。
+    const wide = await measureCards(page, view);
+    assert.ok(
+      wide.sessions.y - (wide.ranking.y + wide.ranking.height) <= 14,
+      `the sessions card must follow the ranking card by one gutter (12px), not wait out a shared row height: ${JSON.stringify(wide)}`,
+    );
+    assert.ok(
+      wide.worth.y - (wide.spend.y + wide.spend.height) <= 14,
+      `the worth card must follow the spend card by one gutter: ${JSON.stringify(wide)}`,
+    );
+    assert.ok(
+      wide.sessions.y + 40 < wide.spend.y + wide.spend.height,
+      `the left column must start its second card while the right column's taller card is still running (shared-row-grid defect): ${JSON.stringify(wide)}`,
+    );
+    // 两栏仍左右并排,宽度比保持 3:2。
+    assert.ok(Math.abs(wide.ranking.y - wide.spend.y) < 1, `the two columns must start level: ${JSON.stringify(wide)}`);
+    const columnRatio = wide.ranking.width / wide.spend.width;
+    assert.ok(Math.abs(columnRatio - 1.5) < 0.05, `column widths must keep the 3:2 ratio: ${columnRatio}`);
+    await shot("layout-two-columns-compact");
+
     // ⑥ 按任务 / 按工作两种归集:任务行 4 条(含 <$0.01 的排查任务),工作行 2 条。
     await page.getByTestId("token-usage-spend-tasks").waitFor();
     assert.match(
@@ -462,6 +485,20 @@ export default {
       `below the 560px card container the two metrics must stack: ${JSON.stringify({ stackedTokens, stackedCost })}`,
     );
     await shot("narrow-580-stacked-headline");
+    // ⑥b(续) 窄屏退化单列:分析卡依次占满内容宽,没有并排半宽卡。
+    const narrow = await measureCards(page, view);
+    for (const card of [narrow.ranking, narrow.spend, narrow.sessions, narrow.worth]) {
+      assert.ok(
+        Math.abs(card.x - narrow.ranking.x) < 1 && Math.abs(card.width - narrow.ranking.width) < 1,
+        `below the two-column breakpoint every analysis card must fill the content width: ${JSON.stringify(narrow)}`,
+      );
+    }
+    const tops = [narrow.ranking.y, narrow.spend.y, narrow.sessions.y, narrow.worth.y];
+    assert.ok(
+      new Set(tops.map((top) => Math.round(top))).size === tops.length,
+      `below the two-column breakpoint no two analysis cards may share a row: ${JSON.stringify(narrow)}`,
+    );
+    await shot("layout-narrow-single-column");
     await page.setViewportSize({ width: 1680, height: 1400 });
     await clickOption(page, "呈现方式", "图表", page.getByTestId("token-usage-ranking-card"));
 
@@ -502,4 +539,23 @@ async function assertCostLine(page, { cost, unpriced, english = false }) {
 /** SegCtl 选项点击:组名 + 选项文本定位(同名组可传 scope 收窄)。 */
 async function clickOption(page, groupLabel, optionLabel, scope = page) {
   await scope.getByRole("group", { name: groupLabel }).getByRole("button", { name: optionLabel, exact: true }).click();
+}
+
+/** 分析区四张卡(排行/归集/单个会话/值不值)的真实几何。卡片 = section[data-entry-region],
+ * 按各卡恒有的内容钩子定位(消耗视角组、归集方式组、内容 testid),与呈现方式和归集口径
+ * 无关,一次 Promise.all 采样避免滚动干扰。 */
+async function measureCards(page, view) {
+  const regions = view.locator("section[data-entry-region]");
+  const card = (locator, label) =>
+    locator.boundingBox().then((box) => {
+      assert.ok(box, `the ${label} card must be laid out`);
+      return box;
+    });
+  const [ranking, spend, sessions, worth] = await Promise.all([
+    card(regions.filter({ has: page.getByRole("group", { name: "消耗视角" }) }), "ranking"),
+    card(regions.filter({ has: page.getByRole("group", { name: "归集方式" }) }), "spend"),
+    card(regions.filter({ has: page.getByTestId("token-usage-sessions") }), "sessions"),
+    card(regions.filter({ has: page.getByTestId("token-usage-worth") }), "worth"),
+  ]);
+  return { ranking, spend, sessions, worth };
 }
