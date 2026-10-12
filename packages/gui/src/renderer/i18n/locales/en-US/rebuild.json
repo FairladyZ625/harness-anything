@@ -172,6 +172,7 @@
   "accessControl.requests.withdraw": "Withdraw request",
   "accessControl.requests.review": "Review request",
   "accessControl.requests.confirmTitle": "Confirm permission request",
+  "accessControl.requests.confirmVersion": "Confirm version {{version}}",
   "accessControl.requests.approve": "Approve",
   "accessControl.requests.reject": "Reject",
   "accessControl.requests.empty": "No pending requests.",

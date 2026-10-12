@@ -165,8 +165,8 @@ export function PermissionRequestsTab({
           }
         >
           <p className="ui-body">
-            Confirm version {confirming.version}: {confirming.personId} · {roleLabel(confirming.groupId)} ·{" "}
-            {resourceLabel(confirming.resource)}
+            {t("accessControl.requests.confirmVersion", { version: confirming.version })}: {confirming.personId} ·{" "}
+            {roleLabel(confirming.groupId)} · {resourceLabel(confirming.resource)}
           </p>
           <p className="text-text-muted ui-meta">{confirming.actions.join(", ")}</p>
         </Modal>
