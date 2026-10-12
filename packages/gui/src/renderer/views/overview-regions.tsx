@@ -134,7 +134,7 @@ export function OverviewDecisionsBand({
     return (
       <p
         data-testid="overview-decisions-band"
-        className="flex flex-none items-center gap-2 rounded-sm border border-border bg-surface px-3 py-1.5 text-text-faint ui-meta"
+        className="flex flex-none items-center gap-2 rounded-sm glass-sub px-3 py-1.5 text-text-faint ui-meta"
       >
         <StatusTag tone="done" label={t("views.overviewView.mineClear")} />
         {t("views.overviewView.decisionsEmpty")}
@@ -145,10 +145,7 @@ export function OverviewDecisionsBand({
     visible = expanded ? rows : rows.slice(0, COMPACT_DECISIONS),
     hidden = rows.length - visible.length;
   return (
-    <section
-      data-testid="overview-decisions-band"
-      className="flex flex-none flex-col overflow-hidden rounded-sm border border-border bg-surface"
-    >
+    <section data-testid="overview-decisions-band" className="flex flex-none flex-col overflow-hidden rounded-sm glass">
       <div className="flex flex-none flex-wrap items-center gap-2 px-3 pb-1.5 pt-2">
         <h2 className="min-w-0 shrink-0 font-semibold ui-meta">{t("views.overviewView.regionDecisions")}</h2>
         <StatusTag

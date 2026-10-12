@@ -133,21 +133,20 @@
 
   /* 玻璃层级:半透明面 + backdrop-filter 模糊/饱和度 + 发丝描边 + 内高光。
      面色主题相关(亮色在下方覆盖);模糊/饱和度两档主题无关(面档/scrim 档)。 */
-  --color-glass: oklch(0.25 0.008 285 / 0.52);
-  --color-glass-border: oklch(1 0 0 / 0.07);
+  --color-glass: oklch(0.24 0.006 285 / 0.48);
+  --color-glass-border: oklch(1 0 0 / 0.08);
   --color-glass-highlight: oklch(1 0 0 / 0.1);
-  --color-scrim: oklch(0.22 0.01 285 / 0.28);
-  --glass-blur: 26px;
-  --glass-saturate: 170%;
+  --color-scrim: oklch(0.2 0.008 285 / 0.28);
+  --glass-blur: 24px;
+  --glass-saturate: 120%;
   --scrim-blur: 18px;
-  --scrim-saturate: 140%;
+  --scrim-saturate: 120%;
 
-  /* 环境光与缓动:blob1/2 色值原样保留样张(overview-prototype.html v4);
-     blob3 采用沉静紫晶色(#4a1e36),温润微醺不刺眼,承担视口底部的漫反射柔光。 */
-  --aurora-1: #134e4a;
-  --aurora-2: #1e2a5a;
-  --aurora-3: #4a1e36;
-  --aurora-opacity: 0.42;
+  /* 环境光与缓动:极光调至深沉柔美色相,整体不饱和,彻底避免刺眼与高对比割裂 */
+  --aurora-1: #0e3835;
+  --aurora-2: #141d3d;
+  --aurora-3: #381628;
+  --aurora-opacity: 0.28;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
 
@@ -265,21 +264,35 @@ html[data-theme="light"] {
   background: var(--aurora-3);
   animation-duration: 38s;
 }
-/* 底部环境上托光(业主 2026-10-12 批示"底部渐变也不明显"):视口下半部自底向上
-   的一道柔光,与 blob3 同色,挂在 .aurora 内被整体 blur(80px) 柔化;只补底部
-   层次,不新开图层动画。 */
+/* 底部环境上托光(业主 2026-10-12 批示"底部背景让它也动，浮动得非常慢的那种浮动"):
+   视口下半部自底向上的一道柔和漫反射微光,带超长周期(42s)超缓浮动微呼吸 */
 .aurora::after {
   content: "";
   position: absolute;
   left: -10%;
   right: -10%;
   bottom: -8vh;
-  height: 56vh;
+  height: 54vh;
   background: linear-gradient(
     to top,
-    color-mix(in oklab, var(--aurora-3) 50%, transparent),
+    color-mix(in oklab, var(--aurora-3) 35%, transparent),
     transparent
   );
+  animation: bottom-glow-float 42s ease-in-out infinite alternate;
+}
+@keyframes bottom-glow-float {
+  0% {
+    transform: translateY(0) scaleY(1);
+    opacity: 0.65;
+  }
+  50% {
+    transform: translateY(-5vh) scaleY(1.1) skewX(-2deg);
+    opacity: 0.95;
+  }
+  100% {
+    transform: translateY(3vh) scaleY(0.92) skewX(2deg);
+    opacity: 0.75;
+  }
 }
 @keyframes drift {
   to {
@@ -297,16 +310,18 @@ html[data-theme="light"] {
     0 8px 30px oklch(0 0 0 / 0.25);
 }
 
-/* 轻量控件毛玻璃档(输入框/控件按钮/工具条):比大面板更轻的模糊与更克制的透明底 */
+/* 轻量控件毛玻璃档(输入框/控件按钮/工具条):采用微光发丝白玻璃质感,不叠加死黑底色 */
 .glass-sub {
-  background: oklch(0.275 0.008 285 / 0.55);
-  backdrop-filter: blur(12px) saturate(140%);
-  border: 1px solid var(--color-glass-border);
-  box-shadow: inset 0 1px 0 var(--color-glass-highlight);
+  background: oklch(1 0 0 / 0.05);
+  backdrop-filter: blur(16px) saturate(130%);
+  border: 1px solid oklch(1 0 0 / 0.1);
+  box-shadow:
+    inset 0 1px 0 oklch(1 0 0 / 0.12),
+    0 2px 8px oklch(0 0 0 / 0.15);
 }
 html[data-theme="light"] .glass-sub {
-  background: oklch(0.99 0.002 285 / 0.65);
-  border: 1px solid var(--color-glass-border);
+  background: oklch(1 0 0 / 0.7);
+  border: 1px solid oklch(0 0 0 / 0.08);
 }
 
 /* 模态压暗层(原型 .scrim.on 档) */
@@ -333,12 +348,11 @@ html[data-theme="light"] .glass-sub {
   pointer-events: none;
 }
 
-/* 活跃执行行的全行脉冲光波(业主 2026-10-12 现场批示:整行都要有从左到右的脉冲
-   光波):行本体只留静态左缘高亮边(paint 一次);::before 是全行呼吸微光层,左浓
-   右淡的扩散光晕与基础微光一起只动 opacity;::after 是贯穿全行的横向流光波束,
-   2.8s 同周期——0% 波束整段悬在行外左侧,65% 冲出行外右侧,100% 停留,肉眼看是
-   每个周期一道从左向右的横扫脉冲。两段动画都走合成器路径(transform/opacity);
-   「减少动态效果」开启时由上方全局规则关停,静态左缘边线保留。 */
+/* 活跃执行行的全行脉冲光波(业主 2026-10-12 现场批示:整行都要有从左到右的脉冲光波):
+   行本体带左缘高亮边;::before 是全行呼吸微光层;::after 是贯穿全行的横向流光波束,
+   设置 z-index: 1 悬浮于行内容上方,白色与状态色交织的柔和高光束,
+   2.6s 持续循环平滑横移,肉眼可见一道波束自左向右清透划过。
+   「减少动态效果」开启时由下方全局规则关停,静态左缘边线保留。 */
 .live-row {
   position: relative;
   overflow: hidden;
@@ -350,44 +364,43 @@ html[data-theme="light"] .glass-sub {
   inset: 0;
   background:
     radial-gradient(
-      90% 100% at 0 50%,
-      color-mix(in oklab, var(--color-status-active) 12%, transparent),
-      transparent 65%
+      ellipse 65% 100% at 0% 50%,
+      color-mix(in oklab, var(--color-status-active) 18%, transparent),
+      transparent 70%
     ),
     color-mix(in oklab, var(--color-status-active) 4%, transparent);
-  animation: live-row-breathe 2.8s var(--ease) infinite;
+  animation: live-row-breathe 2.6s ease-in-out infinite alternate;
   pointer-events: none;
 }
 .live-row::after {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 1;
   background: linear-gradient(
     90deg,
-    transparent,
-    color-mix(in oklab, var(--color-status-active) 12%, transparent) 32%,
-    color-mix(in oklab, var(--color-status-active) 32%, transparent) 50%,
-    color-mix(in oklab, var(--color-status-active) 12%, transparent) 68%,
-    transparent
+    transparent 0%,
+    color-mix(in oklab, var(--color-status-active) 18%, transparent) 25%,
+    color-mix(in oklab, var(--color-status-active) 75%, white 25%) 50%,
+    color-mix(in oklab, var(--color-status-active) 18%, transparent) 75%,
+    transparent 100%
   );
-  animation: live-wave-sweep 2.8s var(--ease) infinite;
+  animation: live-wave-sweep 2.6s ease-in-out infinite;
   pointer-events: none;
 }
 @keyframes live-wave-sweep {
   0% {
     transform: translateX(-100%);
   }
-  65%,
   100% {
     transform: translateX(100%);
   }
 }
 @keyframes live-row-breathe {
-  0%,
-  100% {
-    opacity: 0.3;
+  0% {
+    opacity: 0.4;
   }
-  50% {
+  100% {
     opacity: 1;
   }
 }
@@ -405,11 +418,11 @@ html[data-theme="light"] .glass-sub {
   inset: 0;
   background: linear-gradient(
     90deg,
-    transparent,
-    color-mix(in oklab, white 45%, transparent) 50%,
-    transparent
+    transparent 0%,
+    color-mix(in oklab, white 60%, transparent) 50%,
+    transparent 100%
   );
-  animation: live-wave-sweep 2.8s var(--ease) infinite;
+  animation: live-wave-sweep 2.6s ease-in-out infinite;
 }
 
 /* 统计图的柱入场:挂载时从基线长出一次(标准 §6:≤180ms 缓出,不回弹不循环);数据刷新

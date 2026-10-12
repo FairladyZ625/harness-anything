@@ -231,7 +231,7 @@ export function SystemView({
         <span className="ml-auto font-mono ui-micro text-text-faint">{dateTime(status.data.observedAt)}</span>
       </section>
       <div data-testid="system-content" className="grid w-full gap-4 p-4 @min-[900px]:grid-cols-[16rem_minmax(0,1fr)]">
-        <section className="rounded-lg border border-border bg-surface p-3">
+        <section className="glass rounded-lg p-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="ui-body font-semibold">{t("views.settingsView.systemDaemonStatus")}</h2>
           </div>
@@ -286,7 +286,7 @@ export function SystemView({
             <Field name={t("views.systemView.observed")} value={dateTime(status.data.observedAt)} />
           </dl>
         </section>
-        <section className="rounded-lg border border-border bg-surface">
+        <section className="glass rounded-lg overflow-hidden">
           <h2 className="border-b border-border px-3 py-2 ui-body font-semibold">
             {t("views.settingsView.systemRepos")}
           </h2>

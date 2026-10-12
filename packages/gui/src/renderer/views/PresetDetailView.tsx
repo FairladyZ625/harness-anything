@@ -144,7 +144,7 @@ export function PresetDetailView({
         </div>
       </header>
 
-      <div className="relative z-10 shrink-0 bg-surface px-2 sm:px-3">
+      <div className="relative z-10 shrink-0 glass px-2 sm:px-3">
         <Tabs
           ariaLabel={t("views.presetDetailView.tablist")}
           idPrefix="preset"

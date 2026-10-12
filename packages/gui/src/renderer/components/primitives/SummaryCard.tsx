@@ -86,7 +86,7 @@ export function SummaryCard({
       data-testid={testId}
       data-summary-card={size}
       onClick={onOpen}
-      className={`status-edge relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-surface transition-colors ${
+      className={`status-edge glass relative flex min-w-0 flex-col overflow-hidden rounded-lg transition-colors ${
         size === "large" ? "gap-2.5 p-3.5" : "gap-1.5 px-3.5 py-3"
       } ${onOpen === undefined ? "" : "cursor-pointer hover:border-border-strong"}`}
       style={tone === undefined ? undefined : ({ "--status-edge": TONE_COLOR[tone] } as CSSProperties)}

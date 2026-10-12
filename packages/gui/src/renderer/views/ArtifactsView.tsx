@@ -159,7 +159,7 @@ export function ArtifactsWorkspace({
           aria-label={t("artifacts.drawer.expandTitle")}
           className={[
             "flex w-8 shrink-0 flex-col items-center gap-2 border-r border-border",
-            "bg-surface py-3 text-text-faint hover:text-text",
+            "glass-sub py-3 text-text-faint hover:text-text",
           ].join(" ")}
         >
           <ArrowsInLineHorizontal weight="bold" className="size-4 shrink-0 rotate-90" />
@@ -169,7 +169,7 @@ export function ArtifactsWorkspace({
         <>
           <aside
             data-testid="artifacts-drawer"
-            className="flex min-h-0 shrink-0 flex-col border-r border-border bg-surface"
+            className="glass flex min-h-0 shrink-0 flex-col border-r border-border"
             style={{ width: `${drawer.width}px` }}
           >
             <div
@@ -299,10 +299,7 @@ function ArtifactPreviewPane({
     if (outcome.error !== null) setOpenError(outcome.error);
   }, [repoId, row]);
   return (
-    <aside
-      data-testid="artifact-preview-pane"
-      className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-surface"
-    >
+    <aside data-testid="artifact-preview-pane" className="glass flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <ArtifactPreviewBody
         repoId={repoId}
         row={row}
@@ -337,7 +334,7 @@ function ArtifactPreviewBody({
   const html = isHtmlDocument(row.path);
   return (
     <>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border bg-surface-raised px-3 py-2">
+      <header className="flex shrink-0 items-center gap-2 border-b border-border bg-white/[0.04] backdrop-blur-md px-3 py-2">
         {taskId !== null ? (
           <button
             type="button"

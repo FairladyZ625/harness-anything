@@ -226,7 +226,7 @@ export function AppSidebar({
               {pinnedWorks.map((item) => (
                 <div
                   key={item.taskId}
-                  className="group flex h-[var(--pinned-row)] w-full snap-start items-center gap-1 rounded pr-1 text-text-muted hover:bg-surface-raised hover:text-text"
+                  className="group flex h-[var(--pinned-row)] w-full snap-start items-center gap-1 rounded pr-1 text-text-muted hover:bg-white/[0.08] hover:text-text"
                 >
                   <button
                     type="button"
@@ -247,7 +247,7 @@ export function AppSidebar({
                     aria-label={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
                     title={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
                     className="grid size-6 shrink-0 place-items-center rounded text-text-faint opacity-0
-                      transition-opacity hover:bg-surface-raised hover:text-text
+                      transition-opacity hover:bg-white/[0.08] hover:text-text
                       group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
                   >
                     <PushPinSlash weight="bold" className="size-3.5" aria-hidden />

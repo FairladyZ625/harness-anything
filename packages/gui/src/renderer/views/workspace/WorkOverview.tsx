@@ -146,7 +146,7 @@ export function WorkOverview({
     pathCount = dayGroups.reduce((sum, group) => sum + group.paths.length, 0);
 
   const taskRow = (leaf: WorkLeafRow, tag?: ReactNode) => (
-    <div key={leaf.taskId} data-task-row={leaf.taskId}>
+    <div key={leaf.taskId} data-task-row={leaf.taskId} className={leaf.status === "active" ? "live-row" : undefined}>
       <WorkTaskRow task={leaf} tag={tag} agoOf={agoOf} onOpen={onOpenTask} />
     </div>
   );

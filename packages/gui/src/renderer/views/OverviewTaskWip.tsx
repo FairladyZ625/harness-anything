@@ -182,24 +182,25 @@ export function OverviewTaskWipBody({
               </div>
             ) : (
               rows.map((entry) => (
-                <DenseRow
-                  key={entry.taskId}
-                  tag={<StatusTag status={entry.status} />}
-                  title={entry.title}
-                  hoverTitle={entry.taskId}
-                  action={
-                    <EntityRefLink
-                      entityRef={`task/${entry.taskId}`}
-                      onNavigate={() => onOpenTask(entry.taskId)}
-                      title={entry.title === "" ? undefined : entry.title}
-                      className="font-mono ui-micro text-accent hover:underline"
-                    >
-                      <span className="max-w-[18ch] truncate">{entry.taskId}</span>
-                    </EntityRefLink>
-                  }
-                  selected={selectedId === entry.taskId}
-                  onClick={() => onSelect(entry.taskId)}
-                />
+                <div key={entry.taskId} className={entry.status === "active" ? "live-row" : undefined}>
+                  <DenseRow
+                    tag={<StatusTag status={entry.status} />}
+                    title={entry.title}
+                    hoverTitle={entry.taskId}
+                    action={
+                      <EntityRefLink
+                        entityRef={`task/${entry.taskId}`}
+                        onNavigate={() => onOpenTask(entry.taskId)}
+                        title={entry.title === "" ? undefined : entry.title}
+                        className="font-mono ui-micro text-accent hover:underline"
+                      >
+                        <span className="max-w-[18ch] truncate">{entry.taskId}</span>
+                      </EntityRefLink>
+                    }
+                    selected={selectedId === entry.taskId}
+                    onClick={() => onSelect(entry.taskId)}
+                  />
+                </div>
               ))
             )}
           </div>

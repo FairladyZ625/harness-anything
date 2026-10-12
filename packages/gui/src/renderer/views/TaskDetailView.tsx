@@ -469,7 +469,7 @@ export function TaskDetailView({
               title: t("components.pageRegions.content"),
               weight: 2,
               content: (
-                <div className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm border border-border bg-surface">
+                <div className="glass flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-sm">
                   <div className="flex shrink-0 items-center gap-1 border-b border-border/70 px-2 py-1">
                     <RegionDragHandle />
                   </div>
