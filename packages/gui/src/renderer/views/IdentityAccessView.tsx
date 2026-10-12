@@ -70,7 +70,7 @@ export function IdentityAccessView({
               ? [
                   { key: "devices" as const, label: t("devices.title") },
                   { key: "grants" as const, label: t("accessControl.tab.grants") },
-                  { key: "requests" as const, label: "权限申请" },
+                  { key: "requests" as const, label: "Permission requests" },
                   { key: "groups" as const, label: t("accessControl.tab.groups") },
                   { key: "teams" as const, label: t("accessControl.teams.title") },
                   { key: "service" as const, label: t("accessControl.tab.service") },

@@ -27,7 +27,7 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
   if (rejection) return <AccessNotice rejection={rejection} origin="read" />;
   if (!data) return <p role="status">正在读取权限申请…</p>;
   return (
-    <Region title="待我处理的权限申请">
+    <Region title="Permission requests">
       {failure !== null && (
         <AccessNotice
           rejection={failure as import("../../../api/access-admin-contract.ts").AccessRejection}
@@ -43,26 +43,26 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
           >
             <div className="min-w-0 flex-1">
               <p className="ui-body">
-                <b>{request.personId}</b> 请求 {roleLabel(request.groupId)} · {resourceLabel(request.resource)}
+                <b>{request.personId}</b> requests {roleLabel(request.groupId)} · {resourceLabel(request.resource)}
               </p>
               <p className="text-text-muted ui-meta">
-                版本 {request.version} · {request.actions.join("、")}
+                Version {request.version} · {request.actions.join(", ")}
                 {request.rationale ? ` · ${request.rationale}` : ""}
               </p>
             </div>
             {request.state === "pending" && (
               <Button testId={`permission-request-decide-${request.requestId}`} onClick={() => setConfirming(request)}>
-                查看并决定
+                Review and decide
               </Button>
             )}
             {request.state !== "pending" && <span className="ui-meta">{request.state}</span>}
           </article>
         ))}
-        {data.requests.length === 0 && <p className="px-3 py-3 text-text-muted ui-body">没有待处理申请。</p>}
+        {data.requests.length === 0 && <p className="px-3 py-3 text-text-muted ui-body">No pending requests.</p>}
       </div>
       {confirming && (
         <Modal
-          title="确认权限申请"
+          title="Confirm permission request"
           testId="permission-request-confirm"
           onClose={() => !busy && setConfirming(null)}
           footer={
@@ -73,19 +73,19 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
                 disabled={busy}
                 onClick={() => void decide("approve")}
               >
-                批准
+                Approve
               </Button>
               <Button testId="permission-request-reject" disabled={busy} onClick={() => void decide("reject")}>
-                拒绝
+                Reject
               </Button>
             </div>
           }
         >
           <p className="ui-body">
-            请确认版本 {confirming.version}：{confirming.personId} · {roleLabel(confirming.groupId)} ·{" "}
+            Confirm version {confirming.version}: {confirming.personId} · {roleLabel(confirming.groupId)} ·{" "}
             {resourceLabel(confirming.resource)}
           </p>
-          <p className="text-text-muted ui-meta">{confirming.actions.join("、")}</p>
+          <p className="text-text-muted ui-meta">{confirming.actions.join(", ")}</p>
         </Modal>
       )}
     </Region>

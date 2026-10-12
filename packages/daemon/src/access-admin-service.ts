@@ -169,10 +169,11 @@ export class AccessAdminService {
   }
 
   async run(request: AccessAdminRequest): Promise<Record<string, unknown>> {
-    const publicRequest =
+    const ownDevices = request.operation?.startsWith("device-") === true,
+      publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
       actor = (
-        await (publicRequest || request.operation === "permission-request-list"
+        await (ownDevices || publicRequest || request.operation === "permission-request-list"
           ? this.#oidc.requireSession()
           : this.#oidc.requireRole("access-admin"))
       ).personId;

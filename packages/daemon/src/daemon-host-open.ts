@@ -726,92 +726,94 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     ...createDaemonHostRuntimeApi(hostContext),
     ...createDaemonHostControlApi(hostContext),
     ...lifecycle,
-    manageRbac: async (request, auth) => {
+    manageRbac: (request, auth) => {
       localOnly(auth);
-      if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
-      const loginTarget =
-        request.rootDir ??
-        (request.repoId
-          ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)
-              ?.canonicalRoot ?? undefined)
-          : undefined);
-      if (request.repoId && !loginTarget)
-        throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
-      if (
-        (request.operation === "health" || request.operation === "bootstrap-status") &&
-        loginTarget &&
-        readFleetEdgeConfig(loginTarget)
-      )
-        return oidc
-          .bindingHealth(loginTarget)
-          .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
-      if (request.operation === "login") return oidc.beginDevice(loginTarget);
-      if (request.operation === "login-poll") return oidc.pollDevice();
-      if (request.operation === "login-begin") {
-        if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
-        return oidc.begin(request.redirectUri, loginTarget);
-      }
-      if (request.operation === "login-complete") {
-        if (!request.code || !request.state)
-          throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
-        return oidc.complete(request.code, request.state);
-      }
-      if (request.operation === "device-approval") return oidc.deviceApproval(request.code ?? "");
-      if (request.operation === "session") return oidc.status();
-      if (request.operation === "logout") return oidc.logout();
-      if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
-      if (request.operation === "bootstrap-admin") {
-        const required = [request.username, request.email, request.displayName, request.password, request.personId];
-        if (required.some((value) => typeof value !== "string" || value.trim() === ""))
-          throw hostCodedError("bootstrap_admin_invalid", "First administrator fields must be non-empty strings.");
-        return oidc.bootstrapAdmin({
-          username: request.username!,
-          email: request.email!,
-          displayName: request.displayName!,
-          password: request.password!,
-          personId: request.personId!,
-        });
-      }
-      if (request.operation === "invite") {
-        const required = [request.username, request.email, request.displayName, request.personId];
-        if (required.some((value) => typeof value !== "string" || value.trim() === ""))
-          throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
-        return oidc.invite({
-          username: request.username!,
-          email: request.email!,
-          displayName: request.displayName!,
-          personId: request.personId!,
-        });
-      }
-      if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap")) {
-        const accessAction =
-          request.operation === "permission-request-create"
-            ? "permission-request-create"
-            : request.operation === "permission-request-decide"
-              ? "permission-request-decide"
-              : request.operation === "permission-request-withdraw"
-                ? "permission-request-withdraw"
-                : undefined;
-        if (accessAction)
-          await requireAuthorizedFleetAction({
-            kind: accessAction,
-            userRoot: input.userRoot,
-            auth,
-            actionId: `${accessAction}:${request.requestId ?? request.operationId ?? "request"}`,
-            evaluatedAtCut: "keycloak:current",
-            ...(request.repoId ? { repoId: request.repoId } : {}),
+      return (async () => {
+        if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
+        const loginTarget =
+          request.rootDir ??
+          (request.repoId
+            ? (readDaemonRegistry({ userRoot: input.userRoot }).repos.find((repo) => repo.repoId === request.repoId)
+                ?.canonicalRoot ?? undefined)
+            : undefined);
+        if (request.repoId && !loginTarget)
+          throw hostCodedError("repo_namespace_unknown", "Select a registered repository for login.");
+        if (
+          (request.operation === "health" || request.operation === "bootstrap-status") &&
+          loginTarget &&
+          readFleetEdgeConfig(loginTarget)
+        )
+          return oidc
+            .bindingHealth(loginTarget)
+            .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
+        if (request.operation === "login") return oidc.beginDevice(loginTarget);
+        if (request.operation === "login-poll") return oidc.pollDevice();
+        if (request.operation === "login-begin") {
+          if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
+          return oidc.begin(request.redirectUri, loginTarget);
+        }
+        if (request.operation === "login-complete") {
+          if (!request.code || !request.state)
+            throw hostCodedError("oidc_callback_invalid", "Login completion requires code and state.");
+          return oidc.complete(request.code, request.state);
+        }
+        if (request.operation === "device-approval") return oidc.deviceApproval(request.code ?? "");
+        if (request.operation === "session") return oidc.status();
+        if (request.operation === "logout") return oidc.logout();
+        if (request.operation === "bootstrap-status") return oidc.bootstrapStatus();
+        if (request.operation === "bootstrap-admin") {
+          const required = [request.username, request.email, request.displayName, request.password, request.personId];
+          if (required.some((value) => typeof value !== "string" || value.trim() === ""))
+            throw hostCodedError("bootstrap_admin_invalid", "First administrator fields must be non-empty strings.");
+          return oidc.bootstrapAdmin({
+            username: request.username!,
+            email: request.email!,
+            displayName: request.displayName!,
+            password: request.password!,
+            personId: request.personId!,
           });
-        return accessAdmin.run(request);
-      }
-      if (request.operation === "listener-set") return oidc.configureAuthority(() => managedRbac.run(request));
-      return requireAuthorizedHostAction({
-        kind: "rbac-bootstrap",
-        // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
-        // identity authority before an OIDC session exists, but it cannot run repository actions.
-        binding: localSystemBinding(input.userRoot),
-        actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
-        evaluatedAtCut: "daemon-rbac:current",
-      }).then(() => managedRbac.run(request));
+        }
+        if (request.operation === "invite") {
+          const required = [request.username, request.email, request.displayName, request.personId];
+          if (required.some((value) => typeof value !== "string" || value.trim() === ""))
+            throw hostCodedError("invite_invalid", "Invitation fields must be non-empty strings.");
+          return oidc.invite({
+            username: request.username!,
+            email: request.email!,
+            displayName: request.displayName!,
+            personId: request.personId!,
+          });
+        }
+        if ((accessAdminOperations as readonly string[]).includes(request.operation ?? "bootstrap")) {
+          const accessAction =
+            request.operation === "permission-request-create"
+              ? "permission-request-create"
+              : request.operation === "permission-request-decide"
+                ? "permission-request-decide"
+                : request.operation === "permission-request-withdraw"
+                  ? "permission-request-withdraw"
+                  : undefined;
+          if (accessAction)
+            await requireAuthorizedFleetAction({
+              kind: accessAction,
+              userRoot: input.userRoot,
+              auth,
+              actionId: `${accessAction}:${request.requestId ?? request.operationId ?? "request"}`,
+              evaluatedAtCut: "keycloak:current",
+              ...(request.repoId ? { repoId: request.repoId } : {}),
+            });
+          return accessAdmin.run(request);
+        }
+        if (request.operation === "listener-set") return oidc.configureAuthority(() => managedRbac.run(request));
+        return requireAuthorizedHostAction({
+          kind: "rbac-bootstrap",
+          // Lifecycle bootstrap is the sole socket-owner exception: it can install/start the
+          // identity authority before an OIDC session exists, but it cannot run repository actions.
+          binding: localSystemBinding(input.userRoot),
+          actionId: `rbac-bootstrap:${request.operation ?? "bootstrap"}`,
+          evaluatedAtCut: "daemon-rbac:current",
+        }).then(() => managedRbac.run(request));
+      })();
     },
     close: async () => {
       parkedWaitController.abort();
