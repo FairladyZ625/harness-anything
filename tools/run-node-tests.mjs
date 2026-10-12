@@ -227,6 +227,9 @@ let activityOffset = 0;
 let activityTail = "";
 const lastTestByFile = new Map();
 const openTestsByFile = new Map();
+// Cumulative per-file failure counts: unlike the activity maps it survives an activity-file
+// reset, because an outcome that already happened cannot be un-counted by a later restart.
+const failuresByFile = new Map();
 let timedOutFiles = [];
 let termination = Promise.resolve();
 const activeFiles = new Map();
@@ -301,11 +304,23 @@ const exitCode = await new Promise((resolveRun) => {
 });
 const slowTests = collectSlowTests(output, options.slowThresholdMs);
 console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
+// Machine-readable per-file outcomes: the spec reporter names no file for a passing top-level
+// test, so a caller forwarding only stdout (isolated dispatch) cannot attribute results per
+// file without these lines. Started files only — a selected file that never started is the
+// caller's selection, not an outcome.
+for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fileOutcome(file)} ${file}`);
 // A forced exit here discards forwarded output still queued in userspace when stdout is a slow
 // pipe (CI log shipping): the inline ✖ lines survive because they were written earlier, while
 // the failing-tests recap — the assertion details a red lane exists to show — is written last
 // and is exactly what gets lost. Exit naturally so pending writes drain first.
 process.exitCode = exitCode;
+
+function fileOutcome(file) {
+  if ((failuresByFile.get(file) ?? 0) > 0) return "fail";
+  if (timedOutFiles.includes(file)) return "timeout";
+  if (completedFiles.has(file)) return "pass";
+  return "incomplete";
+}
 
 function ensureFreshDaemonBuild() {
   // tsc prints real paths for the workspace packages it follows, so the listing runs from the
@@ -462,9 +477,13 @@ function refreshActivity() {
     if (event.state === "test-finished" && typeof event.file === "string") {
       const owner = repoRelativeTestFile(event.file);
       openTestsByFile.set(owner, (openTestsByFile.get(owner) ?? 0) - 1);
+      if (event.failed === true) failuresByFile.set(owner, (failuresByFile.get(owner) ?? 0) + 1);
     }
     if (event.state === "finished" && typeof event.file === "string") {
       const owner = repoRelativeTestFile(event.file);
+      // A failed file envelope means the file itself died (load error, uncaught exception);
+      // it counts as the file failing even though no subtest ever reported.
+      if (event.failed === true) failuresByFile.set(owner, Math.max(failuresByFile.get(owner) ?? 0, 1));
       // A killed descendant may report its signal before the host processes the same
       // group signal. That envelope is termination evidence, not completed execution.
       if (timedOutFiles.length === 0 || !["SIGTERM", "SIGKILL"].includes(event.signal)) completedFiles.add(owner);

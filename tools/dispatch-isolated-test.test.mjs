@@ -42,11 +42,31 @@ test("dispatcher defaults to server and requires exactly one test selector", () 
   assert.deepEqual(parseDispatchArgs(["--tier", "integration"]), {
     target: "server",
     tier: "integration",
-    file: undefined,
+    files: [],
+    prefixes: [],
     coverage: undefined,
   });
   assert.throws(() => parseDispatchArgs([]), /choose exactly one/u);
   assert.throws(() => parseDispatchArgs(["--tier", "fast", "--file", "tools/a.test.mjs"]), /choose exactly one/u);
+});
+
+test("dispatcher accepts repeated files and tier-narrowing prefixes", () => {
+  assert.deepEqual(parseDispatchArgs(["--file", "tools/a.test.mjs", "--file", "packages/b.test.ts"]), {
+    target: "server",
+    tier: undefined,
+    files: ["tools/a.test.mjs", "packages/b.test.ts"],
+    prefixes: [],
+    coverage: undefined,
+  });
+  assert.deepEqual(parseDispatchArgs(["--tier", "integration", "--prefix", "packages/daemon/test"]), {
+    target: "server",
+    tier: "integration",
+    files: [],
+    prefixes: ["packages/daemon/test"],
+    coverage: undefined,
+  });
+  assert.throws(() => parseDispatchArgs(["--prefix", "packages/daemon/test"]), /choose exactly one/u);
+  assert.throws(() => parseDispatchArgs(["--file", "tools/a.test.mjs", "--prefix", "tools/"]), /--prefix narrows/u);
 });
 
 test("dispatcher accepts all isolated targets and validates exact file paths", () => {
@@ -56,7 +76,8 @@ test("dispatcher accepts all isolated targets and validates exact file paths", (
       {
         target,
         tier: undefined,
-        file: "packages/cli/test/daemon-autostart-cli.test.ts",
+        files: ["packages/cli/test/daemon-autostart-cli.test.ts"],
+        prefixes: [],
         coverage: undefined,
       },
     );
@@ -68,19 +89,35 @@ test("dispatcher accepts all isolated targets and validates exact file paths", (
 });
 
 test("dispatcher builds runner commands for Node selectors and registered GUI files", () => {
-  assert.deepEqual(testRunnerArgs({ tier: "integration", file: undefined }), [
+  assert.deepEqual(testRunnerArgs({ tier: "integration", files: [] }), [
     "node",
     "tools/run-node-tests.mjs",
     "--tier",
     "integration",
   ]);
-  assert.deepEqual(testRunnerArgs({ tier: undefined, file: "tools/a.test.mjs" }), [
+  assert.deepEqual(testRunnerArgs({ tier: "integration", files: [], prefixes: ["packages/daemon/test"] }), [
+    "node",
+    "tools/run-node-tests.mjs",
+    "--tier",
+    "integration",
+    "--prefix",
+    "packages/daemon/test",
+  ]);
+  assert.deepEqual(testRunnerArgs({ tier: undefined, files: ["tools/a.test.mjs"] }), [
     "node",
     "tools/run-node-tests.mjs",
     "--file",
     "tools/a.test.mjs",
   ]);
-  assert.deepEqual(testRunnerArgs({ tier: undefined, file: "packages/gui/test/task-pin-actions.vitest.ts" }), [
+  assert.deepEqual(testRunnerArgs({ tier: undefined, files: ["tools/a.test.mjs", "tools/b.test.ts"] }), [
+    "node",
+    "tools/run-node-tests.mjs",
+    "--file",
+    "tools/a.test.mjs",
+    "--file",
+    "tools/b.test.ts",
+  ]);
+  assert.deepEqual(testRunnerArgs({ tier: undefined, files: ["packages/gui/test/task-pin-actions.vitest.ts"] }), [
     "npm",
     "run",
     "test:gui",
@@ -89,17 +126,29 @@ test("dispatcher builds runner commands for Node selectors and registered GUI fi
     "--",
     "test/task-pin-actions.vitest.ts",
   ]);
+  assert.throws(
+    () =>
+      testRunnerArgs({
+        tier: undefined,
+        files: ["tools/a.test.mjs", "packages/gui/test/task-pin-actions.vitest.ts"],
+      }),
+    /one file per dispatch/u,
+  );
 });
 
 test("dispatcher sends coverage to an isolated path and rejects GUI coverage", () => {
   assert.deepEqual(parseDispatchArgs(["--file", "tools/run-node-tests.test.mjs", "--coverage", "/tmp/result.lcov"]), {
     target: "server",
     tier: undefined,
-    file: "tools/run-node-tests.test.mjs",
+    files: ["tools/run-node-tests.test.mjs"],
+    prefixes: [],
     coverage: "/tmp/result.lcov",
   });
   assert.deepEqual(
-    testRunnerArgs({ file: "tools/run-node-tests.test.mjs", coverageTarget: "/tmp/run/.test-coverage/lcov.info" }),
+    testRunnerArgs({
+      files: ["tools/run-node-tests.test.mjs"],
+      coverageTarget: "/tmp/run/.test-coverage/lcov.info",
+    }),
     [
       "node",
       "tools/run-node-tests.mjs",
@@ -122,27 +171,32 @@ test("dispatcher rejects unregistered GUI files", () => {
     /unknown GUI test file: packages\/gui\/test\/unregistered\.vitest\.ts/u,
   );
   assert.throws(
-    () => testRunnerArgs({ tier: undefined, file: "packages/gui/test/unregistered.vitest.ts" }),
+    () => testRunnerArgs({ tier: undefined, files: ["packages/gui/test/unregistered.vitest.ts"] }),
     /unknown GUI test file/u,
   );
 });
 
 test("dispatcher explains untracked --file selections instead of dispatching them", () => {
-  const error = untrackedSelectionError("tools/untracked.test.mjs", ["packages/kept.ts", "tools/kept.txt"]);
+  const error = untrackedSelectionError(["tools/untracked.test.mjs"], ["packages/kept.ts", "tools/kept.txt"]);
   assert.match(error, /tools\/untracked\.test\.mjs is not tracked by git/u);
   assert.match(error, /only syncs git-tracked files/u);
   assert.match(error, /git add tools\/untracked\.test\.mjs/u);
-  assert.equal(untrackedSelectionError("tools/kept.txt", ["packages/kept.txt", "tools/kept.txt"]), undefined);
-  assert.equal(untrackedSelectionError(undefined, []), undefined);
+  assert.equal(untrackedSelectionError(["tools/kept.txt"], ["packages/kept.txt", "tools/kept.txt"]), undefined);
+  assert.equal(untrackedSelectionError([], []), undefined);
+  const first = untrackedSelectionError(
+    ["tools/a-untracked.test.mjs", "tools/b-untracked.test.mjs"],
+    ["tools/kept.txt"],
+  );
+  assert.match(first, /tools\/a-untracked\.test\.mjs/u);
 });
 
 test("GUI routing preserves native tests and accepts registered TSX", () => {
   const native = "packages/gui/test/local-doc-ipc.test.ts";
-  assert.equal(parseDispatchArgs(["--file", native]).file, native);
-  assert.deepEqual(testRunnerArgs({ file: native }), ["node", "tools/run-node-tests.mjs", "--file", native]);
+  assert.deepEqual(parseDispatchArgs(["--file", native]).files, [native]);
+  assert.deepEqual(testRunnerArgs({ files: [native] }), ["node", "tools/run-node-tests.mjs", "--file", native]);
   const tsx = "packages/gui/test/first-run-guide.vitest.tsx";
-  assert.equal(parseDispatchArgs(["--file", tsx]).file, tsx);
-  assert.deepEqual(testRunnerArgs({ file: tsx }), [
+  assert.deepEqual(parseDispatchArgs(["--file", tsx]).files, [tsx]);
+  assert.deepEqual(testRunnerArgs({ files: [tsx] }), [
     "npm",
     "run",
     "test:gui",
@@ -236,7 +290,7 @@ for (const transport of ["tar", "rsync"]) {
 }
 
 test("remote scripts preflight before executing tests with a dedicated root and id", () => {
-  const options = { tier: "integration", file: undefined };
+  const options = { tier: "integration", files: [], prefixes: [] };
   const posix = posixTestScript("/tmp/run", "/tmp/run/.test-isolation-state", options);
   assert.match(posix, /node tools\/isolated-test-dependencies\.mjs/u);
   assert.match(posix, /test-hermetic-preflight\.mjs --user-root '\/tmp\/run\/.test-isolation-state'/u);
@@ -256,7 +310,7 @@ test("remote scripts preflight before executing tests with a dedicated root and 
 });
 
 test("remote scripts preserve the GUI workspace-relative file argument", () => {
-  const options = { tier: undefined, file: "packages/gui/test/task-pin-actions.vitest.ts" };
+  const options = { tier: undefined, files: ["packages/gui/test/task-pin-actions.vitest.ts"], prefixes: [] };
   const posix = posixTestScript("/tmp/run", "/tmp/run/.test-isolation-state", options);
   const powerShell = powerShellTestScript("C:\\Temp\\run", "C:\\Temp\\run\\.test-isolation-state", options);
   assert.match(posix, /'test\/task-pin-actions\.vitest\.ts'/u);

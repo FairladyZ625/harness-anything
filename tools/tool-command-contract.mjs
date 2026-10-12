@@ -60,9 +60,18 @@ export const dispatchIsolatedTestCommand = command({
     {
       name: "--file",
       placeholder: "<test-file>",
+      repeatable: true,
       missingValue: "--file requires a repository-relative test file",
       validate: validateTestFile,
-      description: "POSIX repository-relative test file.",
+      description: "POSIX repository-relative test file; repeat for several files in one dispatch.",
+    },
+    {
+      name: "--prefix",
+      placeholder: "<path>",
+      repeatable: true,
+      missingValue: "--prefix requires a value",
+      validate: validateTestPrefix,
+      description: "POSIX repository-relative path prefix; narrows --tier, not --file.",
     },
     {
       name: "--coverage",
@@ -312,12 +321,12 @@ function validateNonNegativeInteger(value, name) {
   if (!Number.isInteger(parsed) || parsed < 0) throw new Error(`${name} must be a non-negative integer`);
 }
 
-function validateTestPrefix(value) {
+export function validateTestPrefix(value) {
   if (value.startsWith("/") || value.split("/").includes("..") || value.includes("\\"))
     throw new Error(`--prefix must be a POSIX repository-relative path; received ${JSON.stringify(value)}`);
 }
 
-function validateTestFile(value) {
+export function validateTestFile(value) {
   if (
     value.startsWith("/") ||
     value.split("/").includes("..") ||
