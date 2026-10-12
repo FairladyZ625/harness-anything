@@ -525,7 +525,6 @@ export const agentProtocolCommands = Object.freeze([
   defineHostAdminCommand({
     id: "permission-request-create",
     actionKind: "permission-request-create",
-    internal: true,
     phase: "W3",
     path: ["access", "request-create"],
     summary: "Create a versioned permission request.",
@@ -535,7 +534,6 @@ export const agentProtocolCommands = Object.freeze([
   defineHostAdminCommand({
     id: "permission-request-decide",
     actionKind: "permission-request-decide",
-    internal: true,
     phase: "W3",
     path: ["access", "request-decide"],
     summary: "Approve or reject a versioned permission request.",
@@ -545,7 +543,6 @@ export const agentProtocolCommands = Object.freeze([
   defineHostAdminCommand({
     id: "permission-request-withdraw",
     actionKind: "permission-request-withdraw",
-    internal: true,
     phase: "W3",
     path: ["access", "request-withdraw"],
     summary: "Withdraw a pending permission request.",

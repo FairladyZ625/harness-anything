@@ -353,6 +353,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(cliCapabilities, {
+    access: ["permission-request-create", "permission-request-decide", "permission-request-withdraw"],
     agenda: ["agenda"],
     backup: ["backup-retention", "ledger-backup"],
     bootstrap: ["rbac-bootstrap"],
