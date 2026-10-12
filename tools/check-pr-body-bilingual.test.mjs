@@ -91,6 +91,15 @@ test("a template body with only a checkbox ticked is no longer verbatim-unfilled
   assert.equal(result.unfilledTemplate.unfilled, false);
 });
 
+test("the PR template never asks for hand-copied SHA anchors", () => {
+  // Delivery and base anchors derive from the frozen submission record; a template field
+  // soliciting them re-creates the stale-anchor rejection cycle (PR #3546).
+  assert.doesNotMatch(pullRequestTemplate, /Base `origin\/main` SHA|merge-base with `origin\/main`/u);
+  assert.doesNotMatch(pullRequestTemplate, /基准 SHA：|与 `origin\/main` 的 merge-base/u);
+  assert.match(pullRequestTemplate, /frozen submission record/u);
+  assert.match(pullRequestTemplate, /冻结的 submission 记录/u);
+});
+
 test("without a template in context the unfilled check is not applicable", () => {
   const result = checkPrBodyBilingual(pullRequestTemplate);
 

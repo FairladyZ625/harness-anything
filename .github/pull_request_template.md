@@ -91,8 +91,7 @@ Dependency-Change: none
 
 ## Verification
 
-- Base `origin/main` SHA:
-- Branch merge-base with `origin/main`:
+- Delivery and base anchors: read them from the frozen submission record (the execution `Commit` field via `ha task show <task-id> --json`); never hand-copy a SHA into this body.
 - Last `git fetch origin` time:
 <!-- If the branch drifted, replace `none needed` with `merge` or `rebase`. -->
 - Sync method: none needed
@@ -219,8 +218,7 @@ measurement truth or performance budgets; budgets remain judged by the G1 gate.
 
 ## 验证
 
-- `origin/main` 基准 SHA：
-- 当前分支与 `origin/main` 的 merge-base：
+- 交付与基准锚：从冻结的 submission 记录读取（execution 的 `Commit` 字段，`ha task show <task-id> --json`）；不得把 SHA 手抄进本正文。
 - 最近一次 `git fetch origin` 时间：
 <!-- 分支落后时把「不需要」换成 merge 或 rebase。 -->
 - 同步方式：不需要
