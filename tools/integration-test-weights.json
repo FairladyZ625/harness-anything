@@ -3,7 +3,7 @@
   "packages/application/test/fact-event-service.test.ts": 4000,
   "packages/application/test/task-lifecycle-transition-service.test.ts": 16700,
   "packages/cli/test/agent-claim-next.integration.test.ts": 11100,
-  "packages/cli/test/centerctl-backup-restore.integration.test.ts": 22600,
+  "packages/cli/test/backup-restore.integration.test.ts": 22600,
   "packages/cli/test/cli-lifecycle-user-journey-stress-isolated-clients.integration.test.ts": 91500,
   "packages/cli/test/cli-lifecycle-user-journey-stress-scenario-1.integration.test.ts": 96300,
   "packages/cli/test/daemon-autostart-cleanup.integration.test.ts": 15000,
