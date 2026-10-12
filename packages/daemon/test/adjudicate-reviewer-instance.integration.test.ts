@@ -264,10 +264,29 @@ for (const mode of ["resume", "fresh"] as const)
       assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
       const reviewer = (forwarded as unknown as { steps: { runtimeSessionId: string }[] }).steps.at(-1)!;
       await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "agent-install",
+              declaration: {
+                schema: "agent-declaration/v1",
+                id: "return-observer",
+                name: "Return observer",
+                instructions: "Observe the frozen cut.",
+                runtimes: [],
+                permissionMode: "read-only",
+              },
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
       const observer = await cell.spawnRuntime(
         {
           taskId,
-          agentId: "closeout-reviewer",
+          agentId: "return-observer",
           prompt: "Observe the frozen cut without changing it.",
           idempotencyKey: "read-only-observer",
           runtimeInstanceId: "worker-instance",
