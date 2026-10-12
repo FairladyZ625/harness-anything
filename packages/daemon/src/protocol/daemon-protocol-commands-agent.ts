@@ -520,6 +520,38 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
     ],
   }),
+  // dec_F01770FD0DCF72683B7C4C7A47/CH4: request lifecycle actions are explicit host-admin
+  // descriptors even though they share the closed daemon.rbac.manage transport.
+  defineHostAdminCommand({
+    id: "permission-request-create",
+    actionKind: "permission-request-create",
+    internal: true,
+    phase: "W3",
+    path: ["access", "request-create"],
+    summary: "Create a versioned permission request.",
+    method: "daemon.rbac.manage",
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "permission-request-decide",
+    actionKind: "permission-request-decide",
+    internal: true,
+    phase: "W3",
+    path: ["access", "request-decide"],
+    summary: "Approve or reject a versioned permission request.",
+    method: "daemon.rbac.manage",
+    inputs: [],
+  }),
+  defineHostAdminCommand({
+    id: "permission-request-withdraw",
+    actionKind: "permission-request-withdraw",
+    internal: true,
+    phase: "W3",
+    path: ["access", "request-withdraw"],
+    summary: "Withdraw a pending permission request.",
+    method: "daemon.rbac.manage",
+    inputs: [],
+  }),
   defineHostAdminCommand({
     id: "repo-bootstrap",
     phase: "W3",
