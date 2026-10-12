@@ -46,6 +46,10 @@ interface TaskCiReport {
   readonly branch: string;
   readonly headSha: string;
   readonly conclusion: "not_started" | "pending" | "success" | "failure";
+  readonly notStarted?: {
+    readonly reason: "no_pull_request" | "pull_request_conflict" | "queued";
+    readonly detail: string;
+  };
   readonly checks: readonly {
     readonly name: string;
     readonly status: string;
@@ -89,8 +93,14 @@ export async function readTaskCi(
     throw context.cellCodedError("actor_unauthorized", "Task CI requires a bound worker or reviewer dispatch.");
   requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
   const instanceId = context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId;
-  const hosting =
-    provider === runProvider ? await detectHostingProvider(context.rootDir) : ({ kind: "github" } as HostingProvider);
+  let hosting: HostingProvider;
+  if (provider !== runProvider) hosting = { kind: "github" } as HostingProvider;
+  // Provider injection is the test seam and may use a repository-less temporary directory.
+  // A configured but unknown remote still goes through strict provider detection.
+  else
+    hosting = (await hasOriginRemote(context.rootDir))
+      ? await detectHostingProvider(context.rootDir)
+      : ({ kind: "github" } as HostingProvider);
   const credential =
     typeof instanceId === "string" ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind) : null;
   const token = credential?.GH_TOKEN ?? credential?.GITLAB_TOKEN;
@@ -198,7 +208,18 @@ export async function readTaskCi(
           : states.every((state) => ["success", "neutral", "skipped"].includes(state.conclusion ?? ""))
             ? "success"
             : "failure";
-  const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs },
+  const notStarted =
+    conclusion !== "not_started" ? undefined : await explainNotStarted(api, prefix, repository, branch);
+  const ci: TaskCiReport = {
+      schema: "task-ci/v1",
+      taskId: branch,
+      branch,
+      headSha,
+      conclusion,
+      ...(notStarted ? { notStarted } : {}),
+      checks,
+      runs,
+    },
     revision = context.projection.readCut().sourceRevision;
   return {
     ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, revision, null) ?? {
@@ -208,6 +229,50 @@ export async function readTaskCi(
       evidence: JSON.stringify(ci),
     }),
     ci,
+  };
+}
+
+async function hasOriginRemote(rootDir: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+type ApiReader = <T>(endpoint: string, paginated?: boolean) => Promise<T>;
+
+async function explainNotStarted(
+  api: ApiReader,
+  prefix: string,
+  repository: string,
+  branch: string,
+): Promise<NonNullable<TaskCiReport["notStarted"]>> {
+  const [owner] = repository.split("/");
+  const pulls = await api<readonly { readonly number: number; readonly mergeable_state: string | null }[]>(
+    `${prefix}pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`,
+  );
+  const conflicting = pulls.find((pull) => pull.mergeable_state === "dirty");
+  if (conflicting)
+    return {
+      reason: "pull_request_conflict",
+      detail:
+        `Pull request #${conflicting.number} for this branch conflicts with its base branch ` +
+        "(mergeable_state dirty). Rebase onto the base and push again; no CI verdict arrives while the conflict stands.",
+    };
+  if (pulls.length === 0)
+    return {
+      reason: "no_pull_request",
+      detail:
+        `No open pull request for branch ${branch}; pull-request-triggered checks cannot start. ` +
+        `Open one with ha task pr ${branch}.`,
+    };
+  return {
+    reason: "queued",
+    detail:
+      "No checks or workflow runs are registered for this head SHA yet; GitHub may still be queuing them. " +
+      `Read again after a short wait (ha task ci ${branch} --wait).`,
   };
 }
 
