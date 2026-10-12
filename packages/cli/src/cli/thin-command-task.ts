@@ -132,7 +132,6 @@ function parseTaskPublication(
     : rejected(flags.code, flags.nextAction, json);
 }
 
-
 function parseTaskShow(
   args: readonly string[],
   rootDir: SafePath,
@@ -162,9 +161,17 @@ function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): Thin
   if (action.workerMode === undefined)
     return rejected(
       "missing_field",
-      "A returned cut needs exactly one worker mode: --worker-mode resume --message <text> or --worker-mode fresh --message <text>.",
+      "A returned cut needs exactly one worker mode: --worker-mode resume --message <text>, --worker-mode fresh --message <text>, or --worker-mode none.",
       json,
     );
+  if (action.workerMode === "none")
+    return action.followUp === undefined
+      ? parsed
+      : rejected(
+          "invalid_field",
+          "--worker-mode none dispatches no worker, so it takes no --message; put the owner's note in --note.",
+          json,
+        );
   return typeof action.followUp === "string" && action.followUp.trim().length > 0
     ? parsed
     : rejected("missing_field", "A returned cut needs --message <text> for the worker.", json);

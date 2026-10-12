@@ -522,6 +522,20 @@ export async function adjudicateTask(
     receipt = await cell.lifecycleAction(action, binding);
   if (receipt.outcome !== "applied") return receipt;
   if (continuation) return dispatchReturnedWorker(cell, continuation, binding, receipt);
+  if (action.return === true)
+    // --worker-mode none: the durable return stands and no worker is dispatched; the receipt
+    // names the manual continuation lanes instead of a dispatch.
+    return {
+      ...receipt,
+      continuation: { mode: "none" },
+      next: [
+        {
+          command: `ha task start ${taskId}`,
+          reason: "no worker was dispatched; start the next execution to resume the rework",
+        },
+        { command: `ha task submit ${taskId}`, reason: "publish the reworked cut once the lease is held" },
+      ],
+    } as WriteReceipt;
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
   if (!dispatched)
     throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);
