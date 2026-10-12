@@ -280,17 +280,32 @@ export class AccessAdminService {
   async #listPermissionRequests(actor: string): Promise<Record<string, unknown>> {
     const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest),
       session = await this.#session(),
-      decision = await session.adapter.authorizePerson({
-        adminAccessToken: session.token,
-        personId: actor,
-        action: "permission-request-decide",
-        resource: { kind: "fleet" },
-      }),
-      canDecide = decision.outcome === "allowed";
+      visiblePending = await Promise.all(
+        rows
+          .filter((item) => item.state === "pending" && item.personId !== actor)
+          .map(async (item) => {
+            const resource = decodeAuthorizationResource(item.resource),
+              decisions = await Promise.all(
+                item.actions.map((action) =>
+                  session.adapter.authorizePerson({
+                    adminAccessToken: session.token,
+                    personId: actor,
+                    action,
+                    resource,
+                    resourceAncestors:
+                      resource.kind === "entity" ? [{ kind: "repository" as const, repoId: resource.repoId }] : [],
+                  }),
+                ),
+              );
+            return decisions.every((item) => item.outcome === "allowed") ? item : null;
+          }),
+      ),
+      approvable = new Set(visiblePending.filter((item): item is PermissionRequest => item !== null)),
+      canDecide = approvable.size > 0;
     return {
       ok: true,
       canDecide,
-      requests: rows.filter((item) => item.personId === actor || (canDecide && item.state === "pending")),
+      requests: rows.filter((item) => item.personId === actor || approvable.has(item)),
     };
   }
 
