@@ -149,6 +149,8 @@ test("task identity may request its own task scope but cannot decide or administ
     assert.throws(() => requireExecutionRequestScope(p, "daemon.rbac.manage", { ...params, ...extra }), {
       code: "execution_credential_rejected",
     });
+});
+
 test("execution credentials allow repository settings and only the dispatched decision review target", () => {
   const p = { ...principal(), role: "reviewer" as const, reviewDecisionId: "dec_bound" };
   assert.doesNotThrow(() =>
