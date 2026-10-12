@@ -70,7 +70,7 @@ export function IdentityAccessView({
               ? [
                   { key: "devices" as const, label: t("devices.title") },
                   { key: "grants" as const, label: t("accessControl.tab.grants") },
-                  { key: "requests" as const, label: "Permission requests" },
+                  { key: "requests" as const, label: t("accessControl.requests.tab") },
                   { key: "groups" as const, label: t("accessControl.tab.groups") },
                   { key: "teams" as const, label: t("accessControl.teams.title") },
                   { key: "service" as const, label: t("accessControl.tab.service") },
@@ -102,7 +102,7 @@ export function IdentityAccessView({
         ) : tab === "grants" ? (
           <GrantsTab access={access} repos={repos} />
         ) : tab === "requests" ? (
-          <PermissionRequestsTab access={access} />
+          <PermissionRequestsTab access={access} identity={identity} />
         ) : (
           <ReceiptsTab access={access} />
         )}

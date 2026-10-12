@@ -210,7 +210,10 @@ export interface AccessAdminApi {
   readonly updateGroup: (input: AccessGroupWrite & { readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly deleteGroup: (input: { readonly groupId: string; readonly expectedVersion: string }) => Reply<AccessReceipt>;
   readonly grants: () => Reply<AccessGrantsReply>;
-  readonly permissionRequests: () => Reply<{ readonly requests: readonly PermissionRequest[] }>;
+  readonly permissionRequests: () => Reply<{
+    readonly canDecide: boolean;
+    readonly requests: readonly PermissionRequest[];
+  }>;
   readonly requestPermission: (input: {
     readonly groupId: string;
     readonly resource: string;

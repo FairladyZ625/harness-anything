@@ -392,6 +392,23 @@ test("permission requests retain the authenticated task requester instead of the
   await assert.rejects(admin.run({ ...request, personId: "another" }, "worker"), { code: "authorization_denied" });
 });
 
+test("permission request listing derives approver visibility from policy authority", async (t) => {
+  const { keycloak, run, signIn } = await fixture(t);
+  keycloak.account("requester");
+  keycloak.account("member");
+  signIn("requester", ["offline_access"]);
+  await run({ operation: "permission-request-create", groupId: "viewer", resource: "repo-a" });
+  signIn("member", []);
+  const memberList = await run({ operation: "permission-request-list" });
+  assert.deepEqual([memberList.canDecide, memberList.requests], [false, []]);
+  signIn("requester", ["offline_access"]);
+  const requesterList = await run({ operation: "permission-request-list" });
+  assert.deepEqual(
+    [requesterList.canDecide, (requesterList.requests as { personId: string }[]).map((row) => row.personId)],
+    [false, ["requester"]],
+  );
+});
+
 test("permission requests bind exact versions and settle one concurrent decision", async (t) => {
   const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");
@@ -501,6 +518,7 @@ test("a permission request takes effect only after Keycloak accepts its grant", 
   const { keycloak, run, signIn, oidc, root, evaluate } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("admin");
+  keycloak.permit("admin", "@fleet", ["permission-request-decide"]);
   signIn("alice", ["offline_access"]);
   const created = await run({ operation: "permission-request-create", groupId: "contributor", resource: "repo-a" }),
     request = created.request as { requestId: string; version: number };
@@ -531,7 +549,13 @@ test("a permission request takes effect only after Keycloak accepts its grant", 
     state: string;
     version: number;
   }[];
-  assert.deepEqual([pending[0]?.state, pending[0]?.version], ["pending", 1]);
+  assert.deepEqual(
+    [
+      pending.find((item) => item.state === "pending")?.state,
+      pending.find((item) => item.state === "pending")?.version,
+    ],
+    ["pending", 1],
+  );
 
   const accepted = await run({
     operation: "permission-request-decide",

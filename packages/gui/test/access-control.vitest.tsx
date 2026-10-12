@@ -43,6 +43,7 @@ await vi.hoisted(async () => {
 });
 
 let container: HTMLDivElement, root: Root;
+let rendererPersonId = "person-admin";
 
 const trusted = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index.html" } } as IpcMainInvokeEvent,
   trustPolicy = {
@@ -95,6 +96,11 @@ async function stack() {
   return {
     keycloak,
     ...user,
+    signIn: (personId: string, roles?: readonly string[], notifyRenderer = false) => {
+      user.signIn(personId, roles);
+      rendererPersonId = personId;
+      if (notifyRenderer) window.dispatchEvent(new Event("harness-auth-changed"));
+    },
     journal: managedRbacReceiptJournal(user.root),
     access: accessAdminPreloadApi((_channel, request) => handler(trusted, request)),
     // The production evaluation path: RepoCell → KeycloakPolicyAdapter → UMA decision.
@@ -126,7 +132,7 @@ async function stack() {
 }
 
 const auth: OidcAuthApi = {
-  status: vi.fn(async () => ({ ok: true, authenticated: true, personId: "person-admin" })),
+  status: vi.fn(async () => ({ ok: true, authenticated: true, personId: rendererPersonId })),
   bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true, url: keycloakUrl, realm: "harness" })),
   bootstrapStatus: vi.fn(async () => ({ ok: true, required: false })),
   cancelLogin: vi.fn(async () => ({ ok: true })),
@@ -139,8 +145,8 @@ const auth: OidcAuthApi = {
 
 /** The fake realm answers on `setImmediate`, so a step is settled once the DOM stops changing. */
 async function settle() {
-  for (let quiet = 0, previous = ""; quiet < 3; ) {
-    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 15)));
+  for (let quiet = 0, previous = ""; quiet < 8; ) {
+    await act(async () => new Promise<void>((resolve) => setImmediate(resolve)));
     quiet = container.innerHTML === previous ? quiet + 1 : 0;
     previous = container.innerHTML;
   }
@@ -187,6 +193,7 @@ async function openTab(
 }
 
 beforeEach(() => {
+  rendererPersonId = "person-admin";
   setActiveLocale("zh-CN");
   container = document.createElement("div");
   document.body.append(container);
@@ -205,6 +212,7 @@ describe("账号与访问控制页", () => {
     const f = await stack();
     f.keycloak.account("requester");
     f.keycloak.account("approver");
+    f.keycloak.permit("approver", "@fleet", ["permission-request-decide"]);
     f.keycloak.permit("approver", "repo-a", ["task-create"]);
     f.signIn("approver");
     const group = await f.access.createGroup({
@@ -214,12 +222,12 @@ describe("账号与访问控制页", () => {
       composites: [],
     });
     expect(group.ok, JSON.stringify(group)).toBe(true);
-    f.signIn("requester", ["offline_access"]);
-    await openTab(f.access, "Permission requests");
+    f.signIn("requester", ["offline_access"], true);
+    await openTab(f.access, "权限申请");
     const form = byTestId<HTMLFormElement>("permission-request-create");
-    await type(labelled(form, "Policy group"), "task-reader");
-    await type(labelled(form, "Resource"), "repo-a");
-    await type(labelled(form, "Reason"), "Read task evidence");
+    await type(labelled(form, "策略组"), "task-reader");
+    await type(labelled(form, "作用域"), "repo-a");
+    await type(labelled(form, "申请理由"), "Read task evidence");
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     await settle();
     const requests = await f.access.permissionRequests();
@@ -229,13 +237,32 @@ describe("账号与访问控制页", () => {
     const request = requests.requests[0]!;
     expect(request.personId).toBe("requester");
     expect(await f.evaluate("requester", "repo-a", { kind: "task-create" })).toBe("denied");
-    f.signIn("approver");
-    await click(byTestId(`permission-request-decide-${request.requestId}`));
-    expect(byTestId("permission-request-confirm").textContent).toContain("Confirm version 1");
-    await click(byTestId("permission-request-approve"));
+    expect(byTestId(`permission-request-withdraw-${request.requestId}`)).toBeTruthy();
+    expect(container.textContent).toContain("不能批准或拒绝自己提交的申请");
     expect(container.querySelector(`[data-testid="permission-request-decide-${request.requestId}"]`)).toBeNull();
-    f.signIn("requester", ["offline_access"]);
-    expect(await f.access.permissionRequests()).toMatchObject({ requests: [{ state: "approved", version: 2 }] });
+    await click(byTestId(`permission-request-withdraw-${request.requestId}`));
+    expect((await f.access.permissionRequests()).requests[0]?.state).toBe("withdrawn");
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await settle();
+    const pending = (await f.access.permissionRequests()).requests.find((item) => item.state === "pending")!;
+    f.signIn("approver", ["offline_access"], true);
+    await settle();
+    expect((await f.access.permissionRequests()).canDecide).toBe(true);
+    await click(byTestId(`permission-request-decide-${pending.requestId}`));
+    expect(byTestId("permission-request-confirm").textContent).toContain("确认版本 1");
+    await click(byTestId("permission-request-approve"));
+    expect(container.querySelector(`[data-testid="permission-request-decide-${pending.requestId}"]`)).toBeNull();
+    f.signIn("requester", ["offline_access"], true);
+    await settle();
+    const finalRequests = (await f.access.permissionRequests()).requests;
+    expect(finalRequests.find((item) => item.requestId === request.requestId)).toMatchObject({
+      state: "withdrawn",
+      version: 2,
+    });
+    expect(finalRequests.find((item) => item.requestId === pending.requestId)).toMatchObject({
+      state: "approved",
+      version: 2,
+    });
     expect(await f.evaluate("requester", "repo-a", { kind: "task-create" })).toBe("allowed");
   });
 
@@ -310,7 +337,7 @@ describe("账号与访问控制页", () => {
     expect(await evaluate("alice", "repo-a", { kind: "task-create" })).toBe("allowed");
     await openTab(access, "角色说明");
     const unavailable = byTestId("access-groups-unavailable");
-    expect(unavailable.textContent).toContain("不是访问管理员");
+    expect(unavailable.textContent).toContain("无权执行此访问控制操作");
     // The page's own read of the same lack of role, by contrast, reads as a permission note.
     expect(unavailable.getAttribute("role")).toBe("status");
     expect(unavailable.className).not.toContain("status-blocked");
@@ -444,7 +471,7 @@ describe("账号与访问控制页", () => {
     expect(denied.dataset.code).toBe("authorization_denied");
     expect(denied.getAttribute("role")).toBe("status");
     expect(denied.className).not.toContain("status-blocked");
-    expect(denied.textContent).toContain("不是访问管理员");
+    expect(denied.textContent).toContain("无权执行此访问控制操作");
     expect(byTestId("identity-session").textContent).toContain("已登录");
     expect(byTestId("access-service-card").textContent).toContain("正常");
   });
