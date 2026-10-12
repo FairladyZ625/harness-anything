@@ -143,7 +143,7 @@ function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): Thin
       "A returned cut needs exactly one worker mode: --worker-mode resume --message <text> or --worker-mode fresh --message <text>.",
       json,
     );
-  return typeof action.followUp === "string"
+  return typeof action.followUp === "string" && action.followUp.trim().length > 0
     ? parsed
     : rejected("missing_field", "A returned cut needs --message <text> for the worker.", json);
 }

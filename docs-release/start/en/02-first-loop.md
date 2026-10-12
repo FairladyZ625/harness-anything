@@ -133,8 +133,14 @@ ha task adjudicate task_... --forward --note "Direction and evidence are ready f
 ```
 
 Expected: `ok=true command=task-adjudicate transition.from=submitted/review
-transition.to=in_review/review`. A return order uses `--return --note <instructions>`
-and moves the task back to `active`; the reviewer never sends work directly to the worker.
+transition.to=in_review/review`. A return order uses
+`--return --worker-mode resume --message <feedback> --note <reason>` to continue the
+implementation worker's provider session. Choose `--worker-mode fresh` to start a
+new session with the previous submission's conclusion, verification and risks attached.
+Both move the task back to `active` and start a new execution. The mode is required;
+an unavailable resume is rejected before returning the cut. A launch error after
+the return appears as a failed receipt step; the durable return remains applied.
+The reviewer never sends work directly to the worker.
 
 ## 6. Review, owner verdict, and mechanical completion
 
@@ -154,7 +160,7 @@ ha task review-consent task_... --review-id review-docs-loop
 ```
 
 For `changes_requested`, the task remains `in_review` until the owner issues
-`ha task adjudicate task_... --return --review-id <id> --note <instructions>`.
+`ha task adjudicate task_... --return --worker-mode resume --message <feedback> --review-id <id> --note <reason>`.
 
 ```bash
 ha task complete task_...

@@ -114,6 +114,18 @@ test("adjudicate --forward pins reviewer resources and carries the owner context
       `# Closeout\n\n## Summary\n\nAdjudicate instance fixture ${git(root, "rev-parse", "fixture-delivery")} is ready.\n\n## Verification\n\nIntegration assertions pin the reviewer dispatch resources.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nThe dispatch-review pin flags share this path.\n`,
     );
     assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+    const unavailableResume = await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        return: true,
+        workerMode: "resume",
+        followUp: "Revise the fixture.",
+        reason: "No worker dispatched yet.",
+      },
+      binding,
+    );
+    assert.equal(unavailableResume.code, "runtime_dispatch_not_resumable", JSON.stringify(unavailableResume));
     const adjudicated = await cell.run(
       {
         kind: "task-adjudicate",
@@ -165,7 +177,133 @@ function runtimeInstance(instanceId: string): RuntimeInstanceSummary {
   };
 }
 
-function fakeProcess(pid: number): RuntimeProcess {
+for (const mode of ["resume", "fresh"] as const)
+  test(`adjudicate --return ${mode} continues the implementation worker after review`, async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-return-worker-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "user"),
+      prompts: string[] = [],
+      sessions: (string | undefined)[] = [];
+    let pid = 9200;
+    mkdirSync(root);
+    initRepo(root);
+    grantTestPolicyGroups([binding.actor.principal.personId], "admin");
+    const cell = await openRepoCell({
+      repoId: workspaceId(`return-worker-${mode}`),
+      rootDir: canonicalRoot(root),
+      ownerId: `return-worker-${mode}`,
+      runtimeDaemonRoute: { userRoot, daemonId: "return-worker", endpoint: path.join(userRoot, "return.sock") },
+      runtimeInstances: () => [runtimeInstance("worker-instance")],
+      prepareRuntimeLaunch: async (instanceId, request) => {
+        prompts.push(request.prompt);
+        sessions.push(request.providerSessionId);
+        return {
+          definition: {
+            schema: "agent-definition-snapshot/v1",
+            configVersion: 1,
+            instanceId,
+            installationId: installation.installationId,
+            kindId: "codex",
+            providerId: "openai",
+            model: request.model ?? "worker-instance-model",
+            reasoningEffort: null,
+            fast: false,
+            baseUrl: null,
+            authMode: "subscription",
+          },
+          installation,
+          executablePath: installation.executablePath,
+          args: ["exec", "--json", "-"],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      runtimeLaunch: () => fakeProcess(++pid, sessions.at(-1)),
+    });
+    try {
+      const taskId = "task_return_worker",
+        executionId = "execution-original",
+        created = await cell.run({ kind: "task-create", taskId, title: "Return worker" }, binding);
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, binding);
+      const packagePath = String((created as Record<string, unknown>).packagePath);
+      await realizeTaskPlanFixture(root, packagePath, (planPath) =>
+        cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+      );
+      assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+      const source = await cell.spawnRuntime(
+        {
+          taskId,
+          cwd: { scope: "repo-root" },
+          runtimeInstanceId: "worker-instance",
+          prompt: "Implement the delivery.",
+          idempotencyKey: "original-worker",
+        },
+        binding,
+      );
+      await cell.awaitRuntimeOutcome(String(source.runtimeSessionId));
+      assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+      writeFileSync(
+        path.join(root, "harness", packagePath, "closeout.md"),
+        "# Closeout\n\n## Summary\n\nPrevious worker conclusion: change the parser.\n\n## Verification\n\nParser fixture passes.\n\n## Residual Risk\n\nRemote provider remains unverified.\n\n## Same Mechanism Elsewhere\n\nThe CLI shares the contract.\n",
+      );
+      assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+      const missing = await cell.run({ kind: "task-adjudicate", taskId, return: true, reason: "Revise." }, binding);
+      assert.equal(missing.code, "invalid_command", JSON.stringify(missing));
+      assert.match(JSON.stringify(missing), /worker-mode/u);
+      const emptyMessage = await cell.run(
+        { kind: "task-adjudicate", taskId, return: true, workerMode: mode, followUp: " ", reason: "Revise." },
+        binding,
+      );
+      assert.equal(emptyMessage.outcome, "op_rejected", JSON.stringify(emptyMessage));
+      const forwarded = await cell.run(
+        { kind: "task-adjudicate", taskId, forward: true, reason: "Review.", runtimeInstanceId: "worker-instance" },
+        binding,
+      );
+      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+      const reviewer = (forwarded as unknown as { steps: { runtimeSessionId: string }[] }).steps.at(-1)!;
+      await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
+      const returned = await cell.run(
+        {
+          kind: "task-adjudicate",
+          taskId,
+          return: true,
+          workerMode: mode,
+          followUp: "Correct the parser edge case.",
+          reason: "Small revision.",
+        },
+        binding,
+      );
+      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+      const continuation = (returned as unknown as { continuation: { runtimeSessionId: string; dispatchId: string } })
+        .continuation;
+      assert.ok(continuation, JSON.stringify(returned));
+      await cell.awaitRuntimeOutcome(continuation.runtimeSessionId);
+      assert.equal(sessions.length, 3);
+      assert.equal(
+        sessions[2],
+        mode === "resume" ? "reviewer-9201" : undefined,
+        "resume selects the original worker, never the newer reviewer",
+      );
+      assert.match(prompts[2], /Correct the parser edge case/u);
+      if (mode === "fresh") {
+        assert.match(prompts[2], /Previous worker conclusion: change the parser/u);
+        assert.match(prompts[2], /Parser fixture passes/u);
+        assert.match(prompts[2], /Remote provider remains unverified/u);
+      }
+      const dispatches = await cell.read("repo.task.dispatches", { taskId }, binding);
+      assert.notEqual(
+        dispatches.dispatches.find((row) => row.dispatchId === continuation.dispatchId)?.executionId,
+        executionId,
+      );
+    } finally {
+      await cell.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
+function fakeProcess(pid: number, sessionId = `reviewer-${pid}`): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;
   return {
@@ -179,7 +317,7 @@ function fakeProcess(pid: number): RuntimeProcess {
       setImmediate(() => {
         output?.(
           `${[
-            { type: "thread.started", thread_id: `reviewer-${pid}` },
+            { type: "thread.started", thread_id: sessionId },
             { type: "item.completed", item: { id: "message", type: "agent_message", text: "reviewed" } },
             { type: "turn.completed" },
           ]

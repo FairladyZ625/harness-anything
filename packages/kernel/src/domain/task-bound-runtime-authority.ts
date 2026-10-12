@@ -3,6 +3,25 @@ import type { RuntimeSession } from "./agent-runtime.ts";
 import { isSameExecution } from "./actor-domain-services.ts";
 import type { LeaseV1 } from "./execution.ts";
 import type { ActorIdentity, WriteSource } from "./write-chain.contract.ts";
+import type { TaskLifecycleSnapshot } from "./task-lifecycle-contract-internal-types.ts";
+
+/** dec_CF96A3C910B31D2D7498F32DDD/CH3: a returned worker may continue into the next leased round. */
+export function isReturnedRuntimeContinuation(
+  snapshot: TaskLifecycleSnapshot,
+  sourceExecutionId: unknown,
+  executionId: unknown,
+): boolean {
+  const previous = snapshot.executions.find((row) => row.executionId === sourceExecutionId),
+    current = snapshot.executions.find((row) => row.executionId === executionId);
+  return (
+    previous?.state === "changes_requested" &&
+    current?.state === "active" &&
+    current.iteration === previous.iteration + 1 &&
+    current.iteration === snapshot.task?.iteration &&
+    snapshot.lease?.phase === "held" &&
+    snapshot.lease.executionId === current.executionId
+  );
+}
 
 export interface TaskBoundRuntimeBinding {
   readonly runtimeSessionId: string;

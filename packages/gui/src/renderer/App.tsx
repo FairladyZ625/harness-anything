@@ -27,6 +27,7 @@ import { CollaborationView } from "./views/CollaborationView.tsx";
 import { useFleetOverview } from "./collaboration-data.ts";
 import { isExecutingLeasePhase } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
+import { TaskReturnDialog } from "./components/taskDetail/TaskReturnDialog.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -172,6 +173,11 @@ function AppShell() {
   const lastLedgerCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
+  const [returnTask, setReturnTask] = useState<{ task: TaskRow; reviewId?: string; repoId: string } | null>(null);
+  const adjudicateTask = async (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string) => {
+    if (decision === "return") setReturnTask({ task, reviewId, repoId: projectId });
+    else await taskActions.adjudicateTask(task, decision, reason, reviewId);
+  };
   const decisionActions = useDecisionActions(projectId);
   // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
   // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
@@ -471,7 +477,7 @@ function AppShell() {
         onProgress={(input) => taskActions.appendProgress(task, input)}
         onSubmit={() => taskActions.submitTask(task)}
         onComplete={() => taskActions.completeTask(task)}
-        onAdjudicate={(decision, reason, reviewId) => taskActions.adjudicateTask(task, decision, reason, reviewId)}
+        onAdjudicate={(decision, reason, reviewId) => adjudicateTask(task, decision, reason, reviewId)}
         onConsentReview={(reviewId) => taskActions.consentReview(task, reviewId)}
         onAttest={taskActions.attestGate}
         onSetPin={handleSetPin}
@@ -681,7 +687,7 @@ function AppShell() {
                       void taskActions.consentReview(task, reviewId);
                     }}
                     onAdjudicate={(task, decision, reason, reviewId) => {
-                      void taskActions.adjudicateTask(task, decision, reason, reviewId);
+                      void adjudicateTask(task, decision, reason, reviewId);
                     }}
                     feedback={feedbackOf}
                     onLoadMore={() => {
@@ -1029,6 +1035,15 @@ function AppShell() {
             openTaskDetail(taskId);
           }}
         />
+        {returnTask?.repoId === projectId ? (
+          <TaskReturnDialog
+            onClose={() => setReturnTask(null)}
+            onReturn={(mode, feedback) => {
+              void taskActions.adjudicateTask(returnTask.task, "return", feedback, returnTask.reviewId, mode);
+              setReturnTask(null);
+            }}
+          />
+        ) : null}
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}

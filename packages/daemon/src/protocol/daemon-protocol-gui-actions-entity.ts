@@ -144,6 +144,8 @@ export const taskCompletionGuiActions = Object.freeze([
       forward: "boolean?",
       return: "boolean?",
       reason: "string?",
+      workerMode: "string?",
+      followUp: "string?",
     }),
     "adjudicateTask",
     "/api/tasks/:taskId/adjudicate",

@@ -491,6 +491,8 @@ export const harnessClient = {
       readonly forward?: boolean;
       readonly return?: boolean;
       readonly reason?: string;
+      readonly workerMode?: "resume" | "fresh";
+      readonly followUp?: string;
     },
   ): Promise<GuiActionResult> {
     return readGuiActionResult(await invoke("repo.task.adjudicate", payload, "adjudicateTask"));

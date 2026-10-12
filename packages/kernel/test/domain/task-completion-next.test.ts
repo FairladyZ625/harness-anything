@@ -265,7 +265,10 @@ test("a recorded changes_requested review guides the owner's return instead of a
     },
     result = taskCompletionNext(changesRequested, context);
   assert.equal(result.blocker?.code, "review_missing");
-  assert.equal(result.next?.action, "ha task adjudicate task-1 --return --review-id review-changes --note-file <path>");
+  assert.equal(
+    result.next?.action,
+    "ha task adjudicate task-1 --return --worker-mode <resume|fresh> --message <feedback> --review-id review-changes --note-file <path>",
+  );
   assert.equal(result.next?.authority, "person-owner");
   assert.doesNotMatch(result.next!.reason, /no recorded review/u);
   assert.match(result.next!.reason, /rework/u);
@@ -275,7 +278,10 @@ test("a recorded changes_requested review guides the owner's return instead of a
     paths: ["tasks/task-1/INDEX.md"],
     currentDocuments: [],
   })[0]!.body;
-  assert.match(index, /ha task adjudicate task-1 --return --review-id review-changes --note-file <path>/u);
+  assert.match(
+    index,
+    /ha task adjudicate task-1 --return --worker-mode <resume\|fresh> --message <feedback> --review-id review-changes --note-file <path>/u,
+  );
   assert.doesNotMatch(index, /dispatch-review/u);
   // Without any recorded review the dispatch guidance stands.
   assert.equal(taskCompletionNext(at(4), context).next?.action, "ha task dispatch-review task-1");
@@ -290,7 +296,10 @@ test("a changes request on the current cut comes before missing CI evidence", ()
     },
     result = taskCompletionNext(changesRequested, context);
   assert.equal(result.blocker?.code, "review_missing");
-  assert.equal(result.next?.action, "ha task adjudicate task-1 --return --review-id review-changes --note-file <path>");
+  assert.equal(
+    result.next?.action,
+    "ha task adjudicate task-1 --return --worker-mode <resume|fresh> --message <feedback> --review-id review-changes --note-file <path>",
+  );
   // Without the changes request the missing CI witness still leads.
   assert.equal(taskCompletionNext(reviewed, context).blocker?.code, "ci_missing");
 });
@@ -327,7 +336,10 @@ test("an undisposed changes request prevents an approved review from reaching co
     },
     result = taskCompletionNext(conflicted, context);
   assert.equal(result.blocker?.code, "review_missing");
-  assert.equal(result.next?.action, "ha task adjudicate task-1 --return --review-id review-changes --note-file <path>");
+  assert.equal(
+    result.next?.action,
+    "ha task adjudicate task-1 --return --worker-mode <resume|fresh> --message <feedback> --review-id review-changes --note-file <path>",
+  );
 });
 
 test("an executorless review without dispatch lineage names an executable independent-review step", () => {

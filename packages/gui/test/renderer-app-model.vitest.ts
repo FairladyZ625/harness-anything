@@ -71,6 +71,22 @@ describe("renderer app model", () => {
     ).toMatchObject({ state: "pending", code: "canonical_not_visible" });
   });
 
+  it("shows a failed worker continuation even when the return itself is durable", () => {
+    expect(
+      settleTaskReceipt(
+        receipt({
+          continuation: {
+            mode: "fresh",
+            outcome: "op_rejected",
+            code: "runtime_unavailable",
+            rejectionExplanation: "No instance available.",
+          },
+          proof: { committedRevision: 8, appliedCut: 8, durable: true, canonicalVisible: true },
+        }),
+      ),
+    ).toMatchObject({ state: "op_rejected", code: "runtime_unavailable", hint: "No instance available." });
+  });
+
   it("preserves raw rejection code, hint, and opId", () => {
     const settled = settleTaskReceipt({
       schema: "command-receipt/v2",

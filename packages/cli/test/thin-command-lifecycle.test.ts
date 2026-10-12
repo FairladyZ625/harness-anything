@@ -362,6 +362,16 @@ test("returned adjudication requires an explicit worker continuation choice", ()
     assert.equal(resumed.command.action.workerMode, "resume");
     assert.equal(resumed.command.action.followUp, "Use the review comments and continue.");
   }
+  for (const mode of ["fresh", "resume"]) {
+    const args = ["task", "adjudicate", "task-1", "--return", "--note", "Revise.", "--worker-mode", mode];
+    assert.equal(parseThinCommand(args).ok, false);
+    assert.equal(parseThinCommand([...args, "--message", " "]).ok, false);
+    assert.equal(parseThinCommand([...args, "--message", "Review the evidence."]).ok, true);
+  }
+  assert.equal(
+    parseThinCommand(["task", "adjudicate", "task-1", "--return", "--worker-mode", "auto", "--message", "Revise."]).ok,
+    false,
+  );
 });
 
 test("task settle parses to the closed orchestration action", () => {

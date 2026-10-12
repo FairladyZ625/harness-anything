@@ -123,7 +123,7 @@ ha task adjudicate task_... --forward --note "方向与证据已可进入独立�
 ```
 
 预期：`ok=true command=task-adjudicate transition.from=submitted/review
-transition.to=in_review/review`。打回使用 `--return --note <返工说明>`，任务回到 `active`；
+transition.to=in_review/review`。打回使用 `--return --worker-mode resume --message <反馈> --note <原因>`，续跑实现 worker 的 provider 会话；选择 `--worker-mode fresh` 则启动新会话，自动附上上一轮 submission 的结论、验证与风险。两者都会让任务回到 `active` 并启动新 execution。模式必须明确选择；无可续跑派工时，在打回前拒绝。打回后的启动错误会在回执失败步骤中显示，已落盘的打回仍然有效；
 reviewer 不得直接向 worker 派工。
 
 ## 6. 评审、owner 终审与机械结项
@@ -143,7 +143,7 @@ ha task review-consent task_... --review-id review-docs-loop
 ```
 
 若结论是 `changes_requested`，任务仍停在 `in_review`，直到 owner 执行
-`ha task adjudicate task_... --return --review-id <id> --note <返工说明>`。
+`ha task adjudicate task_... --return --worker-mode resume --message <反馈> --review-id <id> --note <原因>`。
 
 ```bash
 ha task complete task_...
