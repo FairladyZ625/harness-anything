@@ -6,6 +6,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fetchCiObservations } from "../src/ci-observation-actions.ts";
+import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
 import { hostingProviderFromRemote } from "../src/hosting-provider.ts";
 
 test("detects GitHub HTTPS and SSH remotes", () => {
@@ -115,4 +116,42 @@ test("GitLab observer selects the newest pipeline for its delivery branch and re
     calls.some((url) => url.includes("/jobs/200/trace")),
     true,
   );
+});
+
+test("GitLab CI schedule does not invoke the GitHub workflow API", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-gitlab-schedule-observer-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync("git", ["-C", root, "init", "-q"]);
+  execFileSync("git", ["-C", root, "remote", "add", "origin", "https://gitlab.cjsys.cn/group/project.git"]);
+  writeFileSync(
+    path.join(root, "harness.yaml"),
+    "schema: harness-anything/v1\nsettings:\n  hosting:\n    provider: gitlab\n    host: gitlab.cjsys.cn\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  const calls: string[] = [],
+    cell = {
+      rootDir: root,
+      settings: { read: () => ({ ci: { workflows: ["ci"] } }) },
+      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      projection: { list: () => ({ rows: [] }) },
+      projectionReady: Promise.resolve(),
+      now: () => new Date().toISOString(),
+      input: {
+        prepareDaemonGitEnvironment: async () => ({ GITLAB_TOKEN: "gitlab-secret" }),
+      },
+    } as never;
+  const result = await reconcileCiOccurrence({
+    cell,
+    schedule: {
+      status: { ciObserve: null, activeRun: null },
+    } as never,
+    requests: () => [],
+    accept: async () => ({ outcome: "no_changes", revision: 0 }) as never,
+    hostingProvider: "gitlab",
+    gh: async (command, args) => {
+      calls.push(`${command} ${args.join(" ")}`);
+      throw new Error("GitHub API must not be called for GitLab");
+    },
+  });
+  assert.equal(result.outcome, "succeeded");
+  assert.equal(calls.length, 0);
 });

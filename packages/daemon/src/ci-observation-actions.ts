@@ -93,11 +93,18 @@ export async function fetchCiObservations(
   },
   action: RepoTaskAction,
   ghRunner: RunGh = runCiProviderCommand,
+  hostingProvider?: "github" | "gitlab" | null,
 ): Promise<CiObservationFetch> {
   // Injected runners are the public test seam and intentionally run against temporary
   // repositories without remotes. Production always identifies the provider from origin.
   const hosting =
-    ghRunner === runCiProviderCommand ? await detectHostingProvider(cell.rootDir) : ({ kind: "github" } as const);
+    hostingProvider !== undefined
+      ? hostingProvider === null
+        ? null
+        : { kind: hostingProvider }
+      : ghRunner === runCiProviderCommand
+        ? await detectHostingProvider(cell.rootDir)
+        : ({ kind: "github" } as const);
   // GitHub rate limits surface as gh 403 stderr; classifying them here reports rate_limited with
   // the reset hint, so callers wait instead of retrying a raw service_rejected dump that deepens
   // the limit.
@@ -121,7 +128,9 @@ export async function fetchCiObservations(
   if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
     throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
   const witness = taskId === null ? null : taskWitnessContract(cell, taskId);
-  if (hosting.kind === "gitlab") return fetchGitLabCiObservations(cell, action, hosting, witness, limit, namedRuns);
+  if (hosting?.kind === "gitlab" && "apiBaseUrl" in hosting)
+    return fetchGitLabCiObservations(cell, action, hosting, witness, limit, namedRuns);
+  if (!hosting) return { requestedRuns: namedRuns?.length ?? limit, runs: [] };
   const owner = createHash("sha256")
     .update(JSON.stringify([cell.rootDir, action.occurrenceId, action.claimFence]))
     .digest("hex")

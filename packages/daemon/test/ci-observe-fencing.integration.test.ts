@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { execFileSync } from "node:child_process";
 import { makeTaskEventReader, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixture.ts";
@@ -53,6 +54,7 @@ async function fixture(
   mkdirSync(rootDir);
   mkdirSync(bin);
   initRepo(rootDir);
+  execFileSync("git", ["-C", rootDir, "remote", "add", "origin", "https://github.com/fixture/repository.git"]);
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n");
   writeFileSync(
