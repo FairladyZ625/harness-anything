@@ -668,8 +668,13 @@ export function assertDecisionAcceptReview(
   const readiness = decisionAcceptReviewReadiness(current, documentBody, requirement),
     currentDigest = readiness.currentDigest;
   if (event.payload.expectedDigest !== undefined && event.payload.expectedDigest !== currentDigest)
-    invalidDecision(
-      `Decision review content changed: expected=${event.payload.expectedDigest} current=${currentDigest}.`,
+    throw attributeEntityActionCriterion(
+      decisionInvalid(
+        `Decision review content changed: expected=${event.payload.expectedDigest} current=${currentDigest}.`,
+      ),
+      "accept",
+      DECISION_ACCEPT_REVIEW_CRITERION_REF,
+      [`ha decision dispatch-review ${current.decisionId} --expected-digest ${currentDigest}`],
     );
   const selected =
       event.payload.reviewId === undefined
@@ -694,31 +699,49 @@ export function assertDecisionAcceptReview(
       dispositions,
       currentSubmissionDigest: currentDigest,
     });
-    if (!selected || conflicts.length > 0)
-      invalidDecision(
-        `Decision review is not valid for the current content: ${
-          selected ? describeReviewConsentConflicts(conflicts) : `reviewId=${event.payload.reviewId} not found`
-        }`,
+    if (!selected || conflicts.length > 0) {
+      const changedRequested = conflicts.some(({ verdict }) => verdict === "changes_requested"),
+        nextActions = changedRequested
+          ? [
+              `ha decision respond-review ${current.decisionId} --from-file <responses.json>`,
+              `ha decision amend ${current.decisionId} --body-file <decision.md>; then run ha decision dispatch-review ${current.decisionId} --expected-digest <digest-from-amend-receipt>`,
+            ]
+          : [`ha decision dispatch-review ${current.decisionId} --expected-digest ${currentDigest}`];
+      throw attributeEntityActionCriterion(
+        decisionInvalid(
+          `Decision review is not valid for the current content: ${
+            selected ? describeReviewConsentConflicts(conflicts) : `reviewId=${event.payload.reviewId} not found`
+          }`,
+        ),
+        "accept",
+        DECISION_ACCEPT_REVIEW_CRITERION_REF,
+        nextActions,
       );
+    }
     return;
   }
   const blocker = readiness.blocker;
   if (!readiness.ready && blocker) {
-    if (blocker.code === "review_required")
-      // A bare refusal strands the operator; settlement forwards this attribution as receipt
-      // nextActions naming the one command that opens the review path.
-      throw attributeEntityActionCriterion(
-        decisionInvalid(blocker.reason),
-        "accept",
-        DECISION_ACCEPT_REVIEW_CRITERION_REF,
-        [`ha decision dispatch-review ${current.decisionId}`],
-      );
-    invalidDecision(
-      blocker.code === "changes_requested"
-        ? `Decision has unresolved changes_requested reviews: ${blocker.reviewIds.join(", ")}.`
-        : `Decision has unanswered review findings: ${blocker.findings
-            .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
-            .join(", ")}.`,
+    const reason =
+        blocker.code === "review_required"
+          ? blocker.reason
+          : blocker.code === "changes_requested"
+            ? `Decision has unresolved changes_requested reviews: ${blocker.reviewIds.join(", ")}.`
+            : `Decision has unanswered review findings: ${blocker.findings
+                .map(({ reviewId, findingId }) => `${reviewId}/${findingId}`)
+                .join(", ")}.`,
+      nextActions =
+        blocker.code === "review_required"
+          ? [`ha decision dispatch-review ${current.decisionId} --expected-digest ${currentDigest}`]
+          : [
+              `ha decision respond-review ${current.decisionId} --from-file <responses.json>`,
+              `ha decision amend ${current.decisionId} --body-file <decision.md>; then run ha decision dispatch-review ${current.decisionId} --expected-digest <digest-from-amend-receipt>`,
+            ];
+    throw attributeEntityActionCriterion(
+      decisionInvalid(reason),
+      "accept",
+      DECISION_ACCEPT_REVIEW_CRITERION_REF,
+      nextActions,
     );
   }
 }

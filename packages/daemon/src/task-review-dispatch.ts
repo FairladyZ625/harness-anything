@@ -11,6 +11,7 @@ import {
   type WriteReceiptDraft,
 } from "@harness-anything/kernel";
 import { derivedTaskActionProtocolCommands } from "./protocol/daemon-protocol-commands-task.ts";
+import { decisionLifecycleProtocolCommands } from "./protocol/daemon-protocol-commands-decision-lifecycle.ts";
 import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./agent-entities.ts";
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
@@ -154,15 +155,7 @@ export async function dispatchDecisionReview(
       ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
       ...(typeof action.model === "string" ? { model: action.model } : {}),
       ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
-      prompt: [
-        `Independently review Decision ${decisionId} at reviewContentDigest ${digest}.`,
-        `Read the frozen accepted document at harness/${path}.`,
-        "Record approved or changes_requested with ha decision review; never accept, reject, defer, or amend.",
-        `Write the review report to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.md ` +
-          `and the review input to harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.json.`,
-        `Register with ha decision review ${decisionId} --from-file ` +
-          `harness/decisions/decision-${decisionId}/artifacts/reports/${ids.dispatchId}.json.`,
-      ].join("\n"),
+      prompt: decisionReviewDispatchPrompt({ decisionId, digest, dispatchId: ids.dispatchId }),
     },
     authorizationDecision = await evaluateRepoCellAction({
       action: { kind: "runtime-spawn", ...payload },
@@ -209,6 +202,35 @@ export function reviewDispatchIds(
     runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
     dispatchOpId: `runtime-spawn-${hash.slice(0, 32)}`,
   };
+}
+
+/**
+ * The mission every dispatched Decision reviewer carries. The registration's identity fields are
+ * dispatch-bound — the center rejects any reviewId but `review-<dispatchId>`, any other digest, and
+ * any other reportRef as actor_unauthorized — so the mission states them verbatim instead of
+ * leaving the reviewer to guess, and marks only verdict, reason, findings, and evidenceChecked as
+ * reviewer-authored.
+ */
+export function decisionReviewDispatchPrompt(input: {
+  readonly decisionId: string;
+  readonly digest: string;
+  readonly dispatchId: string;
+}): string {
+  const { decisionId, digest, dispatchId } = input,
+    reports = `decisions/decision-${decisionId}/artifacts/reports`;
+  return [
+    `Independently review Decision ${decisionId} at reviewContentDigest ${digest}.`,
+    `Read the frozen accepted document at harness/decisions/decision-${decisionId}/decision.md.`,
+    "Record approved or changes_requested with ha decision review; never accept, reject, defer, or amend.",
+    `Write the review report to harness/${reports}/${dispatchId}.md ` +
+      `and the review input to harness/${reports}/${dispatchId}.json.`,
+    `The review input's identity fields are fixed by this dispatch; any other value is rejected as ` +
+      `actor_unauthorized. Use exactly reviewId review-${dispatchId}, reviewContentDigest ${digest}, ` +
+      `reportRef harness/${reports}/${dispatchId}.md. ` +
+      "Author only verdict, reason, findings, and evidenceChecked yourself.",
+    decisionLifecycleProtocolCommands.find((command) => command.id === "decision-review")!.help,
+    `Register with ha decision review ${decisionId} --from-file harness/${reports}/${dispatchId}.json.`,
+  ].join("\n");
 }
 
 /** The review packet prompt every reviewer dispatch carries; each dispatch owns exactly one task. */

@@ -176,6 +176,16 @@ test("decision dispatch-review passes spawn admission and launches once for the 
     const requested = f.events().filter((event) => event.type === "runtime_dispatch_requested");
     assert.equal(requested.length, 1);
     assert.deepEqual(requested[0]!.payload.reviewTarget, { kind: "decision", decisionId, digest });
+    const mission = f.launches[0]!.prompt,
+      missionDispatchId = requested[0]!.payload.dispatchId;
+    assert.ok(
+      mission.includes(`reviewId review-${missionDispatchId}`),
+      "the dispatched mission must hand the reviewer the exact registration reviewId",
+    );
+    assert.ok(
+      mission.includes(`reportRef harness/decisions/decision-${decisionId}/artifacts/reports/${missionDispatchId}.md`),
+      "the dispatched mission must hand the reviewer the exact reportRef",
+    );
     const retry = await runDecision({ kind: "decision-dispatch-review", decisionId });
     assert.equal(retry.outcome, "applied", JSON.stringify(retry));
     assert.equal(overGuiWire(retry).status, "accepted_durable", JSON.stringify(retry));
