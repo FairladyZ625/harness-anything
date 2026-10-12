@@ -17,6 +17,8 @@ const SEGMENT_ORDER: readonly SnapshotStatus[] = [
 /**
  * 状态分段进度条(标准 §4):宽度按任务数、颜色按状态构成,用于工作、子组与区域。
  * 颜色全部经 STATUS_TONE → TONE_COLOR 取 token,调用点只给计数。
+ * active 分段挂 seg-active-shimmer(styles.css):高光与 .live-row 的整行脉冲波
+ * 同周期流淌,给在途工作一个同步的动态锚点。
  */
 export function SegBar({
   counts,
@@ -33,7 +35,7 @@ export function SegBar({
           <span
             key={status}
             data-segment={status}
-            className="block h-full"
+            className={`block h-full ${status === "active" ? "seg-active-shimmer" : ""}`}
             style={{
               width: `${((counts[status] ?? 0) / total) * 100}%`,
               background: TONE_COLOR[STATUS_TONE[status]],

@@ -142,10 +142,12 @@
   --scrim-blur: 18px;
   --scrim-saturate: 140%;
 
-  /* 环境光与缓动:blob 色值原样保留业主认可的样张(overview-prototype.html v4) */
+  /* 环境光与缓动:blob1/2 色值原样保留业主认可的样张(overview-prototype.html v4);
+     blob3 按业主 2026-10-12 现场批示提亮提饱和(#3b1d2e 在纯黑底上几乎不可辨),
+     换通透紫晶洋红,承担视口底部的漫反射光辉。 */
   --aurora-1: #134e4a;
   --aurora-2: #1e2a5a;
-  --aurora-3: #3b1d2e;
+  --aurora-3: #581c3f;
   --aurora-opacity: 0.55;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
@@ -256,12 +258,28 @@ html[data-theme="light"] {
   animation-direction: alternate-reverse;
 }
 .aurora i:nth-child(3) {
-  width: 30vw;
-  height: 30vw;
-  left: 40%;
-  bottom: -4%;
+  width: 46vw;
+  height: 46vw;
+  left: 28%;
+  bottom: -10%;
   background: var(--aurora-3);
   animation-duration: 38s;
+}
+/* 底部环境上托光(业主 2026-10-12 批示"底部渐变也不明显"):视口下半部自底向上
+   的一道柔光,与 blob3 同色,挂在 .aurora 内被整体 blur(80px) 柔化;只补底部
+   层次,不新开图层动画。 */
+.aurora::after {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  bottom: -8vh;
+  height: 56vh;
+  background: linear-gradient(
+    to top,
+    color-mix(in oklab, var(--aurora-3) 72%, transparent),
+    transparent
+  );
 }
 @keyframes drift {
   to {
@@ -303,36 +321,83 @@ html[data-theme="light"] {
   pointer-events: none;
 }
 
-/* 活跃执行行的静态状态边线 + 左缘微型呼吸光条(视觉规范 v2「动效即心跳,静止即待命」):
-   行本身只挂静态 inset 边线(paint 一次),呼吸只作用于 ::before 光条且只动
-   opacity/transform(合成器路径,不动 box-shadow/border 的 paint 面);「减少动态
-   效果」开启时由上方全局规则关停动画,静态边线保留。 */
+/* 活跃执行行的全行脉冲光波(业主 2026-10-12 现场批示:整行都要有从左到右的脉冲
+   光波):行本体只留静态左缘高亮边(paint 一次);::before 是全行呼吸微光层,左浓
+   右淡的扩散光晕与基础微光一起只动 opacity;::after 是贯穿全行的横向流光波束,
+   2.8s 同周期——0% 波束整段悬在行外左侧,65% 冲出行外右侧,100% 停留,肉眼看是
+   每个周期一道从左向右的横扫脉冲。两段动画都走合成器路径(transform/opacity);
+   「减少动态效果」开启时由上方全局规则关停,静态左缘边线保留。 */
 .live-row {
   position: relative;
-  box-shadow: inset 2px 0 0 var(--color-status-active);
+  overflow: hidden;
+  box-shadow: inset 3px 0 0 var(--color-status-active);
 }
 .live-row::before {
   content: "";
   position: absolute;
-  left: 0;
-  top: 27%;
-  height: 46%;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--color-status-active);
-  animation: live-breathe 2.8s var(--ease) infinite;
+  inset: 0;
+  background:
+    radial-gradient(
+      90% 100% at 0 50%,
+      color-mix(in oklab, var(--color-status-active) 12%, transparent),
+      transparent 65%
+    ),
+    color-mix(in oklab, var(--color-status-active) 4%, transparent);
+  animation: live-row-breathe 2.8s var(--ease) infinite;
   pointer-events: none;
 }
-@keyframes live-breathe {
+.live-row::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, var(--color-status-active) 12%, transparent) 32%,
+    color-mix(in oklab, var(--color-status-active) 32%, transparent) 50%,
+    color-mix(in oklab, var(--color-status-active) 12%, transparent) 68%,
+    transparent
+  );
+  animation: live-wave-sweep 2.8s var(--ease) infinite;
+  pointer-events: none;
+}
+@keyframes live-wave-sweep {
+  0% {
+    transform: translateX(-100%);
+  }
+  65%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+@keyframes live-row-breathe {
   0%,
   100% {
-    opacity: 0.25;
-    transform: scaleY(0.75);
+    opacity: 0.3;
   }
   50% {
-    opacity: 0.95;
-    transform: scaleY(1);
+    opacity: 1;
   }
+}
+
+/* SegBar 活跃分段的高光流淌(与 .live-row 的全行脉冲波同周期呼应):分段自身
+   溢出隐藏,::after 流光复用同一副关键帧,整行波束扫过时进度条上同步淌过一道
+   高光;只动 transform。 */
+.seg-active-shimmer {
+  position: relative;
+  overflow: hidden;
+}
+.seg-active-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in oklab, white 45%, transparent) 50%,
+    transparent
+  );
+  animation: live-wave-sweep 2.8s var(--ease) infinite;
 }
 
 /* 统计图的柱入场:挂载时从基线长出一次(标准 §6:≤180ms 缓出,不回弹不循环);数据刷新
