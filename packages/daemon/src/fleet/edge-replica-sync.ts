@@ -88,6 +88,10 @@ export interface FleetReplicaSyncOptions extends FleetReplicaPullClientOptions {
   readonly onFailure?: (error: unknown) => void;
   /** Called for the usable local checkpoint after each pull and unchanged-checkpoint progress hint. */
   readonly onConfirmed?: (revision: number) => void | Promise<void>;
+  /** Maximum silence tolerated between center progress hints (three 20s intervals by default). */
+  readonly heartbeatTimeoutMs?: number;
+  /** Clock used for the durable heartbeat observation. */
+  readonly now?: () => number;
 }
 
 /**
@@ -112,6 +116,7 @@ export function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<v
     // checkpoint. Record the separately reported ledger head so lag stays visible while watching.
     for (;;) {
       const head = await watchReplica(options, sessionPool, revision);
+      recordReplicaHealth(viewDir, { lastHeartbeatAt: new Date((options.now ?? Date.now)()).toISOString() });
       recordHeadConfirmation(viewDir, head.knownHead);
       if (head.cut.revision > revision) return;
       await options.onConfirmed?.(revision);
@@ -151,7 +156,18 @@ async function watchReplica(options: FleetReplicaSyncOptions, pool: FleetReplica
   if (options.signal?.aborted) abandon();
   let answered = false;
   try {
-    const hint = await watchReplicaHead(session, options.repoId, afterRevision, null);
+    const timeoutMs = options.heartbeatTimeoutMs ?? 60_000;
+    let hint: Awaited<ReturnType<typeof watchReplicaHead>>;
+    try {
+      hint = await watchReplicaHead(session, options.repoId, afterRevision, timeoutMs);
+    } catch (error) {
+      if (error instanceof Error && error.message === "Fleet response timeout") {
+        throw Object.assign(new Error(`Replica heartbeat timed out after ${timeoutMs}ms`), {
+          code: "replica_heartbeat_timeout",
+        });
+      }
+      throw error;
+    }
     answered = true;
     return hint;
   } finally {

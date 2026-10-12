@@ -18,6 +18,7 @@ import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type LedgerCutIdentity } fro
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readHeadConfirmation } from "../src/fleet/replica-read-model.ts";
+import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import {
@@ -365,6 +366,8 @@ test("an idle center keeps a watching edge confirmed fresh without another pull"
   const viewDir = path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId),
     firstConfirmed = readHeadConfirmation(viewDir)!.confirmedAt;
   await sync.until(() => sync.revisions.length >= 3);
+  const health = readReplicaHealth(viewDir);
+  assert.match(health.lastHeartbeatAt ?? "", /^\d{4}-\d{2}-\d{2}T/u);
   controller.abort();
   await running;
   assert.deepEqual(sync.revisions, [head, head, head].concat(sync.revisions.slice(3)));
