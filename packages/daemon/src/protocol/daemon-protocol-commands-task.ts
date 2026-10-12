@@ -111,7 +111,18 @@ export const taskExecutionProtocolCommands = Object.freeze([
     summary:
       "Read current task branch CI and failed-job excerpts through the dispatch's daemon-held GitHub credential.",
     method: "repo.task.read",
-    inputs: [],
+    // --wait keeps the CLI re-issuing this same read until the branch reaches a verdict; --timeout
+    // bounds that wait in seconds. Both are facade-only: the daemon action stays { kind, taskId }.
+    inputs: [
+      cliInput("--wait", "boolean", false, { code: "invalid_field" }),
+      cliInput(
+        "--timeout",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { requires: ["--wait"], regex: "^[1-9][0-9]{0,5}$", format: "<seconds>" },
+      ),
+    ],
     payloadFields: [{ field: "taskId", type: "string", required: true, regex: "^[A-Za-z0-9_-]{1,96}$" }],
     commandClass: "repo-read" as const,
     repoCellExecution: "writer" as const,

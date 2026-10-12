@@ -1157,6 +1157,62 @@ test("thin parser exposes read-only task CI with JSON and rejects ref/run select
     assert.equal(parseThinCommand(["task", "ci", "task-1", flag, "other"]).ok, false);
 });
 
+test("thin parser gates the task CI wait flags", () => {
+  const waited = parseThinCommand(["task", "ci", "task-1", "--wait", "--json"]);
+  assert.equal(waited.ok, true, JSON.stringify(waited));
+  if (waited.ok) {
+    assert.equal(waited.command.method, "repo.task.read");
+    assert.deepEqual(waited.command.action, { kind: "task-ci", taskId: "task-1", wait: true });
+  }
+  const bounded = parseThinCommand(["task", "ci", "task-1", "--wait", "--timeout", "90"]);
+  assert.equal(bounded.ok, true, JSON.stringify(bounded));
+  if (bounded.ok)
+    assert.deepEqual(bounded.command.action, {
+      kind: "task-ci",
+      taskId: "task-1",
+      wait: true,
+      timeoutSeconds: 90,
+    });
+  // --timeout only bounds a wait, and it is a second count.
+  const unbounded = parseThinCommand(["task", "ci", "task-1", "--timeout", "90"]);
+  assert.equal(unbounded.ok, false);
+  if (!unbounded.ok) assert.match(unbounded.nextAction, /requires --wait/u);
+  assert.equal(parseThinCommand(["task", "ci", "task-1", "--wait", "--timeout", "abc"]).ok, false);
+  // A bare read keeps the exact pre-existing action shape.
+  const bare = parseThinCommand(["task", "ci", "task-1"]);
+  assert.equal(bare.ok, true, JSON.stringify(bare));
+  if (bare.ok) assert.deepEqual(bare.command.action, { kind: "task-ci", taskId: "task-1" });
+});
+
+test("task CI rendering names a not_started reason and a wait timeout", () => {
+  const notStarted = renderCliReceipt({
+    ok: true,
+    command: "task-ci",
+    ci: {
+      taskId: "task-1",
+      headSha: "a".repeat(40),
+      conclusion: "not_started",
+      notStarted: {
+        reason: "pull_request_conflict",
+        detail: "Pull request #7 for this branch conflicts with its base branch. Rebase onto the base and push again.",
+      },
+      checks: [],
+      runs: [],
+    },
+  }).text;
+  assert.match(notStarted, /: not_started/u);
+  assert.match(notStarted, /not started: pull_request_conflict/u);
+  assert.match(notStarted, /Pull request #7 for this branch conflicts/u);
+  const timedOut = renderCliReceipt({
+    ok: true,
+    command: "task-ci",
+    ci: { taskId: "task-1", headSha: "a".repeat(40), conclusion: "pending", checks: [], runs: [] },
+    wait: { state: "timeout", waitedSeconds: 30, conclusion: "pending" },
+  }).text;
+  assert.match(timedOut, /: pending/u);
+  assert.match(timedOut, /wait: timeout/u);
+});
+
 test("thin parser validates only the selected command descriptor", () => {
   const selected = daemonProtocolCommands.find((command) => command.id === "task-show");
   assert.ok(selected);
