@@ -44,10 +44,13 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
       const result = cli(args, input);
       return { ...result, receipt: lastReceipt(result.stdout) };
     });
-    const wrongScope = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
-    assert.notEqual(wrongScope.status, 0, wrongScope.stdout);
-    assert.equal(lastReceipt(wrongScope.stdout).configureVerify.causeCode, "authorization_denied");
-    console.log("signed in with another repository grant: init rejected / authorization_denied");
+    const initialized = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
+    assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
+    assert.equal(lastReceipt(initialized.stdout).repoId, "unsigned");
+    const repeated = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
+    assert.notEqual(repeated.status, 0, repeated.stdout);
+    assert.equal(lastReceipt(repeated.stdout).code, "repository_already_registered");
+    console.log("signed in creator: fresh init claims admin; repeated repoId is rejected");
   } finally {
     // The init attempts above are refused before any workspace registration, so the plain
     // stop is refused the same way and the resident daemon would keep the tree open. The

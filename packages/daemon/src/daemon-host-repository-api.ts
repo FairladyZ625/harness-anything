@@ -131,12 +131,14 @@ export function createDaemonHostRepositoryApi(
           `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
         );
       if (!reusedRegistration && !request.configureOnly) {
-        const center = await context.keycloakCenter();
-        await new KeycloakPolicyAdapter({
-          url: center.url,
-          realm: center.realm,
-          resourceServerClientId: center.clientId,
-        }).claimRepositoryOwner(center.accessToken, bootstrap.repoId, bootstrap.actor.principal.personId);
+        if (context.oidc.centerConfigured()) {
+          const center = await context.keycloakCenter();
+          await new KeycloakPolicyAdapter({
+            url: center.url,
+            realm: center.realm,
+            resourceServerClientId: center.clientId,
+          }).claimRepositoryOwner(center.accessToken, bootstrap.repoId, bootstrap.actor.principal.personId);
+        }
       }
       await context.waitForWarming(bootstrap.repoId);
       if (context.warming.has(bootstrap.repoId))
