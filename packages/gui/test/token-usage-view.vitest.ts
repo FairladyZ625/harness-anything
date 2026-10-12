@@ -514,6 +514,32 @@ describe("TokenUsageView", () => {
     }
   });
 
+  it("stacks the two analysis columns independently instead of sharing grid rows", async () => {
+    vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue(usage);
+    const container = await renderView();
+    // 业主截图反馈(task_*-token):旧的两栏共享 grid 行,行高被同行较高的卡顶起,左列
+    // 短卡(谁花的)下面留出整块空白,「单个会话」要等右列长卡结束才开始。契约:两列是
+    // 各自独立纵向堆叠的 flex 列(basis-0 + 3:2),列内卡片只隔栏间距;窄容器退化单列。
+    const rankingCard = byTestId(container, "token-usage-ranking-card"),
+      leftColumn = rankingCard.parentElement!;
+    expect(leftColumn.className).toContain("flex-col");
+    expect(leftColumn.className).toContain("min-w-0");
+    expect(leftColumn.className).toContain("@[900px]:flex-[3]");
+    const columns = leftColumn.parentElement!;
+    expect(columns.className).toContain("flex-col");
+    expect(columns.className).toContain("@[900px]:flex-row");
+    expect(columns.className).not.toContain("grid");
+    const rightColumn = leftColumn.nextElementSibling as HTMLElement;
+    expect(rightColumn.className).toContain("@[900px]:flex-[2]");
+    // 左列:谁花的 + 单个会话;右列:花在什么事上 + 值不值 + 未上报,各归各列。
+    expect(leftColumn.contains(byTestId(container, "token-usage-sessions"))).toBe(true);
+    expect(rightColumn.contains(byTestId(container, "token-usage-spend-tasks"))).toBe(true);
+    expect(rightColumn.contains(byTestId(container, "token-usage-worth"))).toBe(true);
+    expect(rightColumn.contains(byTestId(container, "token-usage-unreported"))).toBe(true);
+    expect(leftColumn.contains(byTestId(container, "token-usage-spend-tasks"))).toBe(false);
+    expect(rightColumn.contains(byTestId(container, "token-usage-sessions"))).toBe(false);
+  });
+
   it("says there is nothing to compare when the previous period is empty", async () => {
     vi.spyOn(agentRuntimeClient, "tokenUsage").mockResolvedValue({
       ...usage,
