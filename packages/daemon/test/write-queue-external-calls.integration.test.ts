@@ -156,6 +156,7 @@ test("a Keycloak authorization that never answers times out and releases the rep
           hangingPolicies += 1;
           request.socket.once("close", () => {
             abortedPolicies += 1;
+            policySocketClosedResolve?.();
           });
           return;
         }
@@ -172,7 +173,11 @@ test("a Keycloak authorization that never answers times out and releases the rep
   let hangPolicy = false,
     hangingPolicies = 0,
     abortedPolicies = 0,
-    centerToken = "stale-center-token";
+    policySocketClosedResolve: (() => void) | undefined;
+  const policySocketClosed = new Promise<void>((resolve) => {
+    policySocketClosedResolve = resolve;
+  });
+  let centerToken = "stale-center-token";
   const rejectedTokens: string[] = [];
   let connections = 0;
   let closedConnections = 0;
@@ -241,9 +246,9 @@ test("a Keycloak authorization that never answers times out and releases the rep
     assert.equal(receipt.outcome, "op_rejected", JSON.stringify(receipt));
     // The decision-covered Admin REST path preserves its infrastructure error code.
     assert.equal(receipt.code, "daemon_error", JSON.stringify(receipt));
-    // The abort that failed the write destroys the socket before the fetch rejects, so the close
-    // has already reached this process; one loop turn lets its event dispatch before asserting.
-    await new Promise((resolve) => setImmediate(resolve));
+    // Wait for this request's socket. A pooled warm-up connection may close first, so one event
+    // loop turn after the receipt is not a reliable observation boundary.
+    await policySocketClosed;
     assert.ok(closedConnections >= 1, "the Keycloak request was not aborted");
     assert.equal(abortedPolicies, 1, "the hung policy socket itself must close, not an idle warm-up socket");
     hangPolicy = false;
