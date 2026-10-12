@@ -200,6 +200,7 @@ export async function readTaskCi(
       outcome: "applied",
       opId: `task-ci:${branch}:${headSha}`,
       revision,
+      evidence: JSON.stringify(ci),
     }),
     ci,
   };

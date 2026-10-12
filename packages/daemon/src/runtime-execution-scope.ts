@@ -200,12 +200,15 @@ export function requireCurrentExecutionScope(input: {
     }
   } else {
     if (dispatch.payload.role === "reviewer") throw executionCredentialRejected();
-    const snapshot = settling || input.action.kind === "task-push" ? input.projection.read(p.taskId).snapshot : null;
+    const snapshot =
+      settling || ["task-push", "task-ci"].includes(input.action.kind)
+        ? input.projection.read(p.taskId).snapshot
+        : null;
     const lease =
       input.projection.currentLease(p.taskId, input.now) ??
       (terminal && snapshot?.lease?.phase === "released" ? snapshot.lease : null);
-    const submittedPush =
-      input.action.kind === "task-push" &&
+    const submittedDeliveryAccess =
+      ["task-push", "task-ci"].includes(input.action.kind) &&
       lease === null &&
       snapshot?.executions.some(
         (execution) => execution.executionId === p.executionId && execution.submission !== null,
@@ -216,7 +219,7 @@ export function requireCurrentExecutionScope(input: {
     )
       return;
     if (
-      !submittedPush &&
+      !submittedDeliveryAccess &&
       (!lease ||
         (lease.phase !== "held" && !(terminal && lease.phase === "released")) ||
         lease.executionId !== p.executionId ||

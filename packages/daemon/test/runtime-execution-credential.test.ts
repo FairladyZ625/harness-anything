@@ -190,7 +190,7 @@ test("the writer rejects expired credentials, stopped or superseded dispatches, 
   );
 });
 
-test("a live worker may push its submitted task after submission releases the lease", () => {
+test("a live worker may publish and read CI after submission releases the lease", () => {
   const p = principal();
   let liveness = "live";
   const actor = {
@@ -222,7 +222,19 @@ test("a live worker may push its submitted task after submission releases the le
     };
   assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   assert.doesNotThrow(() => bindVerifiedExecutorClaim(input));
+  const ci = { ...input, action: { kind: "task-ci", taskId: p.taskId } };
+  assert.doesNotThrow(() => requireCurrentExecutionScope(ci));
+  assert.throws(() => requireCurrentExecutionScope({ ...ci, action: { kind: "task-ci", taskId: "task-other" } }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(
+    () => requireCurrentExecutionScope({ ...input, action: { kind: "task-progress-append", taskId: p.taskId } }),
+    {
+      code: "execution_credential_rejected",
+    },
+  );
   liveness = "exited";
+  assert.throws(() => requireCurrentExecutionScope(ci), { code: "execution_credential_rejected" });
   assert.throws(() => bindVerifiedExecutorClaim(input), { code: "execution_credential_rejected" });
   assert.throws(() => bindVerifiedExecutorClaim({ ...input, action: { ...action, taskId: "task-other" } }), {
     code: "execution_credential_rejected",

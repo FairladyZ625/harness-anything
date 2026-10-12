@@ -143,15 +143,15 @@ export const taskExecutionProtocolCommands = Object.freeze([
     actionKind: "task-pr",
     phase: "W3",
     path: ["task", "pr", "<task-id>"],
-    summary: "Create a pull request for the published task branch through the daemon-held credential.",
+    summary: "Create or update a pull request for the published task branch through the daemon-held credential.",
     method: "repo.task.run",
-    inputs: [],
+    inputs: [cliInput("--update", "boolean", false, { code: "invalid_field" }, { field: "update" })],
     commandClass: "repo-write" as const,
     admission: {
       local: "direct" as const,
       "remote-proxy": "rejected" as const,
       "remote-center": "direct" as const,
-      "remote-edge": "direct" as const,
+      "remote-edge": "via-center-forward" as const,
     },
   }),
   defineCenterForwardWriteCommand({

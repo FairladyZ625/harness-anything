@@ -505,7 +505,11 @@ export async function submitTask(
       synced ? [synced] : [],
     );
   const submission = derived.submission,
-    ciRequired = submission.commitSha !== null && binding.executionPrincipal !== undefined;
+    origin = makeGitReadinessSource().run(cell.rootDir, ["config", "--get", "remote.origin.url"]),
+    // CI admission applies to hosted deliveries, not repositories with no remote or a
+    // local filesystem remote (runtime/Fleet can also deliver those code cuts).
+    hosted = origin.ok && /^(?:https?:\/\/|ssh:\/\/|[^/\s]+@[^:\s]+:)/u.test(origin.stdout),
+    ciRequired = submission.commitSha !== null && binding.executionPrincipal !== undefined && hosted;
   if (ciRequired) {
     const ci = await readTaskCi(cell, { kind: "task-ci", taskId }, binding);
     if (ci.ci.headSha !== submission.commitSha || ci.ci.conclusion !== "success")

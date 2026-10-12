@@ -55,6 +55,7 @@ export function parseTask(
       ? accepted(rootDir, repoId, json, {
           kind: id,
           taskId,
+          ...(flags.booleans.has("--update") ? { update: true } : {}),
         })
       : rejected(flags.code, flags.nextAction, json);
   }
