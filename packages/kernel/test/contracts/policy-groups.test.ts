@@ -22,7 +22,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: the three handoff actions are owner-approved.
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four Task GateRun actions.
   // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle adds three host actions.
-  assert.equal(actionDeclarations.length, 151);
+  // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
+  assert.equal(actionDeclarations.length, 152);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);

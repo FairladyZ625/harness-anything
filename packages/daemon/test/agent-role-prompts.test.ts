@@ -147,6 +147,7 @@ for (const role of [undefined, "worker"] as const)
     );
     assert.match(prompt, /Squad child branches are not published at settlement/u);
     assert.match(prompt, /ha task push <task-id>/u);
+    assert.match(prompt, /ha task pr <task-id>/u);
     assert.match(prompt, /daemon pushes exactly this task's branch with the dispatch-held credential/u);
     assert.match(prompt, /do not run `git push` yourself and never push another ref/u);
     assert.match(prompt, /ha task ci <task-id> --json/u);
@@ -155,7 +156,7 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /Both commands serve GitHub-hosted repositories only/u);
     assert.match(prompt, /`unsupported_command`\s+or\s+`runtime_credential_unavailable`/u);
     assert.match(prompt, /mark the CI unverified in the closeout with that error/u);
-    assert.match(prompt, /Do not open PRs or merge/u);
+    assert.match(prompt, /Do not merge/u);
     assert.doesNotMatch(prompt, /gh pr create/u);
     assert.doesNotMatch(prompt, /git push origin/u);
   });

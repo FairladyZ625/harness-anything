@@ -382,7 +382,7 @@ export function prBodyDeliveryProtocol(documentPath: string | null): string | nu
       "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
     "- 随 ha doc sync --submit --task 同步正文与 closeout，再执行 ha task submit；" +
       "提交自动冻结中心已接受的任务 artifacts，无需在 Summary 手写交付物锚。",
-    "- submit 回执中的 prBody 指向已冻结正文；CEO 开 PR 直接使用该正文。worker 经 `ha task push <task-id>` 发布本任务分支，不开 PR。",
+    "- submit 回执中的 prBody 指向已冻结正文；worker 经 `ha task push <task-id>` 发布本任务分支，再运行 `ha task pr <task-id>` 创建 PR；CEO 负责评审与合并。",
   ].join("\n");
 }
 

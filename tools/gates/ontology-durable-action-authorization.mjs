@@ -553,6 +553,7 @@ function repoActionWiring(analysis) {
 }
 
 // dec_2AAF1D0612D3295C80F87E49FE CH1: task push publishes from a prepared callback.
+// dec_CF96A3C910B31D2D7498F32DDD CH1: task PR creation follows the same daemon-authorized route.
 // Trace that callback through the same authorized queue; action names alone prove nothing.
 function queuedPreparedAuthorization(rootDir, analysis, authority) {
   const declarationPath = "packages/kernel/src/domain/action-declaration.ts";

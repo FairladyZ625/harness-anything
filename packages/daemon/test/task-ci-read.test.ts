@@ -75,6 +75,7 @@ for (const role of ["implementation", "reviewer"] as const)
     const f = fixture(role),
       gh = provider(),
       receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, gh.run);
+    assert.match(receipt.evidence!, /task-ci\/v1/u);
     assert.equal(receipt.ci.headSha, sha);
     assert.equal(receipt.ci.conclusion, "failure");
     assert.equal(receipt.ci.runs.length, 1);

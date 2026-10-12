@@ -32,3 +32,4 @@
 - 回报 commit、变更文件、验证结果和残余风险。
 - 交付前先 rebase 到最新 `origin/main`，再重跑证据命令。
 - task-bound 回执只经 `ha doc sync --submit --task <task-id>` 提交。
+- 仓库交付先用 `ha task push <task-id>` 发布，再用 `ha task pr <task-id>` 创建 PR，用 `ha task ci <task-id> --json` 读 CI；交付 SHA 全绿后才提交。Worker 不得合并。

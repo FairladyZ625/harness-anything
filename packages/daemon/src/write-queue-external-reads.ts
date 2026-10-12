@@ -11,6 +11,7 @@ import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { createTaskPullRequest } from "./runtime-task-pr.ts";
 
 type QueuedPublication = ((
   action: RepoTaskAction,
@@ -126,6 +127,13 @@ export function readBeforeWriteQueue(
           revision: context.store.readHead()?.revision ?? 0,
           evidence: `Worker branch pushed: ${pushed.branch} @ ${pushed.pushedCommit}.`,
         });
+      };
+    })();
+  }
+  if (action.kind === "task-pr") {
+    return (async () => {
+      return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
+        return createTaskPullRequest(context, _action, _binding);
       };
     })();
   }
