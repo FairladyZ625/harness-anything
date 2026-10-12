@@ -299,7 +299,7 @@ describe("总览:主区「关注的工作」", () => {
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
   });
 
-  it("在跑而无会话的工作行安静待命;两处 worksNoAgent 消极文本不再出现", () => {
+  it("在跑而无会话的工作行安静待命;消极提示文本不再出现", () => {
     // 默认夹具:task_w1 在跑(executing 1)且无 live 会话 → 静止待命,第二行只留进度与
     // 计数,不输出「无 agent 在跑」(视觉规范 v2:动效即心跳,静止即待命)。
     const container = mount();
