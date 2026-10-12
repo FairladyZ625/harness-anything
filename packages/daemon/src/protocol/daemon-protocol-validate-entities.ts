@@ -239,6 +239,7 @@ export function task(value: unknown): boolean {
       "reviewReturnBudget",
       "closeoutOverrides",
       "archiveOnComplete",
+      "presetSnapshotGap",
     ];
   const assignment = isJsonObject(value) ? value.assignment : undefined,
     assignee = isJsonObject(assignment) ? assignment.assignee : undefined;
@@ -255,6 +256,16 @@ export function task(value: unknown): boolean {
     actor(value.createdBy) &&
     stringArray(value.completionGateIds) &&
     (value.presetSnapshotDigest === null || digest(value.presetSnapshotDigest)) &&
+    // Offline acceptance history (b1ddb2cb42): historical snapshots carry the gap marker the kernel
+    // domain contract admits; the shape mirrors kernel validateTaskV2, including the non-null digest
+    // that names which snapshot's bytes were not retained.
+    (value.presetSnapshotGap === undefined ||
+      (exactRecord(value.presetSnapshotGap, ["reason", "sourceGeneration", "sourceRevision"]) &&
+        value.presetSnapshotGap.reason === "snapshot-bytes-unavailable" &&
+        (value.presetSnapshotGap.sourceGeneration === 1 || value.presetSnapshotGap.sourceGeneration === 2) &&
+        Number.isSafeInteger(value.presetSnapshotGap.sourceRevision) &&
+        Number(value.presetSnapshotGap.sourceRevision) >= 1 &&
+        value.presetSnapshotDigest !== null)) &&
     (value.provenance === undefined ||
       (Array.isArray(value.provenance) && value.provenance.length > 0 && value.provenance.every(sessionProvenance))) &&
     (assignment === undefined ||
