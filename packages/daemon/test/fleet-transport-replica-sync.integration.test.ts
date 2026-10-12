@@ -3,7 +3,7 @@ import { edgeManifestEntries } from "../src/fleet/replica-read-model.ts";
 import { locateFleetMirrorView, fleetMirrorCutFile } from "../src/fleet-edge-mirror.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -32,6 +32,7 @@ import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { type FleetCut } from "../src/fleet/contract.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 type FleetTestSubject = {
   nodeId: string;
   repoId: string;
@@ -230,6 +231,47 @@ test("background replica sync follows a new center cut without a read request", 
   assert.equal(edgeCurrent(edgeRoot, fixture.subject).revision, next);
   assert.equal(edgeCutFile(edgeRoot, fixture.subject, next, backgroundPaths[1]!), "# second\n");
 });
+
+test("a daemon registered after startup starts and stops continuous replica sync", { timeout: 60_000 }, async (t) => {
+  const fixture = await fleetFixture(t, backgroundPaths),
+    center = await fixture.center(),
+    subject = fixture.subject,
+    edge = await fleetEdgeHostFixture(
+      t,
+      { ...fixture, owners: fixture.owners },
+      {
+        registerBeforeOpen: false,
+        credential: "machine-secret",
+        centerPort: center.port,
+        repoId: subject.repoId,
+      },
+    ),
+    peer = {
+      readAccessToken: async () => `device-token-${subject.nodeId}`,
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: subject.nodeId,
+      credential: "machine-secret",
+      repoId: subject.repoId,
+    };
+  t.after(() => fixture.close());
+  const viewDir = path.join(edge.viewRoot, "repos", subject.repoId, "views", subject.viewId);
+  assert.equal(existsSync(path.join(viewDir, "current.json")), false, "unregistered host must not sync");
+  assert.equal((await edge.register()).outcome, "applied");
+  await edge.host.attachmentsSettled();
+  const first = await centerWrite(peer, subject.executionId, backgroundPaths[0]!, "# registered\n");
+  await waitForEdgeRevision(edge.viewRoot, subject, first);
+  const disabled = await edge.host.admin(
+    { kind: "update", repoId: subject.repoId, state: "disabled" },
+    localAuthFixture(),
+  );
+  assert.equal(disabled.outcome, "applied");
+  const stoppedAt = edgeCurrent(edge.viewRoot, subject).revision,
+    next = await centerWrite(peer, subject.executionId, backgroundPaths[1]!, "# disabled\n");
+  await delay(500);
+  assert.equal(edgeCurrent(edge.viewRoot, subject).revision, stoppedAt, `disabled edge advanced to ${next}`);
+});
 test(
   "background replica sync drops a dead pooled session and catches up after a center restart",
   { timeout: 60_000 },
@@ -380,6 +422,16 @@ function edgeCurrent(edgeRoot: string, subject: FleetTestSubject): FleetCut {
       readFileSync(path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "current.json"), "utf8"),
     ) as { cut: FleetCut }
   ).cut;
+}
+async function waitForEdgeRevision(edgeRoot: string, subject: FleetTestSubject, revision: number): Promise<void> {
+  const deadline = Date.now() + 10_000;
+  while (Date.now() < deadline) {
+    if (existsSync(path.join(edgeRoot, "repos", subject.repoId, "views", subject.viewId, "current.json"))) {
+      if (edgeCurrent(edgeRoot, subject).revision >= revision) return;
+    }
+    await delay(50);
+  }
+  assert.equal(edgeCurrent(edgeRoot, subject).revision, revision);
 }
 function edgeCutFile(edgeRoot: string, subject: FleetTestSubject, revision: number, docPath: string): string {
   const view = locateFleetMirrorView(edgeRoot, subject.repoId, subject.viewId)!;
@@ -623,6 +675,7 @@ async function fleetFixture(t: TestContext, paths: readonly string[] = ["tasks/t
     subject,
     slowSubject,
     auth,
+    owners,
     host,
     key,
     cert,
