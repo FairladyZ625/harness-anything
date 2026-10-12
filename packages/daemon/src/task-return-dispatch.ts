@@ -15,8 +15,14 @@ export function prepareReturnedWorker(cell: RepoCellOperationalContext, action: 
     snapshot = cell.projection.read(taskId).snapshot,
     selection = reviewExecutionSelection(action, snapshot, taskId),
     execution = snapshot.executions.find((value) => value.executionId === selection.executionId)!,
+    workers = new Set(
+      cell.projection
+        .readLeaseIntervals(taskId)
+        .filter((interval) => interval.executionId === execution.executionId)
+        .map((interval) => interval.holder.actor.executor?.id),
+    ),
     previous = readTaskDispatches({ projection: cell.projection, taskId }).dispatches.findLast(
-      (row) => row.executionId === execution.executionId && row.reviewTarget === undefined,
+      (row) => row.executionId === execution.executionId && workers.has(`runtime-session:${row.runtimeSessionId}`),
     );
   if (mode === "resume" && !previous?.resume)
     throw cell.cellCodedError(

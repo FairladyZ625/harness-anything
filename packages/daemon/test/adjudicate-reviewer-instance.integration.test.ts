@@ -264,6 +264,17 @@ for (const mode of ["resume", "fresh"] as const)
       assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
       const reviewer = (forwarded as unknown as { steps: { runtimeSessionId: string }[] }).steps.at(-1)!;
       await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
+      const observer = await cell.spawnRuntime(
+        {
+          taskId,
+          agentId: "closeout-reviewer",
+          prompt: "Observe the frozen cut without changing it.",
+          idempotencyKey: "read-only-observer",
+          runtimeInstanceId: "worker-instance",
+        },
+        binding,
+      );
+      await cell.awaitRuntimeOutcome(String(observer.runtimeSessionId));
       const returned = await cell.run(
         {
           kind: "task-adjudicate",
@@ -280,17 +291,17 @@ for (const mode of ["resume", "fresh"] as const)
         .continuation;
       assert.ok(continuation, JSON.stringify(returned));
       await cell.awaitRuntimeOutcome(continuation.runtimeSessionId);
-      assert.equal(sessions.length, 3);
+      assert.equal(sessions.length, 4);
       assert.equal(
-        sessions[2],
+        sessions[3],
         mode === "resume" ? "reviewer-9201" : undefined,
-        "resume selects the original worker, never the newer reviewer",
+        "resume selects the lease-holding worker, never a newer reviewer or read-only observer",
       );
-      assert.match(prompts[2], /Correct the parser edge case/u);
+      assert.match(prompts[3], /Correct the parser edge case/u);
       if (mode === "fresh") {
-        assert.match(prompts[2], /Previous worker conclusion: change the parser/u);
-        assert.match(prompts[2], /Parser fixture passes/u);
-        assert.match(prompts[2], /Remote provider remains unverified/u);
+        assert.match(prompts[3], /Previous worker conclusion: change the parser/u);
+        assert.match(prompts[3], /Parser fixture passes/u);
+        assert.match(prompts[3], /Remote provider remains unverified/u);
       }
       const dispatches = await cell.read("repo.task.dispatches", { taskId }, binding);
       assert.notEqual(
