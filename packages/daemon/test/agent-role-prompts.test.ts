@@ -100,8 +100,13 @@ test("complete bundled reviewer prompt confines writes to its review receipt", (
   assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
   assert.match(prompt, /Write only the structured review report.*dispatch-assigned artifacts\/reports paths/u);
   assert.match(prompt, /For a Task use ha task review-execution; for a Decision use ha decision review/u);
+  assert.match(prompt, /read the PR checks yourself with `ha task ci <task-id> --json`/u);
+  assert.match(prompt, /confirm `ci\.headSha` is the pinned delivery commit/u);
+  assert.match(prompt, /`not_started` and `pending` conclusions are not green/u);
+  assert.match(prompt, /The command serves GitHub-hosted repositories only/u);
   assert.match(prompt, /stop if that cut changes/u);
   assert.match(prompt, /Do not amend or adjudicate the target/u);
+  assert.doesNotMatch(prompt, /ha task push|git push/u);
   assert.match(prompt, /# Required Skills.*review: \/skills\/review\/SKILL.md/su);
   assert.match(prompt, /Honor the declared completion gates/u);
   assert.doesNotMatch(prompt, /# Implementation Permissions|# Worker Role|# Commander Context/u);
@@ -134,12 +139,25 @@ test("unbound reviewer dispatch does not inherit implementation permissions", ()
 });
 
 for (const role of [undefined, "worker"] as const)
-  test(`${role ?? "undeclared"} worker stops at local delivery`, () => {
+  test(`${role ?? "undeclared"} worker publishes the task branch and closes the CI loop itself`, () => {
     const prompt = assembleUnboundPrompt("Implement the assigned package.", role);
-    assert.match(prompt, /Stop at a local commit/u);
-    assert.match(prompt, /Do not push branches or open PRs/u);
+    assert.match(
+      prompt,
+      /Deliver at a local commit\. A Squad child stops there and hands its commits back to the Commander\./u,
+    );
     assert.match(prompt, /Squad child branches are not published at settlement/u);
+    assert.match(prompt, /ha task push <task-id>/u);
+    assert.match(prompt, /daemon pushes exactly this task's branch with the dispatch-held credential/u);
+    assert.match(prompt, /do not run `git push` yourself and never push another ref/u);
+    assert.match(prompt, /ha task ci <task-id> --json/u);
+    assert.match(prompt, /confirm `ci\.headSha` is your delivery commit/u);
+    assert.match(prompt, /`not_started` is not green either/u);
+    assert.match(prompt, /Both commands serve GitHub-hosted repositories only/u);
+    assert.match(prompt, /`unsupported_command`\s+or\s+`runtime_credential_unavailable`/u);
+    assert.match(prompt, /mark the CI unverified in the closeout with that error/u);
+    assert.match(prompt, /Do not open PRs or merge/u);
     assert.doesNotMatch(prompt, /gh pr create/u);
+    assert.doesNotMatch(prompt, /git push origin/u);
   });
 
 test("commander owns verified integration and PR delivery without merge authority", () => {
@@ -155,7 +173,7 @@ test("commander owns verified integration and PR delivery without merge authorit
   assert.match(prompt, /\.github\/pull_request_template\.md/u);
   assert.match(prompt, /ha task adjudicate --forward/u);
   assert.match(prompt, /Do not merge.*CEO/u);
-  assert.doesNotMatch(prompt, /Stop at a local commit|runtime publishes worker/u);
+  assert.doesNotMatch(prompt, /ha task push|Deliver at a local commit|runtime publishes worker/u);
   assert.doesNotMatch(prompt, /if stashing is unavoidable/u);
 });
 

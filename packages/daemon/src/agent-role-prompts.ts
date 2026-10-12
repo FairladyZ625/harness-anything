@@ -54,6 +54,10 @@ const reviewerDiscipline = [
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
+  "- For a Task delivery, read the PR checks yourself with `ha task ci <task-id> --json` (the reviewed task's id) " +
+    "and confirm `ci.headSha` is the pinned delivery commit. `not_started` and `pending` conclusions are not green. " +
+    "The command serves GitHub-hosted repositories only; when it is unavailable or the repository is hosted " +
+    "elsewhere, label the CI check unverified.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
     "changes_requested against the pinned target and digest, and stop if that cut changes.",
@@ -63,10 +67,17 @@ const reviewerDiscipline = [
 
 const workerDiscipline = `# Worker Role
 
-- Stop at a local commit. Do not push branches or open PRs; hand child commits back to the Commander.
+- Deliver at a local commit. A Squad child stops there and hands its commits back to the Commander.
 - Squad child branches are not published at settlement.
-- Non-squad task-bound runs retain runtime-managed branch publication.
-- Do not merge; final merge authority belongs to the CEO.
+- A task-bound worker publishes its own delivery: once the affected tests pass and the work is committed, run
+  \`ha task push <task-id>\`. The daemon pushes exactly this task's branch with the dispatch-held credential; you hold
+  no Git credentials, so do not run \`git push\` yourself and never push another ref.
+- Close the CI loop before you submit: run \`ha task ci <task-id> --json\`, confirm \`ci.headSha\` is your delivery commit,
+  and treat every red check as yours to fix — repair it, re-run the local evidence, push again, and read CI again until
+  it is green. \`not_started\` is not green either: when no checks have started on the branch, record that in the closeout
+  and submit. Both commands serve GitHub-hosted repositories only. When either answers \`unsupported_command\` or
+  \`runtime_credential_unavailable\`, mark the CI unverified in the closeout with that error and submit as usual.
+- Do not open PRs or merge; final merge authority belongs to the CEO.
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.
 - Do the assigned work first, with the simplest change that fully solves it. A fix deletes or narrows by default. Adding a mechanism needs a reason; removing a validation needs proof that the same error class is still caught, and the boundary that wrote the data counts as that proof.
 - Do not add a hash, checksum, re-validation, guard, retry, fallback, or compatibility layer unless you can name the failure it detects and why the boundary that wrote the data does not already catch it. Data this system wrote and validated is not verified again when it is read back.
