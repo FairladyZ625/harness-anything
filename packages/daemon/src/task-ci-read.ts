@@ -64,7 +64,7 @@ interface TaskCiReport {
       readonly status: string;
       readonly conclusion: string | null;
       readonly url: string;
-      readonly failure: ReturnType<typeof failureExcerpt> | null;
+      readonly failure: (ReturnType<typeof failureExcerpt> & { readonly logUrl: string }) | null;
     }[];
   }[];
 }
@@ -152,7 +152,7 @@ export async function readTaskCi(
           String(job.id),
           "--log-failed",
         ]);
-        failure = failureExcerpt(log);
+        failure = { ...failureExcerpt(log), logUrl: job.html_url };
       }
       jobs.push({
         id: job.id,
@@ -226,8 +226,8 @@ export function failureExcerpt(log: string): {
         .join("\n")
     : log;
   return {
-    tests: tests.slice(0, 40).map((line) => line.slice(0, 512)),
+    tests: [...new Set(tests.map((line) => line.slice(0, 512)))].slice(0, 40),
     excerpt: excerpt.slice(0, 8192),
-    truncated: excerpt.length > 8192 || tests.length > 40,
+    truncated: excerpt.length > 8192 || new Set(tests).size > 40,
   };
 }

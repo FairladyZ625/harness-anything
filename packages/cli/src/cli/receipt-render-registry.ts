@@ -35,7 +35,7 @@ const commandRenderers = new Map<string, ReceiptRenderer>([
   ["task-adjudicate", renderAdjudication],
   ["task-dispatch-review", renderReviewDispatches],
   ["task-show", renderTaskShow],
-  ["task-ci", (receipt) => JSON.stringify(receipt.ci, null, 2)],
+  ["task-ci", renderTaskCi],
   ["decision-propose", renderDecisionPropose],
   ["preset-list", renderPresetListReceipt],
   ["migrate-import", renderSuccessfulReceipt],
@@ -166,6 +166,28 @@ function renderTaskCreate(receipt: Record<string, unknown>): string {
     `completionGates: ${JSON.stringify(receipt.completionGates)}`,
     ...guidance,
   ].join("\n");
+}
+
+function renderTaskCi(receipt: Record<string, unknown>): string {
+  const ci = isRecord(receipt.ci) ? receipt.ci : null;
+  if (!ci) return "task-ci: no report";
+  const lines = [`task ${String(ci.taskId)} ${String(ci.headSha)}: ${String(ci.conclusion)}`];
+  const runs = Array.isArray(ci.runs) ? ci.runs.filter(isRecord) : [];
+  for (const run of runs) {
+    const jobs = Array.isArray(run.jobs) ? run.jobs.filter(isRecord) : [];
+    for (const job of jobs) {
+      if (job.conclusion !== "failure") continue;
+      lines.push(`failed job ${String(job.name)} (${String(job.url)})`);
+      const failure = isRecord(job.failure) ? job.failure : null;
+      const tests = failure && Array.isArray(failure.tests) ? failure.tests.map(String) : [];
+      for (const test of tests) lines.push(`  failed test: ${test}`);
+      if (failure && typeof failure.excerpt === "string") lines.push(`  assertion: ${failure.excerpt.split("\n")[0]}`);
+      if (failure && typeof failure.logUrl === "string") lines.push(`  full log: ${failure.logUrl}`);
+      if (failure?.truncated === true) lines.push("  diagnostic excerpt truncated");
+    }
+  }
+  if (lines.length === 1) lines.push("No failed jobs observed.");
+  return lines.join("\n");
 }
 
 function renderTaskShow(receipt: Record<string, unknown>): string {
