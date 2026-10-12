@@ -135,7 +135,7 @@ export function PermissionRequestsTab({
                 >
                   {t("accessControl.requests.withdraw")}
                 </Button>
-              ) : data.canDecide && identity !== "" ? (
+              ) : data.canDecide ? (
                 <Button
                   testId={`permission-request-decide-${request.requestId}`}
                   onClick={() => setConfirming(request)}

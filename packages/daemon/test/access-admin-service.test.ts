@@ -392,6 +392,22 @@ test("permission requests retain the authenticated task requester instead of the
   await assert.rejects(admin.run({ ...request, personId: "another" }, "worker"), { code: "authorization_denied" });
 });
 
+test("permission request listing derives approver visibility from policy authority", async (t) => {
+  const { keycloak, run, signIn } = await fixture(t);
+  keycloak.account("requester");
+  keycloak.account("member");
+  await run({ operation: "permission-request-create", groupId: "viewer", resource: "repo-a", personId: "requester" });
+  signIn("member", []);
+  const memberList = await run({ operation: "permission-request-list" });
+  assert.deepEqual([memberList.canDecide, memberList.requests], [false, []]);
+  signIn("requester", ["offline_access"]);
+  const requesterList = await run({ operation: "permission-request-list" });
+  assert.deepEqual(
+    [requesterList.canDecide, (requesterList.requests as { personId: string }[]).map((row) => row.personId)],
+    [false, ["requester"]],
+  );
+});
+
 test("permission requests bind exact versions and settle one concurrent decision", async (t) => {
   const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");

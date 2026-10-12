@@ -230,6 +230,7 @@ describe("账号与访问控制页", () => {
     expect(request.personId).toBe("requester");
     expect(await f.evaluate("requester", "repo-a", { kind: "task-create" })).toBe("denied");
     f.signIn("approver");
+    expect((await f.access.permissionRequests()).canDecide).toBe(true);
     await click(byTestId(`permission-request-decide-${request.requestId}`));
     expect(byTestId("permission-request-confirm").textContent).toContain("确认版本 1");
     await click(byTestId("permission-request-approve"));
