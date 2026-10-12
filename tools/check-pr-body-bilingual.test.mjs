@@ -82,13 +82,22 @@ test("a filled body passes with the PR template in context", () => {
   assert.equal(result.unfilledTemplate.unfilled, false);
 });
 
-test("a template body with only a checkbox ticked is no longer verbatim-unfilled", () => {
+test("a template body with only a checkbox ticked is no longer verbatim-unfilled, but placeholder sections are still named", () => {
   const ticked = pullRequestTemplate.replace("- [ ]", "- [x]");
   const result = checkPrBodyBilingual(ticked, undefined, { prTemplate: pullRequestTemplate });
 
-  // Documents the criterion boundary: any novel line, even a checkbox tick, lifts the verdict.
-  assert.equal(result.ok, true, result.issues.join("\n"));
+  // Documents the criterion boundary: any novel line, even a checkbox tick, lifts the
+  // verbatim-unfilled verdict — but the per-section placeholder rule still rejects the body.
   assert.equal(result.unfilledTemplate.unfilled, false);
+  assert.equal(result.ok, false, result.issues.join("\n"));
+  assert.equal(result.placeholderSections.ok, false);
+  const issues = result.issues.join("\n");
+  for (const title of ["Summary", "Architectural Justification", "What Changed", "Residual Risk"]) {
+    assert.ok(issues.includes(`# English ## ${title}`), title);
+  }
+  for (const title of ["概要", "架构辩护", "改动内容", "残余风险"]) {
+    assert.ok(issues.includes(`# 中文 ## ${title}`), title);
+  }
 });
 
 test("the PR template never asks for hand-copied SHA anchors", () => {
@@ -114,7 +123,7 @@ test("the PR template carries no visible placeholder residue", () => {
   assert.equal(result.placeholderResidue.ok, true, result.placeholderResidue.issues.join("\n"));
 });
 
-test("a body generated from the current template defaults passes without manual cleanup", () => {
+test("template defaults with only the summaries filled are rejected and the placeholder sections are named", () => {
   const filled = pullRequestTemplate
     .replace(
       /^## Summary$/mu,
@@ -126,8 +135,93 @@ test("a body generated from the current template defaults passes without manual 
     );
   const result = checkPrBodyBilingual(filled, undefined, { prTemplate: pullRequestTemplate });
 
+  assert.equal(result.ok, false, result.issues.join("\n"));
+  assert.equal(result.placeholderSections.ok, false);
+  const issues = result.issues.join("\n");
+  for (const entry of [
+    "# English ## Architectural Justification",
+    "# English ## What Changed",
+    "# English ## Residual Risk",
+    "# 中文 ## 架构辩护",
+    "# 中文 ## 改动内容",
+    "# 中文 ## 残余风险",
+  ]) {
+    assert.ok(issues.includes(entry), entry);
+  }
+  // The exempt sections keep their legitimate defaults: no G1 table without a write path, and the
+  // machine-readable declaration sections may hold only comments (the template deletes the
+  // `Dependency-Change: none` line when nothing changed).
+  for (const exempt of ["Per-Write Cost", "单次写入成本", "Machine-Readable Declarations", "机读声明说明"]) {
+    assert.equal(
+      result.placeholderSections.sections.some(({ title }) => title === exempt),
+      false,
+      exempt,
+    );
+  }
+});
+
+test("placeholder-only required sections are rejected across placeholder vocabularies", () => {
+  const english = [
+    validEnglish.replace("\n\n---", ""),
+    "## Architectural Justification",
+    "TBD",
+    "",
+    "## Residual Risk",
+    "- N/A.",
+    "",
+    "---",
+  ].join("\n");
+  const chinese = validChinese.replace(
+    "\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+    "\n\n## 架构辩护\n\n待定\n\n## 残余风险\n\n- 无\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+  );
+  const result = checkPrBodyBilingual(twoBlockBody({ english, chinese }));
+
+  assert.equal(result.ok, false);
+  assert.equal(result.placeholderSections.ok, false);
+  const issues = result.issues.join("\n");
+  for (const entry of [
+    "# English ## Architectural Justification",
+    "# English ## Residual Risk",
+    "# 中文 ## 架构辩护",
+    "# 中文 ## 残余风险",
+  ]) {
+    assert.ok(issues.includes(entry), entry);
+  }
+});
+
+test("an empty required section is rejected alongside filled ones", () => {
+  const english = [
+    validEnglish.replace("\n\n---", ""),
+    "## Residual Risk",
+    "",
+    "<!-- only a comment -->",
+    "",
+    "## What Changed",
+    "Real description of the change.",
+    "",
+    "---",
+  ].join("\n");
+  const result = checkPrBodyBilingual(twoBlockBody({ english }));
+
+  assert.equal(result.placeholderSections.ok, false);
+  const issues = result.issues.join("\n");
+  assert.ok(issues.includes("# English ## Residual Risk"), issues);
+  assert.equal(issues.includes("What Changed"), false, "filled sections are not named");
+});
+
+test("the Per-Write Cost Not applicable default is not a placeholder-only rejection", () => {
+  const english = [validEnglish.replace("\n\n---", ""), "## Per-Write Cost", "", "Not applicable.", "", "---"].join(
+    "\n",
+  );
+  const chinese = validChinese.replace(
+    "\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+    "\n\n## 单次写入成本\n\n不适用。\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+  );
+  const result = checkPrBodyBilingual(twoBlockBody({ english, chinese }));
+
   assert.equal(result.ok, true, result.issues.join("\n"));
-  assert.equal(result.placeholderResidue.ok, true, result.placeholderResidue.issues.join("\n"));
+  assert.equal(result.placeholderSections.ok, true);
 });
 
 test("residual template placeholders are rejected and named by line number", () => {

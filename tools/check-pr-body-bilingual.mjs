@@ -252,8 +252,13 @@ function normalizedNonEmptyLines(text) {
     .filter((line) => line.length > 0);
 }
 
+// A line counts as a placeholder only when it stands alone: an optional list marker, one of the
+// placeholder words below (any case), and optional trailing punctuation — nothing else.
+const PLACEHOLDER_ONLY_LINE =
+  /^\s*(?:[-*+][ \t]*)?(?:tbd|todo|n\/a|na|none|pending|not applicable|待定|待补|待填|无|暂无|不适用|没有)\s*[.。!！]?\s*$/iu;
+
 function isPlaceholderLine(line) {
-  return /^\s*[-*]\s*$/u.test(line) || /^\s*(?:[-*_]){3,}\s*$/u.test(line);
+  return /^\s*[-*]\s*$/u.test(line) || /^\s*(?:[-*_]){3,}\s*$/u.test(line) || PLACEHOLDER_ONLY_LINE.test(line);
 }
 
 function unfilledSectionTitles(block) {
@@ -268,6 +273,40 @@ function unfilledSectionTitles(block) {
     }
   }
   return titles;
+}
+
+// Sections whose empty-or-default state is legitimate without worker prose: the Per-Write Cost
+// sections' "Not applicable." / "不适用。" default is a completed state for PRs that touch no
+// write path (the G1 table stays conditionally required via checkPerWriteCost), and the
+// machine-readable declaration sections may legitimately hold only comments — the template
+// instructs deleting the `Dependency-Change: none` line when nothing changed, and the Chinese
+// variant ships its guidance entirely as comments. Their real declarations are checked by the
+// dedicated declaration jobs instead.
+const PLACEHOLDER_SECTION_EXEMPT_TITLES = Object.freeze([
+  "Per-Write Cost",
+  "单次写入成本",
+  "Machine-Readable Declarations",
+  "机读声明说明",
+]);
+
+export function checkPlaceholderOnlySections(blocks) {
+  const sections = blocks.ok
+    ? [
+        ...unfilledSectionTitles(blocks.englishBlock).map((title) => ({ block: "# English", title })),
+        ...unfilledSectionTitles(blocks.chineseBlock).map((title) => ({ block: "# 中文", title })),
+      ].filter(({ title }) => !PLACEHOLDER_SECTION_EXEMPT_TITLES.includes(title))
+    : [];
+  const named = sections.map(({ block, title }) => `${block} ## ${title}`),
+    englishList = named.map((entry) => `\`${entry}\``).join(", "),
+    chineseList = named.join("、"),
+    issues =
+      sections.length === 0
+        ? []
+        : [
+            `Required PR body sections are empty or contain only placeholder lines (-, TBD, N/A, ...): ${englishList}. Fill each one with real content before review.`,
+            `必填节为空或只有占位行（-、TBD、N/A 等）：${chineseList}。请先填写真实内容再开 PR。`,
+          ];
+  return { ok: issues.length === 0, sections, issues };
 }
 
 export function checkUnfilledPrTemplate(body, template) {
@@ -423,8 +462,15 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
   const unfilledTemplate = checkUnfilledPrTemplate(body, context.prTemplate);
   const placeholderResidue = checkTemplatePlaceholderResidue(body);
+  const placeholderSections = checkPlaceholderOnlySections(blocks);
   const perWriteCost = checkPerWriteCost(blocks.englishBlock, context.files);
-  const issues = [...blocks.issues, ...unfilledTemplate.issues, ...placeholderResidue.issues, ...perWriteCost.issues];
+  const issues = [
+    ...blocks.issues,
+    ...unfilledTemplate.issues,
+    ...placeholderResidue.issues,
+    ...placeholderSections.issues,
+    ...perWriteCost.issues,
+  ];
   const gateHarvest = checkGateHarvestDeclarations(blocks.englishBlock);
   issues.push(...gateHarvest.issues);
   const eventMigration = checkEventMigrationDeclaration(blocks.englishBlock, context.eventMigration);
@@ -469,6 +515,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
     architectureJustification,
     unfilledTemplate,
     placeholderResidue,
+    placeholderSections,
     issues,
   };
 }
@@ -492,6 +539,7 @@ function readBodyFromArgs(argv) {
           "Requires a top-level `# English` block before a top-level `# 中文` block.",
           "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
           "A body that contributes no line beyond the verbatim PR template is rejected as unfilled, naming its empty sections.",
+          "Required `##` sections whose content is empty or only placeholder lines (`-`, TBD, TODO, N/A, none, pending, not applicable, 待定, 不适用, ...) are rejected, naming each section; Per-Write Cost / 单次写入成本 keep their `Not applicable.` default.",
           "Visible template placeholders (angle brackets like `<operation>`, unresolved `no / yes` choice lists, bracketed instructions like `[required ...]`) are rejected with their line numbers.",
           "Write/persist/projection/ledger paths under packages/**/src require a completed Per-Write Cost G1 table (see the PR template).",
           "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures is required.",
@@ -500,6 +548,7 @@ function readBodyFromArgs(argv) {
           "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
           "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。",
           "与模板逐字相同、没有任何模板之外新行的正文会被判为未填写而拒绝，并列出为空的节。",
+          "必填 `##` 节内容为空或只有占位行（`-`、TBD、TODO、N/A、none、pending、not applicable、待定、不适用 等）会被点名拒绝；Per-Write Cost / 单次写入成本 保留「不适用」默认值。",
           "可见的模板占位符（如 `<operation>` 尖括号占位符、未删选的 `no / yes` 二选一、`[required ...]` 条件说明）会被点名行号拒绝。",
           "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures。",
           "当机器计算的生产变更超过 200 行 churn 或生产净增 +300 行时，英文和中文块都必须填写完整的架构辩护段。",
