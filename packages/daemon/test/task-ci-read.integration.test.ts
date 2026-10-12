@@ -1,6 +1,7 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -11,6 +12,8 @@ import { fixture, sha, secret } from "./task-ci.fixtures.ts";
 test("real read runner invokes gh with daemon credential and keeps the write queue untouched", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-task-ci-")),
     previousPath = process.env.PATH;
+  execFileSync("git", ["init", "--quiet", root]);
+  execFileSync("git", ["-C", root, "remote", "add", "origin", "https://github.com/fixture/repo.git"]);
   t.after(() => {
     if (previousPath === undefined) delete process.env.PATH;
     else process.env.PATH = previousPath;
