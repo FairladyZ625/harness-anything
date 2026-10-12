@@ -5,7 +5,17 @@ import { readTaskCi, failureExcerpt } from "../src/task-ci-read.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol-commands.ts";
 
 import { fixture, sha, secret } from "./task-ci.fixtures.ts";
-function provider(states = { status: "completed", conclusion: "failure" as string | null }) {
+type ProviderCheck = {
+  readonly id: number;
+  readonly name: string;
+  readonly status: string;
+  readonly conclusion: string | null;
+  readonly details_url: string;
+};
+function provider(
+  states = { status: "completed", conclusion: "failure" as string | null },
+  checkRuns: readonly ProviderCheck[] = [],
+) {
   const calls: string[][] = [];
   const run = async (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => {
     assert.equal(env.GH_TOKEN, secret);
@@ -20,7 +30,9 @@ function provider(states = { status: "completed", conclusion: "failure" as strin
     if (endpoint.endsWith("branches/task-ci")) return JSON.stringify({ commit: { sha } });
     if (endpoint.includes("check-runs"))
       return JSON.stringify([
-        { check_runs: [{ name: `fast ${secret}`, ...states, details_url: "https://checks/1" }] },
+        {
+          check_runs: [{ id: 101, name: `fast ${secret}`, ...states, details_url: "https://checks/1" }, ...checkRuns],
+        },
         { check_runs: [] },
       ]);
     const base = {
@@ -94,6 +106,66 @@ test("another task and a mismatched reviewer target are denied before resolving 
     { code: "execution_credential_rejected" },
   );
   assert.equal(f.credentialReads(), 0);
+});
+
+test("only the newest run of a same-named check decides the verdict", async () => {
+  // Two executions share one check name on the same SHA, listed in API order that differs per case:
+  // only ordering by check-run id keeps the newest in both, so neither first-wins nor last-wins passes.
+  for (const [listed, keptUrl, expected] of [
+    [
+      [
+        {
+          id: 700,
+          name: "pr-body-lint",
+          status: "completed",
+          conclusion: "failure",
+          details_url: "https://checks/700",
+        },
+        {
+          id: 800,
+          name: "pr-body-lint",
+          status: "completed",
+          conclusion: "success",
+          details_url: "https://checks/800",
+        },
+      ],
+      "https://checks/800",
+      "success",
+    ],
+    [
+      [
+        {
+          id: 804,
+          name: "pr-body-lint",
+          status: "completed",
+          conclusion: "failure",
+          details_url: "https://checks/804",
+        },
+        {
+          id: 800,
+          name: "pr-body-lint",
+          status: "completed",
+          conclusion: "success",
+          details_url: "https://checks/800",
+        },
+      ],
+      "https://checks/804",
+      "failure",
+    ],
+  ] as const) {
+    const f = fixture(),
+      gh = provider({ status: "completed", conclusion: "success" }, [
+        ...listed,
+        { id: 900, name: "contract", status: "completed", conclusion: "success", details_url: "https://checks/900" },
+      ]),
+      receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, gh.run);
+    assert.equal(receipt.ci.conclusion, expected);
+    assert.equal(receipt.ci.checks.length, 3, "the superseded run is dropped; differently-named checks stay");
+    const lint = receipt.ci.checks.find((check) => check.name === "pr-body-lint");
+    assert.equal(lint?.url, keptUrl);
+    assert.equal(lint?.conclusion, expected);
+    assert.equal(gh.calls.filter((args) => args[0] === "run").length, 0);
+  }
 });
 
 test("pending, successful and missing CI are distinct and no successful job fetches logs", async () => {

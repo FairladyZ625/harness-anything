@@ -28,7 +28,7 @@ test("real read runner invokes gh with daemon credential and keeps the write que
     const state = {status:"completed",conclusion:"failure"};
     if (args[0] === "repo") console.log(JSON.stringify({nameWithOwner:"fixture/repo"}));
     else if (endpoint.includes("branches/task-ci")) console.log(JSON.stringify({commit:{sha:${JSON.stringify(sha)}}}));
-    else if (endpoint.includes("check-runs")) console.log(JSON.stringify([{check_runs:[{name:"fast",...state,details_url:"https://checks/1"}]}]));
+    else if (endpoint.includes("check-runs")) console.log(JSON.stringify([{check_runs:[{id:44,name:"fast",...state,details_url:"https://checks/1"}]}]));
     else if (endpoint.includes("actions/runs?")) console.log(JSON.stringify([{workflow_runs:[{id:11,workflow_id:22,run_attempt:1,head_sha:${JSON.stringify(sha)},head_branch:"task-ci",event:"pull_request",...state,html_url:"https://runs/11"}]}]));
     else if (endpoint.includes("/jobs")) console.log(JSON.stringify([{jobs:[{id:33,name:"fast",...state,html_url:"https://jobs/33"}]}]));
     else if (args[0] === "run") console.log("not ok 1 - current CI\\nAssertionError: expected 1, actual 2\\n" + process.env.GH_TOKEN);
