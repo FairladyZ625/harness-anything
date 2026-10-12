@@ -303,6 +303,7 @@ export function fakeKeycloak() {
     }
     if (route === "/clients/client-1/roles") {
       if (method === "GET") return page([...roles.values()].map(roleView), url);
+      if (roles.has(String(body!.name))) return json({ error: "Role exists" }, 409);
       const role: Role = { ...(body as unknown as Role), id: id("role"), composites: new Set() };
       roles.set(role.name, role);
       return new Response(null, { status: 201 });

@@ -79,7 +79,10 @@ const server = createServer(async (request, response) => {
     });
     if (url.pathname.endsWith("/role-mappings/realm") && answer.ok) {
       // External administrator provisions an explicit repository scope, never an all-resource grant.
-      realm.permit("owner", workerData.repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
+      // The repository resource is created by `ha init`; do not pre-create it while bootstrapping
+      // the identity, otherwise the first owner claim is indistinguishable from a competing claim.
+      if ([...realm.resources.values()].some((resource) => resource.name === workerData.repoId))
+        realm.permit("owner", workerData.repoId, effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"));
     }
     response.writeHead(answer.status, Object.fromEntries(answer.headers));
     response.end(await answer.text());

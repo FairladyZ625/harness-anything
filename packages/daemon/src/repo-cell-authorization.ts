@@ -6,6 +6,7 @@ import { composeDurableActionEnvelope } from "@harness-anything/application/inte
 import path from "node:path";
 import {
   durablePolicyActions,
+  actionDeclarations,
   isSameExecution,
   parseEntityRef,
   taskIsDescendantOf,
@@ -73,7 +74,13 @@ export async function evaluateRepoCellAction(input: {
     resourceAncestors,
     fetchPort: input.fetchPort,
   });
-  const decision = keycloakDecision(envelope, `canonical:${input.revision}`, result.outcome, result.reasonCode),
+  const decision = keycloakDecision(
+      envelope,
+      `canonical:${input.revision}`,
+      result.outcome,
+      result.reasonCode,
+      resource,
+    ),
     token = input.binding.delegatedExecutionToken;
   return token
     ? {
@@ -191,7 +198,9 @@ export function keycloakDecision(
   evaluatedAtCut: string,
   outcome: AuthorizationDecision["outcome"],
   reasonCode: string,
+  resource?: AuthorizationResource,
 ): AuthorizationDecision {
+  const groupId = actionDeclarations.find((declaration) => declaration.kind === action.kind)?.policyTier ?? "admin";
   return Object.freeze({
     policyRef: "keycloak-policy@1",
     actor: action.actor,
@@ -200,10 +209,24 @@ export function keycloakDecision(
     outcome,
     reasonCodes: Object.freeze([reasonCode]),
     nextActions: Object.freeze(
-      outcome === "allowed" ? [] : ["Sign in with Keycloak and request an applicable policy group."],
+      outcome === "allowed"
+        ? []
+        : [
+            resource
+              ? `Request policy group ${groupId} on resource ${resourceName(resource)} from an access administrator; run ha bootstrap --operation grant --person-id ${action.actor.principal.personId} --group-id ${groupId} --resource ${resourceName(resource)} --operation-id <id>.`
+              : "Sign in with Keycloak and request an applicable policy group.",
+          ],
     ),
     evaluatedAtCut,
   });
+}
+
+function resourceName(resource: AuthorizationResource): string {
+  return resource.kind === "fleet"
+    ? "@fleet"
+    : resource.kind === "repository"
+      ? resource.repoId
+      : `${resource.repoId}:${resource.entityRef}`;
 }
 
 /**

@@ -46,6 +46,7 @@ import { entityActionCommandTopology } from "./repo-mode.ts";
 import { resolveVerticalKindCommandAction } from "./vertical-kind-command-action.ts";
 import { cachePurgePreservedPaths, purgeRepoCache } from "./repo-cache-purge.ts";
 import { backupReceipt } from "./offline-storage.ts";
+import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import {
   backupRepo,
   drillRepoBackup,
@@ -116,6 +117,24 @@ export function createDaemonHostRepositoryApi(
             bootstrapDocumentBody,
           ] as const,
         };
+      const claimedRegistration = readDaemonRegistry({ userRoot: context.input.userRoot }).repos.find(
+        (repo) => repo.repoId === bootstrap.repoId,
+      );
+      if (claimedRegistration && claimedRegistration.canonicalRoot !== bootstrap.rootDir)
+        throw context.hostCodedError(
+          "repository_already_registered",
+          `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
+        );
+      if (!request.configureOnly) {
+        if (context.oidc.centerConfigured()) {
+          const center = await context.keycloakCenter();
+          await new KeycloakPolicyAdapter({
+            url: center.url,
+            realm: center.realm,
+            resourceServerClientId: center.clientId,
+          }).claimRepositoryOwner(center.accessToken, bootstrap.repoId, bootstrap.actor.principal.personId);
+        }
+      }
       await context.waitForWarming(bootstrap.repoId);
       if (context.warming.has(bootstrap.repoId))
         throw context.hostCodedError("repo_warming", context.warmingMessage(bootstrap.repoId));

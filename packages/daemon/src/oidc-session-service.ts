@@ -434,6 +434,11 @@ export class OidcSessionService {
     return existsSync(path.join(this.#rbacRoot, "config.json"));
   }
 
+  /** Whether the daemon has the center service credential needed for ownership claims. */
+  centerConfigured(): boolean {
+    return this.configured() && existsSync(path.join(this.#rbacRoot, "center-client-secret"));
+  }
+
   /**
    * Binds the signed-in person to a request. While Keycloak cannot be reached to renew the session
    * only a server-selected edge replica read may retain its unexpired session identity.

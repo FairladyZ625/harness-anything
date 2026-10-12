@@ -76,6 +76,63 @@ test("sync re-expands stored grants to the currently declared actions of their g
   assert.equal((await adapter.readGrants("admin-token")).length, 2);
 });
 
+test("a center repository claim grants admin once and refuses a different creator", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  keycloak.account("person-a");
+  await adapter.syncBasePolicy("admin-token");
+  await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a");
+  assert.deepEqual(await adapter.readGrants("admin-token"), [
+    { groupId: "admin", resource: "owner-test", userIds: ["user-1"] },
+  ]);
+  const grantsBeforeRepeat = await adapter.readGrants("admin-token");
+  await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a");
+  assert.deepEqual(
+    await adapter.readGrants("admin-token"),
+    grantsBeforeRepeat,
+    "the existing creator grant is unchanged",
+  );
+  keycloak.account("person-c");
+  await assert.rejects(adapter.claimRepositoryOwner("admin-token", "owner-test", "person-c"), {
+    code: "repository_already_claimed",
+  });
+  keycloak.account("person-b");
+  const personBUserId = await adapter.findUserId("admin-token", "person-b");
+  assert.equal(typeof personBUserId, "string");
+  await adapter.writeGrant("admin-token", { groupId: "viewer", resource: "owner-test", userIds: [personBUserId!] }, [
+    "repository-read",
+  ]);
+  assert.deepEqual(
+    (await adapter.readGrants("admin-token")).find((grant) => grant.groupId === "viewer"),
+    {
+      groupId: "viewer",
+      resource: "owner-test",
+      userIds: [personBUserId],
+    },
+  );
+  await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-b");
+  assert.equal(
+    (await adapter.readGrants("admin-token")).some(
+      (grant) => grant.resource === "owner-test" && grant.groupId === "admin" && grant.userIds.includes(personBUserId!),
+    ),
+    false,
+    "existing non-owner access is not silently promoted to admin",
+  );
+  const competing = await Promise.allSettled([
+    adapter.claimRepositoryOwner("admin-token", "race-test", "person-a"),
+    new KeycloakPolicyAdapter(config, keycloak.fetch).claimRepositoryOwner("admin-token", "race-test", "person-a"),
+  ]);
+  assert.equal(competing.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(
+    competing.filter(
+      (result) =>
+        result.status === "rejected" &&
+        (result.reason as { readonly code?: string }).code === "repository_already_claimed",
+    ).length,
+    1,
+  );
+});
+
 test("online evaluation returns explicit allow and denies unknown, negative, and unavailable scopes", async () => {
   const allow = new KeycloakPolicyAdapter(config, async () => Response.json({ result: true }));
   assert.deepEqual(

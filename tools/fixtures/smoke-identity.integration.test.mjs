@@ -22,7 +22,9 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
     "smoke must preserve the runner-prepared daemon build used by concurrent tests",
   );
   const root = mkdtempSync(path.join(tmpdir(), "ha-first-run-negative-"));
-  const entry = path.join(repo, "packages/cli/dist/cli/src/index.js");
+  // Source execution keeps this focused fixture independent of a linked worktree dist entry;
+  // packaged CLI behavior is covered by the package smoke that builds and installs the artifact.
+  const entry = path.join(repo, "packages/cli/src/index.ts");
   const environment = env(path.join(root, "daemon"), root);
   const cli = (args, input) =>
     spawnSync(process.execPath, [entry, "--root", root, "--json", ...args], {
@@ -44,10 +46,13 @@ test("first-run identity is required, then the complete real CLI smoke succeeds"
       const result = cli(args, input);
       return { ...result, receipt: lastReceipt(result.stdout) };
     });
-    const wrongScope = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
-    assert.notEqual(wrongScope.status, 0, wrongScope.stdout);
-    assert.equal(lastReceipt(wrongScope.stdout).configureVerify.causeCode, "authorization_denied");
-    console.log("signed in with another repository grant: init rejected / authorization_denied");
+    const initialized = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
+    assert.equal(initialized.status, 0, initialized.stderr || initialized.stdout);
+    assert.equal(lastReceipt(initialized.stdout).repoId, "unsigned");
+    const repeated = cli(["init", "--repo-id", "unsigned", "--person-id", "owner", "--display-name", "Owner"]);
+    assert.equal(repeated.status, 0, repeated.stderr || repeated.stdout);
+    assert.equal(lastReceipt(repeated.stdout).outcome, "noop");
+    console.log("signed in creator: fresh init claims admin; repeated init is idempotent");
   } finally {
     // The init attempts above are refused before any workspace registration, so the plain
     // stop is refused the same way and the resident daemon would keep the tree open. The
