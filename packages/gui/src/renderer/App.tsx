@@ -542,7 +542,7 @@ function AppShell() {
 
   return (
     <LocalDocLayer mode={activeRepo?.mode ?? "local"}>
-      <div className="flex h-dvh flex-col overflow-hidden md:flex-row">
+      <div className="relative z-1 flex h-dvh flex-col overflow-hidden md:flex-row">
         <AppSidebar
           project={project}
           repos={systemQuery.data?.repos ?? []}
