@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { RotateCcw, Plus } from "lucide-react";
+import { ArrowCounterClockwise, Plus } from "@phosphor-icons/react";
 import { Modal } from "../primitives/Modal.tsx";
 import { Button } from "../primitives/Button.tsx";
 
@@ -24,7 +24,7 @@ export function TaskReturnDialog({
             onClick={() => onReturn("resume", feedback.trim())}
             testId="task-return-resume"
           >
-            <RotateCcw size={14} />
+            <ArrowCounterClockwise size={14} weight="bold" aria-hidden />
             续跑原会话
           </Button>
           <Button
@@ -32,7 +32,7 @@ export function TaskReturnDialog({
             onClick={() => onReturn("fresh", feedback.trim())}
             testId="task-return-fresh"
           >
-            <Plus size={14} />
+            <Plus size={14} weight="bold" aria-hidden />
             全新 Worker
           </Button>
         </div>
