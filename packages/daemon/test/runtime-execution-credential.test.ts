@@ -149,6 +149,72 @@ test("task identity may request its own task scope but cannot decide or administ
     assert.throws(() => requireExecutionRequestScope(p, "daemon.rbac.manage", { ...params, ...extra }), {
       code: "execution_credential_rejected",
     });
+test("execution credentials allow repository settings and only the dispatched decision review target", () => {
+  const p = { ...principal(), role: "reviewer" as const, reviewDecisionId: "dec_bound" };
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
+  );
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "decision-show", decisionId: "dec_bound" }));
+  assert.throws(() => requireExecutionActionScope(p, { kind: "decision-show", decisionId: "dec_other" }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "settings-update" }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(
+    () =>
+      requireExecutionActionScope(
+        { ...p, reviewDecisionId: undefined },
+        { kind: "decision-show", decisionId: "dec_bound" },
+      ),
+    {
+      code: "execution_credential_rejected",
+    },
+  );
+});
+
+test("the writer accepts only the decision bound to a live decision-review dispatch", () => {
+  const p = { ...principal(), role: "reviewer" as const, reviewDecisionId: "dec_bound" },
+    actor = {
+      principal: { personId: p.personId },
+      executor: { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
+    },
+    input = {
+      action: { kind: "decision-show", decisionId: "dec_bound" },
+      binding: { executionPrincipal: p, actor, source: "local" as const },
+      now: new Date().toISOString(),
+      projection: {
+        read: () => ({ snapshot: { executions: [] } }),
+        readRuntimeSession: () => ({
+          liveness: "live",
+          outcome: null,
+          taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+        }),
+        readRuntimeDispatch: () => ({
+          actor,
+          source: "local",
+          payload: {
+            dispatchId: p.dispatchId,
+            role: "reviewer",
+            reviewTarget: { kind: "decision", decisionId: "dec_bound" },
+          },
+        }),
+        currentLease: () => null,
+      } as never,
+    };
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  assert.throws(
+    () => requireCurrentExecutionScope({ ...input, action: { kind: "decision-show", decisionId: "dec_other" } }),
+    { code: "execution_credential_rejected" },
+  );
+  assert.throws(
+    () =>
+      requireCurrentExecutionScope({
+        ...input,
+        binding: { ...input.binding, executionPrincipal: { ...p, reviewDecisionId: "dec_other" } },
+      }),
+    { code: "execution_credential_rejected" },
+  );
 });
 
 test("the writer rejects expired credentials, stopped or superseded dispatches, and a replaced lease", () => {
@@ -396,7 +462,8 @@ test("execution event list permits repository reads without widening task or wri
       );
       assert.throws(() => request("other-repo", { kind: "event-list" }), {
         code: "execution_credential_rejected",
-        message: "Execution request is outside its dispatch scope.",
+        message:
+          "Execution request is outside its dispatch scope. Allowed reads: this task, repository settings, and the dispatched review target; use `ha task read-set <task-id>`, `ha settings read`, or `ha decision show <id>` for the bound target.",
       });
       for (const action of [
         { kind: "event-show", opId: "other-event" },
@@ -407,7 +474,8 @@ test("execution event list permits repository reads without widening task or wri
       ])
         assert.throws(() => requireExecutionActionScope(p, action), {
           code: "execution_credential_rejected",
-          message: "Execution request is outside its dispatch scope.",
+          message:
+            "Execution request is outside its dispatch scope. Allowed reads: this task, repository settings, and the dispatched review target; use `ha task read-set <task-id>`, `ha settings read`, or `ha decision show <id>` for the bound target.",
         });
     }
   }

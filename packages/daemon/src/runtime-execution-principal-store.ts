@@ -10,6 +10,7 @@ export interface PersistedRuntimeExecutionPrincipal {
   readonly taskId: string;
   readonly executionId: string;
   readonly role: "implementation" | "reviewer";
+  readonly reviewDecisionId?: string;
   readonly source: WriteSource;
   readonly expiresAt: string;
 }
@@ -35,6 +36,7 @@ export function recordRuntimeExecutionPrincipal(
     taskId: header.taskId,
     executionId: header.executionId,
     role: header.role === "reviewer" ? "reviewer" : "implementation",
+    ...(header.reviewTarget?.kind === "decision" ? { reviewDecisionId: header.reviewTarget.decisionId } : {}),
     source: header.binding.source,
     expiresAt,
   });
@@ -68,6 +70,7 @@ function isPersistedPrincipal(
     typeof value.taskId === "string" &&
     typeof value.executionId === "string" &&
     (value.role === "implementation" || value.role === "reviewer") &&
+    (value.reviewDecisionId === undefined || typeof value.reviewDecisionId === "string") &&
     (value.source === "local" || (typeof value.source === "object" && value.source !== null)) &&
     typeof value.expiresAt === "string"
   );

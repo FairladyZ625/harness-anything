@@ -15,6 +15,8 @@ export interface RuntimeExecutionPrincipal {
   readonly taskId: string;
   readonly executionId: string;
   readonly role: "implementation" | "reviewer";
+  /** Decision review dispatches bind reads to this canonical decision id. */
+  readonly reviewDecisionId?: string;
   readonly source: WriteSource;
   readonly expiresAt: string;
 }
@@ -23,7 +25,8 @@ export function executionCredentialRejected(
   reason: "scope" | "expired" | "revoked" | "authentication" = "scope",
 ): Error {
   const message = {
-    scope: "Execution request is outside its dispatch scope.",
+    scope:
+      "Execution request is outside its dispatch scope. Allowed reads: this task, repository settings, and the dispatched review target; use `ha task read-set <task-id>`, `ha settings read`, or `ha decision show <id>` for the bound target.",
     expired: "Execution credential is expired.",
     revoked: "Execution credential is revoked.",
     authentication: "Execution credential authentication was rejected.",

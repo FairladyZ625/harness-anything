@@ -36,7 +36,12 @@ export function requireExecutionRequestScope(
   }
   if (!isJsonObject(params.repo) || params.repo.repoId !== principal.repoId || !isJsonObject(params.payload))
     throw executionCredentialRejected();
-  requireExecutionActionScope(principal, actionForDaemonMethod(method, params.payload));
+  // Settings are a repository-level read method rather than a task action. Keep it in the
+  // execution scope explicitly so the worker can inspect the same repository baseline.
+  requireExecutionActionScope(
+    principal,
+    method === "repo.settings.read" ? { kind: "settings-read" } : actionForDaemonMethod(method, params.payload),
+  );
 }
 
 /** Repository catalog reads a dispatched implementer needs to pick its preset and validate
@@ -57,6 +62,7 @@ const catalogReads = [
 
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
   const catalog = p.role === "implementation" && (catalogReads as readonly string[]).includes(action.kind),
+    repositoryReads = ["settings-read"],
     // Reviewers read frozen submission evidence, implementers their own package documents; the
     // exact path authorization happens in the doc-sync read where the projection is available.
     documentRead = action.kind === "doc-show",
@@ -69,6 +75,8 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
       "doc-status",
       "doc-dry-run",
       ...(documentRead ? ["doc-show"] : []),
+      ...repositoryReads,
+      ...(p.role === "reviewer" && p.reviewDecisionId ? ["decision-show"] : []),
     ],
     writes =
       p.role === "reviewer"
@@ -88,7 +96,13 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
     (action.kind.startsWith("doc-") &&
       (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
     (![...reads, ...writes].includes(action.kind) && !catalog) ||
-    (action.kind !== "event-list" && !documentRead && !catalog && action.taskId !== p.taskId) ||
+    (action.kind !== "event-list" &&
+      !documentRead &&
+      !catalog &&
+      action.kind !== "settings-read" &&
+      action.kind !== "decision-show" &&
+      action.taskId !== p.taskId) ||
+    (action.kind === "decision-show" && action.decisionId !== p.reviewDecisionId) ||
     (documentRead && action.taskId !== undefined && action.taskId !== p.taskId) ||
     (action.executionId !== undefined && action.executionId !== p.executionId) ||
     (taskCiPull &&
@@ -175,15 +189,18 @@ export function requireCurrentExecutionScope(input: {
   if (p.role === "reviewer") {
     const target = dispatch.payload.reviewTarget,
       execution = input.projection.read(p.taskId).snapshot.executions.find((e) => e.executionId === p.executionId);
-    if (
-      dispatch.payload.role !== "reviewer" ||
-      target?.kind !== "task" ||
-      target.taskId !== p.taskId ||
-      target.executionId !== p.executionId ||
-      !execution?.submission ||
-      (!negativeTerminal && target.digest !== submissionDigest(execution.submission))
-    )
-      throw executionCredentialRejected();
+    const taskReview =
+      target?.kind === "task" &&
+      target.taskId === p.taskId &&
+      target.executionId === p.executionId &&
+      execution?.submission !== null &&
+      execution?.submission !== undefined &&
+      (negativeTerminal || target.digest === submissionDigest(execution.submission));
+    const decisionReview =
+      target?.kind === "decision" &&
+      p.reviewDecisionId === target.decisionId &&
+      (input.action.kind !== "decision-show" || input.action.decisionId === target.decisionId);
+    if (dispatch.payload.role !== "reviewer" || (!taskReview && !decisionReview)) throw executionCredentialRejected();
     if (input.action.kind === "task-review-execution") {
       const packagePath = input.projection.read(p.taskId).packagePath,
         reportPacket = `${packagePath}/artifacts/reports/${p.dispatchId}.json`;
