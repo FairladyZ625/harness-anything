@@ -13,6 +13,7 @@ export type HostingProvider =
 export async function detectHostingProvider(
   rootDir: string,
   declaration?: { readonly provider?: "github" | "gitlab"; readonly host?: string },
+  allowUnknown = false,
 ): Promise<HostingProvider> {
   let remote: string;
   try {
@@ -20,6 +21,7 @@ export async function detectHostingProvider(
       (await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 })).stdout,
     ).trim();
   } catch {
+    if (allowUnknown) return null as never;
     throw unknownHostingProvider();
   }
   const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
@@ -31,7 +33,17 @@ export async function detectHostingProvider(
         hosting?: { provider?: "github" | "gitlab"; host?: string };
       }
     ).hosting;
-  return hostingProviderFromRemote(remote, settings);
+  try {
+    return hostingProviderFromRemote(remote, settings);
+  } catch (error) {
+    if (
+      allowUnknown &&
+      error instanceof Error &&
+      (error as Error & { code?: string }).code === "hosting_provider_unknown"
+    )
+      return null as never;
+    throw error;
+  }
 }
 
 export function hostingProviderFromRemote(

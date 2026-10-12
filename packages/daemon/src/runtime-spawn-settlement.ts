@@ -143,8 +143,8 @@ export async function publishExit(
             ?.read(active.task.taskId)
             .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)
             ?.submission?.commitSha,
-          hosting = await detectHostingProvider(context.input.rootDir),
-          env = await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind),
+          hosting = await detectHostingProvider(context.input.rootDir, undefined, true),
+          env = hosting ? await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind) : undefined,
           push = await pushTaskWorkerBranch({
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,

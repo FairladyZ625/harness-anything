@@ -101,9 +101,9 @@ export function readBeforeWriteQueue(
       const instanceId = binding.executionPrincipal
           ? context.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
           : undefined,
-        hosting = await detectHostingProvider(context.rootDir),
+        hosting = await detectHostingProvider(context.rootDir, undefined, true),
         daemonGitEnvironment =
-          typeof instanceId === "string"
+          hosting && typeof instanceId === "string"
             ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind)
             : undefined;
       const gitEnvironment = daemonGitEnvironment

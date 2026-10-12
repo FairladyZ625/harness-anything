@@ -3,8 +3,9 @@ set -eu
 
 prompt=${1:-}
 case "$prompt" in
-  *gitlab.com*|*gitlab*) token=${HARNESS_GITLAB_TOKEN:-} ;;
-  *github.com*) token=${HARNESS_GITHUB_TOKEN:-} ;;
+  *"https://gitlab.com'"*|*"https://gitlab.com/"*|*"@gitlab.com'"*|*"@gitlab.com/"*) token=${HARNESS_GITLAB_TOKEN:-} ;;
+  *"https://github.com'"*|*"https://github.com/"*|*"@github.com'"*|*"@github.com/"*) token=${HARNESS_GITHUB_TOKEN:-} ;;
+  *github.com*|*gitlab.com*) exit 1 ;;
   *)
     if [ -n "${HARNESS_GITLAB_TOKEN:-}" ]; then token=$HARNESS_GITLAB_TOKEN
     elif [ -n "${HARNESS_GITHUB_TOKEN:-}" ]; then token=$HARNESS_GITHUB_TOKEN
