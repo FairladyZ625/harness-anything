@@ -243,7 +243,8 @@ There is no compatibility path for a v1 registry.
 
 `remote-center` and `remote-edge` are for the existing Fleet topology, not for
 view-only display. Deployment procedures are environment-specific and are not
-part of the public product documentation.
+part of the public product documentation; use the private operator runbook for
+environment-specific deployment and rehearsal steps.
 
 A successful `ha daemon fleet center start` saves listener intent per user root
 and daemon id. The daemon restores it on startup; `ha daemon stop` retains it.
