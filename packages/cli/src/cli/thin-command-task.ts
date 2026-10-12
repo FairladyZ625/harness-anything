@@ -35,16 +35,8 @@ export function parseTask(
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
-  if (id === "task-push" || id === "task-pr" || id === "task-ci") {
-    const flags = readFlags(id, args.slice(3), inputs);
-    return flags.ok
-      ? accepted(rootDir, repoId, json, {
-          kind: id,
-          taskId,
-          ...(flags.booleans.has("--update") ? { update: true } : {}),
-        })
-      : rejected(flags.code, flags.nextAction, json);
-  }
+  if (id === "task-push" || id === "task-pr" || id === "task-ci")
+    return parseTaskPublication(id, args, rootDir, repoId, json, inputs);
   if (
     id === "task-assign" ||
     id === "task-unassign" ||
@@ -119,6 +111,27 @@ export function parseTask(
     json,
   );
 }
+
+function parseTaskPublication(
+  id: "task-push" | "task-pr" | "task-ci",
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const taskId = args[2];
+  if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${id.slice("task-".length)} <task-id>.`, json);
+  const flags = readFlags(id, args.slice(3), inputs);
+  return flags.ok
+    ? accepted(rootDir, repoId, json, {
+        kind: id,
+        taskId,
+        ...(flags.booleans.has("--update") ? { update: true } : {}),
+      })
+    : rejected(flags.code, flags.nextAction, json);
+}
+
 
 function parseTaskShow(
   args: readonly string[],
