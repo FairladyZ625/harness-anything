@@ -4,10 +4,8 @@ import { spawnSync } from "node:child_process";
 import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "../packages/daemon/src/protocol/daemon-protocol.contract.ts";
-import { parseDispatchArgs as parseIsolatedDispatchArgs } from "./dispatch-isolated-test.mjs";
 import { parseRunnerArgs } from "./node-test-runner-lib.mjs";
 import {
-  dispatchIsolatedTestCommand,
   parseToolOptions,
   renderToolHelp,
   runNodeTestsCommand,
@@ -26,24 +24,8 @@ test("every supported CLI and tool entrypoint exposes non-empty --help", { timeo
 });
 
 test("sample tool parsers accept every documented flag and reject an undocumented flag", () => {
-  assert.deepEqual(parseIsolatedDispatchArgs(["--target", "server", "--tier", "fast"]), {
-    target: "server",
-    tier: "fast",
-    files: [],
-    prefixes: [],
-    coverage: undefined,
-  });
   assert.equal(parseRunnerArgs(["--tier=integration", "--prefix", "tools", "--slow-limit=3"]).tier, "integration");
   for (const [descriptor, parse, invocations] of [
-    [
-      dispatchIsolatedTestCommand,
-      parseIsolatedDispatchArgs,
-      [
-        ["--target", "server", "--tier", "fast", "--coverage", "/tmp/fast.lcov"],
-        ["--target", "server", "--tier", "fast", "--prefix", "tools"],
-        ["--file", "tools/run-node-tests.test.mjs", "--file", "tools/dispatch-isolated-test.test.mjs"],
-      ],
-    ],
     [
       runNodeTestsCommand,
       parseRunnerArgs,

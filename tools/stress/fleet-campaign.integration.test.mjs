@@ -127,9 +127,7 @@ test(
               verdict: scaleEvidence.verified ? "PASS" : "INCOMPLETE",
             },
           ],
-          replayCommand:
-            "node tools/dispatch-isolated-test.mjs --target server " +
-            "--file tools/stress/fleet-campaign.integration.test.mjs",
+          replayCommand: "node tools/run-node-tests.mjs " + "--file tools/stress/fleet-campaign.integration.test.mjs",
           residualRisks: [
             "FleetCut generation and all generation-2 shapes are excluded by CEO ruling 2.",
             ...(environment.volume.ready

@@ -265,7 +265,7 @@ function runStep(label, scriptName, qosPrefix) {
   const argv = [
     ...qosPrefix,
     ...(scriptName === "test:integration"
-      ? [process.execPath, "tools/dispatch-isolated-test.mjs", "--tier", "integration"]
+      ? [process.execPath, "tools/run-node-tests.mjs", "--tier", "integration"]
       : ["npm", "run", scriptName]),
   ];
   const [command, ...rest] = argv;

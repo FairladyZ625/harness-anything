@@ -211,8 +211,8 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 
 ## Fleet 中心与边缘
 
-`remote-center` 和 `remote-edge` 用于既有 Fleet 拓扑，不用于纯展示。部署和运维请见
-[Fleet center deployment](../tools/fleet-center/README.md)。
+`remote-center` 和 `remote-edge` 用于既有 Fleet 拓扑，不用于纯展示。部署流程依赖具体环境，
+不属于公开产品文档；环境部署和演练步骤请使用私有运维手册。
 
 边缘镜像只包含中心台账已接受的文档。`ha init` 会把它写在 `harness/governance/` 和
 `harness/context/` 下的脚手架文档作为台账文档发布，所以新建中心的边缘节点能收到它们。

@@ -115,7 +115,7 @@ test(
           node: process.version,
           sqlite: baselineFrame.sqliteVersion ?? null,
           os: `${process.platform}-${process.arch}`,
-          filesystem: "isolated Ubuntu temporary filesystem",
+          filesystem: "isolated Linux temporary filesystem",
           capabilities: ["strace pwrite64 injection", "fresh SQLite reopen", "Git follower failure"],
         },
         seed,
@@ -133,8 +133,7 @@ test(
         },
         calibration: { pwrite64Occurrences: writes.length, acceptingWalSyncCalls: durableSyncs.length },
         cases,
-        replayCommand:
-          "node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs",
+        replayCommand: "node tools/run-node-tests.mjs --file tools/stress/storage-campaign.integration.test.mjs",
         residualRisks: [],
       });
       assert.equal(report.verdict, "INCOMPLETE");

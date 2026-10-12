@@ -62,7 +62,7 @@ and reopens SQLite to compare event and outcome atomicity. Run the existing
 isolated test:
 
 ```sh
-node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs
+node tools/run-node-tests.mjs --file tools/stress/storage-campaign.integration.test.mjs
 ```
 
 This checks the observed system-call boundary, not physical power-loss
