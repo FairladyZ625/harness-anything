@@ -137,9 +137,13 @@ transition.to=in_review/review`. A return order uses
 `--return --worker-mode resume --message <feedback> --note <reason>` to continue the
 implementation worker's provider session. Choose `--worker-mode fresh` to start a
 new session with the previous submission's conclusion, verification and risks attached.
-Both move the task back to `active` and start a new execution. The mode is required;
-an unavailable resume is rejected before returning the cut. A launch error after
-the return appears as a failed receipt step; the durable return remains applied.
+Both move the task back to `active` and start a new execution. Choose
+`--worker-mode none` when no worker is needed — for example, the owner already fixed
+the cut (say, the PR body) and only wants it re-submitted: the return still lands,
+no worker is dispatched, and the receipt's `next` lines point at `ha task start` and
+`ha task submit` for the manual continuation. The mode is required; it takes no
+`--message`. An unavailable resume is rejected before returning the cut. A launch error
+after the return appears as a failed receipt step; the durable return remains applied.
 The reviewer never sends work directly to the worker.
 
 ## 6. Review, owner verdict, and mechanical completion

@@ -333,7 +333,7 @@ export const taskActionDescriptorProjection = {
             field: "workerMode",
             type: "string",
             required: false,
-            enum: ["resume", "fresh"],
+            enum: ["resume", "fresh", "none"],
             cli: { name: "--worker-mode", kind: "single", error: "invalid_field" },
           },
           {

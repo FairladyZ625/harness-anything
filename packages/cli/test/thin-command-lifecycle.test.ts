@@ -345,6 +345,7 @@ test("returned adjudication requires an explicit worker continuation choice", ()
   const missing = parseThinCommand(["task", "adjudicate", "task-1", "--return", "--note", "Please revise."]);
   assert.equal(missing.ok, false);
   if (!missing.ok) assert.match(missing.nextAction, /--worker-mode resume/u);
+  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode none/u);
   const resumed = parseThinCommand([
     "task",
     "adjudicate",
@@ -372,6 +373,46 @@ test("returned adjudication requires an explicit worker continuation choice", ()
     parseThinCommand(["task", "adjudicate", "task-1", "--return", "--worker-mode", "auto", "--message", "Revise."]).ok,
     false,
   );
+});
+
+test("returned adjudication --worker-mode none takes no worker message", () => {
+  const bare = parseThinCommand([
+    "task",
+    "adjudicate",
+    "task-1",
+    "--return",
+    "--note",
+    "Owner fixed it.",
+    "--worker-mode",
+    "none",
+  ]);
+  assert.equal(bare.ok, true, JSON.stringify(bare));
+  if (bare.ok)
+    assert.deepEqual(bare.command.action, {
+      kind: "task-adjudicate",
+      taskId: "task-1",
+      return: true,
+      workerMode: "none",
+      reason: "Owner fixed it.",
+      commandType: "AdjudicateSubmission",
+    });
+  const withMessage = parseThinCommand([
+    "task",
+    "adjudicate",
+    "task-1",
+    "--return",
+    "--note",
+    "Owner fixed it.",
+    "--worker-mode",
+    "none",
+    "--message",
+    "Revise.",
+  ]);
+  assert.equal(withMessage.ok, false);
+  if (!withMessage.ok) {
+    assert.equal(withMessage.code, "invalid_field");
+    assert.match(withMessage.nextAction, /--worker-mode none .*--note/u);
+  }
 });
 
 test("task settle parses to the closed orchestration action", () => {

@@ -333,6 +333,85 @@ for (const mode of ["resume", "fresh"] as const)
     }
   });
 
+test("adjudicate --return --worker-mode none returns the cut without dispatching a worker", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-return-none-")),
+    root = path.join(parent, "repo");
+  mkdirSync(root);
+  initRepo(root);
+  grantTestPolicyGroups([binding.actor.principal.personId], "admin");
+  const cell = await openRepoCell({
+    repoId: workspaceId("return-none"),
+    rootDir: canonicalRoot(root),
+    ownerId: "return-none",
+  });
+  try {
+    const taskId = "task_return_none",
+      executionId = "execution-original",
+      created = await cell.run({ kind: "task-create", taskId, title: "Return without worker" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const packagePath = String((created as Record<string, unknown>).packagePath);
+    await realizeTaskPlanFixture(root, packagePath, (planPath) =>
+      cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
+    );
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      "# Closeout\n\n## Summary\n\nThe owner already fixed this cut.\n\n## Verification\n\nIntegration assertions pin the none return.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nThe CLI shares the contract.\n",
+    );
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId }, binding)).outcome, "applied");
+    // A none return that still carries a worker message is rejected before the durable return.
+    const withMessage = await cell.run(
+      {
+        kind: "task-adjudicate",
+        taskId,
+        return: true,
+        workerMode: "none",
+        followUp: "Revise.",
+        reason: "Owner fixed it.",
+      },
+      binding,
+    );
+    assert.equal(withMessage.code, "invalid_command", JSON.stringify(withMessage));
+    assert.match(JSON.stringify(withMessage), /--note/u);
+    assert.equal(
+      (await cell.read("repo.tasks.list", { status: "submitted" })).rows.some((row) => row.taskId === taskId),
+      true,
+      "the rejected none return must not move the task",
+    );
+    const returned = await cell.run(
+      { kind: "task-adjudicate", taskId, return: true, workerMode: "none", reason: "Owner fixed it; re-submit." },
+      binding,
+    );
+    assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    const receipt = returned as unknown as {
+      continuation: { mode: string };
+      next: { command: string }[];
+    };
+    assert.deepEqual(receipt.continuation, { mode: "none" });
+    assert.deepEqual(
+      receipt.next.map(({ command }) => command),
+      [`ha task start ${taskId}`, `ha task submit ${taskId}`],
+    );
+    assert.equal(
+      (await cell.read("repo.task.dispatches", { taskId }, binding)).dispatches.length,
+      0,
+      "a none return must not dispatch a worker",
+    );
+    // The receipt's manual lanes are real: start the next execution and re-submit the cut.
+    const rework = "execution-rework";
+    assert.equal((await cell.run({ kind: "task-start", taskId, executionId: rework }, binding)).outcome, "applied");
+    writeFileSync(
+      path.join(root, "harness", packagePath, "closeout.md"),
+      "# Closeout\n\n## Summary\n\nRe-submitted after the owner-side fix.\n\n## Verification\n\nIntegration assertions pin the none return.\n\n## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nThe CLI shares the contract.\n",
+    );
+    assert.equal((await cell.run({ kind: "task-submit", taskId, executionId: rework }, binding)).outcome, "applied");
+  } finally {
+    await cell.close();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 function fakeProcess(pid: number, sessionId = `reviewer-${pid}`): RuntimeProcess {
   let output: ((chunk: string) => void) | null = null,
     exit: ((code: number | null) => void) | null = null;

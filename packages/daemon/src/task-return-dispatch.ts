@@ -7,10 +7,34 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
 // dec_CF96A3C910B31D2D7498F32DDD/CH3: the owner chooses the provider context; the
 // existing spawner still owns admission, the new execution lease and process launch.
-export function prepareReturnedWorker(cell: RepoCellOperationalContext, action: RepoTaskAction, taskId: string) {
+export function prepareReturnedWorker(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  taskId: string,
+): ReturnType<typeof prepareWorkerContinuation> | null {
   const mode = action.workerMode;
+  if (mode === "none") {
+    if (action.followUp !== undefined)
+      throw cell.cellCodedError(
+        "invalid_command",
+        "Return with --worker-mode none dispatches no worker, so it takes no --message; put the owner's note in --note.",
+      );
+    return null;
+  }
   if (mode !== "resume" && mode !== "fresh")
-    throw cell.cellCodedError("invalid_command", "Return requires --worker-mode resume|fresh and --message <text>.");
+    throw cell.cellCodedError(
+      "invalid_command",
+      "Return requires --worker-mode resume|fresh with --message <text>, or --worker-mode none.",
+    );
+  return prepareWorkerContinuation(cell, action, taskId, mode);
+}
+
+function prepareWorkerContinuation(
+  cell: RepoCellOperationalContext,
+  action: RepoTaskAction,
+  taskId: string,
+  mode: "resume" | "fresh",
+) {
   const message = cell.requiredCellText(action.followUp, "message"),
     snapshot = cell.projection.read(taskId).snapshot,
     selection = reviewExecutionSelection(action, snapshot, taskId),
@@ -63,7 +87,7 @@ export function prepareReturnedWorker(cell: RepoCellOperationalContext, action: 
 
 export async function dispatchReturnedWorker(
   cell: RepoCellOperationalContext,
-  continuation: ReturnType<typeof prepareReturnedWorker>,
+  continuation: ReturnType<typeof prepareWorkerContinuation>,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
 ): Promise<WriteReceiptDraft> {

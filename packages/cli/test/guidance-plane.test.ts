@@ -793,6 +793,28 @@ test("adjudication renders worker dispatch identity and its actual launch failur
   );
 });
 
+test("a none-return adjudication renders no dispatch and its manual continuation lanes", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "task-adjudicate",
+    outcome: "applied",
+    opId: "op-return-none",
+    status: "accepted_durable",
+    continuation: { mode: "none" },
+    next: [
+      {
+        command: "ha task start task-1",
+        reason: "no worker was dispatched; start the next execution to resume the rework",
+      },
+      { command: "ha task submit task-1", reason: "publish the reworked cut once the lease is held" },
+    ],
+  });
+  assert.match(rendered.text, /worker: none \(no dispatch\)/u);
+  assert.match(rendered.text, /next: ha task start task-1/u);
+  assert.match(rendered.text, /next: ha task submit task-1/u);
+  assert.doesNotMatch(rendered.text, /worker: none; undefined/u);
+});
+
 test("daemon-coded rejection messages reach the CLI hint verbatim for submit and complete", () => {
   const submitMessage =
       "Delivery cut contains no changed paths; publish harness/tasks/task-1/artifacts/ " +

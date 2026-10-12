@@ -132,17 +132,21 @@ function renderCliReceiptBase(
 
 function renderAdjudication(receipt: Record<string, unknown>): string {
   const steps = Array.isArray(receipt.steps) ? receipt.steps.filter(isRecord) : [],
-    continuation = isRecord(receipt.continuation) ? receipt.continuation : null;
+    continuation = isRecord(receipt.continuation) ? receipt.continuation : null,
+    // A `none` return dispatches no worker, so there is no dispatch outcome to echo; the
+    // receipt's `next` entries carry the manual continuation lanes instead.
+    workerLine =
+      continuation?.mode === "none"
+        ? "worker: none (no dispatch)"
+        : continuation
+          ? `worker: ${String(continuation.mode)}; ${String(continuation.outcome)}${typeof continuation.dispatchId === "string" ? `; dispatch: ${continuation.dispatchId}` : ""}`
+          : null;
   return [
     renderSuccessfulReceipt(receipt),
     ...(typeof receipt.reviewerId === "string"
       ? [`reviewer: ${receipt.reviewerId} (source: ${String(receipt.reviewerSource)})`]
       : []),
-    ...(continuation
-      ? [
-          `worker: ${String(continuation.mode)}; ${String(continuation.outcome)}${typeof continuation.dispatchId === "string" ? `; dispatch: ${continuation.dispatchId}` : ""}`,
-        ]
-      : []),
+    ...(workerLine === null ? [] : [workerLine]),
     ...steps
       .filter((step) => step.outcome === "failed" || step.outcome === "op_rejected")
       .map((step) => `${continuation ? "worker" : "review"} dispatch failed: ${humanError(step).hint}`),
