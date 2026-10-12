@@ -131,6 +131,7 @@ export async function publishExit(
       active.task &&
       context.input.projection &&
       outcome === "succeeded" &&
+      active.role !== "reviewer" &&
       active.publicationOwner !== "commander" &&
       !squadLeaderControl
     ) {

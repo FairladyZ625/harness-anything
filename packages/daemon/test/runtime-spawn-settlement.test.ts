@@ -831,6 +831,37 @@ test("terminal settlement accepts a review registered for the dispatch role", as
   assert.doesNotMatch(outcomeBodies[0]!, /is not submitted/u);
 });
 
+test("reviewer settlement does not prepare credentials or push a worker branch", async (context) => {
+  const fixture = workerGitFixture(context, "settle-review-no-push", { reachableRemote: true }),
+    runtime = workerSettlementRuntime(fixture, {
+      finalText: "review registered",
+      role: "reviewer",
+      publicationOwner: "runtime",
+    }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  let credentialRequests = 0;
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () =>
+        deliveryProjection(null, "repository-diff", [], [{ reviewId: `review-${runtime.dispatchId}` }], true),
+      prepareWorkerGitEnvironment: async () => {
+        credentialRequests += 1;
+        return { GH_TOKEN: "reviewer-token" };
+      },
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+  assert.equal(credentialRequests, 0);
+  assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
+});
+
 test("a reviewer's branch commit does not witness success without the registered review", async (context) => {
   // The git fixture leaves the worker branch one commit above the baseline, so the branch
   // witness alone would flip the outcome; the review list is empty (F-4C182EEE shape).
