@@ -1116,8 +1116,42 @@ test("thin parser exposes read-only task CI with JSON and rejects ref/run select
     assert.equal(parsed.command.json, true);
     assert.deepEqual(parsed.command.action, { kind: "task-ci", taskId: "task-1" });
   }
-  const ci = { taskId: "task-1", headSha: "a".repeat(40), conclusion: "pending", checks: [], runs: [] };
-  assert.deepEqual(JSON.parse(renderCliReceipt({ ok: true, command: "task-ci", ci }).text), ci);
+  const ci = {
+    taskId: "task-1",
+    headSha: "a".repeat(40),
+    conclusion: "failure",
+    checks: [],
+    runs: [
+      {
+        id: 1,
+        attempt: 1,
+        event: "pull_request",
+        status: "completed",
+        conclusion: "failure",
+        url: "https://runs/1",
+        jobs: [
+          {
+            id: 2,
+            name: "fast",
+            status: "completed",
+            conclusion: "failure",
+            url: "https://jobs/2",
+            failure: {
+              tests: ["not ok 1 - task scope"],
+              excerpt: "AssertionError: expected 1",
+              truncated: false,
+              logUrl: "https://jobs/2",
+            },
+          },
+        ],
+      },
+    ],
+  };
+  const renderedCi = renderCliReceipt({ ok: true, command: "task-ci", ci }).text;
+  assert.match(renderedCi, /failed job fast/u);
+  assert.match(renderedCi, /failed test: not ok 1 - task scope/u);
+  assert.match(renderedCi, /assertion: AssertionError: expected 1/u);
+  assert.match(renderedCi, /full log: https:\/\/jobs\/2/u);
   assert.equal(parseThinCommand(["task", "ci"]).ok, false);
   for (const flag of ["--branch", "--sha", "--run", "--rerun"])
     assert.equal(parseThinCommand(["task", "ci", "task-1", flag, "other"]).ok, false);

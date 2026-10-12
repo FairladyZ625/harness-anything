@@ -238,6 +238,13 @@ test("large failed logs retain bounded assertion context and report truncation",
   assert.match(result.excerpt, /not ok 1 - boundary/u);
 });
 
+test("failure excerpts deduplicate repeated failed test lines within the bound", () => {
+  const result = failureExcerpt(
+    "not ok 1 - repeated\nAssertionError: first\nnot ok 1 - repeated\nAssertionError: second",
+  );
+  assert.deepEqual(result.tests, ["not ok 1 - repeated"]);
+});
+
 test("CI command is a center-forwarded read, not a write or edge replica read", () => {
   const descriptor = commandDescriptorForAction("task-ci");
   assert.equal(descriptor.commandClass, "repo-read");
