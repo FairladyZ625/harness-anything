@@ -22,6 +22,7 @@ import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-i
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
 
 // The real daemon, writer process, socket, CLI, and provider executable run in a dedicated user root.
 // Keycloak wire behavior is a realm fixture; the fixed real-server mechanism is recorded in F-02C8A42D.
@@ -31,6 +32,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     userRoot = path.join(parent, "user"),
     repoId = "logout-repo",
     daemonId = "logout-test",
+    githubCredentialRef = "credential:v1:logout-ci",
+    githubToken = "logout-ci-fixture-token",
     realm = await serveKeycloak();
   const live = new Set<string>();
   let cleanupRuntimes = async () => {};
@@ -79,6 +82,15 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const daemon = await startDaemon({
     daemonId,
     userRoot,
+    runtimeCredentialPort: {
+      issue: () => githubCredentialRef,
+      store: async () => {},
+      resolve: async (reference) => {
+        assert.equal(reference, githubCredentialRef);
+        return githubToken;
+      },
+      remove: async () => {},
+    } satisfies CredentialPort,
     buildSupersessionEnabled: false,
     openCell: (input) => {
       const opening = openRepoCell(input);
@@ -128,6 +140,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
       models: ["fixture"],
       permissionMode: "workspace-write",
       authMode: "subscription",
+      githubCredentialRef,
     },
   });
   assert.equal(instance.ok, true, JSON.stringify(instance));
