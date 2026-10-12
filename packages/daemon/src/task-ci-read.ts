@@ -14,6 +14,7 @@ const runProvider: RunProvider = async (args, env, cwd) =>
   );
 
 interface Check {
+  readonly id: number;
   readonly name: string;
   readonly status: string;
   readonly conclusion: string | null;
@@ -165,14 +166,17 @@ export async function readTaskCi(
       jobs,
     });
   }
-  const checks = checkPages
-    .flatMap((page) => page.check_runs)
-    .map((check) => ({
-      name: check.name,
-      status: check.status,
-      conclusion: check.conclusion,
-      url: check.details_url,
-    }));
+  // Newest check run per name replaces a superseded one, so a re-run verdict matches the newest-run rule above.
+  const latestChecks = new Map<string, Check>();
+  for (const check of checkPages.flatMap((page) => page.check_runs).sort((a, b) => b.id - a.id)) {
+    if (!latestChecks.has(check.name)) latestChecks.set(check.name, check);
+  }
+  const checks = [...latestChecks.values()].map((check) => ({
+    name: check.name,
+    status: check.status,
+    conclusion: check.conclusion,
+    url: check.details_url,
+  }));
   const states = [...checks, ...runs],
     conclusion =
       states.length === 0
