@@ -556,6 +556,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         consumeKnownError(error);
         latchUnavailable(repoId, unavailableStatus(repoId, registeredRoot, registered.repo.mode, error));
       }
+    startReplicaSyncs();
     return registered;
   };
   const point = () => ({
@@ -825,16 +826,19 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
   };
   const startReplicaSyncs = (): void => {
-    for (const repo of repos) {
-      if (repo.mode !== "remote-edge" || replicaSyncControllers.has(repo.repoId)) continue;
-      const config = readFleetEdgeConfig(repo.canonicalRoot);
+    const registered = readDaemonRegistry({ userRoot: input.userRoot }).repos,
+      activeRemoteEdges = new Set<string>();
+    for (const repo of registered) {
+      if (repo.state !== "enabled" || repo.mode !== "remote-edge" || repo.canonicalRoot === null) continue;
+      const rootDir = repo.canonicalRoot,
+        config = readFleetEdgeConfig(rootDir);
       if (!config || config.repoId !== repo.repoId) continue;
+      activeRemoteEdges.add(repo.repoId);
+      if (replicaSyncControllers.has(repo.repoId)) continue;
       const controller = new AbortController();
       replicaSyncControllers.set(repo.repoId, controller);
-      const viewRoot = path.isAbsolute(config.viewRoot)
-        ? config.viewRoot
-        : path.resolve(repo.canonicalRoot, config.viewRoot);
-      const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(repo.canonicalRoot, config.caPath);
+      const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
+      const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       void runFleetReplicaSync({
         readAccessToken: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal?.accessToken,
         hostname: config.host,
@@ -853,7 +857,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             ...config,
             caPath,
             viewRoot,
-            workspaceRoot: repo.canonicalRoot,
+            workspaceRoot: rootDir,
             method: "repo.squad.control",
             action: {},
           }).reconcile(),
@@ -864,6 +868,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             error: error instanceof Error ? error.message : String(error),
           }),
       });
+    }
+    for (const [repoId, controller] of replicaSyncControllers) {
+      if (activeRemoteEdges.has(repoId)) continue;
+      controller.abort();
+      replicaSyncControllers.delete(repoId);
     }
   };
   // Restore only a previously authorized successful start, after every callback's captured
@@ -948,7 +957,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     return performOpenRegisteredImpl(extracted, repo, progress);
   }
   async function refreshRegistry(): Promise<void> {
-    return refreshRegistryImpl(extracted);
+    await refreshRegistryImpl(extracted);
+    startReplicaSyncs();
   }
   async function attemptHostRecovery(repoId: string): Promise<void> {
     return attemptHostRecoveryImpl(extracted, repoId);

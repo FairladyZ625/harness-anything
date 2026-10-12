@@ -35,6 +35,9 @@ export async function fleetEdgeHostFixture(
     readonly viewRoot?: string;
     readonly personId?: string;
     readonly nodeId?: string;
+    readonly registerBeforeOpen?: boolean;
+    readonly credential?: string;
+    readonly repoId?: string;
   } = {},
 ) {
   // The edge lives outside the center fixture's root: its daemon writes until it is closed.
@@ -58,13 +61,14 @@ export async function fleetEdgeHostFixture(
     "-qm",
     "edge config",
   ]);
-  registerBootstrappedDaemonRepo({
-    repoId: "lease-repo",
-    canonicalRoot: edgeRoot,
-    userRoot: edgeUser,
-    mode: "remote-edge",
-    createConvenienceLinks: false,
-  });
+  if (options.registerBeforeOpen !== false)
+    registerBootstrappedDaemonRepo({
+      repoId: options.repoId ?? "lease-repo",
+      canonicalRoot: edgeRoot,
+      userRoot: edgeUser,
+      mode: "remote-edge",
+      createConvenienceLinks: false,
+    });
   const signIn = (personId: string) =>
     managedRbacSessionStore(edgeUser).write(
       JSON.stringify({
@@ -86,13 +90,13 @@ export async function fleetEdgeHostFixture(
   signIn(options.personId ?? "person-one");
   const config = {
     schema: "fleet-edge-config/v1",
-    repoId: "lease-repo",
+    repoId: options.repoId ?? "lease-repo",
     host: "127.0.0.1",
     port: options.centerPort ?? f.center.port,
     servername: "localhost",
     caPath: path.join(f.root, "tls.crt"),
     nodeId: options.nodeId ?? "node-one",
-    credential: `secret-${options.nodeId ?? "node-one"}`,
+    credential: options.credential ?? `secret-${options.nodeId ?? "node-one"}`,
     viewRoot,
     quotaBytes: 64 * 1024 * 1024,
     waitTimeoutMs: 2000,
@@ -140,5 +144,10 @@ export async function fleetEdgeHostFixture(
       throw new Error(`edge command failed: ${JSON.stringify(response)}`);
     return response.result as Record<string, unknown>;
   };
-  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn };
+  const register = () =>
+    host.admin(
+      { kind: "register", rootDir: edgeRoot, repoId: options.repoId ?? "lease-repo", mode: "remote-edge" },
+      auth,
+    );
+  return { host, rpc, edgeRoot, edgeUser, viewRoot, config, command, signIn, register };
 }
