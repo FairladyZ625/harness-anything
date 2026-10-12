@@ -95,7 +95,8 @@ describe("visual foundation: status edge and ambient backdrop", () => {
   it("keeps the aurora backdrop behind content and non-interactive", () => {
     const aurora = blockBody(/\.aurora\s*\{/u);
     expect(aurora).toMatch(/position:\s*fixed/u);
-    expect(aurora).toMatch(/z-index:\s*-1/u);
+    // z-index: 0 浮在 html/body 不透明画布底色之上、AppShell(relative z-1)之下,对齐权威样张 overview-prototype.html v4。
+    expect(aurora).toMatch(/z-index:\s*0/u);
     expect(aurora).toMatch(/pointer-events:\s*none/u);
     // 玻璃可见性前提:环境光在暗/亮两套主题都有,只是强度不同。
     expect(blockBody(/html\[data-theme="light"\]\s*\{/u)).toMatch(/--aurora-/u);

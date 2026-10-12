@@ -147,8 +147,8 @@
      换通透紫晶洋红,承担视口底部的漫反射光辉。 */
   --aurora-1: #134e4a;
   --aurora-2: #1e2a5a;
-  --aurora-3: #581c3f;
-  --aurora-opacity: 0.55;
+  --aurora-3: #6b1d4a;
+  --aurora-opacity: 0.65;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
 
@@ -227,11 +227,12 @@ html[data-theme="light"] {
  */
 
 /* 环境光:玻璃背后要有可折射的内容,否则 backdrop-filter 只糊一层纯色。
-   z-index:-1 挂在画布底色之上、全部内容之下;漂移只动 transform(合成器路径)。 */
+   z-index:0 挂在画布底色之上、全部内容之下;漂移只动 transform(合成器路径)。
+   内容外壳(AppShell)显式声明 relative z-1,对齐权威样张 overview-prototype.html。 */
 .aurora {
   position: fixed;
   inset: -20%;
-  z-index: -1;
+  z-index: 0;
   pointer-events: none;
   filter: blur(80px);
   opacity: var(--aurora-opacity);
@@ -277,7 +278,7 @@ html[data-theme="light"] {
   height: 56vh;
   background: linear-gradient(
     to top,
-    color-mix(in oklab, var(--aurora-3) 72%, transparent),
+    color-mix(in oklab, var(--aurora-3) 80%, transparent),
     transparent
   );
 }
