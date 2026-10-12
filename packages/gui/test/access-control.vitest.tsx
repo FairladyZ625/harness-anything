@@ -4,8 +4,9 @@ import type { IpcMainInvokeEvent } from "electron";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AccessAdminService } from "../../daemon/src/access-admin-service.ts";
+import { AccessAdminService, type AccessAdminRequest } from "../../daemon/src/access-admin-service.ts";
 import type { DaemonHost } from "../../daemon/src/daemon-host-types.ts";
+import { requireAuthorizedFleetAction } from "../../daemon/src/host-action-authorization.ts";
 import { KeycloakPolicyAdapter } from "../../daemon/src/keycloak-policy-adapter.ts";
 import { managedRbacReceiptJournal } from "../../daemon/src/managed-rbac-service.ts";
 import { OidcSessionService } from "../../daemon/src/oidc-session-service.ts";
@@ -56,20 +57,53 @@ const trusted = { sender: { id: 7 }, senderFrame: { url: "file:///renderer/index
  * Keycloak itself is the in-memory realm the daemon's own tests use.
  */
 const fixtureCleanups: Array<() => void> = [];
+let rendererPersonId = "person-admin";
 
 async function stack() {
   const keycloak = fakeKeycloak(),
     user = keycloakUserRoot(),
+    signInAs = user.signIn,
     userCleanup = user.cleanup,
     oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
     admin = new AccessAdminService(oidc, user.root, { fetch: keycloak.fetch }),
+    manageRbac = async (request: AccessAdminRequest) => {
+      const session = await oidc.requireSession(),
+        accessAction =
+          request.operation === "permission-request-create"
+            ? "permission-request-create"
+            : request.operation === "permission-request-decide"
+              ? "permission-request-decide"
+              : request.operation === "permission-request-withdraw"
+                ? "permission-request-withdraw"
+                : undefined;
+      if (accessAction)
+        await requireAuthorizedFleetAction({
+          kind: accessAction,
+          userRoot: user.root,
+          auth: {
+            transportKind: "unix-socket",
+            oidcPrincipal: {
+              personId: session.personId,
+              subject: session.subject,
+              expiresAt: session.expiresAt,
+              accessToken: session.accessToken,
+              authority: session.authority ?? { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center" },
+            },
+          },
+          actionId: `${accessAction}:${request.operationId ?? randomUUID()}`,
+          evaluatedAtCut: "keycloak:current",
+          fetchPort: keycloak.fetch,
+        });
+      return admin.run(request, session.personId);
+    },
     server = createJsonRpcProtocolServer({
-      host: { manageRbac: (request: never) => admin.run(request) } as unknown as DaemonHost,
+      host: { manageRbac } as unknown as DaemonHost,
       build: { buildId: "test", commit: null } as never,
       authContext: { transportKind: "unix-socket" },
       emit: async () => undefined,
     });
   fixtureCleanups.push(userCleanup);
+  keycloak.account("person-admin");
   await new KeycloakPolicyAdapter(
     { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
     keycloak.fetch,
@@ -95,6 +129,11 @@ async function stack() {
   return {
     keycloak,
     ...user,
+    signIn: (personId: string, roles?: readonly string[]) => {
+      signInAs(personId, roles);
+      rendererPersonId = personId;
+      window.dispatchEvent(new Event("harness-auth-changed"));
+    },
     journal: managedRbacReceiptJournal(user.root),
     access: accessAdminPreloadApi((_channel, request) => handler(trusted, request)),
     // The production evaluation path: RepoCell → KeycloakPolicyAdapter → UMA decision.
@@ -126,7 +165,7 @@ async function stack() {
 }
 
 const auth: OidcAuthApi = {
-  status: vi.fn(async () => ({ ok: true, authenticated: true, personId: "person-admin" })),
+  status: vi.fn(async () => ({ ok: true, authenticated: true, personId: rendererPersonId })),
   bindingStatus: vi.fn(async () => ({ ok: true, mode: "managed", ready: true, url: keycloakUrl, realm: "harness" })),
   bootstrapStatus: vi.fn(async () => ({ ok: true, required: false })),
   cancelLogin: vi.fn(async () => ({ ok: true })),
@@ -187,6 +226,7 @@ async function openTab(
 }
 
 beforeEach(() => {
+  rendererPersonId = "person-admin";
   setActiveLocale("zh-CN");
   container = document.createElement("div");
   document.body.append(container);
@@ -205,7 +245,7 @@ describe("账号与访问控制页", () => {
     const f = await stack();
     f.keycloak.account("requester");
     f.keycloak.account("approver");
-    f.keycloak.permit("approver", "repo-a", ["task-create"]);
+    f.keycloak.permit("approver", "repo-a", ["task-create", "permission-request-decide"]);
     f.signIn("approver");
     const group = await f.access.createGroup({
       groupId: "task-reader",
