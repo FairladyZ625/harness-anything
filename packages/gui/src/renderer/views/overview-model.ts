@@ -224,7 +224,6 @@ export interface WorkRow {
   readonly title: string;
   readonly status: SnapshotStatus;
   readonly counts: Readonly<Partial<Record<SnapshotStatus, number>>>;
-  readonly doneRatio: number;
   readonly mineCount: number;
   readonly topScore: number;
   readonly lastActivityAt: string;
@@ -255,13 +254,9 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
   return works.works
     .map((work): WorkRow => {
       const counts: Partial<Record<SnapshotStatus, number>> = {};
-      let effective = 0,
-        done = 0;
       for (const [key, count] of Object.entries(work.counts)) {
         const status = SEG_STATUS[key] ?? "unknown";
         counts[status] = (counts[status] ?? 0) + count;
-        if (status !== "cancelled") effective += count;
-        if (status === "done") done += count;
       }
       const attention = byWork.get(work.taskId) ?? { mine: 0, top: 0 };
       return {
@@ -269,7 +264,6 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
         title: work.title,
         status: (work.status as SnapshotStatus) ?? "unknown",
         counts,
-        doneRatio: effective === 0 ? 0 : done / effective,
         mineCount: attention.mine,
         topScore: attention.top,
         lastActivityAt: work.lastActivityAt,
@@ -340,7 +334,7 @@ export function watchedWorks(
 
 /**
  * 工作卡的处理者:该工作名下任务(含根)关联的 live 会话执行者去重(who = kind · model)。
- * 在飞计数 > 0 而处理者为空 = 「无 agent 在跑」的诚实信号,由呈现层标注。
+ * 非空 = 活跃执行(呈现层挂呼吸光条);空 = 静止待命,安静排版,不输出消极文本。
  */
 export function workHandlers(
   runtime: AgentRuntimeOverviewResult | undefined,
@@ -371,16 +365,16 @@ export function taskAttentionScores(agenda: AgendaSuccess | undefined): Map<stri
 /**
  * 「执行与下钻 → 进行中的任务」的内联名单行(2026-10-11 合并在飞任务流):counted ×
  * 注意力分——分数降序(原设计的重要性口径),平分按占位状态生命周期序,再按 taskId
- * 定序。行内并进原在飞任务流的执行信息:当前在跑的执行者(live 会话去重;空 = 「无
- * agent 在跑」的诚实信号)与最近一次可观察活动(live 会话 lastObservedAt,兜底议程行
- * updatedAt;两个源都没有就不显示时间,不造起点)。
+ * 定序。行内并进原在飞任务流的执行信息:当前在跑的执行者(live 会话去重;非空 = 活跃
+ * 执行,呈现层挂呼吸光条,空 = 静止待命)与最近一次可观察活动(live 会话 lastObservedAt,
+ * 兜底议程行 updatedAt;两个源都没有就不显示时间,不造起点)。
  */
 export interface DrillWipRow {
   readonly taskId: string;
   readonly title: string;
   readonly status: TaskWipRead["counted"][number]["status"];
   readonly score: number;
-  /** 该任务名下 live 会话的执行者去重(who = kind · model);空 = 无 agent 在跑。 */
+  /** 该任务名下 live 会话的执行者去重(who = kind · model);空 = 静止待命。 */
   readonly handlers: readonly string[];
   /** 最近一次可观察活动(live 会话的 lastObservedAt,兜底议程行 updatedAt);null = 未知。 */
   readonly since: string | null;
