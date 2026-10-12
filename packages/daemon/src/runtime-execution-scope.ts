@@ -199,7 +199,9 @@ export function requireCurrentExecutionScope(input: {
     const decisionReview =
       target?.kind === "decision" &&
       p.reviewDecisionId === target.decisionId &&
-      (input.action.kind !== "decision-show" || input.action.decisionId === target.decisionId);
+      (input.action.kind === "decision-show"
+        ? input.action.decisionId === target.decisionId
+        : input.action.kind !== "task-review-execution");
     if (dispatch.payload.role !== "reviewer" || (!taskReview && !decisionReview)) throw executionCredentialRejected();
     if (input.action.kind === "task-review-execution") {
       const packagePath = input.projection.read(p.taskId).packagePath,

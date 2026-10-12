@@ -316,7 +316,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
   assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");
   signInAt(userRoot, "owner");
-  assert.equal((await reviewer.cli(["task", "show", taskId])).outcome, "applied");
+  const reviewerTaskShow = await reviewer.cli(["task", "show", taskId]);
+  assert.equal(reviewerTaskShow.outcome, "applied", JSON.stringify(reviewerTaskShow));
   assert.equal((await reviewer.cli(["task", "read-set", taskId])).outcome, "applied");
   const decisionRead = await reviewer.cli(["decision", "show", decisionId]);
   assert.equal(decisionRead.outcome, "applied", JSON.stringify(decisionRead));
