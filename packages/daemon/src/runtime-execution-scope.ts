@@ -100,7 +100,7 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
       !documentRead &&
       !catalog &&
       action.kind !== "settings-read" &&
-      action.kind !== "decision-show" &&
+      !(action.kind === "decision-show" && p.role === "reviewer" && p.reviewDecisionId) &&
       action.taskId !== p.taskId) ||
     (action.kind === "decision-show" && action.decisionId !== p.reviewDecisionId) ||
     (documentRead && action.taskId !== undefined && action.taskId !== p.taskId) ||

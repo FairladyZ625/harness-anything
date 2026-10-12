@@ -203,6 +203,20 @@ test("the writer accepts only the decision bound to a live decision-review dispa
       } as never,
     };
   assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.task.read", {
+      repo: { repoId: p.repoId },
+      payload: { action: { kind: "decision-show", decisionId: "dec_bound" } },
+    }),
+  );
+  assert.throws(
+    () =>
+      requireExecutionRequestScope(p, "repo.task.read", {
+        repo: { repoId: p.repoId },
+        payload: { action: { kind: "decision-show", decisionId: "dec_other" } },
+      }),
+    { code: "execution_credential_rejected" },
+  );
   assert.throws(
     () => requireCurrentExecutionScope({ ...input, action: { kind: "decision-show", decisionId: "dec_other" } }),
     { code: "execution_credential_rejected" },
