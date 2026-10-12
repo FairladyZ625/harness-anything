@@ -371,7 +371,7 @@ export function changesRequestedReview(reviews: readonly ReviewV1[], execution: 
 }
 
 export function reviewReturnCommand(taskId: string, reviewId: string): string {
-  return `ha task adjudicate ${taskId} --return --worker-mode <resume|fresh> --message <feedback> --review-id ${reviewId} --note-file <path>`;
+  return `ha task adjudicate ${taskId} --return --worker-mode <resume|fresh|none> --message <feedback> --review-id ${reviewId} --note-file <path>`;
 }
 
 /** review-consent selects a sole approved candidate itself; several candidates each need their explicit command. */

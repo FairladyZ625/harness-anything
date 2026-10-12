@@ -267,7 +267,7 @@ test("a recorded changes_requested review guides the owner's return instead of a
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task adjudicate task-1 --return --worker-mode <resume|fresh> --message <feedback> --review-id review-changes --note-file <path>",
+    "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
   );
   assert.equal(result.next?.authority, "person-owner");
   assert.doesNotMatch(result.next!.reason, /no recorded review/u);
@@ -280,7 +280,7 @@ test("a recorded changes_requested review guides the owner's return instead of a
   })[0]!.body;
   assert.match(
     index,
-    /ha task adjudicate task-1 --return --worker-mode <resume\|fresh> --message <feedback> --review-id review-changes --note-file <path>/u,
+    /ha task adjudicate task-1 --return --worker-mode <resume\|fresh\|none> --message <feedback> --review-id review-changes --note-file <path>/u,
   );
   assert.doesNotMatch(index, /dispatch-review/u);
   // Without any recorded review the dispatch guidance stands.
@@ -298,7 +298,7 @@ test("a changes request on the current cut comes before missing CI evidence", ()
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task adjudicate task-1 --return --worker-mode <resume|fresh> --message <feedback> --review-id review-changes --note-file <path>",
+    "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
   );
   // Without the changes request the missing CI witness still leads.
   assert.equal(taskCompletionNext(reviewed, context).blocker?.code, "ci_missing");
@@ -338,7 +338,7 @@ test("an undisposed changes request prevents an approved review from reaching co
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
-    "ha task adjudicate task-1 --return --worker-mode <resume|fresh> --message <feedback> --review-id review-changes --note-file <path>",
+    "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
   );
 });
 
