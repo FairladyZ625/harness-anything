@@ -456,6 +456,38 @@ test("permission requests require an independent approver and unchanged action s
   assert.equal((await admin.run({ operation: "permission-request-list" })).requests instanceof Array, true);
 });
 
+test("permission approval evaluates the approver's requested scope and permits delegated approval", async (t) => {
+  const { keycloak, run, signIn, evaluate } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.account("admin");
+  await run({ operation: "group-create", groupId: "release", scopes: ["task-create"] });
+  signIn("alice", ["offline_access"]);
+  const created = await run({ operation: "permission-request-create", groupId: "release", resource: "repo-a" }),
+    request = created.request as { requestId: string; version: number };
+
+  signIn("admin");
+  await assert.rejects(
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+    { code: "authorization_denied" },
+  );
+
+  // Holding the requested grant is authority to delegate it; it must not be mistaken for self-approval.
+  await run({ operation: "grant", personId: "admin", groupId: "release", resource: "repo-a" });
+  const approved = await run({
+    operation: "permission-request-decide",
+    requestId: request.requestId,
+    requestVersion: request.version,
+    decision: "approve",
+  });
+  assert.equal(approved.ok, true);
+  assert.equal(await evaluate("alice", "repo-a", { kind: "task-create" }), "allowed");
+});
+
 test("a permission request takes effect only after Keycloak accepts its grant", async (t) => {
   const { keycloak, run, signIn, oidc, root, evaluate } = await fixture(t);
   keycloak.account("alice");
@@ -464,10 +496,14 @@ test("a permission request takes effect only after Keycloak accepts its grant", 
   const created = await run({ operation: "permission-request-create", groupId: "contributor", resource: "repo-a" }),
     request = created.request as { requestId: string; version: number };
   signIn("admin");
+  await run({ operation: "grant", personId: "admin", groupId: "contributor", resource: "repo-a" });
   const failing = new AccessAdminService(oidc, root, {
     fetch: async (input, init) => {
       const url = new URL(String(input));
-      if (url.pathname.endsWith("/permission/scope"))
+      if (
+        init?.method !== "GET" &&
+        (url.pathname.includes("/policy/user/") || url.pathname.includes("/permission/scope/"))
+      )
         return Response.json({ error: "fixture_write_denied" }, { status: 403 });
       return keycloak.fetch(input, init);
     },

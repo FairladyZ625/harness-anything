@@ -303,10 +303,26 @@ export class AccessAdminService {
       )
         throw coded("permission_request_changed", "The policy group changed; submit a new permission request.");
       if (request.decision === "approve") {
-        const approverUserId = await session.adapter.findUserId(session.token, actor),
-          holders = await this.#grantHolders(session, current.groupId, current.resource);
-        if (holders.includes(approverUserId ?? ""))
-          throw coded("authorization_denied", "A grant holder cannot approve an additional grant for themselves.");
+        const approverResource = decodeAuthorizationResource(current.resource),
+          resourceAncestors =
+            approverResource.kind === "entity"
+              ? [{ kind: "repository" as const, repoId: approverResource.repoId }]
+              : [];
+        for (const action of current.actions) {
+          const decision = await session.adapter.authorizePerson({
+            adminAccessToken: session.token,
+            personId: actor,
+            action,
+            resource: approverResource,
+            resourceAncestors,
+          });
+          if (decision.outcome !== "allowed")
+            throw coded(
+              "authorization_denied",
+              `Approver ${actor} is not authorized for ${action} on ${current.resource}.`,
+            );
+        }
+        const holders = await this.#grantHolders(session, current.groupId, current.resource);
         await session.adapter.writeGrant(
           session.token,
           {
