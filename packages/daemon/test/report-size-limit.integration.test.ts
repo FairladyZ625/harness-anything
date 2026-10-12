@@ -53,7 +53,18 @@ function oversizedReportBody(dispatchId: string): string {
 }
 
 test("an oversized dispatch report no longer wedges task completion", { timeout: 60_000 }, async () => {
-  const f = await fixture(false, true, false, false, false, undefined, { closeoutProfile: "standard" });
+  let delaySettlement = false;
+  const f = await fixture(false, true, false, false, false, undefined, {
+    closeoutProfile: "standard",
+    keycloakSession: async () => {
+      if (delaySettlement) {
+        delaySettlement = false;
+        // Model a busy authorization boundary after provider exit, beyond the old fixture poll budget.
+        await new Promise((resolve) => setTimeout(resolve, 6_500));
+      }
+      return owner.keycloakAuthorization.session;
+    },
+  });
   try {
     await f.install();
     const receipt = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
@@ -99,6 +110,7 @@ test("an oversized dispatch report no longer wedges task completion", { timeout:
     writeFileSync(f.reportPath(dispatchId), publishedBody + appended);
     const finalBody = publishedBody + appended;
 
+    delaySettlement = true;
     const outcome = await f.settleReview(dispatchId, runtimeSessionId, "Reviewed and recorded.");
     assert.equal(outcome, "succeeded");
     assert.equal((await f.consent(`review-${dispatchId}`)).outcome, "applied");
