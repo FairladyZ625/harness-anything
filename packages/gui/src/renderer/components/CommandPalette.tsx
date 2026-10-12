@@ -125,7 +125,7 @@ export function CommandPalette({
       onClick={onClose}
     >
       <div
-        className="w-[560px] max-w-[90vw] overflow-hidden rounded-xl border border-border-strong bg-surface-raised shadow-2xl"
+        className="glass w-[560px] max-w-[90vw] overflow-hidden rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">
@@ -153,7 +153,7 @@ export function CommandPalette({
                   onClose();
                 }}
                 className={`flex w-full items-center gap-2 px-3 py-1.5 text-left cv-auto-2r ${
-                  i === activeIdx ? "bg-surface" : ""
+                  i === activeIdx ? "bg-white/10" : ""
                 }`}
               >
                 <span

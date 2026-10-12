@@ -74,11 +74,11 @@ function ProjectRow({
           active
             ? "border-accent/70 bg-accent/10"
             : enabled
-              ? "border-border bg-surface hover:border-border-strong hover:bg-surface-raised"
-              : "cursor-not-allowed border-border bg-surface opacity-60"
+              ? "border-border/60 bg-white/[0.03] hover:border-border-strong hover:bg-white/[0.08]"
+              : "cursor-not-allowed border-border/40 bg-white/[0.01] opacity-60"
         }`}
       >
-        <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded bg-surface-raised text-text-muted">
+        <span className="mt-0.5 grid size-5 shrink-0 place-items-center rounded bg-white/[0.06] text-text-muted">
           <FolderSimple weight="duotone" />
         </span>
         <span className="min-w-0 flex-1">
@@ -169,8 +169,8 @@ export function QuickSwitcher({
   return createPortal(
     <div
       data-testid="quick-switcher-panel"
-      className={`fixed z-40 flex w-max min-w-[min(320px,90vw)] max-w-[min(480px,90vw)] flex-col
-        overflow-hidden rounded-lg border border-border-strong bg-surface-raised p-2 shadow-2xl shadow-black/35`}
+      className={`glass fixed z-40 flex w-max min-w-[min(320px,90vw)] max-w-[min(480px,90vw)] flex-col
+        overflow-hidden rounded-lg p-2 shadow-2xl shadow-black/35`}
       style={position}
     >
       <div className="flex shrink-0 items-center justify-between px-1 pb-2">

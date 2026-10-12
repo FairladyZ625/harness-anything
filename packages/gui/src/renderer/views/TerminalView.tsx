@@ -562,7 +562,7 @@ export function TerminalView({
     <section
       aria-label={t("terminal.view.title")}
       data-testid="terminal-view"
-      className="flex min-h-0 flex-1 flex-row overflow-hidden bg-bg p-2"
+      className="flex min-h-0 flex-1 flex-row overflow-hidden p-2"
     >
       <TerminalChrome
         repoId={repoId}

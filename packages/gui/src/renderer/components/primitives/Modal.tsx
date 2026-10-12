@@ -39,7 +39,7 @@ export function Modal({
       className="component-modal m-auto w-[calc(100%_-_3rem)] max-w-none border-0 bg-transparent p-0 text-text"
     >
       <div
-        className={`mx-auto flex max-h-[var(--overlay-content-cap)] w-full flex-col overflow-hidden rounded-lg border border-border-strong bg-surface-raised shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
+        className={`glass mx-auto flex max-h-[var(--overlay-content-cap)] w-full flex-col overflow-hidden rounded-lg shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
       >
         <header className="flex shrink-0 items-center gap-2 border-b border-border px-3.5 py-2.5">
           <b className="ui-body font-[650]">{title}</b>

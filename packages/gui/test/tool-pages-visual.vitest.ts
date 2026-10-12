@@ -15,7 +15,7 @@ describe("tool page visual language", () => {
     expect(sessions).not.toContain("<Drawer");
     expect(sessions).toContain('data-testid="sessions-detail"');
     expect(sessions).toContain("<PageHeader");
-    expect(terminal).toContain('className="flex min-h-0 flex-1 flex-row overflow-hidden bg-bg p-2"');
+    expect(terminal).toContain('className="flex min-h-0 flex-1 flex-row overflow-hidden p-2"');
     expect(terminal).toContain("glass ml-2 flex min-h-0 min-w-0 flex-1");
     expect(browser).toContain('className="glass flex shrink-0 items-center gap-1 rounded-sm');
     expect(browser).toContain("in-app-browser-host");

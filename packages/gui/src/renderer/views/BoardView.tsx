@@ -104,7 +104,7 @@ const Card = memo(function Card({
       data-testid="board-task-card"
       onClick={() => onSelect?.(task.taskId)}
       title={taskControlHint(task)}
-      className={`relative cursor-pointer rounded-md bg-surface-raised p-2.5 ${freshnessBorder(
+      className={`relative cursor-pointer rounded-md bg-surface-raised/70 backdrop-blur-xs p-2.5 transition-colors ${freshnessBorder(
         task.freshness,
       )} ${archived ? "opacity-50" : ""} ${dragging ? "shadow-lg" : "hover:border-accent hover:ring-1 hover:ring-accent/50"} ${isFavorite ? "ring-1 ring-accent/40" : ""}`}
     >
@@ -354,8 +354,8 @@ function Column({
         isOver && rejecting
           ? "bg-danger/5 outline outline-1 outline-dashed outline-danger/40"
           : isOver
-            ? "bg-surface-raised/70"
-            : "bg-surface"
+            ? "bg-surface-raised/70 border border-border/60"
+            : "bg-surface/35 backdrop-blur-md border border-border/40"
       }`}
     >
       <ColumnResizeHandle

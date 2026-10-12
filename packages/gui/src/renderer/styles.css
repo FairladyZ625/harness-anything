@@ -142,13 +142,12 @@
   --scrim-blur: 18px;
   --scrim-saturate: 140%;
 
-  /* 环境光与缓动:blob1/2 色值原样保留业主认可的样张(overview-prototype.html v4);
-     blob3 按业主 2026-10-12 现场批示提亮提饱和(#3b1d2e 在纯黑底上几乎不可辨),
-     换通透紫晶洋红,承担视口底部的漫反射光辉。 */
+  /* 环境光与缓动:blob1/2 色值原样保留样张(overview-prototype.html v4);
+     blob3 采用沉静紫晶色(#4a1e36),温润微醺不刺眼,承担视口底部的漫反射柔光。 */
   --aurora-1: #134e4a;
   --aurora-2: #1e2a5a;
-  --aurora-3: #6b1d4a;
-  --aurora-opacity: 0.65;
+  --aurora-3: #4a1e36;
+  --aurora-opacity: 0.42;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
 
@@ -278,7 +277,7 @@ html[data-theme="light"] {
   height: 56vh;
   background: linear-gradient(
     to top,
-    color-mix(in oklab, var(--aurora-3) 80%, transparent),
+    color-mix(in oklab, var(--aurora-3) 50%, transparent),
     transparent
   );
 }
@@ -296,6 +295,18 @@ html[data-theme="light"] {
   box-shadow:
     inset 0 1px 0 var(--color-glass-highlight),
     0 8px 30px oklch(0 0 0 / 0.25);
+}
+
+/* 轻量控件毛玻璃档(输入框/控件按钮/工具条):比大面板更轻的模糊与更克制的透明底 */
+.glass-sub {
+  background: oklch(0.275 0.008 285 / 0.55);
+  backdrop-filter: blur(12px) saturate(140%);
+  border: 1px solid var(--color-glass-border);
+  box-shadow: inset 0 1px 0 var(--color-glass-highlight);
+}
+html[data-theme="light"] .glass-sub {
+  background: oklch(0.99 0.002 285 / 0.65);
+  border: 1px solid var(--color-glass-border);
 }
 
 /* 模态压暗层(原型 .scrim.on 档) */
@@ -880,8 +891,8 @@ html[data-theme="light"] ::selection {
 }
 
 .component-modal::backdrop {
-  background: color-mix(in oklch, var(--color-bg) 70%, transparent);
-  backdrop-filter: blur(6px);
+  background: var(--color-scrim);
+  backdrop-filter: blur(var(--scrim-blur)) saturate(var(--scrim-saturate));
 }
 
 /* A wide table/code block stays inside its own reading column. */

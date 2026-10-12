@@ -60,9 +60,9 @@ export function PresetDetailView({
     };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="preset-detail-view">
+    <div className="flex h-full min-h-0 flex-col" data-testid="preset-detail-view">
       <header
-        className="relative z-20 shrink-0 border-b border-border bg-surface/80"
+        className="relative z-20 shrink-0 border-b border-border/60 bg-surface/50 backdrop-blur-md"
         data-testid="preset-detail-header"
       >
         <div className="flex min-h-14 items-center gap-2.5 px-3 py-2 lg:px-4">
@@ -72,7 +72,7 @@ export function PresetDetailView({
             aria-label={t("views.presetDetailView.returnPreviousLevel")}
             className={[
               "grid size-7 shrink-0 place-items-center rounded-md border border-border text-text-muted",
-              "hover:border-border-strong hover:bg-surface-raised hover:text-text",
+              "hover:border-border-strong hover:bg-white/10 hover:text-text",
               "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
             ].join(" ")}
           >

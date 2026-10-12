@@ -207,14 +207,17 @@ export function TaskDetailView({
   const gatesPassed = task.gates.filter((gate) => gate.ok === true).length;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="task-detail-view">
+    <div className="flex h-full min-h-0 flex-col" data-testid="task-detail-view">
       {/* 详情页头三行化(chrome 审计 S4,对照稿 task_d821d24aacccb352053c7fd3e7):
           行1 面包屑+标题+状态+动作钮(图标+tooltip/aria,0 额外点击)
           行2 一行目标(可展开)
           行3 阶段+子任务分段+关键数字+页签(页签下划线收页头底边)。
           EngineBadge 已退役:engine 值仍在「身份」折叠的 LIFECYCLE/STATUS 条目。
           头部行允许换行(原则 9②):窄屏下面包屑/动作钮折行,不越出视口。 */}
-      <header className="relative z-20 shrink-0 bg-surface/80" data-testid="task-detail-header">
+      <header
+        className="relative z-20 shrink-0 border-b border-border/60 bg-surface/50 backdrop-blur-md"
+        data-testid="task-detail-header"
+      >
         <div className="flex min-h-0 flex-wrap items-center gap-x-2 gap-y-1 px-3 pt-1.5 pb-1 lg:px-4">
           <button
             type="button"
