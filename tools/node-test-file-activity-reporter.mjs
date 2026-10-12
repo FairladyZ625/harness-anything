@@ -9,7 +9,13 @@ export default async function* reportTestActivity(source) {
     if (file !== null) {
       if (event.type === "test:dequeue") yield `${JSON.stringify({ state: "started", file, at: Date.now() })}\n`;
       if (event.type === "test:complete" || event.type === "test:fail")
-        yield `${JSON.stringify({ state: "finished", file, at: Date.now(), signal: event.data.details?.error?.signal ?? null })}\n`;
+        yield `${JSON.stringify({
+          state: "finished",
+          file,
+          at: Date.now(),
+          signal: event.data.details?.error?.signal ?? null,
+          failed: event.type === "test:fail",
+        })}\n`;
       continue;
     }
     // test:start is emitted late (after the test completes), so it cannot name a test that never
@@ -21,7 +27,7 @@ export default async function* reportTestActivity(source) {
     const owner = subtestOwner(event);
     if (owner === null) continue;
     const state = event.type === "test:dequeue" ? "progress" : "test-finished";
-    yield `${JSON.stringify({ state, file: owner, name: event.data.name, at: Date.now() })}\n`;
+    yield `${JSON.stringify({ state, file: owner, name: event.data.name, at: Date.now(), failed: event.type === "test:fail" })}\n`;
   }
 }
 

@@ -505,6 +505,25 @@ test("forwarded failing-test details survive a stdout consumer that lags behind 
   assert.match(stdout, /runner output drain fixture assertion/u, "assertion details were lost to a backpressured pipe");
 });
 
+test("runner reports a machine-readable outcome line for every started test file", () => {
+  const childEnv = { ...process.env, HARNESS_RUNNER_FILE_OUTCOMES_FIXTURE: "1" };
+  delete childEnv.NODE_TEST_CONTEXT;
+  const result = spawnSync(
+    process.execPath,
+    ["tools/run-node-tests.mjs", "--tier", "fast", "--prefix", "tools/test-fixtures/runner-file-outcomes"],
+    { cwd: repoRoot, encoding: "utf8", env: childEnv, timeout: 30_000 },
+  );
+  const output = `${result.stdout}\n${result.stderr}`;
+  assert.equal(result.error, undefined, output);
+  assert.equal(result.status, 1, output);
+  assert.match(output, /^\[node-test-file\] pass tools\/test-fixtures\/runner-file-outcomes\/passing\.test\.mjs$/mu);
+  assert.match(output, /^\[node-test-file\] fail tools\/test-fixtures\/runner-file-outcomes\/failing\.test\.mjs$/mu);
+  // The outcome lines must close the run: a caller forwarding only stdout builds its per-file
+  // summary from exactly these lines.
+  const outcomeLines = output.split(/\r?\n/u).filter((line) => line.startsWith("[node-test-file] "));
+  assert.equal(outcomeLines.length, 2, output);
+});
+
 test("runsCliEntry finds the CLI entry in a test or in the test-support files it imports", () => {
   const sources = {
     "packages/cli/test/direct.test.ts": 'const cli = path.resolve("packages/cli/src/index.ts");',

@@ -29,7 +29,8 @@ test("sample tool parsers accept every documented flag and reject an undocumente
   assert.deepEqual(parseIsolatedDispatchArgs(["--target", "server", "--tier", "fast"]), {
     target: "server",
     tier: "fast",
-    file: undefined,
+    files: [],
+    prefixes: [],
     coverage: undefined,
   });
   assert.equal(parseRunnerArgs(["--tier=integration", "--prefix", "tools", "--slow-limit=3"]).tier, "integration");
@@ -39,7 +40,8 @@ test("sample tool parsers accept every documented flag and reject an undocumente
       parseIsolatedDispatchArgs,
       [
         ["--target", "server", "--tier", "fast", "--coverage", "/tmp/fast.lcov"],
-        ["--file", "tools/run-node-tests.test.mjs"],
+        ["--target", "server", "--tier", "fast", "--prefix", "tools"],
+        ["--file", "tools/run-node-tests.test.mjs", "--file", "tools/dispatch-isolated-test.test.mjs"],
       ],
     ],
     [

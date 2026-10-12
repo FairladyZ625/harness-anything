@@ -23,6 +23,7 @@ import {
   renderToolHelp,
   toolOption,
   toolValue,
+  toolValues,
 } from "./tool-command-contract.mjs";
 import { guiVitestFilePattern } from "./gui-test-runner-lib.mjs";
 
@@ -47,18 +48,25 @@ export function parseDispatchArgs(argv) {
   const options = {
     target: toolValue(parsed, "--target") ?? toolOption(dispatchIsolatedTestCommand, "--target").defaultValue,
     tier: toolValue(parsed, "--tier"),
-    file: toolValue(parsed, "--file"),
+    files: toolValues(parsed, "--file"),
+    prefixes: toolValues(parsed, "--prefix"),
     coverage: toolValue(parsed, "--coverage"),
   };
-  if (options.coverage !== undefined && isGuiVitestFile(options.file)) {
+  if (options.prefixes.length > 0 && options.tier === undefined)
+    throw new Error("--prefix narrows a --tier run and cannot be combined with --file");
+  if (options.coverage !== undefined && options.files.some(isGuiVitestFile)) {
     throw new Error("--coverage is only supported for Node test files and tiers");
   }
   return options;
 }
 
 export function testRunnerArgs(options) {
-  if (options.file !== undefined) validateDispatchTestFile(options.file);
-  if (isGuiVitestFile(options.file)) {
+  const files = options.files ?? [];
+  const prefixes = options.prefixes ?? [];
+  for (const file of files) validateDispatchTestFile(file);
+  if (files.length > 1 && files.some(isGuiVitestFile))
+    throw new Error("GUI vitest files run on the vitest lane, one file per dispatch");
+  if (files.length === 1 && isGuiVitestFile(files[0])) {
     return [
       "npm",
       "run",
@@ -66,13 +74,15 @@ export function testRunnerArgs(options) {
       "--workspace",
       "@harness-anything/gui",
       "--",
-      options.file.slice("packages/gui/".length),
+      files[0].slice("packages/gui/".length),
     ];
   }
   return [
     "node",
     "tools/run-node-tests.mjs",
-    ...(options.tier === undefined ? ["--file", options.file] : ["--tier", options.tier]),
+    ...(options.tier === undefined
+      ? files.flatMap((file) => ["--file", file])
+      : ["--tier", options.tier, ...prefixes.flatMap((prefix) => ["--prefix", prefix])]),
     ...(options.coverageTarget === undefined ? [] : ["--coverage", options.coverageTarget]),
   ];
 }
@@ -96,11 +106,12 @@ function validateDispatchTestFile(value) {
   toolOption(dispatchIsolatedTestCommand, "--file").validate(value);
 }
 
-export function untrackedSelectionError(file, files) {
-  if (file === undefined || files.includes(file)) return undefined;
+export function untrackedSelectionError(selected, files) {
+  const untracked = selected.filter((file) => !files.includes(file));
+  if (untracked.length === 0) return undefined;
   return (
-    `${file} is not tracked by git. Isolated dispatch only syncs git-tracked files, so the isolated target ` +
-    `never receives it. Run "git add ${file}" (or commit it) first, then dispatch again.`
+    `${untracked[0]} is not tracked by git. Isolated dispatch only syncs git-tracked files, so the isolated target ` +
+    `never receives it. Run "git add ${untracked[0]}" (or commit it) first, then dispatch again.`
   );
 }
 
@@ -248,15 +259,16 @@ export async function main(argv = process.argv.slice(2)) {
   const sourceHead = execFileSync("git", ["-C", sourceRoot, "rev-parse", "HEAD"], { encoding: "utf8" }).trim();
   const runId = `harness-test-isolation-${process.pid}-${randomUUID()}`;
   const startedAt = Date.now();
-  console.log(
-    `[test-isolation] target=${options.target} selection=${options.tier ? `tier:${options.tier}` : `file:${options.file}`} run=${runId}`,
-  );
+  const selection = options.tier
+    ? `tier:${options.tier}${options.prefixes.length > 0 ? ` prefix:${options.prefixes.join(",")}` : ""}`
+    : `file:${options.files.join(",")}`;
+  console.log(`[test-isolation] target=${options.target} selection=${selection} run=${runId}`);
   console.log(`[test-isolation] source=${sourceRoot} head=${sourceHead}`);
   const snapshotRoot = mkdtempSync(path.join(tmpdir(), `${runId}-`));
   let exitCode;
   try {
     const files = prepareSource(sourceRoot, snapshotRoot);
-    const selectionError = untrackedSelectionError(options.file, files);
+    const selectionError = untrackedSelectionError(options.files, files);
     if (selectionError !== undefined) {
       console.error(`dispatch-isolated-test: ${selectionError}`);
       exitCode = 2;
