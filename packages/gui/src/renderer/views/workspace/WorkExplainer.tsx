@@ -32,7 +32,8 @@ export function WorkExplainerDocument({
 }: {
   readonly repoId: string;
   readonly taskId: string;
-  /** 页签主正文=true:高度链 flex 到 webview;概况预览=false:嵌入卡形态。 */
+  /** true:高度链 flex 到 webview,容器给多高铺多高(页签主正文与概况预览都用这档);
+   *  false:固定高嵌入卡形态(当前无生产调用方)。 */
   readonly fill?: boolean;
 }) {
   const readable = repoId !== "unselected";
