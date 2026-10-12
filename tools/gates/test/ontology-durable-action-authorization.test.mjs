@@ -204,12 +204,13 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 150 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 151 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
   // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
   // dec_2AAF1D0612D3295C80F87E49FE CH1 authorizes daemon-mediated task push.
   // dec_F01770FD0DCF72683B7C4C7A47/CH4 authorizes the three permission request lifecycle actions.
-  assert.equal(result.rows.length, 150);
+  // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
+  assert.equal(result.rows.length, 151);
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });
@@ -314,6 +315,12 @@ test("G0-2 traces task push through the authorized prepared publication", (t) =>
   assert.equal(result.rows[0].authorizationPort, true);
 });
 
+test("G0-2 traces task PR creation through the authorized prepared publication", (t) => {
+  const result = auditDurableActionAuthorization(taskSnapshot(t), ["task-pr"]);
+  assert.deepEqual(result.findings, []);
+  assert.equal(result.rows[0].authorizationPort, true);
+});
+
 for (const mutation of [
   ...queuedWriteMutations.filter(
     ({ name }) => !["catalog dispatch", "catalog task callback", "lifecycle execution"].includes(name),
@@ -340,6 +347,7 @@ for (const mutation of [
     name: "prepared side effect import",
     file: "write-queue-external-reads",
     before: 'from "./runtime-worker-push.ts"',
+    beforeForTaskPr: 'from "./runtime-task-pr.ts"',
     after: 'from "./unrelated-worker-push.ts"',
   },
   {
@@ -349,14 +357,20 @@ for (const mutation of [
     after: "return async function (_action: RepoTaskAction, _binding: RepoCellBinding) {",
   },
 ]) {
-  test(`G0-2 rejects task push when ${mutation.name} is disconnected`, (t) => {
-    const root = taskSnapshot(t);
-    mutate(root, mutation.file, mutation.before, mutation.after);
-    if (mutation.extraBefore) mutate(root, mutation.file, mutation.extraBefore, mutation.extraAfter);
-    const result = auditDurableActionAuthorization(root, ["task-push"]);
-    assert.equal(result.rows[0].authorizationPort, false);
-    assert.equal(result.findings.length, 1);
-  });
+  for (const kind of ["task-push", "task-pr"])
+    test(`G0-2 rejects ${kind} when ${mutation.name} is disconnected`, (t) => {
+      const root = taskSnapshot(t);
+      mutate(
+        root,
+        mutation.file,
+        kind === "task-pr" && mutation.beforeForTaskPr ? mutation.beforeForTaskPr : mutation.before,
+        mutation.after,
+      );
+      if (mutation.extraBefore) mutate(root, mutation.file, mutation.extraBefore, mutation.extraAfter);
+      const result = auditDurableActionAuthorization(root, [kind]);
+      assert.equal(result.rows[0].authorizationPort, false);
+      assert.equal(result.findings.length, 1);
+    });
 }
 
 test("G0-2 requires task push's durable repo-write declaration", (t) => {

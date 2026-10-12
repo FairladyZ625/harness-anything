@@ -131,7 +131,11 @@ export function readBeforeWriteQueue(
     })();
   }
   if (action.kind === "task-pr") {
-    return Promise.resolve((action, binding) => createTaskPullRequest(context, action, binding));
+    return (async () => {
+      return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
+        return createTaskPullRequest(context, _action, _binding);
+      };
+    })();
   }
   return null;
 }
