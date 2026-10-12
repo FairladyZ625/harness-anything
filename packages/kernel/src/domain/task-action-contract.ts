@@ -553,6 +553,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
         cli("noteFile", "string", false, "--note-file", "single", {
           conflictsWith: ["--note"],
         }),
+        cli("workerMode", "string", false, "--worker-mode", "single", { enum: ["resume", "fresh"] }),
+        cli("followUp", "string", false, "--message"),
       ],
       [["forward", "return"]],
     ),

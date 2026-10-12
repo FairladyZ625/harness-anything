@@ -341,6 +341,29 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
   );
 });
 
+test("returned adjudication requires an explicit worker continuation choice", () => {
+  const missing = parseThinCommand(["task", "adjudicate", "task-1", "--return", "--note", "Please revise."]);
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode resume/u);
+  const resumed = parseThinCommand([
+    "task",
+    "adjudicate",
+    "task-1",
+    "--return",
+    "--note",
+    "Please revise.",
+    "--worker-mode",
+    "resume",
+    "--message",
+    "Use the review comments and continue.",
+  ]);
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  if (resumed.ok) {
+    assert.equal(resumed.command.action.workerMode, "resume");
+    assert.equal(resumed.command.action.followUp, "Use the review comments and continue.");
+  }
+});
+
 test("task settle parses to the closed orchestration action", () => {
   const settle = parseThinCommand(["task", "settle", "task-1"]);
   assert.equal(settle.ok, true, JSON.stringify(settle));

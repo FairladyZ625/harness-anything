@@ -33,6 +33,8 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { readTaskLineageDispatches } from "./dispatch-read.ts";
+import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 
 /** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
 export async function prepareSubmissionEvidence(
@@ -517,8 +519,58 @@ export async function adjudicateTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId");
   if (action.forward === true) assertForwardUpgradeServable(cell, action, taskId);
-  const receipt = await cell.lifecycleAction(action, binding);
-  if (receipt.outcome !== "applied" || action.forward !== true) return receipt;
+  const workerMode = action.return === true ? action.workerMode : undefined,
+    followUp = action.return === true && typeof action.followUp === "string" ? action.followUp : undefined;
+  if (
+    action.return === true &&
+    workerMode !== undefined &&
+    ((workerMode !== "resume" && workerMode !== "fresh") || !followUp)
+  )
+    throw cell.cellCodedError(
+      "invalid_command",
+      `Return ${taskId} with exactly one worker mode (--worker-mode resume|fresh) and --message <text>.`,
+    );
+  const before = action.return === true ? await cell.service.read(taskId) : null,
+    returnedExecution = before?.snapshot.executions.find(
+      (value) => value.state === "submitted" && value.iteration === before.snapshot.task?.iteration,
+    ),
+    priorDispatches =
+      action.return === true ? readTaskLineageDispatches({ projection: cell.projection, taskId }) : ([] as const),
+    receipt = await cell.lifecycleAction(action, binding);
+  if (receipt.outcome !== "applied" || action.forward !== true) {
+    if (receipt.outcome !== "applied" || workerMode === undefined || followUp === undefined) return receipt;
+    const execution = returnedExecution,
+      previous = priorDispatches.filter((row) => row.executionId === (execution?.executionId ?? "")).at(-1),
+      dispatchId = workerMode === "resume" ? previous?.dispatchId : undefined,
+      agentId = previous?.agentId ?? cell.settings.readRepository().roles?.defaultWorker;
+    if (workerMode === "resume" && !dispatchId)
+      throw cell.cellCodedError("invalid_transition", `Task ${taskId} has no prior dispatch to resume.`);
+    const payload = {
+      taskId,
+      ...(execution?.executionId ? { executionId: execution.executionId } : {}),
+      ...(agentId ? { agentId } : {}),
+      ...(dispatchId ? { dispatchId } : {}),
+      prompt:
+        workerMode === "resume"
+          ? followUp
+          : `Continue task ${taskId} from the returned cut. Read the task package and prior submitted artifacts, then act on this owner message:\n${followUp}`,
+      idempotencyKey: `task-return:${taskId}:${workerMode}:${cell.store.readHead()?.revision ?? 0}`,
+    };
+    const authorizationDecision = await evaluateRepoCellAction({
+      action: { kind: "runtime-spawn", ...payload },
+      repoId: cell.input.repoId,
+      binding,
+      actionId: payload.idempotencyKey,
+      revision: cell.store.readHead()?.revision ?? 0,
+      now: cell.now(),
+      readTask: (id) => cell.projection.read(id).snapshot.task,
+    });
+    if (authorizationDecision.outcome !== "allowed")
+      throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
+    const worktree = workerMode === "fresh" ? await cell.runtimeSpawner.prepareWorktree(payload) : null,
+      spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree);
+    return { ...receipt, continuation: { mode: workerMode, ...spawned } } as WriteReceipt;
+  }
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
   if (!dispatched)
     throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);

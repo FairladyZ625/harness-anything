@@ -202,6 +202,8 @@ export function buildCommand(
       "reviewId",
       "reason",
       "noteFile",
+      "workerMode",
+      "followUp",
       "expectedVersion",
       "commandType",
       "verb",
