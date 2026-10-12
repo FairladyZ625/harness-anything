@@ -346,6 +346,7 @@ test("GitLab task CI reports the newest self-hosted pipeline and its failed job 
   assert.equal(result.ci.conclusion, "failure");
   assert.equal(result.ci.runs[0]!.id, 10);
   assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.tests[0], "not ok 1 - failure");
+  assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.logUrl, "https://gitlab.example.test/jobs/101");
   assert.equal(JSON.stringify(result).includes(secret), false);
   assert.equal(
     calls.some((url) => url.includes("/projects/group%2Fproject/jobs/101/trace")),

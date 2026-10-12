@@ -266,12 +266,15 @@ async function readGitLabTaskCi(
             headers: { "PRIVATE-TOKEN": token },
           },
         );
-        failure = failureExcerpt(
-          (response.ok ? await response.text() : `GitLab trace unavailable (${response.status})`).replaceAll(
-            token,
-            "[REDACTED]",
+        failure = {
+          ...failureExcerpt(
+            (response.ok ? await response.text() : `GitLab trace unavailable (${response.status})`).replaceAll(
+              token,
+              "[REDACTED]",
+            ),
           ),
-        );
+          logUrl: job.web_url ?? `${hosting.apiBaseUrl}/jobs/${job.id}`,
+        };
       }
       mapped.push({
         id: job.id,
