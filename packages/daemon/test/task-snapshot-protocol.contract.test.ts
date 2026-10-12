@@ -188,6 +188,67 @@ test("task snapshot protocol isolates tasks with non-boolean archiveOnComplete",
   assert.equal(isolated.invalidRows[0]?.field, "rows[0].snapshot.task");
 });
 
+// Verbatim shape of a real offline-converted task (task_w5r_rehearsal_anchor in the canonical
+// ledger): contractVersion 1, no completion gates, and the presetSnapshotGap marker naming the
+// acceptance whose preset bytes were never retained.
+const gapTask = {
+  schema: "task/v2",
+  taskId: "task_w5r_rehearsal_anchor",
+  title: "W5-R Fleet center rehearsal anchor",
+  taskClass: "standard",
+  status: "done",
+  graph: {},
+  currentNode: "implementation",
+  iteration: 0,
+  createdBy: actor,
+  completionGateIds: [],
+  presetSnapshotDigest: "sha256:9a0127b2e842a20a0f009e6183d51c6c3ec1fb03ff3a36cf741d0757ae172688",
+  pinned: false,
+  contractVersion: 1,
+  presetSnapshotGap: { reason: "snapshot-bytes-unavailable", sourceGeneration: 2, sourceRevision: 41344 },
+} as const;
+
+test("task snapshot protocol keeps offline-converted tasks that carry a presetSnapshotGap", () => {
+  const gapRow = {
+    ...row,
+    taskId: "task_w5r_rehearsal_anchor",
+    snapshot: { ...row.snapshot, task: gapTask },
+  };
+
+  const isolated = isolateDaemonTaskSnapshotRows([gapRow]);
+  assert.deepEqual(isolated.invalidRows, []);
+  assert.deepEqual(isolated.rows, [gapRow]);
+  assert.deepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [gapRow] }), []);
+});
+
+test("task snapshot protocol isolates a malformed presetSnapshotGap", () => {
+  for (const [label, gap] of [
+    ["wrong reason", { reason: "bytes-missing", sourceGeneration: 2, sourceRevision: 41344 }],
+    ["unknown generation", { reason: "snapshot-bytes-unavailable", sourceGeneration: 3, sourceRevision: 41344 }],
+    ["non-positive revision", { reason: "snapshot-bytes-unavailable", sourceGeneration: 2, sourceRevision: 0 }],
+    [
+      "stray gap field",
+      { reason: "snapshot-bytes-unavailable", sourceGeneration: 2, sourceRevision: 41344, note: "x" },
+    ],
+  ] as const) {
+    const isolated = isolateDaemonTaskSnapshotRows([
+      { ...row, taskId: "task-bad-gap", snapshot: { ...row.snapshot, task: { ...gapTask, presetSnapshotGap: gap } } },
+    ]);
+    assert.equal(isolated.rows.length, 0, label);
+    assert.equal(isolated.invalidRows[0]?.field, "rows[0].snapshot.task", label);
+  }
+  // A gap without its digest anchor names an acceptance that cannot be identified.
+  const unanchored = isolateDaemonTaskSnapshotRows([
+    {
+      ...row,
+      taskId: "task-bad-gap",
+      snapshot: { ...row.snapshot, task: { ...gapTask, presetSnapshotDigest: null } },
+    },
+  ]);
+  assert.equal(unanchored.rows.length, 0);
+  assert.equal(unanchored.invalidRows[0]?.field, "rows[0].snapshot.task");
+});
+
 test("task snapshot protocol carries this node's view of a task's derived workspace, never a stored one", () => {
   const binding = { kind: "worktree", branch: "task-bound", path: ".worktrees/task-bound" } as const,
     boundTask = {
