@@ -518,6 +518,7 @@ test("a permission request takes effect only after Keycloak accepts its grant", 
   const { keycloak, run, signIn, oidc, root, evaluate } = await fixture(t);
   keycloak.account("alice");
   keycloak.account("admin");
+  keycloak.permit("admin", "@fleet", ["permission-request-decide"]);
   signIn("alice", ["offline_access"]);
   const created = await run({ operation: "permission-request-create", groupId: "contributor", resource: "repo-a" }),
     request = created.request as { requestId: string; version: number };

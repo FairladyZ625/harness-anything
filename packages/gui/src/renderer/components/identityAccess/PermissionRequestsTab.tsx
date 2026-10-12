@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AccessAdminApi, PermissionRequest } from "../../../api/access-admin-contract.ts";
 import { Button } from "../primitives/Button.tsx";
 import { Region } from "../primitives/Region.tsx";
@@ -23,6 +23,11 @@ export function PermissionRequestsTab({
     [confirming, setConfirming] = useState<PermissionRequest | null>(null),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>(null);
+  useEffect(() => {
+    const refresh = () => void reload();
+    window.addEventListener("harness-auth-changed", refresh);
+    return () => window.removeEventListener("harness-auth-changed", refresh);
+  }, [reload]);
   const create = async () => {
     setBusy(true);
     setFailure(null);
