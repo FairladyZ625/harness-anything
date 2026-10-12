@@ -272,6 +272,32 @@ test("stopped session semantics pass overview contracts while unknown words rema
   );
 });
 
+test("session groups preserve stopped runtime session status in the projection contract", () => {
+  const stopped = runtimeSession(
+      "runtime-stopped-group",
+      "instance-stopped",
+      "2026-10-11T00:00:00.000Z",
+      "exited",
+      "stopped",
+      ["task-stopped"],
+    ),
+    projection = {
+      ...projectionFixture(),
+      readRuntimeSessions: () => [stopped],
+      readRuntimeDispatches: () => [],
+    } as TaskProjection,
+    reads = makeAgentRuntimeReadModel({
+      projection,
+      store: {} as never,
+      readDispatches: () => [],
+    }),
+    result = reads.sessionGroups({ groupBy: "task" });
+
+  assert.equal(result.groups[0]?.latestStatus, "stopped");
+  assert.deepEqual(validateAgentRuntimeSessionGroups(result), []);
+  assert.deepEqual(parseSessionGroupsProjection(result), result);
+});
+
 const sessions: readonly RuntimeSession[] = [
   runtimeSession("runtime-a", "instance-a", "2026-08-26T11:00:00.000Z", "exited", "succeeded", ["task-a"]),
   runtimeSession("runtime-b", "instance-b", "2026-08-20T11:00:00.000Z", "exited", "failed", ["task-b"]),
