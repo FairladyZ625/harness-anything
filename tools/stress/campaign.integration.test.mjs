@@ -148,9 +148,7 @@ test(
             verdict: "PASS",
           },
         ],
-        replayCommand:
-          "node tools/dispatch-isolated-test.mjs --target server " +
-          "--file tools/stress/campaign.integration.test.mjs",
+        replayCommand: "node tools/run-node-tests.mjs " + "--file tools/stress/campaign.integration.test.mjs",
         residualRisks: [
           "S1 is intentionally below S4 scale and leaves all unmapped denominator items explicit.",
           "Diagnostic lifecycle/request/stdout durability remains unresolved by contract.",

@@ -34,57 +34,6 @@ export const dispatchTaskCommand = command({
   ],
 });
 
-export const dispatchIsolatedTestCommand = command({
-  id: "dispatch-isolated-test",
-  entry: "tools/dispatch-isolated-test.mjs",
-  summary: "Run one registered test tier or file in a remote server container or local/remote isolated target.",
-  unknownOptionPrefix: "unknown dispatch-isolated-test option: ",
-  options: [
-    {
-      name: "--target",
-      placeholder: "<target>",
-      values: Object.freeze(["server", "local", "windows"]),
-      defaultValue: "server",
-      missingValue: "--target requires server or windows",
-      invalidValue: (value) => `unknown target: ${value}; expected server, local or windows`,
-      description: "Isolation target.",
-    },
-    {
-      name: "--tier",
-      placeholder: "<tier>",
-      values: testTierNames,
-      missingValue: `--tier requires ${testTierNames.join(", ")}`,
-      invalidValue: (value) => `unknown test tier: ${value}; expected ${testTierNames.join(", ")}`,
-      description: "Registered test tier.",
-    },
-    {
-      name: "--file",
-      placeholder: "<test-file>",
-      repeatable: true,
-      missingValue: "--file requires a repository-relative test file",
-      validate: validateTestFile,
-      description: "POSIX repository-relative test file; repeat for several files in one dispatch.",
-    },
-    {
-      name: "--prefix",
-      placeholder: "<path>",
-      repeatable: true,
-      missingValue: "--prefix requires a value",
-      validate: validateTestPrefix,
-      description: "POSIX repository-relative path prefix; narrows --tier, not --file.",
-    },
-    {
-      name: "--coverage",
-      placeholder: "<local-lcov-file>",
-      missingValue: "--coverage requires a local destination",
-      description: "Return Node test coverage as one lcov file.",
-    },
-  ],
-  exactlyOne: Object.freeze([
-    { names: Object.freeze(["--tier", "--file"]), error: "choose exactly one of --tier or --file" },
-  ]),
-});
-
 export const testHermeticPreflightCommand = command({
   id: "test-hermetic-preflight",
   entry: "tools/test-hermetic-preflight.mjs",
@@ -194,7 +143,6 @@ export const runNodeTestsCommand = command({
 
 export const supportedToolCommands = Object.freeze([
   dispatchTaskCommand,
-  dispatchIsolatedTestCommand,
   testHermeticPreflightCommand,
   runNodeTestsCommand,
 ]);

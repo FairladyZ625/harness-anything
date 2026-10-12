@@ -15,7 +15,7 @@ Build and verify the package from a source checkout:
 
 ```sh
 npm run build -w @harness-anything/daemon
-node tools/dispatch-isolated-test.mjs --file packages/daemon/test/daemon-package.integration.test.mjs
+node tools/run-node-tests.mjs --file packages/daemon/test/daemon-package.integration.test.mjs
 ```
 
 The smoke packs the workspace, installs it into a temporary consumer, exercises both resident modes with hello and singleton checks, and verifies the worker's persisted output. No npm publication is performed.

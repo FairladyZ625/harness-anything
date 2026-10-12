@@ -15,7 +15,7 @@ test(
   {
     concurrency: false,
     timeout: 180_000,
-    skip: process.platform !== "linux" ? "requires Linux POSIX SIGKILL semantics in the isolated VM" : false,
+    skip: process.platform !== "linux" ? "requires Linux POSIX SIGKILL semantics in isolated Linux processes" : false,
   },
   async () => {
     const result = await runFleetUploadBoundaryCampaign(),
@@ -32,7 +32,7 @@ test(
           node: process.version,
           sqlite: process.versions.sqlite,
           os: `${process.platform}-${process.arch}`,
-          filesystem: "isolated Ubuntu temporary filesystem",
+          filesystem: "isolated Linux temporary filesystem",
           capabilities: ["POSIX SIGKILL", "fleet TLS", "center writer epoch", "two independent edge processes"],
         },
         seed: "fleet-upload-boundary-20260906",
@@ -42,9 +42,7 @@ test(
         coverage: { ...denominators, negativeControls: result.redControls },
         calibration: { requestedArms: 5, completedArms: result.cases.length, deterministicRedControls: 5 },
         cases: result.cases,
-        replayCommand:
-          "node tools/dispatch-isolated-test.mjs --target server " +
-          "--file tools/stress/fleet-upload.integration.test.mjs",
+        replayCommand: "node tools/run-node-tests.mjs " + "--file tools/stress/fleet-upload.integration.test.mjs",
         residualRisks: [
           "The protocol has no explicit upload-abort frame; the abort arm covers transport loss after a durable prefix.",
           "A rejected concurrent edge keeps its staged claim available for an intentional retry until epoch change or consumption.",

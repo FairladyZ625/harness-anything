@@ -7,7 +7,7 @@ canonical cycle:
 Fact → Decision → Task → Fact
 ```
 
-The receipt fragments below came from an isolated Ubuntu fixture on 2026-09-12.
+The receipt fragments below came from an isolated Linux fixture on 2026-09-12.
 IDs will differ in your repository. Every write still goes through the center's
 single-writer queue; do not run the example against somebody else's workspace.
 

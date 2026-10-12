@@ -44,12 +44,11 @@ function withBoundaryRepo(fn) {
   const root = mkdtempSync(path.join(tmpdir(), "ha-private-boundary-"));
   try {
     git(root, "init");
-    writeFileSync(path.join(root, ".gitignore"), [
-      "/.harness-private/",
-      "/harness/",
-      "/.harness/",
-      ""
-    ].join("\n"), "utf8");
+    writeFileSync(
+      path.join(root, ".gitignore"),
+      ["/.harness-private/", "/harness/", "/.harness/", ""].join("\n"),
+      "utf8",
+    );
     git(root, "add", ".gitignore");
     git(root, "commit", "-m", "seed boundary ignores");
     fn(root);
@@ -61,7 +60,7 @@ function withBoundaryRepo(fn) {
 function runChecker(root) {
   return spawnSync(process.execPath, [checkerPath], {
     cwd: root,
-    encoding: "utf8"
+    encoding: "utf8",
   });
 }
 
@@ -71,10 +70,10 @@ function git(root, ...args) {
     env: {
       ...process.env,
       GIT_AUTHOR_NAME: "Harness Test",
-      GIT_AUTHOR_EMAIL: "harness-test@example.invalid",
+      GIT_AUTHOR_EMAIL: "harness-fixture@example.invalid",
       GIT_COMMITTER_NAME: "Harness Test",
-      GIT_COMMITTER_EMAIL: "harness-test@example.invalid"
+      GIT_COMMITTER_EMAIL: "harness-fixture@example.invalid",
     },
-    stdio: ["ignore", "pipe", "pipe"]
+    stdio: ["ignore", "pipe", "pipe"],
   }).trim();
 }

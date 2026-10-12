@@ -21,7 +21,7 @@ const evidence = (receipt) => JSON.parse(receipt.evidence);
 test(
   "bounded real CLI task and entity content calibration",
   {
-    skip: process.platform !== "linux" ? "requires Linux ps/du/df probes and an isolated Ubuntu daemon" : false,
+    skip: process.platform !== "linux" ? "requires Linux ps/du/df probes and an isolated Linux daemon" : false,
   },
   async () => {
     frame("protocol", {

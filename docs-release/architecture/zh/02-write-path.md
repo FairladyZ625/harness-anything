@@ -51,7 +51,7 @@ canonical 内容结算文档。
 运行现有隔离用例：
 
 ```sh
-node tools/dispatch-isolated-test.mjs --file tools/stress/storage-campaign.integration.test.mjs
+node tools/run-node-tests.mjs --file tools/stress/storage-campaign.integration.test.mjs
 ```
 
 这验证观察到的系统调用边界，不代表物理断电行为验证。

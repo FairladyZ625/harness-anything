@@ -96,7 +96,7 @@ test(
             node: process.version,
             sqlite: process.versions.sqlite,
             os: `${process.platform}-${process.arch}`,
-            filesystem: "isolated Ubuntu temporary filesystem",
+            filesystem: "isolated Linux temporary filesystem",
             capabilities: ["POSIX SIGKILL", "node:sqlite", "Git", "Unix socket", "independent CLI clients"],
           },
           seed,
@@ -115,9 +115,7 @@ test(
             deterministicRedControls: negativeControls.length,
           },
           cases,
-          replayCommand:
-            "node tools/dispatch-isolated-test.mjs --target server " +
-            "--file tools/stress/daemon-campaign.integration.test.mjs",
+          replayCommand: "node tools/run-node-tests.mjs " + "--file tools/stress/daemon-campaign.integration.test.mjs",
           residualRisks: [
             "The staged fleet-upload protocol is orthogonal to eight local daemon clients and remains a separate packet.",
             "Diagnostic lifecycle/request/stdout durability remains explicitly unresolved; O4 covers accepted runtime stream bytes.",

@@ -117,14 +117,12 @@ Run changed or newly added fast tests through the repository runner:
 node tools/run-node-tests.mjs --file <repo-relative-test-file>
 ```
 
-Run the tests affected by the change on the isolated test server with one command. The
-selector script dispatches [`tools/dispatch-isolated-test.mjs`](../../tools/dispatch-isolated-test.mjs)
-(fresh target directory and dependency cache, never the production daemon), repeats
-`--file` in a single dispatch, and ends with a per-file pass/fail summary, the failing
-test names with message excerpts, and the total duration:
+Run the tests affected by the change with the repository runner. Internal server
+dispatch is provided by the private `test-isolation` skill and is not part of this
+public contribution skill:
 
 ```bash
-node skills/harness-contributing/scripts/test-on-server.mjs --changed
+node tools/run-node-tests.mjs --tier fast
 ```
 
 `--changed <base>` (default `origin/main`) selects the test files the committed change
@@ -134,19 +132,17 @@ change touches a shared surface — authorization, settings, construction entry 
 protocol, or events — run the owning package's whole tier instead of the scan:
 
 ```bash
-node skills/harness-contributing/scripts/test-on-server.mjs --tier integration --prefix packages/daemon/test
+node tools/run-node-tests.mjs --tier integration --prefix packages/daemon/test
 ```
 
 Exact files and the other tiers take the same selector:
 
 ```bash
-node skills/harness-contributing/scripts/test-on-server.mjs --file tools/dispatch-isolated-test.test.mjs --file tools/run-node-tests.test.mjs
+node tools/run-node-tests.mjs --file tools/run-node-tests.test.mjs
 ```
 
-The script exits nonzero when any dispatched file fails. Server admission, slots, and
-queueing belong to the dispatcher it calls; the script holds no server configuration of
-its own. For a docs-only change, run the closest docs checker or checker test if one
-exists; do not invent a meaningless test. Always inspect the patch:
+For a docs-only change, run the closest docs checker or checker test if one exists; do
+not invent a meaningless test. Always inspect the patch:
 
 ```bash
 git status --short
@@ -157,10 +153,9 @@ git diff -- <changed-paths>
 
 > 中文：测试文件名必须匹配 `.test`/`.spec` 约定，首行必须且只能声明一个
 > `fast|contract|integration` tier。本机先跑改动面的精确测试；交给测试服务器用
-> `node skills/harness-contributing/scripts/test-on-server.mjs --changed` 一条命令跑受影响
-> 的测试（含改动测试本身与 import 了改动源文件的测试，import 扫描是启发式）。改动碰到
+> `node tools/run-node-tests.mjs --tier fast` 运行通用本机测试。改动碰到
 > 授权、settings、构造入口、协议、事件这类共享路径时，改用
-> `--tier integration --prefix packages/<包>/test` 跑所在包整层。docs-only 改动若没有
+> `node tools/run-node-tests.mjs --tier integration --prefix packages/<包>/test` 跑所在包整层。docs-only 改动若没有
 > 对应行为测试，不要为了凑数新增无意义测试。
 
 ## Run local gates
