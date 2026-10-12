@@ -52,8 +52,7 @@ Deleted-Gates-Fixtures: none
 
 ## Verification
 
-- Base `origin/main` SHA: `b0a9b74fd921ada93f6854d10bf1ff116725f482`
-- Branch merge-base with `origin/main`: `b0a9b74fd921ada93f6854d10bf1ff116725f482`
+- Delivery and base anchors: read from the frozen submission record (the execution `Commit` field via `ha task show <task-id> --json`); not hand-copied into this body.
 - Last `git fetch origin` time: 2026-08-30 UTC
 - Sync method: none needed
 - Public diff command: `git diff --stat origin/main...HEAD`
@@ -151,8 +150,7 @@ Deleted-Gates-Fixtures: none
 
 ## 验证
 
-- `origin/main` 基准 SHA：`b0a9b74fd921ada93f6854d10bf1ff116725f482`
-- 当前分支与 `origin/main` 的 merge-base：`b0a9b74fd921ada93f6854d10bf1ff116725f482`
+- 交付与基准锚：从冻结的 submission 记录读取（execution 的 `Commit` 字段，`ha task show <task-id> --json`）；不手抄进本正文。
 - 最近一次 `git fetch origin` 时间：2026-08-30 UTC
 - 同步方式：不需要
 - 公开 diff 命令：`git diff --stat origin/main...HEAD`

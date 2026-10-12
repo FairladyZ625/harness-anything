@@ -109,6 +109,11 @@ test("PR body protocol follows the document slot, including lightweight explicit
   assert.match(mission, /production-delta\.mjs/u);
   assert.match(mission, /check-pr-body-bilingual\.mjs --file/u);
   assert.match(mission, /自动冻结/u);
+  // Delivery and base anchors stay machine-derived: a hand-copied SHA goes stale the moment
+  // a commit is appended and re-submitted (PR #3546 rejection).
+  assert.match(mission, /从冻结的 submission 记录派生/u);
+  assert.match(mission, /execution 的 Commit 字段/u);
+  assert.match(mission, /不要把任何 SHA 手抄进 closeout 或 PR 正文/u);
   assert.doesNotMatch(mission, /Artifact-Anchor/u);
   assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);
   assert.doesNotMatch(

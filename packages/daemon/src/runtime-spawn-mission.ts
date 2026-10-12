@@ -375,6 +375,9 @@ export function prBodyDeliveryProtocol(documentPath: string | null): string | nu
       "将实测 200/2000 的 G1 全操作、五指标前后计数填入 Per-Write Cost 表；不得用预算值或猜测值代替。",
     "- Production-Delta 用 node tools/gates/production-delta.mjs --base origin/main 实算；" +
       "机读声明只写真实适用项。未运行的验证、CI 与现场验收明确标为 unverified。",
+    "- 交付 SHA、base SHA 这类锚一律从冻结的 submission 记录派生（execution 的 Commit 字段）；" +
+      "不要把任何 SHA 手抄进 closeout 或 PR 正文——追加一个 commit 再 submit 后，手抄的锚就会过期，" +
+      "评审只以 submission 记录为准。",
     `- 运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/${documentPath}，` +
       "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
     "- 随 ha doc sync --submit --task 同步正文与 closeout，再执行 ha task submit；" +

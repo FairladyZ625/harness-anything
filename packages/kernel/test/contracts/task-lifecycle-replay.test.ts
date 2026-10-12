@@ -92,6 +92,73 @@ test("Execution receipts distinguish undeclared gates from required missing witn
   assert.match(codeDoc, /- Code-doc witness: pending/u);
 });
 
+test("an amended delivery re-derives the record anchors; the closeout prose carries none", () => {
+  const { events } = lifecycleFixture(),
+    submitted = events.findIndex((event) => event.type === "execution_submitted"),
+    firstCommit = "a".repeat(40),
+    amendedCommit = "b".repeat(40),
+    recordPath = "tasks/task-1/executions/execution-1.md",
+    snapshotAtSubmit = events
+      .slice(0, submitted + 1)
+      .reduce((state, event) => reduceTaskEvent(state, event), emptyTaskLifecycleSnapshot()),
+    firstCut = compileTaskLifecycleWrite({
+      event: events[submitted] as TaskEventV1,
+      snapshot: snapshotAtSubmit,
+      packagePath: "tasks/task-1",
+      currentDocuments: [],
+    }),
+    // Blobs parallel changedPaths by index; claims carry the paths, blobs carry the bodies.
+    firstRecord = firstCut.blobs[firstCut.changedPaths.indexOf(recordPath)]!.body;
+  assert.match(firstRecord, new RegExp(`- Commit: ${firstCommit}`));
+  // The amended cut lands after one more delivery commit: same prose, new commit.
+  const amended = applyTransition(
+      snapshotAtSubmit,
+      {
+        ...normalizeTaskLifecycleCommand(
+          {
+            workspaceId: "workspace-1",
+            actor: implementer,
+            source: "local",
+            expectedRevision: snapshotAtSubmit.revision,
+          },
+          {
+            type: "SubmitExecution",
+            taskId: "task-1",
+            executionId: "execution-1",
+            amend: true,
+            submission: {
+              completionClaim: "implemented",
+              deliverables: [],
+              outputs: [],
+              verificationNotes: ["tests"],
+              knownGaps: [],
+              residualRisks: [],
+              commitSha: amendedCommit,
+              completionContract: { ...emptyCompletionContract, gates: [] },
+            },
+          },
+        ),
+        eventId: "event-amended-cut",
+        workspaceRevision: snapshotAtSubmit.revision + 1,
+        occurredAt: "2026-08-11T00:10:00.000Z",
+      },
+      { actorBinding: implementer, leaseVersion: null, sessionDisposition: "complete" },
+    ),
+    amendedCut = compileTaskLifecycleWrite({
+      event: amended.event,
+      snapshot: amended.snapshot,
+      packagePath: "tasks/task-1",
+      currentDocuments: [],
+    }),
+    amendedRecord = amendedCut.blobs[amendedCut.changedPaths.indexOf(recordPath)]!.body;
+  // The record's anchor re-derives from the frozen submission on every submit; the closeout
+  // prose (completionClaim) never carried one, so an appended commit cannot leave a stale SHA
+  // for a reviewer to compare against (the PR #3546 rejection cycle).
+  assert.match(amendedRecord, new RegExp(`- Commit: ${amendedCommit}`));
+  assert.doesNotMatch(amendedRecord, new RegExp(firstCommit));
+  assert.equal(amendedCut.changedPaths.includes(recordPath), true);
+});
+
 test("the owner may return a consented cut for a fresh iteration", () => {
   const { snapshot } = lifecycleFixture({ complete: false }),
     command = {
