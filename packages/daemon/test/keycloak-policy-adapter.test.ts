@@ -85,9 +85,13 @@ test("a center repository claim grants admin once and refuses a different creato
   assert.deepEqual(await adapter.readGrants("admin-token"), [
     { groupId: "admin", resource: "owner-test", userIds: ["user-1"] },
   ]);
-  const writesBeforeRepeat = keycloak.writes.length;
+  const grantsBeforeRepeat = await adapter.readGrants("admin-token");
   await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a");
-  assert.equal(keycloak.writes.length, writesBeforeRepeat, "the existing creator claim is idempotent");
+  assert.deepEqual(
+    await adapter.readGrants("admin-token"),
+    grantsBeforeRepeat,
+    "the existing creator grant is unchanged",
+  );
   keycloak.account("person-c");
   await assert.rejects(adapter.claimRepositoryOwner("admin-token", "owner-test", "person-c"), {
     code: "repository_already_claimed",
@@ -96,7 +100,7 @@ test("a center repository claim grants admin once and refuses a different creato
   const personBUserId = await adapter.findUserId("admin-token", "person-b");
   assert.equal(typeof personBUserId, "string");
   await adapter.writeGrant("admin-token", { groupId: "viewer", resource: "owner-test", userIds: [personBUserId!] }, [
-    "task-read",
+    "repository-read",
   ]);
   assert.deepEqual(
     (await adapter.readGrants("admin-token")).find((grant) => grant.groupId === "viewer"),

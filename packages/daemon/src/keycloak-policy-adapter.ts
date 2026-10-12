@@ -387,10 +387,15 @@ export class KeycloakPolicyAdapter {
         code: "access_person_unknown",
       });
     if (resources.some((item) => item.name === repoId)) {
-      const existingGrant = (await this.readGrants(adminAccessToken)).some(
-        (grant) => grant.resource === repoId && grant.userIds.includes(userId),
-      );
-      if (existingGrant) return;
+      const existingResource = resources.find((item) => item.name === repoId)!;
+      this.#readCache.resourceIds.set(repoId, existingResource._id);
+      const permission = await this.authorizePerson({
+        adminAccessToken,
+        personId,
+        action: "repository-read",
+        resource: { kind: "repository", repoId },
+      });
+      if (permission.outcome === "allowed") return;
       throw Object.assign(new Error(`Repository ${repoId} already has an authorization resource.`), {
         code: "repository_already_claimed",
       });
