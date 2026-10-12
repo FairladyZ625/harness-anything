@@ -963,7 +963,7 @@ test("commander-owned settlement keeps its commit local and reports an unsubmitt
     {
       ...settleContext,
       requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
-      prepareWorkerGitEnvironment: async () => {
+      prepareDaemonGitEnvironment: async () => {
         credentialRequests += 1;
         return {};
       },
@@ -1342,7 +1342,7 @@ function workerSettlementContext(
     runtimeResultText: () => resultText,
     markProtocolError: () => undefined,
     settleFallback: async () => undefined,
-    prepareWorkerGitEnvironment: async () => ({}),
+    prepareDaemonGitEnvironment: async () => ({}),
     requiredRuntimeProjection: () =>
       deliveryProjection(submittedCommitSha ?? git(fixture.worker, "rev-parse", "HEAD").trim()),
     publishRuntimeEvent,

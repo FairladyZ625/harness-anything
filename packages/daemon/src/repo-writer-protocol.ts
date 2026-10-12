@@ -35,7 +35,7 @@ export interface RepoWriterBootstrapV1 {
     readonly prepareRuntimeLaunch: boolean;
     readonly reclaimRuntimeTempDirectory: boolean;
     readonly reclaimSettledRuntimeTempDirectories: boolean;
-    readonly prepareWorkerGitEnvironment: boolean;
+    readonly prepareDaemonGitEnvironment: boolean;
     readonly runtimeLaunch: boolean;
     readonly runtimeSignal: boolean;
   };
@@ -152,7 +152,7 @@ export type RepoWriterCapabilityName =
   | "prepareRuntimeLaunch"
   | "reclaimRuntimeTempDirectory"
   | "reclaimSettledRuntimeTempDirectories"
-  | "prepareWorkerGitEnvironment"
+  | "prepareDaemonGitEnvironment"
   | "runtimeLaunch"
   | "runtimeTerminate"
   | "runtimeTerminateTree"
@@ -209,7 +209,7 @@ export interface RepoWriterInputPorts {
       readonly permissionMode?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
-  readonly prepareWorkerGitEnvironment?: (
+  readonly prepareDaemonGitEnvironment?: (
     instanceId: string,
     provider?: "github" | "gitlab",
   ) => Promise<NodeJS.ProcessEnv | null>;

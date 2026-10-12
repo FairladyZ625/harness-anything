@@ -136,7 +136,7 @@ export interface RepoCellOpenInput {
   readonly reclaimSettledRuntimeTempDirectories?: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
-  readonly prepareWorkerGitEnvironment?: (
+  readonly prepareDaemonGitEnvironment?: (
     instanceId: string,
     provider?: "github" | "gitlab",
   ) => Promise<NodeJS.ProcessEnv | null>;
@@ -480,7 +480,7 @@ export async function openRepoWriterCell(
     ...(input.reclaimSettledRuntimeTempDirectories
       ? { reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories }
       : {}),
-    ...(input.prepareWorkerGitEnvironment ? { prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment } : {}),
+    ...(input.prepareDaemonGitEnvironment ? { prepareDaemonGitEnvironment: input.prepareDaemonGitEnvironment } : {}),
     resolveAgent: (agentId) => {
       const projected = projection.getEntity("agent", agentId);
       const entityStore = createEntityStore(store),

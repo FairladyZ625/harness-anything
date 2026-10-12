@@ -100,7 +100,7 @@ type RuntimePorts = {
   readonly reclaimSettledRuntimeTempDirectories: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
-  readonly prepareWorkerGitEnvironment: (
+  readonly prepareDaemonGitEnvironment: (
     instanceId: string,
     provider?: "github" | "gitlab",
   ) => Promise<NodeJS.ProcessEnv | null>;
@@ -426,7 +426,7 @@ export function openFleetEdgeRuntime(input: {
     prepareLaunch: input.ports.prepareRuntimeLaunch,
     reclaimRuntimeTempDirectory: input.ports.reclaimRuntimeTempDirectory,
     reclaimSettledRuntimeTempDirectories: input.ports.reclaimSettledRuntimeTempDirectories,
-    prepareWorkerGitEnvironment: input.ports.prepareWorkerGitEnvironment,
+    prepareDaemonGitEnvironment: input.ports.prepareDaemonGitEnvironment,
     resolveAgent: (agentId) => trustedScheduleAgents.get(agentId) ?? mirroredAgentDeclaration(request, agentId),
     resolveSquadDispatch: (squadId, leaderId, workerId, binding) =>
       withEdgeReadModel(

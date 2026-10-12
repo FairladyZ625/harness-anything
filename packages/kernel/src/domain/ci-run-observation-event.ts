@@ -50,7 +50,7 @@ export type CiRunObservationGateV2 = {
 };
 
 export type CiWorkflowVerification = {
-  readonly source: "github-actions" | "write-coordinator";
+  readonly source: "github-actions" | "gitlab-pipeline" | "write-coordinator";
   readonly workflow: string;
   readonly runId: string;
   readonly attempt: number;
@@ -173,7 +173,7 @@ export function validVerification(value: unknown, run: unknown, allowUnknownFiel
       ["source", "workflow", "runId", "attempt", "headSha", "conclusion", ...(allowUnknownFields ? [] : ["event"])],
       allowUnknownFields,
     ) &&
-    value.source === "github-actions" &&
+    (value.source === "github-actions" || value.source === "gitlab-pipeline") &&
     nonEmpty(value.workflow) &&
     typeof value.runId === "string" &&
     /^[1-9][0-9]*$/u.test(value.runId) &&
@@ -184,7 +184,7 @@ export function validVerification(value: unknown, run: unknown, allowUnknownFiel
     (allowUnknownFields || nonEmpty(value.event)) &&
     run.runId === `${value.runId}.${value.attempt}` &&
     run.sha === value.headSha &&
-    run.branch === "main"
+    (value.source === "gitlab-pipeline" || run.branch === "main")
   );
 }
 

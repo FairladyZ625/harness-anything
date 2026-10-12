@@ -158,11 +158,11 @@ async function startRepoWriterWorker(): Promise<void> {
                 ).map((failure) => ({ ...failure, error: deserializeWriterError(failure.error) })),
             }
           : {}),
-        ...(bootstrap.capabilities.prepareWorkerGitEnvironment
+        ...(bootstrap.capabilities.prepareDaemonGitEnvironment
           ? {
-              prepareWorkerGitEnvironment: (instanceId) =>
-                asyncCapability("prepareWorkerGitEnvironment", { instanceId }) as ReturnType<
-                  NonNullable<RepoCellOpenInput["prepareWorkerGitEnvironment"]>
+              prepareDaemonGitEnvironment: (instanceId, provider) =>
+                asyncCapability("prepareDaemonGitEnvironment", { instanceId, provider }) as ReturnType<
+                  NonNullable<RepoCellOpenInput["prepareDaemonGitEnvironment"]>
                 >,
             }
           : {}),

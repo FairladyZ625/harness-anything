@@ -32,7 +32,6 @@ export function parseRuntimeInstance(
       ...(kind === "runtime-instance-list" && flags.booleans.has("--all") ? { all: true } : {}),
       ...(kind === "runtime-instance-list" && flags.booleans.has("--probe") ? { probe: true } : {}),
       ...(kind === "runtime-instance-show" && flags.booleans.has("--probe") ? { probe: true } : {}),
-      ...(kind === "runtime-instance-github-credential-set" ? { githubCredentialRef: flags.one.get("--ref") } : {}),
       ...(kind.startsWith("runtime-instance-hosting-credential-")
         ? { provider: flags.one.get("--provider"), credentialRef: flags.one.get("--ref") }
         : {}),

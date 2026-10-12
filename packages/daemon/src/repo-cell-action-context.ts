@@ -124,6 +124,10 @@ export interface RepoCellActionContext extends TaskQueryCell {
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly shouldStop?: () => boolean;
     readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
+    readonly prepareDaemonGitEnvironment?: (
+      instanceId: string,
+      provider?: "github" | "gitlab",
+    ) => Promise<NodeJS.ProcessEnv | null>;
   };
   readonly appendAuxiliaryRuntimeIngress: Bound<typeof appendAuxiliaryRuntimeIngressImpl>;
   readonly requiredCellText: typeof requiredCellText;

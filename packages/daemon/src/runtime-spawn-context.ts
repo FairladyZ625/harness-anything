@@ -4,8 +4,8 @@ import {
   type RuntimeExecutionPrincipal,
 } from "./runtime-execution-credential.ts";
 import type { PreparedRuntimeLaunch } from "./agent-runtime-instances.ts";
-import type { RuntimeDaemonRoute, RuntimeCallbackRelay, TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import path from "node:path";
+import type { RuntimeDaemonRoute, RuntimeCallbackRelay, TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import type { readDispatchStream } from "./dispatch-stream.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
@@ -33,17 +33,10 @@ export function runtimeEventHasType<T extends RuntimeEventType>(
 }
 
 export async function prepareTaskWorkerGitEnvironment(
-  input: RuntimeSpawnerInput,
-  instanceId: string,
+  _input: RuntimeSpawnerInput,
+  _instanceId: string,
 ): Promise<NodeJS.ProcessEnv | undefined> {
-  const credentialEnvironment = await input.prepareWorkerGitEnvironment?.(instanceId);
-  return credentialEnvironment
-    ? {
-        ...credentialEnvironment,
-        GIT_ASKPASS: path.join(input.rootDir, "tools", "git-hooks", "git-askpass"),
-        HARNESS_TASK_BOUND: "1",
-      }
-    : undefined;
+  return undefined;
 }
 
 export interface RuntimeEventPublication<T extends RuntimeEventType> {
@@ -89,7 +82,7 @@ export interface RuntimeSpawnerContext {
   readonly publishExit: (active: ActiveRuntime, code: number | null, resumePublishedExit?: boolean) => Promise<void>;
   readonly controlReceipt: (opId: string, runtimeSessionId: string, detail?: string) => JsonObject;
   readonly captureErrorOutput: (active: ActiveRuntime, chunk: string) => void;
-  readonly prepareWorkerGitEnvironment: (
+  readonly prepareDaemonGitEnvironment: (
     instanceId: string,
     provider?: "github" | "gitlab",
   ) => Promise<NodeJS.ProcessEnv | undefined>;

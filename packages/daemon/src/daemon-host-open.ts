@@ -185,7 +185,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       prepareRuntimeLaunch: instances.prepareLaunch,
       reclaimRuntimeTempDirectory: instances.reclaimRuntimeTempDirectory,
       reclaimSettledRuntimeTempDirectories: instances.reclaimSettledRuntimeTempDirectories,
-      prepareWorkerGitEnvironment: instances.prepareWorkerGitEnvironment,
+      prepareDaemonGitEnvironment: instances.prepareDaemonGitEnvironment,
     },
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),

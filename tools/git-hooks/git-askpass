@@ -3,15 +3,21 @@ set -eu
 
 prompt=${1:-}
 case "$prompt" in
-  *https://github.com/*|*https://github.com\'*|*https://*@github.com/*|*https://*@github.com\'*) ;;
-  *) exit 1 ;;
+  *gitlab.com*|*gitlab*) token=${HARNESS_GITLAB_TOKEN:-} ;;
+  *github.com*) token=${HARNESS_GITHUB_TOKEN:-} ;;
+  *)
+    if [ -n "${HARNESS_GITLAB_TOKEN:-}" ]; then token=$HARNESS_GITLAB_TOKEN
+    elif [ -n "${HARNESS_GITHUB_TOKEN:-}" ]; then token=$HARNESS_GITHUB_TOKEN
+    else exit 1
+    fi
+    ;;
 esac
 
 case "$prompt" in
   *Username*) printf '%s\n' x-access-token ;;
   *Password*)
-    [ -n "${HARNESS_GITHUB_TOKEN:-}" ] || exit 1
-    printf '%s\n' "$HARNESS_GITHUB_TOKEN"
+    [ -n "$token" ] || exit 1
+    printf '%s\n' "$token"
     ;;
   *) exit 1 ;;
 esac

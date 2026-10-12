@@ -370,15 +370,14 @@ export function openRuntimeInstanceStore(input: {
       ...(protocolFamily === "acp" ? { acpApiKey: secret } : {}),
     };
   }
-  async function prepareWorkerGitEnvironment(
+  async function prepareDaemonGitEnvironment(
     instanceId: string,
     provider: "github" | "gitlab" = "github",
   ): Promise<NodeJS.ProcessEnv | null> {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    const reference =
-      config.hostingCredentialRefs?.[provider] ?? (provider === "github" ? config.githubCredentialRef : undefined);
+    const reference = config.hostingCredentialRefs?.[provider];
     if (reference === undefined) return null;
     let secret: string;
     try {
@@ -451,7 +450,6 @@ export function openRuntimeInstanceStore(input: {
           ...(action.isolationState !== undefined ? { isolationState: action.isolationState } : {}),
           ...kindConfig,
           auth,
-          ...(action.githubCredentialRef === undefined ? {} : { githubCredentialRef: action.githubCredentialRef }),
           ...(action.hostingCredentialRefs === undefined
             ? {}
             : { hostingCredentialRefs: action.hostingCredentialRefs }),
@@ -520,25 +518,17 @@ export function openRuntimeInstanceStore(input: {
       return listed(instances);
     }
     const instanceId = requiredRuntimeInstanceText(action.instanceId, "instanceId");
-    if (
-      kind === "runtime-instance-github-credential-set" ||
-      kind === "runtime-instance-github-credential-unset" ||
-      kind === "runtime-instance-hosting-credential-set" ||
-      kind === "runtime-instance-hosting-credential-unset"
-    ) {
+    if (kind === "runtime-instance-hosting-credential-set" || kind === "runtime-instance-hosting-credential-unset") {
       const current = readOne(instanceId);
       if (!current)
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-      const provider = action.provider === "gitlab" || action.provider === "github" ? action.provider : "github",
-        existingRefs = {
-          ...(current.hostingCredentialRefs ?? {}),
-          ...(current.githubCredentialRef ? { github: current.githubCredentialRef } : {}),
-        },
+      const provider = action.provider === "gitlab" || action.provider === "github" ? action.provider : null;
+      if (!provider) throw runtimeInstanceError("invalid_command", "Hosting credential requires --provider.");
+      const existingRefs = current.hostingCredentialRefs ?? {},
         refs = kind.endsWith("-set")
-          ? { ...existingRefs, [provider]: action.credentialRef ?? action.githubCredentialRef }
+          ? { ...existingRefs, [provider]: action.credentialRef }
           : Object.fromEntries(Object.entries(existingRefs).filter(([candidate]) => candidate !== provider)),
-        { githubCredentialRef: _githubCredentialRef, ...withoutGithubCredential } = current,
-        updated = runtimeInstanceConfig({ ...withoutGithubCredential, hostingCredentialRefs: refs }),
+        updated = runtimeInstanceConfig({ ...current, hostingCredentialRefs: refs }),
         instance = publicConfig(updated, readiness.get(updated.instanceId));
       persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
       return {
@@ -736,7 +726,7 @@ export function openRuntimeInstanceStore(input: {
     prepareLaunch,
     reclaimRuntimeTempDirectory,
     reclaimSettledRuntimeTempDirectories,
-    prepareWorkerGitEnvironment,
+    prepareDaemonGitEnvironment,
     refreshInstallations,
     command,
   };

@@ -26,7 +26,7 @@ type Run = { readonly id: number; readonly run_attempt: number; readonly head_br
 export async function reconcileCiOccurrence(input: {
   readonly cell: Pick<
     RepoCellOperationalContext,
-    "rootDir" | "settings" | "cellCodedError" | "projection" | "projectionReady" | "now"
+    "rootDir" | "settings" | "cellCodedError" | "projection" | "projectionReady" | "now" | "input"
   >;
   readonly schedule: ScheduleV1;
   readonly accept: (fetched: CiObservationFetch) => Promise<WriteReceiptDraft>;
@@ -173,7 +173,7 @@ export async function reconcileCiOccurrence(input: {
         );
         const submission = execution?.submission;
         const requirement = (submission?.completionContract.gates ?? []).find(
-          (gate) => gate.witness.kind === "github-actions",
+          (gate) => gate.witness.kind === "github-actions" || gate.witness.kind === "gitlab-pipeline",
         );
         if (
           !submission ||

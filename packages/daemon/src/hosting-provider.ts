@@ -1,5 +1,8 @@
 import { execFile } from "node:child_process";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
+import { readSettingsFacet, resolveHarnessLayout } from "@harness-anything/kernel";
 
 const execFileAsync = promisify(execFile);
 
@@ -19,7 +22,15 @@ export async function detectHostingProvider(
   } catch {
     throw unknownHostingProvider();
   }
-  return hostingProviderFromRemote(remote, declaration);
+  const authoredRoot = resolveHarnessLayout(rootDir).authoredRoot;
+  let settings = declaration;
+  if (!settings)
+    settings = (
+      readSettingsFacet(readFileSync(path.join(authoredRoot, "harness.yaml"), "utf8")) as unknown as {
+        hosting?: { provider?: "github" | "gitlab"; host?: string };
+      }
+    ).hosting;
+  return hostingProviderFromRemote(remote, settings);
 }
 
 export function hostingProviderFromRemote(

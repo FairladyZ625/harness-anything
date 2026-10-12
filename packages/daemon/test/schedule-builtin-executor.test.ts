@@ -118,7 +118,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
           prompt: request.prompt,
         };
       },
-      prepareWorkerGitEnvironment: async () => null,
+      prepareDaemonGitEnvironment: async () => null,
       runtimeLaunch: () => ({
         pid: 4601,
         onOutput: () => undefined,
@@ -329,7 +329,7 @@ test("a partially written backup of the same occurrence is retaken, a verified o
         endpoint: path.join(root, ".daemon", "daemon.sock"),
       },
       runtimeInstances: () => [],
-      prepareWorkerGitEnvironment: async () => null,
+      prepareDaemonGitEnvironment: async () => null,
     });
     try {
       // Crash recovery rides the executor directly: a replayed claim re-enters with the same

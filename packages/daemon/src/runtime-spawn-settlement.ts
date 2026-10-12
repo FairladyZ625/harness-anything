@@ -18,6 +18,7 @@ import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
 
 export async function publishExit(
   context: RuntimeSpawnerContext,
@@ -142,7 +143,8 @@ export async function publishExit(
             ?.read(active.task.taskId)
             .snapshot.executions.find((execution) => execution.executionId === active.task?.executionId)
             ?.submission?.commitSha,
-          env = await context.prepareWorkerGitEnvironment(active.instanceId),
+          hosting = await detectHostingProvider(context.input.rootDir),
+          env = await context.prepareDaemonGitEnvironment(active.instanceId, hosting.kind),
           push = await pushTaskWorkerBranch({
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,

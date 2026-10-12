@@ -76,7 +76,6 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           "baseUrl",
           ...runtimeKindIds,
           "auth",
-          "githubCredentialRef",
           "hostingCredentialRefs",
         ];
   if (
@@ -153,17 +152,15 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     ...(permissionMode ? { permissionMode } : {}),
     isolationState,
     auth,
-    ...(value.githubCredentialRef === undefined
-      ? {}
-      : { githubCredentialRef: credentialReference(value.githubCredentialRef, "githubCredentialRef") }),
     ...(value.hostingCredentialRefs === undefined
       ? {}
       : {
           hostingCredentialRefs: Object.fromEntries(
-            Object.entries(value.hostingCredentialRefs as Record<string, unknown>).map(([provider, reference]) => [
-              provider,
-              credentialReference(reference, `hostingCredentialRefs.${provider}`),
-            ]),
+            Object.entries(value.hostingCredentialRefs as Record<string, unknown>).map(([provider, reference]) => {
+              if (provider !== "github" && provider !== "gitlab")
+                throw runtimeInstanceError("invalid_runtime_instance", `Unknown hosting provider ${provider}.`);
+              return [provider, credentialReference(reference, `hostingCredentialRefs.${provider}`)];
+            }),
           ) as { readonly github?: string; readonly gitlab?: string },
         }),
   };

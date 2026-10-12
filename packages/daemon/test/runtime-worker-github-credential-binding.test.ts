@@ -16,31 +16,44 @@ const installation: RuntimeInstallationWitness = {
   observedAt: "2026-08-25T00:00:00.000Z",
 };
 
-test("runtime instance GitHub credential set and unset parse as instance-scoped commands", () => {
+test("runtime instance hosting credential set and unset parse as instance-scoped commands", () => {
   const set = parseThinCommand([
       "runtime",
       "instance",
-      "github-credential",
+      "hosting-credential",
       "set",
       "codex-github-worker",
+      "--provider",
+      "gitlab",
       "--ref",
-      "keychain:harness/github-worker",
+      "keychain:harness/gitlab-worker",
     ]),
-    unset = parseThinCommand(["runtime", "instance", "github-credential", "unset", "codex-github-worker"]);
+    unset = parseThinCommand([
+      "runtime",
+      "instance",
+      "hosting-credential",
+      "unset",
+      "codex-github-worker",
+      "--provider",
+      "gitlab",
+    ]);
 
   assert.equal(set.ok, true, JSON.stringify(set));
   assert.equal(unset.ok, true, JSON.stringify(unset));
   if (!set.ok || !unset.ok) return;
-  assert.equal(set.command.method, "daemon.runtimeInstance.githubCredential.set");
+  assert.equal(set.command.method, "daemon.runtimeInstance.hostingCredential.set");
   assert.deepEqual(set.command.action, {
-    kind: "runtime-instance-github-credential-set",
+    kind: "runtime-instance-hosting-credential-set",
     instanceId: "codex-github-worker",
-    githubCredentialRef: "keychain:harness/github-worker",
+    provider: "gitlab",
+    credentialRef: "keychain:harness/gitlab-worker",
   });
-  assert.equal(unset.command.method, "daemon.runtimeInstance.githubCredential.unset");
+  assert.equal(unset.command.method, "daemon.runtimeInstance.hostingCredential.unset");
   assert.deepEqual(unset.command.action, {
-    kind: "runtime-instance-github-credential-unset",
+    kind: "runtime-instance-hosting-credential-unset",
     instanceId: "codex-github-worker",
+    provider: "gitlab",
+    credentialRef: undefined,
   });
   assert.equal(
     parseThinCommand([
@@ -56,10 +69,10 @@ test("runtime instance GitHub credential set and unset parse as instance-scoped 
   );
 });
 
-test("set, unset, and show project only GitHub credential state without rebuilding the instance", async () => {
+test("hosting credentials stay daemon-side and only configured provider reaches its git child", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-github-credential-")),
     secret = randomUUID(),
-    reference = "credential:v1:github-worker";
+    reference = "credential:v1:gitlab-worker";
   try {
     const store = openRuntimeInstanceStore({
       userRoot,
@@ -87,36 +100,50 @@ test("set, unset, and show project only GitHub credential state without rebuildi
     writeFileSync(stateMarker, "preserved");
 
     const bound = store.command({
-        kind: "runtime-instance-github-credential-set",
+        kind: "runtime-instance-hosting-credential-set",
         instanceId: "codex-github-worker",
-        githubCredentialRef: reference,
+        provider: "gitlab",
+        credentialRef: reference,
       }),
-      environment = await store.prepareWorkerGitEnvironment("codex-github-worker"),
+      environment = await store.prepareDaemonGitEnvironment("codex-github-worker", "gitlab"),
       shown = store.command({ kind: "runtime-instance-show", instanceId: "codex-github-worker" });
     assert.deepEqual(environment, {
-      GH_TOKEN: secret,
-      HARNESS_GITHUB_TOKEN: secret,
+      GITLAB_TOKEN: secret,
+      HARNESS_GITLAB_TOKEN: secret,
       GIT_ASKPASS_REQUIRE: "force",
       GIT_TERMINAL_PROMPT: "0",
     });
-    assert.equal((shown.instance as Record<string, unknown>).githubCredentialState, "configured");
+    assert.equal((shown.instance as Record<string, unknown>).hostingCredentialState, "configured");
+    assert.equal("GH_TOKEN" in environment!, false);
+    const workerEnvironment = { PATH: "/usr/bin", HOME: userRoot };
+    assert.equal(
+      Object.keys(workerEnvironment).some((key) => /(?:GH_TOKEN|GITLAB_TOKEN|HARNESS_.*TOKEN)/u.test(key)),
+      false,
+    );
     for (const receipt of [bound, shown]) {
       assert.doesNotMatch(JSON.stringify(receipt), new RegExp(secret, "u"));
-      assert.doesNotMatch(JSON.stringify(receipt), /credential:v1:github-worker|githubCredentialRef/u);
+      assert.doesNotMatch(
+        JSON.stringify(receipt),
+        /credential:v1:gitlab-worker|githubCredentialRef|hostingCredentialRefs/u,
+      );
     }
 
     const unbound = store.command({
-        kind: "runtime-instance-github-credential-unset",
+        kind: "runtime-instance-hosting-credential-unset",
         instanceId: "codex-github-worker",
+        provider: "gitlab",
       }),
       shownAfterUnset = store.command({ kind: "runtime-instance-show", instanceId: "codex-github-worker" });
-    assert.equal("githubCredentialState" in (unbound.instance as Record<string, unknown>), false);
-    assert.equal("githubCredentialState" in (shownAfterUnset.instance as Record<string, unknown>), false);
-    assert.equal(await store.prepareWorkerGitEnvironment("codex-github-worker"), null);
+    assert.equal("hostingCredentialState" in (unbound.instance as Record<string, unknown>), false);
+    assert.equal("hostingCredentialState" in (shownAfterUnset.instance as Record<string, unknown>), false);
+    assert.equal(await store.prepareDaemonGitEnvironment("codex-github-worker", "gitlab"), null);
     assert.deepEqual(store.read("codex-github-worker")!.auth, providerAuth);
     assert.equal(readFileSync(stateMarker, "utf8"), "preserved");
     for (const receipt of [unbound, shownAfterUnset])
-      assert.doesNotMatch(JSON.stringify(receipt), /credential:v1:github-worker|githubCredentialRef/u);
+      assert.doesNotMatch(
+        JSON.stringify(receipt),
+        /credential:v1:gitlab-worker|githubCredentialRef|hostingCredentialRefs/u,
+      );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });
   }

@@ -100,15 +100,15 @@ export const actionPresentation = {
   "runtime-handoff-revoke": { domain: "runtime", name: "撤销运行交接", description: "结束交接资料的领取资格。" },
   "runtime-instance-create": { domain: "runtime", name: "创建运行实例", description: "登记代理运行实例。" },
   "runtime-instance-delete": { domain: "runtime", name: "删除运行实例", description: "删除代理运行实例的配置。" },
-  "runtime-instance-github-credential-set": {
+  "runtime-instance-hosting-credential-set": {
     domain: "runtime",
     name: "设置实例凭据",
-    description: "为运行实例设置 GitHub 凭据。",
+    description: "为运行实例设置代码托管凭据。",
   },
-  "runtime-instance-github-credential-unset": {
+  "runtime-instance-hosting-credential-unset": {
     domain: "runtime",
     name: "移除实例凭据",
-    description: "移除运行实例的 GitHub 凭据。",
+    description: "移除运行实例的代码托管凭据。",
   },
   "runtime-instance-list": { domain: "runtime", name: "列出运行实例", description: "查询本机运行实例。" },
   "runtime-instance-login": { domain: "runtime", name: "登录运行实例", description: "完成运行实例的登录。" },
@@ -367,8 +367,8 @@ export const actionDeclarations = Object.freeze([
   canonical("runtime-handoff-revoke", null, "repo-write"),
   runtimeAdmin("runtime-instance-create"),
   runtimeAdmin("runtime-instance-delete"),
-  runtimeAdmin("runtime-instance-github-credential-set"),
-  runtimeAdmin("runtime-instance-github-credential-unset"),
+  runtimeAdmin("runtime-instance-hosting-credential-set"),
+  runtimeAdmin("runtime-instance-hosting-credential-unset"),
   runtimeAdmin("runtime-instance-list"),
   canonical("runtime-instance-login", null, "repo-write"),
   canonical("runtime-instance-logout", null, "repo-write"),

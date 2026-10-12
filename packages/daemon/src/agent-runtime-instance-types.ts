@@ -22,7 +22,6 @@ export interface RuntimeInstanceCommon {
   readonly permissionMode?: RuntimePermissionMode;
   readonly isolationState: RuntimeIsolationState;
   readonly auth: RuntimeInstanceAuth;
-  readonly githubCredentialRef?: string;
   readonly hostingCredentialRefs?: Readonly<{ readonly github?: string; readonly gitlab?: string }>;
 }
 

@@ -120,7 +120,7 @@ export interface RepoCellApiContext {
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
-    readonly prepareWorkerGitEnvironment?: (
+    readonly prepareDaemonGitEnvironment?: (
       instanceId: string,
       provider?: "github" | "gitlab",
     ) => Promise<NodeJS.ProcessEnv | null>;

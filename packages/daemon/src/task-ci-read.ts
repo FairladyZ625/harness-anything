@@ -92,7 +92,7 @@ export async function readTaskCi(
   const hosting =
     provider === runProvider ? await detectHostingProvider(context.rootDir) : ({ kind: "github" } as HostingProvider);
   const credential =
-    typeof instanceId === "string" ? await context.input.prepareWorkerGitEnvironment?.(instanceId, hosting.kind) : null;
+    typeof instanceId === "string" ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind) : null;
   const token = credential?.GH_TOKEN ?? credential?.GITLAB_TOKEN;
   if (!token)
     throw context.cellCodedError(
@@ -257,10 +257,18 @@ async function readGitLabTaskCi(
     for (const job of jobs) {
       let failure = null;
       if (job.status === "failed") {
-        const response = await fetch(`${hosting.apiBaseUrl}/jobs/${job.id}/trace`, {
-          headers: { "PRIVATE-TOKEN": token },
-        });
-        failure = failureExcerpt(response.ok ? await response.text() : `GitLab trace unavailable (${response.status})`);
+        const response = await fetch(
+          `${hosting.apiBaseUrl}/projects/${encodeURIComponent(hosting.projectPath)}/jobs/${job.id}/trace`,
+          {
+            headers: { "PRIVATE-TOKEN": token },
+          },
+        );
+        failure = failureExcerpt(
+          (response.ok ? await response.text() : `GitLab trace unavailable (${response.status})`).replaceAll(
+            token,
+            "[REDACTED]",
+          ),
+        );
       }
       mapped.push({
         id: job.id,

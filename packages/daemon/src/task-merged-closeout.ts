@@ -26,15 +26,17 @@ export function mergedCloseoutCandidates(cell: Pick<TaskQueryCell, "rootDir" | "
       const execution = cuts[0]!,
         submission = execution.submission!,
         approved = settledApprovedReviewsForExecution(snapshot.reviews, execution, snapshot.reviewDispositions),
-        requirement = submission.completionContract?.gates.find((gate) => gate.witness.kind === "github-actions");
+        requirement = submission.completionContract?.gates.find(
+          (gate) => gate.witness.kind === "github-actions" || gate.witness.kind === "gitlab-pipeline",
+        );
       if (
         !requirement ||
-        requirement.witness.kind !== "github-actions" ||
+        (requirement.witness.kind !== "github-actions" && requirement.witness.kind !== "gitlab-pipeline") ||
         !submission.commitSha ||
         !localGitObjectRefStore.isAncestor(
           cell.rootDir,
           submission.commitSha,
-          `refs/remotes/origin/${requirement.witness.adapterOptions.branch}`,
+          `refs/remotes/origin/${requirement.witness.kind === "github-actions" ? requirement.witness.adapterOptions.branch : "main"}`,
         ) ||
         approved.length === 0
       )

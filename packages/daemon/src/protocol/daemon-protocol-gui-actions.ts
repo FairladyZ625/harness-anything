@@ -654,20 +654,6 @@ export const runtimeInstanceMethods = Object.freeze([
     params: shape({ repo: "json?", payload: shape({ instanceId: "string" }) }),
     guiBridgeMethod: "deleteRuntimeInstance",
   },
-  {
-    id: "daemon.runtimeInstance.githubCredential.set",
-    phase: "Runtime-Instances-S1",
-    method: "daemon.runtimeInstance.githubCredential.set",
-    requiresRepo: false,
-    params: shape({ repo: "json?", payload: shape({ instanceId: "string", githubCredentialRef: "string" }) }),
-  },
-  {
-    id: "daemon.runtimeInstance.githubCredential.unset",
-    phase: "Runtime-Instances-S1",
-    method: "daemon.runtimeInstance.githubCredential.unset",
-    requiresRepo: false,
-    params: shape({ repo: "json?", payload: shape({ instanceId: "string" }) }),
-  },
 ] as const);
 
 export const runtimeInstanceAuthMethods = Object.freeze([

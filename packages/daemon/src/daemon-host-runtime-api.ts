@@ -368,17 +368,11 @@ export function createDaemonHostRuntimeApi(
     runtimeInstance: async (method, payload, auth) => {
       const operation = method.replace("daemon.runtimeInstance.", ""),
         actionKind =
-          operation === "hostingCredential.set"
-            ? "runtime-instance-github-credential-set"
-            : operation === "hostingCredential.unset"
-              ? "runtime-instance-github-credential-unset"
-              : operation === "githubCredential.set"
-                ? "runtime-instance-github-credential-set"
-                : operation === "githubCredential.unset"
-                  ? "runtime-instance-github-credential-unset"
-                  : ["create", "list", "show", "update", "delete"].includes(operation)
-                    ? `runtime-instance-${operation}`
-                    : null;
+          operation === "hostingCredential.set" || operation === "hostingCredential.unset"
+            ? `runtime-instance-${operation === "hostingCredential.set" ? "hosting-credential-set" : "hosting-credential-unset"}`
+            : ["create", "list", "show", "update", "delete"].includes(operation)
+              ? `runtime-instance-${operation}`
+              : null;
       if (!actionKind)
         throw context.hostCodedError("unsupported_command", `Unsupported runtime instance method: ${method}.`);
       const authorizationDecision = await requireAuthorizedFleetAction({
