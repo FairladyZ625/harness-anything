@@ -396,7 +396,8 @@ test("permission request listing derives approver visibility from policy authori
   const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("requester");
   keycloak.account("member");
-  await run({ operation: "permission-request-create", groupId: "viewer", resource: "repo-a", personId: "requester" });
+  signIn("requester", ["offline_access"]);
+  await run({ operation: "permission-request-create", groupId: "viewer", resource: "repo-a" });
   signIn("member", []);
   const memberList = await run({ operation: "permission-request-list" });
   assert.deepEqual([memberList.canDecide, memberList.requests], [false, []]);
@@ -547,7 +548,13 @@ test("a permission request takes effect only after Keycloak accepts its grant", 
     state: string;
     version: number;
   }[];
-  assert.deepEqual([pending[0]?.state, pending[0]?.version], ["pending", 1]);
+  assert.deepEqual(
+    [
+      pending.find((item) => item.state === "pending")?.state,
+      pending.find((item) => item.state === "pending")?.version,
+    ],
+    ["pending", 1],
+  );
 
   const accepted = await run({
     operation: "permission-request-decide",

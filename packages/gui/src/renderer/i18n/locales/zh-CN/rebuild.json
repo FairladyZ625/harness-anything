@@ -162,7 +162,7 @@
   "accessControl.operation.sessionLifetimeSet": "修改会话寿命",
   "accessControl.error.failed": "操作失败",
   "accessControl.error.authenticationRequired": "需要先用 Keycloak 登录，才能管理访问控制。",
-  "accessControl.error.authorizationDenied": "当前账号不是访问管理员（缺少 access-admin 角色），不能查看或修改访问控制。",
+  "accessControl.error.authorizationDenied": "当前账号无权执行此访问控制操作。",
   "accessControl.requests.tab": "权限申请",
   "accessControl.requests.title": "权限申请",
   "accessControl.requests.policyGroup": "策略组",

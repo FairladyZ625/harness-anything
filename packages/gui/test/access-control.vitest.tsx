@@ -311,7 +311,7 @@ describe("账号与访问控制页", () => {
     expect(await evaluate("alice", "repo-a", { kind: "task-create" })).toBe("allowed");
     await openTab(access, "角色说明");
     const unavailable = byTestId("access-groups-unavailable");
-    expect(unavailable.textContent).toContain("不是访问管理员");
+    expect(unavailable.textContent).toContain("无权执行此访问控制操作");
     // The page's own read of the same lack of role, by contrast, reads as a permission note.
     expect(unavailable.getAttribute("role")).toBe("status");
     expect(unavailable.className).not.toContain("status-blocked");
@@ -445,7 +445,7 @@ describe("账号与访问控制页", () => {
     expect(denied.dataset.code).toBe("authorization_denied");
     expect(denied.getAttribute("role")).toBe("status");
     expect(denied.className).not.toContain("status-blocked");
-    expect(denied.textContent).toContain("不是访问管理员");
+    expect(denied.textContent).toContain("无权执行此访问控制操作");
     expect(byTestId("identity-session").textContent).toContain("已登录");
     expect(byTestId("access-service-card").textContent).toContain("正常");
   });

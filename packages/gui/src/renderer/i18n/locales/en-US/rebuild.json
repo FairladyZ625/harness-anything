@@ -162,7 +162,7 @@
   "accessControl.operation.sessionLifetimeSet": "Set session lifetime",
   "accessControl.error.failed": "The operation failed",
   "accessControl.error.authenticationRequired": "Sign in with Keycloak to administer access control.",
-  "accessControl.error.authorizationDenied": "This account is not an access administrator (the access-admin role is missing), so it cannot view or change access control.",
+  "accessControl.error.authorizationDenied": "This account is not authorized to perform this access control operation.",
   "accessControl.requests.tab": "Permission requests",
   "accessControl.requests.title": "Permission requests",
   "accessControl.requests.policyGroup": "Policy group",
