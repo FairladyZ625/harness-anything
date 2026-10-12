@@ -23,6 +23,7 @@ export interface RuntimeInstanceCommon {
   readonly isolationState: RuntimeIsolationState;
   readonly auth: RuntimeInstanceAuth;
   readonly githubCredentialRef?: string;
+  readonly hostingCredentialRefs?: Readonly<{ readonly github?: string; readonly gitlab?: string }>;
 }
 
 export interface ClaudeRuntimeInstanceConfig {

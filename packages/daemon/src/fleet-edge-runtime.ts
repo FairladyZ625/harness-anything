@@ -100,7 +100,10 @@ type RuntimePorts = {
   readonly reclaimSettledRuntimeTempDirectories: (
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
-  readonly prepareWorkerGitEnvironment: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+  readonly prepareWorkerGitEnvironment: (
+    instanceId: string,
+    provider?: "github" | "gitlab",
+  ) => Promise<NodeJS.ProcessEnv | null>;
 };
 const runtimeOverviewPageLimit = 16;
 

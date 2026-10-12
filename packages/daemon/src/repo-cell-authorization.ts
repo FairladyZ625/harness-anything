@@ -380,6 +380,10 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "runtime-instance-github-credential-unset":
       return authorizeRepoCellAction(input);
+    case "runtime-instance-hosting-credential-set":
+      return authorizeRepoCellAction(input);
+    case "runtime-instance-hosting-credential-unset":
+      return authorizeRepoCellAction(input);
     case "runtime-instance-list":
       return authorizeRepoCellAction(input);
     case "runtime-instance-login":

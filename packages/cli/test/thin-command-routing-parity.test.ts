@@ -505,6 +505,8 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-instance-delete",
       "runtime-instance-github-credential-set",
       "runtime-instance-github-credential-unset",
+      "runtime-instance-hosting-credential-set",
+      "runtime-instance-hosting-credential-unset",
       "runtime-instance-list",
       "runtime-instance-login",
       "runtime-instance-logout",

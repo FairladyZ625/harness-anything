@@ -209,7 +209,10 @@ export interface RepoWriterInputPorts {
       readonly permissionMode?: string;
     },
   ) => Promise<PreparedRuntimeLaunch>;
-  readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+  readonly prepareWorkerGitEnvironment?: (
+    instanceId: string,
+    provider?: "github" | "gitlab",
+  ) => Promise<NodeJS.ProcessEnv | null>;
   readonly now?: () => string;
   readonly killpoint?: (point: EventPublicationKillpoint) => void;
   readonly shouldStop?: () => boolean;

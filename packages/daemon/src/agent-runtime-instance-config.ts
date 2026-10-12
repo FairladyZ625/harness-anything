@@ -77,6 +77,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           ...runtimeKindIds,
           "auth",
           "githubCredentialRef",
+          "hostingCredentialRefs",
         ];
   if (
     Object.keys(value).some((key) => !allowed.includes(key)) ||
@@ -155,6 +156,16 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     ...(value.githubCredentialRef === undefined
       ? {}
       : { githubCredentialRef: credentialReference(value.githubCredentialRef, "githubCredentialRef") }),
+    ...(value.hostingCredentialRefs === undefined
+      ? {}
+      : {
+          hostingCredentialRefs: Object.fromEntries(
+            Object.entries(value.hostingCredentialRefs as Record<string, unknown>).map(([provider, reference]) => [
+              provider,
+              credentialReference(reference, `hostingCredentialRefs.${provider}`),
+            ]),
+          ) as { readonly github?: string; readonly gitlab?: string },
+        }),
   };
   const effortField = "reasoningEffort" in declaration.configuration.fields ? "reasoningEffort" : "effort",
     flatConfiguration = {

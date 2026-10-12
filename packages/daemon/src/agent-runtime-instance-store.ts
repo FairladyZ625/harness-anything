@@ -370,23 +370,35 @@ export function openRuntimeInstanceStore(input: {
       ...(protocolFamily === "acp" ? { acpApiKey: secret } : {}),
     };
   }
-  async function prepareWorkerGitEnvironment(instanceId: string): Promise<NodeJS.ProcessEnv | null> {
+  async function prepareWorkerGitEnvironment(
+    instanceId: string,
+    provider: "github" | "gitlab" = "github",
+  ): Promise<NodeJS.ProcessEnv | null> {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-    if (config.githubCredentialRef === undefined) return null;
+    const reference =
+      config.hostingCredentialRefs?.[provider] ?? (provider === "github" ? config.githubCredentialRef : undefined);
+    if (reference === undefined) return null;
     let secret: string;
     try {
-      secret = await resolveCredential(config.githubCredentialRef);
+      secret = await resolveCredential(reference);
     } catch (error) {
       consumeKnownError(error);
-      throw runtimeInstanceError("runtime_credential_unavailable", "The configured GitHub credential is unavailable.");
+      throw runtimeInstanceError(
+        "runtime_credential_unavailable",
+        `The configured ${provider} credential is unavailable.`,
+      );
     }
     if (!secret)
-      throw runtimeInstanceError("runtime_credential_unavailable", "The configured GitHub credential is unavailable.");
+      throw runtimeInstanceError(
+        "runtime_credential_unavailable",
+        `The configured ${provider} credential is unavailable.`,
+      );
     return {
-      GH_TOKEN: secret,
-      HARNESS_GITHUB_TOKEN: secret,
+      ...(provider === "github"
+        ? { GH_TOKEN: secret, HARNESS_GITHUB_TOKEN: secret }
+        : { GITLAB_TOKEN: secret, HARNESS_GITLAB_TOKEN: secret }),
       GIT_ASKPASS_REQUIRE: "force",
       GIT_TERMINAL_PROMPT: "0",
     };
@@ -440,6 +452,9 @@ export function openRuntimeInstanceStore(input: {
           ...kindConfig,
           auth,
           ...(action.githubCredentialRef === undefined ? {} : { githubCredentialRef: action.githubCredentialRef }),
+          ...(action.hostingCredentialRefs === undefined
+            ? {}
+            : { hostingCredentialRefs: action.hostingCredentialRefs }),
         } as RuntimeInstanceConfig),
         instance = publicConfig(config, readiness.get(config.instanceId));
       return {
@@ -505,16 +520,25 @@ export function openRuntimeInstanceStore(input: {
       return listed(instances);
     }
     const instanceId = requiredRuntimeInstanceText(action.instanceId, "instanceId");
-    if (kind === "runtime-instance-github-credential-set" || kind === "runtime-instance-github-credential-unset") {
+    if (
+      kind === "runtime-instance-github-credential-set" ||
+      kind === "runtime-instance-github-credential-unset" ||
+      kind === "runtime-instance-hosting-credential-set" ||
+      kind === "runtime-instance-hosting-credential-unset"
+    ) {
       const current = readOne(instanceId);
       if (!current)
         throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
-      const { githubCredentialRef: _githubCredentialRef, ...withoutGithubCredential } = current,
-        updated = runtimeInstanceConfig(
-          kind === "runtime-instance-github-credential-set"
-            ? { ...current, githubCredentialRef: action.githubCredentialRef }
-            : withoutGithubCredential,
-        ),
+      const provider = action.provider === "gitlab" || action.provider === "github" ? action.provider : "github",
+        existingRefs = {
+          ...(current.hostingCredentialRefs ?? {}),
+          ...(current.githubCredentialRef ? { github: current.githubCredentialRef } : {}),
+        },
+        refs = kind.endsWith("-set")
+          ? { ...existingRefs, [provider]: action.credentialRef ?? action.githubCredentialRef }
+          : Object.fromEntries(Object.entries(existingRefs).filter(([candidate]) => candidate !== provider)),
+        { githubCredentialRef: _githubCredentialRef, ...withoutGithubCredential } = current,
+        updated = runtimeInstanceConfig({ ...withoutGithubCredential, hostingCredentialRefs: refs }),
         instance = publicConfig(updated, readiness.get(updated.instanceId));
       persist(read().map((entry) => (entry.instanceId === current.instanceId ? updated : entry)));
       return {

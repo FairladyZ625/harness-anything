@@ -89,7 +89,10 @@ export interface RuntimeSpawnerContext {
   readonly publishExit: (active: ActiveRuntime, code: number | null, resumePublishedExit?: boolean) => Promise<void>;
   readonly controlReceipt: (opId: string, runtimeSessionId: string, detail?: string) => JsonObject;
   readonly captureErrorOutput: (active: ActiveRuntime, chunk: string) => void;
-  readonly prepareWorkerGitEnvironment: (instanceId: string) => Promise<NodeJS.ProcessEnv | undefined>;
+  readonly prepareWorkerGitEnvironment: (
+    instanceId: string,
+    provider?: "github" | "gitlab",
+  ) => Promise<NodeJS.ProcessEnv | undefined>;
   readonly settleFallback: (
     active: ActiveRuntime,
     outcome: RuntimeAttemptOutcome,

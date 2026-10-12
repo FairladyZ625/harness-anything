@@ -96,9 +96,9 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
         const taskBound = prepared.env.HARNESS_TASK_BOUND === "1";
         if (taskBound) {
           taskBoundLaunches += 1;
-          assert.equal(prepared.env.GH_TOKEN, secret);
-          assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, secret);
-          assert.equal(prepared.env.GIT_ASKPASS, path.join(root, "tools", "git-hooks", "git-askpass"));
+          assert.equal(prepared.env.GH_TOKEN, undefined);
+          assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
+          assert.equal(prepared.env.GIT_ASKPASS, undefined);
           // The conventional git identity rides the worker environment explicitly, so commits
           // and rebases in the worktree never depend on implicit config inheritance.
           assert.equal(prepared.env.GIT_AUTHOR_NAME, "GitHub Worker Test");

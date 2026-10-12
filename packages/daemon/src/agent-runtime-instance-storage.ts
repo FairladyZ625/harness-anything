@@ -184,7 +184,9 @@ export function publicConfig(
             ? ("unauthenticated" as const)
             : ("unknown" as const),
     authReadiness,
-    ...(config.githubCredentialRef === undefined ? {} : { githubCredentialState: "configured" as const }),
+    ...(config.githubCredentialRef !== undefined || config.hostingCredentialRefs?.github !== undefined
+      ? { githubCredentialState: "configured" as const }
+      : {}),
     isolationState: config.isolationState,
   };
   const provider = runtimeProviderConfig(config),

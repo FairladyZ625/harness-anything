@@ -542,11 +542,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
       protocolFamily = runtimeKind.protocolFamily,
-      workerGitEnvironment = taskId
-        ? await prepareWorkerGitEnvironment(runtimeInstanceId)
-        : trustedSchedule?.mode === "remediate"
-          ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
-          : undefined,
+      // Hosting credentials are resolved only by the daemon-side settlement/push path.
+      // Never merge them into the worker launch environment.
+      workerGitEnvironment = undefined,
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
     if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);

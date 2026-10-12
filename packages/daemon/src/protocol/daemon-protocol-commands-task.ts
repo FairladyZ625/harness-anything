@@ -109,7 +109,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
     phase: "W3",
     path: ["task", "ci", "<task-id>"],
     summary:
-      "Read current task branch CI and failed-job excerpts through the dispatch's daemon-held GitHub credential.",
+      "Read current task branch CI and failed-job excerpts through the dispatch's daemon-held GitHub or GitLab credential.",
     method: "repo.task.read",
     // --wait keeps the CLI re-issuing this same read until the branch reaches a verdict; --timeout
     // bounds that wait in seconds. Both are facade-only: the daemon action stays { kind, taskId }.
