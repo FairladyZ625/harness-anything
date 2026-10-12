@@ -6,7 +6,7 @@ import {
   type TaskProjection,
   type WriteReceipt,
 } from "@harness-anything/kernel";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
+import type { RepoTaskAction, TaskCreateReceipt } from "./repo-cell-types.ts";
 
 const canonicalSettlementActions = new Set(
   actionDeclarations
@@ -97,7 +97,7 @@ async function settleTaskCreateScaffold(
         ...settled,
         outcome: "pending",
         summary:
-          "Task creation is durable; materialization is pending. " +
+          `Task creation for ${(settled as TaskCreateReceipt).taskId} is durable; materialization is pending. ` +
           `Wait with ha receipt show ${settled.opId} --wait worktree_visible.`,
       } as WriteReceipt)
     : settled;
