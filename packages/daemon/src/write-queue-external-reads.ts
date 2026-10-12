@@ -11,6 +11,7 @@ import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { createTaskPullRequest } from "./runtime-task-pr.ts";
 
 type QueuedPublication = ((
   action: RepoTaskAction,
@@ -128,6 +129,9 @@ export function readBeforeWriteQueue(
         });
       };
     })();
+  }
+  if (action.kind === "task-pr") {
+    return Promise.resolve((action, binding) => createTaskPullRequest(context, action, binding));
   }
   return null;
 }

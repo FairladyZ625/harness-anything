@@ -80,6 +80,7 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
             "task-submit",
             "task-artifact-add",
             "task-push",
+            "task-pr",
             "ci-observe-pull",
           ],
     taskCiPull = action.kind === "ci-observe-pull";

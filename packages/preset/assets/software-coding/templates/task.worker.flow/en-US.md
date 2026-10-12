@@ -32,3 +32,4 @@ Stop and report when scope, authority, required input, or a destructive choice i
 - Report the commit, changed files, verification, and residual risks.
 - Before handoff, rebase onto the latest `origin/main` and rerun the evidence commands.
 - Submit task-bound receipts only through `ha doc sync --submit --task <task-id>`.
+- For a repository delivery, publish with `ha task push <task-id>`, create the PR with `ha task pr <task-id>`, read CI with `ha task ci <task-id> --json`, and submit only after the delivery SHA is green. Workers never merge.

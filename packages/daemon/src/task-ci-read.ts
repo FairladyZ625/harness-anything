@@ -71,7 +71,14 @@ interface TaskCiReport {
 
 /** Read only the authenticated dispatch's published task branch; never accept a ref or run id. */
 export async function readTaskCi(
-  context: Pick<RepoCellApiContext, "rootDir" | "input" | "projection" | "now" | "cellCodedError" | "extracted">,
+  context: {
+    readonly rootDir: string;
+    readonly input: RepoCellApiContext["input"];
+    readonly projection: RepoCellApiContext["projection"];
+    readonly now: RepoCellApiContext["now"];
+    readonly cellCodedError: RepoCellApiContext["cellCodedError"];
+    readonly readResult?: RepoCellApiContext["extracted"]["readResult"];
+  },
   action: RepoTaskAction,
   binding: RepoCellBinding,
   provider: RunProvider = runProvider,
@@ -188,7 +195,14 @@ export async function readTaskCi(
             : "failure";
   const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs },
     revision = context.projection.readCut().sourceRevision;
-  return { ...context.extracted.readResult(`task-ci:${branch}:${headSha}`, ci, revision, null), ci };
+  return {
+    ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, revision, null) ?? {
+      outcome: "applied",
+      opId: `task-ci:${branch}:${headSha}`,
+      revision,
+    }),
+    ci,
+  };
 }
 
 /** Preserve failed test names and the assertion context, while bounding the returned diagnostic. */
