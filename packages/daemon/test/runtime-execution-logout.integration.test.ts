@@ -17,7 +17,7 @@ import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
-import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { createRealizedTaskPlanFixture, realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
@@ -152,6 +152,32 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   );
   const started = await run({ kind: "task-start", taskId, executionId });
   assert.equal(started.outcome, "applied", JSON.stringify(started));
+  const proposedDecision = await run({
+    kind: "decision-propose",
+    body: realizedDecisionBody("Runtime reviewer decision read"),
+    jsonInput: JSON.stringify({
+      title: "Runtime reviewer decision read",
+      question: "Can the dispatched reviewer read its bound decision?",
+      riskTier: "high",
+      urgency: "high",
+      vertical: "software/coding",
+      preset: "standard-task",
+      decisionClass: "ordinary",
+      appliesTo: { modules: ["daemon"], productLines: [] },
+      chosen: [{ id: "CH1", text: "Bind the reviewer to this decision" }],
+      rejected: [{ id: "RJ1", text: "Allow arbitrary decisions", whyNot: "The dispatch scope is bounded" }],
+      claims: [{ id: "C1", text: "The reviewer can read the bound decision.", loadBearing: true }],
+      fulfillments: [],
+    }),
+  });
+  assert.equal(proposedDecision.outcome, "applied", JSON.stringify(proposedDecision));
+  const decisionId = String((JSON.parse(String(proposedDecision.evidence)) as { decisionId: string }).decisionId);
+  const shownDecision = await run({ kind: "decision-show", decisionId, includeBody: true });
+  assert.equal(shownDecision.outcome, "applied", JSON.stringify(shownDecision));
+  const decisionDigest = String(
+    (JSON.parse(String(shownDecision.evidence)) as { decision: { currentReviewContentDigest: string } }).decision
+      .currentReviewContentDigest,
+  );
   const projection = () =>
     makeTaskProjection({ rootDir: root, eventStore: makeTaskEventReader({ rootDir: root, repoId }) });
   const read = projection(),
@@ -165,6 +191,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
         cwd: { scope: "repo-root" },
         taskId,
         ...(role === "reviewer" ? { role } : {}),
+        ...(role === "reviewer" ? { reviewTarget: { kind: "decision", decisionId, digest: decisionDigest } } : {}),
         prompt: "Exercise logout boundaries.",
         idempotencyKey: `logout-${role}`,
       },
@@ -191,6 +218,12 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const implementation = await launch("implementation");
   const signedInRead = await implementation.cli(["task", "show", taskId]);
   assert.equal(signedInRead.outcome, "applied", JSON.stringify(signedInRead));
+  const readSet = await implementation.cli(["task", "read-set", taskId]);
+  assert.equal(readSet.outcome, "applied", JSON.stringify(readSet));
+  const settings = await implementation.cli(["settings", "read"]);
+  assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+  const ci = await implementation.cli(["task", "ci", taskId]);
+  assert.equal(ci.outcome, "applied", JSON.stringify(ci));
   const events = await implementation.cli(["event", "list", "--type", "runtime_session_started", "--limit", "100"]);
   assert.equal(events.outcome, "applied", JSON.stringify(events));
   const eventRows = (JSON.parse(String(events.evidence)) as { rows: { type: string }[] }).rows;
@@ -271,6 +304,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   signInAt(userRoot, "owner");
   assert.equal((await reviewer.cli(["task", "show", taskId])).outcome, "applied");
   assert.equal((await reviewer.cli(["task", "read-set", taskId])).outcome, "applied");
+  const decisionRead = await reviewer.cli(["decision", "show", decisionId]);
+  assert.equal(decisionRead.outcome, "applied", JSON.stringify(decisionRead));
   const dispatchId = String(reviewer.result.dispatchId),
     reportDir = path.join(root, "harness", packagePath, "artifacts/reports");
   mkdirSync(reportDir, { recursive: true });
