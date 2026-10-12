@@ -442,7 +442,7 @@ export function WorkspaceView({
               }}
             />
           ) : null}
-          {activeTab === "explainer" ? <WorkExplainerDocument repoId={repoId} taskId={scope.root.taskId} fill /> : null}
+          {activeTab === "explainer" ? <WorkExplainerDocument repoId={repoId} taskId={scope.root.taskId} /> : null}
           {activeTab === "tasks" ? (
             <div>
               <WorkTasksTab
