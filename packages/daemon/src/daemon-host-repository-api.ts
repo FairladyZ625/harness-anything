@@ -85,11 +85,6 @@ export function createDaemonHostRepositoryApi(
           `This repository is already registered as ${registeredRoot.repoId}; ` +
             `rerun without --repo-id or with --repo-id ${registeredRoot.repoId}.`,
         );
-      if (!request.configureOnly && registeredRoot)
-        throw context.hostCodedError(
-          "repository_already_registered",
-          `Repository ${registeredRoot.repoId} is already registered; init cannot claim it again.`,
-        );
       // dec_D60FAA451F24160E970323B6F3: even a single-user machine authorizes through the Keycloak that
       // ha bootstrap installs. Without that authority init cannot publish its first ledger event, so it
       // stops here rather than scaffolding the workspace and failing the ledger authorization afterwards.
@@ -130,7 +125,7 @@ export function createDaemonHostRepositoryApi(
           "repository_already_registered",
           `Repository id ${bootstrap.repoId} is already registered; init cannot claim another workspace with it.`,
         );
-      if (!reusedRegistration && !request.configureOnly) {
+      if (!request.configureOnly) {
         if (context.oidc.centerConfigured()) {
           const center = await context.keycloakCenter();
           await new KeycloakPolicyAdapter({
