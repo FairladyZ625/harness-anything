@@ -7,6 +7,7 @@ import { resourceLabel, roleLabel } from "../../access-model.ts";
 import { useAccessRead, asRejection, AccessNotice, INPUT } from "./AccessParts.tsx";
 import { isRejection } from "../../access-model.ts";
 import { t } from "../../i18n/index.tsx";
+import { IdText } from "../IdText.tsx";
 
 export function PermissionRequestsTab({
   access,
@@ -101,11 +102,17 @@ export function PermissionRequestsTab({
           >
             <div className="min-w-0 flex-1">
               <p className="ui-body">
-                <b>{request.personId}</b> requests {roleLabel(request.groupId)} · {resourceLabel(request.resource)}
+                <b>
+                  <IdText value={request.personId} />
+                </b>{" "}
+                {t("accessControl.requests.requested")} {roleLabel(request.groupId)} · {resourceLabel(request.resource)}
               </p>
               <p className="text-text-muted ui-meta">
-                Version {request.version} · {request.actions.join(", ")}
-                {request.rationale ? ` · ${request.rationale}` : ""}
+                {t("accessControl.requests.versionActions", {
+                  version: request.version,
+                  actions: request.actions.join(", "),
+                })}
+                {request.rationale ? ` · ${t("accessControl.requests.reasonPrefix")}: ${request.rationale}` : ""}
               </p>
             </div>
             {request.state === "pending" &&
@@ -128,15 +135,22 @@ export function PermissionRequestsTab({
                 >
                   {t("accessControl.requests.withdraw")}
                 </Button>
-              ) : (
+              ) : data.canDecide && identity !== "" ? (
                 <Button
                   testId={`permission-request-decide-${request.requestId}`}
                   onClick={() => setConfirming(request)}
                 >
                   {t("accessControl.requests.review")}
                 </Button>
-              ))}
-            {request.state !== "pending" && <span className="ui-meta">{request.state}</span>}
+              ) : null)}
+            {request.state === "pending" && request.personId === identity && (
+              <p className="w-full text-text-muted ui-meta" role="note">
+                {t("accessControl.requests.requesterCannotDecide")}
+              </p>
+            )}
+            {request.state !== "pending" && (
+              <span className="ui-meta">{t(`accessControl.requests.state.${request.state}` as const)}</span>
+            )}
           </article>
         ))}
         {data.requests.length === 0 && (
@@ -165,8 +179,9 @@ export function PermissionRequestsTab({
           }
         >
           <p className="ui-body">
-            {t("accessControl.requests.confirmVersion", { version: confirming.version })}: {confirming.personId} ·{" "}
-            {roleLabel(confirming.groupId)} · {resourceLabel(confirming.resource)}
+            {t("accessControl.requests.confirmVersion", { version: confirming.version })}:{" "}
+            <IdText value={confirming.personId} /> · {roleLabel(confirming.groupId)} ·{" "}
+            {resourceLabel(confirming.resource)}
           </p>
           <p className="text-text-muted ui-meta">{confirming.actions.join(", ")}</p>
         </Modal>

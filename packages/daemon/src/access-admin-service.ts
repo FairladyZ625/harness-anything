@@ -278,8 +278,20 @@ export class AccessAdminService {
   }
 
   async #listPermissionRequests(actor: string): Promise<Record<string, unknown>> {
-    const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest);
-    return { ok: true, requests: rows.filter((item) => item.personId === actor || item.state === "pending") };
+    const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest),
+      session = await this.#session(),
+      decision = await session.adapter.authorizePerson({
+        adminAccessToken: session.token,
+        personId: actor,
+        action: "permission-request-decide",
+        resource: { kind: "fleet" },
+      }),
+      canDecide = decision.outcome === "allowed";
+    return {
+      ok: true,
+      canDecide,
+      requests: rows.filter((item) => item.personId === actor || (canDecide && item.state === "pending")),
+    };
   }
 
   async #decidePermissionRequest(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
