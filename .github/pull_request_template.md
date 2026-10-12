@@ -14,7 +14,7 @@
 
 ## What Changed
 
-Persisted format changes ship an explicit `ha migrate` conversion and a frozen old-sample rejection → migration → current-reader test in the same PR; see `docs-release/data-format-migrations.md`.
+<!-- Persisted format changes ship an explicit `ha migrate` conversion and a frozen old-sample rejection → migration → current-reader test in the same PR; see `docs-release/data-format-migrations.md`. -->
 
 -
 
@@ -61,35 +61,41 @@ Dependency-Change: none
 
 ## Task And Scope
 
+<!-- Replace `yes` on the `Private planning/evidence updated` line with `no` or `not applicable` only when private planning or evidence was genuinely not updated. -->
 - Harness task:
 - Branch:
 - Public scope:
-- Private planning/evidence updated: yes / no / not applicable
+- Private planning/evidence updated: yes
 - Out of scope:
 
 ## Version Impact
 
-- Version: `[old]` -> `[new]` / no version change because [reason]
-- Publish impact: no publish / publish readiness only / publish intended in a separate release task
+<!-- When the version changes, replace the version line with `<old> -> <new>`. When publishing, replace the publish line with `publish readiness only` or `publish intended in a separate release task`. -->
+- Version: no version change
+- Publish impact: no publish
 
 ## Governance Declaration
 
 <!-- These governance fields are Markdown list items; unlike the flush-left declarations above, this parser accepts the `- ` prefix. -->
-- Protected surface touched: yes / no
+<!-- When a protected surface is touched, set the next line to yes, describe the scope, and replace the Authority default with the authorizing ADR-####, dec_<ID>, or task_<ID>. -->
+- Protected surface touched: no
 - Protected surface scope:
-- Authority: [replace with one authorizing ADR-####, dec_<ID>, or task_<ID>; use not applicable only when no protected surface is touched]
+- Authority: not applicable
 - Machine-check boundary: this PR only asserts the declaration exists; reviewers decide whether it is true and sufficient.
-- Break-glass: no / yes
-- Break-glass reason: [required when Break-glass is yes]
-- Break-glass scope: [required when Break-glass is yes]
-- Follow-up governance task: task_<ID> [required when Break-glass is yes]
+- Break-glass: no
+<!-- Only when Break-glass is yes, uncomment these lines and fill them in:
+- Break-glass reason:
+- Break-glass scope:
+- Follow-up governance task: task_<ID>
+-->
 
 ## Verification
 
 - Base `origin/main` SHA:
 - Branch merge-base with `origin/main`:
 - Last `git fetch origin` time:
-- Sync method: none needed / merge / rebase
+<!-- If the branch drifted, replace `none needed` with `merge` or `rebase`. -->
+- Sync method: none needed
 - Public diff command:
 - Private evidence commit/path:
 - Reviewer evidence path:
@@ -108,24 +114,27 @@ Dependency-Change: none
 - [ ] `npm run harness:check-legacy-intake-readiness`
 - [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
-- Not run: [command and reason]
+<!-- Replace `none` with each command you did not run and the reason. -->
+- Not run: none
 
 ## Per-Write Cost
 
-<!-- Required for changes to write/persist/projection/ledger paths under packages/**/src.
-Run the G1 probe on the base and head with the same environment. Repeat these five rows
-for each measured operation; replace placeholders with actual non-negative integer counts.
-The lint checks table completeness, not measurement truth or performance budgets.
-G1 command: node tools/gates/cost-budget.mjs (compare its 200/2000 measured counts).
--->
+Not applicable.
 
-| Operation   | Metric        | Before (200) | Before (2000) | After (200) | After (2000) |
+<!-- Required for changes to write/persist/projection/ledger paths under packages/**/src.
+When required, replace `Not applicable.` with the measured table. Run the G1 probe
+(node tools/gates/cost-budget.mjs) on the base and the head in the same environment,
+compare its 200/2000 measured counts, and repeat these five rows per measured operation
+with actual non-negative integer counts. The lint checks table completeness, not
+measurement truth or performance budgets; budgets remain judged by the G1 gate.
+| Operation | Metric | Before (200) | Before (2000) | After (200) | After (2000) |
 | ----------- | ------------- | ------------ | ------------- | ----------- | ------------ |
 | <operation> | sqlRowsRead   |              |               |             |              |
 | <operation> | sha256Calls   |              |               |             |              |
 | <operation> | sha256Bytes   |              |               |             |              |
 | <operation> | gitProcesses  |              |               |             |              |
 | <operation> | fileReadBytes |              |               |             |              |
+-->
 
 ## Review Evidence
 
@@ -159,55 +168,62 @@ G1 command: node tools/gates/cost-budget.mjs (compare its 200/2000 measured coun
 
 ## 改动内容
 
-落盘格式变更须在同一 PR 交付显式 `ha migrate` 转换与冻结旧样本「拒绝 → 迁移 → 现行读取」测试，见 `docs-release/data-format-migrations.md`。
+<!-- 落盘格式变更须在同一 PR 交付显式 `ha migrate` 转换与冻结旧样本「拒绝 → 迁移 → 现行读取」测试，见 `docs-release/data-format-migrations.md`。 -->
 
 -
 
 ## 门收割 / Gate Harvest
 
-- 删除的生产路径：用逗号分隔填写本 PR 删除的旧生产路径；没有删除旧路径时保留 `none`。
-- 同 commit 删除的门 / fixture：填写与这些路径同一 commit 删除的全部门与 fixture；删除路径时不得留空。
+<!-- 删除旧生产路径时，把下面两行的 `none` 换成逗号分隔的仓库相对路径，以及同一 commit 删除的全部门与 fixture；未删除旧路径时保留 `none`。 -->
+- 删除的生产路径：none
+- 同 commit 删除的门 / fixture：none
 - 生产净行数：查看 production-delta job summary 的机器计算结果。
 
 ## 机读声明说明
 
-- 这些声明由 `.github/workflows/pr-body.yml` 中的 job 校验；每个未注释的关键词和值必须写在同一行。
-- 未注释的机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；下方治理字段仍是列表项，两类格式不要混用。
-- 依赖变化：修改任意 `package.json` 或 `package-lock.json` 时，把英文行中的拒绝 sentinel `none` 换成完整的确定性变化描述；否则删除整行。
-- 保留旧路径：仅在适用时把英文样例移出 HTML 注释，填写路径、到期日和 `dec_` id；否则保持注释。
-- Evidence claim 完全可选；只有确实声明 CI 归因或性能证据时，才把一个完整英文样例块移出 HTML 注释并填满全部字段。
+<!-- 这些声明由 `.github/workflows/pr-body.yml` 中的 job 校验；每个未注释的关键词和值必须写在同一行。 -->
+<!-- 未注释的机读声明只能在英文块各出现一次、必须顶格，不能加 Markdown 列表符号；下方治理字段仍是列表项，两类格式不要混用。 -->
+<!-- 依赖变化：修改任意 `package.json` 或 `package-lock.json` 时，把英文行中的拒绝 sentinel `none` 换成完整的确定性变化描述；否则删除整行。 -->
+<!-- 保留旧路径：仅在适用时把英文样例移出 HTML 注释，填写路径、到期日和 `dec_` id；否则保持注释。 -->
+<!-- Evidence claim 完全可选；只有确实声明 CI 归因或性能证据时，才把一个完整英文样例块移出 HTML 注释并填满全部字段。 -->
 
 ## 任务与范围
 
+<!-- 仅当私有计划或证据确实未更新时，才把「私有计划 / 证据是否已更新」行的 yes 换成 no 或 not applicable。 -->
 - Harness 任务：
 - 分支：
 - 公开范围：
-- 私有计划 / 证据是否已更新：yes / no / not applicable
+- 私有计划 / 证据是否已更新：yes
 - 范围外：
 
 ## 版本影响
 
-- 版本：`[旧版本]` -> `[新版本]` / 不改版本，原因是 [原因]
-- 发布影响：不发布 / 只做发布准备 / 发布放到独立 release task
+<!-- 版本变化时把版本行改成 `[旧版本] -> [新版本]`；需要发布时把发布行换成「只做发布准备」或「发布放到独立 release task」。 -->
+- 版本：不改版本
+- 发布影响：不发布
 
 ## 治理声明
 
-- 以下治理字段可以保留 Markdown 列表符号；这与上方必须顶格的机读声明不同。
-- 是否触碰 protected surface：yes / no
+<!-- 治理字段可保留 Markdown 列表符号；这与必须顶格的英文机读声明不同。 -->
+<!-- 触碰 protected surface 时，把下一行改为 yes、填写范围，并把依据换成授权的 ADR-####、dec_<ID> 或 task_<ID>。 -->
+- 是否触碰 protected surface：no
 - protected surface 范围：
-- 依据：[替换为一个有效的 ADR-####、dec_<ID> 或 task_<ID>；仅未触碰 protected surface 时填不适用]
+- 依据：不适用
 - 机器检查边界：本 PR 只声明该段存在；声明是否真实、充分，由 reviewer 判断。
-- Break-glass：no / yes
-- Break-glass 原因：[Break-glass 为 yes 时必填]
-- Break-glass 范围：[Break-glass 为 yes 时必填]
-- 后续治理任务：task_<ID> [Break-glass 为 yes 时必填]
+- Break-glass：no
+<!-- 仅当 Break-glass 为 yes 时取消注释并填写：
+- Break-glass 原因：
+- Break-glass 范围：
+- 后续治理任务：task_<ID>
+-->
 
 ## 验证
 
 - `origin/main` 基准 SHA：
 - 当前分支与 `origin/main` 的 merge-base：
 - 最近一次 `git fetch origin` 时间：
-- 同步方式：不需要 / merge / rebase
+<!-- 分支落后时把「不需要」换成 merge 或 rebase。 -->
+- 同步方式：不需要
 - 公开 diff 命令：
 - 私有证据 commit/path：
 - Reviewer 证据路径：
@@ -226,13 +242,14 @@ G1 command: node tools/gates/cost-budget.mjs (compare its 200/2000 measured coun
 - [ ] `npm run harness:check-legacy-intake-readiness`
 - [ ] `npm run harness:smoke-cli-package`
 - [ ] GitHub Actions `rewrite-ci` passed
-- 未运行：[命令和原因]
+<!-- 有未运行的命令时，把「无」换成对应命令与原因。 -->
+- 未运行：无
 
 ## 单次写入成本
 
-<!-- 涉及 packages/**/src 内 write/persist/projection/ledger 路径时，在英文 Per-Write Cost 节填写 G1 表。
-同一环境分别运行 base/head 的 node tools/gates/cost-budget.mjs；每个实测操作填写五项指标在 200/2000 规模的前后计数。
-lint 只验证表格完整性，测量真实性仍需审查，性能预算仍由 G1 门判定。 -->
+不适用。
+
+<!-- 涉及 packages/**/src 内 write/persist/projection/ledger 路径时，把「不适用」换成实测 G1 表：同一环境分别运行 base 与 head 的 node tools/gates/cost-budget.mjs，按英文节注释内的样例表为每个实测操作填写五项指标在 200/2000 规模的前后计数。lint 只验证表格完整性，测量真实性仍需审查，性能预算仍由 G1 门判定。 -->
 
 ## 审查证据
 

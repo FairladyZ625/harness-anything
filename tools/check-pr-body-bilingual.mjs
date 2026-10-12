@@ -33,6 +33,83 @@ function isEmptyListDeclaration(value) {
   return normalized.length === 0 || /^(?:none|n\/a|not applicable)$/iu.test(normalized);
 }
 
+const PLACEHOLDER_RESIDUE_PATTERNS = Object.freeze([
+  {
+    id: "angle-placeholder",
+    label: "angle-bracket placeholder",
+    labelZh: "尖括号占位符",
+    pattern: /<[A-Za-z][A-Za-z0-9 ,_-]*>/u,
+  },
+  {
+    id: "choice-list",
+    label: "unresolved choice list",
+    labelZh: "未删选的二选一列表",
+    pattern: /\b(?:no|yes|none needed|no publish)\b\s+\/\s+\S/u,
+  },
+  {
+    id: "choice-list-cjk",
+    label: "unresolved choice list",
+    labelZh: "未删选的二选一列表",
+    pattern: /(?:不需要|不发布)\s+\/\s+\S/u,
+  },
+  {
+    id: "bracketed-instruction",
+    label: "bracketed instruction",
+    labelZh: "方括号条件说明",
+    pattern: /\[[^\]\n]*(?:\brequired\b|必填)[^\]\n]*\]/iu,
+  },
+  {
+    id: "bracketed-placeholder",
+    label: "bracketed placeholder",
+    labelZh: "方括号占位符",
+    pattern: /\[(?!x\])[a-z][a-z0-9_-]{0,30}\](?!\()/u,
+  },
+  {
+    id: "bracketed-placeholder-cjk",
+    label: "bracketed placeholder",
+    labelZh: "方括号占位符",
+    pattern: /\[[\u4E00-\u9FFF][^\]\n]{0,20}\](?!\()/u,
+  },
+  {
+    id: "adr-placeholder",
+    label: "template id placeholder",
+    labelZh: "模板编号占位符",
+    pattern: /\bADR-####\b/u,
+  },
+]);
+
+// Same invisible spans the section checks strip, but blanked with padding so the
+// surviving text keeps its original line numbers for the issue message.
+function maskInvisibleTemplateText(body) {
+  return body
+    .replace(/<!--[\s\S]*?-->/gu, (span) => span.replace(/[^\n]/gu, " "))
+    .replace(/^\s*(`{3,}|~{3,}).*\n[\s\S]*?^\s*\1\s*$/gmu, (span) => span.replace(/[^\n]/gu, " "))
+    .replace(/`[^`\n]*`/gu, (span) => span.replace(/[^\n]/gu, " "));
+}
+
+export function findTemplatePlaceholderResidues(body) {
+  const residues = [];
+  maskInvisibleTemplateText(body)
+    .split(/\r?\n/u)
+    .forEach((line, index) => {
+      for (const { id, label, labelZh, pattern } of PLACEHOLDER_RESIDUE_PATTERNS) {
+        if (pattern.test(line)) {
+          residues.push({ line: index + 1, id, label, labelZh, snippet: line.trim().slice(0, 100) });
+        }
+      }
+    });
+  return residues;
+}
+
+export function checkTemplatePlaceholderResidue(body) {
+  const residues = findTemplatePlaceholderResidues(body),
+    issues = residues.flatMap((residue) => [
+      `PR body line ${residue.line} keeps an unfilled template placeholder (${residue.label}): ${residue.snippet}`,
+      `PR 正文第 ${residue.line} 行残留未填写的模板占位符（${residue.labelZh}）：${residue.snippet}`,
+    ]);
+  return { ok: issues.length === 0, residues, issues };
+}
+
 export function checkGateHarvestDeclarations(body) {
   const pathDeclarations = [...body.matchAll(DELETED_PRODUCTION_PATHS)].map((match) => match[1]);
   const gateDeclarations = [...body.matchAll(DELETED_GATES_FIXTURES)].map((match) => match[1]);
@@ -345,8 +422,9 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
   const englishCounts = countBilingualSignals(blocks.englishBlock);
   const chineseCounts = countBilingualSignals(blocks.chineseBlock);
   const unfilledTemplate = checkUnfilledPrTemplate(body, context.prTemplate);
+  const placeholderResidue = checkTemplatePlaceholderResidue(body);
   const perWriteCost = checkPerWriteCost(blocks.englishBlock, context.files);
-  const issues = [...blocks.issues, ...unfilledTemplate.issues, ...perWriteCost.issues];
+  const issues = [...blocks.issues, ...unfilledTemplate.issues, ...placeholderResidue.issues, ...perWriteCost.issues];
   const gateHarvest = checkGateHarvestDeclarations(blocks.englishBlock);
   issues.push(...gateHarvest.issues);
   const eventMigration = checkEventMigrationDeclaration(blocks.englishBlock, context.eventMigration);
@@ -390,6 +468,7 @@ export function checkPrBodyBilingual(body, thresholds = defaultThresholds, conte
     eventMigration,
     architectureJustification,
     unfilledTemplate,
+    placeholderResidue,
     issues,
   };
 }
@@ -413,6 +492,7 @@ function readBodyFromArgs(argv) {
           "Requires a top-level `# English` block before a top-level `# 中文` block.",
           "The English block must contain at least 20 Latin words; the Chinese block must contain at least 20 CJK characters.",
           "A body that contributes no line beyond the verbatim PR template is rejected as unfilled, naming its empty sections.",
+          "Visible template placeholders (angle brackets like `<operation>`, unresolved `no / yes` choice lists, bracketed instructions like `[required ...]`) are rejected with their line numbers.",
           "Write/persist/projection/ledger paths under packages/**/src require a completed Per-Write Cost G1 table (see the PR template).",
           "When Deleted-Production-Paths names a path, Deleted-Gates-Fixtures is required.",
           "When the computed production delta exceeds 200 churn lines or +300 net production lines, both language blocks must contain a completed architectural justification section.",
@@ -420,6 +500,7 @@ function readBodyFromArgs(argv) {
           "要求顶级 `# English` 块位于顶级 `# 中文` 块之前。",
           "英文块至少包含 20 个拉丁单词；中文块至少包含 20 个 CJK 字符。",
           "与模板逐字相同、没有任何模板之外新行的正文会被判为未填写而拒绝，并列出为空的节。",
+          "可见的模板占位符（如 `<operation>` 尖括号占位符、未删选的 `no / yes` 二选一、`[required ...]` 条件说明）会被点名行号拒绝。",
           "当 Deleted-Production-Paths 声明路径时，必须填写 Deleted-Gates-Fixtures。",
           "当机器计算的生产变更超过 200 行 churn 或生产净增 +300 行时，英文和中文块都必须填写完整的架构辩护段。",
           "变更 canonical-event accepted 样本时，Event-Migration 必须声明现有 ha migrate 命令，或说明为什么不需要迁移。",
