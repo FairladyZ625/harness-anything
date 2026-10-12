@@ -123,6 +123,7 @@ export async function fixture(
     /** False stops after submit: the cut awaits the owner's triage. */
     readonly autoForward?: boolean;
     readonly closeoutProfile?: "standard" | "strict";
+    readonly keycloakSession?: Parameters<typeof openRepoCell>[0]["keycloakSession"];
     readonly create?: Readonly<Record<string, unknown>>;
     /** Migration-window fixture: install the default reviewer in the pre-runtimes declaration
      * shape (`runtime_type` string plus top-level `model`) before the cell opens, appended as a
@@ -155,6 +156,7 @@ export async function fixture(
       repoId,
       rootDir: canonicalRoot(root),
       ownerId: "completion-review",
+      ...(options.keycloakSession ? { keycloakSession: options.keycloakSession } : {}),
       runtimeDaemonRoute: {
         userRoot: path.join(root, "user"),
         daemonId: "fixture",
@@ -331,15 +333,16 @@ export async function fixture(
   let eventsReader: ReturnType<typeof makeTaskEventReader> | null = null;
   const events = () => (eventsReader ??= makeTaskEventReader({ repoId, rootDir: root })).read().events;
   const awaitOutcome = async (runtimeSessionId: string) => {
-    for (let attempt = 0; attempt < 500; attempt += 1) {
-      const outcome = events().find(
-        (event) =>
-          event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
-      );
-      if (outcome?.type === "runtime_session_outcome_observed") return outcome.payload.outcome;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error(`runtime session ${runtimeSessionId} did not settle`);
+    await cell.awaitRuntimeOutcome(runtimeSessionId);
+    const outcome = events().find(
+      (event) =>
+        event.type === "runtime_session_outcome_observed" && event.payload.runtimeSessionId === runtimeSessionId,
+    );
+    assert.ok(
+      outcome?.type === "runtime_session_outcome_observed",
+      `runtime session ${runtimeSessionId} has no outcome`,
+    );
+    return outcome.payload.outcome;
   };
   return {
     root,
