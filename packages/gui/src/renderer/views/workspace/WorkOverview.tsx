@@ -340,8 +340,8 @@ export function WorkOverview({
   );
 
   /* 工作说明预览:与工作说明页签同一份根任务文档、同一个隔离 renderer;放右栏顶部
-     与时间线并排,预览卡与页签正文同一 fill 契约铺满格子剩余高度,长页面滚动留在
-     guest 内部(不留空区也不出双滚动条);「打开完整工作说明」动作留在区域框上。 */
+     与时间线并排,预览卡铺满格子剩余高度,长页面滚动留在 guest 内部(不留空区也不出
+     双滚动条);「打开完整工作说明」动作留在区域框上。 */
   const explainer = (
     <BoardSide region="explainer" data-testid="work-explainer">
       <Region
@@ -355,7 +355,7 @@ export function WorkOverview({
           </span>
         }
       >
-        <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} fill />
+        <WorkExplainerDocument repoId={repoId} taskId={rootTaskId} />
       </Region>
     </BoardSide>
   );

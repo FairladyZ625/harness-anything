@@ -25,17 +25,7 @@ type WorkExplainerState =
   | "not-materialized"
   | "binary";
 
-export function WorkExplainerDocument({
-  repoId,
-  taskId,
-  fill = false,
-}: {
-  readonly repoId: string;
-  readonly taskId: string;
-  /** true:高度链 flex 到 webview,容器给多高铺多高(页签主正文与概况预览都用这档);
-   *  false:固定高嵌入卡形态(当前无生产调用方)。 */
-  readonly fill?: boolean;
-}) {
+export function WorkExplainerDocument({ repoId, taskId }: { readonly repoId: string; readonly taskId: string }) {
   const readable = repoId !== "unselected";
   const documentList = useTaskDocumentListQuery(repoId, readable ? taskId : null);
   const present =
@@ -91,7 +81,7 @@ export function WorkExplainerDocument({
     <section
       data-testid="work-explainer-document"
       {...(state === null ? {} : { "data-state": state })}
-      className={fill ? "flex h-full min-h-0 min-w-0 flex-col" : ""}
+      className="flex h-full min-h-0 min-w-0 flex-col"
     >
       {state !== null ? (
         statusLine
@@ -116,7 +106,7 @@ export function WorkExplainerDocument({
                   : document.data!.body!
               }
               path={TASK_EXPLAINER_DOC}
-              fillAvailable={fill}
+              fillAvailable
             />
           </div>
         </>
