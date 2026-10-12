@@ -32,7 +32,8 @@ function decision(kind: string): AuthorizationDecision {
 }
 test("retired People mutations are absent from the durable authorization inventory", () => {
   // dec_CDDCFA8BB91A47BCE07B229E93 CH2.
-  // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle actions are durable host actions.
+  // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle actions are durable host actions;
+  // keep this count aligned with the protocol and G0-2 inventories.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: explicit handoff export, claim and revoke.
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four Task GateRun actions.
   // dec_2AAF1D0612D3295C80F87E49FE CH1: daemon-mediated task branch publication.
