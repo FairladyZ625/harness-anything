@@ -90,10 +90,24 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId: executionA }, worker)).outcome, "applied");
     await deliverRound(cell, rootDir, taskId, packagePath, executionA, "Round A delivery.");
     const returned = (await cell.run(
-      { kind: "task-adjudicate", taskId, executionId: executionA, return: true, reason: "Rework the cut." },
+      {
+        kind: "task-adjudicate",
+        taskId,
+        executionId: executionA,
+        return: true,
+        workerMode: "fresh",
+        followUp: "Rework the cut.",
+        runtimeInstanceId: "missing-return-worker",
+        reason: "Rework the cut.",
+      },
       owner,
     )) as Record<string, unknown>;
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+    assert.equal(
+      (returned.continuation as { outcome: string }).outcome,
+      "op_rejected",
+      "the applied return does not claim its unavailable worker launched",
+    );
 
     // main advances past the delivery branch's fork while the task sits in rework.
     git(rootDir, "commit", "--allow-empty", "--quiet", "-m", "main advanced");

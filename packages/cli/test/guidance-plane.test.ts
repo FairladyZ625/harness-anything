@@ -775,6 +775,24 @@ test("relation rejection renders structured triples and preserves them through d
   }
 });
 
+test("adjudication renders worker dispatch identity and its actual launch failure", () => {
+  const common = { ok: true, command: "task-adjudicate", outcome: "applied", opId: "op-return" };
+  assert.match(
+    renderCliReceipt({ ...common, continuation: { mode: "resume", outcome: "applied", dispatchId: "dispatch-worker" } })
+      .text,
+    /worker: resume; applied; dispatch: dispatch-worker/u,
+  );
+  const failure = {
+    outcome: "op_rejected",
+    code: "runtime_unavailable",
+    rejectionExplanation: "No instance available.",
+  };
+  assert.match(
+    renderCliReceipt({ ...common, continuation: { mode: "fresh", ...failure }, steps: [failure] }).text,
+    /worker dispatch failed: No instance available\./u,
+  );
+});
+
 test("daemon-coded rejection messages reach the CLI hint verbatim for submit and complete", () => {
   const submitMessage =
       "Delivery cut contains no changed paths; publish harness/tasks/task-1/artifacts/ " +

@@ -341,6 +341,39 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
   );
 });
 
+test("returned adjudication requires an explicit worker continuation choice", () => {
+  const missing = parseThinCommand(["task", "adjudicate", "task-1", "--return", "--note", "Please revise."]);
+  assert.equal(missing.ok, false);
+  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode resume/u);
+  const resumed = parseThinCommand([
+    "task",
+    "adjudicate",
+    "task-1",
+    "--return",
+    "--note",
+    "Please revise.",
+    "--worker-mode",
+    "resume",
+    "--message",
+    "Use the review comments and continue.",
+  ]);
+  assert.equal(resumed.ok, true, JSON.stringify(resumed));
+  if (resumed.ok) {
+    assert.equal(resumed.command.action.workerMode, "resume");
+    assert.equal(resumed.command.action.followUp, "Use the review comments and continue.");
+  }
+  for (const mode of ["fresh", "resume"]) {
+    const args = ["task", "adjudicate", "task-1", "--return", "--note", "Revise.", "--worker-mode", mode];
+    assert.equal(parseThinCommand(args).ok, false);
+    assert.equal(parseThinCommand([...args, "--message", " "]).ok, false);
+    assert.equal(parseThinCommand([...args, "--message", "Review the evidence."]).ok, true);
+  }
+  assert.equal(
+    parseThinCommand(["task", "adjudicate", "task-1", "--return", "--worker-mode", "auto", "--message", "Revise."]).ok,
+    false,
+  );
+});
+
 test("task settle parses to the closed orchestration action", () => {
   const settle = parseThinCommand(["task", "settle", "task-1"]);
   assert.equal(settle.ok, true, JSON.stringify(settle));

@@ -285,35 +285,28 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         ).outcome,
         "applied",
       );
-      assert.equal(
-        (
-          await host.run(
-            repoId,
-            {
-              kind: "task-adjudicate",
-              taskId,
-              executionId: firstExecutionId,
-              return: true,
-              reviewId: "redispatch-changes",
-              reason: "Return first runtime cut for rework.",
-            },
-            auth,
-          )
-        ).outcome,
-        "applied",
-      );
-
-      const implementation = await rpc(host, auth, "repo.agentRuntime.spawn", {
-        repo: { repoId },
-        payload: {
-          runtimeInstanceId: ingressDefinition.instanceId,
-          cwd: { scope: "repo-relative", path: ".worktrees/worker" },
-          prompt: "Continue implementation.",
+      const returned = await host.run(
+        repoId,
+        {
+          kind: "task-adjudicate",
           taskId,
-          idempotencyKey: "runtime-changes-requested-implementation",
+          executionId: firstExecutionId,
+          return: true,
+          workerMode: "fresh",
+          followUp: "Continue implementation.",
+          reviewId: "redispatch-changes",
+          reason: "Return first runtime cut for rework.",
+          runtimeInstanceId: ingressDefinition.instanceId,
         },
-      });
+        auth,
+      );
+      assert.equal(returned.outcome, "applied", JSON.stringify(returned));
+      const implementation = returned.continuation as Record<string, unknown>;
+      assert.ok(implementation, JSON.stringify(returned));
       assert.equal(implementation.outcome, "applied", JSON.stringify(implementation));
+      assert.match(launchedPrompt, /# Previous submitted conclusion/u);
+      assert.match(launchedPrompt, /Continue implementation\./u);
+      assert.doesNotMatch(launchedPrompt, /# Reviewer Role/u);
 
       const implementationBinding = await eventuallyValue(
         async () =>

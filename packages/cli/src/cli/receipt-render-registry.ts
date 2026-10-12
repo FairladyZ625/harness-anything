@@ -131,15 +131,21 @@ function renderCliReceiptBase(
 }
 
 function renderAdjudication(receipt: Record<string, unknown>): string {
-  const steps = Array.isArray(receipt.steps) ? receipt.steps.filter(isRecord) : [];
+  const steps = Array.isArray(receipt.steps) ? receipt.steps.filter(isRecord) : [],
+    continuation = isRecord(receipt.continuation) ? receipt.continuation : null;
   return [
     renderSuccessfulReceipt(receipt),
     ...(typeof receipt.reviewerId === "string"
       ? [`reviewer: ${receipt.reviewerId} (source: ${String(receipt.reviewerSource)})`]
       : []),
+    ...(continuation
+      ? [
+          `worker: ${String(continuation.mode)}; ${String(continuation.outcome)}${typeof continuation.dispatchId === "string" ? `; dispatch: ${continuation.dispatchId}` : ""}`,
+        ]
+      : []),
     ...steps
       .filter((step) => step.outcome === "failed" || step.outcome === "op_rejected")
-      .map((step) => `review dispatch failed: ${humanError(step).hint}`),
+      .map((step) => `${continuation ? "worker" : "review"} dispatch failed: ${humanError(step).hint}`),
   ].join("\n");
 }
 

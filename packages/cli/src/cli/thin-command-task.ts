@@ -76,10 +76,12 @@ export function parseTask(
     id === "task-reopen" ||
     id === "task-read-set" ||
     id === "task-review"
-  )
-    return parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
+  ) {
+    const parsed = parseProjected(id, args.slice(3), rootDir, repoId, json, inputs, {
       taskId,
     });
+    return id === "task-adjudicate" ? requireWorkerContinuation(parsed, json) : parsed;
+  }
   if (id === "task-transition") {
     const status = args[3];
     return nonEmpty(status)
@@ -130,6 +132,21 @@ export function parseTask(
     renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),
     json,
   );
+}
+
+function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): ThinParseResult {
+  if (!parsed.ok) return parsed;
+  const action = parsed.command.action as Readonly<Record<string, unknown>>;
+  if (action.return !== true) return parsed;
+  if (action.workerMode === undefined)
+    return rejected(
+      "missing_field",
+      "A returned cut needs exactly one worker mode: --worker-mode resume --message <text> or --worker-mode fresh --message <text>.",
+      json,
+    );
+  return typeof action.followUp === "string" && action.followUp.trim().length > 0
+    ? parsed
+    : rejected("missing_field", "A returned cut needs --message <text> for the worker.", json);
 }
 
 function parseTaskArtifactAdd(

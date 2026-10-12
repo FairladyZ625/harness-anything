@@ -132,6 +132,9 @@ test(
           taskId: created.taskId,
           executionId,
           return: true,
+          workerMode: "fresh",
+          followUp: "Revise the delivery.",
+          runtimeInstanceId: "missing-return-worker",
           reason: "Revise the delivery.",
         });
         assert.equal(returned.outcome, "applied", JSON.stringify(returned));

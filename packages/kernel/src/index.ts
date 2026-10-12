@@ -57,6 +57,7 @@ export { isIndependentFrom, isSameExecution, isSamePerson } from "./domain/actor
 export { revisionIssues } from "./domain/task-lifecycle-contract-support.ts";
 export {
   isTaskBoundRuntimeWriter,
+  isReturnedRuntimeContinuation,
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   taskIsDescendantOf,

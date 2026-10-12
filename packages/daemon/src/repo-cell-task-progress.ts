@@ -33,6 +33,7 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
+import { prepareReturnedWorker, dispatchReturnedWorker } from "./task-return-dispatch.ts";
 
 /** Attach only existing evidence to the submitted cut; document sync belongs to its original holder. */
 export async function prepareSubmissionEvidence(
@@ -517,8 +518,10 @@ export async function adjudicateTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId");
   if (action.forward === true) assertForwardUpgradeServable(cell, action, taskId);
-  const receipt = await cell.lifecycleAction(action, binding);
-  if (receipt.outcome !== "applied" || action.forward !== true) return receipt;
+  const continuation = action.return === true ? prepareReturnedWorker(cell, action, taskId) : null,
+    receipt = await cell.lifecycleAction(action, binding);
+  if (receipt.outcome !== "applied") return receipt;
+  if (continuation) return dispatchReturnedWorker(cell, continuation, binding, receipt);
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
   if (!dispatched)
     throw cell.cellCodedError("invalid_transition", `The forwarded cut on task ${taskId} has no submitted execution.`);

@@ -5,6 +5,7 @@ import {
   canonicalEventWritePlan,
   currentSubmittedExecutions,
   isSamePerson,
+  isReturnedRuntimeContinuation,
   runtimeEventContentClaims,
   stableStringify,
   submissionDigest,
@@ -129,19 +130,30 @@ export function appendAuxiliaryRuntimeIngress(
           "runtime_dispatch_not_resumable",
           `Dispatch ${sourceId} has no provider session to resume.`,
         );
+      const returnedContinuation =
+        typeof source.payload.taskId === "string" &&
+        source.payload.role !== "reviewer" &&
+        action.payload.role !== "reviewer" &&
+        isReturnedRuntimeContinuation(
+          requireCurrentTaskProjection(cell.projection, source.payload.taskId, "runtime resume").snapshot,
+          source.payload.executionId,
+          action.payload.executionId,
+        );
       if (
         !isSamePerson(source.actor, binding.actor) ||
         source.payload.taskId !== action.payload.taskId ||
         (action.payload.handoffCheckpointId === undefined &&
-          source.payload.executionId !== action.payload.executionId) ||
+          source.payload.executionId !== action.payload.executionId &&
+          !returnedContinuation) ||
         (remote &&
           ((source.payload.taskId ?? null) !== dispatch?.taskId ||
             (action.payload.handoffCheckpointId === undefined &&
-              (source.payload.executionId ?? null) !== dispatch?.executionId)))
+              (source.payload.executionId ?? null) !== dispatch?.executionId &&
+              !returnedContinuation)))
       )
         throw cell.cellCodedError(
           "runtime_resume_binding_mismatch",
-          "Resume must retain the source owner, task and execution.",
+          "Resume must retain the source owner and task, and the execution unless continuing its returned round.",
         );
       if (source.payload.agentId !== action.payload.agentId)
         throw cell.cellCodedError("runtime_resume_agent_mismatch", "Resume must retain the source agent.");

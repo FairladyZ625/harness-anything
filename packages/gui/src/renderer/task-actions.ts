@@ -10,6 +10,7 @@ type ReceiptRecord = GuiActionResult & {
   readonly code?: string;
   readonly nextAction?: string;
   readonly error?: { readonly code?: string; readonly hint?: string };
+  readonly continuation?: { readonly outcome?: string; readonly code?: string; readonly rejectionExplanation?: string };
   readonly proof?: {
     readonly committedRevision?: number;
     readonly appliedCut?: number;
@@ -31,6 +32,14 @@ export interface TaskSettlement {
 export function settleTaskReceipt(initial: GuiActionResult): TaskSettlement {
   const receipt = initial as ReceiptRecord,
     proof = receipt.proof;
+  if (receipt.continuation && receipt.continuation.outcome !== "applied")
+    return {
+      state: "op_rejected",
+      opId: receipt.opId,
+      code: receipt.continuation.code,
+      hint: receipt.continuation.rejectionExplanation,
+      receipt,
+    };
   if (
     receipt.outcome === "applied" &&
     proof?.durable === true &&
@@ -244,7 +253,13 @@ export function useTaskActions(repoId: string) {
   );
   // CEO 裁决:送审(--forward,daemon 同时派出独立评审)或打回(--return,带返工说明)。
   const adjudicateTask = useCallback(
-    (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string): Promise<TaskMutationFeedback> =>
+    (
+      task: TaskRow,
+      decision: "forward" | "return",
+      reason: string,
+      reviewId?: string,
+      workerMode?: "resume" | "fresh",
+    ): Promise<TaskMutationFeedback> =>
       once(`adjudicate:${task.taskId}:${decision}`, task.taskId, async () => {
         publish(task.taskId, {
           state: "pending",
@@ -258,7 +273,7 @@ export function useTaskActions(repoId: string) {
             taskId: task.taskId,
             executionId: task.activeExecutionId,
             ...(reviewId ? { reviewId } : {}),
-            ...(decision === "forward" ? { forward: true } : { return: true }),
+            ...(decision === "forward" ? { forward: true } : { return: true, workerMode, followUp: reason }),
             reason,
           }),
         );
