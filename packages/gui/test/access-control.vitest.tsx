@@ -215,11 +215,11 @@ describe("账号与访问控制页", () => {
     });
     expect(group.ok, JSON.stringify(group)).toBe(true);
     f.signIn("requester", ["offline_access"]);
-    await openTab(f.access, "Permission requests");
+    await openTab(f.access, "权限申请");
     const form = byTestId<HTMLFormElement>("permission-request-create");
-    await type(labelled(form, "Policy group"), "task-reader");
-    await type(labelled(form, "Resource"), "repo-a");
-    await type(labelled(form, "Reason"), "Read task evidence");
+    await type(labelled(form, "策略组"), "task-reader");
+    await type(labelled(form, "作用域"), "repo-a");
+    await type(labelled(form, "申请理由"), "Read task evidence");
     await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
     await settle();
     const requests = await f.access.permissionRequests();
@@ -231,7 +231,7 @@ describe("账号与访问控制页", () => {
     expect(await f.evaluate("requester", "repo-a", { kind: "task-create" })).toBe("denied");
     f.signIn("approver");
     await click(byTestId(`permission-request-decide-${request.requestId}`));
-    expect(byTestId("permission-request-confirm").textContent).toContain("Confirm version 1");
+    expect(byTestId("permission-request-confirm").textContent).toContain("确认版本 1");
     await click(byTestId("permission-request-approve"));
     expect(container.querySelector(`[data-testid="permission-request-decide-${request.requestId}"]`)).toBeNull();
     f.signIn("requester", ["offline_access"]);
