@@ -98,6 +98,111 @@ test("without a template in context the unfilled check is not applicable", () =>
   assert.equal(result.unfilledTemplate.issues.length, 0);
 });
 
+test("the PR template carries no visible placeholder residue", () => {
+  const result = checkPrBodyBilingual(pullRequestTemplate, undefined, { prTemplate: pullRequestTemplate });
+
+  assert.equal(result.unfilledTemplate.unfilled, true);
+  assert.equal(result.placeholderResidue.ok, true, result.placeholderResidue.issues.join("\n"));
+});
+
+test("a body generated from the current template defaults passes without manual cleanup", () => {
+  const filled = pullRequestTemplate
+    .replace(
+      /^## Summary$/mu,
+      "## Summary\n\nThis change moves conditional template instructions into HTML comments and ships defaults for either/or fields, so a worker-filled body no longer leaks them.",
+    )
+    .replace(
+      /^## 概要$/mu,
+      "## 概要\n\n本次改动把模板中的条件说明移入 HTML 注释，并为二选一字段提供默认值，填写后的正文不再残留模板说明文字。",
+    );
+  const result = checkPrBodyBilingual(filled, undefined, { prTemplate: pullRequestTemplate });
+
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.placeholderResidue.ok, true, result.placeholderResidue.issues.join("\n"));
+});
+
+test("residual template placeholders are rejected and named by line number", () => {
+  const english = [
+    validEnglish.replace("\n\n---", ""),
+    "## Governance Declaration",
+    "- Break-glass: no / yes",
+    "- Break-glass reason: [required when Break-glass is yes]",
+    "- Follow-up governance task: task_<ID> [required when Break-glass is yes]",
+    "",
+    "---",
+  ].join("\n");
+  const chinese = validChinese.replace(
+    "\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+    "\n\n## 治理声明\n\n- Break-glass：no / yes\n- 后续治理任务：task_<ID> [Break-glass 为 yes 时必填]\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+  );
+  const body = twoBlockBody({ english, chinese });
+  const result = checkPrBodyBilingual(body);
+
+  assert.equal(result.ok, false);
+  assert.equal(result.placeholderResidue.ok, false);
+  const issues = result.issues.join("\n");
+  for (const needle of [
+    "- Break-glass: no / yes",
+    "- Break-glass reason: [required when Break-glass is yes]",
+    "- Follow-up governance task: task_<ID> [required when Break-glass is yes]",
+    "- Break-glass：no / yes",
+    "- 后续治理任务：task_<ID> [Break-glass 为 yes 时必填]",
+  ]) {
+    const line = body.slice(0, body.indexOf(needle)).split("\n").length;
+    assert.ok(issues.includes(`PR body line ${line} `), `${needle} must be named with line ${line}`);
+    assert.ok(issues.includes(`PR 正文第 ${line} 行`), `${needle} must be named in Chinese with line ${line}`);
+    assert.ok(issues.includes(needle), needle);
+  }
+});
+
+test("a visible G1 example table left as <operation> rows is rejected by line", () => {
+  const english = [
+    validEnglish.replace("\n\n---", ""),
+    "## Per-Write Cost",
+    "| Operation | Metric | Before (200) | Before (2000) | After (200) | After (2000) |",
+    "| <operation> | sqlRowsRead | 0 | 0 | 0 | 0 |",
+    "",
+    "---",
+  ].join("\n");
+  const result = checkPrBodyBilingual(twoBlockBody({ english }));
+
+  assert.equal(result.placeholderResidue.ok, false);
+  assert.match(result.issues.join("\n"), /line \d+[^\n]*<operation>/u);
+});
+
+test("the template's Not applicable default does not satisfy the write-path G1 requirement", () => {
+  const english = [validEnglish.replace("\n\n---", ""), "## Per-Write Cost", "", "Not applicable.", "", "---"].join(
+    "\n",
+  );
+  const result = checkPrBodyBilingual(twoBlockBody({ english }), undefined, {
+    files: ["packages/kernel/src/store/persist.ts"],
+  });
+
+  assert.equal(result.ok, false);
+  assert.match(result.issues.join("\n"), /Write-path changes require `## Per-Write Cost`/u);
+  assert.equal(result.placeholderResidue.ok, true);
+});
+
+test("checkboxes, markdown links, code spans, and concrete ids are not residue", () => {
+  const english = [
+    validEnglish.replace("\n\n---", ""),
+    "- [x] `npm ci` completed locally.",
+    "See [the PR review guide](../docs-release/contributing/en/04-pr-review-and-merge.md) for the contract.",
+    "The signature changed from `Map<string, number>` to a plain record.",
+    "- Harness task: task_05e2122895b8ec36a3cd7c4ddc under ADR-0023.",
+    "",
+    "---",
+  ].join("\n");
+  const chinese = validChinese.replace(
+    "\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+    "\n\n本改动不依赖 /etc/hosts 之类的本机绝对路径。\n\n---\n\n## PR Gate Checklist / PR 门禁清单",
+  );
+  const result = checkPrBodyBilingual(twoBlockBody({ english, chinese }));
+
+  assert.equal(result.ok, true, result.issues.join("\n"));
+  assert.equal(result.placeholderResidue.residues.length, 0);
+});
+
 test("production churn above 200 requires both bilingual justification sections", () => {
   const result = checkPrBodyBilingual(twoBlockBody(), undefined, { productionDelta: { added: 201, deleted: 0 } });
 
