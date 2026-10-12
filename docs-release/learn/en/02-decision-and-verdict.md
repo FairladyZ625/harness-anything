@@ -59,6 +59,20 @@ propose ──▶ accept / reject / defer
 - **relate** — build a typed edge between a decision and a task or fact; this is
   how evidence is attached.
 
+### When independent review is required
+
+When repository policy requires review, receipts from `decision propose`,
+`decision amend`, and `decision respond-review` include
+`ha decision dispatch-review <id> --expected-digest <digest>` for the current
+content cut. The dispatched reviewer instructions state the fixed `reviewId`,
+`reviewContentDigest`, `reportRef`, JSON fields, and registration command. The
+`reviewId` must be exactly `review-<dispatchId>`.
+
+If `decision accept` is blocked by review, its receipt names the action for the
+current state: dispatch a review, respond to each finding, or amend and dispatch
+again using the digest returned by the amendment receipt. Use the new receipt's
+digest whenever the content changes.
+
 ## The fact-to-decision handoff
 
 The evidence handoff is executable in the

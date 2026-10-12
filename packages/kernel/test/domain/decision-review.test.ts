@@ -124,7 +124,14 @@ test("approved review must match the current Decision content", () => {
   assert.doesNotThrow(() => assertDecisionAcceptReview(reviewed, document(), accept("review-1", digest), "off"));
   assert.throws(
     () => assertDecisionAcceptReview(reviewed, document("Changed proposal body"), accept("review-1", digest), "off"),
-    /content changed/u,
+    (error: unknown) => {
+      const failure = entityActionCriterionFailure(error);
+      return (
+        /content changed/u.test(error instanceof Error ? error.message : "") &&
+        failure?.nextActions[0] ===
+          `ha decision dispatch-review ${current.decisionId} --expected-digest ${decisionReviewContentDigest(reviewed, document("Changed proposal body"))}`
+      );
+    },
   );
 });
 
@@ -144,7 +151,14 @@ test("changes_requested remains blocking until a named override with a reason", 
     };
   assert.throws(
     () => assertDecisionAcceptReview({ ...current, reviews: [review] }, document(), accept(), "off"),
-    /unresolved/u,
+    (error: unknown) => {
+      const failure = entityActionCriterionFailure(error);
+      return (
+        /unresolved/u.test(error instanceof Error ? error.message : "") &&
+        failure?.nextActions[0] === `ha decision respond-review ${current.decisionId} --from-file <responses.json>` &&
+        failure.nextActions[1]?.includes("<digest-from-amend-receipt>") === true
+      );
+    },
   );
   assert.doesNotThrow(() =>
     assertDecisionAcceptReview(
@@ -324,7 +338,8 @@ test("a review-required rejection names the dispatch-review command as its next 
         failure?.actionId === "accept" &&
         failure.criterionRef === DECISION_ACCEPT_REVIEW_CRITERION_REF &&
         failure.nextActions.length === 1 &&
-        failure.nextActions[0] === `ha decision dispatch-review ${decision().decisionId}`
+        failure.nextActions[0] ===
+          `ha decision dispatch-review ${decision().decisionId} --expected-digest ${decisionReviewContentDigest(decision(), document())}`
       );
     },
     "the review-required rejection must carry the dispatch-review next action",

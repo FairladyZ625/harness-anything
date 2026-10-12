@@ -40,6 +40,12 @@ propose ──▶ accept / reject / defer
 - **retire** —— 前提已经不成立的 decision 下线。
 - **relate** —— 在 decision 与 task 或 fact 之间建一条类型化的边;证据就是这样被挂上去的。
 
+### 需要独立评审时
+
+仓库策略要求评审时，`decision propose`、`decision amend` 和 `decision respond-review` 的回执会给出当前内容摘要对应的 `ha decision dispatch-review <id> --expected-digest <digest>`。评审员收到的派审说明会列明固定的 `reviewId`、`reviewContentDigest`、`reportRef`、JSON 字段和登记命令；`reviewId` 必须使用 `review-<dispatchId>`。
+
+`decision accept` 若被评审门阻止，回执会按当前状态列出派审、逐项回应 finding，或先修订再按修订回执中的摘要重新派审。摘要变化时，以回执提供的新摘要为准。
+
 ## Fact 到 decision 的交接
 
 证据交接的可执行版本位于[第一个完整闭环](../../start/zh/02-first-loop.md)。当前路径使用

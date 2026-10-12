@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import test from "node:test";
 import type { ExecutionV1 } from "@harness-anything/kernel";
 import { reviewPacket } from "../src/repo-cell-packets.ts";
-import { reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
+import { decisionReviewDispatchPrompt, reviewDispatchPrompt } from "../src/task-review-dispatch.ts";
 
 const sha256 = (body: string | Uint8Array) => createHash("sha256").update(body).digest("hex");
 
@@ -41,6 +41,35 @@ test("review prompts reference the frozen submission without inlining artifacts 
   assert.match(prompt, /ha task show task_review_bounds --json/u);
   assert.match(prompt, /ha doc show --path <anchor.path> --raw/u);
   assert.match(prompt, /registered anchors at their frozen revisions/u);
+});
+
+test("decision review prompts hand the reviewer the exact registration identity fields", () => {
+  const decisionId = "dec_REVIEWIDENTITY01",
+    digest = `sha256:${"a".repeat(64)}`,
+    dispatchId = "dispatch_reviewidentity1",
+    prompt = decisionReviewDispatchPrompt({ decisionId, digest, dispatchId });
+  assert.match(prompt, /Independently review Decision dec_REVIEWIDENTITY01/u);
+  assert.ok(prompt.includes(`reviewId review-${dispatchId}`), "the exact dispatch-bound reviewId");
+  assert.ok(prompt.includes(`reviewContentDigest ${digest}`), "the exact content digest");
+  assert.ok(
+    prompt.includes(`reportRef harness/decisions/decision-${decisionId}/artifacts/reports/${dispatchId}.md`),
+    "the exact reportRef",
+  );
+  assert.match(prompt, /actor_unauthorized/u);
+  assert.match(
+    prompt,
+    /JSON required fields: reviewId, reviewContentDigest, verdict, reason, findings, evidenceChecked, reportRef/u,
+  );
+  assert.match(
+    prompt,
+    new RegExp(
+      `ha decision review ${decisionId} --from-file ` +
+        `harness/decisions/decision-${decisionId}/artifacts/reports/${dispatchId}\\.json`,
+      "u",
+    ),
+    "the exact registration command",
+  );
+  assert.match(prompt, /Author only verdict, reason, findings, and evidenceChecked yourself/u);
 });
 
 test("review prompt size is independent of evidence bytes and artifact count", () => {

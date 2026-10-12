@@ -56,6 +56,11 @@ test("an independent approved review lets the proposal owner accept the current 
     assert.equal(settingsUpdated.outcome, "applied", JSON.stringify(settingsUpdated));
     const proposed = await cell.run(decisionProposal(), proposer),
       decisionId = receiptJson(proposed).decisionId as string,
+      proposedDigest = (
+        receiptJson(await cell.run({ kind: "decision-show", decisionId, includeBody: true }, proposer)).decision as {
+          readonly currentReviewContentDigest: string;
+        }
+      ).currentReviewContentDigest,
       owner = withPolicyGroup({ ...proposer, actor: { ...proposer.actor, executor: null } }, "admin"),
       independentReviewer = withPolicyGroup(
         {
@@ -67,6 +72,9 @@ test("an independent approved review lets the proposal owner accept the current 
         },
         "admin",
       );
+    assert.deepEqual(proposed.nextActions, [
+      `ha decision dispatch-review ${decisionId} --expected-digest ${proposedDigest}`,
+    ]);
     const relatedDecisionIds: string[] = [];
     for (const suffix of ["relation-a", "relation-b"]) {
       const relatedProposal = await cell.run(
@@ -112,7 +120,7 @@ test("an independent approved review lets the proposal owner accept the current 
       { outcome: unreviewed.outcome, code: unreviewed.code },
       { outcome: "op_rejected", code: "invalid_transition" },
     );
-    assert.deepEqual(unreviewed.nextActions, [`ha decision dispatch-review ${decisionId}`]);
+    assert.deepEqual(unreviewed.nextActions, [`ha decision dispatch-review ${decisionId} --expected-digest ${digest}`]);
     const humanApprovedProposal = await cell.run(
         { ...decisionProposal(), body: realizedDecisionBody("Human-approved review requirement") },
         proposer,
@@ -141,7 +149,7 @@ test("an independent approved review lets the proposal owner accept the current 
     assert.match(String(consentWithoutReview.rejectionExplanation), /requires an approved review/u);
     assert.deepEqual(
       consentWithoutReview.nextActions,
-      [`ha decision dispatch-review ${humanApprovedDecisionId}`],
+      [`ha decision dispatch-review ${humanApprovedDecisionId} --expected-digest ${humanApprovedDigest}`],
       "the consent-only rejection must point at the review dispatch command",
     );
     const humanApprovedReportRef = `decisions/decision-${humanApprovedDecisionId}/artifacts/reports/human-approved.md`;
@@ -598,6 +606,9 @@ test("Decision scope authorization and human approval govern judgment and review
       proposer,
     );
     assert.equal(responded.outcome, "applied", JSON.stringify(responded));
+    assert.deepEqual(responded.nextActions, [
+      `ha decision dispatch-review ${decisionId} --expected-digest ${amendedDecision.currentReviewContentDigest}`,
+    ]);
     assert.equal(
       relationRows(await cell.run({ kind: "relation-list", entity: `decision/${decisionId}` }, proposer)).find(
         ({ relationId }) => relationId === awaitsRelationId,

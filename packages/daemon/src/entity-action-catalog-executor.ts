@@ -7,6 +7,7 @@ import {
   compileDecisionWrite,
   compileFactWrite,
   decisionWritePlan,
+  decisionReviewContentDigest,
   getExecutableEntityAction,
   isSamePerson,
   parseEntityRef,
@@ -324,9 +325,11 @@ export function makeEntityActionCatalogExecutor(input: {
       );
     if (contract.target.kind === "decision" && !timestamp(occurredAt))
       reject("invalid_command", "decidedAt must be an ISO-8601 UTC timestamp ending in Z.");
+    let reviewRequirement: RepositorySettingsV1["decisionReviewRequirement"] | undefined;
+    const readReviewRequirement = () => (reviewRequirement ??= input.readSettings().decisionReviewRequirement);
     let bundle =
       matchingReplayBundle(input.store, contract, action, existing) ??
-      compileAction(contract, action, binding, opId, occurredAt);
+      compileAction(contract, action, binding, opId, occurredAt, undefined, readReviewRequirement);
     if (existing === null && action.kind === "decision-review" && isDecisionBundle(bundle)) {
       bundle = attachDecisionReviewerArtifact(bundle, {
         rootDir: input.rootDir ?? "",
@@ -387,6 +390,7 @@ export function makeEntityActionCatalogExecutor(input: {
         Array.isArray(action.defaultedDecisionPacketFields)
           ? action.defaultedDecisionPacketFields.filter((field): field is string => typeof field === "string")
           : [],
+        readReviewRequirement(),
       ),
     );
   };
@@ -460,6 +464,8 @@ export function makeEntityActionCatalogExecutor(input: {
     opId: string,
     occurredAt: string,
     allocatedRevision?: number,
+    readDecisionReviewRequirement: () => RepositorySettingsV1["decisionReviewRequirement"] = () =>
+      input.readSettings().decisionReviewRequirement,
   ): CatalogBundle => {
     const compile = contract.execution.compile;
     if (!compile) reject("invalid_command", `${contract.execution.ingress} has no write compiler.`);
@@ -512,7 +518,7 @@ export function makeEntityActionCatalogExecutor(input: {
         occurredAt,
       },
       decisionApproval(action, binding),
-      () => input.readSettings().decisionReviewRequirement,
+      readDecisionReviewRequirement,
     );
   };
 
@@ -851,6 +857,7 @@ function decisionReceipt(
   event: DecisionEventV1,
   authorizationDecision: AuthorizationDecision,
   defaultedFields: readonly string[] = [],
+  reviewRequirement: RepositorySettingsV1["decisionReviewRequirement"],
 ): WriteReceipt {
   const consentId = "judgmentConsent" in event.payload ? event.payload.judgmentConsent.consentId : null,
     relationReplacement =
@@ -891,8 +898,34 @@ function decisionReceipt(
       worktreeVisible: true as const,
       consentId,
       authorizationDecision,
-    };
-  return canonicalVisible ? { outcome: "applied", ...base } : { outcome: "pending", ...base };
+    },
+    nextActions = decisionReceiptNextActions(event, result.decision, reviewRequirement),
+    receipt = { ...base, ...(nextActions.length ? { nextActions } : {}) };
+  return canonicalVisible ? { outcome: "applied", ...receipt } : { outcome: "pending", ...receipt };
+}
+
+function decisionReceiptNextActions(
+  event: DecisionEventV1,
+  value: unknown,
+  requirement: RepositorySettingsV1["decisionReviewRequirement"],
+): readonly string[] {
+  if (
+    !["decision_proposed", "decision_amended", "decision_review_responded"].includes(event.type) ||
+    !value ||
+    typeof value !== "object" ||
+    !("body" in value)
+  )
+    return [];
+  const decision = value as Parameters<typeof decisionReviewContentDigest>[0] & {
+      readonly body: { readonly body: string } | null;
+    },
+    required =
+      requirement === "all" ||
+      (requirement === "high" && decision.riskTier === "high") ||
+      (requirement === "medium_and_high" && decision.riskTier !== "low");
+  if (!required || !decision.body) return [];
+  const digest = decisionReviewContentDigest(decision, decision.body.body);
+  return [`ha decision dispatch-review ${decision.decisionId} --expected-digest ${digest}`];
 }
 
 function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt {
