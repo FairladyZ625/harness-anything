@@ -57,7 +57,7 @@ export function Region({
       layoutId={focusId}
       layoutDependency={focusOpen}
       onClick={onOpen === undefined ? undefined : openUnlessRow}
-      className={`${handle === null ? "glass" : "border border-border bg-surface"} status-edge relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm ${
+      className={`glass status-edge relative flex min-h-0 min-w-0 flex-col overflow-hidden rounded-sm ${
         onOpen === undefined ? "" : "cursor-zoom-in"
       }`}
       style={edge === undefined ? undefined : ({ "--status-edge": TONE_COLOR[edge] } as CSSProperties)}
@@ -88,6 +88,12 @@ export function Region({
         <div data-region-scroll className={`h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}>
           {children}
         </div>
+        {/* 列表底部渐隐遮罩(业主 2026-10-12):滚动列表在玻璃面底缘平滑淡出,消除
+            死硬切边;做法对齐老原型 .tb::after 的渐隐,pointer-events 穿透不挡行点击。 */}
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 h-6.5 bg-gradient-to-t from-[var(--color-glass)] to-transparent"
+        />
       </motion.div>
       {footer !== undefined && (
         <motion.div
