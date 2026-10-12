@@ -76,7 +76,7 @@ test("sync re-expands stored grants to the currently declared actions of their g
   assert.equal((await adapter.readGrants("admin-token")).length, 2);
 });
 
-test("a center repository claim grants admin once and refuses a second creator", async () => {
+test("a center repository claim grants admin once and refuses a different creator", async () => {
   const keycloak = fakeKeycloak(),
     adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
   keycloak.account("person-a");
@@ -85,9 +85,35 @@ test("a center repository claim grants admin once and refuses a second creator",
   assert.deepEqual(await adapter.readGrants("admin-token"), [
     { groupId: "admin", resource: "owner-test", userIds: ["user-1"] },
   ]);
-  await assert.rejects(adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a"), {
+  const writesBeforeRepeat = keycloak.writes.length;
+  await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a");
+  assert.equal(keycloak.writes.length, writesBeforeRepeat, "the existing creator claim is idempotent");
+  keycloak.account("person-c");
+  await assert.rejects(adapter.claimRepositoryOwner("admin-token", "owner-test", "person-c"), {
     code: "repository_already_claimed",
   });
+  keycloak.account("person-b");
+  const personBUserId = await adapter.findUserId("admin-token", "person-b");
+  assert.equal(typeof personBUserId, "string");
+  await adapter.writeGrant("admin-token", { groupId: "viewer", resource: "owner-test", userIds: [personBUserId!] }, [
+    "task-read",
+  ]);
+  assert.deepEqual(
+    (await adapter.readGrants("admin-token")).find((grant) => grant.groupId === "viewer"),
+    {
+      groupId: "viewer",
+      resource: "owner-test",
+      userIds: [personBUserId],
+    },
+  );
+  await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-b");
+  assert.equal(
+    (await adapter.readGrants("admin-token")).some(
+      (grant) => grant.resource === "owner-test" && grant.groupId === "admin" && grant.userIds.includes(personBUserId!),
+    ),
+    false,
+    "existing non-owner access is not silently promoted to admin",
+  );
   const competing = await Promise.allSettled([
     adapter.claimRepositoryOwner("admin-token", "race-test", "person-a"),
     new KeycloakPolicyAdapter(config, keycloak.fetch).claimRepositoryOwner("admin-token", "race-test", "person-a"),

@@ -381,15 +381,20 @@ export class KeycloakPolicyAdapter {
         adminAccessToken,
         `${server}/resource?name=${encodeURIComponent(repoId)}&exactName=true`,
       );
-    if (resources.some((item) => item.name === repoId))
-      throw Object.assign(new Error(`Repository ${repoId} already has an authorization resource.`), {
-        code: "repository_already_claimed",
-      });
     const userId = await this.findUserId(adminAccessToken, personId);
     if (!userId)
       throw Object.assign(new Error(`No Keycloak account carries Harness person ${personId}.`), {
         code: "access_person_unknown",
       });
+    if (resources.some((item) => item.name === repoId)) {
+      const existingGrant = (await this.readGrants(adminAccessToken)).some(
+        (grant) => grant.resource === repoId && grant.userIds.includes(userId),
+      );
+      if (existingGrant) return;
+      throw Object.assign(new Error(`Repository ${repoId} already has an authorization resource.`), {
+        code: "repository_already_claimed",
+      });
+    }
     try {
       await this.#request(adminAccessToken, rolesPath, {
         method: "POST",
