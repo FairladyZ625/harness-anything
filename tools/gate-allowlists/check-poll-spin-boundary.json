@@ -22,6 +22,12 @@
         "reason": "Existing polling or synchronous bridge at the CH3 baseline."
       },
       {
+        "key": "packages/cli/src/cli-runtime-wait.ts#waitForTaskCi#await-in-loop",
+        "event": "GitHub exposes no completion signal a CLI can await; the CI verdict becomes observable only by re-reading the task-ci read",
+        "ref": "task_e0809bd58007723b64abb06c62",
+        "reason": "ha task ci --wait polls the same read on a 30s interval until a verdict, bounded by --timeout."
+      },
+      {
         "key": "packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning#await-in-loop",
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",

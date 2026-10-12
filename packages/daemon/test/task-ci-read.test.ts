@@ -15,6 +15,8 @@ type ProviderCheck = {
 function provider(
   states = { status: "completed", conclusion: "failure" as string | null },
   checkRuns: readonly ProviderCheck[] = [],
+  // Open pull requests for the branch; the empty default is the not_started "no PR" world.
+  pulls: readonly { number: number; mergeable_state: string | null }[] = [],
 ) {
   const calls: string[][] = [];
   const run = async (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => {
@@ -28,6 +30,7 @@ function provider(
     const endpoint = args.at(-1)!;
     if (args[0] === "repo") return JSON.stringify({ nameWithOwner: "owner/repo" });
     if (endpoint.endsWith("branches/task-ci")) return JSON.stringify({ commit: { sha } });
+    if (endpoint.includes("pulls?")) return JSON.stringify(pulls);
     if (endpoint.includes("check-runs"))
       return JSON.stringify([
         {
@@ -192,6 +195,48 @@ test("pending, successful and missing CI are distinct and no successful job fetc
         : gh.run(args, env, cwd),
   );
   assert.equal(receipt.ci.conclusion, "not_started");
+  // The empty default fixture has no open pull request, so the report names the actionable reason.
+  assert.equal(receipt.ci.notStarted?.reason, "no_pull_request");
+  assert.match(receipt.ci.notStarted?.detail ?? "", /ha task pr task-ci/u);
+});
+
+test("a not_started report distinguishes a conflicting PR, a missing PR, and queued registration", async () => {
+  for (const [pulls, reason, detail] of [
+    [
+      [{ number: 7, mergeable_state: "dirty" }],
+      "pull_request_conflict",
+      /Pull request #7 for this branch conflicts with its base branch/u,
+    ],
+    [[], "no_pull_request", /No open pull request for branch task-ci/u],
+    [[{ number: 8, mergeable_state: "clean" }], "queued", /GitHub may still be queuing them/u],
+  ] as const) {
+    const f = fixture(),
+      gh = provider({ status: "completed", conclusion: "success" }, [], [...pulls]);
+    const receipt = await readTaskCi(
+      f.context as never,
+      { kind: "task-ci", taskId: "task-ci" },
+      f.binding,
+      (args, env, cwd) =>
+        args.at(-1)!.includes("per_page")
+          ? Promise.resolve(args.at(-1)!.includes("check-runs") ? '[{"check_runs":[]}]' : '[{"workflow_runs":[]}]')
+          : gh.run(args, env, cwd),
+    );
+    assert.equal(receipt.ci.conclusion, "not_started");
+    assert.equal(receipt.ci.notStarted?.reason, reason);
+    assert.match(receipt.ci.notStarted?.detail ?? "", detail);
+    // The queued detail is the only one that tells the caller to keep waiting.
+    if (reason === "queued") assert.match(receipt.ci.notStarted?.detail ?? "", /--wait/u);
+  }
+});
+
+test("a report with checks never asks about pull requests", async () => {
+  const f = fixture(),
+    gh = provider();
+  await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, gh.run);
+  assert.equal(
+    gh.calls.some((args) => args.some((arg) => String(arg).includes("pulls?"))),
+    false,
+  );
 });
 
 test("provider errors expose their failure code while removing the credential", async () => {

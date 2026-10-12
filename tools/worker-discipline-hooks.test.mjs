@@ -177,11 +177,21 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.match(body, /ha doc sync --submit --task <task-id>/u);
     assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
+    // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
+    assert.match(body, /ha task ci <task-id> --wait/u);
+    assert.match(body, /ha task pr <task-id>/u);
+    assert.match(body, /not_started/u);
+    assert.match(body, /PR 冲突|conflicting pull request/u);
+    assert.match(body, /排队|queued/u);
+    assert.match(body, /main 也红|main-red/u);
   }
   const prompt = readFileSync(path.join(repositoryRoot, "packages/daemon/src/agent-role-prompts.ts"), "utf8");
   assert.match(prompt, /canonical repository root/u);
   assert.match(prompt, /ha doc sync --submit --task <task-id>/u);
   assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
+  assert.match(prompt, /ha task ci <task-id> --wait/u);
+  // The prompt source escapes backticks inside the template literal; match both spellings.
+  assert.match(prompt, /\\`pending\\` and \\`not_started\\` are not verdicts/u);
 });
 
 function makeRepo(context, prefix) {

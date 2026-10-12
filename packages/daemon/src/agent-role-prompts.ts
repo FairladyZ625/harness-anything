@@ -55,7 +55,8 @@ const reviewerDiscipline = [
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
   "- For a Task delivery, read the PR checks yourself with `ha task ci <task-id> --json` (the reviewed task's id) " +
-    "and confirm `ci.headSha` is the pinned delivery commit. `not_started` and `pending` conclusions are not green. " +
+    "and confirm `ci.headSha` is the pinned delivery commit. `not_started` and `pending` conclusions are not green; " +
+    "a `not_started` report names its reason (no pull request, a conflicting pull request, or queued). " +
     "The command serves GitHub-hosted repositories only; when it is unavailable or the repository is hosted " +
     "elsewhere, label the CI check unverified.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
@@ -74,10 +75,14 @@ const workerDiscipline = `# Worker Role
   no Git credentials, so do not run \`git push\` yourself and never push another ref.
 - After the branch is published, create the task PR with \`ha task pr <task-id>\`. The daemon creates it with the
   frozen task PR body and the same dispatch-held credential; workers may not merge it.
-- Close the CI loop before you submit: run \`ha task ci <task-id> --json\`, confirm \`ci.headSha\` is your delivery commit,
-  and treat every red check as yours to fix — repair it, re-run the local evidence, push again, and read CI again until
-  it is green. \`not_started\` is not green either: when no checks have started on the branch, record that in the closeout
-  and submit. Both commands serve GitHub-hosted repositories only. When either answers \`unsupported_command\` or
+- Close the CI loop before you submit: run \`ha task ci <task-id> --wait\` and let it block until the branch reaches a
+  verdict (\`--json\` for the full report, \`--timeout <seconds>\` to bound the wait), and confirm \`ci.headSha\` is your
+  delivery commit. \`pending\` and \`not_started\` are not verdicts — keep waiting, and when \`not_started\` names its
+  reason, act on it: no pull request → open one with \`ha task pr\`; a conflicting pull request → rebase onto the base
+  and push again; queued → keep waiting. A red verdict is triaged, never accepted: compare the same test on
+  origin/main's latest CI — main-red failures are recorded in the closeout, not fixed and not waited on; every other
+  red you repair, re-run the local evidence, push again, and read CI again until the delivery SHA is green. Both
+  commands serve GitHub-hosted repositories only. When either answers \`unsupported_command\` or
   \`runtime_credential_unavailable\`, mark the CI unverified in the closeout with that error and submit as usual.
 - Do not merge; final merge authority belongs to the CEO.
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.

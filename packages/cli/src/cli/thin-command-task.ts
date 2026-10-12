@@ -123,15 +123,17 @@ function parseTaskPublication(
   const taskId = args[2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${id.slice("task-".length)} <task-id>.`, json);
   const flags = readFlags(id, args.slice(3), inputs);
-  return flags.ok
-    ? accepted(rootDir, repoId, json, {
-        kind: id,
-        taskId,
-        ...(flags.booleans.has("--update") ? { update: true } : {}),
-      })
-    : rejected(flags.code, flags.nextAction, json);
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  // --wait/--timeout ride the CLI facade's poll loop; the facade strips them before the daemon read.
+  const timeout = flags.one.get("--timeout");
+  return accepted(rootDir, repoId, json, {
+    kind: id,
+    taskId,
+    ...(flags.booleans.has("--update") ? { update: true } : {}),
+    ...(id === "task-ci" && flags.booleans.has("--wait") ? { wait: true } : {}),
+    ...(id === "task-ci" && timeout !== undefined ? { timeoutSeconds: Number(timeout) } : {}),
+  });
 }
-
 
 function parseTaskShow(
   args: readonly string[],

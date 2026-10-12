@@ -518,13 +518,15 @@ export async function submitTask(
           cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
           "invalid_transition",
         ),
-        rejectionExplanation: `Task CI must be green for ${submission.commitSha}; observed ${ci.ci.headSha} with ${ci.ci.conclusion}.`,
+        rejectionExplanation: `Task CI must be green for ${submission.commitSha}; observed ${ci.ci.headSha} with ${ci.ci.conclusion}${
+          ci.ci.notStarted ? `: ${ci.ci.notStarted.detail}` : ""
+        }.`,
         next: [
           completionGuidance(
             fresh.snapshot,
             executionId,
-            `ha task ci ${taskId} --json`,
-            "Push and fix the delivery until its exact SHA is green before submitting.",
+            `ha task ci ${taskId} --wait`,
+            "Wait for the CI verdict instead of stopping; a not_started report names its reason. Fix and push until the exact delivery SHA is green.",
           ),
         ],
         steps: synced ? [synced] : [],

@@ -172,6 +172,13 @@ function renderTaskCi(receipt: Record<string, unknown>): string {
   const ci = isRecord(receipt.ci) ? receipt.ci : null;
   if (!ci) return "task-ci: no report";
   const lines = [`task ${String(ci.taskId)} ${String(ci.headSha)}: ${String(ci.conclusion)}`];
+  // A not_started report names its reason and the action that changes it (PR, rebase, or wait).
+  const notStarted = isRecord(ci.notStarted) ? ci.notStarted : null;
+  if (notStarted) {
+    lines.push(`not started: ${String(notStarted.reason)}`);
+    if (typeof notStarted.detail === "string") lines.push(notStarted.detail);
+  }
+  if (isRecord(receipt.wait)) lines.push(`wait: ${String(receipt.wait.state)}`);
   const runs = Array.isArray(ci.runs) ? ci.runs.filter(isRecord) : [];
   for (const run of runs) {
     const jobs = Array.isArray(run.jobs) ? run.jobs.filter(isRecord) : [];

@@ -103,6 +103,10 @@ test("complete bundled reviewer prompt confines writes to its review receipt", (
   assert.match(prompt, /read the PR checks yourself with `ha task ci <task-id> --json`/u);
   assert.match(prompt, /confirm `ci\.headSha` is the pinned delivery commit/u);
   assert.match(prompt, /`not_started` and `pending` conclusions are not green/u);
+  assert.match(
+    prompt,
+    /a `not_started` report names its reason \(no pull request, a conflicting pull request, or queued\)/u,
+  );
   assert.match(prompt, /The command serves GitHub-hosted repositories only/u);
   assert.match(prompt, /stop if that cut changes/u);
   assert.match(prompt, /Do not amend or adjudicate the target/u);
@@ -150,10 +154,16 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /ha task pr <task-id>/u);
     assert.match(prompt, /daemon pushes exactly this task's branch with the dispatch-held credential/u);
     assert.match(prompt, /do not run `git push` yourself and never push another ref/u);
-    assert.match(prompt, /ha task ci <task-id> --json/u);
-    assert.match(prompt, /confirm `ci\.headSha` is your delivery commit/u);
-    assert.match(prompt, /`not_started` is not green either/u);
-    assert.match(prompt, /Both commands serve GitHub-hosted repositories only/u);
+    // The CI loop is wait → triage → fix: the only path to a submitted delivery.
+    assert.match(prompt, /ha task ci <task-id> --wait/u);
+    assert.match(prompt, /`--timeout <seconds>` to bound the wait/u);
+    assert.match(prompt, /confirm `ci\.headSha` is your\s+delivery commit/u);
+    assert.match(prompt, /`pending` and `not_started` are not verdicts/u);
+    assert.match(prompt, /no pull request → open one with `ha task pr`/u);
+    assert.match(prompt, /a conflicting pull request → rebase onto the base\s+and push again/u);
+    assert.match(prompt, /compare the same test on\s+origin\/main's latest CI/u);
+    assert.match(prompt, /main-red failures are recorded in the closeout, not fixed and not waited on/u);
+    assert.match(prompt, /Both\s+commands serve GitHub-hosted repositories only/u);
     assert.match(prompt, /`unsupported_command`\s+or\s+`runtime_credential_unavailable`/u);
     assert.match(prompt, /mark the CI unverified in the closeout with that error/u);
     assert.match(prompt, /Do not merge/u);

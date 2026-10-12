@@ -72,3 +72,57 @@ test("real read runner invokes gh with daemon credential and keeps the write que
   assert.match(calls, /--log-failed/u);
   assert.equal(calls.includes("rerun"), false);
 });
+
+test("real read runner explains an empty report through the open pull request", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-task-ci-")),
+    previousPath = process.env.PATH;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+    rmSync(root, { recursive: true, force: true });
+  });
+  writeProviderExecutable(
+    path.join(root, "gh"),
+    `
+    const args = process.argv.slice(2);
+    if (process.env.GH_TOKEN !== ${JSON.stringify(secret)}) throw new Error("daemon credential absent");
+    const endpoint = args.at(-1);
+    if (args[0] === "repo") console.log(JSON.stringify({nameWithOwner:"fixture/repo"}));
+    else if (endpoint.includes("branches/task-ci")) console.log(JSON.stringify({commit:{sha:${JSON.stringify(sha)}}}));
+    else if (endpoint.includes("check-runs")) console.log(JSON.stringify([{check_runs:[]}]));
+    else if (endpoint.includes("actions/runs?")) console.log(JSON.stringify([{workflow_runs:[]}]));
+    else if (endpoint.includes("pulls?")) console.log(JSON.stringify([{number:7, mergeable_state:"dirty"}]));
+    else throw new Error("unexpected provider call " + endpoint);
+  `,
+  );
+  process.env.PATH = `${root}${path.delimiter}${previousPath ?? ""}`;
+  const f = fixture();
+  const context = {
+    ...f.context,
+    rootDir: root,
+    state: "attached",
+    mode: "local",
+    queueDepth: 0,
+    store: { readHead: () => ({ revision: 42 }) },
+    operationId: () => "ci-read-op",
+    withHumanSummary: (receipt: unknown) => receipt,
+    failed: (_id: string, error: Error & { code: string }) => ({
+      outcome: "op_rejected",
+      code: error.code,
+      evidence: error.message,
+    }),
+    fatalCellError: () => false,
+    errorOperationId: () => null,
+    executeAction: () => {
+      throw new Error("CI must use the read provider path");
+    },
+  };
+  const run = makeRepoCellCommandRunner(context as never),
+    receipt = (await run({ kind: "task-ci", taskId: "task-ci" }, f.binding)) as unknown as {
+      ci: { conclusion: string; notStarted?: { reason: string; detail: string } };
+    };
+  assert.equal(receipt.ci.conclusion, "not_started");
+  assert.equal(receipt.ci.notStarted?.reason, "pull_request_conflict");
+  assert.match(receipt.ci.notStarted?.detail ?? "", /Pull request #7/u);
+  assert.match(receipt.ci.notStarted?.detail ?? "", /[Rr]ebase/u);
+});

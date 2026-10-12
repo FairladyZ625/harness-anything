@@ -38,6 +38,10 @@ interface Job {
   readonly conclusion: string | null;
   readonly html_url: string;
 }
+interface Pull {
+  readonly number: number;
+  readonly mergeable_state: string | null;
+}
 
 interface TaskCiReport {
   readonly schema: "task-ci/v1";
@@ -45,6 +49,11 @@ interface TaskCiReport {
   readonly branch: string;
   readonly headSha: string;
   readonly conclusion: "not_started" | "pending" | "success" | "failure";
+  /** Present only when conclusion is not_started: names whether waiting can help and what to do instead. */
+  readonly notStarted?: {
+    readonly reason: "no_pull_request" | "pull_request_conflict" | "queued";
+    readonly detail: string;
+  };
   readonly checks: readonly {
     readonly name: string;
     readonly status: string;
@@ -193,7 +202,19 @@ export async function readTaskCi(
           : states.every((state) => ["success", "neutral", "skipped"].includes(state.conclusion ?? ""))
             ? "success"
             : "failure";
-  const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs },
+  // An empty report explains itself — the only extra API round happens on this empty path.
+  const notStarted =
+    conclusion !== "not_started" ? undefined : await explainNotStarted(api, prefix, repository, branch);
+  const ci: TaskCiReport = {
+      schema: "task-ci/v1",
+      taskId: branch,
+      branch,
+      headSha,
+      conclusion,
+      ...(notStarted ? { notStarted } : {}),
+      checks,
+      runs,
+    },
     revision = context.projection.readCut().sourceRevision;
   return {
     ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, revision, null) ?? {
@@ -203,6 +224,44 @@ export async function readTaskCi(
       evidence: JSON.stringify(ci),
     }),
     ci,
+  };
+}
+
+type ApiReader = <T>(endpoint: string, paginated?: boolean) => Promise<T>;
+
+/** Distinguish the not_started cases the worker can act on (open the PR, resolve a conflict) from
+ * the one where waiting is the right move. #3557 surfaced this: a conflicting pull request read as
+ * a bare not_started and the worker had nothing to act on. */
+async function explainNotStarted(
+  api: ApiReader,
+  prefix: string,
+  repository: string,
+  branch: string,
+): Promise<NonNullable<TaskCiReport["notStarted"]>> {
+  const [owner] = repository.split("/");
+  const pulls = await api<readonly Pull[]>(
+    `${prefix}pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`,
+  );
+  const conflicting = pulls.find((pull) => pull.mergeable_state === "dirty");
+  if (conflicting)
+    return {
+      reason: "pull_request_conflict",
+      detail:
+        `Pull request #${conflicting.number} for this branch conflicts with its base branch ` +
+        "(mergeable_state dirty). Rebase onto the base and push again; no CI verdict arrives while the conflict stands.",
+    };
+  if (pulls.length === 0)
+    return {
+      reason: "no_pull_request",
+      detail:
+        `No open pull request for branch ${branch}; pull-request-triggered checks cannot start. ` +
+        `Open one with ha task pr ${branch}.`,
+    };
+  return {
+    reason: "queued",
+    detail:
+      "No checks or workflow runs are registered for this head SHA yet; GitHub may still be queuing them. " +
+      `Read again after a short wait (ha task ci ${branch} --wait).`,
   };
 }
 

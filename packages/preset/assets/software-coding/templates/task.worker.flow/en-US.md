@@ -32,5 +32,6 @@ Stop and report when scope, authority, required input, or a destructive choice i
 - Report the commit, changed files, verification, and residual risks.
 - Before handoff, rebase onto the latest `origin/main` and rerun the evidence commands.
 - Submit task-bound receipts only through `ha doc sync --submit --task <task-id>`.
-- For a repository delivery, publish with `ha task push <task-id>`, create the PR with `ha task pr <task-id>`, read CI with `ha task ci <task-id> --json`, and submit only after the delivery SHA is green. Workers never merge.
-- When CI is red, run `ha task ci <task-id>` first and use its failed test, assertion, and full-log reference before repairing the code.
+- For a repository delivery, publish with `ha task push <task-id>`, create the PR with `ha task pr <task-id>`, then wait for the CI verdict with `ha task ci <task-id> --wait` (`--json` for the full report, `--timeout <seconds>` to bound the wait); submit only after the delivery SHA is green. Workers never merge.
+- `pending` and `not_started` are not verdicts: a not_started report names its reason — no pull request → open one with `ha task pr`; a conflicting pull request → rebase onto the base and push again; queued → keep waiting.
+- When CI is red, run `ha task ci <task-id>` for the failed test, assertion, and full-log reference, and compare the same test on origin/main's latest CI: main-red failures are recorded in the report, not fixed and not waited on; every other red you judge as caused by this change, repair, push again, and read CI again until the delivery SHA is green.
