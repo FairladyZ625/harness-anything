@@ -175,7 +175,10 @@ export class AccessAdminService {
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
       actor = (
-        await (ownDevices || publicRequest || request.operation === "permission-request-list"
+        await (ownDevices ||
+        publicRequest ||
+        request.operation === "permission-request-list" ||
+        request.operation === "permission-request-decide"
           ? this.#oidc.requireSession()
           : this.#oidc.requireRole("access-admin"))
       ).personId;

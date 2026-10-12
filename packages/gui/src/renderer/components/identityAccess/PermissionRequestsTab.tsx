@@ -6,8 +6,15 @@ import { Modal } from "../primitives/Modal.tsx";
 import { resourceLabel, roleLabel } from "../../access-model.ts";
 import { useAccessRead, asRejection, AccessNotice, INPUT } from "./AccessParts.tsx";
 import { isRejection } from "../../access-model.ts";
+import { t } from "../../i18n/index.tsx";
 
-export function PermissionRequestsTab({ access }: { readonly access: AccessAdminApi }) {
+export function PermissionRequestsTab({
+  access,
+  identity,
+}: {
+  readonly access: AccessAdminApi;
+  readonly identity: string;
+}) {
   const { data, rejection, reload } = useAccessRead(access.permissionRequests),
     [groupId, setGroupId] = useState("viewer"),
     [resource, setResource] = useState(""),
@@ -44,7 +51,7 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
   if (rejection) return <AccessNotice rejection={rejection} origin="read" />;
   if (!data) return <p role="status">正在读取权限申请…</p>;
   return (
-    <Region title="Permission requests">
+    <Region title={t("accessControl.requests.title")}>
       <form
         className="flex flex-wrap items-end gap-3 px-3 py-3"
         data-testid="permission-request-create"
@@ -54,7 +61,7 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
         }}
       >
         <label className="flex min-w-0 flex-col gap-1 ui-meta">
-          Policy group
+          {t("accessControl.requests.policyGroup")}
           <input
             className={INPUT}
             required
@@ -63,7 +70,7 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
           />
         </label>
         <label className="flex min-w-0 flex-col gap-1 ui-meta">
-          Resource
+          {t("accessControl.requests.resource")}
           <input
             className={INPUT}
             required
@@ -72,11 +79,11 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
           />
         </label>
         <label className="flex min-w-0 flex-1 flex-col gap-1 ui-meta">
-          Reason
+          {t("accessControl.requests.reason")}
           <input className={INPUT} value={rationale} onChange={(event) => setRationale(event.currentTarget.value)} />
         </label>
         <Button type="submit" disabled={busy || !groupId.trim() || !resource.trim()}>
-          Request access
+          {t("accessControl.requests.submit")}
         </Button>
       </form>
       {failure !== null && (
@@ -101,19 +108,44 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
                 {request.rationale ? ` · ${request.rationale}` : ""}
               </p>
             </div>
-            {request.state === "pending" && (
-              <Button testId={`permission-request-decide-${request.requestId}`} onClick={() => setConfirming(request)}>
-                Review and decide
-              </Button>
-            )}
+            {request.state === "pending" &&
+              (request.personId === identity ? (
+                <Button
+                  testId={`permission-request-withdraw-${request.requestId}`}
+                  disabled={busy}
+                  onClick={() => {
+                    setBusy(true);
+                    setFailure(null);
+                    void access
+                      .withdrawPermissionRequest({ requestId: request.requestId, requestVersion: request.version })
+                      .catch(asRejection)
+                      .then(async (result) => {
+                        if (isRejection(result)) setFailure(result);
+                        else await reload();
+                        setBusy(false);
+                      });
+                  }}
+                >
+                  {t("accessControl.requests.withdraw")}
+                </Button>
+              ) : (
+                <Button
+                  testId={`permission-request-decide-${request.requestId}`}
+                  onClick={() => setConfirming(request)}
+                >
+                  {t("accessControl.requests.review")}
+                </Button>
+              ))}
             {request.state !== "pending" && <span className="ui-meta">{request.state}</span>}
           </article>
         ))}
-        {data.requests.length === 0 && <p className="px-3 py-3 text-text-muted ui-body">No pending requests.</p>}
+        {data.requests.length === 0 && (
+          <p className="px-3 py-3 text-text-muted ui-body">{t("accessControl.requests.empty")}</p>
+        )}
       </div>
       {confirming && (
         <Modal
-          title="Confirm permission request"
+          title={t("accessControl.requests.confirmTitle")}
           testId="permission-request-confirm"
           onClose={() => !busy && setConfirming(null)}
           footer={
@@ -124,10 +156,10 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
                 disabled={busy}
                 onClick={() => void decide("approve")}
               >
-                Approve
+                {t("accessControl.requests.approve")}
               </Button>
               <Button testId="permission-request-reject" disabled={busy} onClick={() => void decide("reject")}>
-                Reject
+                {t("accessControl.requests.reject")}
               </Button>
             </div>
           }
