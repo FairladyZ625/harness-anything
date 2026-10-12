@@ -88,6 +88,13 @@ export interface FleetReplicaSyncOptions extends FleetReplicaPullClientOptions {
   readonly onFailure?: (error: unknown) => void;
   /** Called for the usable local checkpoint after each pull and unchanged-checkpoint progress hint. */
   readonly onConfirmed?: (revision: number) => void | Promise<void>;
+  /** Maximum silence tolerated between center progress hints (three 20s intervals by default). */
+  readonly heartbeatTimeoutMs?: number;
+  /** Clock used for the durable heartbeat observation. */
+  readonly now?: () => number;
+  /** Timer hooks for deterministic heartbeat supervision tests. */
+  readonly heartbeatSchedule?: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  readonly heartbeatCancel?: (timer: NodeJS.Timeout) => void;
 }
 
 /**
@@ -112,6 +119,7 @@ export function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<v
     // checkpoint. Record the separately reported ledger head so lag stays visible while watching.
     for (;;) {
       const head = await watchReplica(options, sessionPool, revision);
+      recordReplicaHealth(viewDir, { lastHeartbeatAt: new Date((options.now ?? Date.now)()).toISOString() });
       recordHeadConfirmation(viewDir, head.knownHead);
       if (head.cut.revision > revision) return;
       await options.onConfirmed?.(revision);
@@ -143,7 +151,11 @@ export function runFleetReplicaSync(options: FleetReplicaSyncOptions): Promise<v
   });
 }
 
-async function watchReplica(options: FleetReplicaSyncOptions, pool: FleetReplicaSessionPool, afterRevision: number) {
+export async function watchReplica(
+  options: FleetReplicaSyncOptions,
+  pool: FleetReplicaSessionPool,
+  afterRevision: number,
+) {
   const session = await pool.acquire(options),
     abandon = () => pool.discard(options, session);
   options.signal?.addEventListener("abort", abandon, { once: true });
@@ -151,7 +163,23 @@ async function watchReplica(options: FleetReplicaSyncOptions, pool: FleetReplica
   if (options.signal?.aborted) abandon();
   let answered = false;
   try {
-    const hint = await watchReplicaHead(session, options.repoId, afterRevision, null);
+    const timeoutMs = options.heartbeatTimeoutMs ?? 60_000;
+    const schedule = options.heartbeatSchedule ?? ((callback, delayMs) => setTimeout(callback, delayMs));
+    const cancel = options.heartbeatCancel ?? ((timer) => clearTimeout(timer));
+    const watching = watchReplicaHead(session, options.repoId, afterRevision, null),
+      deadline = new Promise<never>((_, reject) => {
+        const timer = schedule(
+          () =>
+            reject(
+              Object.assign(new Error(`Replica heartbeat timed out after ${timeoutMs}ms`), {
+                code: "replica_heartbeat_timeout",
+              }),
+            ),
+          timeoutMs,
+        );
+        watching.finally(() => cancel(timer)).catch(() => undefined);
+      });
+    const hint = await Promise.race([watching, deadline]);
     answered = true;
     return hint;
   } finally {

@@ -4,10 +4,11 @@ import { writeFileDurably } from "../durable-file.ts";
 
 interface ReplicaHealth {
   readonly rebuildCount: number;
+  readonly lastHeartbeatAt: string | null;
   readonly syncFailure: { readonly code: string; readonly message: string } | null;
   readonly modelFailure: { readonly code: string; readonly message: string } | null;
 }
-const empty: ReplicaHealth = { rebuildCount: 0, syncFailure: null, modelFailure: null };
+const empty: ReplicaHealth = { rebuildCount: 0, lastHeartbeatAt: null, syncFailure: null, modelFailure: null };
 const file = (viewDir: string) => path.join(viewDir, "replica-health.json");
 
 /** Missing observations are unknown; malformed observations are errors, never a healthy zero. */
@@ -16,14 +17,16 @@ export function readReplicaHealth(viewDir: string): ReplicaHealth {
     const value = JSON.parse(readFileSync(file(viewDir), "utf8")) as ReplicaHealth;
     const failure = (v: ReplicaHealth["syncFailure"]) =>
       v === null || (typeof v === "object" && typeof v.code === "string" && typeof v.message === "string");
+    const lastHeartbeatAt = value.lastHeartbeatAt === undefined ? null : value.lastHeartbeatAt;
     if (
       !Number.isSafeInteger(value.rebuildCount) ||
       value.rebuildCount < 0 ||
+      (lastHeartbeatAt !== null && typeof lastHeartbeatAt !== "string") ||
       !failure(value.syncFailure) ||
       !failure(value.modelFailure)
     )
       throw new Error("Replica health observations are malformed");
-    return value;
+    return { ...value, lastHeartbeatAt };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return empty;
     throw error;

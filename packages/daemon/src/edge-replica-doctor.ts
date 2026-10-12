@@ -12,6 +12,7 @@ export function edgeReplicaDoctor(rootDir: string, repoId: string) {
     centerCut: null as { revision: number; headDigest: string } | null,
     lag: null as number | null,
     lastSuccessAt: null as string | null,
+    lastHeartbeatAt: null as string | null,
     failureCode: null as string | null,
     failureMessage: null as string | null,
     rebuildCount: null as number | null,
@@ -44,6 +45,7 @@ export function edgeReplicaDoctor(rootDir: string, repoId: string) {
     const health = readReplicaHealth(viewDir),
       failure = health.modelFailure ?? health.syncFailure;
     replica.rebuildCount = health.rebuildCount;
+    replica.lastHeartbeatAt = health.lastHeartbeatAt;
     replica.failureCode = isReadDenied(viewDir)
       ? "authorization_denied"
       : (failure?.code ?? (view ? null : "replica_unavailable"));
