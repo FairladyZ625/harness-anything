@@ -802,7 +802,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               evaluatedAtCut: "keycloak:current",
               ...(request.repoId ? { repoId: request.repoId } : {}),
             });
-          return accessAdmin.run(request);
+          return accessAdmin.run(request, auth.executionPrincipal?.personId);
         }
         if (request.operation === "listener-set") return oidc.configureAuthority(() => managedRbac.run(request));
         return requireAuthorizedHostAction({

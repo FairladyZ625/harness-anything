@@ -168,7 +168,9 @@ export class AccessAdminService {
     };
   }
 
-  async run(request: AccessAdminRequest): Promise<Record<string, unknown>> {
+  async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
+    if (request.operation === "permission-request-create" && requester !== undefined)
+      return this.#createPermissionRequest(request, requester);
     const ownDevices = request.operation?.startsWith("device-") === true,
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",

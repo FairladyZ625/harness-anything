@@ -529,7 +529,11 @@ export const agentProtocolCommands = Object.freeze([
     path: ["access", "request-create"],
     summary: "Create a versioned permission request.",
     method: "daemon.rbac.manage",
-    inputs: [],
+    inputs: [
+      cliInput("--group-id", "single", true, { code: "missing_field" }, { field: "groupId" }),
+      cliInput("--resource", "single", true, { code: "missing_field" }),
+      cliInput("--rationale", "single", false, { code: "invalid_field" }),
+    ],
   }),
   defineHostAdminCommand({
     id: "permission-request-decide",
@@ -538,7 +542,17 @@ export const agentProtocolCommands = Object.freeze([
     path: ["access", "request-decide"],
     summary: "Approve or reject a versioned permission request.",
     method: "daemon.rbac.manage",
-    inputs: [],
+    inputs: [
+      cliInput("--request-id", "single", true, { code: "missing_field" }, { field: "requestId" }),
+      cliInput(
+        "--request-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+      cliInput("--decision", "single", true, { code: "missing_field" }, { enum: ["approve", "reject"] }),
+    ],
   }),
   defineHostAdminCommand({
     id: "permission-request-withdraw",
@@ -547,7 +561,16 @@ export const agentProtocolCommands = Object.freeze([
     path: ["access", "request-withdraw"],
     summary: "Withdraw a pending permission request.",
     method: "daemon.rbac.manage",
-    inputs: [],
+    inputs: [
+      cliInput("--request-id", "single", true, { code: "missing_field" }, { field: "requestId" }),
+      cliInput(
+        "--request-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+    ],
   }),
   defineHostAdminCommand({
     id: "repo-bootstrap",

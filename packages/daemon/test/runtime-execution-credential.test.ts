@@ -126,6 +126,31 @@ test("execution requests exclude other tasks, repos, controls, and human consent
   );
 });
 
+test("task identity may request its own task scope but cannot decide or administer permissions", () => {
+  const p = principal(),
+    params = {
+      operation: "permission-request-create",
+      repoId: p.repoId,
+      resource: `${p.repoId}:task/${p.taskId}`,
+      groupId: "viewer",
+    };
+  assert.doesNotThrow(() => requireExecutionRequestScope(p, "daemon.rbac.manage", params));
+  for (const extra of [
+    { repoId: "another" },
+    { resource: p.repoId },
+    { resource: `${p.repoId}:task/another` },
+    { personId: "another" },
+    { operation: "permission-request-decide" },
+    { operation: "grant" },
+    { operation: "permission-request-list" },
+    { operation: "device-resume" },
+    { mode: "external" },
+  ])
+    assert.throws(() => requireExecutionRequestScope(p, "daemon.rbac.manage", { ...params, ...extra }), {
+      code: "execution_credential_rejected",
+    });
+});
+
 test("the writer rejects expired credentials, stopped or superseded dispatches, and a replaced lease", () => {
   const p = principal(),
     actor = {

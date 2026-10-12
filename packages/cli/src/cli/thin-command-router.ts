@@ -113,6 +113,8 @@ export function parseRouted(
   inputs: ThinCliInputDirectory,
 ): ThinParseResult | undefined {
   if (!route) return undefined;
+  if (route.id === "permission-request-decide")
+    return rejected("unsupported_command", "Review the exact request version in the GUI.", json);
   const rootCommand = route.path[0];
   const dedicated = dedicatedRouteParsers.get(route.id);
   if (dedicated) return dedicated(route, args, rootDir, repoId, json, inputs);
@@ -149,7 +151,7 @@ export function parseRouted(
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
   if (route.id === "agent-run") return parseAgentRun(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
-  if (rootCommand === "settings" || rootCommand === "ci")
+  if (rootCommand === "access" || rootCommand === "settings" || rootCommand === "ci")
     return parseProjected(
       route.id,
       args.slice(route.path.length),

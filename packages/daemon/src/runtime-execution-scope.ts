@@ -20,6 +20,20 @@ export function requireExecutionRequestScope(
   method: string,
   params: JsonObject,
 ): void {
+  // CH4: a dispatched agent may ask for its own task, never decide or administer access.
+  if (method === "daemon.rbac.manage") {
+    if (
+      params.operation !== "permission-request-create" ||
+      params.repoId !== principal.repoId ||
+      params.resource !== `${principal.repoId}:task/${principal.taskId}` ||
+      Object.keys(params).some(
+        (key) => !["operation", "repoId", "resource", "groupId", "rationale", "personId"].includes(key),
+      ) ||
+      (params.personId !== undefined && params.personId !== principal.personId)
+    )
+      throw executionCredentialRejected();
+    return;
+  }
   if (!isJsonObject(params.repo) || params.repo.repoId !== principal.repoId || !isJsonObject(params.payload))
     throw executionCredentialRejected();
   requireExecutionActionScope(principal, actionForDaemonMethod(method, params.payload));

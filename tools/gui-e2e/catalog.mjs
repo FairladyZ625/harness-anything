@@ -6,6 +6,7 @@ import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
 import accessOverview from "./scenarios/access-overview.mjs";
+import permissionRequests from "./scenarios/permission-requests.mjs";
 import workTeams from "./scenarios/work-teams.mjs";
 import externalKeycloak from "./scenarios/external-keycloak.mjs";
 import shellNavigation from "./scenarios/shell-navigation.mjs";
@@ -57,6 +58,7 @@ export const catalog = [
   taskAssignment,
   workTeams,
   accessOverview,
+  permissionRequests,
   externalKeycloak,
   shellNavigation,
   navigationHistory,

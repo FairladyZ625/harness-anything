@@ -383,6 +383,15 @@ test("access administration requires the access-admin role before anything reach
   assert.equal(keycloak.realm.ssoSessionIdleTimeout, 1_800);
 });
 
+test("permission requests retain the authenticated task requester instead of the center login", async (t) => {
+  const { admin, keycloak } = await fixture(t);
+  keycloak.account("worker");
+  const request = { operation: "permission-request-create", groupId: "viewer", resource: "repo-a:task/task-worker" };
+  const result = await admin.run(request, "worker");
+  assert.equal((result.request as { personId: string }).personId, "worker");
+  await assert.rejects(admin.run({ ...request, personId: "another" }, "worker"), { code: "authorization_denied" });
+});
+
 test("permission requests bind exact versions and settle one concurrent decision", async (t) => {
   const { keycloak, run, signIn } = await fixture(t);
   keycloak.account("alice");

@@ -4,14 +4,31 @@ import { Button } from "../primitives/Button.tsx";
 import { Region } from "../primitives/Region.tsx";
 import { Modal } from "../primitives/Modal.tsx";
 import { resourceLabel, roleLabel } from "../../access-model.ts";
-import { useAccessRead, asRejection, AccessNotice } from "./AccessParts.tsx";
+import { useAccessRead, asRejection, AccessNotice, INPUT } from "./AccessParts.tsx";
 import { isRejection } from "../../access-model.ts";
 
 export function PermissionRequestsTab({ access }: { readonly access: AccessAdminApi }) {
   const { data, rejection, reload } = useAccessRead(access.permissionRequests),
+    [groupId, setGroupId] = useState("viewer"),
+    [resource, setResource] = useState(""),
+    [rationale, setRationale] = useState(""),
     [confirming, setConfirming] = useState<PermissionRequest | null>(null),
     [busy, setBusy] = useState(false),
     [failure, setFailure] = useState<unknown>(null);
+  const create = async () => {
+    setBusy(true);
+    setFailure(null);
+    const result = await access
+      .requestPermission({
+        groupId,
+        resource,
+        ...(rationale.trim() ? { rationale: rationale.trim() } : {}),
+      })
+      .catch(asRejection);
+    if (isRejection(result)) setFailure(result);
+    else await reload();
+    setBusy(false);
+  };
   const decide = async (decision: "approve" | "reject") => {
     if (!confirming) return;
     setBusy(true);
@@ -28,6 +45,40 @@ export function PermissionRequestsTab({ access }: { readonly access: AccessAdmin
   if (!data) return <p role="status">正在读取权限申请…</p>;
   return (
     <Region title="Permission requests">
+      <form
+        className="flex flex-wrap items-end gap-3 px-3 py-3"
+        data-testid="permission-request-create"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void create();
+        }}
+      >
+        <label className="flex min-w-0 flex-col gap-1 ui-meta">
+          Policy group
+          <input
+            className={INPUT}
+            required
+            value={groupId}
+            onChange={(event) => setGroupId(event.currentTarget.value)}
+          />
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 ui-meta">
+          Resource
+          <input
+            className={INPUT}
+            required
+            value={resource}
+            onChange={(event) => setResource(event.currentTarget.value)}
+          />
+        </label>
+        <label className="flex min-w-0 flex-1 flex-col gap-1 ui-meta">
+          Reason
+          <input className={INPUT} value={rationale} onChange={(event) => setRationale(event.currentTarget.value)} />
+        </label>
+        <Button type="submit" disabled={busy || !groupId.trim() || !resource.trim()}>
+          Request access
+        </Button>
+      </form>
       {failure !== null && (
         <AccessNotice
           rejection={failure as import("../../../api/access-admin-contract.ts").AccessRejection}
