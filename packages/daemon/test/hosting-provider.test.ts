@@ -21,6 +21,22 @@ test("detects GitHub HTTPS and SSH remotes", () => {
   });
 });
 
+test("detects a known provider when the repository has no authored settings file", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-hosting-no-settings-"));
+  try {
+    execFileSync("git", ["-C", root, "init", "--quiet"]);
+    execFileSync("git", ["-C", root, "remote", "add", "origin", "https://github.com/acme/project.git"]);
+    const { detectHostingProvider } = await import("../src/hosting-provider.ts");
+    assert.deepEqual(await detectHostingProvider(root), {
+      kind: "github",
+      host: "github.com",
+      repository: "acme/project",
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("detects self-hosted GitLab and encodes its REST base", () => {
   assert.deepEqual(
     hostingProviderFromRemote("ssh://git@git.example.test:2222/group/project.git", { provider: "gitlab" }),
