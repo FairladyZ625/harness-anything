@@ -1165,6 +1165,33 @@ describe("work explainer tab and overview preview", () => {
     expect(webview?.getAttribute("webpreferences")).toContain("javascript=no");
   });
 
+  it("fills the overview grid cell instead of a fixed-height preview card", async () => {
+    installDocuments();
+    const host = await mount(
+      <WorkspaceView
+        scope={scope()}
+        repoId="repo"
+        projectName="Harness"
+        onOpenTask={() => {}}
+        onPreviewTask={() => {}}
+        rootTaskOpen={false}
+        onOpenRootTask={() => {}}
+        onCloseRootTask={() => {}}
+      />,
+    );
+    // 概况预览与页签正文同一 fill 契约(产物页/文件页同款断言):区域体给多高,预览卡就
+    // 铺多高,长页面滚动留在 guest 内部——不回到固定 42rem 卡形态留下半格空区。
+    const document = host.querySelector<HTMLElement>('[data-testid="work-explainer-document"]')!;
+    expect(document.classList.contains("h-full")).toBe(true);
+    expect(document.classList.contains("flex-col")).toBe(true);
+    const preview = host.querySelector<HTMLElement>('[data-testid="html-artifact-preview"]')!;
+    expect(preview.classList.contains("html-artifact-preview-fill")).toBe(true);
+    const previewHost = host.querySelector<HTMLElement>('[data-testid="html-artifact-host"]')!;
+    expect(previewHost.classList.contains("flex-1")).toBe(true);
+    expect(previewHost.classList.contains("min-h-0")).toBe(true);
+    expect(previewHost.classList.contains("h-[42rem]")).toBe(false);
+  });
+
   it("opens the full explainer tab from the overview preview and shows the same content", async () => {
     installDocuments();
     const host = await mount(
