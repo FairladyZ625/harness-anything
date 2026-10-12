@@ -93,6 +93,8 @@ function parseRbacBootstrap(
       ...(f.one.get("--team-name") ? { teamName: f.one.get("--team-name") } : {}),
       ...(f.one.get("--node-id") ? { nodeId: f.one.get("--node-id") } : {}),
       ...(f.one.get("--person-id") ? { personId: f.one.get("--person-id") } : {}),
+      ...(f.one.get("--group-id") ? { groupId: f.one.get("--group-id") } : {}),
+      ...(f.one.get("--resource") ? { resource: f.one.get("--resource") } : {}),
       ...(f.one.get("--username") ? { username: f.one.get("--username") } : {}),
       ...(f.one.get("--email") ? { email: f.one.get("--email") } : {}),
       ...(f.one.get("--display-name") ? { displayName: f.one.get("--display-name") } : {}),

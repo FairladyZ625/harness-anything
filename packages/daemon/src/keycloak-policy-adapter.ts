@@ -371,6 +371,47 @@ export class KeycloakPolicyAdapter {
     else await send("/permission/scope", "POST", permissionBody);
   }
 
+  /** Claim a never-seen repository at the center and grant its creator admin access. */
+  async claimRepositoryOwner(adminAccessToken: string, repoId: string, personId: string): Promise<void> {
+    const clientUuid = await this.#clientUuid(adminAccessToken),
+      rolesPath = `/clients/${clientUuid}/roles`,
+      server = `/clients/${clientUuid}/authz/resource-server`,
+      claimName = `harness-repo-owner-${repoId}`,
+      resources = await this.#json<readonly { readonly _id: string; readonly name: string }[]>(
+        adminAccessToken,
+        `${server}/resource?name=${encodeURIComponent(repoId)}&exactName=true`,
+      );
+    if (resources.some((item) => item.name === repoId))
+      throw Object.assign(new Error(`Repository ${repoId} already has an authorization resource.`), {
+        code: "repository_already_claimed",
+      });
+    const userId = await this.findUserId(adminAccessToken, personId);
+    if (!userId)
+      throw Object.assign(new Error(`No Keycloak account carries Harness person ${personId}.`), {
+        code: "access_person_unknown",
+      });
+    try {
+      await this.#request(adminAccessToken, rolesPath, {
+        method: "POST",
+        body: JSON.stringify({
+          name: claimName,
+          description: `Repository ownership claim for ${repoId}`,
+          attributes: { harness_repository_id: [repoId], harness_owner_person_id: [personId] },
+        }),
+      });
+    } catch (error) {
+      if ((error as { readonly status?: unknown }).status !== 409) throw error;
+      throw Object.assign(new Error(`Repository ${repoId} is already claimed by the center.`), {
+        code: "repository_already_claimed",
+      });
+    }
+    await this.writeGrant(
+      adminAccessToken,
+      { groupId: "admin", resource: repoId, userIds: [userId] },
+      effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+    );
+  }
+
   /** Re-expands stored grants after a group or the declared action set changed. */
   async materializeGrants(adminAccessToken: string, groupIds?: ReadonlySet<string>): Promise<void> {
     const grants = (await this.readGrants(adminAccessToken)).filter((grant) => groupIds?.has(grant.groupId) ?? true);

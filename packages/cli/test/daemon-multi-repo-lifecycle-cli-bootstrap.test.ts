@@ -181,7 +181,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     );
     for (const event of stream.events) settleFollower(fixture.repo, fixture.userRoot, { opId: event.opId });
     const beforeRepeat = git(ledgerRoot, "rev-list", "--count", "HEAD");
-    const repeated = run(fixture.repo, fixture.userRoot, [
+    const repeated = runMaybe(fixture.repo, fixture.userRoot, [
       "init",
       "--repo-id",
       "fresh",
@@ -191,11 +191,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
       "Owner",
       "--add-npm-scripts",
     ]);
-    assert.equal(repeated.outcome, "noop");
-    assert.equal(repeated.commit, null);
-    assert.deepEqual(repeated.created, []);
-    assert.deepEqual(repeated.updated, []);
-    assert.deepEqual(repeated.preserved, initialized.created);
+    assert.equal(repeated.status, 1);
+    assert.equal(repeated.receipt.code, "repository_already_registered");
     assert.equal(git(ledgerRoot, "rev-list", "--count", "HEAD"), beforeRepeat);
     assert.equal(makeTaskEventStore({ rootDir: fixture.repo, repoId: "fresh" }).read().revision, stream.revision);
     const walls = spawnSync(process.execPath, [path.join(fixture.repo, "harness/governance/walls/run-walls.mjs")], {
@@ -281,18 +278,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
         },
       },
     );
-    assert.equal(textReceipt.status, 0, textReceipt.stderr);
-    assert.match(
-      textReceipt.stdout,
-      /^initialized harness at harness\/harness\.yaml\noutcome: noop\ncreated: \[\]\nupdated: \[\]\npreserved: \["harness\/harness.yaml"/u,
-    );
-    assert.match(
-      textReceipt.stdout,
-      /drifted: \[\]\ncommit: none\nnext: ha daemon repo register --repo-id fresh --root/u,
-    );
-    assert.match(textReceipt.stdout, /daemon status/u);
-    assert.match(textReceipt.stdout, /agent install --source/u);
-    assert.match(textReceipt.stdout, /squad install --source/u);
+    assert.equal(textReceipt.status, 1);
+    assert.match(textReceipt.stderr, /repository_already_registered/u);
     git(fixture.repo, "config", "user.name", "Owner");
     const inferredIdReceipt = spawnSync(process.execPath, [cli, "init"], {
       cwd: fixture.repo,
@@ -304,11 +291,8 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
         HARNESS_DAEMON_USER_ROOT: fixture.userRoot,
       },
     });
-    assert.equal(inferredIdReceipt.status, 0, inferredIdReceipt.stderr);
-    assert.match(
-      inferredIdReceipt.stdout,
-      /^This repository is already registered as fresh and is initialized\.\noutcome: noop/u,
-    );
+    assert.equal(inferredIdReceipt.status, 1);
+    assert.match(inferredIdReceipt.stderr, /repository_already_registered/u);
     const conflictingIdReceipt = spawnSync(process.execPath, [cli, "init", "--repo-id", "conflict"], {
       cwd: fixture.repo,
       encoding: "utf8",
@@ -471,20 +455,21 @@ test("center registration keeps an external ledger repository readable and writa
 });
 
 test("REQ-CLI-016 adds only missing npm script keys while preserving existing package bytes", async (t) => {
-  const fixture = await setup(t),
-    packagePath = path.join(fixture.alpha, "package.json"),
+  const fixture = await setupEmpty(t, "rbac-cli-016"),
+    packagePath = path.join(fixture.repo, "package.json"),
     original =
       '{\n\t"name": "project-owned",\n\t"scripts": {\n\t\t"test": "node --test",\n\t\t"ha": "project-ha"\n\t},\n\t"marker": "keep exactly"\n}\n';
   t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
   try {
+    git(fixture.repo, "init", "--quiet");
     writeFileSync(packagePath, original);
-    git(fixture.alpha, "add", "package.json");
-    git(fixture.alpha, "commit", "--quiet", "-m", "project package");
-    assert.equal(run(fixture.alpha, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
-    const receipt = run(fixture.alpha, fixture.userRoot, [
+    git(fixture.repo, "add", "package.json");
+    git(fixture.repo, "commit", "--quiet", "-m", "project package");
+    assert.equal(run(fixture.repo, fixture.userRoot, ["daemon", "start", "--service"]).ok, true);
+    const receipt = run(fixture.repo, fixture.userRoot, [
         "init",
         "--repo-id",
-        "alpha",
+        "rbac-cli-016",
         "--person-id",
         "owner",
         "--display-name",
@@ -496,21 +481,21 @@ test("REQ-CLI-016 adds only missing npm script keys while preserving existing pa
     assert.equal(readFileSync(packagePath, "utf8"), expected);
     assert.equal((receipt.updated as string[]).includes("package.json#scripts"), true);
     assert.equal((receipt.created as string[]).includes("package.json"), false);
-    const repeated = run(fixture.alpha, fixture.userRoot, [
+    const repeated = runMaybe(fixture.repo, fixture.userRoot, [
       "init",
       "--repo-id",
-      "alpha",
+      "rbac-cli-016",
       "--person-id",
       "owner",
       "--display-name",
       "Owner",
       "--add-npm-scripts",
     ]);
-    assert.equal(repeated.outcome, "noop");
-    assert.equal((repeated.preserved as string[]).includes("package.json"), true);
+    assert.equal(repeated.status, 1);
+    assert.equal(repeated.receipt.code, "repository_already_registered");
     assert.equal(readFileSync(packagePath, "utf8"), expected);
   } finally {
-    stop(fixture.alpha, fixture.userRoot);
+    stop(fixture.repo, fixture.userRoot);
     rmSync(fixture.root, { recursive: true, force: true });
   }
 });

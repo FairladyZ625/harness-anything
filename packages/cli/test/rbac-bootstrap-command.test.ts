@@ -231,6 +231,38 @@ test("ha bootstrap lists, registers, and unregisters fleet nodes through the sam
   assert.equal(parseThinCommand(["bootstrap", "--operation", "node-remove"], "/repo").ok, false);
 });
 
+test("ha bootstrap exposes grant and revoke through the daemon access administration method", () => {
+  for (const operation of ["grant", "revoke", "grant-list", "group-list"]) {
+    const parsed = parseThinCommand(
+      [
+        "bootstrap",
+        "--operation",
+        operation,
+        "--person-id",
+        "alice",
+        "--group-id",
+        "admin",
+        "--resource",
+        "repo-a",
+        "--operation-id",
+        "op-1",
+      ],
+      "/repo",
+    );
+    assert.equal(parsed.ok, true, operation);
+    if (!parsed.ok) continue;
+    assert.equal(parsed.command.method, "daemon.rbac.manage");
+    assert.deepEqual(parsed.command.action, {
+      kind: "rbac-bootstrap",
+      operation,
+      operationId: "op-1",
+      personId: "alice",
+      groupId: "admin",
+      resource: "repo-a",
+    });
+  }
+});
+
 test("first administrator CLI takes a password file and rejects password argv", () => {
   const argv = [
     "bootstrap",

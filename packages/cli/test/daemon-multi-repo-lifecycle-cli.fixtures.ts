@@ -43,14 +43,14 @@ export async function setup(t: TestContext): Promise<{
 }
 export async function setupEmpty(
   t: TestContext,
-  repoId = "fresh",
+  _repoId = "fresh",
 ): Promise<{ root: string; userRoot: string; repo: string }> {
   const root = mkdtempSync(path.join(realpathSync(tmpdir()), "ha-w3-init-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const repo = path.join(root, "repo"),
     userRoot = path.join(root, "user");
   mkdirSync(repo);
-  await authorize(userRoot, [repoId]);
+  await authorize(userRoot, []);
   return { root, userRoot, repo };
 }
 export function makeCanary(

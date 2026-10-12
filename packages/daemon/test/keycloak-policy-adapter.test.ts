@@ -76,6 +76,33 @@ test("sync re-expands stored grants to the currently declared actions of their g
   assert.equal((await adapter.readGrants("admin-token")).length, 2);
 });
 
+test("a center repository claim grants admin once and refuses a second creator", async () => {
+  const keycloak = fakeKeycloak(),
+    adapter = new KeycloakPolicyAdapter(config, keycloak.fetch);
+  keycloak.account("person-a");
+  await adapter.syncBasePolicy("admin-token");
+  await adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a");
+  assert.deepEqual(await adapter.readGrants("admin-token"), [
+    { groupId: "admin", resource: "owner-test", userIds: ["user-1"] },
+  ]);
+  await assert.rejects(adapter.claimRepositoryOwner("admin-token", "owner-test", "person-a"), {
+    code: "repository_already_claimed",
+  });
+  const competing = await Promise.allSettled([
+    adapter.claimRepositoryOwner("admin-token", "race-test", "person-a"),
+    new KeycloakPolicyAdapter(config, keycloak.fetch).claimRepositoryOwner("admin-token", "race-test", "person-a"),
+  ]);
+  assert.equal(competing.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(
+    competing.filter(
+      (result) =>
+        result.status === "rejected" &&
+        (result.reason as { readonly code?: string }).code === "repository_already_claimed",
+    ).length,
+    1,
+  );
+});
+
 test("online evaluation returns explicit allow and denies unknown, negative, and unavailable scopes", async () => {
   const allow = new KeycloakPolicyAdapter(config, async () => Response.json({ result: true }));
   assert.deepEqual(
