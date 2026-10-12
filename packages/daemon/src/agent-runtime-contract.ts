@@ -673,23 +673,13 @@ function hasAgentRuntimeContractFields(
 }
 
 const sessionGroupKinds: readonly AgentRuntimeSessionGroupKind[] = [
-    "task",
-    "decision",
-    "squad",
-    "agent",
-    "day",
-    "unattributed",
-  ],
-  sessionGroupStatuses: readonly AgentRuntimeSessionGroupStatus[] = [
-    "running",
-    "succeeded",
-    "failed",
-    "cancelled",
-    "unknown",
-    "lost",
-    "ended-indeterminate",
-    "unavailable",
-  ];
+  "task",
+  "decision",
+  "squad",
+  "agent",
+  "day",
+  "unattributed",
+];
 
 function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto {
   if (!isAgentRuntimeContractRecord(value)) return false;
@@ -712,7 +702,7 @@ function validSessionGroup(value: unknown): value is AgentRuntimeSessionGroupDto
     [value.key, value.label].every(sessionGroupText) &&
     sessionGroupKinds.includes(value.kind as AgentRuntimeSessionGroupKind) &&
     validSessionGroupIdentity(value, identityFields) &&
-    sessionGroupStatuses.includes(value.latestStatus as AgentRuntimeSessionGroupStatus) &&
+    agentRuntimeSessionGroupStatusWords.includes(value.latestStatus as AgentRuntimeSessionGroupStatus) &&
     sessionGroupIso(value.latestActivityAt) &&
     [value.runningCount, value.sessionCount, value.roundCount].every(sessionGroupCount) &&
     (value.latestRound === null || validSessionGroupRound(value.latestRound))
@@ -742,7 +732,7 @@ function validSessionGroupRound(value: unknown): value is AgentRuntimeSessionGro
     [value.runtimeSessionId, value.instanceId].every(sessionGroupText) &&
     (value.dispatchId === null || sessionGroupText(value.dispatchId)) &&
     (value.agentName === null || sessionGroupText(value.agentName)) &&
-    sessionGroupStatuses.includes(value.status as AgentRuntimeSessionGroupStatus) &&
+    agentRuntimeSessionGroupStatusWords.includes(value.status as AgentRuntimeSessionGroupStatus) &&
     (value.classification === undefined ||
       value.classification === null ||
       ["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(String(value.classification))) &&
