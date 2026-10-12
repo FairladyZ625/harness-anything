@@ -145,8 +145,8 @@ const auth: OidcAuthApi = {
 
 /** The fake realm answers on `setImmediate`, so a step is settled once the DOM stops changing. */
 async function settle() {
-  for (let quiet = 0, previous = ""; quiet < 3; ) {
-    await act(async () => new Promise<void>((resolve) => setTimeout(resolve, 15)));
+  for (let quiet = 0, previous = ""; quiet < 8; ) {
+    await act(async () => new Promise<void>((resolve) => setImmediate(resolve)));
     quiet = container.innerHTML === previous ? quiet + 1 : 0;
     previous = container.innerHTML;
   }
