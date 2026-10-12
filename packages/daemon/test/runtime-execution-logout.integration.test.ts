@@ -236,7 +236,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const settings = await implementation.cli(["settings", "read"]);
   assert.equal(settings.outcome, "applied", JSON.stringify(settings));
   const ci = await implementation.cli(["task", "ci", taskId]);
-  assert.equal(ci.outcome, "applied", JSON.stringify(ci));
+  assert.equal(ci.code, "task_ci_read_failed", JSON.stringify(ci));
+  assert.match(String(ci.rejectionExplanation), /no git remotes found/u, JSON.stringify(ci));
   const events = await implementation.cli(["event", "list", "--type", "runtime_session_started", "--limit", "100"]);
   assert.equal(events.outcome, "applied", JSON.stringify(events));
   const eventRows = (JSON.parse(String(events.evidence)) as { rows: { type: string }[] }).rows;
