@@ -17,6 +17,8 @@ export interface RuntimeExecutionPrincipal {
   readonly role: "implementation" | "reviewer";
   /** Decision review dispatches bind reads to this canonical decision id. */
   readonly reviewDecisionId?: string;
+  /** Task review dispatches bind reads to this canonical task id. */
+  readonly reviewTaskId?: string;
   readonly source: WriteSource;
   readonly expiresAt: string;
 }
@@ -146,6 +148,7 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
       (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
     ) &&
     (p.role === "implementation" || p.role === "reviewer") &&
+    (p.reviewTaskId === undefined || typeof p.reviewTaskId === "string") &&
     typeof p.expiresAt === "string" &&
     Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs
   );

@@ -175,6 +175,18 @@ test("execution credentials allow repository settings and only the dispatched de
   );
 });
 
+test("reviewer task reads stay bound to the dispatched task target", () => {
+  const p = { ...principal(), role: "reviewer" as const, reviewTaskId: "task-reviewed" };
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-show", taskId: "task-reviewed" }));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-read-set", taskId: "task-reviewed" }));
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-show", taskId: p.taskId }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-show", taskId: "task-other" }), {
+    code: "execution_credential_rejected",
+  });
+});
+
 test("the writer accepts only the decision bound to a live decision-review dispatch", () => {
   const p = { ...principal(), role: "reviewer" as const, reviewDecisionId: "dec_bound" },
     actor = {

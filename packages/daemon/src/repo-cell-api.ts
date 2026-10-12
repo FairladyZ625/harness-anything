@@ -799,7 +799,9 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 source: dispatch.source,
                 ...(dispatch.payload.reviewTarget?.kind === "decision"
                   ? { reviewDecisionId: dispatch.payload.reviewTarget.decisionId }
-                  : {}),
+                  : dispatch.payload.reviewTarget?.kind === "task"
+                    ? { reviewTaskId: dispatch.payload.reviewTarget.taskId }
+                    : {}),
                 expiresAt: new Date(Date.parse(context.now()) + runtimeExecutionLifetimeMs).toISOString(),
               }
             : null;

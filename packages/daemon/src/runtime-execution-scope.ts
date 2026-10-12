@@ -91,7 +91,8 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
             "task-pr",
             "ci-observe-pull",
           ],
-    taskCiPull = action.kind === "ci-observe-pull";
+    taskCiPull = action.kind === "ci-observe-pull",
+    reviewTaskId = p.role === "reviewer" ? (p.reviewTaskId ?? p.taskId) : p.taskId;
   if (
     (action.kind.startsWith("doc-") &&
       (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
@@ -101,9 +102,9 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
       !catalog &&
       action.kind !== "settings-read" &&
       !(action.kind === "decision-show" && p.role === "reviewer" && p.reviewDecisionId) &&
-      action.taskId !== p.taskId) ||
+      action.taskId !== reviewTaskId) ||
     (action.kind === "decision-show" && action.decisionId !== p.reviewDecisionId) ||
-    (documentRead && action.taskId !== undefined && action.taskId !== p.taskId) ||
+    (documentRead && action.taskId !== undefined && action.taskId !== reviewTaskId) ||
     (action.executionId !== undefined && action.executionId !== p.executionId) ||
     (taskCiPull &&
       (action.taskId !== p.taskId ||
