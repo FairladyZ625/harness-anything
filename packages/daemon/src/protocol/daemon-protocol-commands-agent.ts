@@ -520,6 +520,58 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--password-file", "single", false, { code: "invalid_field" }, { field: "passwordFile" }),
     ],
   }),
+  // dec_F01770FD0DCF72683B7C4C7A47/CH4: request lifecycle actions are explicit host-admin
+  // descriptors even though they share the closed daemon.rbac.manage transport.
+  defineHostAdminCommand({
+    id: "permission-request-create",
+    actionKind: "permission-request-create",
+    phase: "W3",
+    path: ["access", "request-create"],
+    summary: "Create a versioned permission request.",
+    method: "daemon.rbac.manage",
+    inputs: [
+      cliInput("--group-id", "single", true, { code: "missing_field" }, { field: "groupId" }),
+      cliInput("--resource", "single", true, { code: "missing_field" }),
+      cliInput("--rationale", "single", false, { code: "invalid_field" }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "permission-request-decide",
+    actionKind: "permission-request-decide",
+    phase: "W3",
+    path: ["access", "request-decide"],
+    summary: "Approve or reject a versioned permission request.",
+    method: "daemon.rbac.manage",
+    inputs: [
+      cliInput("--request-id", "single", true, { code: "missing_field" }, { field: "requestId" }),
+      cliInput(
+        "--request-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+      cliInput("--decision", "single", true, { code: "missing_field" }, { enum: ["approve", "reject"] }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "permission-request-withdraw",
+    actionKind: "permission-request-withdraw",
+    phase: "W3",
+    path: ["access", "request-withdraw"],
+    summary: "Withdraw a pending permission request.",
+    method: "daemon.rbac.manage",
+    inputs: [
+      cliInput("--request-id", "single", true, { code: "missing_field" }, { field: "requestId" }),
+      cliInput(
+        "--request-version",
+        "single",
+        true,
+        { code: "missing_field" },
+        { field: "requestVersion", regex: "^[1-9][0-9]*$", projection: "number" },
+      ),
+    ],
+  }),
   defineHostAdminCommand({
     id: "repo-bootstrap",
     phase: "W3",

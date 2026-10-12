@@ -11,8 +11,9 @@ import { Tabs } from "../components/primitives/Tabs.tsx";
 import { IdText } from "../components/IdText.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { t } from "../i18n/index.tsx";
+import { PermissionRequestsTab } from "../components/identityAccess/PermissionRequestsTab.tsx";
 
-type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "receipts";
+type AccessTab = "devices" | "service" | "teams" | "groups" | "grants" | "requests" | "receipts";
 
 /**
  * Accounts and access control. Every tab is a region board whose ruler is the tab panel: at 900px
@@ -69,6 +70,7 @@ export function IdentityAccessView({
               ? [
                   { key: "devices" as const, label: t("devices.title") },
                   { key: "grants" as const, label: t("accessControl.tab.grants") },
+                  { key: "requests" as const, label: "Permission requests" },
                   { key: "groups" as const, label: t("accessControl.tab.groups") },
                   { key: "teams" as const, label: t("accessControl.teams.title") },
                   { key: "service" as const, label: t("accessControl.tab.service") },
@@ -99,6 +101,8 @@ export function IdentityAccessView({
           <PolicyGroupsTab access={access} />
         ) : tab === "grants" ? (
           <GrantsTab access={access} repos={repos} />
+        ) : tab === "requests" ? (
+          <PermissionRequestsTab access={access} />
         ) : (
           <ReceiptsTab access={access} />
         )}

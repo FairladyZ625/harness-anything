@@ -19,6 +19,46 @@ import { cliCapabilities, deriveThinCliInputs, parseThinCommand, renderThinHelp 
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { emit, main, resolveCliVersion } from "../src/index.ts";
 
+test("permission request CLI parses self-request inputs and directs decisions to the GUI", () => {
+  const parsed = parseThinCommand([
+    "access",
+    "request-create",
+    "--group-id",
+    "viewer",
+    "--resource",
+    "repo:task/task-worker",
+    "--rationale",
+    "Read task evidence",
+  ]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "daemon.rbac.manage");
+  assert.deepEqual(parsed.command.action, {
+    kind: "permission-request-create",
+    groupId: "viewer",
+    resource: "repo:task/task-worker",
+    rationale: "Read task evidence",
+  });
+  assert.equal(parseThinCommand(["access", "request-create", "--group-id", "viewer"]).ok, false);
+  assert.equal(
+    parseThinCommand(["access", "request-create", "--group-id", "viewer", "--resource", "repo", "--person-id", "other"])
+      .ok,
+    false,
+  );
+  const decision = parseThinCommand([
+    "access",
+    "request-decide",
+    "--request-id",
+    "a",
+    "--request-version",
+    "1",
+    "--decision",
+    "approve",
+  ]);
+  assert.equal(decision.ok, false);
+  if (!decision.ok) assert.equal(decision.code, "unsupported_command");
+});
+
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
   assert.equal(
@@ -353,6 +393,7 @@ test("retired mutation migrations are explicitly absent from the thin router", (
 
 test("capabilities is an exact-set projection of the command contract", () => {
   assert.deepEqual(cliCapabilities, {
+    access: ["permission-request-create", "permission-request-decide", "permission-request-withdraw"],
     agenda: ["agenda"],
     backup: ["backup-retention", "ledger-backup"],
     bootstrap: ["rbac-bootstrap"],

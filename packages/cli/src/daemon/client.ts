@@ -253,15 +253,12 @@ export async function runCommandThroughDaemon(
     ...(await resolveLocalDaemonTarget({ rootDir: command.rootDir, repoIdOverride: command.repoId, env })),
     sessionEnvironment: interactiveSessionEnvironment(env),
   };
-  const requestPayload = daemonRequestPayload(command, env);
+  const requestParams = daemonRequestParams(command, target.repoId, env);
   const request = () =>
     requestLocalDaemonJsonRpcForTarget(
       target,
       command.method,
-      {
-        repo: { repoId: target.repoId },
-        ...(daemonMethodAcceptsPayload(command.method) ? { payload: requestPayload as JsonObject } : {}),
-      },
+      requestParams,
       75,
       readResponseDeadlineMs(command.action.kind),
     );
@@ -273,11 +270,7 @@ export async function runCommandThroughDaemon(
   );
   result = await settleRepoWarming(
     result,
-    () =>
-      openLocalDaemonReader(target, command.method, {
-        repo: { repoId: target.repoId },
-        ...(daemonMethodAcceptsPayload(command.method) ? { payload: requestPayload as JsonObject } : {}),
-      }),
+    () => openLocalDaemonReader(target, command.method, requestParams),
     target.userRoot,
     target.daemonId,
   );
@@ -352,6 +345,19 @@ function daemonAutostartOptions(
   commandCategory = daemonCommandCategory(command.method),
 ): Parameters<typeof withAutostart>[3] {
   return { autostart, env, invokingRoot: command.rootDir, userRoot, daemonId, commandCategory };
+}
+
+function daemonRequestParams(command: ThinCommand, repoId: string, env: NodeJS.ProcessEnv): JsonObject {
+  if (command.method === "daemon.rbac.manage") {
+    const { kind: operation, ...fields } = command.action;
+    return { ...fields, operation, repoId } as JsonObject;
+  }
+  return {
+    repo: { repoId },
+    ...(daemonMethodAcceptsPayload(command.method)
+      ? { payload: daemonRequestPayload(command, env) as JsonObject }
+      : {}),
+  };
 }
 
 function daemonRequestPayload(command: ThinCommand, env: NodeJS.ProcessEnv): Readonly<Record<string, unknown>> {

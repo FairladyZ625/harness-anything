@@ -70,7 +70,12 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.resumeDevice(device);
   await api.removeDevice(device);
   await api.logoutDevices({ expectedVersion: "list-v2" });
-  assert.deepEqual(sent, [
+  await api.permissionRequests();
+  await api.requestPermission({ groupId: "viewer", resource: "repo-a" });
+  await api.decidePermissionRequest({ requestId: "request-1", requestVersion: 1, decision: "reject" });
+  await api.withdrawPermissionRequest({ requestId: "request-1", requestVersion: 1 });
+  const baselineSent = sent.filter(({ operation }) => !operation.startsWith("permission-request-"));
+  assert.deepEqual(baselineSent, [
     { operation: "group-list" },
     { operation: "group-create", ...group, operationId: "operation-1" },
     { operation: "group-update", ...group, expectedVersion: "v1", operationId: "operation-2" },

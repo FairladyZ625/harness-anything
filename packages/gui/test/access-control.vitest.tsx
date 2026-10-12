@@ -201,6 +201,44 @@ afterEach(() => {
 });
 
 describe("账号与访问控制页", () => {
+  it("creates a self-request through the form, shows its exact version, and applies another person's GUI approval", async () => {
+    const f = await stack();
+    f.keycloak.account("requester");
+    f.keycloak.account("approver");
+    f.keycloak.permit("approver", "repo-a", ["task-create"]);
+    f.signIn("approver");
+    const group = await f.access.createGroup({
+      groupId: "task-reader",
+      displayName: "Task reader",
+      scopes: ["task-create"],
+      composites: [],
+    });
+    expect(group.ok, JSON.stringify(group)).toBe(true);
+    f.signIn("requester", ["offline_access"]);
+    await openTab(f.access, "Permission requests");
+    const form = byTestId<HTMLFormElement>("permission-request-create");
+    await type(labelled(form, "Policy group"), "task-reader");
+    await type(labelled(form, "Resource"), "repo-a");
+    await type(labelled(form, "Reason"), "Read task evidence");
+    await act(async () => form.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true })));
+    await settle();
+    const requests = await f.access.permissionRequests();
+    expect(requests.ok).toBe(true);
+    if (!requests.ok) throw new Error("Request list failed");
+    expect(requests.requests).toHaveLength(1);
+    const request = requests.requests[0]!;
+    expect(request.personId).toBe("requester");
+    expect(await f.evaluate("requester", "repo-a", { kind: "task-create" })).toBe("denied");
+    f.signIn("approver");
+    await click(byTestId(`permission-request-decide-${request.requestId}`));
+    expect(byTestId("permission-request-confirm").textContent).toContain("Confirm version 1");
+    await click(byTestId("permission-request-approve"));
+    expect(container.querySelector(`[data-testid="permission-request-decide-${request.requestId}"]`)).toBeNull();
+    f.signIn("requester", ["offline_access"]);
+    expect(await f.access.permissionRequests()).toMatchObject({ requests: [{ state: "approved", version: 2 }] });
+    expect(await f.evaluate("requester", "repo-a", { kind: "task-create" })).toBe("allowed");
+  });
+
   it("creates a custom group, picks an action, inherits a Base group, grants it on a repository, and the account is allowed there only", async () => {
     const { keycloak, access, evaluate, signIn } = await stack();
     keycloak.account("alice");

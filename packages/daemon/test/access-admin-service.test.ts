@@ -383,6 +383,166 @@ test("access administration requires the access-admin role before anything reach
   assert.equal(keycloak.realm.ssoSessionIdleTimeout, 1_800);
 });
 
+test("permission requests retain the authenticated task requester instead of the center login", async (t) => {
+  const { admin, keycloak } = await fixture(t);
+  keycloak.account("worker");
+  const request = { operation: "permission-request-create", groupId: "viewer", resource: "repo-a:task/task-worker" };
+  const result = await admin.run(request, "worker");
+  assert.equal((result.request as { personId: string }).personId, "worker");
+  await assert.rejects(admin.run({ ...request, personId: "another" }, "worker"), { code: "authorization_denied" });
+});
+
+test("permission requests bind exact versions and settle one concurrent decision", async (t) => {
+  const { keycloak, run, signIn } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.account("admin");
+  signIn("alice", ["offline_access"]);
+  const created = await run({
+    operation: "permission-request-create",
+    groupId: "viewer",
+    resource: "repo-a",
+    rationale: "read",
+  });
+  assert.equal(created.ok, true);
+  const request = created.request as { requestId: string; version: number };
+  signIn("admin");
+  const [first, second] = await Promise.all([
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "reject",
+    }),
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+  ]);
+  assert.equal([first, second].filter((result) => result.ok).length, 1);
+  assert.equal([first, second].filter((result) => result.code === "version_conflict").length, 1);
+});
+
+test("permission requests require an independent approver and unchanged action scope", async (t) => {
+  const { keycloak, run, signIn, admin } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.account("admin");
+  await run({ operation: "group-create", groupId: "release", scopes: ["task-create"] });
+  signIn("alice", ["offline_access"]);
+  const created = await run({ operation: "permission-request-create", groupId: "release", resource: "repo-a" }),
+    request = created.request as { requestId: string; version: number };
+  await assert.rejects(
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+    { code: "authorization_denied" },
+  );
+
+  signIn("admin");
+  const before = await admin.run({ operation: "group-list" }),
+    release = (before.groups as { id: string; version: string; scopes: string[] }[]).find(
+      (item) => item.id === "release",
+    )!;
+  await run({
+    operation: "group-update",
+    groupId: "release",
+    scopes: ["task-create", "task-delete"],
+    expectedVersion: release.version,
+  });
+  await assert.rejects(
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+    { code: "permission_request_changed" },
+  );
+  assert.equal((await admin.run({ operation: "permission-request-list" })).requests instanceof Array, true);
+});
+
+test("permission approval evaluates the approver's requested scope and permits delegated approval", async (t) => {
+  const { keycloak, run, signIn, evaluate } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.account("admin");
+  await run({ operation: "group-create", groupId: "release", scopes: ["task-create"] });
+  signIn("alice", ["offline_access"]);
+  const created = await run({ operation: "permission-request-create", groupId: "release", resource: "repo-a" }),
+    request = created.request as { requestId: string; version: number };
+
+  signIn("admin");
+  await assert.rejects(
+    run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+    { code: "authorization_denied" },
+  );
+
+  // Holding the requested grant is authority to delegate it; it must not be mistaken for self-approval.
+  await run({ operation: "grant", personId: "admin", groupId: "release", resource: "repo-a" });
+  const approved = await run({
+    operation: "permission-request-decide",
+    requestId: request.requestId,
+    requestVersion: request.version,
+    decision: "approve",
+  });
+  assert.equal(approved.ok, true);
+  assert.equal(await evaluate("alice", "repo-a", { kind: "task-create" }), "allowed");
+});
+
+test("a permission request takes effect only after Keycloak accepts its grant", async (t) => {
+  const { keycloak, run, signIn, oidc, root, evaluate } = await fixture(t);
+  keycloak.account("alice");
+  keycloak.account("admin");
+  signIn("alice", ["offline_access"]);
+  const created = await run({ operation: "permission-request-create", groupId: "contributor", resource: "repo-a" }),
+    request = created.request as { requestId: string; version: number };
+  signIn("admin");
+  await run({ operation: "grant", personId: "admin", groupId: "contributor", resource: "repo-a" });
+  const failing = new AccessAdminService(oidc, root, {
+    fetch: async (input, init) => {
+      const url = new URL(String(input));
+      if (
+        init?.method !== "GET" &&
+        (url.pathname.includes("/policy/user/") || url.pathname.includes("/permission/scope/"))
+      )
+        return Response.json({ error: "fixture_write_denied" }, { status: 403 });
+      return keycloak.fetch(input, init);
+    },
+  });
+  await assert.rejects(
+    failing.run({
+      operation: "permission-request-decide",
+      requestId: request.requestId,
+      requestVersion: request.version,
+      decision: "approve",
+    }),
+    (error: unknown) => error instanceof Error && /returned HTTP 403/u.test(error.message),
+  );
+  assert.equal(await evaluate("alice", "repo-a", { kind: "task-create" }), "denied");
+  const pending = (await run({ operation: "permission-request-list" })).requests as {
+    state: string;
+    version: number;
+  }[];
+  assert.deepEqual([pending[0]?.state, pending[0]?.version], ["pending", 1]);
+
+  const accepted = await run({
+    operation: "permission-request-decide",
+    requestId: request.requestId,
+    requestVersion: request.version,
+    decision: "approve",
+  });
+  assert.equal(accepted.ok, true);
+  assert.equal(await evaluate("alice", "repo-a", { kind: "task-create" }), "allowed");
+});
+
 test("the session lifetime is read from and written to the realm, within bounds, against the value read", async (t) => {
   const { keycloak, admin, run, journal } = await fixture(t),
     realmAdmin = { url: keycloakUrl, realm: keycloakRealm, accessToken: "center-token" };

@@ -408,7 +408,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // F-8E80EE50 adds the independent viewer repository-read permission.
   // dec_DBF9CCB96B1A7D35A3214615E1 CH2/CH6: the three handoff actions are owner-approved.
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four GateRun Task actions.
-  assert.equal(actionDeclarations.length, 148);
+  // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle adds three host actions.
+  assert.equal(actionDeclarations.length, 151);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

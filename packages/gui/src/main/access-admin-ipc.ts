@@ -11,7 +11,7 @@ interface Registrar {
   ) => void;
 }
 
-type Field = "text" | "names" | "seconds";
+type Field = "text" | "names" | "seconds" | "optional-text";
 
 /** The fields each operation carries to the daemon. Anything else the renderer sends is refused. */
 const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>> = {
@@ -30,6 +30,10 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "team-member-remove": { teamId: "text", personId: "text", expectedVersion: "text" },
   "group-list": {},
   "grant-list": {},
+  "permission-request-list": {},
+  "permission-request-create": { groupId: "text", resource: "text", rationale: "optional-text" },
+  "permission-request-decide": { requestId: "text", requestVersion: "seconds", decision: "text" },
+  "permission-request-withdraw": { requestId: "text", requestVersion: "seconds" },
   "receipt-list": {},
   "session-lifetime": {},
   "group-create": { groupId: "text", displayName: "text", scopes: "names", composites: "names" },
@@ -66,6 +70,8 @@ const writes: ReadonlySet<string> = new Set([
   "grant",
   "revoke",
   "session-lifetime-set",
+  "permission-request-decide",
+  "permission-request-withdraw",
 ]);
 
 /**
@@ -106,10 +112,14 @@ export function accessAdminParams(input: unknown, operationId: () => string): Js
       valid =
         field === "text"
           ? typeof value === "string" && value.trim() !== ""
-          : field === "names"
-            ? Array.isArray(value) && value.every((item) => typeof item === "string")
-            : Number.isInteger(value);
+          : field === "optional-text"
+            ? value === undefined || (typeof value === "string" && value.trim() !== "")
+            : field === "names"
+              ? Array.isArray(value) && value.every((item) => typeof item === "string")
+              : Number.isInteger(value);
     if (!valid) throw new Error(`Access administration ${operation} requires ${name}.`);
+    if (value === undefined) continue;
+    if (name === "decision" && value !== "approve" && value !== "reject") throw new Error("Choose approve or reject.");
     params[name] = value as string | number | readonly string[];
   }
   if (writes.has(operation)) params.operationId = operationId();

@@ -16,7 +16,11 @@ import {
   type KeycloakPolicyGroup,
 } from "./keycloak-policy-adapter.ts";
 import { readSessionLifetime, sessionLifetimeBounds, writeSessionLifetime } from "./keycloak-session-lifetime.ts";
-import { managedRbacReceiptJournal, reserveCredentialFile } from "./managed-rbac-service.ts";
+import {
+  managedPermissionRequestStore,
+  managedRbacReceiptJournal,
+  reserveCredentialFile,
+} from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
 
 export const accessAdminOperations = Object.freeze([
@@ -27,6 +31,10 @@ export const accessAdminOperations = Object.freeze([
   "grant",
   "revoke",
   "grant-list",
+  "permission-request-create",
+  "permission-request-list",
+  "permission-request-decide",
+  "permission-request-withdraw",
   "effective-permissions",
   "receipt-list",
   "team-list",
@@ -68,6 +76,10 @@ export interface AccessAdminRequest {
   readonly platform?: string;
   /** Where a first node registration puts the machine credential instead of returning it. */
   readonly credentialFile?: string;
+  readonly requestId?: string;
+  readonly requestVersion?: number;
+  readonly decision?: "approve" | "reject";
+  readonly rationale?: string;
 }
 
 export interface AccessAdminPorts {
@@ -120,6 +132,21 @@ interface Session {
 const resourceServerClientId = "harness-center",
   receiptListLimit = 200;
 
+interface PermissionRequest {
+  readonly requestId: string;
+  readonly version: number;
+  readonly state: "pending" | "approved" | "rejected" | "withdrawn";
+  readonly personId: string;
+  readonly groupId: string;
+  readonly resource: string;
+  readonly actions: readonly string[];
+  readonly rationale: string;
+  readonly createdAt: string;
+  readonly decidedBy?: string;
+  readonly decidedAt?: string;
+  readonly decision?: "approve" | "reject";
+}
+
 /**
  * Typed administration of policy groups, `(group, resource)` grants, the fleet node registry, and
  * the realm's session lifetime. Keycloak holds the only state evaluation reads; the journal written
@@ -128,9 +155,11 @@ const resourceServerClientId = "harness-center",
 export class AccessAdminService {
   readonly #oidc: OidcSessionService;
   readonly #ports: AccessAdminPorts;
+  readonly #permissionRequests: ReturnType<typeof managedPermissionRequestStore>;
 
   constructor(oidc: OidcSessionService, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
     this.#oidc = oidc;
+    this.#permissionRequests = managedPermissionRequestStore(userRoot);
     this.#ports = {
       fetch,
       now: () => new Date().toISOString(),
@@ -139,14 +168,30 @@ export class AccessAdminService {
     };
   }
 
-  async run(request: AccessAdminRequest): Promise<Record<string, unknown>> {
+  async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
+    if (request.operation === "permission-request-create" && requester !== undefined)
+      return this.#createPermissionRequest(request, requester);
     const ownDevices = request.operation?.startsWith("device-") === true,
-      actor = (await (ownDevices ? this.#oidc.requireSession() : this.#oidc.requireRole("access-admin"))).personId;
+      publicRequest =
+        request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
+      actor = (
+        await (ownDevices || publicRequest || request.operation === "permission-request-list"
+          ? this.#oidc.requireSession()
+          : this.#oidc.requireRole("access-admin"))
+      ).personId;
     switch (request.operation as AccessAdminOperation) {
       case "group-list":
         return this.#listGroups();
       case "grant-list":
         return this.#listGrants();
+      case "permission-request-create":
+        return this.#createPermissionRequest(request, actor);
+      case "permission-request-list":
+        return this.#listPermissionRequests(actor);
+      case "permission-request-decide":
+        return this.#decidePermissionRequest(request, actor);
+      case "permission-request-withdraw":
+        return this.#withdrawPermissionRequest(request, actor);
       case "effective-permissions":
         return this.#effectivePermissions(request);
       case "receipt-list":
@@ -191,6 +236,139 @@ export class AccessAdminService {
       default:
         throw coded("access_operation_unknown", `Unknown access administration operation ${request.operation}.`);
     }
+  }
+
+  async #createPermissionRequest(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
+    return this.#oidc.serialize(async () => {
+      const session = await this.#session(),
+        resource = canonicalResource(request.resource),
+        groups = await session.adapter.readPolicyGroups(session.token),
+        group = groups.find((item) => item.id === text(request.groupId, "groupId"));
+      if (!group) throw coded("policy_group_unknown", `Policy group ${request.groupId} does not exist.`);
+      if (actor !== text(request.personId ?? actor, "personId"))
+        throw coded("authorization_denied", "A person may request access only for their own account.");
+      const scope = effectivePolicyGroupScopes(groups, group.id);
+      if (!scope.length) throw coded("permission_request_empty", "Choose a policy group with at least one action.");
+      const requests = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest),
+        current = requests.find(
+          (item) =>
+            item.personId === actor &&
+            item.groupId === group.id &&
+            item.resource === resource &&
+            item.state === "pending",
+        );
+      if (current) return { ok: true, request: current };
+      const created: PermissionRequest = {
+        requestId: randomBytes(16).toString("hex"),
+        version: 1,
+        state: "pending",
+        personId: actor,
+        groupId: group.id,
+        resource,
+        actions: scope,
+        rationale: request.rationale?.trim() ?? "",
+        createdAt: this.#ports.now(),
+      };
+      this.#permissionRequests.write([...requests.map((row) => JSON.stringify(row)), JSON.stringify(created)]);
+      return { ok: true, request: created };
+    });
+  }
+
+  async #listPermissionRequests(actor: string): Promise<Record<string, unknown>> {
+    const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest);
+    return { ok: true, requests: rows.filter((item) => item.personId === actor || item.state === "pending") };
+  }
+
+  async #decidePermissionRequest(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
+    return this.#oidc.serialize(async () => {
+      const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest),
+        id = text(request.requestId, "requestId"),
+        index = rows.findIndex((item) => item.requestId === id),
+        current = rows[index];
+      if (!current) throw coded("permission_request_unknown", `Permission request ${id} does not exist.`);
+      if (current.version !== request.requestVersion || current.state !== "pending")
+        return {
+          ok: false,
+          code: "version_conflict",
+          requestId: id,
+          expectedVersion: request.requestVersion,
+          currentVersion: current.version,
+        };
+      if (actor === current.personId)
+        throw coded("authorization_denied", "A requester cannot decide their own permission request.");
+      const session = await this.#session(),
+        groups = await session.adapter.readPolicyGroups(session.token),
+        group = groups.find((item) => item.id === current.groupId);
+      if (
+        !group ||
+        stableStringify(effectivePolicyGroupScopes(groups, current.groupId)) !== stableStringify(current.actions)
+      )
+        throw coded("permission_request_changed", "The policy group changed; submit a new permission request.");
+      if (request.decision === "approve") {
+        const approverResource = decodeAuthorizationResource(current.resource),
+          resourceAncestors =
+            approverResource.kind === "entity"
+              ? [{ kind: "repository" as const, repoId: approverResource.repoId }]
+              : [];
+        for (const action of current.actions) {
+          const decision = await session.adapter.authorizePerson({
+            adminAccessToken: session.token,
+            personId: actor,
+            action,
+            resource: approverResource,
+            resourceAncestors,
+          });
+          if (decision.outcome !== "allowed")
+            throw coded(
+              "authorization_denied",
+              `Approver ${actor} is not authorized for ${action} on ${current.resource}.`,
+            );
+        }
+        const holders = await this.#grantHolders(session, current.groupId, current.resource);
+        await session.adapter.writeGrant(
+          session.token,
+          {
+            groupId: current.groupId,
+            resource: current.resource,
+            userIds: uniqueSorted([...holders, await requiredUserId(session.adapter, session.token, current.personId)]),
+          },
+          effectivePolicyGroupScopes(groups, current.groupId),
+        );
+      } else if (request.decision !== "reject") throw coded("access_request_invalid", "Choose approve or reject.");
+      const settled = {
+        ...current,
+        state: request.decision === "approve" ? ("approved" as const) : ("rejected" as const),
+        version: current.version + 1,
+        decidedBy: actor,
+        decidedAt: this.#ports.now(),
+        decision: request.decision,
+      };
+      rows[index] = settled;
+      this.#permissionRequests.write(rows.map((row) => JSON.stringify(row)));
+      return { ok: true, request: settled };
+    });
+  }
+
+  async #withdrawPermissionRequest(request: AccessAdminRequest, actor: string): Promise<Record<string, unknown>> {
+    return this.#oidc.serialize(async () => {
+      const rows = this.#permissionRequests.read().map((line) => JSON.parse(line) as PermissionRequest),
+        id = text(request.requestId, "requestId"),
+        index = rows.findIndex((item) => item.requestId === id),
+        current = rows[index];
+      if (!current || current.personId !== actor)
+        throw coded("permission_request_unknown", `Permission request ${id} is unavailable.`);
+      if (current.version !== request.requestVersion || current.state !== "pending")
+        return {
+          ok: false,
+          code: "version_conflict",
+          requestId: id,
+          expectedVersion: request.requestVersion,
+          currentVersion: current.version,
+        };
+      rows[index] = { ...current, state: "withdrawn", version: current.version + 1 };
+      this.#permissionRequests.write(rows.map((row) => JSON.stringify(row)));
+      return { ok: true, request: rows[index] };
+    });
   }
 
   async #listGroups(): Promise<Record<string, unknown>> {
@@ -784,6 +962,12 @@ function canonicalResource(value: string | undefined): string {
 
 function uniqueSorted(values: readonly string[]): readonly string[] {
   return [...new Set(values)].sort();
+}
+
+async function requiredUserId(adapter: KeycloakPolicyAdapter, token: string, personId: string): Promise<string> {
+  const userId = await adapter.findUserId(token, personId);
+  if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
+  return userId;
 }
 
 function names(value: readonly unknown[] | undefined, field: string): readonly string[] | undefined {
