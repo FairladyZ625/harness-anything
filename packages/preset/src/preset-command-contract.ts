@@ -254,7 +254,7 @@ const taskCreateProfileFormat =
   "low-risk small change (a code change still lands through the PR's CI); Recommended presets below lists " +
   "the presets that declare it>";
 // Same advice the over-wide-title receipt hint gives: one focus in the title, everything else in the plan.
-const titleFocusFormat =
+export const titleFocusFormat =
   "<one focus only — move the explanation after a colon, parenthetical supplements, and decision/PR " +
   "numbers into the plan's Brief/Context (Decisions: the body)>";
 const taskCreateCliInputs = Object.freeze(

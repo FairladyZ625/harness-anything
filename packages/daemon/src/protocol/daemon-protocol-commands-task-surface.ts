@@ -5,6 +5,7 @@ import {
   cliInput,
   defineLedgerWriteCommand,
   defineRepoReadCommand,
+  titleFocusFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { AGENDA_PIN_CRITERIA } from "./daemon-protocol-vocabulary.ts";
 
@@ -273,6 +274,36 @@ export const taskSurfaceProtocolCommands = Object.freeze([
         code: "invalid_field",
       }),
     ],
+  }),
+  defineLedgerWriteCommand({
+    id: "task-rename",
+    // CLI alias only: the forwarded durable action is task-amend (a title patch), so authorization,
+    // receipt, and the Action inventory key on the shared kind. Declared after task-amend so the
+    // kind keeps resolving to the amend descriptor.
+    actionKind: "task-amend",
+    phase: "W3",
+    path: ["task", "rename", "<task-id>"],
+    summary:
+      "Retitle a task or work in one write: the contract, plan heading, INDEX, projection, and GUI " +
+      "follow the same task_amended event. A plan with unsubmitted local changes is refused until " +
+      "ha doc sync submits them.",
+    method: "repo.task.run",
+    inputs: [cliInput("--title", "single", true, { code: "missing_field" }, { format: titleFocusFormat })],
+  }),
+  defineLedgerWriteCommand({
+    id: "task-move",
+    // CLI alias only: the forwarded durable action is task-amend (a parentTaskId patch); relations,
+    // dependencies, and dispatch history stay keyed to the task id and move with it.
+    actionKind: "task-amend",
+    phase: "W3",
+    path: ["task", "move", "<task-id>"],
+    summary:
+      "Move a task, with its subtree, under another parent task or work by amending parentTaskId. " +
+      "Refused while a live lease holds the task, when the new parent does not exist, or when the " +
+      "move would make the parent chain cyclic (including moving a task under itself or its own " +
+      "descendant).",
+    method: "repo.task.run",
+    inputs: [cliInput("--parent", "single", true, { code: "missing_field" }, { field: "parentTaskId" })],
   }),
   defineLedgerWriteCommand({
     id: "task-delete",

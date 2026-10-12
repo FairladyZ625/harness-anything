@@ -141,6 +141,14 @@ export function taskMutation(
       else if (field === "parentTaskId") {
         if (!cell.projectedTaskIds().has(value))
           throw cell.cellCodedError("parent_not_found", `Create parent task ${value} before amending parentTaskId.`);
+        if (parentChainReaches(cell, value, task.taskId))
+          throw cell.cellCodedError(
+            "parent_cycle",
+            [
+              `Moving ${task.taskId} under ${value} would make its parent chain cyclic; `,
+              `choose a parent outside ${task.taskId}'s own subtree.`,
+            ].join(""),
+          );
         changed = {
           ...changed,
           metadata: { ...changed.metadata!, parentTaskId: value },
@@ -329,6 +337,23 @@ export function taskMutation(
 
 function optionalReleaseText(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/** Whether walking `parentTaskId` up from `ancestorId` reaches `taskId`: the move would close a
+ *  cycle, so it is refused at the write boundary instead of being tolerated by cycle-safe reads.
+ *  Each round consumes one unseen ancestor; a legacy cycle ends the walk, never hangs it. */
+function parentChainReaches(
+  cell: Pick<RepoCellActionContext, "projection">,
+  ancestorId: string,
+  taskId: string,
+): boolean {
+  const visited = new Set<string>();
+  for (let parentId: string | null = ancestorId; parentId !== null && !visited.has(parentId); ) {
+    if (parentId === taskId) return true;
+    visited.add(parentId);
+    parentId = cell.projection.read(parentId).snapshot.task?.metadata?.parentTaskId ?? null;
+  }
+  return false;
 }
 
 function terminalExecutionRuntimeBinding(

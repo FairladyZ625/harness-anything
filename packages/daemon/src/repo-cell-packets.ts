@@ -20,6 +20,7 @@ import type { PublicPublication, RepoTaskAction, Snapshot } from "./repo-cell-ty
 import { readWorkspaceText } from "./workspace-text-port.ts";
 import { locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { readCompletionContext } from "./task-completion-read.ts";
+import { workRootOf } from "./workspace-scope-read.ts";
 
 export function packetJson(
   value: unknown,
@@ -225,13 +226,23 @@ export function lifecycleReceipt(
         { ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready"), hasDispatchLineage },
         executionId ?? undefined,
       )?.action ?? null,
-    next = nextCommand
-      ? [
-          {
-            command: nextCommand,
-          },
-        ]
-      : [],
+    // A parentTaskId amend hands the task to a different work; the receipt names where it landed.
+    movedWorkRoot =
+      event.type === "task_amended" && event.payload.mutation.fields.includes("parentTaskId")
+        ? (workRootOf(cell.projection, event.taskId)?.taskId ?? event.taskId)
+        : null,
+    next = [
+      ...(nextCommand
+        ? [
+            {
+              command: nextCommand,
+            },
+          ]
+        : []),
+      ...(movedWorkRoot !== null
+        ? [{ command: `ha work show ${movedWorkRoot}`, reason: "the task's work after the move" }]
+        : []),
+    ],
     changedPaths = (event.payload.documentClaims ?? []).map((claim) => claim.path),
     prBody =
       event.type === "execution_submitted"
