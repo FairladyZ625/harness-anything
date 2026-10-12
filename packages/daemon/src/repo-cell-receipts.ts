@@ -1,5 +1,6 @@
 import {
   isEntityEvent,
+  isTaskBootstrapEvent,
   isTaskEvent,
   isTaskProgressEvent,
   contractForDeclarationEvent,
@@ -64,8 +65,25 @@ export function receiptForOperation(cell: RepoCellActionContext, opId: string, b
       appliedCut: applied?.watermark ?? 0,
       durable: true,
       canonicalVisible: visible,
-      worktreeVisible: isTaskEvent(event) || event.schema === "decision-event/v1" ? true : null,
+      worktreeVisible:
+        isTaskEvent(event) || isTaskBootstrapEvent(event) || event.schema === "decision-event/v1" ? true : null,
     };
+  // A task-create replay (idempotent retry or ha receipt show) must still name the task it minted;
+  // the bootstrap event carries the identity, so the receipt answers with it in both channels.
+  if (isTaskBootstrapEvent(event))
+    return cell.canonicalSettlement(
+      {
+        outcome: "pending",
+        opId,
+        revision: event.workspaceRevision,
+        evidence: `event-object:${opId}`,
+        visibility: "center",
+        proof,
+        taskId: event.taskId,
+        summary: `created task ${event.taskId}`,
+      } as WriteReceipt,
+      event,
+    );
   if (isEntityEvent(event)) {
     if (event.type !== "entity_upserted")
       return cell.canonicalSettlement(

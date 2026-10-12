@@ -49,6 +49,31 @@ test("create then immediately replace and submit a plan five times", async () =>
   }
 });
 
+test("a replayed task-create receipt still names the task", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-replay-"));
+  initRepo(rootDir);
+  const cell = await openBootstrappedRepoCell({
+    repoId: workspaceId("create-replay"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "create-replay",
+  });
+  const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    const action = { kind: "task-create", taskId: "task-replay", title: "Replay" } as const;
+    const first = await cell.run(action, binding);
+    assert.equal(first.outcome, "applied");
+    // Re-sending the same action replays the accepted operation instead of appending again; the
+    // replayed receipt must still tell the caller which task it minted.
+    const replay = await cell.run(action, binding);
+    assert.equal(replay.outcome, "applied");
+    assert.equal((replay as typeof replay & { readonly taskId?: string }).taskId, "task-replay");
+    assert.match(replay.summary ?? "", /task-replay/u);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("create reports pending materialization when a concurrent edit prevents settlement", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-create-conflict-"));
   initRepo(rootDir);
@@ -80,6 +105,9 @@ test("create reports pending materialization when a concurrent edit prevents set
     assert.equal(created.proof?.worktreeVisible, false);
     assert.match(created.summary ?? "", /materialization is pending/u);
     assert.ok(created.summary?.includes(`ha receipt show ${created.opId} --wait worktree_visible`));
+    // The receipt is the only place a caller learns which task was minted; the pending-materialization
+    // summary must still name it.
+    assert.match(created.summary ?? "", /task-concurrent/u);
     assert.equal(readFileSync(path.join(rootDir, "harness", logical), "utf8"), "# Concurrent draft\n");
     const receipt = await cell.run(
       { kind: "receipt-show", opId: created.opId, waitFor: ["worktree_visible"], timeoutMs: 0 },
