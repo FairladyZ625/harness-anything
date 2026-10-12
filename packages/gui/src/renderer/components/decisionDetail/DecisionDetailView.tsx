@@ -140,8 +140,11 @@ export function DecisionDetailView({
   }
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-bg" data-testid="decision-detail-view">
-      <header className="shrink-0 border-b border-border bg-surface/80" data-testid="decision-detail-header">
+    <div className="flex h-full min-h-0 flex-col" data-testid="decision-detail-view">
+      <header
+        className="shrink-0 border-b border-border/60 bg-surface/50 backdrop-blur-md"
+        data-testid="decision-detail-header"
+      >
         <div className="flex min-h-14 items-center gap-2.5 px-3 py-2 lg:px-4">
           <button
             type="button"
@@ -149,7 +152,7 @@ export function DecisionDetailView({
             aria-label={t("views.taskDetailView.returnPreviousLevel")}
             className={[
               "grid size-7 shrink-0 place-items-center rounded-md border border-border text-text-muted",
-              "hover:border-border-strong hover:bg-surface-raised hover:text-text",
+              "hover:border-border-strong hover:bg-white/10 hover:text-text",
             ].join(" ")}
           >
             <ArrowLeft weight="bold" />

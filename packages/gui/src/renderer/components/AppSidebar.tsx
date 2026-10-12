@@ -163,11 +163,9 @@ export function AppSidebar({
               ref={projectSwitcherAnchor}
               onClick={onProjectSwitcherToggle}
               title={t("components.appSidebar.quicklySwitchProjects")}
-              className={`flex w-full items-center gap-2 rounded-md border px-2 py-2 text-left text-sm
-              font-medium hover:border-border-strong ${
-                projectSwitcherOpen || view === "home"
-                  ? "border-border-strong bg-surface-raised"
-                  : "border-border bg-surface-raised"
+              className={`glass-sub flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm
+              font-medium transition-colors hover:border-border-strong ${
+                projectSwitcherOpen || view === "home" ? "border-border-strong shadow-sm" : "hover:bg-white/[0.04]"
               }`}
             >
               <FolderSimple weight="duotone" className="shrink-0 text-text-muted" />

@@ -25,8 +25,8 @@ export function Section({
 }) {
   if (variant === "panel") {
     return (
-      <section className="rounded-lg border border-border bg-surface">
-        <div className="flex items-center justify-between border-b border-border px-3 py-1.5">
+      <section className="rounded-lg border border-border/70 bg-white/[0.02]">
+        <div className="flex items-center justify-between border-b border-border/60 px-3 py-1.5">
           <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">{title}</span>
           {action}
         </div>

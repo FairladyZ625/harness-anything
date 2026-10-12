@@ -138,7 +138,7 @@ const LaneCard = memo(function LaneCard({
       onClick={() => onSelect(task.taskId)}
       title={external ? "外部引擎管理 · 只读" : undefined}
       className={[
-        "cursor-pointer rounded-md bg-surface-raised px-3 py-2.5",
+        "cursor-pointer rounded-md bg-surface-raised/70 backdrop-blur-xs px-3 py-2.5 transition-colors",
         freshnessBorder(task.freshness),
         archived ? "opacity-50" : "",
         isFavorite ? "ring-1 ring-accent/40" : "",
@@ -467,7 +467,7 @@ export function SwimlaneBoard({
         <div className="min-w-max px-4 pb-4">
           <div
             ref={headerRef}
-            className="sticky top-0 z-10 grid gap-2 border-b border-border bg-bg py-2"
+            className="sticky top-0 z-10 grid gap-2 border-b border-border/60 bg-surface/50 backdrop-blur-md py-2"
             style={gridStyle}
           >
             <div className="relative self-center px-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">

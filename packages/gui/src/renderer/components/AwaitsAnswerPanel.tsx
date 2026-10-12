@@ -55,10 +55,7 @@ export function AwaitsAnswerPanel({
       <aside
         role="dialog"
         aria-label={t("components.awaitsAnswer.title")}
-        className={[
-          "flex h-full w-full max-w-[520px] flex-col border-l",
-          "border-border-strong bg-surface shadow-2xl shadow-black/40",
-        ].join(" ")}
+        className={["glass flex h-full w-full max-w-[520px] flex-col border-l shadow-2xl shadow-black/40"].join(" ")}
       >
         <header className="border-b border-border px-4 py-3">
           <div className="flex items-start gap-3">
