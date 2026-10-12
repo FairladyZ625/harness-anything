@@ -185,7 +185,7 @@ function EntityDocCard({
     <div
       data-testid={`entity-doc-card-${doc.kind}`}
       className={[
-        "w-full rounded-lg border border-border bg-surface p-3 text-left transition-colors",
+        "glass w-full rounded-lg p-3 text-left transition-colors",
         "hover:border-border-strong",
         retired ? "opacity-55 grayscale" : "",
       ].join(" ")}

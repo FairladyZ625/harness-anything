@@ -138,7 +138,7 @@ const LaneCard = memo(function LaneCard({
       onClick={() => onSelect(task.taskId)}
       title={external ? "外部引擎管理 · 只读" : undefined}
       className={[
-        "cursor-pointer rounded-md bg-surface-raised/70 backdrop-blur-xs px-3 py-2.5 transition-colors",
+        "cursor-pointer rounded-md glass-sub px-3 py-2.5 transition-colors",
         freshnessBorder(task.freshness),
         archived ? "opacity-50" : "",
         isFavorite ? "ring-1 ring-accent/40" : "",

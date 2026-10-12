@@ -224,14 +224,14 @@ export function QuickSwitcher({
       <div className="mt-2 grid shrink-0 grid-cols-2 gap-1.5 border-t border-border pt-2">
         <button
           onClick={onOpenProjectManager}
-          className={`rounded-md border border-border px-2 py-1.5 text-left ui-meta font-medium
+          className={`glass-sub rounded-md px-2 py-1.5 text-left ui-meta font-medium
             text-text-muted hover:border-border-strong hover:text-text`}
         >
           {t("components.appSidebar.manageAll")}
         </button>
         <button
           disabled
-          className={`inline-flex items-center justify-center gap-1 rounded-md border border-border
+          className={`glass-sub inline-flex items-center justify-center gap-1 rounded-md
             px-2 py-1.5 ui-meta text-text-faint opacity-70`}
         >
           <WarningCircle weight="bold" />

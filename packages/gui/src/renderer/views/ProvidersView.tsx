@@ -295,7 +295,7 @@ function ProviderConclusion({
   return (
     <section
       data-testid="provider-detail-conclusion"
-      className="status-edge relative mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs border border-border bg-surface px-3.5 py-2"
+      className="status-edge glass relative mb-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-xs px-3.5 py-2"
       style={unreachable ? ({ "--status-edge": "var(--color-status-blocked)" } as CSSProperties) : undefined}
     >
       <StatusTag

@@ -201,13 +201,13 @@ export function WorkView({
           placeholder={t("views.work.searchPlaceholder")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="min-w-[220px] flex-1 rounded-xs border border-border bg-surface-raised px-3 py-2"
+          className="min-w-[220px] flex-1 rounded-xs glass-sub px-3 py-2 text-text outline-none focus:border-border-strong"
         />
         <select
           aria-label="工作排序"
           value={sort}
           onChange={(event) => setSort(event.target.value as WorkSort)}
-          className="rounded-xs border border-border bg-surface-raised p-2"
+          className="rounded-xs glass-sub p-2 text-text outline-none focus:border-border-strong"
         >
           <option value="attn">{t("views.work.sort.attn")}</option>
           <option value="activity">{t("views.work.sort.activity")}</option>
