@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { sha256Text } from "@harness-anything/kernel";
 import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { devNull } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-protocol-runtime-context.ts";
@@ -27,8 +28,11 @@ for (const explicit of [false, true])
         edgeRoot = config.workspaceRoot,
         remote = path.join(fixture.root, "origin.git"),
         edgeUser = path.join(fixture.root, "edge-user");
+      const gitEnv = { ...process.env, GIT_CONFIG_GLOBAL: devNull, GIT_CONFIG_SYSTEM: devNull };
+      for (const name of ["GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL"])
+        delete gitEnv[name];
       const git = (cwd: string, ...args: string[]) =>
-        execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe" }).trim();
+        execFileSync("git", ["-C", cwd, ...args], { encoding: "utf8", stdio: "pipe", env: gitEnv }).trim();
       git(fixture.root, "clone", "--bare", "--no-local", fixture.repo, remote);
       fixture.git("remote", "add", "origin", remote);
       fixture.git("fetch", "origin");
@@ -49,6 +53,10 @@ for (const explicit of [false, true])
       const cwd = path.join(edgeRoot, snapshot.workspace.path);
       mkdirSync(path.dirname(cwd), { recursive: true });
       git(edgeRoot, "worktree", "add", "-b", created.taskId, cwd, "origin/main");
+      // Git worktrees use their own administrative config; carry the fixture's conventional
+      // identity into the delivery worktree before creating the commit that the daemon publishes.
+      git(cwd, "config", "user.name", "Dual Sync Test");
+      git(cwd, "config", "user.email", "dual@example.invalid");
       writeFileSync(path.join(cwd, "delivery.ts"), "export const delivered = true;\n");
       git(cwd, "add", "delivery.ts");
       git(cwd, "commit", "-qm", "feat: deliver repository change");
