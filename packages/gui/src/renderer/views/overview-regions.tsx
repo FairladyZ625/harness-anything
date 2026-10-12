@@ -10,6 +10,7 @@ import { DenseRow } from "../components/primitives/DenseRow";
 import { Empty } from "../components/primitives/Empty";
 import { FilterChips } from "../components/primitives/FilterChips";
 import { Notice } from "../components/primitives/Notice";
+import { SegBar } from "../components/primitives/SegBar";
 import { StatusTag, type StatusTone } from "../components/primitives/StatusTag";
 import { t } from "../i18n/index.tsx";
 import type { MessageKey } from "../i18n/core.ts";
@@ -329,39 +330,49 @@ export function OverviewWorksBody({
                 ]
               : []),
           ].join(" · ");
-        // 第二行是行内信息面(2026-10-11 意见 4):进度、进行中子任务数、执行者、等你处理
-        // 的事项数;卡点芯片只读(动作落点在决策带与「跟进与返工」),点行进工作详情。
-        const second = [
-          <span key="progress" className="shrink-0 font-mono tabular-nums text-text-muted">
-            {t("views.overviewView.worksProgress", {
-              done: String(done),
-              total: String(effective),
-              ratio: String(Math.round(work.doneRatio * 100)),
-            })}
-          </span>,
-          running > 0 ? (
-            <span key="running" className="shrink-0">
-              {t("views.overviewView.worksRunning", { count: String(running) })}
-            </span>
-          ) : null,
-          handlers.length > 0 ? (
-            <span key="handlers" className="min-w-0 truncate">
-              <span className="text-text-faint">{t("views.overviewView.worksHandlersLabel")}</span>{" "}
-              <span className="text-text-muted">{handlers.join(" · ")}</span>
-            </span>
-          ) : running > 0 ? (
-            <span key="no-agent" className="shrink-0 text-status-submitted">
-              {t("views.overviewView.worksNoAgent")}
-            </span>
-          ) : null,
-          mine > 0 ? (
-            <span key="mine" className="shrink-0 text-status-blocked">
-              {t("views.overviewView.worksMine", { count: String(mine) })}
-            </span>
-          ) : null,
-        ].filter((part) => part !== null);
+        // 第二行是行内信息面(2026-10-11 意见 4;视觉规范 v2 改图形化):分段进度条复用
+        // SegBar(与工作页/看板同一原语),计数退成紧凑 done/total;空集给「暂无子任务」、
+        // 全取消给取消计数,不出 0/0 假进度,完整构成悬停给。live 行(有执行者会话)挂
+        // 呼吸光条;静止行安静排版,不再输出「无 agent 在跑」消极文本。
+        const cancelled = work.counts.cancelled ?? 0,
+          second = [
+            <span key="progress" className="flex min-w-0 flex-1 items-center gap-1.5">
+              <SegBar
+                counts={work.counts}
+                // 行内档比默认 h-1 加粗一档(任务详情子任务条同档),占行内剩余宽度。
+                className="h-[5px]! min-w-[72px] flex-1"
+              />
+              {effective > 0 ? (
+                <span className="shrink-0 font-mono tabular-nums text-text-muted">
+                  {done}/{effective}
+                </span>
+              ) : (
+                <span className="shrink-0">
+                  {cancelled > 0
+                    ? `${STATUS_META.cancelled.label} ${cancelled}`
+                    : t("views.overviewView.worksNoSubtasks")}
+                </span>
+              )}
+            </span>,
+            running > 0 ? (
+              <span key="running" className="shrink-0">
+                {t("views.overviewView.worksRunning", { count: String(running) })}
+              </span>
+            ) : null,
+            handlers.length > 0 ? (
+              <span key="handlers" className="min-w-0 truncate">
+                <span className="text-text-faint">{t("views.overviewView.worksHandlersLabel")}</span>{" "}
+                <span className="text-text-muted">{handlers.join(" · ")}</span>
+              </span>
+            ) : null,
+            mine > 0 ? (
+              <span key="mine" className="shrink-0 text-status-blocked">
+                {t("views.overviewView.worksMine", { count: String(mine) })}
+              </span>
+            ) : null,
+          ].filter((part) => part !== null);
         return (
-          <div key={work.taskId} data-work-card={work.taskId}>
+          <div key={work.taskId} data-work-card={work.taskId} className={handlers.length > 0 ? "live-row" : undefined}>
             <DenseRow
               tag={<StatusTag status={work.status} />}
               title={work.title}
@@ -430,7 +441,8 @@ export type DrillTabKey = "wip" | "review" | "followups" | "pinned";
  * FilterChips tab(进行中的任务 / 跟进与返工 / 置顶承诺;有评审行时加评审执行 tab),
  * tab 下是内联名单——全部条目直接可见、区内滚动,排序沿用原设计的重要性口径(议程注意
  * 力分)。「进行中的任务」行并进原在飞任务流的执行信息:最近活动时间与当前在跑的
- * agent(没有在跑就明确写「无 agent 在跑」)。点行弹既有 FocusLayer 详情并选中该行。
+ * agent;有执行者的行挂呼吸光条,静止行安静待命(动效即心跳,不再输出消极文本)。
+ * 点行弹既有 FocusLayer 详情并选中该行。
  * 全部工作/全部任务/会话入口收进区域页脚(宿主 Region footer),列表滚动时保持可达。
  */
 export function OverviewDrillBody({
@@ -518,19 +530,17 @@ export function OverviewDrillBody({
             </div>
           ) : (
             wipRows.map((row) => (
-              <div key={row.taskId} data-drill-row={row.taskId}>
+              <div
+                key={row.taskId}
+                data-drill-row={row.taskId}
+                className={row.handlers.length > 0 ? "live-row" : undefined}
+              >
                 <DenseRow
                   tag={<StatusTag status={row.status} />}
                   title={row.title}
                   hoverTitle={row.taskId}
                   relaxed
-                  reason={
-                    row.handlers.length > 0 ? (
-                      row.handlers.join(" · ")
-                    ) : (
-                      <span className="text-status-submitted">{t("views.overviewView.worksNoAgent")}</span>
-                    )
-                  }
+                  reason={row.handlers.length > 0 ? row.handlers.join(" · ") : undefined}
                   time={
                     row.since === null ? undefined : (
                       <span

@@ -132,11 +132,13 @@ export function AppSidebar({
     () => pinnedWork.filter((item) => workIndex.isWorkRoot(item.taskId)),
     [pinnedWork, workIndex],
   );
+  // 外壳接现有 .glass(styles.css 的 S2 玻璃档):半透明面 + backdrop 折射让根部
+  // AuroraBackdrop 透出,替换不透明 bg-surface;边线由 .glass 的发丝描边承担。
   return (
     <aside
       data-testid="app-sidebar"
-      className={`flex max-h-[42dvh] w-full shrink-0 flex-col overflow-hidden border-b border-border bg-surface
-        md:max-h-none md:w-56 md:border-r md:border-b-0`}
+      className={`glass flex max-h-[42dvh] w-full shrink-0 flex-col overflow-hidden
+        md:max-h-none md:w-56`}
     >
       {/* 侧栏四块:固定顶部(品牌行 + 项目切换)、固定的置顶工作、导航(唯一滚动区)、固定底部。 */}
       <div data-testid="app-sidebar-head" className="shrink-0">

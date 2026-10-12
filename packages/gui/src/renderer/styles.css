@@ -303,6 +303,38 @@ html[data-theme="light"] {
   pointer-events: none;
 }
 
+/* 活跃执行行的静态状态边线 + 左缘微型呼吸光条(视觉规范 v2「动效即心跳,静止即待命」):
+   行本身只挂静态 inset 边线(paint 一次),呼吸只作用于 ::before 光条且只动
+   opacity/transform(合成器路径,不动 box-shadow/border 的 paint 面);「减少动态
+   效果」开启时由上方全局规则关停动画,静态边线保留。 */
+.live-row {
+  position: relative;
+  box-shadow: inset 2px 0 0 var(--color-status-active);
+}
+.live-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 27%;
+  height: 46%;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--color-status-active);
+  animation: live-breathe 2.8s var(--ease) infinite;
+  pointer-events: none;
+}
+@keyframes live-breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scaleY(0.75);
+  }
+  50% {
+    opacity: 0.95;
+    transform: scaleY(1);
+  }
+}
+
 /* 统计图的柱入场:挂载时从基线长出一次(标准 §6:≤180ms 缓出,不回弹不循环);数据刷新
    不重挂元素,不重播。系统「减少动态效果」开启时由下面的全局规则关掉。 */
 .viz-grow {

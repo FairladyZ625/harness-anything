@@ -274,9 +274,14 @@ describe("总览:主区「关注的工作」", () => {
     );
     const card = container.querySelector("[data-work-card='task_w1']")!;
     const text = textOf(card);
-    // 第二行是行内信息面(2026-10-11 意见 4):进度、进行中子任务数、执行者、等你处理数;
+    // 第二行是行内信息面(2026-10-11 意见 4;视觉规范 v2 改图形化):进度退成 SegBar
+    // 分段条 + 紧凑 done/total 计数,随后是进行中子任务数、执行者、等你处理数;
     // 完整子任务/未完成/最近明细悬停给。
-    expect(text).toMatch(/进度 2\/3 · \d+%/);
+    expect([...card.querySelectorAll("[data-segment]")].map((node) => node.getAttribute("data-segment"))).toEqual([
+      "done",
+      "active",
+    ]);
+    expect(text).toContain("2/3");
     expect(text).toContain("进行中 1");
     expect(text).toContain("等你处理 2");
     const hover = card.querySelector("[data-dense-row]")!.getAttribute("title")!;
@@ -294,17 +299,23 @@ describe("总览:主区「关注的工作」", () => {
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
   });
 
-  it("在跑而无会话的工作行如实标注;无进行中子任务的工作不冒充「无 agent」", () => {
-    // 默认夹具:task_w1 在跑(executing 1)且无 live 会话 → 「无 agent」诚实信号进第二行。
+  it("在跑而无会话的工作行安静待命;消极提示文本不再出现", () => {
+    // 默认夹具:task_w1 在跑(executing 1)且无 live 会话 → 静止待命,第二行只留进度与
+    // 计数,不输出「无 agent 在跑」(视觉规范 v2:动效即心跳,静止即待命)。
     const container = mount();
     const w1 = container.querySelector("[data-work-card='task_w1']")!;
-    expect(textOf(w1)).toContain("进行中的任务无 agent 在跑");
-    // task_w2 只有卡点没有在跑子任务:第二行不冒充「无 agent」(active 计数为 0)。
+    expect(textOf(w1)).not.toContain("无 agent");
+    expect(w1.className).not.toContain("live-row");
+    // task_w2 只有卡点没有在跑子任务:分段条按 blocked/planned 构成着色,计数 0/3。
     const w2 = container.querySelector("[data-work-card='task_w2']")!;
-    expect(textOf(w2)).toMatch(/进度 0\/3 · 0%/);
-    expect(textOf(w2)).not.toContain("进行中的任务无 agent 在跑");
-    // 两行档的标题/原因各占一个 block 行,不超过两行。
-    expect(w1.querySelectorAll("[data-dense-row] .block").length).toBe(2);
+    expect([...w2.querySelectorAll("[data-segment]")].map((node) => node.getAttribute("data-segment"))).toEqual([
+      "blocked",
+      "planned",
+    ]);
+    expect(textOf(w2)).toContain("0/3");
+    expect(textOf(w2)).not.toContain("无 agent");
+    // 两行档的标题/原因各占一个 block 行,不超过两行(SegBar 的分段 span 不算行)。
+    expect(w1.querySelectorAll("[data-dense-row] .block.truncate").length).toBe(2);
     unmount();
   });
 
@@ -633,9 +644,10 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     restore();
   });
 
-  it("「进行中的任务」行并进执行者与最近活动;没有在跑的如实写「无 agent 在跑」", async () => {
+  it("「进行中的任务」行并进执行者与最近活动;有执行者挂呼吸,静止行安静待命", async () => {
     // 意见 3 的合并面:原在飞任务流的信息(时间、当前哪个 agent 在跑)进「执行与下钻」
     // 的「进行中的任务」行,四态仍同列(blocked 不再被过滤——放大层与跟进名单另有分组)。
+    // 视觉规范 v2:有执行者的行挂 live-row 呼吸光条,静止行不再输出「无 agent 在跑」。
     const restore = stubBridge({
       getTaskWip: () =>
         wipSnapshot([
@@ -669,10 +681,12 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     expect(textOf(drill.querySelector('[data-testid="overview-drill-wip"]'))).toContain("进行中的任务");
     expect(textOf(drill)).toContain("进行中的任务");
     expect(textOf(drill)).not.toContain("在飞");
-    const running = textOf(container.querySelector('[data-drill-row="task_run"]'));
-    expect(running).toContain("codex · glm-5.3");
-    const idle = textOf(container.querySelector('[data-drill-row="task_idle"]'));
-    expect(idle).toContain("进行中的任务无 agent 在跑");
+    const running = container.querySelector('[data-drill-row="task_run"]')!;
+    expect(running.className).toContain("live-row");
+    expect(textOf(running)).toContain("codex · glm-5.3");
+    const idle = container.querySelector('[data-drill-row="task_idle"]')!;
+    expect(idle.className).not.toContain("live-row");
+    expect(textOf(idle)).not.toContain("无 agent");
     unmount();
     restore();
   });
