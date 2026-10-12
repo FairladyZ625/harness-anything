@@ -212,7 +212,10 @@ export async function readTaskCi(
 }
 
 async function readGitLabTaskCi(
-  context: Pick<RepoCellApiContext, "rootDir" | "projection" | "now" | "cellCodedError" | "extracted">,
+  context: Pick<RepoCellApiContext, "projection" | "now" | "cellCodedError"> & {
+    readonly rootDir: string;
+    readonly readResult?: RepoCellApiContext["extracted"]["readResult"];
+  },
   action: RepoTaskAction,
   hosting: Extract<HostingProvider, { readonly kind: "gitlab" }>,
   token: string,
@@ -305,12 +308,12 @@ async function readGitLabTaskCi(
           : "failure";
   const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs };
   return {
-    ...context.extracted.readResult(
-      `task-ci:${branch}:${headSha}`,
-      ci,
-      context.projection.readCut().sourceRevision,
-      null,
-    ),
+    ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, context.projection.readCut().sourceRevision, null) ?? {
+      outcome: "applied" as const,
+      opId: `task-ci:${branch}:${headSha}`,
+      revision: context.projection.readCut().sourceRevision,
+      evidence: JSON.stringify(ci),
+    }),
     ci,
   };
 }
