@@ -27,24 +27,10 @@ export function parseTask(
       "task-rematerialize": () => parseRematerialize(id, "taskId", args, rootDir, repoId, json, inputs),
       "task-rename": () => parseTaskRelocation("task-rename", args, rootDir, repoId, json, inputs),
       "task-move": () => parseTaskRelocation("task-move", args, rootDir, repoId, json, inputs),
+      "task-show": () => parseTaskShow(args, rootDir, repoId, json, inputs),
     },
     delegatedParse = delegated[id]?.();
   if (delegatedParse !== undefined) return delegatedParse;
-  if (id === "task-show") {
-    const positional = args[2]?.startsWith("--") ? undefined : args[2],
-      f = readFlags(id, args.slice(positional ? 3 : 2), inputs);
-    if (!f.ok) return rejected(f.code, f.nextAction, json);
-    const flagged = f.one.get("--id");
-    if (positional && flagged)
-      return rejected("duplicate_field", "Use either ha task show <task-id> or --id <task-id>, not both.", json);
-    return nonEmpty(positional ?? flagged)
-      ? accepted(rootDir, repoId, json, {
-          kind: "task-show",
-          verb,
-          taskId: positional ?? flagged,
-        })
-      : rejected("missing_field", "Run ha task show <task-id>.", json);
-  }
   if (id === "task-progress-append") return parseProgress(rootDir, repoId, json, args, inputs);
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
@@ -132,6 +118,28 @@ export function parseTask(
     renderCliGuidance("run-help", { helpCommand: inputs.get(id)!.helpCommand }),
     json,
   );
+}
+
+function parseTaskShow(
+  args: readonly string[],
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+): ThinParseResult {
+  const positional = args[2]?.startsWith("--") ? undefined : args[2],
+    f = readFlags("task-show", args.slice(positional ? 3 : 2), inputs);
+  if (!f.ok) return rejected(f.code, f.nextAction, json);
+  const flagged = f.one.get("--id");
+  if (positional && flagged)
+    return rejected("duplicate_field", "Use either ha task show <task-id> or --id <task-id>, not both.", json);
+  return nonEmpty(positional ?? flagged)
+    ? accepted(rootDir, repoId, json, {
+        kind: "task-show",
+        verb: args[1],
+        taskId: positional ?? flagged,
+      })
+    : rejected("missing_field", "Run ha task show <task-id>.", json);
 }
 
 function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): ThinParseResult {
