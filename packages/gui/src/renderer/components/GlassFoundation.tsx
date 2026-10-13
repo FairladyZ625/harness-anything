@@ -19,7 +19,7 @@ export function AuroraBackdrop() {
 export function LiquidFilterDef() {
   return (
     <svg aria-hidden="true" width="0" height="0" style={{ position: "absolute" }}>
-      <filter id="liquid" x="-10%" y="-10%" width="120%" height="120%">
+      <filter id="liquid" x="0" y="0" width="100%" height="100%">
         <feTurbulence type="fractalNoise" baseFrequency="0.008 0.012" numOctaves={2} seed={7} result="n" />
         <feGaussianBlur in="n" stdDeviation={2} result="nb" />
         <feDisplacementMap in="SourceGraphic" in2="nb" scale={38} xChannelSelector="R" yChannelSelector="G" />
