@@ -156,6 +156,7 @@ export async function serve(
           const frame = parseReplicationFrame(line);
           if (frame.type === "replica.start" && !replicationMode) {
             replicationMode = true;
+            replicationFrames.push(frame);
             if (nodeId !== null && options.onReplicationStart)
               void options
                 .onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal)
@@ -189,6 +190,7 @@ export async function serve(
         return;
       }
       replicationMode = true;
+      replicationFrames.push(frame);
       if (!options.onReplicationStart) throw new FleetFault("replication_unavailable", "Replication is unavailable.");
       await options.onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal);
       return;
