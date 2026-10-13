@@ -26,8 +26,7 @@ const position = { history: "history-a", sequence: 9, revision: 7 } as const,
     projectionSchema: 11,
   } as const;
 const frames: readonly ReplicationFrame[] = [
-  { type: "replica.start", position: null },
-  { type: "replica.start", position },
+  { type: "replica.start", repoId: "repo", position },
   { type: "replica.backup", metadata, size: 4096, sha256: "b".repeat(64) },
   { type: "replica.data", offset: 0, data: Buffer.from("abc").toString("base64") },
   { type: "replica.backup.end" },

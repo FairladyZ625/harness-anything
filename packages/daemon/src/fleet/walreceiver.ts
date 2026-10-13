@@ -72,6 +72,7 @@ async function receiveBytes(
 
 export async function runWalReceiver(input: {
   readonly peer: ReplicationPeer;
+  readonly repoId: string;
   readonly target: ReplicationTarget;
   readonly directory: string;
   readonly quotaBytes: number;
@@ -79,7 +80,7 @@ export async function runWalReceiver(input: {
   readonly signal: AbortSignal;
 }): Promise<void> {
   const { peer, target, signal } = input;
-  await peer.send({ type: "replica.start", position: target.position() });
+  await peer.send({ type: "replica.start", repoId: input.repoId, position: target.position() });
   const ack = async (position: ReplicationPosition) => {
     await target.project(position);
     await peer.send({ type: "replica.ack", durable: position, applied: position });

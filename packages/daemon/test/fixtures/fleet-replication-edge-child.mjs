@@ -207,6 +207,7 @@ async function runOneSession() {
   try {
     await runWalReceiver({
       peer,
+      repoId: config.repoId,
       target,
       directory: `${mirrorRoot}/staging`,
       quotaBytes,

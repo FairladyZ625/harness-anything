@@ -48,6 +48,10 @@ import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
 import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import { openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/kernel";
+import { runWalSender } from "./walsender.ts";
+import { openReplicationSlots } from "./replication-slot.ts";
+import { startBaseBackup } from "./basebackup.ts";
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
@@ -146,6 +150,55 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     get uploadPath() {
       return uploadPath;
     },
+  };
+  const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
+  const onReplicationStart = async (
+    nodeId: string,
+    accessToken: string | undefined,
+    frame: import("./protocol.ts").ReplicationFrame & { readonly type: "replica.start" },
+    peer: import("./protocol.ts").ReplicationPeer,
+    signal: AbortSignal,
+  ) => {
+    await admitReplica(nodeId, frame.repoId, accessToken);
+    const rootDir = repoRoot(frame.repoId),
+      layout = resolveHarnessLayout(rootDir);
+    const store = openSqliteEventStore({
+      databasePath: sqliteLedgerPath(rootDir),
+      repoId: frame.repoId,
+      readOnly: true,
+    });
+    const slots = replicationSlots;
+    const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
+    const source = {
+      read: (after: import("@harness-anything/kernel").ReplicationPosition) => store.replicationCommits(after, 64),
+      wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
+        while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)
+          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+      },
+      backup: async (backupSignal: AbortSignal) => {
+        const started = startBaseBackup(
+          {
+            ledgerPath: store.databasePath,
+            projectionPath: layout.projectionPath,
+            directory: path.join(options.stateRoot, "replication-backups"),
+          },
+          backupSignal,
+        );
+        const pinned = await started;
+        const archive = await pinned.complete;
+        return { ...archive, release: async () => undefined };
+      },
+      object: async function* (sha256: string) {
+        const bytes = store.readContentObject(sha256);
+        if (bytes === null) throw new Error(`replication content object missing: ${sha256}`);
+        yield bytes;
+      },
+    };
+    try {
+      await runWalSender({ peer, source, slots, lease, signal });
+    } finally {
+      store.close();
+    }
   };
 
   function verifyOwnedClaims(
@@ -970,7 +1023,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
   const sessions = new Map<string, Set<TLSSocket>>();
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
-    serve(socket, options, handle, sessions),
+    serve(socket, { ...options, onReplicationStart }, handle, sessions),
   );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

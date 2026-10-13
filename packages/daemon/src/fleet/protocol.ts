@@ -6,7 +6,7 @@ export const REPLICATION_FRAME_BYTES = 96 * 1024;
 export const REPLICATION_CHUNK_BYTES = 64 * 1024;
 
 export type ReplicationFrame =
-  | { readonly type: "replica.start"; readonly position: ReplicationPosition | null }
+  | { readonly type: "replica.start"; readonly repoId: string; readonly position: ReplicationPosition | null }
   | {
       readonly type: "replica.backup";
       readonly metadata: BaseBackupMetadata;
@@ -55,7 +55,7 @@ export function parseReplicationFrame(line: string): ReplicationFrame {
   const value: unknown = JSON.parse(line);
   if (!object(value) || typeof value.type !== "string") throw new Error("invalid replication frame");
   const types: Record<string, Record<string, Check>> = {
-    "replica.start": { position: (v) => v === null || isReplicationPosition(v) },
+    "replica.start": { repoId: text, position: (v) => v === null || isReplicationPosition(v) },
     "replica.backup": { metadata: isBaseBackupMetadata, size: uint, sha256: hash },
     "replica.data": {
       offset: uint,

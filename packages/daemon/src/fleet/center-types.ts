@@ -6,6 +6,7 @@ import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contr
 import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./contract.ts";
+import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
 
 export interface FleetCenterOptions {
   readonly host: Pick<
@@ -46,6 +47,13 @@ export interface FleetCenterOptions {
     readonly messageId: string | null;
     readonly error: unknown;
   }) => void;
+  readonly onReplicationStart?: (
+    nodeId: string,
+    accessToken: string | undefined,
+    frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
+    peer: ReplicationPeer,
+    signal: AbortSignal,
+  ) => Promise<void>;
 }
 
 export interface FleetReplicaStatus extends ReplicaDeliveryKey {
