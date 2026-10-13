@@ -44,6 +44,15 @@ test("the worktree step timeout defaults to 20 minutes and reads a slower reposi
   assert.throws(() => readSettingsFacet("settings:\n  worktree:\n    setupStepTimeoutMs: 999\n"));
 });
 
+test("the backup execution limit defaults to 30 minutes, reads a larger value, and refuses under a minute", () => {
+  assert.equal(readSettingsFacet(body).storage.backupExecutionLimitMs, 30 * 60_000);
+  assert.equal(
+    readSettingsFacet("settings:\n  storage:\n    backupExecutionLimitMs: 3600000\n").storage.backupExecutionLimitMs,
+    3_600_000,
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  storage:\n    backupExecutionLimitMs: 30000\n"));
+});
+
 test("the schedule admission window is read from the facet and refuses a sub-second value", () => {
   assert.equal(
     readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 600000\n").schedule.admissionWindowMs,

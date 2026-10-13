@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import test from "node:test";
 import type { Worker } from "node:worker_threads";
+import { DEFAULT_BACKUP_EXECUTION_LIMIT_MS } from "@harness-anything/kernel";
 import { finishLedgerBackup } from "../src/schedule-backup-worker.ts";
 
-const limitMs = 30 * 60_000;
+const limitMs = DEFAULT_BACKUP_EXECUTION_LIMIT_MS;
 const input = {
   rootDir: "/tmp/backup-lifetime-fixture",
   backupDir: "/tmp/backup-lifetime-fixture/snapshot",
@@ -63,3 +64,34 @@ for (const phase of ["prepare", "capture", "verification"] as const) {
     assert.match((await result)!.message, /backup worker exceeded 1800000ms/);
   });
 }
+
+test("the execution limit is the caller's Settings value, not a constant: a raised budget outlives the default deadline", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const stopped = Promise.withResolvers<number>();
+  class FrozenWorker extends EventEmitter {
+    static instances: FrozenWorker[] = [];
+    terminates = 0;
+    constructor() {
+      super();
+      FrozenWorker.instances.push(this);
+    }
+    postMessage() {}
+    terminate() {
+      this.terminates++;
+      return stopped.promise;
+    }
+  }
+  const pending = finishLedgerBackup(input, (work) => work(), FrozenWorker as unknown as typeof Worker, 3_600_000);
+  const worker = FrozenWorker.instances[0]!;
+  const result = pending.then(
+    () => null,
+    (error) => error as Error,
+  );
+  t.mock.timers.tick(DEFAULT_BACKUP_EXECUTION_LIMIT_MS);
+  assert.equal(worker.terminates, 0, "the default deadline no longer stops a run with a raised limit");
+  t.mock.timers.tick(3_600_000 - DEFAULT_BACKUP_EXECUTION_LIMIT_MS);
+  assert.equal(worker.terminates, 1, "the configured limit terminates the run");
+  worker.emit("exit", 1);
+  stopped.resolve(1);
+  assert.match((await result)!.message, /backup worker exceeded 3600000ms/);
+});

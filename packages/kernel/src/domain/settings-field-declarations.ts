@@ -127,6 +127,8 @@ export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defau
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 /** One worktree setup step may run this long before it fails and refuses the start (20 minutes). */
 export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
+/** A scheduled ledger backup run is stopped after this whole-run budget (30 minutes; successful runs took ~8.5). */
+export const DEFAULT_BACKUP_EXECUTION_LIMIT_MS = 30 * 60_000;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
@@ -624,6 +626,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "schedules-nodes",
     action: { field: "scheduleAdmissionWindowMs", type: "number" },
     cli: { name: "--schedule-admission-window-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
+  }),
+  defineSettingsField({
+    path: ["storage", "backupExecutionLimitMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
+    minimum: 60_000,
+    description: "How long one scheduled backup run may take end to end, in milliseconds.",
+    effect:
+      "A backup still running past this limit is stopped and its occurrence settles as failed; raise it for large ledgers.",
+    group: "storage-backup",
+    action: { field: "storageBackupExecutionLimitMs", type: "number" },
+    cli: { name: "--storage-backup-execution-limit-ms", kind: "single", regex: "^[1-9][0-9]{4,}$" },
   }),
   defineSettingsField({
     path: ["restoreDrillRetention"],
