@@ -255,7 +255,6 @@ export type { ScheduleActionDraft } from "./schedule-action-contract.ts";
 
 export {
   AGENDA_PIN_LIMIT_SETTING,
-  DEFAULT_RESTORE_DRILL_RETENTION,
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
   DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
   DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
@@ -284,7 +283,6 @@ export type {
   LocalSettingsV1,
   RepositorySettingsV1,
   ReviewIndependence,
-  SettingsLocale,
   SettingsV1,
 } from "./settings.ts";
 export { SettingsDeclarationError } from "./settings.ts";
@@ -299,7 +297,7 @@ export {
 export type { VerticalDeclarationDocumentV1, VerticalKindCommandResult } from "./vertical-declaration.ts";
 export { buildVerticalDeclarationRead } from "./vertical-declaration.ts";
 export type { VerticalDefinition } from "./vertical-definition.ts";
-export { settingsActionLocale, settingsUpdateInputFields } from "./settings-action-contract.ts";
+export { settingsUpdateInputFields } from "./settings-action-contract.ts";
 export { repositorySettingsActionValues } from "./settings-action-values.ts";
 export type { SettingsActionDraft } from "./settings-action-contract.ts";
 

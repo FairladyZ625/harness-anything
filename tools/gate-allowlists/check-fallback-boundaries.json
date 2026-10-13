@@ -201,6 +201,7 @@
    "packages/gui/src/main/artifact-open-ipc.ts#isRegularFile",
    "packages/gui/src/main/artifact-open-ipc.ts#resolveArtifactAbsolutePath",
    "packages/gui/src/main/connection-admin-ipc.ts#registerConnectionAdminIpc",
+   "packages/gui/src/main/gui-local-settings.ts#guiRequestTimeouts",
    "packages/gui/src/renderer/board-column-preferences.ts#readBoardColumnWidths",
    "packages/gui/src/renderer/board-column-preferences.ts#writeBoardColumnWidths",
    "packages/gui/src/renderer/components/DecisionProposalForm.tsx#submit",

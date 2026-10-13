@@ -509,7 +509,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),
                   runtimeSessionId,
-                  // The ACP handshake deadline is a repository setting; the worker host reads no settings.
                   handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
                 }),
             result = {
@@ -1070,16 +1069,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       input,
       publishRuntimeEvent: extracted.publishRuntimeEvent,
       closed: () => fallbackClosed,
-      launch: async (
-        payload,
-        binding,
-        fallback,
-        schedule,
-        handoffFromRuntimeSessionId,
-        publicationOwner,
-        onDispatched,
-      ) => {
-        await spawnAttempt(
+      launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
+        spawnAttempt(
           payload,
           binding,
           fallback,
@@ -1090,8 +1081,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           undefined,
           undefined,
           onDispatched,
-        );
-      },
+        ),
       stream,
     });
   }

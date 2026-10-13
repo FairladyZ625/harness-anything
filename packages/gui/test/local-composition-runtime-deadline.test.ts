@@ -108,7 +108,6 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
     daemonId = "gui-deadline-setting",
     socketPath = localUserDaemonEndpoint(parent, daemonId),
     previous = { root: process.env.HARNESS_DAEMON_USER_ROOT, id: process.env.HARNESS_DAEMON_ID };
-  let reply!: (value: Record<string, unknown>) => void;
   const arrived = new Promise<void>((resolve) => {
     const server = net.createServer((socket) => {
       const lines = createInterface({ input: socket });
@@ -118,10 +117,7 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
           socket.write(
             `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, methods: ["protocol.hello", "daemon.gui.system.read"] } })}\n`,
           );
-        } else {
-          reply = (value) => socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, ...value })}\n`);
-          resolve();
-        }
+        } else resolve();
       });
     });
     t.after(async () => {
