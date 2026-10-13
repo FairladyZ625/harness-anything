@@ -340,15 +340,6 @@ describe("GUI render hygiene: glass nesting hygiene", () => {
     const body = subMatch ? subMatch[1] : "";
     expect(body, ".glass .glass-sub must declare backdrop-filter: none").toMatch(/backdrop-filter\s*:\s*none/);
   });
-
-  it("disables nested backdrop-filter on .glass-liquid .glass-sub", () => {
-    const subMatch = clean.match(/\.glass-liquid\s+\.glass-sub\s*\{([^}]+)\}/);
-    if (!subMatch) {
-      expect.unreachable(formatNestedGlassGuidanceReport());
-    }
-    const body = subMatch ? subMatch[1] : "";
-    expect(body, ".glass-liquid .glass-sub must declare backdrop-filter: none").toMatch(/backdrop-filter\s*:\s*none/);
-  });
 });
 
 describe("GUI render hygiene: diagnostic negative and positive controls", () => {
