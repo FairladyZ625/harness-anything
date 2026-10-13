@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import * as tar from "tar";
 import {
   activateEmptyCanonicalGeneration,
   makeTaskProjection,
@@ -68,6 +70,42 @@ test("real backup worker installs a generation readable by the common projection
       quotaBytes: 16 * 1024 * 1024,
     });
     assert.deepEqual(readReplicaGeneration(replicaRoot), installed);
+    await assert.rejects(
+      installReplicaGeneration({
+        root: replicaRoot,
+        archive: archive.file,
+        metadata: archive.metadata,
+        sha256: archive.sha256,
+        size: archive.size,
+        quotaBytes: 1,
+      }),
+      /disk quota/u,
+    );
+    assert.deepEqual(readReplicaGeneration(replicaRoot), installed);
+    assert.deepEqual(readdirSync(path.join(replicaRoot, "generations")), [installed.id]);
+    writeFileSync(path.join(root, "unexpected"), "not a backup member");
+    symlinkSync("unexpected", path.join(root, "backup.json"));
+    for (const [member, message] of [
+      ["unexpected", /unexpected base backup archive member/u],
+      ["backup.json", /invalid base backup archive member/u],
+    ] as const) {
+      const file = path.join(root, "invalid.tar.gz");
+      await tar.create({ file, cwd: root, gzip: true }, [member]);
+      const bytes = readFileSync(file);
+      await assert.rejects(
+        installReplicaGeneration({
+          root: replicaRoot,
+          archive: file,
+          metadata: archive.metadata,
+          sha256: createHash("sha256").update(bytes).digest("hex"),
+          size: bytes.length,
+          quotaBytes: 16 * 1024 * 1024,
+        }),
+        message,
+      );
+      assert.deepEqual(readReplicaGeneration(replicaRoot), installed);
+      assert.deepEqual(readdirSync(path.join(replicaRoot, "generations")), [installed.id]);
+    }
     const receiving = openWalReceiverGeneration(installed);
     try {
       ledger.appendCommand({

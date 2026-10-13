@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { createReadStream, existsSync, readFileSync, readdirSync, renameSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
 import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
@@ -62,8 +63,7 @@ export async function installReplicaGeneration(input: {
   await mkdir(temporary, { recursive: true });
   let expandedBytes = 0;
   try {
-    await tar.extract({
-      file: input.archive,
+    const unpack = new tar.Unpack({
       cwd: temporary,
       strict: true,
       preservePaths: false,
@@ -75,15 +75,23 @@ export async function installReplicaGeneration(input: {
           segments.includes("..") ||
           !("type" in entry) ||
           !["File", "Directory"].includes(entry.type)
-        )
-          throw new Error("invalid base backup archive member");
-        if (name !== "backup.json" && name !== ".harness" && !name.startsWith(".harness/"))
-          throw new Error("unexpected base backup archive member");
+        ) {
+          unpack.abort(new Error("invalid base backup archive member"));
+          return false;
+        }
+        if (name !== "backup.json" && name !== ".harness" && !name.startsWith(".harness/")) {
+          unpack.abort(new Error("unexpected base backup archive member"));
+          return false;
+        }
         expandedBytes += entry.size;
-        if (expandedBytes > input.quotaBytes) throw new Error("base backup exceeds disk quota");
+        if (expandedBytes > input.quotaBytes) {
+          unpack.abort(new Error("base backup exceeds disk quota"));
+          return false;
+        }
         return true;
       },
     });
+    await pipeline(createReadStream(input.archive), unpack);
     // The archive can be intact but belong to another offer or an unsupported database schema.
     // Open the actual common readers before publishing a generation; do not invent an edge schema check.
     const stagedLedger = path.join(temporary, path.relative(next.rootDir, next.ledgerPath));
