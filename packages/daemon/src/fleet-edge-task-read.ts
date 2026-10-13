@@ -4,17 +4,15 @@
 // on every answer; an answer past its budget is still given, marked stale. Only a missing read model
 // is unavailable, and that case is the only one that touches the network, once and bounded.
 import { watch } from "node:fs";
-import path from "node:path";
 import {
   consumeKnownError,
-  edgeReadAuthorizationShapeDigest,
-  makeEdgeReplicaQueries,
+  makeTaskProjectionReader,
   type EdgeReadFreshness,
-  type EdgeReadModelMeta,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { isReadDenied, openEdgeReadModel, readHeadConfirmation } from "./fleet/replica-read-model.ts";
+import { isReadDenied, readHeadConfirmation } from "./fleet/replica-read-model.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 
 export const DEFAULT_EDGE_READ_MAX_AGE_MS = 60_000;
 export const DEFAULT_EDGE_READ_MAX_LAG_REVISIONS = 32;
@@ -51,37 +49,25 @@ export function withEdgeReadModel<T>(
 ): T {
   const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (!view || isReadDenied(view.viewDir))
-    throw new EdgeReadError("replica_unavailable", "The edge read model is unavailable.");
-  const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
-  if (!model) throw new EdgeReadError("replica_unavailable", "The edge read-model bytes are unavailable.");
+    throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+  const generation = readReplicaGeneration(view.viewDir);
+  if (!generation) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+  const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
   try {
-    const expected = edgeReadAuthorizationShapeDigest({
-      repoId: input.repoId,
-      readerProfile: model.meta.readerProfile,
-    });
-    if (
-      model.meta.readerProfile === null ||
-      input.principalId === undefined ||
-      input.principalId !== model.meta.readerProfile?.personId ||
-      input.nodeId !== model.meta.readerProfile?.nodeId ||
-      model.meta.authorizationShapeDigest !== expected
-    )
-      throw new EdgeReadError("authorization_denied", "The local read model is not authorized for this principal.");
-    const fresh = edgeFreshness(view, model.meta, input, now);
-    return read(
-      makeEdgeReplicaQueries({
-        db: model.db,
-        cut: { status: "ready", watermark: model.meta.sourceRevision, sourceRevision: model.meta.sourceRevision },
-      }),
-      {
-        cut: { revision: model.meta.sourceRevision, headDigest: view.headDigest },
-        freshness: fresh.freshness,
-        warning: fresh.warning,
-      },
-      view,
+    const fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
+    return reader.withSession((projection) =>
+      read(
+        projection,
+        {
+          cut: { revision: generation.metadata.position.revision, headDigest: view.headDigest },
+          freshness: fresh.freshness,
+          warning: fresh.warning,
+        },
+        view,
+      ),
     );
   } finally {
-    model.db.close();
+    reader.close();
   }
 }
 
@@ -96,7 +82,7 @@ class EdgeReadError extends Error {
 /** The freshness judgment every edge-local answer reports: budget, lag, and the human warning. */
 export function edgeFreshness(
   view: FleetMirrorView,
-  meta: EdgeReadModelMeta,
+  sourceRevision: number,
   input: { readonly maxAgeMs?: number; readonly maxLagRevisions?: number },
   now: () => number,
 ): { readonly freshness: EdgeReadFreshness; readonly warning: string | null } {
@@ -104,7 +90,7 @@ export function edgeFreshness(
     maxAgeMs = input.maxAgeMs ?? DEFAULT_EDGE_READ_MAX_AGE_MS,
     maxLagRevisions = input.maxLagRevisions ?? DEFAULT_EDGE_READ_MAX_LAG_REVISIONS,
     ageMs = confirmation ? Math.max(0, now() - confirmation.confirmedAt) : null,
-    lagRevisions = confirmation ? Math.max(0, confirmation.headRevision - meta.sourceRevision) : null,
+    lagRevisions = confirmation ? Math.max(0, confirmation.headRevision - sourceRevision) : null,
     stale = ageMs === null || lagRevisions === null || ageMs > maxAgeMs || lagRevisions > maxLagRevisions,
     warning = !stale
       ? null
