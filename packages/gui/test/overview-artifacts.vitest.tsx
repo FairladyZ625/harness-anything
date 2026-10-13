@@ -329,4 +329,53 @@ describe("总览:最新产物速览架与产物二级页", () => {
       restore();
     }
   });
+
+  it("产物二级页背景遮罩点击可关闭,左侧栏包含可拖拽分隔条", async () => {
+    const rows = [artifactRow({ path: "artifacts/reports/modal.html" })];
+    const restore = stubShelfBridge({
+      listArtifacts: async () => ({
+        ok: true,
+        status: "ready",
+        repoId: "probe-repo",
+        kind: "html",
+        artifacts: rows.map((row) => ({
+          taskId: row.taskId,
+          taskTitle: row.taskTitle,
+          packagePath: row.packagePath,
+          path: row.path,
+          kind: "html",
+          mediaType: "text/html",
+          sizeBytes: 128,
+          time: AT,
+          timeSource: "ledger",
+        })),
+        counts: { html: 1, md: 0, raw: 0 },
+        watermark: 12,
+        sourceRevision: 12,
+      }),
+    });
+    const container = mount();
+    try {
+      await flushUntil(
+        () =>
+          container.querySelector('[data-testid="overview-region-artifacts"]')?.textContent?.includes("modal.html") ===
+          true,
+      );
+      act(() =>
+        (container.querySelector("[data-shelf-artifact]")!.querySelector("button") as HTMLButtonElement).click(),
+      );
+      const scrim = document.body.querySelector('[data-testid="overview-artifacts-page-scrim"]')! as HTMLElement;
+      expect(scrim).not.toBeNull();
+      const resizeHandle = document.body.querySelector('[data-testid="overview-artifacts-page-resize"]')!;
+      expect(resizeHandle).not.toBeNull();
+      expect(resizeHandle.getAttribute("role")).toBe("separator");
+
+      // 点击背景遮罩关闭弹窗
+      act(() => scrim.click());
+      expect(document.body.querySelector('[data-testid="overview-artifacts-page"]')).toBeNull();
+    } finally {
+      unmount();
+      restore();
+    }
+  });
 });

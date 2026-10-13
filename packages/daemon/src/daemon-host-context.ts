@@ -34,7 +34,7 @@ export interface DaemonRuntimePorts {
   readonly reclaimSettledRuntimeTempDirectories: ReturnType<
     typeof openRuntimeInstanceStore
   >["reclaimSettledRuntimeTempDirectories"];
-  readonly prepareWorkerGitEnvironment: ReturnType<typeof openRuntimeInstanceStore>["prepareWorkerGitEnvironment"];
+  readonly prepareDaemonGitEnvironment: ReturnType<typeof openRuntimeInstanceStore>["prepareDaemonGitEnvironment"];
 }
 
 export interface RegisteredRepoInput {

@@ -61,7 +61,7 @@ export function scheduleRuntimePorts() {
       cwd: request.cwd,
       prompt: request.prompt,
     }),
-    prepareWorkerGitEnvironment: async () => null,
+    prepareDaemonGitEnvironment: async () => null,
   };
 }
 

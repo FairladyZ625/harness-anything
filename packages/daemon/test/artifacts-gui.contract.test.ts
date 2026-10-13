@@ -229,6 +229,38 @@ test("a projected document without its revision event falls back to mtime", () =
   }
 });
 
+test("a walk past the scale bound warns that the timeline is incomplete instead of silently truncating", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-artifacts-truncated-"));
+  const warning = console.warn,
+    warnings: string[] = [];
+  console.warn = (value: unknown) => warnings.push(String(value));
+  try {
+    // 阴性对照:上限内的小树不告警。
+    taskFixture(root, "task_small-slug", { "artifacts/only.html": "<p>one</p>" });
+    const small = readArtifactsGui(
+      { rootDir: root, projection: projectionStub({}), input: { repoId: "artifacts-gui" } },
+      {},
+    );
+    assert.equal(small.counts.html, 1);
+    assert.equal(warnings.length, 0);
+    // 20,001 个已分类文件击穿 20k 上限:截断必须可见,操作者得知道列表不全。
+    const floodDirectory = path.join(root, "harness", "tasks", "task_flood-slug", "artifacts");
+    mkdirSync(floodDirectory, { recursive: true });
+    for (let index = 0; index < 20_001; index += 1)
+      writeFileSync(path.join(floodDirectory, `flood-${String(index).padStart(5, "0")}.html`), "<p>flood</p>");
+    const flooded = readArtifactsGui(
+      { rootDir: root, projection: projectionStub({}), input: { repoId: "artifacts-gui" } },
+      {},
+    );
+    assert.equal(flooded.counts.html, 20_000, "the walk stops counting at the classified-file bound");
+    assert.ok(flooded.artifacts.length < 20_001, "the listing is capped by the walk bound");
+    assert.match(warnings.join("\n"), /incomplete/u);
+  } finally {
+    console.warn = warning;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("the artifacts list validator locks the wire shape", () => {
   const base: ArtifactsListResult = {
     ok: true,

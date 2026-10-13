@@ -120,7 +120,10 @@ export interface RepoCellApiContext {
     readonly runtimeDaemonRoute?: import("./runtime-spawn.ts").RuntimeDaemonRoute;
     readonly killpoint?: (point: EventPublicationKillpoint) => void;
     readonly runtimeInstances?: RepoCellOperationalContext["input"]["runtimeInstances"];
-    readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+    readonly prepareDaemonGitEnvironment?: (
+      instanceId: string,
+      provider?: "github" | "gitlab",
+    ) => Promise<NodeJS.ProcessEnv | null>;
   };
   readonly rejected: RepoCellOperationalContext["rejected"];
   readonly operationId: RepoCellOperationalContext["operationId"];
@@ -794,6 +797,11 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
                 executionId: dispatch.payload.executionId,
                 role: dispatch.payload.role === "reviewer" ? ("reviewer" as const) : ("implementation" as const),
                 source: dispatch.source,
+                ...(dispatch.payload.reviewTarget?.kind === "decision"
+                  ? { reviewDecisionId: dispatch.payload.reviewTarget.decisionId }
+                  : dispatch.payload.reviewTarget?.kind === "task"
+                    ? { reviewTaskId: dispatch.payload.reviewTarget.taskId }
+                    : {}),
                 expiresAt: new Date(Date.parse(context.now()) + runtimeExecutionLifetimeMs).toISOString(),
               }
             : null;

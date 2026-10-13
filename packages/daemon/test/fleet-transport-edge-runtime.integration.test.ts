@@ -697,7 +697,7 @@ test("remote-edge control retries startup adoption after the center recovers", {
       prepareRuntimeLaunch: async () => {
         throw new Error("runtime launch is not part of startup recovery");
       },
-      prepareWorkerGitEnvironment: async () => null,
+      prepareDaemonGitEnvironment: async () => null,
     },
   });
   fixture.track(() => runtime.close());

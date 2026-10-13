@@ -53,7 +53,7 @@ export type CiDetailRef = {
   readonly decodedBytes: number;
 };
 export type CiObservationIdentity = {
-  readonly provider: "github-actions" | "write-coordinator" | "local";
+  readonly provider: "github-actions" | "gitlab-pipeline" | "write-coordinator" | "local";
   readonly repositoryId: string;
   readonly workflow: string;
   readonly workflowPath: string;
@@ -206,7 +206,7 @@ export function validateCiRunObservationEventV4(value: unknown, allowUnknownFiel
       ],
       allowUnknownFields,
     ) ||
-    !["github-actions", "local", "write-coordinator"].includes(String(p.identity.provider)) ||
+    !["github-actions", "gitlab-pipeline", "local", "write-coordinator"].includes(String(p.identity.provider)) ||
     !text(p.identity.repositoryId) ||
     !text(p.identity.workflow) ||
     !text(p.identity.workflowPath) ||
@@ -363,7 +363,7 @@ export function validateCiRunObservationEventV4(value: unknown, allowUnknownFiel
       return ["invalid CI detail reference or summary"];
   }
   if (
-    p.identity.provider === "github-actions" &&
+    (p.identity.provider === "github-actions" || p.identity.provider === "gitlab-pipeline") &&
     (!/^[1-9][0-9]*$/u.test(p.identity.databaseRunId) ||
       p.run.runId !== `${p.identity.databaseRunId}.${p.identity.runAttempt}`)
   )

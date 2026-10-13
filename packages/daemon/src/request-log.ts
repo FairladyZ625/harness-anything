@@ -1,6 +1,7 @@
 import { mkdir, open, rename, rm, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
+import { daemonLogDefaultKeptFiles, daemonLogDefaultMaxBytes } from "./lifecycle-log.ts";
 // Classification lives here rather than at the dispatch point: the schema registry names the
 // protocol server as a writer, so schema-closure imports it without node_modules and it must stay
 // clear of anything that reaches into the kernel.
@@ -15,8 +16,6 @@ export const DAEMON_REQUEST_LOG_SCHEMA = Object.freeze({ id: "daemon-request-log
 
 const requestLogDirName = "requests";
 const requestLogFileName = "requests.jsonl";
-const defaultMaxBytes = 4 * 1024 * 1024;
-const defaultKeptFiles = 4;
 
 export interface DaemonRequestLogEntry {
   readonly method: string;
@@ -77,8 +76,8 @@ export function daemonRequestLogPath(rootDir: string): string {
 }
 
 export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRequestLog {
-  const maxBytes = options.maxBytes ?? defaultMaxBytes;
-  const keptFiles = options.keptFiles ?? defaultKeptFiles;
+  const maxBytes = options.maxBytes ?? daemonLogDefaultMaxBytes;
+  const keptFiles = options.keptFiles ?? daemonLogDefaultKeptFiles;
   const now = options.now ?? (() => new Date());
   const openFile = options.openFile ?? open;
   // resolveHarnessLayout walks the filesystem for harness.yaml; hold the resolved path per repo so

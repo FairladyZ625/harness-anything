@@ -97,25 +97,19 @@ export function makeScheduleScheduler(input: {
     if (timer) clearTimer(timer);
     timer = null;
     const plan = await evaluationPlan();
+    let retryAfterMs = plan.pending ? Math.min(1_000, plan.retryAfterMs) : plan.retryAfterMs;
     if (plan.missed.length) {
       const settlement = await applyMissed(plan.missed);
-      if (settlement === "transient") {
-        armRetry();
-        return;
-      }
+      if (settlement === "transient") retryAfterMs = Math.min(1_000, retryAfterMs);
       // A changed plan re-evaluates at once. A receipt rejection is the cell's final verdict
       // on that interval — recorded, never retried on a timer — and the due batch below still
       // arms, so one repository's verdict cannot freeze every other schedule.
       if (settlement === "changed") return reconcile();
     }
-    if (plan.pending) {
-      armRetry();
-      return;
-    }
     const first = plan.due.sort((left, right) => left.wakeAt.localeCompare(right.wakeAt))[0],
       delayMs = first ? Math.max(0, Date.parse(first.wakeAt) - Date.parse(now())) : Infinity;
-    if (plan.retryAfterMs < delayMs) {
-      armRetry(plan.retryAfterMs);
+    if (retryAfterMs < delayMs) {
+      armRetry(retryAfterMs);
       return;
     }
     if (!first) return;
@@ -138,18 +132,10 @@ export function makeScheduleScheduler(input: {
     const plan = await evaluationPlan();
     if (plan.missed.length) {
       const settlement = await applyMissed(plan.missed);
-      if (settlement === "transient") {
-        armRetry();
-        return;
-      }
       if (settlement === "changed") {
         await reconcile();
         return;
       }
-    }
-    if (plan.pending) {
-      armRetry();
-      return;
     }
     const observedAt = now(),
       due = plan.due.filter(({ wakeAt }) => wakeAt <= observedAt);
@@ -436,8 +422,8 @@ async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<Missed
         `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement failed: ` +
           errorMessage(outcome.reason),
       );
-      settlement = "transient";
-    } else if (outcome.value === "settled" && settlement !== "transient") settlement = "changed";
+      if (settlement !== "changed") settlement = "transient";
+    } else if (outcome.value === "settled") settlement = "changed";
   }
   return settlement;
 }

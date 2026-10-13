@@ -50,7 +50,9 @@ export function submittedGithubActionsRequirement(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
     ),
     submission = execution?.submission,
-    requirement = submission?.completionContract.gates.find((gate) => gate.witness.kind === "github-actions");
+    requirement = submission?.completionContract.gates.find(
+      (gate) => gate.witness.kind === "github-actions" || gate.witness.kind === "gitlab-pipeline",
+    );
   return execution && submission && requirement ? { requirement, execution } : null;
 }
 
@@ -76,7 +78,11 @@ export function githubActionsWitnessEvidence(
   execution: Snapshot["executions"][number] | undefined,
   allowSettledGateRun = false,
 ): CompletionEvidenceV1 | null {
-  if (requirement.witness.kind !== "github-actions" || !execution?.submission?.commitSha) return null;
+  if (
+    (requirement.witness.kind !== "github-actions" && requirement.witness.kind !== "gitlab-pipeline") ||
+    !execution?.submission?.commitSha
+  )
+    return null;
   const gateRun = currentGateRun(execution, requirement.gateId);
   if (!gateRun || (!allowSettledGateRun && gateRun.state !== "running")) return null;
   const options = requirement.witness.adapterOptions;
@@ -114,12 +120,17 @@ export function githubActionsWitnessEvidence(
     if (publicCut && verification?.source === "github-actions" && verification.event !== options.event) continue;
     // Runs on other branches are measurements too: a pull-request branch rebased onto this delivery
     // descends from it, and its run must neither witness the delivery nor shadow the frozen branch's.
-    if (publicCut && verification?.source === "github-actions" && event.payload.run.branch !== options.branch) continue;
+    if (
+      publicCut &&
+      (verification?.source === "github-actions" || verification?.source === "gitlab-pipeline") &&
+      event.payload.run.branch !== options.branch
+    )
+      continue;
     // Runs of workflows outside the frozen option list are measurements, not delivery
     // verdicts: they never shadow the configured workflow's runs, whichever conclusion.
     if (
       publicCut &&
-      verification?.source === "github-actions" &&
+      (verification?.source === "github-actions" || verification?.source === "gitlab-pipeline") &&
       event.payload.run.branch === options.branch &&
       !workflows.includes(verification.workflow)
     )
@@ -128,13 +139,14 @@ export function githubActionsWitnessEvidence(
       !localGitObjectRefStore.hasCommit(root, submitted) ||
       !verification ||
       (publicCut
-        ? verification.source !== "github-actions" || event.payload.run.branch !== options.branch
+        ? (verification.source !== "github-actions" && verification.source !== "gitlab-pipeline") ||
+          event.payload.run.branch !== options.branch
         : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
     )
       throw cell.cellCodedError(
         "invalid_proof",
         publicCut
-          ? `Public delivery requires a verified ${workflows.join(" or ")} GitHub ${options.branch} run.`
+          ? `Public delivery requires a verified ${workflows.join(" or ")} ${verification?.source === "gitlab-pipeline" ? "GitLab" : "GitHub"} ${options.branch} run.`
           : "Private delivery requires a verified ledger-publication observation for its authored cut.",
       );
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;

@@ -10,6 +10,7 @@ import {
   effectivePolicyGroupScopes,
   makeTaskEventReader,
   makeTaskProjection,
+  submissionDigest,
 } from "@harness-anything/kernel";
 import { openRepoCell } from "../src/repo-cell-open.ts";
 import { startDaemon } from "../src/runtime.ts";
@@ -17,11 +18,12 @@ import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { dispatchStreamPath, readDispatchStreamSummary } from "../src/dispatch-stream.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { serveKeycloak, signInAt } from "./keycloak.fixtures.ts";
-import { createRealizedTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
+import { createRealizedTaskPlanFixture, realizedDecisionBody } from "../../../tools/fixtures/task-plan.mjs";
 import { initIngressRepo, eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol.contract.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import type { CredentialPort } from "../src/agent-runtime-credential-port.ts";
 
 // The real daemon, writer process, socket, CLI, and provider executable run in a dedicated user root.
 // Keycloak wire behavior is a realm fixture; the fixed real-server mechanism is recorded in F-02C8A42D.
@@ -31,6 +33,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     userRoot = path.join(parent, "user"),
     repoId = "logout-repo",
     daemonId = "logout-test",
+    githubCredentialRef = "credential:v1:logout-ci",
+    githubToken = "logout-ci-fixture-token",
     realm = await serveKeycloak();
   const live = new Set<string>();
   let cleanupRuntimes = async () => {};
@@ -79,6 +83,15 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const daemon = await startDaemon({
     daemonId,
     userRoot,
+    runtimeCredentialPort: {
+      issue: () => githubCredentialRef,
+      store: async () => {},
+      resolve: async (reference) => {
+        assert.equal(reference, githubCredentialRef);
+        return githubToken;
+      },
+      remove: async () => {},
+    } satisfies CredentialPort,
     buildSupersessionEnabled: false,
     openCell: (input) => {
       const opening = openRepoCell(input);
@@ -128,6 +141,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
       models: ["fixture"],
       permissionMode: "workspace-write",
       authMode: "subscription",
+      hostingCredentialRefs: { github: githubCredentialRef },
     },
   });
   assert.equal(instance.ok, true, JSON.stringify(instance));
@@ -152,6 +166,28 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   );
   const started = await run({ kind: "task-start", taskId, executionId });
   assert.equal(started.outcome, "applied", JSON.stringify(started));
+  const proposedDecision = await run({
+    kind: "decision-propose",
+    body: realizedDecisionBody("Runtime reviewer decision read"),
+    jsonInput: JSON.stringify({
+      title: "Runtime reviewer decision read",
+      question: "Can the dispatched reviewer read its bound decision?",
+      riskTier: "high",
+      urgency: "high",
+      vertical: "software/coding",
+      preset: "standard-task",
+      decisionClass: "ordinary",
+      appliesTo: { modules: ["daemon"], productLines: [] },
+      chosen: [{ id: "CH1", text: "Bind the reviewer to this decision" }],
+      rejected: [{ id: "RJ1", text: "Allow arbitrary decisions", whyNot: "The dispatch scope is bounded" }],
+      claims: [{ id: "C1", text: "The reviewer can read the bound decision.", loadBearing: true }],
+      fulfillments: [],
+    }),
+  });
+  assert.equal(proposedDecision.outcome, "applied", JSON.stringify(proposedDecision));
+  const decisionId = String((JSON.parse(String(proposedDecision.evidence)) as { decisionId: string }).decisionId);
+  const shownDecision = await run({ kind: "decision-show", decisionId, includeBody: true });
+  assert.equal(shownDecision.outcome, "applied", JSON.stringify(shownDecision));
   const projection = () =>
     makeTaskProjection({ rootDir: root, eventStore: makeTaskEventReader({ rootDir: root, repoId }) });
   const read = projection(),
@@ -165,6 +201,9 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
         cwd: { scope: "repo-root" },
         taskId,
         ...(role === "reviewer" ? { role } : {}),
+        ...(role === "reviewer"
+          ? { reviewTarget: { kind: "task", taskId, executionId, digest: reviewerSubmissionDigest } }
+          : {}),
         prompt: "Exercise logout boundaries.",
         idempotencyKey: `logout-${role}`,
       },
@@ -191,6 +230,15 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const implementation = await launch("implementation");
   const signedInRead = await implementation.cli(["task", "show", taskId]);
   assert.equal(signedInRead.outcome, "applied", JSON.stringify(signedInRead));
+  const readSet = await implementation.cli(["task", "read-set", taskId]);
+  assert.equal(readSet.outcome, "applied", JSON.stringify(readSet));
+  const settings = await implementation.cli(["settings", "read"]);
+  assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+  const decisionRead = await implementation.cli(["decision", "show", decisionId]);
+  assert.equal(decisionRead.outcome, "applied", JSON.stringify(decisionRead));
+  const ci = await implementation.cli(["task", "ci", taskId]);
+  assert.equal(ci.code, "task_ci_read_failed", JSON.stringify(ci));
+  assert.match(String(ci.rejectionExplanation), /(?:no git remotes found|spawn gh ENOENT)/u, JSON.stringify(ci));
   const events = await implementation.cli(["event", "list", "--type", "runtime_session_started", "--limit", "100"]);
   assert.equal(events.outcome, "applied", JSON.stringify(events));
   const eventRows = (JSON.parse(String(events.evidence)) as { rows: { type: string }[] }).rows;
@@ -223,14 +271,16 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     "Worker continued after the device owner signed in again.",
   ]);
   assert.equal(progress.outcome, "applied", JSON.stringify(progress));
-  for (const args of [
-    ["task", "show", "task-other"],
-    ["task", "list"],
-    ["daemon", "stop"],
-  ]) {
+  for (const args of [["daemon", "stop"]]) {
     const denied = await implementation.cli(args);
     assert.equal(denied.code, "execution_credential_rejected", JSON.stringify(denied));
   }
+  assert.notEqual((await implementation.cli(["task", "show", "task-other"])).code, "execution_credential_rejected");
+  assert.equal((await implementation.cli(["task", "list"])).outcome, "applied");
+  assert.equal(
+    (await implementation.cli(["task", "progress", "append", "task-other", "--text", "wrong task"])).code,
+    "execution_credential_rejected",
+  );
   realm.keycloak.revoke("owner", repoId, ["repository-read"]);
   assert.equal((await implementation.cli(["event", "list"])).code, "authorization_denied");
   assert.equal((await implementation.cli(["task", "read-set", taskId])).code, "authorization_denied");
@@ -255,6 +305,11 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   assert.equal(doc.outcome, "applied", JSON.stringify(doc));
   const submitted = await implementation.cli(["task", "submit", taskId]);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  const submittedProjection = projection();
+  const reviewerSubmissionDigest = submissionDigest(
+    submittedProjection.read(taskId).snapshot.executions.find((item) => item.executionId === executionId)!.submission!,
+  );
+  submittedProjection.close();
   // Owner forwards the frozen cut; the worker credential cannot perform this action.
   signInAt(userRoot, "owner");
   const forward = await run({
@@ -269,8 +324,11 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   assert.equal((await rpc("daemon.rbac.manage", { operation: "logout" })).ok, true);
   assert.equal((await reviewer.cli(["task", "show", taskId])).code, "authentication_required");
   signInAt(userRoot, "owner");
-  assert.equal((await reviewer.cli(["task", "show", taskId])).outcome, "applied");
+  const reviewerTaskShow = await reviewer.cli(["task", "show", taskId]);
+  assert.equal(reviewerTaskShow.outcome, "applied", JSON.stringify(reviewerTaskShow));
   assert.equal((await reviewer.cli(["task", "read-set", taskId])).outcome, "applied");
+  const reviewerDecisionRead = await reviewer.cli(["decision", "show", decisionId]);
+  assert.equal(reviewerDecisionRead.outcome, "applied", JSON.stringify(reviewerDecisionRead));
   const dispatchId = String(reviewer.result.dispatchId),
     reportDir = path.join(root, "harness", packagePath, "artifacts/reports");
   mkdirSync(reportDir, { recursive: true });

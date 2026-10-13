@@ -30,7 +30,7 @@ export function runtimeInstanceCredentialService(
         .some(
           (config) =>
             (config.auth.mode === "api-key" && config.auth.credentialRef === reference) ||
-            config.githubCredentialRef === reference,
+            Object.values(config.hostingCredentialRefs ?? {}).includes(reference),
         )
     )
       return { ok: true };

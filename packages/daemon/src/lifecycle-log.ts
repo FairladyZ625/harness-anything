@@ -14,8 +14,11 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import type { DaemonEntry } from "./build-identity.ts";
 
 export const DAEMON_LIFECYCLE_LOG_SCHEMA = Object.freeze({ id: "daemon-lifecycle/v1" });
-const defaultMaxBytes = 4 * 1024 * 1024;
-const defaultKeptFiles = 4;
+// One definition of the daemon's file-log rotation defaults (lifecycle and request sinks share
+// the shape); request-log imports these instead of re-encoding the numbers, so the sinks cannot
+// drift apart.
+export const daemonLogDefaultMaxBytes = 4 * 1024 * 1024;
+export const daemonLogDefaultKeptFiles = 4;
 
 export type DaemonLifecycleEvent =
   | "process_start"
@@ -101,8 +104,8 @@ export function openDaemonLifecycleLog(input: {
   readonly onFailure?: (error: unknown) => void;
 }): DaemonLifecycleLog {
   const logPath = daemonLifecycleLogPath(input.userRoot, input.daemonId),
-    maxBytes = input.maxBytes ?? defaultMaxBytes,
-    keptFiles = input.keptFiles ?? defaultKeptFiles,
+    maxBytes = input.maxBytes ?? daemonLogDefaultMaxBytes,
+    keptFiles = input.keptFiles ?? daemonLogDefaultKeptFiles,
     now = input.now ?? (() => new Date()),
     pid = input.pid ?? process.pid;
   let preparedDirectory = false,
@@ -137,7 +140,11 @@ export function openDaemonLifecycleLog(input: {
 // Since the stdio file is no longer the lifecycle file, the recorder's own rotation can
 // no longer rename the inode out from under the child either: the two sinks rotate
 // independently, so the invariant now holds without depending on write ordering.
-export function openDaemonOutputFd(logPath: string, maxBytes = defaultMaxBytes, keptFiles = defaultKeptFiles): number {
+export function openDaemonOutputFd(
+  logPath: string,
+  maxBytes = daemonLogDefaultMaxBytes,
+  keptFiles = daemonLogDefaultKeptFiles,
+): number {
   mkdirSync(path.dirname(logPath), { recursive: true });
   rotateLifecycleLog(logPath, maxBytes, keptFiles);
   return openSync(logPath, "a", 0o600);

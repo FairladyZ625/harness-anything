@@ -121,7 +121,8 @@ export function LiveDot({ state, tip }: { readonly state: "live" | "idle" | "fai
   return (
     <span
       data-tip={tip}
-      className="size-[7px] shrink-0 rounded-full"
+      data-live-state={state}
+      className={`size-[7px] shrink-0 rounded-full${state === "live" ? " live-dot-pulse" : ""}`}
       style={{
         background: color,
         boxShadow: state === "live" ? `0 0 5px color-mix(in oklab, ${color} 70%, transparent)` : undefined,

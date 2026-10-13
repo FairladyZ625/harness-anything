@@ -42,8 +42,10 @@ export function ciRunWindow(events: readonly CiObservationRead[], window: number
       .sort(([, a], [, b]) => {
         const ai = a.payload.identity,
           bi = b.payload.identity;
-        const an = ai.provider === "github-actions" && /^\d+$/u.test(ai.databaseRunId);
-        const bn = bi.provider === "github-actions" && /^\d+$/u.test(bi.databaseRunId);
+        const an =
+          (ai.provider === "github-actions" || ai.provider === "gitlab-pipeline") && /^\d+$/u.test(ai.databaseRunId);
+        const bn =
+          (bi.provider === "github-actions" || bi.provider === "gitlab-pipeline") && /^\d+$/u.test(bi.databaseRunId);
         if (an !== bn) return an ? -1 : 1;
         if (an && bn) {
           const left = BigInt(ai.databaseRunId),
@@ -208,7 +210,8 @@ export function ciRerunStatistics(events: readonly CiObservationRead[], details:
         rows.some(
           (row) =>
             row.event.payload.scope === "legacy" ||
-            row.event.payload.identity.provider !== "github-actions" ||
+            (row.event.payload.identity.provider !== "github-actions" &&
+              row.event.payload.identity.provider !== "gitlab-pipeline") ||
             !row.event.payload.identity.jobKey ||
             !row.event.payload.identity.workflowId,
         ) ||

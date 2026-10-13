@@ -18,6 +18,7 @@ import { githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { BuiltinExecutionResult } from "./schedule-builtin-executor.ts";
+import { detectHostingProvider, hasOriginRemote } from "./hosting-provider.ts";
 
 type Target = CiObserveProgress["pending"][number];
 type Run = { readonly id: number; readonly run_attempt: number; readonly head_branch: string; readonly status: string };
@@ -26,12 +27,13 @@ type Run = { readonly id: number; readonly run_attempt: number; readonly head_br
 export async function reconcileCiOccurrence(input: {
   readonly cell: Pick<
     RepoCellOperationalContext,
-    "rootDir" | "settings" | "cellCodedError" | "projection" | "projectionReady" | "now"
+    "rootDir" | "settings" | "cellCodedError" | "projection" | "projectionReady" | "now" | "input"
   >;
   readonly schedule: ScheduleV1;
   readonly accept: (fetched: CiObservationFetch) => Promise<WriteReceiptDraft>;
   readonly requests: () => readonly RepoTaskAction[];
   readonly gh?: RunGh;
+  readonly hostingProvider?: "github" | "gitlab";
 }): Promise<BuiltinExecutionResult> {
   const { cell } = input,
     workflows = cell.settings.read().ci.workflows;
@@ -55,6 +57,15 @@ export async function reconcileCiOccurrence(input: {
       ciObserve: progress,
     };
   const gh: RunGh = input.gh ?? runCiProviderCommand;
+  // The GitHub workflow scan is provider-specific. GitLab observations are fetched by
+  // fetchCiObservations through REST; never send a self-hosted GitLab repository to `gh`.
+  const hosting = input.hostingProvider
+    ? { kind: input.hostingProvider }
+    : gh === runCiProviderCommand
+      ? (await hasOriginRemote(cell.rootDir))
+        ? await detectHostingProvider(cell.rootDir, undefined, true)
+        : ({ kind: "github" } as const)
+      : ({ kind: "github" } as const);
   const readApi = async <T>(endpoint: string): Promise<T> =>
     JSON.parse(await gh("gh", ["api", endpoint], { cwd: cell.rootDir })) as T;
   const unavailable: CiObserveProgress["unavailable"][number][] = [];
@@ -115,6 +126,7 @@ export async function reconcileCiOccurrence(input: {
           attempts: { [target.runId]: target.attempt },
         },
         gh,
+        hosting?.kind === "github" || hosting?.kind === "gitlab" ? hosting.kind : null,
       );
     } catch (error) {
       if (isTransientCiProviderFailure(error)) {
@@ -156,7 +168,12 @@ export async function reconcileCiOccurrence(input: {
   try {
     // Drain once: arrivals after this cut remain queued for the next center occurrence.
     for (const request of input.requests()) {
-      const result = await fetchCiRequest(cell, request, gh);
+      const result = await fetchCiRequest(
+        cell,
+        request,
+        gh,
+        hosting?.kind === "github" || hosting?.kind === "gitlab" ? hosting.kind : null,
+      );
       if ("failure" in result) {
         if (!isTransientCiProviderFailure(result.failure)) throw result.failure;
         failedTargets += 1;
@@ -173,7 +190,7 @@ export async function reconcileCiOccurrence(input: {
         );
         const submission = execution?.submission;
         const requirement = (submission?.completionContract.gates ?? []).find(
-          (gate) => gate.witness.kind === "github-actions",
+          (gate) => gate.witness.kind === "github-actions" || gate.witness.kind === "gitlab-pipeline",
         );
         if (
           !submission ||
@@ -183,7 +200,12 @@ export async function reconcileCiOccurrence(input: {
         )
           continue;
         if (githubActionsGateResult(requirement, execution!) === "pass") continue;
-        const result = await fetchCiRequest(cell, { kind: "ci-observe-pull", taskId }, gh);
+        const result = await fetchCiRequest(
+          cell,
+          { kind: "ci-observe-pull", taskId },
+          gh,
+          hosting?.kind === "github" || hosting?.kind === "gitlab" ? hosting.kind : null,
+        );
         if ("failure" in result) {
           // Durable submissions are re-derived next occurrence after a transient provider failure or
           // a return/resubmit that landed after this occurrence listed the task.
@@ -211,7 +233,7 @@ export async function reconcileCiOccurrence(input: {
         pending.set(key(target), target);
       }
     }
-    if (workflows.length) {
+    if (hosting?.kind === "github" && workflows.length) {
       const workflowIndex = 0,
         workflow = workflows[workflowIndex]!;
       const page = await readApi<{ workflow_runs: readonly Run[] }>(
@@ -268,9 +290,10 @@ async function fetchCiRequest(
   cell: Parameters<typeof fetchCiObservations>[0],
   request: RepoTaskAction,
   gh: RunGh,
+  hostingProvider: "github" | "gitlab" | null,
 ): Promise<{ readonly fetched: CiObservationFetch } | { readonly failure: unknown }> {
   try {
-    return { fetched: await fetchCiObservations(cell, request, gh) };
+    return { fetched: await fetchCiObservations(cell, request, gh, hostingProvider) };
   } catch (failure) {
     return { failure };
   }

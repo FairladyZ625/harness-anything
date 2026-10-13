@@ -64,7 +64,8 @@ function artifactKindOf(
     ? null
     : { kind: "raw", mediaType: mediaTypeForBinaryPath(relative, RAW_ARTIFACT_MEDIA_TYPE)! };
 }
-/** 防御病理树:遍历规模上限,超限部分静默截断(列表是投影,不是审计)。 */
+/** 防御病理树:遍历规模上限。超限截断且截断发生时打一行可见告警——列表是投影不是审计,
+ * 但操作者必须能从日志知道这份列表不全。 */
 const artifactWalkMaxFiles = 20_000;
 const artifactWalkMaxVisits = 80_000;
 
@@ -87,11 +88,11 @@ function walkArtifactTree(
   packageDir: string,
   wanted: ArtifactGuiKind,
   counts: { [K in ArtifactGuiKind]: number },
-): readonly ArtifactFileRow[] {
+): { readonly rows: readonly ArtifactFileRow[]; readonly truncated: boolean } {
   const rows: ArtifactFileRow[] = [],
     classifiedTotal = () => counts.html + counts.md + counts.raw;
-  if (statLinkSync(artifactsRoot)?.isSymbolicLink() === true || statFileSync(artifactsRoot)?.isDirectory() !== true)
-    return rows;
+  const rootStat = statLinkSync(artifactsRoot);
+  if (rootStat === null || rootStat.isSymbolicLink() || !rootStat.isDirectory()) return { rows, truncated: false };
   const queue: (readonly [string, string])[] = [[artifactsRoot, "artifacts"]];
   let visited = 0;
   while (queue.length > 0 && classifiedTotal() < artifactWalkMaxFiles && visited < artifactWalkMaxVisits) {
@@ -122,7 +123,8 @@ function walkArtifactTree(
       rows.push({ packageDir, relative, ...classified, sizeBytes: stat.size, mtimeMs: stat.mtimeMs });
     }
   }
-  return rows;
+  // The while loop exits early only on a scale bound; a drained queue is the complete walk.
+  return { rows, truncated: classifiedTotal() >= artifactWalkMaxFiles || visited >= artifactWalkMaxVisits };
 }
 
 /** 全部 task 包的 artifacts 文件:只进各包的 artifacts/ 子树,包内其它目录不扫,
@@ -140,11 +142,22 @@ function walkAllTaskArtifacts(
   }
   const rows: ArtifactFileRow[] = [],
     counts = { html: 0, md: 0, raw: 0 };
+  let truncated = false;
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-    rows.push(...walkArtifactTree(path.join(tasksRoot, entry.name, "artifacts"), entry.name, wanted, counts));
-    if (counts.html + counts.md + counts.raw >= artifactWalkMaxFiles) break;
+    const walked = walkArtifactTree(path.join(tasksRoot, entry.name, "artifacts"), entry.name, wanted, counts);
+    rows.push(...walked.rows);
+    truncated ||= walked.truncated;
+    if (counts.html + counts.md + counts.raw >= artifactWalkMaxFiles) {
+      truncated = true;
+      break;
+    }
   }
+  // 截断可见:超限的时间线不完整,操作者从 daemon 日志能发现,而不是对着缺行的界面猜。
+  if (truncated)
+    console.warn(
+      `[artifacts-gui] artifact listing truncated at ${artifactWalkMaxFiles} classified files / ${artifactWalkMaxVisits} visits; the timeline is incomplete`,
+    );
   return { rows, counts };
 }
 
@@ -190,10 +203,11 @@ export function readArtifactsGui(
     walk = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot, kind),
     files = walk.rows,
     counts = walk.counts,
-    tasksByPackage = taskIndexByPackage(
-      context.projection,
-      cut.rows.map(({ taskId }) => taskId),
-    ),
+    neededPackageDirs = new Set(files.map((row) => row.packageDir)),
+    candidateTaskIds = cut.rows.map(({ taskId }) => taskId).filter((taskId) => neededPackageDirs.has(taskId)),
+    targetTaskIds =
+      candidateTaskIds.length >= neededPackageDirs.size ? candidateTaskIds : cut.rows.map(({ taskId }) => taskId),
+    tasksByPackage = taskIndexByPackage(context.projection, targetTaskIds),
     eventTimes = new Map<number, string>(),
     artifacts: readonly ArtifactGuiRowDto[] = files
       .map((row) => {

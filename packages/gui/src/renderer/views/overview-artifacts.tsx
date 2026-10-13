@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { ArrowSquareOut, X } from "@phosphor-icons/react";
 import type { ArtifactGuiRowDto } from "@harness-anything/daemon/protocol";
@@ -155,6 +155,34 @@ export function OverviewArtifactsPage({
   readonly onOpenTask: (taskId: string, docPath: string) => void;
 }) {
   const keys = rows.map(artifactRowKey);
+  const [listWidth, setListWidth] = useState(260);
+  const dragRef = useRef<{ readonly startX: number; readonly startWidth: number } | null>(null);
+
+  const onResizePointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (event.button !== 0) return;
+      event.preventDefault();
+      dragRef.current = { startX: event.clientX, startWidth: listWidth };
+      event.currentTarget.setPointerCapture(event.pointerId);
+    },
+    [listWidth],
+  );
+
+  const onResizePointerMove = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    if (drag === null) return;
+    const next = Math.min(480, Math.max(180, Math.round(drag.startWidth + (event.clientX - drag.startX))));
+    setListWidth(next);
+  }, []);
+
+  const onResizePointerUp = useCallback(() => {
+    dragRef.current = null;
+  }, []);
+
+  const onResetWidth = useCallback(() => {
+    setListWidth(260);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -178,54 +206,79 @@ export function OverviewArtifactsPage({
   if (!open) return null;
   const selected = rows.find((row) => artifactRowKey(row) === selectedId) ?? null;
   return createPortal(
-    <div
-      data-testid="overview-artifacts-page"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t("views.overviewView.artifactsPageTitle")}
-      className="glass fixed inset-2 z-11 flex min-h-0 flex-col overflow-hidden rounded-lg"
-    >
-      <header className="flex flex-none items-center gap-2.5 px-[18px] pb-[10px] pt-[14px]">
-        <h2 className="min-w-0 truncate font-semibold ui-title">{t("views.overviewView.artifactsPageTitle")}</h2>
-        <span className="shrink-0 font-mono tabular-nums text-text-faint ui-meta">
-          {t("views.overviewView.artifactsPageCount", { count: String(total) })}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          data-testid="overview-artifacts-page-close"
-          aria-label={t("components.primitives.close")}
-          className="ml-auto grid size-[26px] shrink-0 place-items-center rounded-xs border border-border bg-text/10 text-text-muted hover:text-text"
-        >
-          <X weight="bold" className="ui-meta" />
-        </button>
-      </header>
-      <div className="grid min-h-0 flex-1 grid-cols-[minmax(11rem,17%)_minmax(0,1fr)]">
-        {/* 左列表窄列:全部产物行,区内滚动;行点击/键盘 ↑↓ 换预览。 */}
-        <div data-testid="overview-artifacts-page-list" className="min-h-0 overflow-y-auto border-t border-border">
-          {rows.map((row) => (
-            <DenseRow
-              key={artifactRowKey(row)}
-              tag={<StatusTag tone="neutral" label={t("artifacts.kind.html")} />}
-              title={fileNameOf(row.path)}
-              hoverTitle={repoPathOf(row)}
-              reason={row.taskTitle ?? row.taskId ?? t("artifacts.taskUnknown")}
-              time={<RowTime at={row.time} className="ui-meta" />}
-              selected={selectedId === artifactRowKey(row)}
-              onClick={() => onSelect(artifactRowKey(row))}
-            />
-          ))}
-        </div>
-        {/* 右预览占大头:业主「我点进来是为了看页面,不是为看列表」。 */}
-        <div className="min-h-0 overflow-y-auto border-t border-border px-[18px] py-[14px] md:border-l">
-          {selected === null ? (
-            <p className="ui-meta text-text-faint">{t("views.overviewView.artifactsShelfEmpty")}</p>
-          ) : (
-            <ArtifactFocusDetail repoId={repoId} row={selected} onOpenTask={onOpenTask} />
-          )}
+    <>
+      <div
+        data-testid="overview-artifacts-page-scrim"
+        className="fixed inset-0 z-11 bg-black/40 backdrop-blur-xs"
+        onClick={onClose}
+        aria-hidden="true"
+      />
+      <div
+        data-testid="overview-artifacts-page"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("views.overviewView.artifactsPageTitle")}
+        className="glass fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-11 flex h-[85vh] w-[88vw] min-h-[500px] min-w-[640px] max-h-[90vh] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-border shadow-2xl"
+      >
+        <header className="flex flex-none items-center gap-2.5 px-[18px] pb-[10px] pt-[14px]">
+          <h2 className="min-w-0 truncate font-semibold ui-title">{t("views.overviewView.artifactsPageTitle")}</h2>
+          <span className="shrink-0 font-mono tabular-nums text-text-faint ui-meta">
+            {t("views.overviewView.artifactsPageCount", { count: String(total) })}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="overview-artifacts-page-close"
+            aria-label={t("components.primitives.close")}
+            className="ml-auto grid size-[26px] shrink-0 place-items-center rounded-xs border border-border bg-text/10 text-text-muted hover:text-text"
+          >
+            <X weight="bold" className="ui-meta" />
+          </button>
+        </header>
+        <div className="flex min-h-0 flex-1 flex-row overflow-hidden border-t border-border">
+          {/* 左列表窄列:全部产物行,区内滚动;行点击/键盘 ↑↓ 换预览。 */}
+          <div
+            data-testid="overview-artifacts-page-list"
+            style={{ width: listWidth }}
+            className="min-h-0 shrink-0 overflow-y-auto"
+          >
+            {rows.map((row) => (
+              <DenseRow
+                key={artifactRowKey(row)}
+                tag={<StatusTag tone="neutral" label={t("artifacts.kind.html")} />}
+                title={fileNameOf(row.path)}
+                hoverTitle={repoPathOf(row)}
+                reason={row.taskTitle ?? row.taskId ?? t("artifacts.taskUnknown")}
+                time={<RowTime at={row.time} className="ui-meta" />}
+                selected={selectedId === artifactRowKey(row)}
+                onClick={() => onSelect(artifactRowKey(row))}
+              />
+            ))}
+          </div>
+          {/* 分隔条:支持拖拽改变左栏宽度,双击重置为默认 260px */}
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            data-testid="overview-artifacts-page-resize"
+            title={t("artifacts.drawer.resizeTitle")}
+            onPointerDown={onResizePointerDown}
+            onPointerMove={onResizePointerMove}
+            onPointerUp={onResizePointerUp}
+            onPointerCancel={onResizePointerUp}
+            onDoubleClick={onResetWidth}
+            className="w-1 shrink-0 cursor-col-resize bg-border transition-colors hover:bg-accent"
+          />
+          {/* 右预览占大头:业主「我点进来是为了看页面,不是为看列表」。 */}
+          <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-[14px]">
+            {selected === null ? (
+              <p className="ui-meta text-text-faint">{t("views.overviewView.artifactsShelfEmpty")}</p>
+            ) : (
+              <ArtifactFocusDetail repoId={repoId} row={selected} onOpenTask={onOpenTask} />
+            )}
+          </div>
         </div>
       </div>
-    </div>,
+    </>,
     document.body,
   );
 }

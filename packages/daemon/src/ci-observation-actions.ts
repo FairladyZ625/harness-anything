@@ -21,6 +21,7 @@ import { runProcessTextAsync } from "./process-port.ts";
 import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { detectHostingProvider, type HostingProvider } from "./hosting-provider.ts";
 
 type CiRunArtifact = {
   readonly schema: "ci-run-artifact/v2";
@@ -69,6 +70,7 @@ type FetchedCiRun = {
   readonly jobs: readonly PreparedCiJob[];
   readonly artifactUnavailable?: boolean;
   readonly attemptInventory?: NonNullable<CiRunObservationEventV4["payload"]["attemptInventory"]>;
+  readonly provider?: "github-actions" | "gitlab-pipeline";
 };
 export const preparedCiObservation = Symbol("preparedCiObservation");
 
@@ -86,12 +88,23 @@ type GithubActionsOptions = Extract<
 // Every gh call finishes before the pull enters the repository write queue: GitHub can stall
 // until the provider deadline, and the queue waits only on the event appends in ingestCiObservations.
 export async function fetchCiObservations(
-  cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings"> & {
-    readonly projection?: Pick<TaskProjection, "read">;
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings" | "input"> & {
+    readonly projection?: Pick<TaskProjection, "read" | "readRuntimeDispatch">;
   },
   action: RepoTaskAction,
   ghRunner: RunGh = runCiProviderCommand,
+  hostingProvider?: "github" | "gitlab" | null,
 ): Promise<CiObservationFetch> {
+  // Injected runners are the public test seam and intentionally run against temporary
+  // repositories without remotes. Production always identifies the provider from origin.
+  const hosting =
+    hostingProvider !== undefined
+      ? hostingProvider === null
+        ? null
+        : { kind: hostingProvider }
+      : ghRunner === runCiProviderCommand
+        ? await detectHostingProvider(cell.rootDir)
+        : ({ kind: "github" } as const);
   // GitHub rate limits surface as gh 403 stderr; classifying them here reports rate_limited with
   // the reset hint, so callers wait instead of retrying a raw service_rejected dump that deepens
   // the limit.
@@ -115,6 +128,9 @@ export async function fetchCiObservations(
   if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
     throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
   const witness = taskId === null ? null : taskWitnessContract(cell, taskId);
+  if (hosting?.kind === "gitlab" && "apiBaseUrl" in hosting)
+    return fetchGitLabCiObservations(cell, action, hosting, witness, limit, namedRuns);
+  if (!hosting) return { requestedRuns: namedRuns?.length ?? limit, runs: [] };
   const owner = createHash("sha256")
     .update(JSON.stringify([cell.rootDir, action.occurrenceId, action.claimFence]))
     .digest("hex")
@@ -357,6 +373,157 @@ export async function fetchCiObservations(
   }
 }
 
+async function fetchGitLabCiObservations(
+  cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings" | "input">,
+  action: RepoTaskAction,
+  hosting: Extract<HostingProvider, { readonly kind: "gitlab" }>,
+  witness: TaskWitness | null,
+  limit: number,
+  namedRuns: number[] | null,
+): Promise<CiObservationFetch> {
+  const projectId = encodeURIComponent(hosting.projectPath),
+    instanceId = typeof action.instanceId === "string" ? action.instanceId : witness?.instanceId;
+  if (!instanceId)
+    throw cell.cellCodedError("runtime_credential_unavailable", "CI observer requires its daemon hosting credential.");
+  const environment = await cell.input.prepareDaemonGitEnvironment?.(instanceId, "gitlab");
+  const token = environment?.GITLAB_TOKEN ?? environment?.HARNESS_GITLAB_TOKEN;
+  if (!token)
+    throw cell.cellCodedError(
+      "runtime_credential_unavailable",
+      "The dispatch instance has no configured GitLab credential.",
+    );
+  const request = async <T>(path: string): Promise<T> => {
+    const response = await fetch(`${hosting.apiBaseUrl}/projects/${projectId}${path}`, {
+      headers: { "PRIVATE-TOKEN": token },
+    });
+    if (!response.ok)
+      throw cell.cellCodedError(
+        "task_ci_read_failed",
+        `GitLab API ${response.status}: ${(await response.text()).slice(0, 512)}`,
+      );
+    return (path.endsWith("/trace") ? await response.text() : await response.json()) as T;
+  };
+  type Pipeline = {
+    id: number;
+    status: string;
+    ref: string;
+    sha: string;
+    created_at: string;
+    source?: string;
+    web_url?: string;
+  };
+  let pipelines: readonly Pipeline[];
+  if (namedRuns) {
+    pipelines = await Promise.all(namedRuns.map((id) => request<Pipeline>(`/pipelines/${id}`)));
+  } else if (witness) {
+    pipelines = await request<readonly Pipeline[]>(
+      `/pipelines?sha=${encodeURIComponent(witness.delivery)}&ref=${encodeURIComponent(witness.options.branch)}&per_page=100`,
+    );
+  } else {
+    pipelines = await request<readonly Pipeline[]>(`/pipelines?ref=main&per_page=${limit}`);
+  }
+  const selected = [...pipelines]
+    .filter((pipeline) => !witness || pipeline.ref === witness.options.branch)
+    .filter((pipeline) => !witness || pipeline.sha === witness.delivery)
+    .filter((pipeline) => !witness || (pipeline.source ?? "push") === witness.options.event)
+    .sort((a, b) => b.id - a.id)
+    .slice(0, witness ? 1 : limit);
+  const runs = await Promise.all(
+    selected.map(async (pipeline): Promise<FetchedCiRun> => {
+      const jobs = await request<readonly { id: number; name: string; status: string; web_url?: string }[]>(
+        `/pipelines/${pipeline.id}/jobs?per_page=100`,
+      );
+      const preparedJobs: PreparedCiJob[] = await Promise.all(
+        jobs.map(async (job) => {
+          const trace =
+            job.status === "failed"
+              ? (await request<string>(`/jobs/${job.id}/trace`)).replaceAll(token, "[REDACTED]")
+              : "";
+          const detail = {
+            schema: "ci-run-detail/v1" as const,
+            tests: [],
+            fileOutcomes: [],
+            diagnostics: trace
+              ? [
+                  {
+                    provider: "gitlab-pipeline",
+                    pipelineId: pipeline.id,
+                    jobId: job.id,
+                    jobName: job.name,
+                    status: job.status,
+                    trace: trace.slice(0, 8192),
+                  },
+                ]
+              : [],
+          };
+          const body = JSON.stringify(detail),
+            sha256 = createHash("sha256").update(body).digest("hex");
+          const artifact: CiRunArtifact = {
+            schema: "ci-run-artifact/v2",
+            run: {
+              runId: String(pipeline.id),
+              sha: pipeline.sha,
+              branch: pipeline.ref,
+              prNumber: null,
+              job: job.name,
+              wallclockMs: 0,
+              runner: "gitlab-pipeline",
+            },
+            producer: {
+              repositoryId: `${hosting.host}/${hosting.projectPath}`,
+              workflow: ".gitlab-ci.yml",
+              databaseRunId: String(pipeline.id),
+              runAttempt: pipeline.id,
+              jobKey: String(job.id),
+              jobName: job.name,
+            },
+            detail,
+            gates: [],
+            measurementCoverage: {
+              status: "no-test-artifact",
+              missingReason: null,
+              startedFileCount: null,
+              completedFileCount: null,
+            },
+          };
+          return {
+            artifact,
+            jobExecutionId: String(job.id),
+            body,
+            sha256,
+            measurement: ciDetailMeasurement(detail),
+          };
+        }),
+      );
+      return {
+        databaseId: pipeline.id,
+        summary: {
+          workflowName: ".gitlab-ci.yml",
+          headSha: pipeline.sha,
+          headBranch: pipeline.ref,
+          status: pipeline.status === "success" || pipeline.status === "failed" ? "completed" : pipeline.status,
+          conclusion:
+            pipeline.status === "success" ? "success" : pipeline.status === "failed" ? "failure" : pipeline.status,
+          attempt: 1,
+          event: pipeline.source ?? "push",
+        },
+        repositoryId: `${hosting.host}/${hosting.projectPath}`,
+        workflowPath: ".gitlab-ci.yml",
+        workflowId: null,
+        jobs: preparedJobs,
+        provider: "gitlab-pipeline",
+      };
+    }),
+  );
+  return {
+    requestedRuns: namedRuns?.length ?? limit,
+    runs,
+    ...(witness && selected[0]
+      ? { witness: { taskId: witness.taskId, delivery: witness.delivery, databaseId: selected[0].id } }
+      : {}),
+  };
+}
+
 export function ingestCiObservations(
   cell: RepoCellActionContext,
   binding: RepoCellBinding,
@@ -366,9 +533,18 @@ export function ingestCiObservations(
   let imported = 0,
     duplicate = 0,
     lastRevision = cell.store.readHead()?.revision ?? 0;
-  for (const { databaseId, summary, repositoryId, workflowPath, workflowId, jobs, attemptInventory } of fetched.runs) {
+  for (const {
+    databaseId,
+    summary,
+    repositoryId,
+    workflowPath,
+    workflowId,
+    jobs,
+    attemptInventory,
+    provider = "github-actions",
+  } of fetched.runs) {
     const identity: CiObservationIdentity = {
-      provider: databaseId === 0 ? "write-coordinator" : "github-actions",
+      provider: databaseId === 0 ? "write-coordinator" : provider,
       repositoryId,
       workflow: databaseId === 0 ? "ledger-publication" : summary.workflowName,
       workflowPath,
@@ -385,7 +561,7 @@ export function ingestCiObservations(
       prNumber: null,
       job: summary.workflowName,
       wallclockMs: 0,
-      runner: databaseId === 0 ? "write-coordinator" : "github-actions",
+      runner: databaseId === 0 ? "write-coordinator" : provider,
     };
     const verification: CiRunObservationEventV4["payload"]["verification"] =
       databaseId === 0
@@ -398,7 +574,7 @@ export function ingestCiObservations(
             conclusion: summary.conclusion,
           }
         : {
-            source: "github-actions",
+            source: provider,
             workflow: summary.workflowName,
             runId: String(databaseId),
             attempt: summary.attempt,
@@ -542,7 +718,12 @@ export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: n
     .slice(0, limit);
 }
 
-type TaskWitness = { readonly taskId: string; readonly delivery: string; readonly options: GithubActionsOptions };
+type TaskWitness = {
+  readonly taskId: string;
+  readonly delivery: string;
+  readonly options: GithubActionsOptions;
+  readonly instanceId?: string;
+};
 
 // --task resolves the submitted execution's delivery commit and the github-actions options its
 // completion contract froze.
@@ -550,14 +731,15 @@ function taskWitnessContract(
   cell: {
     readonly rootDir: string;
     readonly cellCodedError: RepoCellOperationalContext["cellCodedError"];
-    readonly projection?: Pick<TaskProjection, "read">;
+    readonly projection?: Pick<TaskProjection, "read" | "readRuntimeDispatch">;
   },
   taskId: string,
 ): TaskWitness {
   const snapshot = cell.projection?.read(taskId).snapshot,
-    submission = snapshot?.executions.find(
+    execution = snapshot?.executions.find(
       (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
-    )?.submission,
+    ),
+    submission = execution?.submission,
     delivery = submission?.commitSha;
   if (!isNativeCommitSha(delivery))
     throw cell.cellCodedError(
@@ -573,14 +755,28 @@ function taskWitnessContract(
         `ha task adjudicate ${taskId} --return --review-id <review-id> --note <reason>, then resubmits the landed commit.`,
     );
   const witness = submission!.completionContract.gates.find(
-    (requirement) => requirement.witness.kind === "github-actions",
+    (requirement) => requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline",
   )?.witness;
-  if (witness?.kind !== "github-actions")
+  if (witness?.kind !== "github-actions" && witness?.kind !== "gitlab-pipeline")
     throw cell.cellCodedError(
       "invalid_command",
-      `Task ${taskId} has no github-actions gate in its completion contract; no CI run witnesses it.`,
+      `Task ${taskId} has no hosted CI gate in its completion contract; no CI run witnesses it.`,
     );
-  return { taskId, delivery, options: witness.adapterOptions };
+  const executorId = (
+    execution as { readonly actor?: { readonly executor?: { readonly id?: string } | null } } | undefined
+  )?.actor?.executor?.id;
+  const runtimeSessionId = executorId?.startsWith("runtime-session:")
+    ? executorId.slice("runtime-session:".length)
+    : undefined;
+  const instanceId = runtimeSessionId
+    ? cell.projection?.readRuntimeDispatch(runtimeSessionId)?.payload.instanceId
+    : undefined;
+  return {
+    taskId,
+    delivery,
+    options: witness.adapterOptions,
+    ...(typeof instanceId === "string" ? { instanceId } : {}),
+  };
 }
 
 // Selects the run the frozen contract judges, exactly as completion does: completed main runs of

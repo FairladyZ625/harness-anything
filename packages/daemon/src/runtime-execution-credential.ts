@@ -15,15 +15,24 @@ export interface RuntimeExecutionPrincipal {
   readonly taskId: string;
   readonly executionId: string;
   readonly role: "implementation" | "reviewer";
+  /** Decision review dispatches bind reads to this canonical decision id. */
+  readonly reviewDecisionId?: string;
+  /** Task review dispatches bind reads to this canonical task id. */
+  readonly reviewTaskId?: string;
   readonly source: WriteSource;
   readonly expiresAt: string;
 }
 
 export function executionCredentialRejected(
-  reason: "scope" | "expired" | "revoked" | "authentication" = "scope",
+  reason: "scope" | "write-other-task" | "self-approval" | "expired" | "revoked" | "authentication" = "scope",
 ): Error {
   const message = {
-    scope: "Execution request is outside its dispatch scope.",
+    scope:
+      "Execution request is outside its dispatch scope. Read requests are available; writes are limited to this task. Use `ha task show` or `ha task read-set` to inspect task data.",
+    "write-other-task":
+      "Execution write was rejected because it targets another task or repository. Writes are limited to this task; use `ha task show` to inspect other tasks.",
+    "self-approval":
+      "Execution write was rejected because it requires human approval or access administration. Use the corresponding human review or access command.",
     expired: "Execution credential is expired.",
     revoked: "Execution credential is revoked.",
     authentication: "Execution credential authentication was rejected.",
@@ -143,6 +152,7 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
       (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
     ) &&
     (p.role === "implementation" || p.role === "reviewer") &&
+    (p.reviewTaskId === undefined || typeof p.reviewTaskId === "string") &&
     typeof p.expiresAt === "string" &&
     Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs
   );

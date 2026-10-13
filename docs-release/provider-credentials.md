@@ -120,3 +120,9 @@ constitute that verification.
 Upstream references: [GNOME Keyring startup](https://wiki.gnome.org/Projects%282f%29GnomeKeyring%282f%29RunningDaemon.html),
 [daemon options and unlock implementation](https://github.com/GNOME/gnome-keyring/blob/main/daemon/gkd-main.c),
 [secret-tool stdin and clear implementation](https://github.com/GNOME/libsecret/blob/main/tool/secret-tool.c).
+
+## GitHub and GitLab task delivery
+
+Task branch publication and CI reads support GitHub.com and GitLab.com, plus self-hosted GitLab. Bind a hosting credential to a runtime instance with `ha runtime instance hosting-credential set <instance-id> --provider <github|gitlab> --ref <opaque-reference>`; remove it with `ha runtime instance hosting-credential unset <instance-id> --provider <github|gitlab>`. GitHub tokens need repository contents write access for task pushes and Actions read access for CI; GitLab tokens need `write_repository` for pushes and `read_api` for pipelines, jobs, and traces. The daemon resolves the reference and supplies the token only to its own git/API operation.
+
+The provider is inferred from the repository `origin`. For an unrecognized or self-hosted GitLab host, declare `hosting.provider` and `hosting.host` in the repository settings. GitLab CI uses REST API v4 and does not require `glab`.

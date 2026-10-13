@@ -351,6 +351,9 @@ export const daemonGuiActionMethods = Object.freeze([
       handoffEnabled: "boolean?",
       idempotencyKey: "string",
       providerSessionId: "string?",
+      // Reviewer dispatches carry the canonical decision/task binding through the
+      // same payload that runtime-spawn consumes.
+      reviewTarget: "json?",
       executor: "json?",
       dryRun: "boolean?",
     }),
@@ -653,20 +656,6 @@ export const runtimeInstanceMethods = Object.freeze([
     requiresRepo: false,
     params: shape({ repo: "json?", payload: shape({ instanceId: "string" }) }),
     guiBridgeMethod: "deleteRuntimeInstance",
-  },
-  {
-    id: "daemon.runtimeInstance.githubCredential.set",
-    phase: "Runtime-Instances-S1",
-    method: "daemon.runtimeInstance.githubCredential.set",
-    requiresRepo: false,
-    params: shape({ repo: "json?", payload: shape({ instanceId: "string", githubCredentialRef: "string" }) }),
-  },
-  {
-    id: "daemon.runtimeInstance.githubCredential.unset",
-    phase: "Runtime-Instances-S1",
-    method: "daemon.runtimeInstance.githubCredential.unset",
-    requiresRepo: false,
-    params: shape({ repo: "json?", payload: shape({ instanceId: "string" }) }),
   },
 ] as const);
 

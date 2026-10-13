@@ -76,7 +76,7 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
           "baseUrl",
           ...runtimeKindIds,
           "auth",
-          "githubCredentialRef",
+          "hostingCredentialRefs",
         ];
   if (
     Object.keys(value).some((key) => !allowed.includes(key)) ||
@@ -152,9 +152,17 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     ...(permissionMode ? { permissionMode } : {}),
     isolationState,
     auth,
-    ...(value.githubCredentialRef === undefined
+    ...(value.hostingCredentialRefs === undefined
       ? {}
-      : { githubCredentialRef: credentialReference(value.githubCredentialRef, "githubCredentialRef") }),
+      : {
+          hostingCredentialRefs: Object.fromEntries(
+            Object.entries(value.hostingCredentialRefs as Record<string, unknown>).map(([provider, reference]) => {
+              if (provider !== "github" && provider !== "gitlab")
+                throw runtimeInstanceError("invalid_runtime_instance", `Unknown hosting provider ${provider}.`);
+              return [provider, credentialReference(reference, `hostingCredentialRefs.${provider}`)];
+            }),
+          ) as { readonly github?: string; readonly gitlab?: string },
+        }),
   };
   const effortField = "reasoningEffort" in declaration.configuration.fields ? "reasoningEffort" : "effort",
     flatConfiguration = {

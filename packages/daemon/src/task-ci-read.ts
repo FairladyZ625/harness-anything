@@ -5,6 +5,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import type { WriteReceiptDraft } from "@harness-anything/kernel";
+import { detectHostingProvider, type HostingProvider } from "./hosting-provider.ts";
 
 const execFileAsync = promisify(execFile);
 type RunProvider = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => Promise<string>;
@@ -38,10 +39,6 @@ interface Job {
   readonly conclusion: string | null;
   readonly html_url: string;
 }
-interface Pull {
-  readonly number: number;
-  readonly mergeable_state: string | null;
-}
 
 interface TaskCiReport {
   readonly schema: "task-ci/v1";
@@ -49,7 +46,6 @@ interface TaskCiReport {
   readonly branch: string;
   readonly headSha: string;
   readonly conclusion: "not_started" | "pending" | "success" | "failure";
-  /** Present only when conclusion is not_started: names whether waiting can help and what to do instead. */
   readonly notStarted?: {
     readonly reason: "no_pull_request" | "pull_request_conflict" | "queued";
     readonly detail: string;
@@ -97,15 +93,25 @@ export async function readTaskCi(
     throw context.cellCodedError("actor_unauthorized", "Task CI requires a bound worker or reviewer dispatch.");
   requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
   const instanceId = context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId;
+  let hosting: HostingProvider;
+  if (provider !== runProvider) hosting = { kind: "github" } as HostingProvider;
+  // Provider injection is the test seam and may use a repository-less temporary directory.
+  // A configured but unknown remote still goes through strict provider detection.
+  else
+    hosting = (await hasOriginRemote(context.rootDir))
+      ? await detectHostingProvider(context.rootDir)
+      : ({ kind: "github" } as HostingProvider);
   const credential =
-    typeof instanceId === "string" ? await context.input.prepareWorkerGitEnvironment?.(instanceId) : null;
-  if (!credential?.GH_TOKEN)
+    typeof instanceId === "string" ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind) : null;
+  const token = credential?.GH_TOKEN ?? credential?.GITLAB_TOKEN;
+  if (!token)
     throw context.cellCodedError(
       "runtime_credential_unavailable",
-      "The dispatch instance has no configured GitHub credential.",
+      `The dispatch instance has no configured ${hosting.kind === "gitlab" ? "GitLab" : "GitHub"} credential.`,
     );
   const env = { ...process.env, ...credential },
-    redact = (text: string) => String(scrubProviderValue(text.replaceAll(credential.GH_TOKEN!, "[REDACTED]")));
+    redact = (text: string) => String(scrubProviderValue(text.replaceAll(token, "[REDACTED]")));
+  if (hosting.kind === "gitlab") return readGitLabTaskCi(context, action, hosting, token, redact);
   const runCommand = async (args: readonly string[]): Promise<string> => {
     try {
       return redact(await provider(args, env, context.rootDir));
@@ -150,7 +156,7 @@ export async function readTaskCi(
     const jobs = [];
     for (const job of pages.flatMap((page) => page.jobs)) {
       let failure = null;
-      if (job.conclusion === "failure") {
+      if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
         const log = await runCommand([
           "run",
           "view",
@@ -202,7 +208,6 @@ export async function readTaskCi(
           : states.every((state) => ["success", "neutral", "skipped"].includes(state.conclusion ?? ""))
             ? "success"
             : "failure";
-  // An empty report explains itself — the only extra API round happens on this empty path.
   const notStarted =
     conclusion !== "not_started" ? undefined : await explainNotStarted(api, prefix, repository, branch);
   const ci: TaskCiReport = {
@@ -227,11 +232,17 @@ export async function readTaskCi(
   };
 }
 
+async function hasOriginRemote(rootDir: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 type ApiReader = <T>(endpoint: string, paginated?: boolean) => Promise<T>;
 
-/** Distinguish the not_started cases the worker can act on (open the PR, resolve a conflict) from
- * the one where waiting is the right move. #3557 surfaced this: a conflicting pull request read as
- * a bare not_started and the worker had nothing to act on. */
 async function explainNotStarted(
   api: ApiReader,
   prefix: string,
@@ -239,7 +250,7 @@ async function explainNotStarted(
   branch: string,
 ): Promise<NonNullable<TaskCiReport["notStarted"]>> {
   const [owner] = repository.split("/");
-  const pulls = await api<readonly Pull[]>(
+  const pulls = await api<readonly { readonly number: number; readonly mergeable_state: string | null }[]>(
     `${prefix}pulls?head=${encodeURIComponent(`${owner}:${branch}`)}&state=open`,
   );
   const conflicting = pulls.find((pull) => pull.mergeable_state === "dirty");
@@ -262,6 +273,116 @@ async function explainNotStarted(
     detail:
       "No checks or workflow runs are registered for this head SHA yet; GitHub may still be queuing them. " +
       `Read again after a short wait (ha task ci ${branch} --wait).`,
+  };
+}
+
+async function readGitLabTaskCi(
+  context: Pick<RepoCellApiContext, "projection" | "now" | "cellCodedError"> & {
+    readonly rootDir: string;
+    readonly readResult?: RepoCellApiContext["extracted"]["readResult"];
+  },
+  action: RepoTaskAction,
+  hosting: Extract<HostingProvider, { readonly kind: "gitlab" }>,
+  token: string,
+  redact: (text: string) => string,
+): Promise<WriteReceiptDraft & { readonly ci: TaskCiReport }> {
+  const branch = String(action.taskId);
+  const request = async <T>(path: string): Promise<T> => {
+    const response = await fetch(`${hosting.apiBaseUrl}/projects/${encodeURIComponent(hosting.projectPath)}${path}`, {
+      headers: { "PRIVATE-TOKEN": token },
+    });
+    if (!response.ok)
+      throw context.cellCodedError(
+        "task_ci_read_failed",
+        redact(`GitLab API ${response.status}: ${await response.text()}`).slice(0, 2048),
+      );
+    return (await response.json()) as T;
+  };
+  const branchInfo = await request<{ readonly commit: { readonly id: string } }>(
+    `/repository/branches/${encodeURIComponent(branch)}`,
+  );
+  const headSha = branchInfo.commit.id;
+  type Pipeline = { id: number; status: string; ref: string; sha: string; web_url?: string; source?: string };
+  const pipelines = await request<readonly Pipeline[]>(
+    `/pipelines?sha=${encodeURIComponent(headSha)}&ref=${encodeURIComponent(branch)}&per_page=100`,
+  );
+  const latest = [...pipelines]
+    .filter((run) => run.sha === headSha && run.ref === branch)
+    .sort((a, b) => b.id - a.id)
+    .slice(0, 1);
+  const runs: TaskCiReport["runs"][number][] = [];
+  for (const pipeline of latest) {
+    type Job = {
+      id: number;
+      name: string;
+      status: string;
+      failure_reason?: string | null;
+      web_url?: string;
+      allow_failure?: boolean;
+    };
+    const jobs = await request<readonly Job[]>(`/pipelines/${pipeline.id}/jobs?per_page=100`);
+    const mapped = [];
+    for (const job of jobs) {
+      let failure = null;
+      if (job.status === "failed") {
+        const response = await fetch(
+          `${hosting.apiBaseUrl}/projects/${encodeURIComponent(hosting.projectPath)}/jobs/${job.id}/trace`,
+          {
+            headers: { "PRIVATE-TOKEN": token },
+          },
+        );
+        failure = {
+          ...failureExcerpt(
+            (response.ok ? await response.text() : `GitLab trace unavailable (${response.status})`).replaceAll(
+              token,
+              "[REDACTED]",
+            ),
+          ),
+          logUrl: job.web_url ?? `${hosting.apiBaseUrl}/jobs/${job.id}`,
+        };
+      }
+      mapped.push({
+        id: job.id,
+        name: job.name,
+        status: job.status,
+        conclusion: job.status === "success" ? "success" : job.status === "failed" ? "failure" : null,
+        url: job.web_url ?? `${hosting.apiBaseUrl}/jobs/${job.id}`,
+        failure,
+      });
+    }
+    runs.push({
+      id: pipeline.id,
+      attempt: pipeline.id,
+      event: pipeline.source ?? "push",
+      status:
+        pipeline.status === "success" || pipeline.status === "failed" || pipeline.status === "canceled"
+          ? "completed"
+          : pipeline.status,
+      conclusion: pipeline.status === "success" ? "success" : pipeline.status === "failed" ? "failure" : null,
+      url: pipeline.web_url ?? `${hosting.apiBaseUrl}/pipelines/${pipeline.id}`,
+      jobs: mapped,
+    });
+  }
+  const checks = runs.flatMap((run) =>
+    run.jobs.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion, url: job.url })),
+  );
+  const conclusion =
+    runs.length === 0
+      ? "not_started"
+      : runs.some((run) => run.status !== "completed")
+        ? "pending"
+        : runs.every((run) => run.conclusion === "success")
+          ? "success"
+          : "failure";
+  const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs };
+  return {
+    ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, context.projection.readCut().sourceRevision, null) ?? {
+      outcome: "applied" as const,
+      opId: `task-ci:${branch}:${headSha}`,
+      revision: context.projection.readCut().sourceRevision,
+      evidence: JSON.stringify(ci),
+    }),
+    ci,
   };
 }
 

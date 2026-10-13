@@ -62,6 +62,8 @@ test("Task Action transport has one current build-time projection", async () => 
       "overviewWatchedActivityDays",
       "taskScaffold",
       "repositoryScaffold",
+      "hostingProvider",
+      "hostingHost",
       "ciWorkflows",
       "closeoutProfile",
       "closeoutReview",

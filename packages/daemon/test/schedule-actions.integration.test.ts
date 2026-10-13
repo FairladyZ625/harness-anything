@@ -116,7 +116,7 @@ test("run-now launches only after an applied claim, stays single-flight, and set
           prompt: request.prompt,
         };
       },
-      prepareWorkerGitEnvironment: async () => {
+      prepareDaemonGitEnvironment: async () => {
         workerGitEnvironmentRequests += 1;
         return { GITHUB_TOKEN: "must-not-reach-detect-runtime" };
       },

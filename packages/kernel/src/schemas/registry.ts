@@ -137,6 +137,9 @@ export const HarnessConfigSchema = Schema.Struct({
   settings: Schema.optional(
     Schema.Struct({
       ...authoredSettingsSchemaFields(),
+      hosting: Schema.optional(
+        Schema.Struct({ provider: Schema.optional(Schema.String), host: Schema.optional(Schema.String) }),
+      ),
       tasks: Schema.optional(
         Schema.Struct({
           wipLimit: Schema.optional(TaskWipLimitSchema),

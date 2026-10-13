@@ -410,6 +410,7 @@ export function OverviewView({
                       followUps={followUps}
                       pinned={pinned}
                       onOpenFocus={openFocus}
+                      onOpenTask={onOpenTask}
                       deps={deps}
                     />
                   </Region>

@@ -10,7 +10,7 @@ const run = `CASE WHEN ${schema} = 'ci-run-observation/v4' THEN json_extract(eve
 const family = `json_array(${provider}, ${repository}, ${run})`;
 const occurred = "json_extract(event_json, '$.occurredAt')";
 const main = `${schema} IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4') AND json_extract(event_json, '$.payload.run.branch') = 'main'`;
-const numeric = `${provider} = 'github-actions' AND ${run} != '' AND ${run} NOT GLOB '*[^0-9]*'`;
+const numeric = `${provider} IN ('github-actions','gitlab-pipeline') AND ${run} != '' AND ${run} NOT GLOB '*[^0-9]*'`;
 const digits = `ltrim(${run}, '0')`;
 
 const rank = `(${numeric})`;

@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import path from "node:path";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
 
 const execFileAsync = promisify(execFile);
 type RunProvider = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => Promise<string>;
@@ -15,7 +17,6 @@ const runProvider: RunProvider = async (args, env, cwd) =>
     (await execFileAsync("gh", args, { cwd, env, timeout: 30_000, maxBuffer: 2 << 20, windowsHide: true })).stdout,
   );
 
-const prBodyLintScript = fileURLToPath(new URL("../../../tools/check-pr-body-bilingual.mjs", import.meta.url));
 type PrBodyLintProvider = (body: string, rootDir: string) => Promise<void>;
 
 /**
@@ -23,10 +24,13 @@ type PrBodyLintProvider = (body: string, rootDir: string) => Promise<void>;
  * PR body before the pull request exists, so placeholder-only required sections are named here
  * instead of in review. Base and head are pinned to HEAD: this canonical-root diff is not the
  * task branch's diff, so the git-context checks (Per-Write Cost table, churn thresholds) stay
- * authoritative on CI while this call judges the body itself.
+ * authoritative on CI while this call judges the body itself. The gate belongs to the repository being
+ * delivered, so it resolves from that repository's root; a repository without the script has no such gate.
  */
 const runPrBodyLint: PrBodyLintProvider = async (body, rootDir) => {
-  await execFileAsync(process.execPath, [prBodyLintScript, "--env", "PR_BODY"], {
+  const script = path.join(rootDir, "tools", "check-pr-body-bilingual.mjs");
+  if (!existsSync(script)) return;
+  await execFileAsync(process.execPath, [script, "--env", "PR_BODY"], {
     cwd: rootDir,
     timeout: 120_000,
     maxBuffer: 2 << 20,
@@ -42,7 +46,10 @@ export async function createTaskPullRequest(
     "rootDir" | "projection" | "now" | "cellCodedError" | "store" | "withHumanSummary"
   > & {
     readonly input: {
-      readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+      readonly prepareDaemonGitEnvironment?: (
+        instanceId: string,
+        provider: "github" | "gitlab",
+      ) => Promise<NodeJS.ProcessEnv | null>;
     };
   },
   action: RepoTaskAction,
@@ -57,8 +64,15 @@ export async function createTaskPullRequest(
   const instanceId = principal
     ? context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId
     : undefined;
+  const hosting =
+    provider === runProvider ? await detectHostingProvider(context.rootDir) : ({ kind: "github" } as const);
+  if (hosting.kind !== "github")
+    throw context.cellCodedError(
+      "delivery_publish_failed",
+      "Task PR creation is currently supported only for GitHub repositories.",
+    );
   const credential =
-    typeof instanceId === "string" ? await context.input.prepareWorkerGitEnvironment?.(instanceId) : null;
+    typeof instanceId === "string" ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind) : null;
   if (!credential?.GH_TOKEN)
     throw context.cellCodedError(
       "runtime_credential_unavailable",

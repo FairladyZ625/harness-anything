@@ -215,6 +215,100 @@ test("one nearest timer launches different due Schedules concurrently", async ()
   scheduler.close();
 });
 
+test("an unhealthy peer cannot starve an attached Schedule at its due time", async (t) => {
+  for (const failure of ["missed-binding", "projection-pending"] as const)
+    for (const wake of ["start", "tick"] as const)
+      await t.test(`${failure}/${wake}`, async () => {
+        const clock = fakeClock("2026-08-27T10:00:00.000Z"),
+          healthy = fixtureRepo("healthy", "local", [schedule("heartbeat")]),
+          peer = fixtureRepo("peer", "local", [schedule("blocked")]),
+          execute = peer.cell.run,
+          warnings: string[] = [],
+          originalWarn = console.warn;
+        let failing = wake === "start";
+        peer.cell.run = async (...args) => {
+          if (failing && failure === "projection-pending" && args[0].kind === "schedule-list")
+            return {
+              outcome: "op_rejected",
+              code: "projection_pending",
+              origin: "daemon",
+              evidence: "rejection:projection_pending",
+            } as Awaited<ReturnType<RepoCell["run"]>>;
+          return execute(...args);
+        };
+        const scheduler = makeScheduleScheduler({
+          cells: new Map([
+            [peer.repoId, peer.cell],
+            [healthy.repoId, healthy.cell],
+          ]),
+          localBinding: (repoId, _rootDir, action) => {
+            if (failing && repoId === peer.repoId && action.kind === "schedule-missed")
+              throw Object.assign(new Error("The schedule creator must sign in on this device."), {
+                code: "authentication_required",
+              });
+            return localBinding();
+          },
+          now: clock.now,
+          setTimer: clock.setTimer,
+          clearTimer: clock.clearTimer,
+        });
+        console.warn = (message?: unknown) => warnings.push(String(message));
+        try {
+          // Only the peer has a backlog; the healthy cursor is current at startup.
+          if (wake === "start") {
+            clock.value = "2026-08-27T10:35:00.000Z";
+            await healthy.execute({
+              kind: "schedule-missed",
+              scheduleId: "heartbeat",
+              from: "2026-08-27T10:30:00.000Z",
+              to: "2026-08-27T10:30:00.000Z",
+              count: 1,
+              reason: "scheduler_unavailable",
+            });
+          }
+          await scheduler.start();
+          assert.equal(clock.liveTimers().length, 1);
+          failing = true;
+          clock.value = wake === "start" ? "2026-08-27T11:00:00.000Z" : "2026-08-27T10:35:00.000Z";
+          clock.liveTimers()[0]!.callback();
+          await scheduler.refresh();
+          if (wake === "tick") {
+            assert.deepEqual(healthy.fired, []);
+            clock.value = "2026-08-27T11:00:00.000Z";
+            clock.liveTimers()[0]!.callback();
+            await scheduler.refresh();
+          }
+          // A retry refresh must arm the due tick even while the peer remains unhealthy.
+          const due = clock.liveTimers();
+          assert.equal(due.length, 1);
+          if (healthy.fired.length === 0) {
+            assert.equal(due[0]!.delayMs, 0);
+            due[0]!.callback();
+            await scheduler.refresh();
+          }
+          assert.deepEqual(healthy.fired, ["heartbeat"]);
+          assert.equal(
+            healthy.missed.some(({ to }) => to === "2026-08-27T11:00:00.000Z"),
+            false,
+          );
+          assert.deepEqual(peer.fired, []);
+          assert.equal(clock.liveTimers().length, 1);
+          assert.equal(clock.liveTimers()[0]!.delayMs, 1_000);
+          if (failure === "missed-binding") assert.ok(warnings.some((warning) => warning.includes("sign in")));
+          failing = false;
+          await scheduler.refresh();
+          assert.equal(clock.liveTimers()[0]!.delayMs, 0);
+          clock.liveTimers()[0]!.callback();
+          await scheduler.refresh();
+          assert.deepEqual(peer.fired, ["blocked"]);
+          assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+        } finally {
+          scheduler.close();
+          console.warn = originalWarn;
+        }
+      });
+});
+
 test("a long stop aggregates missed intervals and never catches them up", async () => {
   const clock = fakeClock("2026-08-27T12:10:00.000Z"),
     repo = fixtureRepo("missed", "local", [schedule("heartbeat")]),

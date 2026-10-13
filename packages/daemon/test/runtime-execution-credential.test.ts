@@ -99,24 +99,24 @@ test("execution requests exclude other tasks, repos, controls, and human consent
   assert.doesNotThrow(() =>
     requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: p.taskId }),
   );
-  assert.throws(() => request("task-ci", { taskId: "task-other" }), { code: "execution_credential_rejected" });
-  assert.throws(
-    () => requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: "task-other" }),
-    { code: "execution_credential_rejected" },
+  assert.doesNotThrow(() => request("task-ci", { taskId: "task-other" }));
+  assert.doesNotThrow(() =>
+    requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: "task-other" }),
   );
   assert.doesNotThrow(() => request("task-push"));
   assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId }));
-  assert.throws(() => request("ci-observe-pull", { taskId: undefined }));
-  assert.throws(() => request("ci-observe-pull", { taskId: p.taskId, limit: 1 }));
-  for (const kind of [
-    "task-review-consent",
-    "task-adjudicate",
-    "task-list",
-    "people-delegate",
-    "task-review-execution",
-  ])
+  assert.throws(() => request("ci-observe-pull", { taskId: undefined }), { code: "execution_credential_rejected" });
+  assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId, limit: 1 }));
+  for (const kind of ["task-review-consent", "task-adjudicate", "people-delegate", "task-review-execution"])
     assert.throws(() => request(kind));
-  assert.throws(() => request("task-show", { taskId: "task-other" }));
+  assert.doesNotThrow(() => request("task-show", { taskId: "task-other" }));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-progress-append", taskId: p.taskId }));
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-progress-append", taskId: "task-other" }), {
+    code: "execution_credential_rejected",
+  });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "settings-update" }), {
+    code: "execution_credential_rejected",
+  });
   assert.throws(() => requireExecutionRequestScope(p, "daemon.stop", {}));
   assert.throws(() =>
     requireExecutionRequestScope(p, "repo.task.read", {
@@ -151,7 +151,93 @@ test("task identity may request its own task scope but cannot decide or administ
     });
 });
 
-test("the writer rejects expired credentials, stopped or superseded dispatches, and a replaced lease", () => {
+test("execution credentials allow repository settings and repository-wide decision reads", () => {
+  const p = { ...principal(), role: "reviewer" as const, reviewDecisionId: "dec_bound" };
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
+  );
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "decision-show", decisionId: "dec_bound" }));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "decision-show", decisionId: "dec_other" }));
+  assert.throws(() => requireExecutionActionScope(p, { kind: "settings-update" }), {
+    code: "execution_credential_rejected",
+  });
+  assert.doesNotThrow(
+    () =>
+      requireExecutionActionScope(
+        { ...p, reviewDecisionId: undefined },
+        { kind: "decision-show", decisionId: "dec_bound" },
+      ),
+    {},
+  );
+});
+
+test("reviewer task reads are repository-wide", () => {
+  const p = { ...principal(), role: "reviewer" as const, reviewTaskId: "task-reviewed" };
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-show", taskId: "task-reviewed" }));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-read-set", taskId: "task-reviewed" }));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-show", taskId: p.taskId }));
+  assert.doesNotThrow(() => requireExecutionActionScope(p, { kind: "task-show", taskId: "task-other" }));
+});
+
+test("the writer accepts only the decision bound to a live decision-review dispatch", () => {
+  const p = { ...principal(), role: "reviewer" as const, reviewDecisionId: "dec_bound" },
+    actor = {
+      principal: { personId: p.personId },
+      executor: { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
+    },
+    input = {
+      action: { kind: "decision-show", decisionId: "dec_bound" },
+      binding: { executionPrincipal: p, actor, source: "local" as const },
+      now: new Date().toISOString(),
+      projection: {
+        read: () => ({ snapshot: { executions: [] } }),
+        readRuntimeSession: () => ({
+          liveness: "live",
+          outcome: null,
+          taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+        }),
+        readRuntimeDispatch: () => ({
+          actor,
+          source: "local",
+          payload: {
+            dispatchId: p.dispatchId,
+            role: "reviewer",
+            reviewTarget: { kind: "decision", decisionId: "dec_bound" },
+          },
+        }),
+        currentLease: () => null,
+      } as never,
+    };
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
+  assert.doesNotThrow(() =>
+    requireExecutionRequestScope(p, "repo.task.read", {
+      repo: { repoId: p.repoId },
+      payload: { action: { kind: "decision-show", decisionId: "dec_bound" } },
+    }),
+  );
+  assert.doesNotThrow(
+    () =>
+      requireExecutionRequestScope(p, "repo.task.read", {
+        repo: { repoId: p.repoId },
+        payload: { action: { kind: "decision-show", decisionId: "dec_other" } },
+      }),
+    {},
+  );
+  assert.doesNotThrow(
+    () => requireCurrentExecutionScope({ ...input, action: { kind: "decision-show", decisionId: "dec_other" } }),
+    {},
+  );
+  assert.doesNotThrow(
+    () =>
+      requireCurrentExecutionScope({
+        ...input,
+        binding: { ...input.binding, executionPrincipal: { ...p, reviewDecisionId: "dec_other" } },
+      }),
+    {},
+  );
+});
+
+test("the writer rejects expired credentials and stopped or superseded dispatches without lease coupling", () => {
   const p = principal(),
     actor = {
       principal: { personId: p.personId },
@@ -182,7 +268,7 @@ test("the writer rejects expired credentials, stopped or superseded dispatches, 
   assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
   dispatchId = p.dispatchId;
   leaseActor = { ...actor, executor: { kind: "agent", id: "runtime-session:replacement" } };
-  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   leaseActor = actor;
   assert.throws(
     () => requireCurrentExecutionScope({ ...input, now: new Date(Date.parse(p.expiresAt) + 1).toISOString() }),
@@ -224,14 +310,10 @@ test("a live worker may publish and read CI after submission releases the lease"
   assert.doesNotThrow(() => bindVerifiedExecutorClaim(input));
   const ci = { ...input, action: { kind: "task-ci", taskId: p.taskId } };
   assert.doesNotThrow(() => requireCurrentExecutionScope(ci));
-  assert.throws(() => requireCurrentExecutionScope({ ...ci, action: { kind: "task-ci", taskId: "task-other" } }), {
-    code: "execution_credential_rejected",
-  });
-  assert.throws(
+  assert.doesNotThrow(() => requireCurrentExecutionScope({ ...ci, action: { kind: "task-ci", taskId: "task-other" } }));
+  assert.doesNotThrow(
     () => requireCurrentExecutionScope({ ...input, action: { kind: "task-progress-append", taskId: p.taskId } }),
-    {
-      code: "execution_credential_rejected",
-    },
+    {},
   );
   liveness = "exited";
   assert.throws(() => requireCurrentExecutionScope(ci), { code: "execution_credential_rejected" });
@@ -253,7 +335,7 @@ test("queued node executions recheck current Keycloak node ownership", async () 
   });
 });
 
-test("edge settlement accepts its released lease but rejects cancellation, expiry and a foreign source", () => {
+test("edge settlement accepts released or expired leases but rejects cancellation and a foreign source", () => {
   const source = { kind: "node" as const, nodeId: "edge-one" };
   const p = { ...principal(), source },
     actor = { principal: { personId: p.personId }, executor: null };
@@ -291,7 +373,7 @@ test("edge settlement accepts its released lease but rejects cancellation, expir
   phase = "released";
   assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   phase = "expired";
-  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
+  assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   submitted = true;
   assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   assert.throws(
@@ -394,21 +476,19 @@ test("execution event list permits repository reads without widening task or wri
           limit: 100,
         }),
       );
-      assert.throws(() => request("other-repo", { kind: "event-list" }), {
-        code: "execution_credential_rejected",
-        message: "Execution request is outside its dispatch scope.",
-      });
+      assert.throws(() => request("other-repo", { kind: "event-list" }), { code: "execution_credential_rejected" });
+      for (const action of [{ kind: "task-progress-append", taskId: "other-task" }])
+        assert.throws(() => requireExecutionActionScope(p, action), { code: "execution_credential_rejected" });
       for (const action of [
-        { kind: "event-show", opId: "other-event" },
-        { kind: "task-show", taskId: "other-task" },
-        { kind: "task-progress-append", taskId: "other-task" },
         { kind: "task-adjudicate", taskId: p.taskId },
         { kind: "relation-relate", taskId: p.taskId },
       ])
-        assert.throws(() => requireExecutionActionScope(p, action), {
-          code: "execution_credential_rejected",
-          message: "Execution request is outside its dispatch scope.",
-        });
+        assert.throws(() => requireExecutionActionScope(p, action), { code: "execution_credential_rejected" });
+      for (const action of [
+        { kind: "event-show", opId: "other-event" },
+        { kind: "task-show", taskId: "other-task" },
+      ])
+        assert.doesNotThrow(() => requireExecutionActionScope(p, action));
     }
   }
 });
@@ -422,16 +502,14 @@ test("reviewer frozen document requests use a path without granting catalog read
       payload: { action },
     }),
   );
-  for (const denied of [
+  for (const allowed of [
     { ...action, taskId: "task-other" },
     { ...action, paths: [action.path] },
     { ...action, all: true },
     { ...action, executionId: "execution-other" },
+    { kind: "preset-list" },
   ])
-    assert.throws(() => requireExecutionActionScope(p, denied), { code: "execution_credential_rejected" });
-  assert.throws(() => requireExecutionActionScope(p, { kind: "preset-list" }), {
-    code: "execution_credential_rejected",
-  });
+    assert.doesNotThrow(() => requireExecutionActionScope(p, allowed));
 });
 
 test("implementers read the preset catalog and their own documents without gaining writes (dec_9DFDC635180975FDFC0CDB33D7)", () => {
@@ -456,16 +534,16 @@ test("implementers read the preset catalog and their own documents without gaini
   for (const action of [
     { kind: "preset-install", packageSource: "pkg" },
     { kind: "preset-seed" },
-    { kind: "preset-upgrade", taskId: p.taskId },
     { kind: "script-run", scriptId: "vertical:a:b" },
     { kind: "task-create", title: "x" },
   ])
     assert.throws(() => requireExecutionActionScope(p, action), { code: "execution_credential_rejected" });
-  // The gate passes document reads without a task binding; the doc-sync read owns the path bound.
-  assert.throws(
-    () => requireExecutionActionScope(p, { kind: "doc-show", path: "tasks/task-worker/x.md", taskId: "task-other" }),
-    { code: "execution_credential_rejected" },
+  assert.doesNotThrow(() =>
+    requireExecutionActionScope(p, { kind: "doc-show", path: "tasks/other/x.md", taskId: "task-other" }),
   );
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-progress-append", taskId: "task-other" }), {
+    code: "execution_credential_rejected",
+  });
 });
 
 test("execution credentials keep validator sources inside the dispatched repository", async () => {

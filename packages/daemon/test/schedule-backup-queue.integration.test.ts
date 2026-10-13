@@ -64,7 +64,7 @@ async function openFixture(root: string) {
         endpoint: path.join(root, ".daemon/test.sock"),
       },
       runtimeInstances: () => [],
-      prepareWorkerGitEnvironment: async () => null,
+      prepareDaemonGitEnvironment: async () => null,
     },
     await acquireWorkspaceLock(canonicalRoot(root)),
   );

@@ -54,6 +54,7 @@ async function submittedTaskFixture(
   git(rootDir, "config", "user.name", "Pull Receipt Fixture");
   git(rootDir, "config", "user.email", "pull-receipt@example.invalid");
   git(rootDir, "commit", "--allow-empty", "-qm", "fixture base");
+  git(rootDir, "remote", "add", "origin", "https://github.com/fixture/pull-receipt.git");
   mkdirSync(path.join(rootDir, "harness"), { recursive: true });
   writeFileSync(
     path.join(rootDir, "harness/harness.yaml"),

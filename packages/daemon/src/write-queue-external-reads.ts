@@ -11,6 +11,7 @@ import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
 import { createTaskPullRequest } from "./runtime-task-pr.ts";
 
 type QueuedPublication = ((
@@ -100,11 +101,14 @@ export function readBeforeWriteQueue(
       const instanceId = binding.executionPrincipal
           ? context.projection.readRuntimeDispatch(binding.executionPrincipal.runtimeSessionId)?.payload.instanceId
           : undefined,
-        workerGitEnvironment =
-          typeof instanceId === "string" ? await context.input.prepareWorkerGitEnvironment?.(instanceId) : undefined;
-      const gitEnvironment = workerGitEnvironment
+        hosting = await detectHostingProvider(context.rootDir, undefined, true),
+        daemonGitEnvironment =
+          hosting && typeof instanceId === "string"
+            ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind)
+            : undefined;
+      const gitEnvironment = daemonGitEnvironment
         ? {
-            ...workerGitEnvironment,
+            ...daemonGitEnvironment,
             GIT_ASKPASS: path.join(context.rootDir, "tools", "git-hooks", "git-askpass"),
             HARNESS_TASK_BOUND: "1",
           }
