@@ -235,6 +235,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   assert.equal(readSet.outcome, "applied", JSON.stringify(readSet));
   const settings = await implementation.cli(["settings", "read"]);
   assert.equal(settings.outcome, "applied", JSON.stringify(settings));
+  const decisionRead = await implementation.cli(["decision", "show", decisionId]);
+  assert.equal(decisionRead.outcome, "applied", JSON.stringify(decisionRead));
   const ci = await implementation.cli(["task", "ci", taskId]);
   assert.equal(ci.code, "task_ci_read_failed", JSON.stringify(ci));
   assert.match(String(ci.rejectionExplanation), /(?:no git remotes found|spawn gh ENOENT)/u, JSON.stringify(ci));
@@ -270,14 +272,16 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     "Worker continued after the device owner signed in again.",
   ]);
   assert.equal(progress.outcome, "applied", JSON.stringify(progress));
-  for (const args of [
-    ["task", "show", "task-other"],
-    ["task", "list"],
-    ["daemon", "stop"],
-  ]) {
+  for (const args of [["daemon", "stop"]]) {
     const denied = await implementation.cli(args);
     assert.equal(denied.code, "execution_credential_rejected", JSON.stringify(denied));
   }
+  assert.equal((await implementation.cli(["task", "show", "task-other"])).outcome, "applied");
+  assert.equal((await implementation.cli(["task", "list"])).outcome, "applied");
+  assert.equal(
+    (await implementation.cli(["task", "progress", "append", "task-other", "--text", "wrong task"])).code,
+    "execution_credential_rejected",
+  );
   realm.keycloak.revoke("owner", repoId, ["repository-read"]);
   assert.equal((await implementation.cli(["event", "list"])).code, "authorization_denied");
   assert.equal((await implementation.cli(["task", "read-set", taskId])).code, "authorization_denied");

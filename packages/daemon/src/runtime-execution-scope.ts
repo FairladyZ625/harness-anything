@@ -6,6 +6,7 @@ import {
   type TaskProjection,
 } from "@harness-anything/kernel";
 import { actionForDaemonMethod } from "./protocol/daemon-protocol.contract.ts";
+import { commandClassForAction } from "./protocol/daemon-protocol-commands.ts";
 import { isJsonObject, type JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import {
@@ -44,79 +45,34 @@ export function requireExecutionRequestScope(
   );
 }
 
-/** Repository catalog reads a dispatched implementer needs to pick its preset and validate
- * declarations (dec_9DFDC635180975FDFC0CDB33D7): exactly the repo-read preset commands, never
- * the ledger-write lifecycle. Caller-supplied sources stay bounded by the preset dispatch. */
-const catalogReads = [
-  "preset-list",
-  "preset-inspect",
-  "preset-check",
-  "preset-validate",
-  "preset-audit",
-  "vertical-validate",
-  "template-list",
-  "template-render",
-  "script-list",
-  "script-inspect",
-] as const;
+const selfApprovalActions = new Set([
+  "task-review-consent",
+  "task-adjudicate",
+  "task-complete",
+  "decision-accept",
+  "decision-consent",
+  "decision-review-consent",
+  "relation-relate",
+  "relation-unrelate",
+]);
+
+const repositoryWriteActions = new Set(["entity-pin", "entity-unpin", "settings-update"]);
 
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
-  const catalog = p.role === "implementation" && (catalogReads as readonly string[]).includes(action.kind),
-    repositoryReads = ["settings-read"],
-    // Reviewers read frozen submission evidence, implementers their own package documents; the
-    // exact path authorization happens in the doc-sync read where the projection is available.
-    documentRead = action.kind === "doc-show",
-    reads = [
-      "event-list",
-      "task-show",
-      "task-ci",
-      "task-read-set",
-      "task-dispatches",
-      "doc-status",
-      "doc-dry-run",
-      ...(documentRead ? ["doc-show"] : []),
-      ...repositoryReads,
-      ...(p.role === "reviewer" && p.reviewDecisionId ? ["decision-show"] : []),
-    ],
-    writes =
-      p.role === "reviewer"
-        ? ["task-review-execution"]
-        : [
-            "task-progress-append",
-            "fact-record",
-            "doc-submit",
-            "task-submit",
-            "task-artifact-add",
-            "task-push",
-            "task-pr",
-            "ci-observe-pull",
-          ],
-    taskCiPull = action.kind === "ci-observe-pull",
-    reviewTaskId = p.role === "reviewer" ? (p.reviewTaskId ?? p.taskId) : p.taskId;
-  if (
-    (action.kind.startsWith("doc-") &&
-      (action.all === true || (Array.isArray(action.paths) && action.paths.length > 0))) ||
-    (![...reads, ...writes].includes(action.kind) && !catalog) ||
-    (action.kind !== "event-list" &&
-      !documentRead &&
-      !catalog &&
-      action.kind !== "settings-read" &&
-      !(action.kind === "decision-show" && p.role === "reviewer" && p.reviewDecisionId) &&
-      action.taskId !== reviewTaskId) ||
-    (action.kind === "decision-show" && action.decisionId !== p.reviewDecisionId) ||
-    (documentRead && action.taskId !== undefined && action.taskId !== reviewTaskId) ||
-    (action.executionId !== undefined && action.executionId !== p.executionId) ||
-    (taskCiPull &&
-      (action.taskId !== p.taskId ||
-        action.runs !== undefined ||
-        action.limit !== undefined ||
-        action.attempts !== undefined)) ||
-    (action.executor != null &&
-      (!isJsonObject(action.executor) ||
-        action.executor.kind !== "agent" ||
-        action.executor.id !== `runtime-session:${p.runtimeSessionId}`))
-  )
-    throw executionCredentialRejected();
+  const commandClass = commandClassForAction(action.kind);
+  // CH2 (dec_CF96A3C910B31D2D7498F32DDD): reads are repository-view operations and
+  // remain available throughout a dispatch; only writes are task-bound below.
+  if (commandClass === "repo-read") return;
+  if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
+    throw executionCredentialRejected("self-approval");
+  if (repositoryWriteActions.has(action.kind) || (commandClass === "repo-write" && action.taskId === undefined))
+    throw executionCredentialRejected("write-other-task");
+  if (action.kind === "task-review-execution") {
+    if (p.role === "reviewer" && action.taskId === p.taskId) return;
+    throw executionCredentialRejected("write-other-task");
+  }
+  if (commandClass !== "repo-write" || action.taskId !== p.taskId || p.role === "reviewer")
+    throw executionCredentialRejected("write-other-task");
 }
 
 /** Rechecked in the current writer turn; the credential never grants a second execution lease. */
@@ -197,14 +153,10 @@ export function requireCurrentExecutionScope(input: {
       execution?.submission !== null &&
       execution?.submission !== undefined &&
       (negativeTerminal || target.digest === submissionDigest(execution.submission));
-    const decisionReview =
-      target?.kind === "decision" &&
-      p.reviewDecisionId === target.decisionId &&
-      (input.action.kind === "decision-show"
-        ? input.action.decisionId === target.decisionId
-        : input.action.kind !== "task-review-execution");
-    if (dispatch.payload.role !== "reviewer" || (!taskReview && !decisionReview)) throw executionCredentialRejected();
+    const decisionReview = target?.kind === "decision" && p.reviewDecisionId === target.decisionId;
+    if (dispatch.payload.role !== "reviewer") throw executionCredentialRejected();
     if (input.action.kind === "task-review-execution") {
+      if (!taskReview) throw executionCredentialRejected();
       const packagePath = input.projection.read(p.taskId).packagePath,
         reportPacket = `${packagePath}/artifacts/reports/${p.dispatchId}.json`;
       if (
@@ -217,35 +169,11 @@ export function requireCurrentExecutionScope(input: {
             input.action.docChanges[0].path !== `${packagePath}/artifacts/reports/${p.dispatchId}.md`)
       )
         throw executionCredentialRejected();
+    } else if (ingress && !taskReview && !decisionReview) {
+      throw executionCredentialRejected();
     }
   } else {
     if (dispatch.payload.role === "reviewer") throw executionCredentialRejected();
-    const snapshot =
-      settling || ["task-push", "task-ci"].includes(input.action.kind)
-        ? input.projection.read(p.taskId).snapshot
-        : null;
-    const lease =
-      input.projection.currentLease(p.taskId, input.now) ??
-      (terminal && snapshot?.lease?.phase === "released" ? snapshot.lease : null);
-    const submittedDeliveryAccess =
-      ["task-push", "task-ci"].includes(input.action.kind) &&
-      lease === null &&
-      snapshot?.executions.some(
-        (execution) => execution.executionId === p.executionId && execution.submission !== null,
-      ) === true;
-    if (
-      settling &&
-      snapshot?.executions.some((execution) => execution.executionId === p.executionId && execution.submission !== null)
-    )
-      return;
-    if (
-      !submittedDeliveryAccess &&
-      (!lease ||
-        (lease.phase !== "held" && !(terminal && lease.phase === "released")) ||
-        lease.executionId !== p.executionId ||
-        !isSameExecution(lease.actor, actor) ||
-        stableStringify(lease.source) !== stableStringify(input.binding.source))
-    )
-      throw executionCredentialRejected();
+    return;
   }
 }

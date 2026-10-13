@@ -50,7 +50,7 @@ test("Fleet accepts the declared doc-show fields for center-owned frozen reads",
 
 const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 
-test("reviewer doc-show returns complete frozen text and binary bytes without reading workspace or live documents", () => {
+test("reviewer doc-show preserves frozen submitted artifacts and permits other read paths", () => {
   const packagePath = "tasks/task-one",
     text = Buffer.from(`HEAD\n${"evidence\n".repeat(40000)}TAIL\n`),
     binary = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0xff]),
@@ -87,11 +87,17 @@ test("reviewer doc-show returns complete frozen text and binary bytes without re
             snapshot: { executions: [{ executionId: "execution-one", submission: { artifacts } }] },
           };
         },
-        readDocument: () => {
-          throw new Error("live projection must not replace frozen content");
+        readDocument: (candidate: string) => {
+          assert.equal(candidate, "tasks/task-other/artifacts/report.md");
+          return {
+            status: "ready",
+            document: { path: candidate, body: "Other task read", blobSha256: digest(Buffer.from("Other task read")) },
+            watermark: 8,
+          };
         },
       } as never,
       store: {
+        currentCut: () => ({ repoId: "repo-one", revision: 8, headDigest: "head-eight" }),
         readEventAtRevision: (revision: number) => {
           assert.equal(revision, 7);
           return {
@@ -119,21 +125,19 @@ test("reviewer doc-show returns complete frozen text and binary bytes without re
       assert.equal(receipt.evidence, bytes.toString(path.endsWith(".png") ? "base64" : "utf8"));
     }
   }
-  for (const path of [
-    "tasks/task-other/artifacts/report.md",
-    `${packagePath}/artifacts/unregistered.md`,
-    `${packagePath}/task_plan.md`,
-    "context/readme.md",
-  ])
-    assert.throws(() => runDocAction({ ...input, action: { kind: "doc-show", path } }), {
-      code: "execution_credential_rejected",
-    });
+  const otherTask = runDocAction({
+    ...input,
+    action: { kind: "doc-show", path: "tasks/task-other/artifacts/report.md" },
+  });
+  assert.ok(!(otherTask instanceof Promise));
+  assert.equal(otherTask.outcome, "applied");
+  assert.equal(otherTask.evidence, "Other task read");
   assert.throws(() => runDocAction({ ...input, action: { kind: "doc-show", path: "../report.md" } }), {
     code: "invalid_command",
   });
 });
 
-test("implementer doc-show reads only its own task package through the live projection (dec_9DFDC635180975FDFC0CDB33D7)", () => {
+test("implementer doc-show reads repository documents through the live projection (dec_CF96A3C910B31D2D7498F32DDD/CH2)", () => {
   const packagePath = "tasks/task-one",
     shown = `${packagePath}/artifacts/report.md`,
     body = "# run manifest\naccepted\n",
@@ -164,7 +168,6 @@ test("implementer doc-show reads only its own task package through the live proj
         taskIdForDocumentPath: (candidate: string) =>
           candidate.startsWith("tasks/task-one/") ? "task-one" : candidate.startsWith("tasks/") ? "task-other" : null,
         readDocument: (candidate: string) => {
-          assert.equal(candidate, shown, "the live projection read must only see the requested own-package path");
           return {
             status: "ready",
             document: { path: candidate, body, blobSha256: digest(Buffer.from(body)) },
@@ -184,10 +187,12 @@ test("implementer doc-show reads only its own task package through the live proj
       "tasks/task-other/artifacts/report.md",
       "context/readme.md",
       "decisions/decision-dec_one/decision.md",
-    ])
-      assert.throws(() => runDocAction({ ...input, action: { kind: "doc-show", path: outside } }), {
-        code: "execution_credential_rejected",
-      });
+    ]) {
+      const other = runDocAction({ ...input, action: { kind: "doc-show", path: outside } }) as {
+        readonly outcome: string;
+      };
+      assert.equal(other.outcome, "applied");
+    }
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }

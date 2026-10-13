@@ -24,11 +24,15 @@ export interface RuntimeExecutionPrincipal {
 }
 
 export function executionCredentialRejected(
-  reason: "scope" | "expired" | "revoked" | "authentication" = "scope",
+  reason: "scope" | "write-other-task" | "self-approval" | "expired" | "revoked" | "authentication" = "scope",
 ): Error {
   const message = {
     scope:
-      "Execution request is outside its dispatch scope. Allowed reads: this task, repository settings, and the dispatched review target; use `ha task read-set <task-id>`, `ha settings read`, or `ha decision show <id>` for the bound target.",
+      "Execution request is outside its dispatch scope. Read requests are available; writes are limited to this task. Use `ha task show` or `ha task read-set` to inspect task data.",
+    "write-other-task":
+      "Execution write was rejected because it targets another task or repository. Writes are limited to this task; use `ha task show` to inspect other tasks.",
+    "self-approval":
+      "Execution write was rejected because it requires human approval or access administration. Use the corresponding human review or access command.",
     expired: "Execution credential is expired.",
     revoked: "Execution credential is revoked.",
     authentication: "Execution credential authentication was rejected.",
