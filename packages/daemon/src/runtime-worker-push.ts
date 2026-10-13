@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { realpathSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { repositoryBaseRef } from "./schedule-occurrence-workspace.ts";
@@ -92,11 +93,17 @@ export async function readWorkerGitIdentity(input: {
 }
 
 export async function configureWorkerGitIdentity(cwd: string, personId: string): Promise<void> {
+  let checkout = path.resolve(cwd);
+  while (!existsSync(path.join(checkout, ".git"))) {
+    const parent = path.dirname(checkout);
+    if (parent === checkout) return;
+    checkout = parent;
+  }
   const identity = workerGitIdentityForPerson(personId),
     env = gitEnvironment();
-  await readGitText(cwd, ["config", "--local", "extensions.worktreeConfig", "true"], env);
-  await readGitText(cwd, ["config", "--worktree", "user.name", identity.name], env);
-  await readGitText(cwd, ["config", "--worktree", "user.email", identity.email], env);
+  await readGitText(checkout, ["config", "--local", "extensions.worktreeConfig", "true"], env);
+  await readGitText(checkout, ["config", "--worktree", "user.name", identity.name], env);
+  await readGitText(checkout, ["config", "--worktree", "user.email", identity.email], env);
 }
 
 /**

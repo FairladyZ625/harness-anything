@@ -38,8 +38,8 @@ for (const explicit of [false, true])
       fixture.git("fetch", "origin");
       // The clone exists independently of the center's object store and shares only origin.
       git(fixture.root, "clone", "--no-local", remote, edgeRoot);
-      git(edgeRoot, "config", "user.name", "Dual Sync Test");
-      git(edgeRoot, "config", "user.email", "dual@example.invalid");
+      git(edgeRoot, "config", "user.name", "person-node-one");
+      git(edgeRoot, "config", "user.email", "person-node-one@users.noreply.github.com");
       const created = await fixture.createTask("node-one", "task-seeded", "CLI repository delivery");
       const started = await fixture.edgeTask("node-one", {
         kind: "task-start",
@@ -53,10 +53,9 @@ for (const explicit of [false, true])
       const cwd = path.join(edgeRoot, snapshot.workspace.path);
       mkdirSync(path.dirname(cwd), { recursive: true });
       git(edgeRoot, "worktree", "add", "-b", created.taskId, cwd, "origin/main");
-      // Git worktrees use their own administrative config; carry the fixture's conventional
-      // identity into the delivery worktree before creating the commit that the daemon publishes.
-      git(cwd, "config", "user.name", "Dual Sync Test");
-      git(cwd, "config", "user.email", "dual@example.invalid");
+      // Create the edge delivery commit under the identity bound to this task dispatch.
+      git(cwd, "config", "user.name", "person-node-one");
+      git(cwd, "config", "user.email", "person-node-one@users.noreply.github.com");
       writeFileSync(path.join(cwd, "delivery.ts"), "export const delivered = true;\n");
       git(cwd, "add", "delivery.ts");
       git(cwd, "commit", "-qm", "feat: deliver repository change");
