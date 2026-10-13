@@ -157,6 +157,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
   };
   const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
+  const projectionReady = new Map<string, Promise<void>>();
   const onReplicationStart = async (
     nodeId: string,
     accessToken: string | undefined,
@@ -172,13 +173,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       repoId: frame.repoId,
       readOnly: true,
     });
-    const events = makeTaskEventReader({ rootDir, repoId: frame.repoId });
-    const projection = makeTaskProjection({
-      rootDir,
-      projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
-      eventStore: events,
-    });
-    projection.catchUp?.();
+    let ready = projectionReady.get(frame.repoId);
+    if (!ready) {
+      ready = (async () => {
+        const events = makeTaskEventReader({ rootDir, repoId: frame.repoId });
+        const projection = makeTaskProjection({
+          rootDir,
+          projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
+          eventStore: events,
+        });
+        projection.catchUp?.();
+        projection.close();
+        await events.drain();
+      })();
+      projectionReady.set(frame.repoId, ready);
+    }
+    await ready;
     const slots = replicationSlots;
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
     const source = {
@@ -209,8 +219,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     try {
       await runWalSender({ peer, source, slots, lease, signal });
     } finally {
-      projection.close();
-      await events.drain();
       store.close();
     }
   };
