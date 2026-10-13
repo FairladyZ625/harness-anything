@@ -251,45 +251,59 @@ function localDocConflict(
 }
 
 export function runDocRetire(input: Input): DocSettlementReceipt {
-  if (!hasExactDocSyncActionFields(input.action, ["kind", "path", "reason"]))
-    throw docSyncError("invalid_command", "doc retire requires path and reason");
+  const rawPaths = input.action.paths;
+  if (
+    !hasExactDocSyncActionFields(input.action, ["kind", "paths", "reason"]) ||
+    !Array.isArray(rawPaths) ||
+    !rawPaths.length ||
+    rawPaths.some((item) => typeof item !== "string")
+  )
+    throw docSyncError("invalid_command", "doc retire requires paths and reason");
   const reason = requiredDocSyncText(input.action.reason, "reason").trim();
-  let target: ReturnType<typeof documentPath>;
+  let targets: ReturnType<typeof documentPath>[];
   try {
-    target = documentPath(requiredDocSyncText(input.action.path, "path"));
+    targets = (rawPaths as readonly string[]).map((item) => documentPath(requiredDocSyncText(item, "path")));
   } catch {
-    throw docSyncError("invalid_command", "doc retire requires one valid doc-sync path");
+    throw docSyncError("invalid_command", "doc retire requires valid doc-sync paths");
   }
-  if (!directPaths(input.rootDir, [target]) || !resolveDocRoute(target).allowed)
-    throw docSyncError("invalid_command", "doc retire requires one valid doc-sync path");
-  const read = input.projection.readDocument(target);
-  if (read.watermark !== read.sourceRevision)
-    throw docSyncError("projection_pending", "retry after the canonical projection catches up");
-  const document = read.document;
-  if (document === null) throw docSyncError("document_not_found", `canonical document does not exist: ${target}`);
-  const authoredTarget = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...target.split("/"));
-  if (existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) !== document.blobSha256)
-    throw docSyncError(
-      "retirement_local_modified",
-      `restore or sync the locally modified document before retiring it: ${target}`,
-    );
+  if (!directPaths(input.rootDir, targets) || targets.some((target) => !resolveDocRoute(target).allowed))
+    throw docSyncError("invalid_command", "doc retire requires valid doc-sync paths");
+  const changes: {
+    readonly path: ReturnType<typeof documentPath>;
+    readonly baseBlobSha256: string;
+    readonly policyId: string;
+    readonly candidate: null;
+  }[] = [];
+  for (const target of targets) {
+    const read = input.projection.readDocument(target);
+    if (read.watermark !== read.sourceRevision)
+      throw docSyncError("projection_pending", "retry after the canonical projection catches up");
+    const document = read.document;
+    if (document === null) throw docSyncError("document_not_found", `canonical document does not exist: ${target}`);
+    const authoredTarget = path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...target.split("/"));
+    if (existsSync(authoredTarget) && sha256Bytes(readFileSync(authoredTarget)) !== document.blobSha256)
+      throw docSyncError(
+        "retirement_local_modified",
+        `restore or sync the locally modified document before retiring it: ${target}`,
+      );
+    changes.push({ path: target, baseBlobSha256: document.blobSha256, policyId: document.policyId, candidate: null });
+  }
   const intent = parseDocWriteIntent(
     {
       schema: "doc-write-intent/v1",
       executionId: null,
       baseLedgerSha: input.store.currentCut(),
-      changes: [
-        {
-          path: target,
-          baseBlobSha256: document.blobSha256,
-          policyId: document.policyId,
-          candidate: null,
-        },
-      ],
+      changes,
     },
     input.workspaceId,
   );
-  return publishDocIntent(input, intent, [null], null, { retirementReason: reason });
+  return publishDocIntent(
+    input,
+    intent,
+    changes.map(() => null),
+    null,
+    { retirementReason: reason },
+  );
 }
 
 export function runArtifactAdd(input: Input): ArtifactAddReceipt {

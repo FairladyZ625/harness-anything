@@ -51,7 +51,7 @@ export function parseDoc(
   if (id === "doc-retire")
     return accepted(rootDir, repoId, json, {
       kind: id,
-      path: f.one.get("--path"),
+      paths: f.many.get("--path") ?? [],
       reason: f.one.get("--reason"),
     });
   if (id === "doc-status")

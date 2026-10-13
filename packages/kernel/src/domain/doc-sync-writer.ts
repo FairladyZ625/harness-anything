@@ -91,8 +91,8 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
   if (
     retirementReason !== undefined &&
     (!retirementReason ||
-      input.intent.changes.length !== 1 ||
-      input.intent.changes[0]?.candidate !== null ||
+      input.intent.changes.length === 0 ||
+      input.intent.changes.some((change) => change.candidate !== null) ||
       input.intent.executionId !== null)
   )
     return reject("invalid_retirement");
@@ -261,7 +261,10 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
     });
   }
   if (deletions.length && retirementReason === undefined) return reject("deletion_forbidden");
-  if (retirementReason !== undefined && deletions.length !== 1) return reject("document_not_found");
+  // Every named path must retire: a change that records no deletion named a document the
+  // projection never claimed, and one event must not silently drop part of the batch.
+  if (retirementReason !== undefined && deletions.length !== input.intent.changes.length)
+    return reject("document_not_found");
   if (unresolvedTouches.length) return reject("unresolved_touch");
   const event: CurrentDocEventV1 = {
     schema: "doc-event/v1",

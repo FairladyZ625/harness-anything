@@ -625,7 +625,7 @@ test("doc retire deletes one projected document and returns an auditable retirem
     assert.deepEqual(mutation.detail?.deletions, [
       { path: logical, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"), source: "intent" },
     ]);
-    const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
+    const retired = await cell.run({ kind: "doc-retire", paths: [logical], reason }, binding);
     assert.equal(retired.outcome, "applied", JSON.stringify(retired));
     const settled = await waitForWorktree(cell, retired);
     assert.equal(settled.proof?.durable, true);
@@ -634,13 +634,12 @@ test("doc retire deletes one projected document and returns an auditable retirem
     assert.match(retired.evidence ?? "", /^doc-retirement:/u);
     const receipt = JSON.parse((retired.evidence ?? "").slice("doc-retirement:".length)) as {
       readonly schema: string;
-      readonly path: string;
+      readonly retirements: readonly { readonly path: string; readonly baseBlobSha256: string }[];
       readonly reason: string;
     };
     assert.deepEqual(receipt, {
       schema: "doc-retirement-receipt/v1",
-      path: logical,
-      baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n"),
+      retirements: [{ path: logical, baseBlobSha256: sha256Text("# Temporary\n\nRetire me.\n") }],
       reason,
     });
     const event = makeTaskEventReader({ repoId: "retire", rootDir }).readEvent(retired.opId);
@@ -658,6 +657,75 @@ test("doc retire deletes one projected document and returns an auditable retirem
       ),
       false,
     );
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("doc retire retires several documents in one event and rejects a batch naming a missing document", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-multi-"));
+  initRepo(rootDir);
+  const first = "context/batch-first.md",
+    second = "context/batch-second.md",
+    missing = "context/never-canonical.md",
+    reason = "superseded Electron profile remnants",
+    cell = await openRepoCell({
+      repoId: workspaceId("retire-multi"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "retire-multi-daemon",
+    }),
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  try {
+    write(rootDir, first, "# First\n");
+    write(rootDir, second, "# Second\n");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [first, second] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForWorktree(cell, submitted);
+
+    const rejected = await cell.run({ kind: "doc-retire", paths: [first, missing], reason }, binding);
+    assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+    assert.equal(rejected.code, "document_not_found");
+    const survivor = await cell.run({ kind: "doc-show", path: first }, binding);
+    assert.notEqual(survivor.code, "document_not_found");
+    assert.equal(readFileSync(path.join(rootDir, "harness", first), "utf8"), "# First\n");
+
+    const retired = await cell.run({ kind: "doc-retire", paths: [first, second], reason }, binding);
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    const settled = await waitForWorktree(cell, retired);
+    assert.equal(settled.proof?.durable, true);
+    assert.equal(settled.proof?.canonicalVisible, true);
+    assert.equal(settled.proof?.worktreeVisible, true);
+    const receipt = JSON.parse((retired.evidence ?? "").slice("doc-retirement:".length)) as {
+      readonly schema: string;
+      readonly retirements: readonly { readonly path: string; readonly baseBlobSha256: string }[];
+      readonly reason: string;
+    };
+    assert.deepEqual(receipt, {
+      schema: "doc-retirement-receipt/v1",
+      retirements: [
+        { path: first, baseBlobSha256: sha256Text("# First\n") },
+        { path: second, baseBlobSha256: sha256Text("# Second\n") },
+      ],
+      reason,
+    });
+    const event = makeTaskEventReader({ repoId: "retire-multi", rootDir }).readEvent(retired.opId);
+    assert.equal(event?.schema, "doc-event/v1");
+    if (event?.schema === "doc-event/v1") {
+      assert.equal(event.payload.retirementReason, reason);
+      assert.deepEqual(
+        event.payload.changes.map((change) => [change.path, change.candidate]),
+        [
+          [first, null],
+          [second, null],
+        ],
+      );
+    }
+    for (const logical of [first, second]) {
+      const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
+      assert.equal(shown.code, "document_not_found");
+      assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), "");
+    }
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
@@ -682,7 +750,7 @@ test("doc retire refuses to discard a locally modified canonical document", asyn
     write(rootDir, logical, "# Local edit that must survive\n");
 
     const retired = await cell.run(
-      { kind: "doc-retire", path: logical, reason: "must not discard local work" },
+      { kind: "doc-retire", paths: [logical], reason: "must not discard local work" },
       binding,
     );
     assert.equal(retired.outcome, "op_rejected", JSON.stringify(retired));
@@ -750,7 +818,7 @@ test("doc retire refuses a document the canonical projection never claimed, even
     );
     assert.deepEqual(status.detail?.deletions, []);
 
-    const retired = await cell.run({ kind: "doc-retire", path: logical, reason }, binding);
+    const retired = await cell.run({ kind: "doc-retire", paths: [logical], reason }, binding);
     assert.equal(retired.outcome, "op_rejected", JSON.stringify(retired));
     assert.equal(retired.code, "document_not_found");
     assert.equal(git(rootDir, "ls-tree", "--name-only", "HEAD", `harness/${logical}`), `harness/${logical}`);
