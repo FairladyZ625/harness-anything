@@ -195,7 +195,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       read: (after: import("@harness-anything/kernel").ReplicationPosition) => store.replicationCommits(after, 64),
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
         while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)
-          await new Promise<void>((resolve) => setTimeout(resolve, 25));
+          await new Promise<void>((resolve) => setImmediate(resolve));
       },
       backup: async (backupSignal: AbortSignal) => {
         const started = startBaseBackup(

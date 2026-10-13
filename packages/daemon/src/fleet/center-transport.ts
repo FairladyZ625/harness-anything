@@ -148,7 +148,8 @@ export async function serve(
           try {
             const candidate = JSON.parse(line) as { type?: unknown; repoId?: unknown };
             looksReplication = candidate.type === "replica.start" && typeof candidate.repoId === "string";
-          } catch {
+          } catch (error) {
+            consumeKnownError(error);
             looksReplication = false;
           }
         }
