@@ -310,6 +310,8 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   openSqliteEventStore,
+  openReplicaStore,
+  replicationContentClaims,
   readOfflineLedgerEvents,
   resolveActiveGeneration,
   restoreDrillRetentionFor,
@@ -322,6 +324,7 @@ export {
   readVerifiedLedgerBackup,
 } from "./composition/index.ts";
 export type { LedgerBackupRetentionPolicyV1 } from "./composition/index.ts";
+export type { ReplicationPosition, ReplicationCommit } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
   CanonicalEventAppendReceipt,
