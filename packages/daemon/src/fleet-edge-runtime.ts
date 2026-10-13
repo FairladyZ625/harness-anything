@@ -30,7 +30,7 @@ import { selectReviewTarget } from "./review-dispatch-admission.ts";
 import { resolveSquadDispatch } from "./agent-entities.ts";
 import { parseAgentDeclarationV1 } from "@harness-anything/kernel";
 import { readBundledAgentDeclaration } from "@harness-anything/preset";
-import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runtime-instances.ts";
+import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
   readFleetReceiptClient,
@@ -86,18 +86,7 @@ export interface FleetEdgeRuntimeRequest {
 }
 type RuntimePorts = {
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
-  readonly prepareRuntimeLaunch: (
-    instanceId: string,
-    request: {
-      readonly cwd: string;
-      readonly prompt: string;
-      readonly model?: string;
-      readonly effort?: string;
-      readonly providerSessionId?: string;
-      readonly permissionMode?: string;
-      readonly runtimeSessionId?: string;
-    },
-  ) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareRuntimeLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   readonly reclaimRuntimeTempDirectory: (instanceId: string, runtimeSessionId: string) => Error | null;
   readonly reclaimSettledRuntimeTempDirectories: (
     settledRuntimeSessionIds: readonly string[],

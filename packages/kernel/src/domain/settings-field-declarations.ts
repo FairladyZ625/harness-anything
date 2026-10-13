@@ -129,6 +129,8 @@ export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
 export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 /** A scheduled ledger backup run is stopped after this whole-run budget (30 minutes; successful runs took ~8.5). */
 export const DEFAULT_BACKUP_EXECUTION_LIMIT_MS = 30 * 60_000;
+/** An ACP provider must answer one handshake request within this; slower hosts raise it (30 seconds). */
+export const DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS = 30_000;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
@@ -613,6 +615,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "schedules-nodes",
     action: { field: "runtimeProviderMaxWaitSeconds", type: "number" },
     cli: { name: "--runtime-provider-max-wait-seconds", kind: "single", regex: "^[0-9]+$" },
+  }),
+  defineSettingsField({
+    path: ["runtime", "providerHandshakeTimeoutMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+    minimum: 1_000,
+    description: "How long an ACP provider may take to answer one handshake request, in milliseconds.",
+    effect:
+      "Slow container or model hosts that exceed this fail the dispatch at startup; raise it instead of retrying.",
+    group: "schedules-nodes",
+    action: { field: "runtimeProviderHandshakeTimeoutMs", type: "number" },
+    cli: { name: "--runtime-provider-handshake-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
   }),
   defineSettingsField({
     path: ["schedule", "admissionWindowMs"],

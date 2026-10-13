@@ -509,6 +509,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),
                   runtimeSessionId,
+                  // The ACP handshake deadline is a repository setting; the worker host reads no settings.
+                  handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
                 }),
             result = {
               fallbackAttempt: fallbackAttemptForDispatch,

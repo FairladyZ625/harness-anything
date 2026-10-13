@@ -325,3 +325,68 @@ test("agy subscription probes report an unavailable operator environment", async
     rmSync(userRoot, { recursive: true, force: true });
   }
 });
+
+test("an acp launch carries the caller's handshake timeout; other families never see it", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-acp-handshake-")),
+    devin = {
+      ...observed,
+      installationId: "devin-installation-test",
+      kindId: "devin" as const,
+      executablePath: "/opt/runtime-test/devin",
+    };
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [devin],
+      resolveCredential: async () => "redacted-test-key",
+    });
+    store.command({
+      kind: "runtime-instance-create",
+      instanceId: "devin-acp",
+      name: "Devin ACP",
+      kindId: "devin",
+      providerId: "devin",
+      models: ["swe-2"],
+      authMode: "api-key",
+      credentialRef: "credential:v1:devin-acp",
+    });
+    const launch = await store.prepareLaunch("devin-acp", {
+      cwd: "/workspace/repo",
+      prompt: "Probe",
+      handshakeTimeoutMs: 45_000,
+    });
+    assert.equal(launch.protocolFamily, "acp");
+    assert.equal(launch.acpApiKey, "redacted-test-key");
+    assert.equal(launch.handshakeTimeoutMs, 45_000);
+    // A non-acp family ignores the field: the deadline is an ACP handshake concern.
+    const claude = {
+      ...observed,
+      installationId: "claude-installation-test",
+      kindId: "claude" as const,
+      executablePath: "/opt/runtime-test/claude",
+    };
+    const claudeStore = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [claude],
+      resolveCredential: async () => "redacted-test-key",
+    });
+    claudeStore.command({
+      kind: "runtime-instance-create",
+      instanceId: "claude-key",
+      name: "Claude Key",
+      kindId: "claude",
+      providerId: "anthropic",
+      models: ["claude-opus-4"],
+      authMode: "api-key",
+      credentialRef: "credential:v1:claude-key",
+    });
+    const claudeLaunch = await claudeStore.prepareLaunch("claude-key", {
+      cwd: "/workspace/repo",
+      prompt: "Probe",
+      handshakeTimeoutMs: 45_000,
+    });
+    assert.equal("handshakeTimeoutMs" in claudeLaunch, false);
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});

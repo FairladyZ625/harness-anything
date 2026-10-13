@@ -22,6 +22,7 @@ type RuntimeWorkerManifest = {
   readonly permissionMode?: string;
   readonly providerSessionId?: string;
   readonly acpApiKey?: string;
+  readonly handshakeTimeoutMs?: number;
 };
 
 const providerGitCredentialEnvironment = new Set([
@@ -282,6 +283,10 @@ function parseManifest(value: string): RuntimeWorkerManifest {
     !isRuntimeWorkerRecord(parsed.env) ||
     typeof parsed.prompt !== "string" ||
     typeof parsed.windowsVerbatimArguments !== "boolean" ||
+    (parsed.handshakeTimeoutMs !== undefined &&
+      (typeof parsed.handshakeTimeoutMs !== "number" ||
+        !Number.isSafeInteger(parsed.handshakeTimeoutMs) ||
+        parsed.handshakeTimeoutMs <= 0)) ||
     (parsed.callbackRelay !== undefined &&
       (!isRuntimeWorkerRecord(parsed.callbackRelay) ||
         typeof parsed.callbackRelay.endpoint !== "string" ||

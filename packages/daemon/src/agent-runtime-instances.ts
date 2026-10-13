@@ -12,5 +12,6 @@ export type {
   RuntimeInstanceConfig,
   RuntimeInstanceKind,
   RuntimeInstanceSummary,
+  RuntimeLaunchRequest,
 } from "./agent-runtime-instance-types.ts";
 export { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";

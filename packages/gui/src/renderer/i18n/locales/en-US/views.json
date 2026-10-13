@@ -1758,5 +1758,8 @@
   "views.settingsView.runtimeProviderFreezeDurationSecondsEffect": "A temporarily frozen instance becomes eligible again after this duration.",
   "views.settingsView.runtimeProviderMaxWaitSecondsLabel": "Maximum provider wait (seconds)",
   "views.settingsView.runtimeProviderMaxWaitSecondsDescription": "Maximum cumulative provider-unavailable wait for one dispatch, in seconds.",
+  "views.settingsView.runtimeProviderHandshakeTimeoutMsLabel": "ACP provider handshake timeout (ms)",
+  "views.settingsView.runtimeProviderHandshakeTimeoutMsDescription": "How long an ACP provider may take to answer one handshake request, in milliseconds.",
+  "views.settingsView.runtimeProviderHandshakeTimeoutMsEffect": "Slow container or model hosts that exceed this fail the dispatch at startup; raise it instead of retrying.",
   "views.settingsView.runtimeProviderMaxWaitSecondsEffect": "The attempt group stops waiting when this budget or the task deadline is reached."
 }
