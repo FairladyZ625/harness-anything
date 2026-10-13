@@ -18,10 +18,19 @@ import {
   canonicalDocumentRetirements,
   listContentObjectDigests,
   prepareContentObjects,
+  persistContentObjects,
   readContentObject,
 } from "./task-event-store-claims-layout.ts";
 import { consumeKnownError } from "../error-consumption.ts";
 import { isSqliteBusy, registerLedgerClose } from "./sqlite-ledger-connections.ts";
+import {
+  REPLICATION_LOG_SQL,
+  readReplicationPosition,
+  readReplicationCommits,
+  recordReplicationCommit,
+  type ReplicationPosition,
+  type ReplicationCommit,
+} from "./replication-log.ts";
 
 export const SQLITE_LEDGER_GENERATION = 3;
 
@@ -111,6 +120,20 @@ export interface SqliteLedgerReconciliation {
 }
 
 export interface SqliteEventStore {
+  readonly replicationPosition: () => ReplicationPosition;
+  readonly pruneReplicationLog: (throughSequence: number) => void;
+  readonly replicationCommits: (
+    after: ReplicationPosition,
+    limit: number,
+  ) => {
+    readonly commits: readonly ReplicationCommit[];
+    readonly done: boolean;
+    readonly head: ReplicationPosition;
+  };
+  readonly applyReplicationCommit: (
+    commit: ReplicationCommit,
+    blobs: readonly CanonicalContentBlob[],
+  ) => ReplicationPosition;
   readonly databasePath: string;
   readonly sqliteVersion: string;
   readonly claimWriter: (fence: SqliteWriterFence) => void;
@@ -375,8 +398,8 @@ export function openSqliteEventStore(options: {
       "VALUES (?, ?, ?, ?, ?, COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ','now')))",
   );
 
-  const transaction = <A>(run: () => A): A => {
-    /* @gate-identity check-bypass-write-boundary/bypass-write-125 */ db.exec("BEGIN IMMEDIATE");
+  const transaction = <A>(run: () => A, readOnly = false): A => {
+    /* @gate-identity check-bypass-write-boundary/bypass-write-125 */ db.exec(readOnly ? "BEGIN" : "BEGIN IMMEDIATE");
     try {
       const result = run();
       /* @gate-identity check-bypass-write-boundary/bypass-write-124 */ db.exec("COMMIT");
@@ -420,6 +443,7 @@ export function openSqliteEventStore(options: {
       if (current && fence.epoch === current.epoch && fence.holder !== current.holder)
         throw new TaskEventStoreError("revision_conflict", `writer epoch ${fence.epoch} belongs to another holder`);
       persistWriterLease(fence);
+      recordReplicationCommit(query, null, fence);
     });
 
   const releaseWriter = (fence: SqliteWriterFence): void =>
@@ -428,6 +452,7 @@ export function openSqliteEventStore(options: {
       const current = readWriter(db, repoId);
       if (!current || current.holder !== fence.holder || current.epoch !== fence.epoch) return;
       persistWriterLease(null);
+      recordReplicationCommit(query, null, null);
     });
 
   const outcome = (opId: string): SqliteCommandOutcome | null => readOutcome(db, query, opId);
@@ -515,6 +540,7 @@ export function openSqliteEventStore(options: {
         input.rejectionCode ?? null,
         recordedAt,
       );
+      recordReplicationCommit(query, input.intent.opId, input.fence);
       return {
         opId: input.intent.opId,
         status,
@@ -531,6 +557,61 @@ export function openSqliteEventStore(options: {
   return {
     databasePath,
     sqliteVersion,
+    replicationPosition: () => readReplicationPosition(query),
+    pruneReplicationLog: (throughSequence) => {
+      query(
+        "DELETE FROM replication_log WHERE sequence<? AND sequence<(SELECT sequence FROM replication_state WHERE singleton=1)",
+        [throughSequence],
+      );
+    },
+    replicationCommits: (after, limit) =>
+      transaction(
+        () => readReplicationCommits(query, after, limit, outcome, (from, count) => readEventRows(query, from, count)),
+        true,
+      ),
+    applyReplicationCommit: (commit, blobs) => {
+      return transaction(() => {
+        const current = readReplicationPosition(query);
+        // The remote stream can replay an acknowledged prefix, but cannot skip or cross histories.
+        if (commit.position.history !== current.history)
+          throw new TaskEventStoreError("revision_conflict", "replication history differs");
+        if (commit.position.sequence <= current.sequence) return current;
+        if (commit.position.sequence !== current.sequence + 1)
+          throw new TaskEventStoreError("revision_conflict", "replication sequence gap");
+        if (
+          commit.position.revision !== current.revision + commit.events.length ||
+          commit.events.some((row, index) => row.revision !== current.revision + index + 1)
+        )
+          throw new TaskEventStoreError("revision_conflict", "replication revision gap");
+        const events = commit.events.map((row) => JSON.parse(row.eventJson) as CanonicalEventV1);
+        persistContentObjects(objectRoot, events, blobs);
+        for (const [index, row] of commit.events.entries()) {
+          insertEvent.run(row.revision, row.opId, row.eventJson, row.digest, row.occurredAt, row.recordedAt);
+          const event = events[index]!;
+          applyEventQueryRefs(query, event);
+          applyDerivedGuards(db, event);
+          applyDocumentHeads(query, event);
+        }
+        query("UPDATE ledger_meta SET revision=? WHERE singleton=1", [commit.position.revision]);
+        const result = commit.outcome;
+        if (result)
+          query(
+            "INSERT INTO command_outcome(op_id,status,first_revision,last_revision,intent_digest,intent_summary,rejection_code,recorded_at) VALUES(?,?,?,?,?,?,?,?)",
+            [
+              result.opId,
+              result.status,
+              result.firstRevision,
+              result.lastRevision,
+              result.intentDigest,
+              result.summary,
+              result.rejectionCode,
+              result.recordedAt,
+            ],
+          );
+        persistWriterLease(commit.writer);
+        return recordReplicationCommit(query, result?.opId ?? null, commit.writer);
+      });
+    },
     claimWriter,
     releaseWriter,
     writerFence: () => {
@@ -691,10 +772,14 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
       lease_expires_at TEXT NOT NULL, reason TEXT NOT NULL,
       PRIMARY KEY(task_id, execution_id, acquired_revision)
     ) STRICT;
+    ${REPLICATION_LOG_SQL}
   `);
   /* @gate-identity check-bypass-write-boundary/bypass-write-115 */ db.prepare(
     "INSERT OR IGNORE INTO ledger_meta(singleton, repo_id, generation, revision) " + "VALUES (1, ?, ?, 0)",
   ).run(repoId, generation);
+  query(
+    "INSERT OR IGNORE INTO replication_log SELECT 0,revision,NULL,NULL FROM ledger_meta JOIN replication_state USING(singleton) WHERE sequence=0",
+  );
   const meta = /* @gate-identity check-bypass-write-boundary/bypass-write-114 */ db
     .prepare("SELECT repo_id, generation FROM ledger_meta WHERE singleton=1")
     .get()!;

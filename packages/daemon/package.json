@@ -61,7 +61,8 @@
     "@harness-anything/preset": "0.0.1",
     "cron-parser": "5.10.0",
     "effect": "3.21.4",
-    "node-pty": "1.1.0"
+    "node-pty": "1.1.0",
+    "tar": "7.5.22"
   },
   "homepage": "https://github.com/FairladyZ625/harness-anything#readme",
   "bugs": {

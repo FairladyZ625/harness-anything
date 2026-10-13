@@ -232,7 +232,7 @@ function relationEventDocumentClaims(event: RelationEventV1): readonly {
 
 // Claimed content objects live under objectRoot/<2>/<62>; every claim is validated before any object is
 // written, and objects are persisted in fsync batches ahead of the SQLite accept.
-export function prepareContentObjects(
+export function persistContentObjects(
   objectRoot: string,
   events: readonly CanonicalEventV1[],
   blobs: readonly CanonicalContentBlob[],
@@ -252,6 +252,14 @@ export function prepareContentObjects(
   const entries = [...pending].map(([target, body]) => ({ path: target, body }));
   for (let offset = 0; offset < entries.length; offset += 128)
     localContentObjectFileSystem.replaceMany(entries.slice(offset, offset + 128));
+}
+
+export function prepareContentObjects(
+  objectRoot: string,
+  events: readonly CanonicalEventV1[],
+  blobs: readonly CanonicalContentBlob[],
+): void {
+  persistContentObjects(objectRoot, events, blobs);
   for (const event of events) {
     if (!isCiRunObservationEvent(event) || event.payload.detailRef === null) continue;
     const ref = event.payload.detailRef;
