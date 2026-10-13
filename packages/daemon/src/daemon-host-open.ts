@@ -826,6 +826,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       for (const controller of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
       replicaSessionPool.close();
+      await rbacResumed;
       await managedRbac.stop();
       await lifecycle.close();
     },
