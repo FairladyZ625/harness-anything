@@ -277,6 +277,7 @@ export {
 } from "./projection/read-model.ts";
 export type { EdgeReadModelMeta, EdgeReaderProfile } from "./projection/read-model.ts";
 export { canonicalJson } from "./projection/rebuildable-task-projection-sql.ts";
+export { makeEdgeReplicaQueries, type EdgeReplicaQueries } from "./projection/edge-replica-queries.ts";
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { docByteLength } from "./domain/doc-sync-codec.ts";
 export type { DocumentState } from "./domain/doc-sync-types.ts";
