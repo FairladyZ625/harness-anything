@@ -142,6 +142,34 @@ ha daemon start --service
 ha gui
 ```
 
+## 任务分支发布与 direct-push 保护
+
+产出为仓库变更的任务在 Harness 管理的工作树中运行，分支以任务标识命名。被派工的
+worker 在其中提交，并经 daemon 代办的命令发布，绝不使用本人 GitHub 登录：
+
+```bash
+ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
+ha task pr <task-id>          # 创建 pull request（--update 更新已有）
+ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
+```
+
+`ha task push` 只推送名字等于任务标识的分支，并带 `--force-with-lease`，因此不会
+静默覆盖更新的远端切点。检出不在该分支、canonical 仓库解析不出 git 身份、或默认
+分支之上存在作者/提交者与仓库常规身份不符的 commit 时，推送被拒绝，并以
+`delivery_publish_failed` 带回原因。结算成功的任务绑定运行也会经同一路径发布分支；
+`ha task push` 是 worker 在 submit 之前发布的方式。合入仍归 maintainer——见
+[PR、审查与合入](contributing/zh/04-pr-review-and-merge.md)。
+
+这些命令使用的凭据由操作者绑定，而不是由 worker 配置：
+[托管 Git 凭据](hosted-credentials.zh-CN.md)。
+
+direct-push 保护不只在 daemon 一侧，还落在 worker 自己的环境里：任务绑定 worker
+的 git 凭据只能经一个只应答 `github.com` 提示的 askpass 助手取得，`PATH` 上排在
+真实 git 前面的包装器会拒绝任何会更新 `task_*` 以外目标的 `git push`（包括
+`--all`、`--mirror`、`--delete`）。同一包装器还拒绝 worker 在 canonical 仓库根内
+commit 或检出新分支。因此即使 worker 手动推送，也发布不了自己任务分支以外的
+任何东西。
+
 ## 常驻服务（macOS 与 Linux）
 
 需要 daemon 在崩溃和重启后自己回来的机器，把 daemon 交给操作系统的服务管理器：
@@ -197,6 +225,11 @@ NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
 | `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                          |
 | `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                               |
 | `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                                   |
+| `ha task pr` / `ha task ci` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定 GitHub 凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）；worker 记下报错原文，把 CI 标为 unverified 并上报。 |
+| provider key 命令的 `runtime_credential_unavailable` | 原生凭据库不可用（例如 Linux keyring 未解锁） | 按 [Provider API keys](provider-credentials.md#linux-without-a-desktop) 的无桌面 keyring 设置处理。 |
+| `ha task push` 的 `delivery_publish_failed` | 任务分支推送被拒绝或被远端拒绝（检出在别的分支、git 身份缺失或非本仓身份、CAS 切点丢失、网络） | 读回执里的原因，在本地修正点名的问题后重试 `ha task push <task-id>`。 |
+| `task_ci_read_failed`                 | 经 GitHub CLI 的 CI 读取失败                          | 重试 `ha task ci <task-id>`；仍失败则检查凭据的仓库访问与权限（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
+| 点名 `task push` / `task pr` / `task ci` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试；在此之前在 closeout 里把 CI 记为 unverified 并附报错原文。 |
 
 ## registry v2 硬切
 

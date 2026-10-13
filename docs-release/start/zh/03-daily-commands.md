@@ -64,6 +64,20 @@ ha settings read                                              # 显示 worktree.
 
 旧命名（`codex/<slug>-<id8>`）下建立的工作树，由 `ha task contract migrate --apply` 一次性改名。有未提交改动或仍有在飞执行者的工作树不会被移动，而是列出来交给你处理。
 
+## 发布任务分支
+
+工作树里的被派工 worker 经 daemon 发布分支，不用个人 Git 登录：
+
+```bash
+ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
+ha task pr <task-id>          # 创建 pull request（--update 更新已有）
+ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
+```
+
+direct-push 保护把工作树内的任何推送都限制在本任务自己的分支上。凭据是操作者侧
+设置；`runtime_credential_unavailable`、`delivery_publish_failed` 这类失败的处置见
+[Server Daemon 运维](../../operations-server-daemon.zh-CN.md)的恢复表。
+
 ## 完整命令面
 
 这个页面有目的地只覆盖高频子集。权威的、总是最新的参考是 CLI 本身：

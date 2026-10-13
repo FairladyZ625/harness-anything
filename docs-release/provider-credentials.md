@@ -45,7 +45,9 @@ atomically publishes a new reference. Same-target instance commands and launch
 credential resolution share a FIFO. A later successful replacement wins. Vault
 or configuration rejection preserves the previous reference; unused new items
 are removed. Retired items are removed only when no other instance or GitHub
-credential setting references them.
+credential setting references them. The GitHub credential binding itself —
+which token it holds, where it is stored, and what permissions it needs — is
+covered in [Hosted Git credentials](hosted-credentials.md).
 
 Success reports `credentialChanged: true`. `credentialCleanup: retained` means
 the new key is configured but the vault refused cleanup of an unused old item;

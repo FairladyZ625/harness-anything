@@ -1,0 +1,94 @@
+# Hosted Git credentials
+
+Task branch publishing, pull request creation, and CI reading go through the
+daemon, not through a worker's personal GitHub login. The credential they use
+is a GitHub token the machine's operator configures once per runtime instance.
+This page is the operator setup; the worker-facing commands are described in
+[Task branch publishing and direct-push protection](operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
+
+## What the credential powers
+
+Each command resolves the credential bound to the runtime instance that runs
+the dispatch, and uses it only for that task:
+
+| Command | What it does with the credential |
+| --- | --- |
+| `ha task push <task-id>` | Pushes the task branch over HTTPS git (`git push --force-with-lease`). |
+| `ha task pr <task-id>` | Runs the repository PR body gate, then creates or updates the pull request through the GitHub CLI. |
+| `ha task ci <task-id>` | Reads checks, workflow runs, failed-job logs, and pull request state for the task branch through the GitHub CLI. |
+
+The GitHub CLI (`gh`) and `git` must be on the daemon's `PATH`; a resident
+service records the installing shell's `PATH` (see
+[Resident service](operations-server-daemon.md#resident-service-macos-and-linux)).
+
+## Bind the credential to a runtime instance
+
+```bash
+ha runtime instance github-credential set <instance-id> --ref credential:v1:<slug>
+ha runtime instance github-credential unset <instance-id>
+ha runtime instance show <instance-id>
+```
+
+`--ref` takes an opaque reference into the machine's native credential store,
+not the token itself. `credential:v1:<slug>` is the current grammar; the legacy
+`keychain:<service>/<account>` form keeps resolving on macOS only. `show`
+projects only `githubCredentialState: configured` — receipts never echo the
+reference or the secret. A worker session cannot change this binding; it is an
+operator-side setting, and a missing binding surfaces as
+`runtime_credential_unavailable` (see
+[Recovering from task and runtime rejections](operations-server-daemon.md#recovering-from-task-and-runtime-rejections)).
+
+## Create the vault item
+
+The reference resolves inside the same native vault the daemon uses for
+provider API keys: service `com.harness-anything.runtime-instance`, account
+`<slug>`. Create the item with your platform's tool, then bind the reference
+from the previous section. Choose the token's permissions before storing it
+(see the next section); replacing it means storing a new item and binding the
+new reference.
+
+macOS Keychain (`-w` without a value prompts for the secret twice, entry and
+retype):
+
+```bash
+security add-generic-password -U -s com.harness-anything.runtime-instance -a <slug> -w
+```
+
+Linux Secret Service (headless setup for the daemon itself is covered in
+[Provider API keys](provider-credentials.md#linux-without-a-desktop)):
+
+```bash
+printf '%s' "$github_token" | secret-tool store --label "harness github credential" service com.harness-anything.runtime-instance account <slug>
+unset github_token
+```
+
+Windows Credential Manager: create a generic credential named
+`com.harness-anything.runtime-instance/<slug>` whose secret is the token.
+
+## What the token must be able to do
+
+The daemon performs a fixed set of operations with the token. Grant it exactly
+these permissions on the one repository the workspace publishes to:
+
+| Operation | Used by | Fine-grained PAT permission |
+| --- | --- | --- |
+| Push the task branch over HTTPS | `ha task push` | Contents: Read and write |
+| Create or update the pull request | `ha task pr` | Pull requests: Read and write |
+| Read check runs | `ha task ci` | Checks: Read |
+| Read workflow runs, jobs, failed logs | `ha task ci` | Actions: Read |
+| Read repository, branch, pull request metadata | `ha task ci` | Metadata: Read |
+
+A classic personal access token covers the same operations with the `repo`
+scope. A token without push access fails at `ha task push`; a token without
+pull request or CI read access fails at `ha task pr` / `ha task ci`. Rotating
+the token means storing a new vault item and rebinding — the daemon removes a
+retired vault item only when no other instance or credential setting still
+references it.
+
+## Current limits
+
+GitHub is the only hosting platform these commands operate against today. The
+askpass helper the task-bound environment uses answers `github.com` prompts
+only, and no GitLab counterpart of the `github-credential` commands exists.
+When GitLab support lands, this page is where its token type and minimal
+permissions will be documented.

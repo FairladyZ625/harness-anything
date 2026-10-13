@@ -80,6 +80,22 @@ Worktrees created before this naming (`codex/<slug>-<id8>`) are renamed once by
 `ha task contract migrate --apply`. One with uncommitted changes or a live
 worker is left in place and listed for you to handle.
 
+## Publish the task branch
+
+A dispatched worker in that worktree publishes through the daemon, not with a
+personal Git login:
+
+```bash
+ha task push <task-id>        # publish the task branch through the daemon-held credential
+ha task pr <task-id>          # create the pull request (--update edits the existing one)
+ha task ci <task-id> --wait   # read the branch's CI; blocks until a verdict
+```
+
+Direct-push protection limits any push from the worktree to the task's own
+branch. The credential is an operator-side setting; failures such as
+`runtime_credential_unavailable` and `delivery_publish_failed` are recovered by
+the tables in [Server Daemon Operations](../../operations-server-daemon.md).
+
 ## The full command surface
 
 This page covers the high-frequency subset on purpose. The authoritative, always-current reference is the CLI itself:
