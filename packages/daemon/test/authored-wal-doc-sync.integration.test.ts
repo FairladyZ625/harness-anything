@@ -44,6 +44,42 @@ test("Explicit submission settles an eligible authored edit and status highlight
   }
 });
 
+test("doc status stays clean while the git outbox publication is still pending", async () => {
+  // 2026-09-20 defect: the ledger git index lagged one revision behind the outbox publication and
+  // doc status reported BLOCKED in that window. The writer now applies its projection in the same
+  // synchronous turn as the append and status keys on the projection watermark, never on the git
+  // outbox — this read runs deliberately before waitForFixturePublication to keep that true.
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-outbox-window-"));
+  initRepo(rootDir);
+  const cell = await openRepoCell({
+    repoId: workspaceId("authored-wal-outbox-window"),
+    rootDir: canonicalRoot(rootDir),
+    ownerId: "authored-wal-outbox-window-daemon",
+  });
+  const binding = ownerBinding;
+  try {
+    assert.equal(
+      (await cell.run({ kind: "task-create", taskId: "task-outbox-window", title: "Outbox window" }, binding)).outcome,
+      "applied",
+    );
+    write(rootDir, "context/window.md", "# Settled before the outbox\n");
+
+    const submitted = await cell.run({ kind: "doc-submit", paths: ["context/window.md"] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    const status = await cell.run({ kind: "doc-status", paths: ["context/window.md"] }, binding),
+      statusRows = JSON.parse((status.evidence ?? "").slice("doc-scan:".length)) as {
+        rows: readonly { readonly path: string; readonly state: string; readonly reason?: string }[];
+      };
+    assert.equal(statusRows.rows.find((row) => row.path === "context/window.md")?.state, "clean");
+    assert.doesNotMatch(status.summary ?? "", /BLOCKED/u);
+    await waitForFixturePublication(cell, submitted.opId, binding);
+    assert.equal(git(rootDir, "show", "HEAD:harness/context/window.md"), "# Settled before the outbox");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Explicit submission keeps forbidden and unresolved candidates out of an eligible batch", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-mixed-"));
   initRepo(rootDir);
