@@ -76,7 +76,8 @@ export function useOverviewArtifacts(repoId: string | null) {
     queryKey: artifactsQueryKeys.list(selectedRepoId, "html"),
     queryFn: () => artifactsClient.list(selectedRepoId, "html"),
     enabled: repoId !== null,
-    staleTime: 10_000,
+    staleTime: 60_000,
+    gcTime: 300_000,
     retry: 1,
   });
 }
