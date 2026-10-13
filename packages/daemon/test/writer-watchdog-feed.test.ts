@@ -11,7 +11,12 @@ import {
   type RepoWriterControlV1,
   type RepoWriterStatusV1,
 } from "../src/repo-writer-protocol.ts";
-import { openWriterSupervisor } from "../src/writer-supervisor.ts";
+import {
+  openWriterSupervisor,
+  resolveWriterReadyWatchdogMs,
+  WRITER_READY_WATCHDOG_MS,
+  WRITER_READY_WATCHDOG_MS_ENV,
+} from "../src/writer-supervisor.ts";
 
 const supervisorInput = {
   repoId: "writer-watchdog-feed",
@@ -114,6 +119,38 @@ test("a regressing attach phase does not feed the ready watchdog", async (contex
 
   await rejected;
   assert.equal(writer.terminateCalls, 1);
+});
+
+test("the ready watchdog deadline is the node-local override, and the error names that same value", async (context) => {
+  context.mock.timers.enable({ apis: ["setTimeout"] });
+  const previousEnv = process.env[WRITER_READY_WATCHDOG_MS_ENV];
+  process.env[WRITER_READY_WATCHDOG_MS_ENV] = "5000";
+  try {
+    const writer = new FakeWriter(),
+      opening = openWriterSupervisor(supervisorInput, { createWorker: () => writer as unknown as Worker }),
+      // The number in the message and the timer are one value; this is the drift the single source removes.
+      rejected = assert.rejects(opening, /5000ms without progress/u);
+
+    context.mock.timers.tick(5_000);
+
+    await rejected;
+    assert.equal(writer.terminateCalls, 1);
+  } finally {
+    if (previousEnv === undefined) delete process.env[WRITER_READY_WATCHDOG_MS_ENV];
+    else process.env[WRITER_READY_WATCHDOG_MS_ENV] = previousEnv;
+  }
+});
+
+test("an invalid watchdog override fails closed instead of silently using the default", () => {
+  assert.equal(resolveWriterReadyWatchdogMs({}), WRITER_READY_WATCHDOG_MS);
+  assert.equal(resolveWriterReadyWatchdogMs({ [WRITER_READY_WATCHDOG_MS_ENV]: "" }), WRITER_READY_WATCHDOG_MS);
+  assert.equal(resolveWriterReadyWatchdogMs({ [WRITER_READY_WATCHDOG_MS_ENV]: "45000" }), 45_000);
+  for (const invalid of ["soon", "0", "-1", "1.5"])
+    assert.throws(
+      () => resolveWriterReadyWatchdogMs({ [WRITER_READY_WATCHDOG_MS_ENV]: invalid }),
+      (error: unknown) => (error as { readonly code?: unknown }).code === "writer_ready_watchdog_invalid",
+      invalid,
+    );
 });
 
 class FakeWriter extends EventEmitter {
