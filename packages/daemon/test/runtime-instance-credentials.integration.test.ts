@@ -184,7 +184,7 @@ test("daemon FIFO orders simultaneous replacements and metadata updates; shared 
       ...original,
       instanceId: "other",
       name: "other",
-      githubCredentialRef: original.auth.mode === "api-key" ? original.auth.credentialRef : undefined,
+      hostingCredentialRefs: original.auth.mode === "api-key" ? { github: original.auth.credentialRef } : undefined,
     });
     let entered!: () => void, release!: () => void;
     const storing = new Promise<void>((resolve) => {

@@ -377,8 +377,10 @@ export async function openWriterSupervisor(
           ...failure,
           error: serializeWriterError(failure.error),
         }));
-      case "prepareWorkerGitEnvironment":
-        return input.prepareWorkerGitEnvironment!((call.payload as { instanceId: string }).instanceId);
+      case "prepareDaemonGitEnvironment": {
+        const payload = call.payload as { instanceId: string; provider?: "github" | "gitlab" };
+        return input.prepareDaemonGitEnvironment!(payload.instanceId, payload.provider);
+      }
       case "runtimeLaunch": {
         const payload = call.payload as {
           processId: string;
@@ -483,7 +485,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       prepareRuntimeLaunch: input.prepareRuntimeLaunch !== undefined,
       reclaimRuntimeTempDirectory: input.reclaimRuntimeTempDirectory !== undefined,
       reclaimSettledRuntimeTempDirectories: input.reclaimSettledRuntimeTempDirectories !== undefined,
-      prepareWorkerGitEnvironment: input.prepareWorkerGitEnvironment !== undefined,
+      prepareDaemonGitEnvironment: input.prepareDaemonGitEnvironment !== undefined,
       // Runtime worker hosts belong to the daemon process, not the replaceable
       // writer thread, so the daemon can reap them after a Cell restart.
       runtimeLaunch: true,

@@ -31,10 +31,16 @@ export type FrozenGateWitness =
       readonly adapterOptions: Readonly<Record<string, never>>;
       readonly acceptedDefinition: Readonly<Record<string, unknown>> | null;
     }
-  | ({ readonly adapterId: string } & Exclude<WitnessSourceDefinition, { readonly kind: "github-actions" }> & {
+  | ({ readonly adapterId: string } & Exclude<
+      WitnessSourceDefinition,
+      { readonly kind: "github-actions" | "gitlab-pipeline" }
+    > & {
         readonly adapterOptions: Readonly<Record<string, never>>;
       })
   | ({ readonly adapterId: string } & Extract<WitnessSourceDefinition, { readonly kind: "github-actions" }> & {
+        readonly adapterOptions: GithubWitnessOptions;
+      })
+  | ({ readonly adapterId: string } & Extract<WitnessSourceDefinition, { readonly kind: "gitlab-pipeline" }> & {
         readonly adapterOptions: GithubWitnessOptions;
       })
   | {
@@ -106,6 +112,7 @@ function validSource(value: Record<string, unknown>, fields = hasOnlyFields): bo
   if (!isNonEmptyString(value.predicateType) || !isRecord(value.resultSchema)) return false;
   switch (value.kind) {
     case "github-actions":
+    case "gitlab-pipeline":
     case "manual":
       return fields(value, common);
     case "command":
@@ -199,7 +206,11 @@ function frozenRequirement(value: unknown, fields: typeof hasOnlyFields, histori
     );
   if (value.gateId === CODE_DOC_GATE_ID || !validSource(definition, fields)) return false;
   if (definition.kind === "manual" && (value.mandatorySignoff || value.allowOverride)) return false;
-  if (definition.kind === "github-actions" ? !validGithubOptions(adapterOptions, fields) : !fields(adapterOptions, []))
+  if (
+    definition.kind === "github-actions" || definition.kind === "gitlab-pipeline"
+      ? !validGithubOptions(adapterOptions, fields)
+      : !fields(adapterOptions, [])
+  )
     return false;
   if (
     value.subjects !== undefined &&
@@ -265,7 +276,7 @@ export function resolveCompletionContract(
     if (source.kind === "manual" && (mandatorySignoff || allowOverride))
       return { ok: false, message: `Gate ${gateId}: manual sources already require human testimony.` };
     let witness: FrozenGateWitness;
-    if (source.kind === "github-actions") {
+    if (source.kind === "github-actions" || source.kind === "gitlab-pipeline") {
       const options = {
         workflows: settings.ci.workflows,
         branch: mapping?.branch ?? "main",
@@ -276,7 +287,7 @@ export function resolveCompletionContract(
       if (!validGithubOptions(options))
         return {
           ok: false,
-          message: `Gate ${gateId} requires registered workflows and valid GitHub execution options.`,
+          message: `Gate ${gateId} requires registered workflows and valid hosted CI execution options.`,
         };
       witness = { adapterId: sourceId, ...source, adapterOptions: options };
     } else {
@@ -284,7 +295,7 @@ export function resolveCompletionContract(
         mapping &&
         [mapping.branch, mapping.event, mapping.coverage, mapping.selection].some((item) => item !== undefined)
       )
-        return { ok: false, message: `Gate ${gateId}: GitHub options cannot configure ${source.kind}.` };
+        return { ok: false, message: `Gate ${gateId}: hosted CI options cannot configure ${source.kind}.` };
       witness = { adapterId: sourceId, ...source, adapterOptions: {} };
     }
     gates.push({

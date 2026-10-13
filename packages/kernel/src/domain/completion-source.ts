@@ -7,6 +7,7 @@ export type WitnessSourceDefinition = {
   readonly resultSchema: Readonly<Record<string, unknown>>;
 } & (
   | { readonly kind: "github-actions" }
+  | { readonly kind: "gitlab-pipeline" }
   | { readonly kind: "command"; readonly entrypoint: string }
   | {
       readonly kind: "external";

@@ -20,6 +20,7 @@ const predicate = {
 };
 export const WitnessSourceSchema = Schema.Union(
   Schema.Struct({ ...predicate, kind: Schema.Literal("github-actions") }),
+  Schema.Struct({ ...predicate, kind: Schema.Literal("gitlab-pipeline") }),
   Schema.Struct({ ...predicate, kind: Schema.Literal("command"), entrypoint: Text }),
   Schema.Struct({
     ...predicate,

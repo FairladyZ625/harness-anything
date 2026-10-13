@@ -73,6 +73,9 @@ export const witnessAdapters: Readonly<Partial<Record<FrozenGateRequirement["wit
   "github-actions": {
     evaluate: (cell, requirement, execution) => githubActionsWitnessEvidence(cell, requirement, execution),
   },
+  "gitlab-pipeline": {
+    evaluate: (cell, requirement, execution) => githubActionsWitnessEvidence(cell, requirement, execution),
+  },
   command: {
     collect: collectCommandWitness,
     evaluate: (_cell, _requirement, _execution, collected) => (collected as CompletionEvidenceV1 | undefined) ?? null,

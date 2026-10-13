@@ -38,7 +38,7 @@ export async function runCompletionSources(
   for (const requirement of execution.submission.completionContract.gates) {
     if (
       !gateAppliesToSubmission(requirement, execution.submission) ||
-      !["command", "github-actions"].includes(requirement.witness.kind)
+      !["command", "github-actions", "gitlab-pipeline"].includes(requirement.witness.kind)
     )
       continue;
     const sourceActor: RepoCellBinding = {
@@ -48,7 +48,7 @@ export async function runCompletionSources(
       },
       source: "local",
     };
-    if (requirement.witness.kind === "github-actions") {
+    if (requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline") {
       const claimed = await accept(
         { kind: "task-witness-claim", taskId, executionId: execution.executionId, gateId: requirement.gateId },
         sourceActor,

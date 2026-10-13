@@ -41,8 +41,9 @@ export function fixture(role: "implementation" | "reviewer" = "implementation") 
     now: () => "2026-10-12T00:00:00Z",
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     input: {
-      prepareWorkerGitEnvironment: async (id: string) => {
+      prepareDaemonGitEnvironment: async (id: string, provider = "github") => {
         assert.equal(id, "instance-ci");
+        assert.equal(provider, "github");
         credentialReads++;
         return { GH_TOKEN: secret, HARNESS_GITHUB_TOKEN: secret };
       },

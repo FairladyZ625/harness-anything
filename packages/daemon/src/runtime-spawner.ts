@@ -88,7 +88,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
-import { prepareBoundRuntimeLaunch, prepareTaskWorkerGitEnvironment } from "./runtime-spawn-context.ts";
+import { prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
@@ -121,7 +121,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
-    prepareWorkerGitEnvironment = (instanceId: string) => prepareTaskWorkerGitEnvironment(input, instanceId);
+    prepareDaemonGitEnvironment = (instanceId: string, provider: "github" | "gitlab" = "github") =>
+      input.prepareDaemonGitEnvironment?.(instanceId, provider).then((value) => value ?? undefined) ??
+      Promise.resolve(undefined);
   let fallbackClosed = false;
   const extracted: RuntimeSpawnerContext = {
     input,
@@ -144,7 +146,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     publishExit,
     controlReceipt,
     captureErrorOutput,
-    prepareWorkerGitEnvironment,
+    prepareDaemonGitEnvironment,
     settleFallback,
     reconcileFallback,
   };
@@ -542,11 +544,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
       protocolFamily = runtimeKind.protocolFamily,
-      workerGitEnvironment = taskId
-        ? await prepareWorkerGitEnvironment(runtimeInstanceId)
-        : trustedSchedule?.mode === "remediate"
-          ? await input.prepareWorkerGitEnvironment?.(runtimeInstanceId)
-          : undefined,
+      // Hosting credentials are resolved only by the daemon-side settlement/push path.
+      // Never merge them into the worker launch environment.
+      workerGitEnvironment = undefined,
       workerIdentityEnvironment =
         taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
     if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);

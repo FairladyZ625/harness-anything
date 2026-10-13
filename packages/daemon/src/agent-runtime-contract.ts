@@ -33,7 +33,7 @@ interface AgentRuntimeInstanceCommonDto {
     readonly code: string | null;
     readonly hint: string | null;
   };
-  readonly githubCredentialState?: "configured";
+  readonly hostingCredentialState?: "configured";
   readonly isolationState: "enforced" | "operator-environment";
   readonly configuration: Readonly<Record<string, unknown>>;
 }
@@ -405,7 +405,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
         "authReadiness",
         "isolationState",
       ],
-      ["githubCredentialState"],
+      ["hostingCredentialState"],
     ) &&
     value.schemaVersion === 2 &&
     Array.isArray(value.models) &&
@@ -421,7 +421,7 @@ function validInstance(value: unknown): value is AgentRuntimeInstanceDto {
     ) &&
     ["subscription", "api-key"].includes(String(value.authMode)) &&
     ["configured", "authenticated", "unauthenticated", "unknown"].includes(String(value.authState)) &&
-    (value.githubCredentialState === undefined || value.githubCredentialState === "configured") &&
+    (value.hostingCredentialState === undefined || value.hostingCredentialState === "configured") &&
     ["enforced", "operator-environment"].includes(String(value.isolationState)) &&
     validReadiness(value.authReadiness);
   return (

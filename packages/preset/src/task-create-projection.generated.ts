@@ -362,6 +362,20 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "hostingProvider",
+      description:
+        "Hosting provider for repositories whose remote host does not identify GitHub or GitLab automatically.",
+      type: "string",
+      required: false,
+      enum: ["github", "gitlab"],
+    },
+    {
+      field: "hostingHost",
+      description: "Host name for the GitHub or GitLab instance used by this repository.",
+      type: "string",
+      required: false,
+    },
+    {
       field: "ciWorkflows",
       description: "CI workflows whose runs count as proof that a task's code passed CI.",
       type: "string-array",

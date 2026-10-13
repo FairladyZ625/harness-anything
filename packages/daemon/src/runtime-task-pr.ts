@@ -7,6 +7,7 @@ import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
 
 const execFileAsync = promisify(execFile);
 type RunProvider = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => Promise<string>;
@@ -42,7 +43,10 @@ export async function createTaskPullRequest(
     "rootDir" | "projection" | "now" | "cellCodedError" | "store" | "withHumanSummary"
   > & {
     readonly input: {
-      readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+      readonly prepareDaemonGitEnvironment?: (
+        instanceId: string,
+        provider: "github" | "gitlab",
+      ) => Promise<NodeJS.ProcessEnv | null>;
     };
   },
   action: RepoTaskAction,
@@ -57,8 +61,15 @@ export async function createTaskPullRequest(
   const instanceId = principal
     ? context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId
     : undefined;
+  const hosting =
+    provider === runProvider ? await detectHostingProvider(context.rootDir) : ({ kind: "github" } as const);
+  if (hosting.kind !== "github")
+    throw context.cellCodedError(
+      "delivery_publish_failed",
+      "Task PR creation is currently supported only for GitHub repositories.",
+    );
   const credential =
-    typeof instanceId === "string" ? await context.input.prepareWorkerGitEnvironment?.(instanceId) : null;
+    typeof instanceId === "string" ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind) : null;
   if (!credential?.GH_TOKEN)
     throw context.cellCodedError(
       "runtime_credential_unavailable",

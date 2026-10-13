@@ -73,9 +73,10 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       auth: { mode: "subscription" },
     });
     const bound = instances.command({
-      kind: "runtime-instance-github-credential-set",
+      kind: "runtime-instance-hosting-credential-set",
       instanceId,
-      githubCredentialRef: credentialRef,
+      provider: "github",
+      credentialRef,
     });
 
     let taskBoundLaunches = 0;
@@ -91,14 +92,14 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       },
       runtimeInstances: instances.listPublic,
       prepareRuntimeLaunch: instances.prepareLaunch,
-      prepareWorkerGitEnvironment: instances.prepareWorkerGitEnvironment,
+      prepareDaemonGitEnvironment: instances.prepareDaemonGitEnvironment,
       runtimeLaunch: (prepared) => {
         const taskBound = prepared.env.HARNESS_TASK_BOUND === "1";
         if (taskBound) {
           taskBoundLaunches += 1;
-          assert.equal(prepared.env.GH_TOKEN, secret);
-          assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, secret);
-          assert.equal(prepared.env.GIT_ASKPASS, path.join(root, "tools", "git-hooks", "git-askpass"));
+          assert.equal(prepared.env.GH_TOKEN, undefined);
+          assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
+          assert.equal(prepared.env.GIT_ASKPASS, undefined);
           // The conventional git identity rides the worker environment explicitly, so commits
           // and rebases in the worktree never depend on implicit config inheritance.
           assert.equal(prepared.env.GIT_AUTHOR_NAME, "GitHub Worker Test");
@@ -167,13 +168,20 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     const shown = instances.command({ kind: "runtime-instance-show", instanceId }),
       events = makeTaskEventReader({ repoId, rootDir: root }).read().events,
       stream = readDispatchStream(root, String(spawned.dispatchId));
-    assert.equal((shown.instance as Record<string, unknown>).githubCredentialState, "configured");
-    const unsetReceipt = instances.command({ kind: "runtime-instance-github-credential-unset", instanceId });
-    assert.equal("githubCredentialState" in (unsetReceipt.instance as Record<string, unknown>), false);
-    assert.equal(await instances.prepareWorkerGitEnvironment(instanceId), null);
+    assert.equal((shown.instance as Record<string, unknown>).hostingCredentialState, "configured");
+    const unsetReceipt = instances.command({
+      kind: "runtime-instance-hosting-credential-unset",
+      instanceId,
+      provider: "github",
+    });
+    assert.equal("hostingCredentialState" in (unsetReceipt.instance as Record<string, unknown>), false);
+    assert.equal(await instances.prepareDaemonGitEnvironment(instanceId), null);
     for (const observed of [bound, shown, unsetReceipt, events, stream]) {
       assert.doesNotMatch(JSON.stringify(observed), new RegExp(secret, "u"));
-      assert.doesNotMatch(JSON.stringify(observed), /githubCredentialRef|credential:v1:github-worker/u);
+      assert.doesNotMatch(
+        JSON.stringify(observed),
+        /githubCredentialRef|hostingCredentialRefs|credential:v1:github-worker/u,
+      );
     }
   } finally {
     await cell?.close();

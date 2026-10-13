@@ -75,7 +75,9 @@ export function runTaskWitnessAction(
     });
     if (run.runId === prior?.runId)
       return (
-        (requirement.witness.kind === "github-actions" ? settleGithubActionsClaim(cell, taskId, binding) : null) ?? {
+        (requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline"
+          ? settleGithubActionsClaim(cell, taskId, binding)
+          : null) ?? {
           outcome: "no_changes",
           opId,
           revision: snapshot.revision,
@@ -154,7 +156,8 @@ export function runTaskWitnessAction(
     publication,
     cell.receiptProof(compiled.event, publication),
   );
-  return operation === "claim" && requirement.witness.kind === "github-actions"
+  return operation === "claim" &&
+    (requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline")
     ? (settleGithubActionsClaim(cell, taskId, binding) ?? receipt)
     : receipt;
 }
@@ -197,7 +200,7 @@ export function settleImportedGithubActionsClaims(cell: RepoCellOperationalConte
         current.state === "completed" &&
         latest &&
         latest.diagnostic !== current.diagnostic &&
-        target.requirement.witness.kind === "github-actions"
+        (target.requirement.witness.kind === "github-actions" || target.requirement.witness.kind === "gitlab-pipeline")
       ) {
         runTaskWitnessAction(
           cell,

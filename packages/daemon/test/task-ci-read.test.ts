@@ -3,6 +3,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readTaskCi, failureExcerpt } from "../src/task-ci-read.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol-commands.ts";
+import { execFileSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 
 import { fixture, sha, secret } from "./task-ci.fixtures.ts";
 type ProviderCheck = {
@@ -267,7 +271,7 @@ test("unbound callers and missing dispatch credentials never reach GitHub", asyn
     { code: "actor_unauthorized" },
   );
   assert.equal(f.credentialReads(), 0);
-  const context = { ...f.context, input: { prepareWorkerGitEnvironment: async () => null } };
+  const context = { ...f.context, input: { prepareDaemonGitEnvironment: async () => null } };
   await assert.rejects(
     readTaskCi(context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, async () => {
       throw new Error("GitHub must not be called without the dispatch credential");
@@ -295,4 +299,57 @@ test("CI command is a center-forwarded read, not a write or edge replica read", 
   assert.equal(descriptor.commandClass, "repo-read");
   assert.equal(descriptor.method, "repo.task.read");
   assert.equal(descriptor.admission["remote-edge"], "via-center-forward");
+});
+
+test("GitLab task CI reports the newest self-hosted pipeline and its failed job trace", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-ci-gitlab-")),
+    previousFetch = globalThis.fetch;
+  t.after(() => {
+    globalThis.fetch = previousFetch;
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+  mkdirSync(path.join(rootDir, "harness"));
+  writeFileSync(
+    path.join(rootDir, "harness", "harness.yaml"),
+    "schema: harness-anything/v1\nsettings:\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+  );
+  execFileSync("git", ["-C", rootDir, "init", "--quiet"]);
+  execFileSync("git", ["-C", rootDir, "remote", "add", "origin", "https://gitlab.example.test/group/project.git"]);
+  const f = fixture(),
+    calls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request, init?: RequestInit) => {
+    const url = String(input);
+    calls.push(url);
+    assert.equal(new Headers(init?.headers).get("PRIVATE-TOKEN"), secret);
+    if (url.includes("/repository/branches/")) return Response.json({ commit: { id: sha } });
+    if (url.includes("/pipelines?"))
+      return Response.json([
+        { id: 10, status: "failed", ref: "task-ci", sha, web_url: "https://gitlab.example.test/pipelines/10" },
+        { id: 9, status: "success", ref: "task-ci", sha, web_url: "https://gitlab.example.test/pipelines/9" },
+      ]);
+    if (url.includes("/pipelines/10/jobs"))
+      return Response.json([
+        { id: 101, name: "integration", status: "failed", web_url: "https://gitlab.example.test/jobs/101" },
+      ]);
+    if (url.includes("/jobs/101/trace")) return new Response(`not ok 1 - failure\n${secret}`, { status: 200 });
+    throw new Error(`Unexpected GitLab API call ${url}`);
+  }) as typeof fetch;
+  const context = {
+    ...f.context,
+    rootDir,
+    input: {
+      prepareDaemonGitEnvironment: async (_id: string, provider: string) =>
+        provider === "gitlab" ? { GITLAB_TOKEN: secret } : null,
+    },
+  };
+  const result = await readTaskCi(context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding);
+  assert.equal(result.ci.conclusion, "failure");
+  assert.equal(result.ci.runs[0]!.id, 10);
+  assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.tests[0], "not ok 1 - failure");
+  assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.logUrl, "https://gitlab.example.test/jobs/101");
+  assert.equal(JSON.stringify(result).includes(secret), false);
+  assert.equal(
+    calls.some((url) => url.includes("/projects/group%2Fproject/jobs/101/trace")),
+    true,
+  );
 });

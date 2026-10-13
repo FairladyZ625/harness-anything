@@ -425,7 +425,7 @@ for (const probe of [
       },
       ports: {
         runtimeInstances: () => [],
-        prepareWorkerGitEnvironment: async () => null,
+        prepareDaemonGitEnvironment: async () => null,
         prepareRuntimeLaunch: async () => {
           throw new Error("rejected mirror must never launch");
         },

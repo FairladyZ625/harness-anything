@@ -50,6 +50,29 @@ export const builtInRuntimeProviderInputDeclaration = Object.freeze({
 
 export const runtimeConfigProtocolCommands = Object.freeze([
   defineHostAdminCommand({
+    id: "runtime-instance-hosting-credential-set",
+    actionKind: "runtime-instance-hosting-credential-set",
+    phase: "Runtime-Instances-S1",
+    path: ["runtime", "instance", "hosting-credential", "set", "<instance-id>"],
+    positional: "instanceId",
+    summary: "Bind a GitHub or GitLab credential reference to an existing runtime instance.",
+    method: "daemon.runtimeInstance.hostingCredential.set",
+    inputs: [
+      cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] }),
+      cliInput("--ref", "single", true, { code: "invalid_field" }, { regex: credentialReferenceRegex }),
+    ],
+  }),
+  defineHostAdminCommand({
+    id: "runtime-instance-hosting-credential-unset",
+    actionKind: "runtime-instance-hosting-credential-unset",
+    phase: "Runtime-Instances-S1",
+    path: ["runtime", "instance", "hosting-credential", "unset", "<instance-id>"],
+    positional: "instanceId",
+    summary: "Unbind a GitHub or GitLab credential reference from an existing runtime instance.",
+    method: "daemon.runtimeInstance.hostingCredential.unset",
+    inputs: [cliInput("--provider", "single", true, { code: "invalid_field" }, { enum: ["github", "gitlab"] })],
+  }),
+  defineHostAdminCommand({
     id: "ledger-backup",
     phase: "Repo-Lifecycle",
     path: ["backup"],
@@ -395,34 +418,6 @@ export const runtimeConfigProtocolCommands = Object.freeze([
         { regex: credentialReferenceRegex },
       ),
     ],
-  }),
-  defineHostAdminCommand({
-    id: "runtime-instance-github-credential-set",
-    phase: "Runtime-Instances-S1",
-    path: ["runtime", "instance", "github-credential", "set", "<instance-id>"],
-    positional: "instanceId",
-    summary: "Bind a GitHub credential reference to an existing runtime instance.",
-    method: "daemon.runtimeInstance.githubCredential.set",
-    inputs: [
-      cliInput(
-        "--ref",
-        "single",
-        true,
-        {
-          code: "invalid_field",
-        },
-        { regex: credentialReferenceRegex },
-      ),
-    ],
-  }),
-  defineHostAdminCommand({
-    id: "runtime-instance-github-credential-unset",
-    phase: "Runtime-Instances-S1",
-    path: ["runtime", "instance", "github-credential", "unset", "<instance-id>"],
-    positional: "instanceId",
-    summary: "Unbind the GitHub credential reference from an existing runtime instance.",
-    method: "daemon.runtimeInstance.githubCredential.unset",
-    inputs: [],
   }),
   defineHostAdminCommand({
     id: "runtime-instance-list",

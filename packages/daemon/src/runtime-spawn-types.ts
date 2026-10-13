@@ -333,7 +333,10 @@ export interface RuntimeSpawnerInput {
     settledRuntimeSessionIds: readonly string[],
   ) => { readonly instanceId: string; readonly runtimeSessionId: string; readonly error: Error }[];
   readonly keycloakCenter?: import("./transport/auth-context.ts").KeycloakCenterAuthority;
-  readonly prepareWorkerGitEnvironment?: (instanceId: string) => Promise<NodeJS.ProcessEnv | null>;
+  readonly prepareDaemonGitEnvironment?: (
+    instanceId: string,
+    provider?: "github" | "gitlab",
+  ) => Promise<NodeJS.ProcessEnv | null>;
   readonly resolveAgent?: (agentId: string) => RuntimeAgent;
   readonly resolveSquadDispatch?: (
     squadId: string | undefined,

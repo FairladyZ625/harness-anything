@@ -25,6 +25,8 @@ type RuntimeWorkerManifest = {
 const providerGitCredentialEnvironment = new Set([
   "GH_TOKEN",
   "HARNESS_GITHUB_TOKEN",
+  "GITLAB_TOKEN",
+  "HARNESS_GITLAB_TOKEN",
   "GIT_ASKPASS",
   "GIT_ASKPASS_REQUIRE",
   "GIT_CONFIG_COUNT",
