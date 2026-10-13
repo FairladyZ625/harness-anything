@@ -47,6 +47,7 @@ import {
   useWorkIndexQuery,
 } from "./task-data.ts";
 import { useAgendaQuery } from "./agenda-data.ts";
+import { useOverviewArtifacts } from "./overview-data.ts";
 import {
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
@@ -191,7 +192,8 @@ function AppShell() {
   // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
   useLocationRestore(location, document.body);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
-  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board");
+  const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
+  useOverviewArtifacts(view === "overview" ? activeRepoId : null);
   // 侧栏置顶工作、总览、议程和研发态势消费 `ha agenda` 同一条 repo.agenda.read 投影；
   // 侧栏跨视图常驻，因此读面也随仓库常驻，不建立第二份 pin 状态。
   const agendaQuery = useAgendaQuery(activeRepoId);
