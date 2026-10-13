@@ -220,7 +220,5 @@ export async function readEdgeRepository(
 function edgeReadModelPresent(input: EdgeTaskReadInput): boolean {
   const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (!view || isReadDenied(view.viewDir)) return false;
-  const model = openEdgeReadModel(view, path.join(input.viewRoot, "repos", input.repoId, "cas", "sha256"));
-  model?.db.close();
-  return model !== null;
+  return readReplicaGeneration(view.viewDir) !== null;
 }

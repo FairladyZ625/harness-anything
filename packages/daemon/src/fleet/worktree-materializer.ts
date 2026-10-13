@@ -13,8 +13,10 @@ export function scanWorktreeMaterialization(input: {
   readonly repoId: string;
   readonly workspaceRoot: string;
 }): FleetMirrorScan {
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId);
+  if (!view) throw new Error("replica view is unavailable");
   cacheFleetMirrorDirtyBases(input.viewRoot, input.repoId, input.workspaceRoot);
-  return scanFleetMirrorWorktree(input.viewRoot, input.repoId, input.workspaceRoot);
+  return scanFleetMirrorWorktree(view, input.workspaceRoot);
 }
 
 export function publishWorktreeMaterialization(input: {

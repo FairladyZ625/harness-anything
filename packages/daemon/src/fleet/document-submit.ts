@@ -7,7 +7,7 @@ export async function submitDocuments(input: {
   readonly payload: FleetEdgeChannelPayload & {
     readonly taskId?: string;
     readonly executionId?: string | null;
-    readonly baseLedgerSha?: { readonly sha256: string; readonly revision: number };
+    readonly baseLedgerSha?: { readonly repoId: string; readonly headDigest: string };
     readonly changes: readonly FleetEdgeChange[];
     readonly timeoutMs?: number;
   };
