@@ -8,6 +8,7 @@ import { readFleetOverviewFromHost } from "./fleet/fleet-overview-read.ts";
 import { readClaimableTasks } from "./task-claimable-read.ts";
 import { readTaskAssignmentDirectory } from "./task-assignment-directory.ts";
 import { doctorBuildDrift, type DoctorCheck } from "./repo-cell-doctor.ts";
+import { hostedCredentialDoctorCheck } from "./hosting-credential-readiness.ts";
 import { existsSync, realpathSync } from "node:fs";
 import path from "node:path";
 import {
@@ -691,9 +692,13 @@ export function createDaemonHostRepositoryApi(
           void context.scheduleScheduler.refresh();
         if (action.kind === "doctor-health" && receipt.outcome === "applied") {
           const health = receipt as typeof receipt & { checks: readonly DoctorCheck[] };
-          const checks = health.checks.map((check) =>
-            check.id === "build-drift" ? doctorBuildDrift(context.buildObserver.status()) : check,
-          );
+          const checks = [
+            ...health.checks.map((check) =>
+              check.id === "build-drift" ? doctorBuildDrift(context.buildObserver.status()) : check,
+            ),
+            // The runtime instance store lives only in the host process; the cell-level checks cannot see it.
+            await hostedCredentialDoctorCheck(cell.status().rootDir, { instances: context.instances.list() }),
+          ];
           return { ...health, checks, evidence: JSON.stringify({ ...JSON.parse(health.evidence!), checks }) };
         }
         return receipt;

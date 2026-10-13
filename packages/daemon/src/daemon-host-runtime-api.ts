@@ -1,5 +1,6 @@
 import path from "node:path";
 import { saveFleetCenterConfig } from "./fleet-center-config.ts";
+import { annotateHostingCredentialNotice } from "./hosting-credential-readiness.ts";
 import { requireExecutionActionScope } from "./runtime-execution-scope.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { readDaemonRegistry } from "@harness-anything/kernel";
@@ -79,7 +80,15 @@ export function createDaemonHostRuntimeApi(
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
-      return cell.spawnRuntime(payload, await context.binding(cell.status().rootDir, auth, undefined, repoId));
+      const receipt = await cell.spawnRuntime(
+        payload,
+        await context.binding(cell.status().rootDir, auth, undefined, repoId),
+      );
+      // The dispatch still runs; the notice only tells the operator the worker will not be
+      // able to publish its delivery until the hosting credential is configured.
+      return annotateHostingCredentialNotice(receipt, payload, cell.status().rootDir, {
+        instances: context.instances.list(),
+      });
     },
     cancelRuntime: async (repoId, payload, auth) => {
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-cancel"), auth);

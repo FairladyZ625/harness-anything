@@ -21,7 +21,11 @@ import { runProcessTextAsync } from "./process-port.ts";
 import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { detectHostingProvider, type HostingProvider } from "./hosting-provider.ts";
+import {
+  detectHostingProvider,
+  hostingCredentialConfigurationAdvice,
+  type HostingProvider,
+} from "./hosting-provider.ts";
 
 type CiRunArtifact = {
   readonly schema: "ci-run-artifact/v2";
@@ -384,13 +388,17 @@ async function fetchGitLabCiObservations(
   const projectId = encodeURIComponent(hosting.projectPath),
     instanceId = typeof action.instanceId === "string" ? action.instanceId : witness?.instanceId;
   if (!instanceId)
-    throw cell.cellCodedError("runtime_credential_unavailable", "CI observer requires its daemon hosting credential.");
+    throw cell.cellCodedError(
+      "runtime_credential_unavailable",
+      `CI observer requires its daemon hosting credential. ${hostingCredentialConfigurationAdvice("gitlab")}.`,
+    );
   const environment = await cell.input.prepareDaemonGitEnvironment?.(instanceId, "gitlab");
   const token = environment?.GITLAB_TOKEN ?? environment?.HARNESS_GITLAB_TOKEN;
   if (!token)
     throw cell.cellCodedError(
       "runtime_credential_unavailable",
-      "The dispatch instance has no configured GitLab credential.",
+      "The dispatch instance has no configured GitLab credential. " +
+        `${hostingCredentialConfigurationAdvice("gitlab", instanceId)}.`,
     );
   const request = async <T>(path: string): Promise<T> => {
     const response = await fetch(`${hosting.apiBaseUrl}/projects/${projectId}${path}`, {

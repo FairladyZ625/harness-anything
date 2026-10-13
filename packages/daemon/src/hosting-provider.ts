@@ -10,6 +10,25 @@ export type HostingProvider =
   | { readonly kind: "github"; readonly host: string; readonly repository: string }
   | { readonly kind: "gitlab"; readonly host: string; readonly projectPath: string; readonly apiBaseUrl: string };
 
+export type HostingProviderKind = HostingProvider["kind"];
+
+/**
+ * The one configuration sentence doctor health, dispatch receipts, and credential-unavailable
+ * errors print. Every surface that tells a person how to bind the daemon-held credential
+ * renders this string, so the advice cannot drift between the place that diagnoses the gap
+ * and the place that hit it.
+ */
+export function hostingCredentialConfigurationAdvice(
+  provider: HostingProviderKind,
+  instanceId = "<instance-id>",
+): string {
+  const scopes =
+    provider === "github"
+      ? "the token needs repository contents write for task pushes and Actions read for CI"
+      : "the token needs write_repository for pushes and read_api for pipelines, jobs, and traces";
+  return `ha runtime instance hosting-credential set ${instanceId} --provider ${provider} --ref <opaque-reference>; ${scopes}`;
+}
+
 export async function detectHostingProvider(
   rootDir: string,
   declaration?: { readonly provider?: "github" | "gitlab"; readonly host?: string },

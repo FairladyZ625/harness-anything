@@ -8,7 +8,7 @@ import type { WriteReceiptDraft } from "@harness-anything/kernel";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
-import { detectHostingProvider } from "./hosting-provider.ts";
+import { detectHostingProvider, hostingCredentialConfigurationAdvice } from "./hosting-provider.ts";
 
 const execFileAsync = promisify(execFile);
 type RunProvider = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => Promise<string>;
@@ -76,7 +76,8 @@ export async function createTaskPullRequest(
   if (!credential?.GH_TOKEN)
     throw context.cellCodedError(
       "runtime_credential_unavailable",
-      "The dispatch instance has no configured GitHub credential.",
+      "The dispatch instance has no configured GitHub credential. " +
+        `${hostingCredentialConfigurationAdvice("github", instanceId ?? undefined)}.`,
     );
   const task = context.projection.read(taskId).snapshot.task;
   if (!task) throw context.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);

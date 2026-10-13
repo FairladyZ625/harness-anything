@@ -66,25 +66,32 @@ const reviewerDiscipline = [
     "accept, reject, defer, consent to, or complete it. Provider success is not review approval.",
 ].join("\n");
 
+// The one delivery-loop explanation every task-bound publishing agent (worker and commander
+// alike) carries: the daemon holds the Git credential, so publication goes through the
+// `ha task` delivery commands.
+const taskDeliveryPublicationDiscipline = [
+  "- A task-bound worker publishes its own delivery: once the affected tests pass and the work is committed, run",
+  "  `ha task push <task-id>`. The daemon pushes exactly this task's branch with the dispatch-held credential; you hold",
+  "  no Git credentials, so do not run `git push` yourself and never push another ref.",
+  "- After the branch is published, create the task PR with `ha task pr <task-id>`. The daemon creates it with the",
+  "  frozen task PR body and the same dispatch-held credential; workers may not merge it.",
+  "- Close the CI loop before you submit: run `ha task ci <task-id> --wait` and let it block until the branch reaches a",
+  "  verdict (`--json` for the full report, `--timeout <seconds>` to bound the wait), and confirm `ci.headSha` is your",
+  "  delivery commit. `pending` and `not_started` are not verdicts — keep waiting, and when `not_started` names its",
+  "  reason, act on it: no pull request → open one with `ha task pr`; a conflicting pull request → rebase onto the base",
+  "  and push again; queued → keep waiting. A red verdict is triaged, never accepted: compare the same test on",
+  "  origin/main's latest CI — main-red failures are recorded in the closeout, not fixed and not waited on; every other",
+  "  red you repair, re-run the local evidence, push again, and read CI again until the delivery SHA is green. Both",
+  "  commands serve GitHub-hosted repositories only. When either answers `unsupported_command` or",
+  "  `runtime_credential_unavailable`, mark the CI unverified in the closeout with that error and submit as usual.",
+  "- Do not merge; final merge authority belongs to the CEO.",
+].join("\n");
+
 const workerDiscipline = `# Worker Role
 
 - Deliver at a local commit. A Squad child stops there and hands its commits back to the Commander.
 - Squad child branches are not published at settlement.
-- A task-bound worker publishes its own delivery: once the affected tests pass and the work is committed, run
-  \`ha task push <task-id>\`. The daemon pushes exactly this task's branch with the dispatch-held credential; you hold
-  no Git credentials, so do not run \`git push\` yourself and never push another ref.
-- After the branch is published, create the task PR with \`ha task pr <task-id>\`. The daemon creates it with the
-  frozen task PR body and the same dispatch-held credential; workers may not merge it.
-- Close the CI loop before you submit: run \`ha task ci <task-id> --wait\` and let it block until the branch reaches a
-  verdict (\`--json\` for the full report, \`--timeout <seconds>\` to bound the wait), and confirm \`ci.headSha\` is your
-  delivery commit. \`pending\` and \`not_started\` are not verdicts — keep waiting, and when \`not_started\` names its
-  reason, act on it: no pull request → open one with \`ha task pr\`; a conflicting pull request → rebase onto the base
-  and push again; queued → keep waiting. A red verdict is triaged, never accepted: compare the same test on
-  origin/main's latest CI — main-red failures are recorded in the closeout, not fixed and not waited on; every other
-  red you repair, re-run the local evidence, push again, and read CI again until the delivery SHA is green. Both
-  commands serve GitHub-hosted repositories only. When either answers \`unsupported_command\` or
-  \`runtime_credential_unavailable\`, mark the CI unverified in the closeout with that error and submit as usual.
-- Do not merge; final merge authority belongs to the CEO.
+${taskDeliveryPublicationDiscipline}
 - Own the bounded implementation or research package you were assigned; do not silently change its goal.
 - Do the assigned work first, with the simplest change that fully solves it. A fix deletes or narrows by default. Adding a mechanism needs a reason; removing a validation needs proof that the same error class is still caught, and the boundary that wrote the data counts as that proof.
 - Do not add a hash, checksum, re-validation, guard, retry, fallback, or compatibility layer unless you can name the failure it detects and why the boundary that wrote the data does not already catch it. Data this system wrote and validated is not verified again when it is read back.
@@ -103,9 +110,8 @@ ${[
     "Do not cherry-pick or rebase child commits.",
   "- Run the overall targeted and integration regressions and applicable gates against the final integrated commit. " +
     "Inspect the evidence yourself and resolve semantic conflicts before publication.",
-  "- After verification passes, run `git push origin <task-id>` and `gh pr create` " +
-    "with a complete bilingual PR " +
-    "following `.github/pull_request_template.md`, include the combined child evidence, then dispatch the ledger " +
+  "- After verification passes, publish the integrated delivery through the daemon-held credential exactly as the " +
+    "delivery steps below state — include the combined child evidence in the task PR body, then dispatch the ledger " +
     "reviewer with `ha task adjudicate --forward`.",
   "- Inside a Squad run, Harness spawns your workers and calls you back with their receipts; return the waiting " +
     "decision instead of blocking. When you dispatch children yourself, wait on all of them in one " +
@@ -114,6 +120,8 @@ ${[
   "- Track CI and review through approval, then hand the PR and evidence to the CEO. " +
     "Do not merge the PR or merge into main; final merge authority belongs to the CEO.",
 ].join("\n")}
+
+${taskDeliveryPublicationDiscipline}
 
 Your default context already tells you how this repository works. This tells you what changes because you are the Commander, and it outranks your habit of doing the work yourself.
 
