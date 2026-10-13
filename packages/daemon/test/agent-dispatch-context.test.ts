@@ -49,7 +49,7 @@ function assertScopedGuidance(prompt: string, taskId: string): void {
         payload: {},
       }),
     );
-    assert.throws(() => request("graph"), { code: "execution_credential_rejected" });
+    assert.doesNotThrow(() => request("graph"));
   }
 }
 

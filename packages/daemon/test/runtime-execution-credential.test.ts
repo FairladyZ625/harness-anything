@@ -114,7 +114,7 @@ test("execution requests exclude other tasks, repos, controls, and human consent
   assert.throws(() => requireExecutionActionScope(p, { kind: "task-progress-append", taskId: "task-other" }), {
     code: "execution_credential_rejected",
   });
-  assert.throws(() => requireExecutionActionScope(p, { kind: "task-create", taskId: p.taskId }), {
+  assert.throws(() => requireExecutionActionScope(p, { kind: "settings-update" }), {
     code: "execution_credential_rejected",
   });
   assert.throws(() => requireExecutionRequestScope(p, "daemon.stop", {}));

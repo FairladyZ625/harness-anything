@@ -63,14 +63,14 @@ export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action
   // CH2 (dec_CF96A3C910B31D2D7498F32DDD): reads are repository-view operations and
   // remain available throughout a dispatch; only writes are task-bound below.
   if (commandClass === "repo-read") return;
-  if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
-    throw executionCredentialRejected("self-approval");
-  if (repositoryWriteActions.has(action.kind) || (commandClass === "repo-write" && action.taskId === undefined))
-    throw executionCredentialRejected("write-other-task");
   if (action.kind === "task-review-execution") {
     if (p.role === "reviewer" && action.taskId === p.taskId) return;
     throw executionCredentialRejected("write-other-task");
   }
+  if (selfApprovalActions.has(action.kind) || commandClass === "arbiter" || commandClass === "admin")
+    throw executionCredentialRejected("self-approval");
+  if (repositoryWriteActions.has(action.kind) || (commandClass === "repo-write" && action.taskId === undefined))
+    throw executionCredentialRejected("write-other-task");
   if (commandClass !== "repo-write" || action.taskId !== p.taskId || p.role === "reviewer")
     throw executionCredentialRejected("write-other-task");
 }

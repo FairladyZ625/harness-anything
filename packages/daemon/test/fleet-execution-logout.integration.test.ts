@@ -581,12 +581,14 @@ test(
     assert.equal(rawEvidence.stdout, frozenEvidence);
     const binaryEvidence = await reviewCli(["doc", "show", "--path", "tasks/task-fleet-fleet/artifacts/evidence.bin"]);
     assert.equal(binaryEvidence.evidence, artifactBytes.toString("base64"));
-    for (const deniedPath of [
+    // dec_CF96A3C910B31D2D7498F32DDD/CH2: unfrozen reads use the shared live document view.
+    for (const readablePath of [
       "tasks/task-other/artifacts/full-evidence.txt",
       "tasks/task-fleet-fleet/artifacts/unregistered.txt",
       "tasks/task-fleet-fleet/task_plan.md",
     ])
-      assert.equal((await reviewCli(["doc", "show", "--path", deniedPath])).code, "execution_credential_rejected");
+      assert.notEqual((await reviewCli(["doc", "show", "--path", readablePath])).code, "execution_credential_rejected");
+    assert.equal((await reviewCli(["doc", "show", "--path", "../task_plan.md"])).outcome, "op_rejected");
     for (const [nodeId, executionCredential] of [
       ["node-slow", secret],
       [config.nodeId, reviewEnv.HARNESS_EXECUTION_CREDENTIAL!],

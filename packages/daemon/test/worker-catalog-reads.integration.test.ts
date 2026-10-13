@@ -185,9 +185,13 @@ test(
     assert.equal(plan.receipt.outcome, "applied", JSON.stringify(plan.receipt));
     assert.ok(String(plan.receipt.evidence).includes("Worker catalog reads"));
 
+    // dec_CF96A3C910B31D2D7498F32DDD/CH2: foreign reads reach document lookup; foreign writes stay denied.
+    const otherPlan = await cli(["doc", "show", "--path", "tasks/task-other/task_plan.md"]);
+    assert.equal(otherPlan.receipt.code, "document_not_found", JSON.stringify(otherPlan.receipt));
+
     for (const [args, label] of [
       [["preset", "install", "--source", "."], "catalog writes"],
-      [["doc", "show", "--path", "tasks/task-other/task_plan.md"], "other task packages"],
+      [["task", "progress", "append", "task-other", "--text", "foreign write"], "other task writes"],
       [["vertical", "validate", "--source", "/etc"], "sources outside the repository"],
       [["script", "run", "vertical:none:none"], "script execution"],
     ] as const) {

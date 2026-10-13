@@ -10,6 +10,7 @@ import {
   effectivePolicyGroupScopes,
   makeTaskEventReader,
   makeTaskProjection,
+  submissionDigest,
 } from "@harness-anything/kernel";
 import { openRepoCell } from "../src/repo-cell-open.ts";
 import { startDaemon } from "../src/runtime.ts";
@@ -187,10 +188,6 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const decisionId = String((JSON.parse(String(proposedDecision.evidence)) as { decisionId: string }).decisionId);
   const shownDecision = await run({ kind: "decision-show", decisionId, includeBody: true });
   assert.equal(shownDecision.outcome, "applied", JSON.stringify(shownDecision));
-  const decisionDigest = String(
-    (JSON.parse(String(shownDecision.evidence)) as { decision: { currentReviewContentDigest: string } }).decision
-      .currentReviewContentDigest,
-  );
   const projection = () =>
     makeTaskProjection({ rootDir: root, eventStore: makeTaskEventReader({ rootDir: root, repoId }) });
   const read = projection(),
@@ -204,7 +201,9 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
         cwd: { scope: "repo-root" },
         taskId,
         ...(role === "reviewer" ? { role } : {}),
-        ...(role === "reviewer" ? { reviewTarget: { kind: "decision", decisionId, digest: decisionDigest } } : {}),
+        ...(role === "reviewer"
+          ? { reviewTarget: { kind: "task", taskId, executionId, digest: reviewerSubmissionDigest } }
+          : {}),
         prompt: "Exercise logout boundaries.",
         idempotencyKey: `logout-${role}`,
       },
@@ -276,7 +275,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
     const denied = await implementation.cli(args);
     assert.equal(denied.code, "execution_credential_rejected", JSON.stringify(denied));
   }
-  assert.equal((await implementation.cli(["task", "show", "task-other"])).outcome, "applied");
+  assert.notEqual((await implementation.cli(["task", "show", "task-other"])).code, "execution_credential_rejected");
   assert.equal((await implementation.cli(["task", "list"])).outcome, "applied");
   assert.equal(
     (await implementation.cli(["task", "progress", "append", "task-other", "--text", "wrong task"])).code,
@@ -306,6 +305,11 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   assert.equal(doc.outcome, "applied", JSON.stringify(doc));
   const submitted = await implementation.cli(["task", "submit", taskId]);
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  const submittedProjection = projection();
+  const reviewerSubmissionDigest = submissionDigest(
+    submittedProjection.read(taskId).snapshot.executions.find((item) => item.executionId === executionId)!.submission!,
+  );
+  submittedProjection.close();
   // Owner forwards the frozen cut; the worker credential cannot perform this action.
   signInAt(userRoot, "owner");
   const forward = await run({
@@ -323,8 +327,8 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
   const reviewerTaskShow = await reviewer.cli(["task", "show", taskId]);
   assert.equal(reviewerTaskShow.outcome, "applied", JSON.stringify(reviewerTaskShow));
   assert.equal((await reviewer.cli(["task", "read-set", taskId])).outcome, "applied");
-  const decisionRead = await reviewer.cli(["decision", "show", decisionId]);
-  assert.equal(decisionRead.outcome, "applied", JSON.stringify(decisionRead));
+  const reviewerDecisionRead = await reviewer.cli(["decision", "show", decisionId]);
+  assert.equal(reviewerDecisionRead.outcome, "applied", JSON.stringify(reviewerDecisionRead));
   const dispatchId = String(reviewer.result.dispatchId),
     reportDir = path.join(root, "harness", packagePath, "artifacts/reports");
   mkdirSync(reportDir, { recursive: true });
