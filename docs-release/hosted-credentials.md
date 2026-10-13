@@ -2,7 +2,7 @@
 
 Task branch publishing, pull request creation, and CI reading go through the
 daemon, not through a worker's personal GitHub login. The credential they use
-is a GitHub token the machine's operator configures once per runtime instance.
+is a GitHub or GitLab token the machine's operator configures once per runtime instance.
 This page is the operator setup; the worker-facing commands are described in
 [Task branch publishing and direct-push protection](operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
 
@@ -24,16 +24,17 @@ service records the installing shell's `PATH` (see
 ## Bind the credential to a runtime instance
 
 ```bash
-ha runtime instance github-credential set <instance-id> --ref credential:v1:<slug>
-ha runtime instance github-credential unset <instance-id>
-ha runtime instance show <instance-id>
+ha runtime instance hosting-credential set <instance-id> --provider github --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --provider github
+ha runtime instance hosting-credential set <instance-id> --provider gitlab --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --provider gitlab
 ```
 
 `--ref` takes an opaque reference into the machine's native credential store,
 not the token itself. `credential:v1:<slug>` is the current grammar; the legacy
-`keychain:<service>/<account>` form keeps resolving on macOS only. `show`
-projects only `githubCredentialState: configured` — receipts never echo the
-reference or the secret. A worker session cannot change this binding; it is an
+`keychain:<service>/<account>` form keeps resolving on macOS only.
+`ha runtime instance show <instance-id>` projects only credential state —
+receipts never echo the reference or the secret. A worker session cannot change this binding; it is an
 operator-side setting, and a missing binding surfaces as
 `runtime_credential_unavailable` (see
 [Recovering from task and runtime rejections](operations-server-daemon.md#recovering-from-task-and-runtime-rejections)).
@@ -87,8 +88,12 @@ references it.
 
 ## Current limits
 
-GitHub is the only hosting platform these commands operate against today. The
-askpass helper the task-bound environment uses answers `github.com` prompts
-only, and no GitLab counterpart of the `github-credential` commands exists.
-When GitLab support lands, this page is where its token type and minimal
-permissions will be documented.
+GitHub and GitLab task delivery are supported. GitHub tokens need repository
+contents write access for pushes and Actions read access for CI; GitLab tokens
+need `write_repository` for pushes and `read_api` for pipelines, jobs, and
+traces. The daemon resolves the provider-specific reference and supplies the
+token only to its own git/API operation. Provider selection is inferred from
+`origin`; declare `hosting.provider` and `hosting.host` in repository settings
+for an unrecognized or self-hosted GitLab host. GitLab CI uses REST API v4 and
+does not require `glab` (see
+[Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)).

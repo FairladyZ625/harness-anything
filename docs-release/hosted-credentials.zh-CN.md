@@ -21,14 +21,15 @@ shell 的 `PATH`（见[常驻服务](operations-server-daemon.zh-CN.md#常驻服
 ## 把凭据绑定到 runtime instance
 
 ```bash
-ha runtime instance github-credential set <instance-id> --ref credential:v1:<slug>
-ha runtime instance github-credential unset <instance-id>
-ha runtime instance show <instance-id>
+ha runtime instance hosting-credential set <instance-id> --provider github --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --provider github
+ha runtime instance hosting-credential set <instance-id> --provider gitlab --ref credential:v1:<slug>
+ha runtime instance hosting-credential unset <instance-id> --provider gitlab
 ```
 
 `--ref` 接受指向本机原生凭据库的不透明引用，不接受 token 本身。
 `credential:v1:<slug>` 是现行语法；旧式 `keychain:<service>/<account>` 只在
-macOS 上继续解析。`show` 只投影 `githubCredentialState: configured`——回执
+macOS 上继续解析。`ha runtime instance show <instance-id>` 只投影凭据状态——回执
 永不回显引用或 secret。worker 会话无权修改这一绑定；它是操作者侧设置，
 绑定缺失表现为 `runtime_credential_unavailable`（见
 [从 task 与 runtime 拒绝中恢复](operations-server-daemon.zh-CN.md#从-task-与-runtime-拒绝中恢复)）。
@@ -77,6 +78,10 @@ token 在 `ha task push` 失败；缺 pull request 或 CI 读权限的 token 在
 
 ## 当前限制
 
-目前这些命令只面向 GitHub。任务绑定环境使用的 askpass 助手只应答
-`github.com` 的凭据提示，`github-credential` 命令也没有 GitLab 对应物。
-GitLab 支持落地后，其 token 类型与最小权限将在本页补充。
+GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限，CI
+需要 Actions 读权限；GitLab token 推送需要 `write_repository`，读取 pipelines、
+jobs 与 traces 需要 `read_api`。daemon 按 provider 解析绑定引用，仅向自身 git/API
+操作提供 token。provider 默认从 `origin` 推断；无法识别或自建 GitLab host 时，
+在仓库 settings 声明 `hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
+v4，无需 `glab`（见
+[Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)）。
