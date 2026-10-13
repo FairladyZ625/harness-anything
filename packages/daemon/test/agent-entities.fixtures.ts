@@ -54,7 +54,9 @@ export interface TestEntityAction {
 }
 
 export function run(input: TestEntityAction): unknown {
-  if (!input.kind.endsWith("-validate")) initRepo(input.rootDir);
+  // Validate resolves declared skill paths against the same repo roots dispatch will, so every
+  // kind needs the fixture repo (ledger plus the review skill directory) materialized.
+  initRepo(input.rootDir);
   const action = entityAction(input);
   if (input.kind.endsWith("-validate"))
     return validateAgentEntityAction({ rootDir: input.rootDir, runtimeInstances: input.runtimeInstances, action });
@@ -132,6 +134,9 @@ export function initRepo(rootDir: string): void {
   git(rootDir, "config", "user.email", "agent-entities@example.invalid");
   git(rootDir, "config", "gc.auto", "0");
   git(rootDir, "commit", "--allow-empty", "-qm", "base");
+  // The shared fixture agent declares the review skill, so the fixture repo owns its directory.
+  mkdirSync(path.join(rootDir, "harness", "skills", "review"), { recursive: true });
+  writeFileSync(path.join(rootDir, "harness", "skills", "review", "SKILL.md"), "# Review\n");
   // Production reads run against an initialized accepting ledger, even when it is empty.
   activateEmptyCanonicalGeneration({ repoId: "agent-entities", rootInput: rootDir });
 }
