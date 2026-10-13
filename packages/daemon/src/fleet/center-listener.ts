@@ -213,7 +213,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       throw new FleetFault("replica_quota_required", "Replica admission requires an explicit persistent disk quota.");
     const a = await nodeContext(nodeId, repoId, accessToken),
       auth = await readerAuth(a),
-      owner = auth.nodePrincipal!.personId;
+      owner = await options.nodeOwner(nodeId);
+    if (!owner) throw new FleetFault("node_owner_unregistered", `Node ${nodeId} has no registered owner.`);
     const replica = options.host.replica(a.repoId),
       // The node owner's repository-read authority admits the replica
       // (dec_B6AC9F76D9D6591A3F54802BF3, refining dec_D8497012 CH4).

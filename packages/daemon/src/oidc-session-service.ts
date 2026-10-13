@@ -464,6 +464,7 @@ export class OidcSessionService {
           fetch: this.#ports.fetch,
           now: this.#ports.now(),
         });
+        if (bound.nodePrincipal!.personId === auth.nodePrincipal!.personId) return bound;
         const adapter = new KeycloakPolicyAdapter(
             { ...config, resourceServerClientId: "harness-center" },
             this.#ports.fetch,

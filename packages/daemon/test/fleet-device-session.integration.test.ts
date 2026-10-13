@@ -37,7 +37,11 @@ test("Fleet reader frames require an active owner session on every request", { t
   fixture.owners.keycloak.interactiveSession("person-owner", fixture.peerSubject.nodeId, fixture.owners.url, token);
   await assert.rejects(read(), { code: "human_confirmation_required" });
   fixture.owners.keycloak.account("person-other");
+  // An account claim which does not match its native user remains rejected.
   fixture.owners.keycloak.interactiveSession("person-other", fixture.subject.nodeId, fixture.owners.url, token);
+  [...fixture.owners.keycloak.users.values()].find(
+    (user) => user.username === "person-other",
+  )!.attributes.harness_person_id = ["person-owner"];
   await assert.rejects(read(), { code: "human_confirmation_required" });
   fixture.owners.keycloak.interactiveSession("person-owner", fixture.subject.nodeId, fixture.owners.url, token);
   assert.equal((await read()).schema, "fleet.repo.metadata.result/v1");
