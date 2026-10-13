@@ -73,14 +73,22 @@ describe("visual foundation: glass layer tokens", () => {
     expect(scrim).toMatch(/background:\s*var\(--color-scrim\)/u);
   });
 
-  it("routes the magnify-layer refraction through the #liquid SVG filter", () => {
-    expect(blockBody(/\.glass-liquid\s*\{/u)).toMatch(/backdrop-filter:\s*url\(#liquid\)/u);
+  it("routes the magnify-layer refraction through the #liquid SVG filter with crystal rim highlight", () => {
+    const liquid = blockBody(/\.glass-liquid\s*\{/u);
+    expect(liquid).toMatch(/backdrop-filter:\s*url\(#liquid\)\s*blur\(30px\)\s*saturate\(190%\)/u);
+    expect(liquid).toMatch(/border:\s*1px solid/u);
+    expect(liquid).toMatch(/box-shadow:[^;]*inset 0 1\.5px/u);
   });
 
-  it("overrides glass surface colors for the light theme", () => {
+  it("overrides glass surface colors and liquid glass for the light theme", () => {
     const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
     expect(light).toMatch(/--color-glass:/u);
     expect(light).toMatch(/--color-glass-border:/u);
+
+    const lightLiquid = blockBody(/html\[data-theme="light"\]\s+\.glass-liquid\s*\{/u);
+    expect(lightLiquid).toMatch(/backdrop-filter:\s*url\(#liquid\)\s*blur\(30px\)\s*saturate\(155%\)/u);
+    expect(lightLiquid).toMatch(/border:\s*1px solid/u);
+    expect(lightLiquid).toMatch(/box-shadow:[^;]*inset 0 1\.5px/u);
   });
 });
 
@@ -120,6 +128,13 @@ describe("visual foundation: reduced motion", () => {
     const reduced = blockBody(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/u);
     expect(reduced).not.toMatch(/\.status-tag-active\s*\{[^}]*animation:/u);
     expect(reduced).not.toMatch(/\.live-dot-pulse\s*\{[^}]*animation:/u);
+  });
+
+  it("falls back to standard glass blur for liquid glass under prefers-reduced-motion", () => {
+    const reduced = blockBody(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/u);
+    expect(reduced).toMatch(
+      /\.glass-liquid\s*\{[^}]*backdrop-filter:\s*blur\(var\(--glass-blur\)\)\s*saturate\(var\(--glass-saturate\)\)\s*!important/u,
+    );
   });
 });
 

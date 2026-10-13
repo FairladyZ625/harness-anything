@@ -209,7 +209,7 @@ export function OverviewArtifactsPage({
     <>
       <div
         data-testid="overview-artifacts-page-scrim"
-        className="fixed inset-0 z-11 bg-black/40 backdrop-blur-xs"
+        className="glass-scrim fixed inset-0 z-11"
         onClick={onClose}
         aria-hidden="true"
       />
@@ -218,7 +218,7 @@ export function OverviewArtifactsPage({
         role="dialog"
         aria-modal="true"
         aria-label={t("views.overviewView.artifactsPageTitle")}
-        className="glass fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-11 flex h-[85vh] w-[88vw] min-h-[500px] min-w-[640px] max-h-[90vh] max-w-[94vw] flex-col overflow-hidden rounded-lg border border-border shadow-2xl"
+        className="glass glass-liquid fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-11 flex h-[85vh] w-[88vw] min-h-[500px] min-w-[640px] max-h-[90vh] max-w-[94vw] flex-col overflow-hidden rounded-lg shadow-2xl"
       >
         <header className="flex flex-none items-center gap-2.5 px-[18px] pb-[10px] pt-[14px]">
           <h2 className="min-w-0 truncate font-semibold ui-title">{t("views.overviewView.artifactsPageTitle")}</h2>

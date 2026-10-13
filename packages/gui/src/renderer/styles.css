@@ -336,8 +336,11 @@ html[data-theme="light"] {
     inset 0 1px 0 oklch(1 0 0 / 0.12),
     0 2px 8px oklch(0 0 0 / 0.15);
 }
-/* 嵌在 .glass 内的子控件直接继承已模糊底色,免除二次嵌套 backdrop-filter 导致的 GPU 显存回读与反复重采样 */
+/* 嵌在 .glass 与 .glass-liquid 内的子控件直接继承已模糊底色,免除二次嵌套 backdrop-filter 导致的 GPU 显存回读与反复重采样 */
 .glass .glass-sub {
+  backdrop-filter: none;
+}
+.glass-liquid .glass-sub {
   backdrop-filter: none;
 }
 html[data-theme="light"] .glass-sub {
@@ -351,9 +354,31 @@ html[data-theme="light"] .glass-sub {
   backdrop-filter: blur(var(--scrim-blur)) saturate(var(--scrim-saturate));
 }
 
-/* 放大层液态折射(原型 .focus.lq 档):与 .glass 同用;滤镜 def 见 GlassFoundation.tsx */
+/* 放大层与二级聚焦层液态折射(原型 .focus.lq 档):与 .glass 同用;滤镜 def 见 GlassFoundation.tsx。
+   模拟物理透镜位移折射与晶体边缘倒角高光(Rim Highlight)，为居中大面板赋予晶莹折射质感。
+   直接子元素设置相对定位以确保内部文本、操作按钮与列表浮于折射面之上，保持绝对锐利清晰。 */
 .glass-liquid {
   backdrop-filter: url(#liquid) blur(30px) saturate(190%);
+  -webkit-backdrop-filter: url(#liquid) blur(30px) saturate(190%);
+  border: 1px solid oklch(1 0 0 / 0.14);
+  box-shadow:
+    inset 0 1.5px 1px 0 oklch(1 0 0 / 0.35),
+    inset 0 0 0 1px oklch(1 0 0 / 0.08),
+    0 24px 60px oklch(0 0 0 / 0.45);
+}
+.glass-liquid > * {
+  position: relative;
+  z-index: 1;
+}
+
+html[data-theme="light"] .glass-liquid {
+  backdrop-filter: url(#liquid) blur(30px) saturate(155%);
+  -webkit-backdrop-filter: url(#liquid) blur(30px) saturate(155%);
+  border: 1px solid oklch(0 0 0 / 0.1);
+  box-shadow:
+    inset 0 1.5px 1px 0 oklch(1 0 0 / 0.75),
+    inset 0 0 0 1px oklch(0 0 0 / 0.04),
+    0 20px 48px oklch(0 0 0 / 0.16);
 }
 
 /* 状态色竖线(原型 .tile::after):容器自定 --status-edge 即点亮,默认透明不占位。 */
@@ -521,6 +546,10 @@ html[data-theme="light"] .glass-sub {
   }
   .aurora::after {
     animation: bottom-glow-float 42s ease-in-out infinite alternate !important;
+  }
+  .glass-liquid {
+    backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
+    -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate)) !important;
   }
 }
 
