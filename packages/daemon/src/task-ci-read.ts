@@ -5,7 +5,11 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import type { WriteReceiptDraft } from "@harness-anything/kernel";
-import { detectHostingProvider, type HostingProvider } from "./hosting-provider.ts";
+import {
+  detectHostingProvider,
+  hostingCredentialConfigurationAdvice,
+  type HostingProvider,
+} from "./hosting-provider.ts";
 
 const execFileAsync = promisify(execFile);
 type RunProvider = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => Promise<string>;
@@ -107,7 +111,8 @@ export async function readTaskCi(
   if (!token)
     throw context.cellCodedError(
       "runtime_credential_unavailable",
-      `The dispatch instance has no configured ${hosting.kind === "gitlab" ? "GitLab" : "GitHub"} credential.`,
+      `The dispatch instance has no configured ${hosting.kind === "gitlab" ? "GitLab" : "GitHub"} credential. ` +
+        `${hostingCredentialConfigurationAdvice(hosting.kind, typeof instanceId === "string" ? instanceId : undefined)}.`,
     );
   const env = { ...process.env, ...credential },
     redact = (text: string) => String(scrubProviderValue(text.replaceAll(token, "[REDACTED]")));

@@ -155,8 +155,9 @@ test(
     assert.equal((await fixture.status()).leaderTurns.length, 2);
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
-    assert.match(leader.prompt, /git push origin <task-id>/u);
-    assert.match(leader.prompt, /gh pr create/u);
+    // The leader carries the same daemon-held delivery loop as the worker role.
+    assert.match(leader.prompt, /ha task push <task-id>/u);
+    assert.match(leader.prompt, /ha task pr <task-id>/u);
     assert.match(leader.prompt, /Do not merge/u);
     await fixture.cell.settlePendingMaterialization("before public integration");
     git(fixture.root, "checkout", "-qb", "codex/mission-delivery");

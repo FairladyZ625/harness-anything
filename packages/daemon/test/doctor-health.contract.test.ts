@@ -109,9 +109,12 @@ test("doctor host composes loaded/disk identities and remote edge never reports 
       const receipt = (await host.run("doctor-host", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
       const checks = receipt.checks as { id: string; status: string }[];
-      assert.equal(checks.length, 6);
+      assert.equal(checks.length, 7);
       assert.deepEqual(JSON.parse(String(receipt.evidence)).checks, checks);
       assert.equal(checks.find((check) => check.id === "build-drift")?.status, expected);
+      // The fixture repository has no origin remote, so the hosted-credential check cannot
+      // identify a provider and stays indeterminate instead of guessing.
+      assert.equal(checks.find((check) => check.id === "hosted-credential")?.status, "indeterminate");
     }
     const receipt = (await host.run("doctor-edge", { kind: "doctor-health" }, auth)) as Record<string, unknown>;
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));

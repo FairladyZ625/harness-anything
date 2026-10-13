@@ -179,13 +179,29 @@ test("commander owns verified integration and PR delivery without merge authorit
   );
   assert.match(prompt, /Do not cherry-pick or rebase child commits/u);
   assert.match(prompt, /targeted and integration regressions.*final integrated commit/u);
-  assert.match(prompt, /git push origin <task-id>/u);
-  assert.match(prompt, /gh pr create.*complete bilingual PR/u);
-  assert.match(prompt, /\.github\/pull_request_template\.md/u);
+  // The delivery loop is the same constant the Worker Role carries: the daemon holds the Git
+  // credential, so publication goes through ha task push / ha task pr / ha task ci.
+  assert.match(prompt, /ha task push <task-id>/u);
+  assert.match(prompt, /ha task pr <task-id>/u);
+  assert.match(prompt, /ha task ci <task-id> --wait/u);
+  assert.match(prompt, /daemon pushes exactly this task's branch with the dispatch-held credential/u);
+  assert.match(prompt, /mark the CI unverified in the closeout with that error/u);
   assert.match(prompt, /ha task adjudicate --forward/u);
   assert.match(prompt, /Do not merge.*CEO/u);
-  assert.doesNotMatch(prompt, /ha task push|Deliver at a local commit|runtime publishes worker/u);
+  assert.doesNotMatch(prompt, /git push origin/u);
+  assert.doesNotMatch(prompt, /gh pr create/u);
   assert.doesNotMatch(prompt, /if stashing is unavoidable/u);
+});
+
+test("worker and commander prompts quote one identical delivery-loop block", () => {
+  const delivery =
+      /- A task-bound worker publishes its own delivery[\s\S]*?- Do not merge; final merge authority belongs to the CEO\./,
+    workerMatch = delivery.exec(assembleUnboundPrompt("Implement the assigned package.")),
+    commanderMatch = delivery.exec(assembleUnboundPrompt("Integrate the mission.", "commander"));
+  assert.ok(workerMatch && commanderMatch, "both roles carry the delivery block");
+  assert.equal(workerMatch![0], commanderMatch![0]);
+  // The reviewer never publishes and must not see the delivery commands at all.
+  assert.equal(delivery.test(assembleUnboundPrompt("Review the cut.", "reviewer")), false);
 });
 
 for (const role of [undefined, "worker", "commander"] as const)
