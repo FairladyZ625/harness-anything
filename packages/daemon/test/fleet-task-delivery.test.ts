@@ -6,7 +6,7 @@ import { devNull, tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "../src/fleet-task-delivery.ts";
-import { fetchWorkerDelivery, readWorkerRemoteCommit } from "../src/runtime-worker-push.ts";
+import { fetchWorkerDelivery, readWorkerRemoteCommit, workerGitIdentityForPerson } from "../src/runtime-worker-push.ts";
 
 for (const denialMode of ["node", "owner", "permission", "cas"])
   test(`delivery checks current node, owner, permission and remote CAS (${denialMode})`, async (t) => {
@@ -30,14 +30,14 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
     git(root, "init", "--bare", "-b", "main", remote);
     git(root, "clone", remote, first);
     for (const cwd of [first]) {
-      git(cwd, "config", "user.name", "Delivery Test");
-      git(cwd, "config", "user.email", "delivery@example.invalid");
+      git(cwd, "config", "user.name", "owner");
+      git(cwd, "config", "user.email", "owner@users.noreply.github.com");
     }
     git(first, "commit", "--allow-empty", "-qm", "base");
     git(first, "push", "origin", "main");
     git(root, "clone", "--no-local", remote, second);
-    git(second, "config", "user.name", "Delivery Test");
-    git(second, "config", "user.email", "delivery@example.invalid");
+    git(second, "config", "user.name", "owner");
+    git(second, "config", "user.email", "owner@users.noreply.github.com");
     for (const cwd of [first, second]) {
       git(cwd, "worktree", "add", "-b", taskId, path.join(cwd, "worker"), "origin/main");
       writeFileSync(path.join(cwd, "worker", "delivery.txt"), cwd);
@@ -97,16 +97,22 @@ for (const denialMode of ["node", "owner", "permission", "cas"])
     release.resolve();
     await rejected;
     assert.equal(git(remote, "rev-parse", `refs/heads/${taskId}`), accepted.commitSha);
-    assert.equal(await fetchWorkerDelivery(first, taskId, String(accepted.commitSha)), accepted.commitSha);
+    assert.equal(
+      await fetchWorkerDelivery(first, taskId, String(accepted.commitSha), workerGitIdentityForPerson("owner")),
+      accepted.commitSha,
+    );
     await assert.rejects(
-      fetchWorkerDelivery(first, taskId, git(first, "rev-parse", "main")),
+      fetchWorkerDelivery(first, taskId, git(first, "rev-parse", "main"), workerGitIdentityForPerson("owner")),
       /does not match published/u,
     );
     assert.equal(git(first, "for-each-ref", "--format=%(refname)", "refs/harness/delivery"), "");
     git(second, "config", "user.email", "other@example.invalid");
     git(path.join(second, "worker"), "commit", "--allow-empty", "-qm", "wrong identity");
     git(path.join(second, "worker"), "push", "origin", `HEAD:refs/heads/${taskId}`);
-    await assert.rejects(fetchWorkerDelivery(first, taskId), /not the conventional identity/u);
+    await assert.rejects(
+      fetchWorkerDelivery(first, taskId, undefined, workerGitIdentityForPerson("owner")),
+      /not the conventional identity/u,
+    );
     git(first, "remote", "remove", "origin");
     await assert.rejects(readWorkerRemoteCommit(first, taskId), { code: "delivery_publish_failed" });
   });

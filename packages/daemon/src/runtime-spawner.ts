@@ -75,7 +75,7 @@ import {
   runtimeResultText as runtimeResultTextImpl,
 } from "./runtime-spawn-settlement.ts";
 import { runtimeBindingForDispatch } from "./runtime-spawn-types.ts";
-import { conventionalWorkerGitEnvironment } from "./runtime-worker-push.ts";
+import { configureWorkerGitIdentity } from "./runtime-worker-push.ts";
 import type {
   ActiveRuntime,
   ResumeProcessObservation,
@@ -88,7 +88,7 @@ import type {
 } from "./runtime-spawn-types.ts";
 import type { RuntimeAttemptOutcome, RuntimeFallbackAttempt } from "./runtime-fallback-contract.ts";
 import { runtimeDispatchRequestedPayload } from "./runtime-spawn-event.ts";
-import { prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
+import { daemonCliBinDirectory, prepareBoundRuntimeLaunch } from "./runtime-spawn-context.ts";
 import type { RuntimeEventOf, RuntimeEventType, RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { assertReviewerTarget, selectReadOnlyAttachTarget, selectReviewTarget } from "./review-dispatch-admission.ts";
@@ -543,12 +543,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     const definitionArtifact = runtimeDefinitionSnapshotArtifact(definition),
       definitionSnapshotRef = definitionArtifact.ref,
       runtimeKind = runtimeKindForId(definition.kindId),
-      protocolFamily = runtimeKind.protocolFamily,
-      // Hosting credentials are resolved only by the daemon-side settlement/push path.
-      // Never merge them into the worker launch environment.
-      workerGitEnvironment = undefined,
-      workerIdentityEnvironment =
-        taskId || trustedSchedule || reviewerBinding ? await conventionalWorkerGitEnvironment(input.rootDir) : {};
+      protocolFamily = runtimeKind.protocolFamily;
+    if (taskId || trustedSchedule || reviewerBinding)
+      await configureWorkerGitIdentity(cwd, binding.actor.principal.personId);
     if (handoff) await verifyHandoffWorktree(cwd, handoff.commit);
     // Every implementation runtime, including squad leaders, takes the actual lease. A read-only
     // attach takes none: it never asks for the handoff, so the frozen round's lease state stays untouched.
@@ -707,8 +704,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         prepared,
         daemonRoute,
         callbackRelay,
-        workerGitEnvironment,
-        workerIdentityEnvironment,
+        cliBinDir: daemonCliBinDirectory(),
         runtimeActor,
         taskId,
         trustedSchedule,
