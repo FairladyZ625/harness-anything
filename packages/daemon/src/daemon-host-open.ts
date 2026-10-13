@@ -845,7 +845,11 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       void runFleetReplicaSync({
-        readAccessToken: async () => (await oidc.bind({ transportKind: "unix-socket" })).oidcPrincipal?.accessToken,
+        readAccessToken: async () => {
+          const auth = await oidc.bind({ transportKind: "unix-socket" });
+          // Resolve the current session token at request time so refreshes are observed.
+          return auth.localSessionAccessToken ? await auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
+        },
         hostname: config.host,
         port: config.port,
         ca: readFileSync(caPath),
