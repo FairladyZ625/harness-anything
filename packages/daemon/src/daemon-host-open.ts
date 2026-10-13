@@ -847,6 +847,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       void runFleetReplicaSync({
         readAccessToken: async () => {
           const auth = await oidc.bind({ transportKind: "unix-socket" });
+          // Resolve the current session token at request time so refreshes are observed.
           return auth.localSessionAccessToken ? await auth.localSessionAccessToken() : auth.oidcPrincipal?.accessToken;
         },
         hostname: config.host,
