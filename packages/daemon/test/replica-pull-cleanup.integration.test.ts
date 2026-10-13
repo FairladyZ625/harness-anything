@@ -77,6 +77,29 @@ test("a center delivery error cleans received content and preserves its error co
   assertEmptyTransfer(viewRoot, f.subject.repoId, f.subject.nodeId);
 });
 
+test("a replica that stays in preparation returns within the pull deadline", async (t) => {
+  const f = await fleetFixture(t),
+    center = await f.center(),
+    source = f.host.replica(f.subject.repoId),
+    viewRoot = path.join(f.root, "preparing-timeout");
+  t.mock.method(source, "latest", () => null);
+  t.mock.method(source, "prepare", () => new Promise(() => {}));
+  await assert.rejects(
+    runFleetReplicaPullClient({
+      readAccessToken: async () => `device-token-${f.subject.nodeId}`,
+      port: center.port,
+      ca: f.cert,
+      nodeId: f.subject.nodeId,
+      credential: "machine-secret",
+      repoId: f.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+      timeoutMs: 100,
+    }),
+    /Fleet replica pull timeout/u,
+  );
+});
+
 test("lost ACK preserves the published cut while removing transfer staging", async (t) => {
   const f = await fleetFixture(t);
   const center = await f.center();

@@ -659,7 +659,7 @@ test(
         changes: [{ path: fixture.path, body: "timeout" }],
         timeoutMs: 5,
       }),
-      /Fleet response timeout/u,
+      /Fleet replica pull timeout/u,
     );
     fixture.setOwnerLookupDelay(0);
     const spoofed = await peer.raw({
