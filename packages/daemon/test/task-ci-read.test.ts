@@ -110,6 +110,32 @@ test("another task and a mismatched reviewer target remain visible to the CI rea
   assert.equal(f.credentialReads(), 1);
 });
 
+test("task CI reuses a report for the same branch and SHA, then refreshes immediately at a new head", async () => {
+  const f = fixture();
+  let currentSha = sha;
+  const calls: string[][] = [];
+  const run = async (args: readonly string[]) => {
+    calls.push([...args]);
+    const endpoint = args.at(-1)!;
+    if (args[0] === "repo") return JSON.stringify({ nameWithOwner: "owner/repo" });
+    if (endpoint.includes("branches/task-ci")) return JSON.stringify({ commit: { sha: currentSha } });
+    if (endpoint.includes("check-runs")) return JSON.stringify([{ check_runs: [] }]);
+    if (endpoint.includes("actions/runs?")) return JSON.stringify([{ workflow_runs: [] }]);
+    if (endpoint.includes("pulls?")) return JSON.stringify([]);
+    throw new Error(`Unexpected provider call ${endpoint}`);
+  };
+  const first = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, run);
+  const second = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, run);
+  assert.equal(first.ci.headSha, sha);
+  assert.deepEqual(second.ci, first.ci);
+  assert.equal(calls.filter((args) => args.at(-1)?.includes("branches/task-ci")).length, 2);
+  assert.equal(calls.filter((args) => args.at(-1)?.includes("check-runs")).length, 1);
+  currentSha = "b".repeat(40);
+  const third = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, run);
+  assert.equal(third.ci.headSha, currentSha);
+  assert.equal(calls.filter((args) => args.at(-1)?.includes("check-runs")).length, 2);
+});
+
 test("only the newest run of a same-named check decides the verdict", async () => {
   // Two executions share one check name on the same SHA, listed in API order that differs per case:
   // only ordering by check-run id keeps the newest in both, so neither first-wins nor last-wins passes.

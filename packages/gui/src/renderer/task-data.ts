@@ -13,7 +13,7 @@ export const TASK_LIST_PAGE_LIMIT = 500;
 /**
  * 单次刷新的续读页预算(受控快读水化的上限保护,F-45297836):水化沿游标顺序补页,
  * 每页严格等上一页回来,单次刷新最多这么多个分页请求;预算耗尽时切面保持 pending,
- * 交回探针节拍(2s)继续——断网或坏游标最坏也只是「每个探针节拍一串有界请求」,
+ * 交回探针节拍(10s)继续——断网或坏游标最坏也只是「每个探针节拍一串有界请求」,
  * 不存在失控 drain。12 页 × 500 行 = 6,000 行,是当前台账规模(2,826)的两倍余量。
  */
 export const HYDRATION_PAGE_BUDGET = 12;
@@ -74,7 +74,7 @@ export function taskListQuery(repoId: string) {
  *
  * 刷新先按缓存里的上一份切面决定第一读(游标续读 / 重启 / `changedAfterRevision` 增量),
  * 然后在**同一刷新内**沿游标顺序把剩余页拉完——受控快读水化(F-45297836:旧形态把
- * 续读交给 2s 探针节拍,6 页要 10~12s)。每页严格等上一页回来,单次刷新的页请求
+ * 续读交给探针节拍,6 页需多个周期)。每页严格等上一页回来,单次刷新的页请求
  * 上限是 `HYDRATION_PAGE_BUDGET`,这就是防失控 drain 的门;预算耗尽就带着 pending
  * 切面交回探针节拍继续。三种首读形态:
  *   - 上一份还带着 `page.nextCursor` → 沿游标续读下一页(cursor 就是续读状态,
@@ -85,7 +85,7 @@ export function taskListQuery(repoId: string) {
  *
  * 投影追赶中(cut pending)与 ready 同样走增量:daemon 报的 watermark 就是它已
  * 应用到的位置,rows 相对该水位完整,增量读从上一水位起即可;pending 期间不再
- * 每 2s 重读整页 500 行。`status` 原样透传,侧栏继续显示「正在追赶」。
+ * 每 10s 重读整页 500 行。`status` 原样透传,侧栏继续显示「正在追赶」。
  * 未读完的切面 `status` 一律是 `pending`,每行 freshness 落成 `stale-but-usable`
  * (task-adapter),所以"还没读完"在界面上是显形的。
  */

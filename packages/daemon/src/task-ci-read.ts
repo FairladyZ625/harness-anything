@@ -13,6 +13,28 @@ import {
 
 const execFileAsync = promisify(execFile);
 type RunProvider = (args: readonly string[], env: NodeJS.ProcessEnv, cwd: string) => Promise<string>;
+type CiCache = {
+  repository?: string;
+  readonly reports: Map<string, { readonly expiresAt: number; readonly ci: TaskCiReport }>;
+  readonly inFlight: Map<string, Promise<TaskCiReport>>;
+};
+const ciCaches = new WeakMap<object, CiCache>();
+const ciReportTtlMs = 60_000;
+function taskCiCache(projection: object): CiCache {
+  let cache = ciCaches.get(projection);
+  if (!cache) ciCaches.set(projection, (cache = { reports: new Map(), inFlight: new Map() }));
+  return cache;
+}
+function cachedTaskCi(cache: CiCache, branch: string, headSha: string): TaskCiReport | undefined {
+  const key = `${branch}\u0000${headSha}`;
+  let result: TaskCiReport | undefined;
+  for (const [candidate, entry] of cache.reports) {
+    if (entry.expiresAt <= Date.now() || (candidate.startsWith(`${branch}\u0000`) && candidate !== key)) {
+      cache.reports.delete(candidate);
+    } else if (candidate === key) result = entry.ci;
+  }
+  return result;
+}
 const runProvider: RunProvider = async (args, env, cwd) =>
   String(
     (await execFileAsync("gh", args, { env, cwd, timeout: 30_000, maxBuffer: 8 << 20, windowsHide: true })).stdout,
@@ -125,97 +147,106 @@ export async function readTaskCi(
       throw context.cellCodedError("task_ci_read_failed", redact(detail).slice(0, 2048));
     }
   };
-  const repository = (
-    JSON.parse(await runCommand(["repo", "view", "--json", "nameWithOwner"])) as { nameWithOwner: string }
-  ).nameWithOwner;
+  const cache = taskCiCache(context.projection);
+  const repository =
+    cache.repository ??
+    (JSON.parse(await runCommand(["repo", "view", "--json", "nameWithOwner"])) as { nameWithOwner: string })
+      .nameWithOwner;
+  cache.repository = repository;
   const api = async <T>(endpoint: string, paginated = false): Promise<T> =>
     JSON.parse(await runCommand(["api", ...(paginated ? ["--paginate", "--slurp"] : []), endpoint])) as T;
   const prefix = `repos/${repository}/`,
     branch = principal.taskId,
     head = await api<{ readonly commit: { readonly sha: string } }>(`${prefix}branches/${encodeURIComponent(branch)}`),
     headSha = head.commit.sha;
-  const [checkPages, runPages] = await Promise.all([
-    api<readonly { readonly check_runs: readonly Check[] }[]>(
-      `${prefix}commits/${headSha}/check-runs?per_page=100`,
-      true,
-    ),
-    api<readonly { readonly workflow_runs: readonly Run[] }[]>(
-      `${prefix}actions/runs?head_sha=${headSha}&per_page=100`,
-      true,
-    ),
-  ]);
-  // Newest run per workflow/event replaces a superseded run, including its failed jobs.
-  const latest = new Map<string, Run>();
-  for (const run of runPages.flatMap((page) => page.workflow_runs).sort((a, b) => b.id - a.id)) {
-    if (run.head_sha !== headSha || run.head_branch !== branch || !["push", "pull_request"].includes(run.event))
-      continue;
-    const key = `${run.workflow_id}:${run.event}`;
-    if (!latest.has(key)) latest.set(key, run);
-  }
-  const runs = [];
-  for (const run of latest.values()) {
-    const pages = await api<readonly { readonly jobs: readonly Job[] }[]>(
-      `${prefix}actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
-      true,
-    );
-    const jobs = [];
-    for (const job of pages.flatMap((page) => page.jobs)) {
-      let failure = null;
-      if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
-        const log = await runCommand([
-          "run",
-          "view",
-          String(run.id),
-          "--repo",
-          repository,
-          "--job",
-          String(job.id),
-          "--log-failed",
-        ]);
-        failure = { ...failureExcerpt(log), logUrl: job.html_url };
+  const cacheKey = `${branch}\u0000${headSha}`;
+  const cached = cachedTaskCi(cache, branch, headSha);
+  if (cached) return makeTaskCiReceipt(context, branch, headSha, cached);
+  const inFlight = cache.inFlight.get(cacheKey);
+  if (inFlight) return makeTaskCiReceipt(context, branch, headSha, await inFlight);
+  const reportPromise = (async () => {
+    const [checkPages, runPages] = await Promise.all([
+      api<readonly { readonly check_runs: readonly Check[] }[]>(
+        `${prefix}commits/${headSha}/check-runs?per_page=100`,
+        true,
+      ),
+      api<readonly { readonly workflow_runs: readonly Run[] }[]>(
+        `${prefix}actions/runs?head_sha=${headSha}&per_page=100`,
+        true,
+      ),
+    ]);
+    // Newest run per workflow/event replaces a superseded run, including its failed jobs.
+    const latest = new Map<string, Run>();
+    for (const run of runPages.flatMap((page) => page.workflow_runs).sort((a, b) => b.id - a.id)) {
+      if (run.head_sha !== headSha || run.head_branch !== branch || !["push", "pull_request"].includes(run.event))
+        continue;
+      const key = `${run.workflow_id}:${run.event}`;
+      if (!latest.has(key)) latest.set(key, run);
+    }
+    const runs = [];
+    for (const run of latest.values()) {
+      const pages = await api<readonly { readonly jobs: readonly Job[] }[]>(
+        `${prefix}actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
+        true,
+      );
+      const jobs = [];
+      for (const job of pages.flatMap((page) => page.jobs)) {
+        let failure = null;
+        if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
+          const log = await runCommand([
+            "run",
+            "view",
+            String(run.id),
+            "--repo",
+            repository,
+            "--job",
+            String(job.id),
+            "--log-failed",
+          ]);
+          failure = { ...failureExcerpt(log), logUrl: job.html_url };
+        }
+        jobs.push({
+          id: job.id,
+          name: job.name,
+          status: job.status,
+          conclusion: job.conclusion,
+          url: job.html_url,
+          failure,
+        });
       }
-      jobs.push({
-        id: job.id,
-        name: job.name,
-        status: job.status,
-        conclusion: job.conclusion,
-        url: job.html_url,
-        failure,
+      runs.push({
+        id: run.id,
+        attempt: run.run_attempt,
+        event: run.event,
+        status: run.status,
+        conclusion: run.conclusion,
+        url: run.html_url,
+        jobs,
       });
     }
-    runs.push({
-      id: run.id,
-      attempt: run.run_attempt,
-      event: run.event,
-      status: run.status,
-      conclusion: run.conclusion,
-      url: run.html_url,
-      jobs,
-    });
-  }
-  // Newest check run per name replaces a superseded one, so a re-run verdict matches the newest-run rule above.
-  const latestChecks = new Map<string, Check>();
-  for (const check of checkPages.flatMap((page) => page.check_runs).sort((a, b) => b.id - a.id)) {
-    if (!latestChecks.has(check.name)) latestChecks.set(check.name, check);
-  }
-  const checks = [...latestChecks.values()].map((check) => ({
-    name: check.name,
-    status: check.status,
-    conclusion: check.conclusion,
-    url: check.details_url,
-  }));
-  const states = [...checks, ...runs],
-    conclusion =
-      states.length === 0
-        ? "not_started"
-        : states.some((state) => state.status !== "completed")
-          ? "pending"
-          : states.every((state) => ["success", "neutral", "skipped"].includes(state.conclusion ?? ""))
-            ? "success"
-            : "failure";
-  const notStarted =
-    conclusion !== "not_started" ? undefined : await explainNotStarted(api, prefix, repository, branch);
-  const ci: TaskCiReport = {
+    // Newest check run per name replaces a superseded one, so a re-run verdict matches the newest-run rule above.
+    const latestChecks = new Map<string, Check>();
+    for (const check of checkPages.flatMap((page) => page.check_runs).sort((a, b) => b.id - a.id)) {
+      if (!latestChecks.has(check.name)) latestChecks.set(check.name, check);
+    }
+    const checks = [...latestChecks.values()].map((check) => ({
+      name: check.name,
+      status: check.status,
+      conclusion: check.conclusion,
+      url: check.details_url,
+    }));
+    const states = [...checks, ...runs],
+      conclusion =
+        states.length === 0
+          ? "not_started"
+          : states.some((state) => state.status !== "completed")
+            ? "pending"
+            : states.every((state) => ["success", "neutral", "skipped"].includes(state.conclusion ?? ""))
+              ? "success"
+              : "failure";
+    const notStarted =
+      conclusion !== "not_started" ? undefined : await explainNotStarted(api, prefix, repository, branch);
+    const ci: TaskCiReport = {
       schema: "task-ci/v1",
       taskId: branch,
       branch,
@@ -224,8 +255,27 @@ export async function readTaskCi(
       ...(notStarted ? { notStarted } : {}),
       checks,
       runs,
-    },
-    revision = context.projection.readCut().sourceRevision;
+    };
+    cache.reports.set(cacheKey, { expiresAt: Date.now() + ciReportTtlMs, ci });
+    return ci;
+  })();
+  cache.inFlight.set(cacheKey, reportPromise);
+  try {
+    return makeTaskCiReceipt(context, branch, headSha, await reportPromise);
+  } finally {
+    cache.inFlight.delete(cacheKey);
+  }
+}
+
+function makeTaskCiReceipt(
+  context: Pick<RepoCellApiContext, "projection"> & {
+    readonly readResult?: RepoCellApiContext["extracted"]["readResult"];
+  },
+  branch: string,
+  headSha: string,
+  ci: TaskCiReport,
+) {
+  const revision = context.projection.readCut().sourceRevision;
   return {
     ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, revision, null) ?? {
       outcome: "applied",
@@ -307,6 +357,10 @@ async function readGitLabTaskCi(
     `/repository/branches/${encodeURIComponent(branch)}`,
   );
   const headSha = branchInfo.commit.id;
+  const cache = taskCiCache(context.projection),
+    cacheKey = `${branch}\u0000${headSha}`,
+    cached = cachedTaskCi(cache, branch, headSha);
+  if (cached) return makeTaskCiReceipt(context, branch, headSha, cached);
   type Pipeline = { id: number; status: string; ref: string; sha: string; web_url?: string; source?: string };
   const pipelines = await request<readonly Pipeline[]>(
     `/pipelines?sha=${encodeURIComponent(headSha)}&ref=${encodeURIComponent(branch)}&per_page=100`,
@@ -380,15 +434,8 @@ async function readGitLabTaskCi(
           ? "success"
           : "failure";
   const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs };
-  return {
-    ...(context.readResult?.(`task-ci:${branch}:${headSha}`, ci, context.projection.readCut().sourceRevision, null) ?? {
-      outcome: "applied" as const,
-      opId: `task-ci:${branch}:${headSha}`,
-      revision: context.projection.readCut().sourceRevision,
-      evidence: JSON.stringify(ci),
-    }),
-    ci,
-  };
+  cache.reports.set(cacheKey, { expiresAt: Date.now() + ciReportTtlMs, ci });
+  return makeTaskCiReceipt(context, branch, headSha, ci);
 }
 
 /** Preserve failed test names and the assertion context, while bounding the returned diagnostic. */

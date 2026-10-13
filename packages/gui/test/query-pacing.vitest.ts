@@ -72,7 +72,7 @@ describe("focus refetch flows through the ledger probe only", () => {
     try {
       await observer.refetch();
       expect(read).toHaveBeenCalledTimes(1);
-      // 只推进 1s:探针计时器 2s 未到、staleTime 10s 未到——随后的重读只能来自聚焦。
+      // 只推进 1s:探针计时器 10s 未到、staleTime 10s 未到——随后的重读只能来自聚焦。
       await vi.advanceTimersByTimeAsync(1_000);
       expect(read).toHaveBeenCalledTimes(1);
       focusManager.setFocused(true);
@@ -121,7 +121,7 @@ describe("focus refetch flows through the ledger probe only", () => {
  * 仍绿(自验证);固定 1_000 / 2_001 两档让「过大」与「过小」的回归都必红。
  */
 describe("ledger probe heartbeat on a fixed literal clock", () => {
-  it("fires the probe timer just past 2s and not at 1s", async () => {
+  it("fires the probe timer just past 10s and not at 1s", async () => {
     vi.useFakeTimers();
     focusManager.setFocused(true);
     const read = vi.fn(async () => taskListCut(41)),
@@ -136,7 +136,7 @@ describe("ledger probe heartbeat on a fixed literal clock", () => {
       expect(read).toHaveBeenCalledTimes(1);
       await vi.advanceTimersByTimeAsync(1_000);
       expect(read).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1_001);
+      await vi.advanceTimersByTimeAsync(9_001);
       expect(read).toHaveBeenCalledTimes(2);
     } finally {
       unsubscribe();

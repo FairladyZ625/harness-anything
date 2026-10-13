@@ -6,6 +6,10 @@ import { ciRunWindow } from "../src/domain/ci-rerun-statistics.ts";
 import { decodeCiObservation } from "../src/domain/ci-run-observation-v4.ts";
 import { repositoryEventQueries } from "../src/projection/repository-event-queries.ts";
 import { createRepositoryReadModelTables } from "../src/projection/read-model-repository.ts";
+import {
+  ciObservationWindowOrder,
+  ciObservationWindowPredicate,
+} from "../src/projection/ci-observation-window-query.ts";
 import workflow from "../fixtures/canonical-events/ci-run-observation-v4/workflow.json" with { type: "json" };
 import v2 from "../fixtures/canonical-events/ci-run-observation-v2/accepted.json" with { type: "json" };
 import v3 from "../fixtures/canonical-events/ci-run-observation-v3/accepted.json" with { type: "json" };
@@ -42,6 +46,11 @@ test("indexed window matches the domain across legacy, bigint, ties and late imp
   const db = new DatabaseSync(":memory:");
   try {
     createRepositoryReadModelTables(db);
+    const legacy = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'ci_observation_%' ORDER BY name")
+      .all()
+      .map((row) => row.name);
+    assert.deepEqual(legacy, ["ci_observation_family_members_v2", "ci_observation_window_order_v2"]);
     const insert = db.prepare("INSERT INTO event_index(op_id, workspace_revision, event_json) VALUES (?, ?, ?)");
     const rows = [
       event("9007199254740993000000", 1),
@@ -59,6 +68,15 @@ test("indexed window matches the domain across legacy, bigint, ties and late imp
       assert.deepEqual(ciRunWindow(result.events, window), ciRunWindow(rows.map(decodeCiObservation), window));
       assert.equal(result.watermark, 8);
     }
+    const plan = db
+      .prepare(
+        `EXPLAIN QUERY PLAN SELECT 1 FROM event_index INDEXED BY ci_observation_window_order_v2 WHERE ${ciObservationWindowPredicate} ORDER BY ${ciObservationWindowOrder}`,
+      )
+      .all();
+    assert.equal(
+      plan.some((row) => String(row.detail).includes("TEMP B-TREE")),
+      false,
+    );
     assert.equal(q.readCiRunObservations(1, undefined, { familyWindow: 1 }).events[0]?.eventId, "event-1");
     assert.throws(() => q.readCiRunObservations(1, undefined, { familyWindow: 101 }), /1\.\.100/);
   } finally {
