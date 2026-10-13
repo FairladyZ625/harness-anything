@@ -382,9 +382,13 @@ test(
     client.attributes.harness_execution = JSON.stringify(principal);
     // Reassigning the node voids the execution's authority at the center; reads stay local.
     f.setOwner("person-other");
+    // dec_F01770FD0DCF72683B7C4C7A47: the previous owner's session ends at transfer.
+    f.owners.keycloak.endInteractiveSession(JSON.parse(managedRbacSessionStore(userRoot).read()!).accessToken);
     const reassigned = await cli(["task", "progress", "append", taskId, "--text", "Owner was reassigned."]);
     assert.equal(reassigned.outcome, "op_rejected", JSON.stringify(reassigned));
     f.setOwner("person-owner");
+    const restoredSession = JSON.parse(managedRbacSessionStore(userRoot).read()!);
+    f.owners.keycloak.interactiveSession("person-owner", config.nodeId, loginAuthorityUrl, restoredSession.accessToken);
     f.owners.keycloak.interactiveSession(
       "person-owner",
       config.nodeId,

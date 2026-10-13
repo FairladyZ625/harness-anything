@@ -390,6 +390,8 @@ test(
     assert.equal(viewerPull.current.cut.revision > 0, true);
     f.owners.keycloak.account("person-outsider");
     f.owners.keycloak.node("node-two", "person-outsider");
+    // dec_F01770FD0DCF72683B7C4C7A47: ownership transfer revokes the previous consent.
+    f.owners.keycloak.endInteractiveSession("device-token-node-two");
     await assert.rejects(
       runFleetReplicaPullClient({
         ...f.peer("node-two"),
@@ -399,6 +401,7 @@ test(
       { code: "human_confirmation_required" },
     );
     f.owners.keycloak.node("node-two", "person-one");
+    f.owners.keycloak.interactiveSession("person-one", "node-two", f.owners.url, "device-token-node-two");
     f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
     assert.equal(
       (await read("lease-repo", "repo.tasks.list", {}, auth)).rows.length,

@@ -16,7 +16,7 @@ import { KeycloakPolicyAdapter, type KeycloakNode } from "../src/keycloak-policy
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { fakeKeycloak, keycloakUserRoot, keycloakUrl, keycloakRealm } from "./keycloak.fixtures.ts";
 
-test("owners rename, pause, reapprove, remove and globally revoke versioned devices without transferring them", async (t) => {
+test("owners rename, transfer, pause, reapprove, remove and globally revoke versioned devices", async (t) => {
   const user = keycloakUserRoot(),
     keycloak = fakeKeycloak();
   t.after(user.cleanup);
@@ -95,15 +95,55 @@ test("owners rename, pause, reapprove, remove and globally revoke versioned devi
   });
   user.signIn("person-admin");
   await assert.rejects(run({ operation: "node-register", nodeId: "A", personId: "bob", expectedVersion: "5" }), {
-    code: "device_already_registered",
+    code: "device_removed",
   });
-  user.signIn("alice", []);
+  keycloak.interactiveSession("alice", "B", keycloakUrl, "old-B");
+  keycloak.interactiveSession("bob", "B", keycloakUrl, "new-B");
+  const transfer = await run({ operation: "node-register", nodeId: "B", personId: "bob", expectedVersion: "1" });
+  assert.equal(transfer.ok, true);
+  assert.deepEqual([(await read("B")).personId, (await read("B")).revision], ["bob", 2]);
+  assert.equal(await registry.nodeOwner("B"), "bob");
+  assert.equal((await introspect("old-B")).active, false);
+  assert.equal((await introspect("new-B")).active, true);
+  assert.equal((await introspect("reapproved-A")).active, false);
+  user.signIn("bob", []);
   const list = await run({ operation: "device-list" });
   assert.equal((await run({ operation: "device-logout-all", expectedVersion: String(list.version) })).ok, true);
   assert.equal((await read("A")).state, "removed");
   assert.equal((await read("B")).state, "paused");
   assert.equal((await introspect("device-B")).active, false);
-  assert.equal((await introspect("device-C")).active, true);
+  assert.equal((await introspect("device-C")).active, false);
+});
+
+test("a different verified device login transfers ownership and revokes only the previous session", async (t) => {
+  const user = keycloakUserRoot(),
+    keycloak = fakeKeycloak();
+  t.after(user.cleanup);
+  keycloak.account("alice");
+  keycloak.account("bob");
+  keycloak.node("A", "alice");
+  keycloak.interactiveSession("alice", "A", keycloakUrl, "old-A");
+  keycloak.interactiveSession("bob", "A", keycloakUrl, "new-A");
+  const oidc = new OidcSessionService(user.root, { fetch: keycloak.fetch }),
+    adapter = new KeycloakPolicyAdapter(
+      { url: keycloakUrl, realm: keycloakRealm, resourceServerClientId: "harness-center" },
+      keycloak.fetch,
+    ),
+    auth = {
+      transportKind: "fleet-tls" as const,
+      nodePrincipal: { nodeId: "A", personId: "alice" },
+      humanAccessToken: "new-A",
+    };
+  const bound = await oidc.bind(auth);
+  assert.equal(bound.nodePrincipal?.personId, "bob");
+  assert.equal(bound.oidcPrincipal?.personId, "bob");
+  assert.deepEqual(
+    [(await adapter.readNode("center-token", "A"))!.personId, (await adapter.readNode("center-token", "A"))!.revision],
+    ["bob", 2],
+  );
+  await assert.rejects(oidc.bind({ ...auth, humanAccessToken: "old-A" }), { code: "human_confirmation_required" });
+  await oidc.bind(auth);
+  assert.equal((await adapter.readNode("center-token", "A"))!.revision, 2, "the same login does not rewrite ownership");
 });
 
 test("revocation failure blocks the device before settlement, and an explicit new request can finish it", async (t) => {

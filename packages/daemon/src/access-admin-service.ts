@@ -803,11 +803,17 @@ export class AccessAdminService {
       };
     if ((request.expectedVersion ?? "") !== currentVersion)
       return { conflict: { nodeId, expectedVersion: request.expectedVersion ?? "", currentVersion } };
-    if (current)
-      throw coded(
-        "device_already_registered",
-        "Device identity and owner are immutable; use its versioned device controls.",
-      );
+    if (current) {
+      if (current.state === "removed") throw coded("device_removed", "A removed device cannot be registered again.");
+      const moved: KeycloakNode = { ...current, personId, revision: current.revision + 1 };
+      return {
+        expect: { kind: "node", nodeId, version: String(moved.revision), state: moved.state },
+        apply: () =>
+          current.personId === personId
+            ? session.adapter.writeNode(session.token, moved)
+            : session.adapter.transferNode(session.token, moved, current.personId),
+      };
+    }
     // Only creating the node mints a credential, and a minted credential never travels in a
     // receipt: without a file to hold it the registration is refused before anything is reserved,
     // journaled, or written, so a first registration cannot end half-registered.

@@ -62,7 +62,7 @@ for (const refreshExpiresIn of [0, 60]) {
     fixture.state.now += 1_000;
     const login = await first.pollDevice();
     assert.equal(login.authenticated, true);
-    assert.equal(login.expiresAt, null);
+    assert.equal(login.expiresAt, fixture.state.now + 60_000);
     assert.equal(JSON.stringify(login).includes("refresh-"), false);
     const restarted = fixture.open();
     fixture.state.now += 86_400_000;
