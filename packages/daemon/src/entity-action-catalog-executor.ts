@@ -367,16 +367,19 @@ export function makeEntityActionCatalogExecutor(input: {
         runEntityWrite(bundle, action, existing !== null, authorizationDecision),
       );
     }
+    // Fact writes preview like their batch sibling (ha fact archive --ids-file) and like Decision
+    // writes: the compiled event is named, nothing is appended, and the receipt stays pending.
+    if (isFactBundle(bundle)) {
+      if (dryRun) return factPreview(bundle.event, input.store.readHead()?.revision ?? 0, authorizationDecision);
+      const result = facts.record(bundle);
+      publicationKillpoints(input.killpoint);
+      return factReceipt(result, bundle.event);
+    }
     if (dryRun) {
       if (bundle.event.schema !== "decision-event/v1")
         reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       input.projection.admitDecision(bundle.event);
       return { ...decisionPreview(bundle.event, input.store.readHead()?.revision ?? 0), authorizationDecision };
-    }
-    if (isFactBundle(bundle)) {
-      const result = facts.record(bundle);
-      publicationKillpoints(input.killpoint);
-      return factReceipt(result, bundle.event);
     }
     const result = decisions.record(bundle);
     publicationKillpoints(input.killpoint);
@@ -950,6 +953,30 @@ function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt
       canonicalVisible: false,
       worktreeVisible: false,
     },
+  };
+}
+
+function factPreview(event: FactEventV1, revision: number, authorizationDecision: AuthorizationDecision): WriteReceipt {
+  return {
+    outcome: "pending",
+    opId: `preview:${createHash("sha256").update(event.opId).digest("hex")}`,
+    revision,
+    evidence: JSON.stringify({
+      schema: "fact-write-preview/v1",
+      factId: event.factId,
+      eventType: event.type,
+      targetRevision: event.workspaceRevision,
+      dryRun: true,
+    }),
+    visibility: "center",
+    proof: {
+      committedRevision: revision,
+      appliedCut: revision,
+      durable: false,
+      canonicalVisible: false,
+      worktreeVisible: false,
+    },
+    authorizationDecision,
   };
 }
 
