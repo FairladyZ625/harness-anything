@@ -822,14 +822,34 @@ async function pullReplica(options: FleetReplicaPullClientOptions): Promise<Flee
   try {
     for (;;) {
       let result: FleetReplicaPullClientResult;
+      const remaining = () => {
+        const value = deadline - Date.now();
+        if (value <= 0) throw new Error("Fleet replica pull timeout");
+        return value;
+      };
+      let preparing = true;
       await session.send({
         schema: "fleet.replica.pull/v1",
         messageId: session.messageId(),
         repoId: options.repoId,
       });
       for (;;) {
-        const inbound = await session.next();
+        // Preparing progress is deliberately periodic, so the transport timeout must not
+        // restart on every progress frame. The pull has one absolute budget from admission
+        // through ACK; otherwise a stalled center can keep a spawn request waiting forever.
+        let inbound: FleetFrameV1;
+        try {
+          // The absolute budget applies to admission/preparation only. Once the center
+          // starts the snapshot or delta, large but healthy transfers retain their
+          // per-frame transport timeout and are bounded by the delivery lease.
+          inbound = await session.next(preparing ? remaining() : undefined);
+        } catch (error) {
+          if (preparing && error instanceof Error && error.message === "Fleet response timeout")
+            throw new Error("Fleet replica pull timeout");
+          throw error;
+        }
         if (inbound.schema === "fleet.replica.preparing/v1") continue;
+        preparing = false;
         if (inbound.schema === "fleet.replica.current/v1" || inbound.schema === "fleet.replica.checkpoint/v1") {
           const current = view.current(inbound.repoId, inbound.viewId);
           if (
