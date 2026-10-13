@@ -159,6 +159,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
+    console.error("onReplicationStart", nodeId, frame.repoId);
     await admitReplica(nodeId, frame.repoId, accessToken);
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
