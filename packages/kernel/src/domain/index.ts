@@ -36,6 +36,7 @@ export type { CompleteTaskCommand } from "./task-lifecycle.contract.ts";
 export {
   approvedReviewHistoryForExecution,
   consentedApprovedReviewForExecution,
+  reviewsForExecution,
   reviewVerdicts,
   settledApprovedReviewsForExecution,
 } from "./review.ts";

@@ -167,6 +167,21 @@ test("changes requested remains in review until the owner returns the cut with i
     assert.equal(reviewed.outcome, "applied", JSON.stringify(reviewed));
     assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
 
+    // A mistaken forward on the already-reviewed cut is refused before the write queue (2026-09-28
+    // defect: it waited minutes behind a stalled publication) and names the same-cut return order.
+    const mistaken = (await f.forward("Owner mistakenly re-forwards the reviewed cut.")) as Receipt;
+    assert.equal(mistaken.outcome, "op_rejected", JSON.stringify(mistaken));
+    assert.equal(mistaken.code, "invalid_transition", JSON.stringify(mistaken));
+    assert.match(
+      String(mistaken.rejectionExplanation),
+      /ha task adjudicate task-completion-review --return --review-id review-changes-requested/u,
+    );
+    assert.deepEqual(mistaken.nextActions, [
+      'ha task adjudicate task-completion-review --return --review-id review-changes-requested --note "<the owner\'s rework instruction>"',
+    ]);
+    assert.equal(f.launches.length, 1, "the refused forward dispatches no new reviewer");
+    assert.deepEqual(await taskStatus(f), { status: "in_review", iteration: 0 });
+
     const returned = await f.returnCut("Revise the evidence and resubmit.", "review-changes-requested");
     assert.equal(returned.outcome, "applied", JSON.stringify(returned));
     assert.deepEqual(await taskStatus(f), { status: "active", iteration: 1 });

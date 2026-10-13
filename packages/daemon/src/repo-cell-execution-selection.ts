@@ -1,6 +1,7 @@
 import {
   approvedReviewHistoryForExecution,
   currentSubmittedExecutions,
+  reviewsForExecution,
   submissionDigest,
 } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
@@ -9,6 +10,24 @@ import type { RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 
 export function explicitExecutionId(action: RepoTaskAction): string | undefined {
   return action.executionId === undefined ? undefined : requiredCellText(action.executionId, "executionId");
+}
+
+/**
+ * The recorded verdict an in-review return order must name: the latest review of the current
+ * submitted cut, falling back to the latest review of that execution when the cut itself has none
+ * (the kernel's return validation accepts any recorded review of the execution).
+ */
+export function currentCutReviewForReturn(
+  snapshot: Snapshot,
+  executionId?: string,
+): { readonly executionId: string; readonly reviewId: string } | null {
+  const execution = currentSubmittedExecutions(snapshot).find(
+    (value) => executionId === undefined || value.executionId === executionId,
+  );
+  if (!execution) return null;
+  const ofExecution = snapshot.reviews.filter((value) => value.executionId === execution.executionId),
+    named = reviewsForExecution(ofExecution, execution).at(-1) ?? ofExecution.at(-1);
+  return named ? { executionId: execution.executionId, reviewId: named.reviewId } : null;
 }
 
 export function assertCurrentSubmittedExecution(

@@ -79,6 +79,14 @@ test("submit lease refusals name the state-specific command that advances the ex
     assert.equal(alreadySubmitted.opId, submitted.opId, "the original holder resumes the same cut");
     const otherHolder = await cell.run({ kind: "task-submit", taskId, executionId }, binding("other-holder"));
     assert.equal(otherHolder.code, "lease_required", JSON.stringify(otherHolder));
+    // The refusal names the owning creator's two real lanes (2026-09-30 defect: it named none, so
+    // an owner with a patched branch had to dispatch another worker to resubmit).
+    assert.match(String(otherHolder.rejectionExplanation), /Only the original submission holder/u);
+    assert.match(String(otherHolder.rejectionExplanation), /ha task submit --amend task-submit-exit --as-owner/u);
+    assert.match(String(otherHolder.rejectionExplanation), /ha task adjudicate task-submit-exit --return\./u);
+    const otherSettle = await cell.run({ kind: "task-settle", taskId }, binding("other-holder"));
+    assert.equal(otherSettle.code, "lease_required", JSON.stringify(otherSettle));
+    assert.match(String(otherSettle.rejectionExplanation), /ha task submit --amend task-submit-exit --as-owner/u);
     assert.equal(
       (
         await cell.run(
@@ -115,6 +123,17 @@ test("submit lease refusals name the state-specific command that advances the ex
         )
       ).outcome,
       "applied",
+    );
+    // After a recorded verdict the cut sits in in_review; the owner's rejoin refusal must name the
+    // same-cut return order with the recorded review id.
+    const ownerRejoin = await cell.run(
+      { kind: "task-submit", taskId, executionId, asOwner: true },
+      binding("other-holder"),
+    );
+    assert.equal(ownerRejoin.code, "lease_required", JSON.stringify(ownerRejoin));
+    assert.match(
+      String(ownerRejoin.rejectionExplanation),
+      /ha task adjudicate task-submit-exit --return --review-id review-submit-exit\./u,
     );
   } finally {
     await cell?.close();
