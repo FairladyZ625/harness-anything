@@ -99,7 +99,16 @@ describe("StatusTag", () => {
     const tag = container.querySelector("span");
     expect(tag?.textContent).toBe("CI 失败");
     expect(tag?.getAttribute("data-status-tone")).toBe("bad");
+    expect(tag?.classList.contains("status-tag-active")).toBe(false);
     expect(tag?.getAttribute("style")).toContain("var(--color-status-blocked)");
+    act(() => root.unmount());
+  });
+
+  it("active 状态标签挂载 status-tag-active 微心跳动画类", () => {
+    const { container, root } = mount(createElement(StatusTag, { status: "active" }));
+    const tag = container.querySelector("span");
+    expect(tag?.classList.contains("status-tag-active")).toBe(true);
+    expect(tag?.getAttribute("data-status-tone")).toBe("active");
     act(() => root.unmount());
   });
 

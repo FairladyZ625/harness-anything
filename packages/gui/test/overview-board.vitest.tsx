@@ -452,7 +452,8 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     });
     const snapshot = wipSnapshot(counted, 10);
     const restore = stubBridge({ getTaskWip: () => snapshot });
-    const container = mount({ agenda: read });
+    const onOpenTask = vi.fn();
+    const container = mount({ agenda: read, onOpenTask });
     await flushUntil(
       () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/10") === true,
     );
@@ -469,39 +470,66 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
         .filter(({ taskId }) => taskId !== "task_wipblocked1" && taskId !== "task_wipblocked0")
         .map(({ taskId }) => taskId),
     ]);
-    // 点行弹既有放大层并选中该行:搜索/键盘面原样可达。
+    // 点行直接跳任务详情(业主 2026-10-13 裁定:总览点任务直接进任务详情,移除冗余二级弹窗)。
     act(() =>
       (container.querySelector('[data-drill-row="task_wipblocked1"]')!.querySelector("button") as HTMLElement).click(),
     );
-    const dialog = document.body.querySelector('[role="dialog"]');
-    expect(dialog).not.toBeNull();
-    expect(dialog!.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
-    expect(dialog!.querySelector("[data-testid='overview-task-wip-search']")).not.toBeNull();
-    // 选中的就是被点的那行(行悬停全文是 taskId,见 OverviewTaskWipBody)。
-    expect(dialog!.querySelector("[data-focus-list] [data-dense-row][data-selected]")?.getAttribute("title")).toBe(
-      "task_wipblocked1",
-    );
-    act(() => {
-      window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    });
+    expect(onOpenTask).toHaveBeenCalledWith("task_wipblocked1");
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
     unmount();
     restore();
   });
 
-  it("WIP 层分组过滤后关闭,再从内联行进入:过滤不遗留,被点行可见且详情就是被点任务", async () => {
+  it("置顶承诺 tab:点行直接进任务详情", async () => {
+    const onOpenTask = vi.fn();
+    const read = agenda({
+      pinnedEntities: [
+        { ref: "task/task_pin_go", kind: "task", title: "可派的置顶承诺", status: "planned", pinnedAt: AT },
+      ],
+      dispatchable: [
+        {
+          taskId: "task_pin_go",
+          title: "可派的置顶承诺",
+          work: null,
+          status: "planned",
+          pinned: true,
+          updatedAt: AT,
+          leaseExecutionId: null,
+          activeExecutionIds: [],
+          blockingAssessment: { state: "clear", blockers: [], warnings: [] },
+        },
+      ],
+    });
+    const restore = stubBridge({ getTaskWip: () => wipSnapshot([]) });
+    const container = mount({ onOpenTask, agenda: read });
+    try {
+      await flushUntil(() => container.querySelector('[data-testid="overview-drill-pinned"]') !== null);
+      act(() => (container.querySelector('[data-testid="overview-drill-pinned"]') as HTMLButtonElement).click());
+      const pinnedRow = container.querySelector('[data-drill-row="task_pin_go"]')!;
+      act(() => (pinnedRow.querySelector("button") as HTMLElement).click());
+      expect(onOpenTask).toHaveBeenCalledWith("task_pin_go");
+      expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+    } finally {
+      unmount();
+      restore();
+    }
+  });
+
+  it("WIP 放大层在位置恢复或历史直达时仍可用:分组过滤与搜索正常工作", async () => {
     const counted = defaultCounted();
     const restore = stubBridge({ getTaskWip: () => wipSnapshot(counted) });
-    const container = mount();
-    // 断言中途失败也要卸载:放大层挂在 document.body,泄出去会顶掉下一例的 dialog 查询。
+    const container = mount({
+      overviewLayer: {
+        overviewArtifactId: null,
+        overviewFocus: { key: "wip", selectedId: "task_wipactive0" },
+      },
+    });
     try {
       await flushUntil(
         () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/30") === true,
       );
-      // 打开 WIP 层,把分组滤到「活跃」:可见集合只剩 1 条 active。
-      act(() =>
-        (container.querySelector('[data-drill-row="task_wipactive0"]')!.querySelector("button") as HTMLElement).click(),
-      );
       const dialog = document.body.querySelector('[role="dialog"]')!;
+      expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
       act(() =>
         (
           [...dialog.querySelectorAll("[role='group'] button")].find((button) =>
@@ -510,109 +538,64 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
         ).click(),
       );
       expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(1);
-      // 关层后从内联行点一条被该分组滤掉的 blocked 任务:进入即重置过滤,被点行必须可见、
-      // 被选中且详情就是它(回归:遗留过滤曾把选中复算回首行,详情显示别的任务)。
-      act(() => {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-      });
-      act(() =>
-        (
-          container.querySelector('[data-drill-row="task_wipblocked0"]')!.querySelector("button") as HTMLElement
-        ).click(),
-      );
-      const reopened = document.body.querySelector('[role="dialog"]')!;
-      expect(reopened.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
-      expect(reopened.querySelector("[data-focus-list] [data-dense-row][data-selected]")?.getAttribute("title")).toBe(
-        "task_wipblocked0",
-      );
-      const detail = textOf(reopened.querySelector("[data-focus-detail]"));
-      expect(detail).toContain("task_wipblocked0");
-      expect(detail).toContain("占位任务 blocked0");
-    } finally {
-      unmount();
-      restore();
-    }
-  });
 
-  it("WIP 层搜索过滤后关闭,再从内联行进入:搜索不遗留,被点行可见且详情就是被点任务", async () => {
-    const counted = defaultCounted();
-    const restore = stubBridge({ getTaskWip: () => wipSnapshot(counted) });
-    const container = mount();
-    try {
-      await flushUntil(
-        () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/30") === true,
-      );
-      // 打开 WIP 层,搜索只命中 in_review0 一条。
-      act(() =>
-        (
-          container.querySelector('[data-drill-row="task_wipblocked0"]')!.querySelector("button") as HTMLElement
-        ).click(),
-      );
-      const dialog = document.body.querySelector('[role="dialog"]')!;
       const search = dialog.querySelector("[data-testid='overview-task-wip-search']") as HTMLInputElement;
       act(() => {
-        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "in_review0");
+        Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(search, "active0");
         search.dispatchEvent(new Event("input", { bubbles: true }));
       });
       expect(dialog.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(1);
-      // 关层后从内联行点一条被该搜索滤掉的 active 任务:进入即重置搜索,被点行可见、被选中。
-      act(() => {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-      });
-      act(() =>
-        (container.querySelector('[data-drill-row="task_wipactive0"]')!.querySelector("button") as HTMLElement).click(),
-      );
-      const reopened = document.body.querySelector('[role="dialog"]')!;
-      expect(reopened.querySelectorAll("[data-focus-list] [data-dense-row]")).toHaveLength(10);
-      expect(reopened.querySelector("[data-focus-list] [data-dense-row][data-selected]")?.getAttribute("title")).toBe(
-        "task_wipactive0",
-      );
-      const detail = textOf(reopened.querySelector("[data-focus-detail]"));
-      expect(detail).toContain("task_wipactive0");
-      expect(detail).toContain("占位任务 active0");
     } finally {
       unmount();
       restore();
     }
   });
 
-  it("「进行中的任务」行下钻走全局历史:点行推栈,层内换选中原地改,后退关层前进原路返回", async () => {
-    // 业主 2026-10-11「有的页面能退能进,有的不能」:下钻放大层不再各持 useState,
-    // 层位置(键 + 选中行)进 AppLocation——开层推栈、层内换选中原地精修、后退回总览。
-    const counted = defaultCounted();
-    const restore = stubBridge({ getTaskWip: () => wipSnapshot(counted) });
-    const container = mount();
+  it("跟进下钻放大层走全局历史:点行推栈,层内换选中原地改,后退关层前进原路返回", async () => {
+    const read = agenda({
+      answeredForYou: [
+        {
+          relationId: "follow",
+          sourceRef: "task/task_w1",
+          title: "已答复的跟进项",
+          status: "active",
+          personId: "person_worker",
+          askKind: "question",
+          question: "下一步?",
+          answer: "继续",
+          answeredAt: AT,
+          answeredBy: "答复人甲",
+        },
+      ],
+      attentionItems: [
+        ...agenda().attentionItems,
+        {
+          ref: "relation/follow",
+          title: "已答复的跟进项",
+          kind: "answered",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 30, reasons: [] },
+        },
+      ],
+    });
+    const restore = stubBridge({ getTaskWip: () => wipSnapshot([]) });
+    const container = mount({ agenda: read });
     try {
-      await flushUntil(
-        () => container.querySelector('[data-testid="overview-region-drill"]')?.textContent?.includes("10/30") === true,
-      );
+      await flushUntil(() => container.querySelector('[data-testid="overview-drill-followups"]') !== null);
+      act(() => (container.querySelector('[data-testid="overview-drill-followups"]') as HTMLButtonElement).click());
       expect(historyOf().location.overviewFocus ?? null).toBeNull();
-      act(() =>
-        (
-          container.querySelector('[data-drill-row="task_wipblocked0"]')!.querySelector("button") as HTMLElement
-        ).click(),
-      );
-      // 点行 = 推栈:层键与被点行进位置,canBack 变真(开层前还能无脑后退就是失灵)。
-      expect(historyOf().location.overviewFocus).toEqual({ key: "wip", selectedId: "task_wipblocked0" });
+      const followRow = container.querySelector('[data-drill-row="relation/follow"]')!;
+      act(() => (followRow.querySelector("button") as HTMLElement).click());
+      expect(historyOf().location.overviewFocus).toEqual({ key: "followups", selectedId: "relation/follow" });
       expect(historyOf().canBack).toBe(true);
-      // 层内换选中是原地精修不占历史:后退必须直接回总览,而不是上一个选中。
-      const otherRow = document.body.querySelector(
-        '[role="dialog"] [data-focus-list] [data-dense-row]:not([data-selected])',
-      )!;
-      act(() => (otherRow.querySelector("button") as HTMLElement).click());
-      expect(historyOf().location.overviewFocus?.selectedId).not.toBe("task_wipblocked0");
-      // 后退回到开层前的总览位置(放大层收起);前进原路返回,层与最后选中一起还原。
+
       act(() => historyOf().back());
       expect(historyOf().location.overviewFocus ?? null).toBeNull();
       expect(document.body.querySelector('[role="dialog"]')).toBeNull();
       act(() => historyOf().forward());
-      expect(historyOf().location.overviewFocus?.key).toBe("wip");
+      expect(historyOf().location.overviewFocus?.key).toBe("followups");
       expect(document.body.querySelector('[role="dialog"]')).not.toBeNull();
-      expect(
-        document.body
-          .querySelector('[role="dialog"] [data-focus-list] [data-dense-row][data-selected]')
-          ?.getAttribute("title"),
-      ).toBe(historyOf().location.overviewFocus?.selectedId);
     } finally {
       unmount();
       restore();

@@ -115,6 +115,12 @@ describe("visual foundation: reduced motion", () => {
     expect(reduced).toMatch(/\.live-row::after\s*\{[^}]*animation:[^}]*live-wave-sweep[^}]*!important/u);
     expect(reduced).toMatch(/\.seg-active-shimmer::after\s*\{[^}]*animation:[^}]*live-wave-sweep[^}]*!important/u);
   });
+
+  it("disables micro-heartbeat animations under prefers-reduced-motion", () => {
+    const reduced = blockBody(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/u);
+    expect(reduced).not.toMatch(/\.status-tag-active\s*\{[^}]*animation:/u);
+    expect(reduced).not.toMatch(/\.live-dot-pulse\s*\{[^}]*animation:/u);
+  });
 });
 
 describe("visual foundation: motion as the sole animation library", () => {
