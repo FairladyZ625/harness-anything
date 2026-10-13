@@ -105,6 +105,7 @@ test("Squad Action catalog owns install, read surfaces, and exact rejected crite
       },
       inspectEvidence = {
         schema: "squad-inspection/v1",
+        workspaceRevision: squadInstall.receipt.revision,
         squad,
         status: "ready",
         watermark: inspected.revision,

@@ -105,7 +105,13 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
       ["Run ha agent list and choose an existing Agent id."],
     );
   try {
-    return { schema: "agent-inspection/v1", agent: readProjectedAgentDeclaration(row.value) };
+    return {
+      schema: "agent-inspection/v1",
+      // The delete/install guards compare against the entity revision, so the inspect read
+      // must state it; otherwise the next --expected-version is only readable from a conflict.
+      workspaceRevision: row.workspaceRevision,
+      agent: readProjectedAgentDeclaration(row.value),
+    };
   } catch (error) {
     // An installed declaration whose stored shape the current schema rejects is a reinstall need
     // for that agent; the inspect read answers with the command, not the raw contract message.
@@ -183,7 +189,11 @@ function inspectSquad(cell: RepoCellRuntimeContext, squadId: string): object {
       "squad/member-declarations",
       missing.map(({ hint }) => `${hint}, then retry ha squad inspect ${squad.id}.`),
     );
-  return { schema: "squad-inspection/v1", squad };
+  return {
+    schema: "squad-inspection/v1",
+    workspaceRevision: row.workspaceRevision,
+    squad,
+  };
 }
 
 function coordinatorReceipt(
