@@ -91,8 +91,8 @@ function walkArtifactTree(
 ): { readonly rows: readonly ArtifactFileRow[]; readonly truncated: boolean } {
   const rows: ArtifactFileRow[] = [],
     classifiedTotal = () => counts.html + counts.md + counts.raw;
-  if (statLinkSync(artifactsRoot)?.isSymbolicLink() === true || statFileSync(artifactsRoot)?.isDirectory() !== true)
-    return { rows, truncated: false };
+  const rootStat = statLinkSync(artifactsRoot);
+  if (rootStat === null || rootStat.isSymbolicLink() || !rootStat.isDirectory()) return { rows, truncated: false };
   const queue: (readonly [string, string])[] = [[artifactsRoot, "artifacts"]];
   let visited = 0;
   while (queue.length > 0 && classifiedTotal() < artifactWalkMaxFiles && visited < artifactWalkMaxVisits) {
@@ -203,10 +203,11 @@ export function readArtifactsGui(
     walk = walkAllTaskArtifacts(resolveHarnessLayout(context.rootDir).tasksRoot, kind),
     files = walk.rows,
     counts = walk.counts,
-    tasksByPackage = taskIndexByPackage(
-      context.projection,
-      cut.rows.map(({ taskId }) => taskId),
-    ),
+    neededPackageDirs = new Set(files.map((row) => row.packageDir)),
+    candidateTaskIds = cut.rows.map(({ taskId }) => taskId).filter((taskId) => neededPackageDirs.has(taskId)),
+    targetTaskIds =
+      candidateTaskIds.length >= neededPackageDirs.size ? candidateTaskIds : cut.rows.map(({ taskId }) => taskId),
+    tasksByPackage = taskIndexByPackage(context.projection, targetTaskIds),
     eventTimes = new Map<number, string>(),
     artifacts: readonly ArtifactGuiRowDto[] = files
       .map((row) => {
