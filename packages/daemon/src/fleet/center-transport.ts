@@ -47,6 +47,7 @@ export async function serve(
   let nodeId: string | null = null,
     accessToken: string | undefined,
     pumping = false;
+  let pendingReplicationStart: Extract<ReplicationFrame, { readonly type: "replica.start" }> | null = null;
   let replicationMode = false;
   const replicationFrames: ReplicationFrame[] = [];
   const replicationWaiters: ((frame: ReplicationFrame) => void)[] = [];
@@ -180,6 +181,18 @@ export async function serve(
     }
   });
   const dispatch = async (line: string) => {
+    if (line.includes('"type":"replica.start"')) {
+      const frame = parseReplicationFrame(line);
+      if (frame.type !== "replica.start") throw new FleetFault("invalid_replication", "Replication start required.");
+      if (nodeId === null) {
+        pendingReplicationStart = frame;
+        return;
+      }
+      replicationMode = true;
+      if (!options.onReplicationStart) throw new FleetFault("replication_unavailable", "Replication is unavailable.");
+      await options.onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal);
+      return;
+    }
     let frame: FleetFrameV1 | null = null;
     try {
       frame = parseFleetFrame(line);
@@ -206,6 +219,14 @@ export async function serve(
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         nodeId = frame.nodeId;
         accessToken = frame.accessToken;
+        if (pendingReplicationStart && options.onReplicationStart) {
+          const start = pendingReplicationStart;
+          pendingReplicationStart = null;
+          replicationMode = true;
+          void options
+            .onReplicationStart(nodeId, accessToken, start, replicationPeer, disconnected.signal)
+            .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
+        }
         return enqueue(
           immediate({
             schema: "fleet.session.ready/v1",
