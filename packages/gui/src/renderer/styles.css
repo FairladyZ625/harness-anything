@@ -427,6 +427,38 @@ html[data-theme="light"] .glass-sub {
   animation: live-wave-sweep 2.8s var(--ease) infinite;
 }
 
+/* 运行中状态标签微心跳(StatusTag active 态):组件自身温和呼吸与微光弥散,与宏观全行流光区隔 */
+.status-tag-active {
+  animation: status-tag-breathe 2.6s var(--ease) infinite;
+}
+@keyframes status-tag-breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-status-active) 0%, transparent);
+    opacity: 0.82;
+  }
+  50% {
+    box-shadow: 0 0 6px 1px color-mix(in oklch, var(--color-status-active) 32%, transparent);
+    opacity: 1;
+  }
+}
+
+/* LiveDot 运行中微脉冲:小圆点自身柔和呼吸放缩与光晕展开 */
+.live-dot-pulse {
+  animation: live-dot-breathe 2.6s var(--ease) infinite;
+}
+@keyframes live-dot-breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    box-shadow: 0 0 3px 0 color-mix(in oklab, var(--color-status-done) 40%, transparent);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 7px 2px color-mix(in oklab, var(--color-status-done) 75%, transparent);
+  }
+}
+
 /* 统计图的柱入场:挂载时从基线长出一次(标准 §6:≤180ms 缓出,不回弹不循环);数据刷新
    不重挂元素,不重播。系统「减少动态效果」开启时由下面的全局规则关掉。 */
 .viz-grow {
@@ -442,8 +474,8 @@ html[data-theme="light"] .glass-sub {
 
 /* 减少动态效果:与 motion 的 reducedMotion="user"(motion-config.tsx)同向,
    页面交互/转场/弹窗动画全局关停。但系统心跳遥测与漫反射底色(.live-row、.seg-active-shimmer、
-   .aurora)属于实时工作运行指示器与环境折射背景,保持平滑循环,避免在活跃行内
-   留下静止卡滞的高光束假死残影。 */
+   .status-tag-active、.live-dot-pulse、.aurora)属于实时工作运行指示器与环境折射背景,
+   保持平滑循环,避免在活跃行内留下静止卡滞的高光束假死残影。 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -460,6 +492,12 @@ html[data-theme="light"] .glass-sub {
   }
   .seg-active-shimmer::after {
     animation: live-wave-sweep 2.8s var(--ease) infinite !important;
+  }
+  .status-tag-active {
+    animation: status-tag-breathe 2.6s var(--ease) infinite !important;
+  }
+  .live-dot-pulse {
+    animation: live-dot-breathe 2.6s var(--ease) infinite !important;
   }
   .aurora i {
     animation: drift 26s var(--ease) infinite alternate !important;

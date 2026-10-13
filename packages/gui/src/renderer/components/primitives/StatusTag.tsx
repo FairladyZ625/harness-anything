@@ -71,12 +71,13 @@ export function StatusTag({
   const resolvedTone = tone ?? (status !== undefined ? STATUS_TONE[status] : "neutral");
   const color = TONE_COLOR[resolvedTone];
   const text = label ?? (status !== undefined ? STATUS_META[status].label : null);
+  const activeClass = resolvedTone === "active" ? " status-tag-active" : "";
   return (
     <span
       data-status-tone={resolvedTone}
       data-tip={tip}
       data-testid={testId}
-      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xs px-1.5 py-px font-semibold ui-meta ${mono ? "font-mono" : ""}`}
+      className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xs px-1.5 py-px font-semibold ui-meta ${mono ? "font-mono" : ""}${activeClass}`}
       style={{ color, background: `color-mix(in oklch, ${color} 14%, transparent)` }}
     >
       {icon}

@@ -452,6 +452,7 @@ export function OverviewDrillBody({
   followUps,
   pinned,
   onOpenFocus,
+  onOpenTask,
   deps,
 }: {
   /** drillWipRows 的当前行(注意力分降序,行内含执行者与最近活动)。 */
@@ -468,6 +469,8 @@ export function OverviewDrillBody({
   readonly pinned: readonly PinnedTaskRow[];
   /** 点行落点:开对应放大层并选中该行(selectedId 与该层 itemIds 同源)。 */
   readonly onOpenFocus: (key: DrillFocusKey, selectedId?: string) => void;
+  /** 任务行落点:直接跳转任务详情(业主 2026-10-13 裁定:总览点任务直接进,移除冗余二级弹窗)。 */
+  readonly onOpenTask: (taskId: string) => void;
   readonly deps: OverviewBoardDeps;
 }) {
   const [tab, setTab] = useState<DrillTabKey>("wip");
@@ -548,7 +551,7 @@ export function OverviewDrillBody({
                       </span>
                     )
                   }
-                  onClick={() => onOpenFocus("wip", row.taskId)}
+                  onClick={() => onOpenTask(row.taskId)}
                 />
               </div>
             ))
@@ -596,7 +599,7 @@ export function OverviewDrillBody({
                       label={t("views.overviewView.unpinRowLabel", { title: task.title })}
                     />
                   }
-                  onClick={() => onOpenFocus("pinned", task.taskId)}
+                  onClick={() => onOpenTask(task.taskId)}
                 />
               </div>
             ))
