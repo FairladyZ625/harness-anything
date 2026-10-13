@@ -158,6 +158,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   };
   const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
   const projectionReady = new Map<string, Promise<void>>();
+  const backupQueues = new Map<string, Promise<void>>();
   const onReplicationStart = async (
     nodeId: string,
     accessToken: string | undefined,
@@ -198,6 +199,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           await new Promise<void>((resolve) => setImmediate(resolve));
       },
       backup: async (backupSignal: AbortSignal) => {
+        const previous = backupQueues.get(frame.repoId) ?? Promise.resolve();
+        let release!: () => void;
+        const turn = new Promise<void>((resolve) => (release = resolve));
+        backupQueues.set(
+          frame.repoId,
+          previous.then(() => turn),
+        );
+        await previous;
         const started = startBaseBackup(
           {
             ledgerPath: store.databasePath,
@@ -206,9 +215,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           },
           backupSignal,
         );
-        const pinned = await started;
-        const archive = await pinned.complete;
-        return { ...archive, release: async () => undefined };
+        try {
+          const pinned = await started;
+          const archive = await pinned.complete;
+          return {
+            ...archive,
+            release: async () => {
+              release();
+            },
+          };
+        } catch (error) {
+          release();
+          throw error;
+        }
       },
       object: async function* (sha256: string) {
         const bytes = store.readContentObject(sha256);

@@ -92,6 +92,7 @@ async function runOneSession() {
   let buffer = "";
   const lines = [];
   const waiters = [];
+  const rejects = [];
   socket.on("data", (chunk) => {
     buffer += chunk.toString("utf8");
     for (;;) {
@@ -104,8 +105,16 @@ async function runOneSession() {
       else lines.push(line);
     }
   });
+  socket.on("close", () => {
+    while (rejects.length) rejects.shift()(new Error("replication socket closed"));
+  });
   const nextLine = () =>
-    lines.length ? Promise.resolve(lines.shift()) : new Promise((resolve) => waiters.push(resolve));
+    lines.length
+      ? Promise.resolve(lines.shift())
+      : new Promise((resolve, reject) => {
+          waiters.push(resolve);
+          rejects.push(reject);
+        });
   socket.write(
     serializeFleetFrame({
       schema: "fleet.session.hello/v1",

@@ -6,7 +6,7 @@
 // 边缘本地手改停留在工作副本,不进 canonical 事件流。
 // 待对齐: 见 fleet-replication.fixture.ts 文件头;runtime 派工帧与节点注册表的 admin 操作沿用现有合同。
 import assert from "node:assert/strict";
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
@@ -27,6 +27,7 @@ const seededTask = { taskId: "task_e2e0000000000000000000001", executionId: "exe
 const mirrorHead = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
     } finally {
       db.close();
@@ -72,7 +73,7 @@ const mirrorHead = (ledgerPath: string): number => {
 
 test("three process-level edges hold one consistent mirror of every center read", { timeout: 240_000 }, async (t) => {
   const fixture = await fleetReplicationFixture(t);
-  await seedCenterData(fixture, seededTask);
+  const seeded = await seedCenterData(fixture, seededTask);
   await fixture.openCenter();
   const edges = replicationNodes.map((nodeId) => fixture.startEdge(nodeId));
   const installs = await Promise.all(edges.map((edge) => edge.waitForEvent("installed")));
@@ -87,9 +88,9 @@ test("three process-level edges hold one consistent mirror of every center read"
   );
   const centerReader = fixture.centerReader(),
     centerList = taskListDigest(centerReader),
-    centerRevision = centerReader.withSession((queries) => queries.readCut().revision);
+    centerRevision = centerReader.withSession((queries) => queries.readCut().watermark);
   assert.equal(centerRevision, fixture.eventCount());
-  const noteBytes = readFileSync(path.join(fixture.repo, "tasks", seededTask.taskId, seededTask.taskId, "notes.md"));
+  const noteBytes = readFileSync(seeded.planPath);
   for (const [index, installed] of installs.entries()) {
     const reader = makeTaskProjectionReader({
       rootDir: edges[index]!.root,
@@ -239,6 +240,7 @@ test(
     await edge.waitForWhere(() => mirrorHead(String(installed.ledgerPath)) === fixture.eventCount(), "convergence");
     // A hand edit in the edge's work tree never becomes a canonical event on its own.
     const localEdit = path.join(edge.viewRoot, "harness", "tasks", seededTask.taskId, "local-note.md");
+    mkdirSync(path.dirname(localEdit), { recursive: true });
     writeFileSync(localEdit, "# Local edit\n\nNever submitted through the center.\n");
     const headBeforeEdit = fixture.eventCount();
     const control = await fixture.edgeTaskCommand("edge-two", {
