@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -102,3 +102,60 @@ for (const scenario of cases) {
     assert.equal(seen.length, 1, "the bridge sends the operation once, including on timeout");
   });
 }
+
+test("a raised local gui.requestTimeoutMs governs the default read deadline, not the built-in 30s", async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-gui-deadline-setting-")),
+    daemonId = "gui-deadline-setting",
+    socketPath = localUserDaemonEndpoint(parent, daemonId),
+    previous = { root: process.env.HARNESS_DAEMON_USER_ROOT, id: process.env.HARNESS_DAEMON_ID };
+  let reply!: (value: Record<string, unknown>) => void;
+  const arrived = new Promise<void>((resolve) => {
+    const server = net.createServer((socket) => {
+      const lines = createInterface({ input: socket });
+      lines.on("line", (line) => {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "protocol.hello") {
+          socket.write(
+            `${JSON.stringify({ jsonrpc: "2.0", id: request.id, result: { ok: true, methods: ["protocol.hello", "daemon.gui.system.read"] } })}\n`,
+          );
+        } else {
+          reply = (value) => socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, ...value })}\n`);
+          resolve();
+        }
+      });
+    });
+    t.after(async () => {
+      await new Promise<void>((done) => server.close(() => done()));
+      if (previous.root === undefined) delete process.env.HARNESS_DAEMON_USER_ROOT;
+      else process.env.HARNESS_DAEMON_USER_ROOT = previous.root;
+      if (previous.id === undefined) delete process.env.HARNESS_DAEMON_ID;
+      else process.env.HARNESS_DAEMON_ID = previous.id;
+      rmSync(parent, { recursive: true, force: true });
+    });
+    mkdirSync(path.dirname(socketPath), { recursive: true });
+    server.listen(socketPath);
+  });
+  // This machine's local settings raise the default answer deadline to 45 seconds.
+  mkdirSync(path.join(parent, ".harness"), { recursive: true });
+  writeFileSync(
+    path.join(parent, ".harness/settings.local.json"),
+    `${JSON.stringify({ schema: "settings-local/v1", locale: "en-US", gui: { connectTimeoutMs: 2000, requestTimeoutMs: 45_000 } })}\n`,
+  );
+  process.env.HARNESS_DAEMON_USER_ROOT = parent;
+  process.env.HARNESS_DAEMON_ID = daemonId;
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const pending = Promise.resolve(createLocalGuiServiceBridge(parent).invoke("getSystemStatus", {}));
+  await arrived;
+  // The old built-in 30s deadline passes without settling the request.
+  t.mock.timers.tick(30_000);
+  assert.equal(
+    await Promise.race([pending.then(() => true), Promise.resolve(false)]),
+    false,
+    "the request outlived the old 30s default",
+  );
+  // The configured 45s deadline is what stops it.
+  t.mock.timers.tick(15_000);
+  const receipt = (await pending) as { ok: boolean; error?: { code: string } };
+  assert.equal(receipt.ok, false);
+  assert.equal(receipt.error?.code, "daemon_response_timeout");
+});

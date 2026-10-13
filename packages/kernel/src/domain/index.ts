@@ -259,12 +259,15 @@ export {
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
   DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
   DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+  DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+  DEFAULT_GUI_REQUEST_TIMEOUT_MS,
   INITIAL_SETTINGS_V1,
   SETTINGS_DECLARATION_RUNTIME,
   SETTINGS_FIELD_GROUPS,
   SETTINGS_FIELD_PRESENTATION,
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
+  localSettings,
   parseLocalSettings,
   readGateSettings,
   readSettingsFacet,
@@ -278,11 +281,13 @@ export {
 } from "./settings.ts";
 export type {
   DecisionReviewRequirement,
+  LocalSettingsV1,
   RepositorySettingsV1,
   ReviewIndependence,
   SettingsLocale,
   SettingsV1,
 } from "./settings.ts";
+export { SettingsDeclarationError } from "./settings.ts";
 export { DEFAULT_CLOSEOUT_SETTINGS, effectiveCloseoutGates } from "./settings-closeout.ts";
 export type { CloseoutGate, CloseoutSettingsV1 } from "./settings-closeout.ts";
 export { compileSettingsChangedEvent, isSettingsEvent } from "./settings-event.ts";

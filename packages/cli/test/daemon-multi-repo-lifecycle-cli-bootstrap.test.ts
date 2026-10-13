@@ -113,6 +113,7 @@ test("REQ-CTX-01..10 empty init publishes the canonical scaffold, authority pari
     assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.repo, ".harness/settings.local.json"), "utf8")), {
       schema: "settings-local/v1",
       locale: "en-US",
+      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
     });
     assert.match(
       architecture,

@@ -131,6 +131,10 @@ export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 export const DEFAULT_BACKUP_EXECUTION_LIMIT_MS = 30 * 60_000;
 /** An ACP provider must answer one handshake request within this; slower hosts raise it (30 seconds). */
 export const DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS = 30_000;
+/** The GUI connect deadline: raised from the CLI's 75ms once (泽宇 2026-09-01/02, 75ms→2s). */
+export const DEFAULT_GUI_CONNECT_TIMEOUT_MS = 2_000;
+/** The GUI default answer deadline: 200ms, 2s and 10s all failed live before 30s held (泽宇 2026-09-01/02). */
+export const DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
@@ -276,6 +280,31 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "presentation",
     action: { field: "locale", type: "string" },
     cli: { name: "--locale", kind: "single", enum: settingsLocales },
+  }),
+  defineSettingsField({
+    path: ["gui", "connectTimeoutMs"],
+    ownership: local,
+    valueKind: "integer",
+    defaultValue: DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+    minimum: 100,
+    description: "How long the GUI waits to connect its local daemon before calling it unreachable, in milliseconds.",
+    effect: "Raise it if the GUI reports the daemon unreachable on a busy machine; applies on this machine only.",
+    group: "presentation",
+    action: { field: "guiConnectTimeoutMs", type: "number" },
+    cli: { name: "--gui-connect-timeout-ms", kind: "single", regex: "^[1-9][0-9]{2,}$" },
+  }),
+  defineSettingsField({
+    path: ["gui", "requestTimeoutMs"],
+    ownership: local,
+    valueKind: "integer",
+    defaultValue: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
+    minimum: 1_000,
+    description: "How long the GUI waits for a daemon answer before the request fails, in milliseconds.",
+    effect:
+      "Raise it when sustained ledger writes turn ordinary reads into visible GUI errors; applies on this machine only.",
+    group: "presentation",
+    action: { field: "guiRequestTimeoutMs", type: "number" },
+    cli: { name: "--gui-request-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
   }),
   defineSettingsField({
     path: ["overview", "watchedActivityDays"],
