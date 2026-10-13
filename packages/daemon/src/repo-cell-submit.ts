@@ -20,7 +20,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
-import { assertCurrentSubmittedExecution } from "./repo-cell-execution-selection.ts";
+import { assertCurrentSubmittedExecution, currentCutReviewForReturn } from "./repo-cell-execution-selection.ts";
 import { readSubmissionArtifact } from "./submission-artifacts.ts";
 import { runDocAction } from "./doc-sync-actions.ts";
 import { makeGitReadinessSource, runProcessText } from "./process-port.ts";
@@ -347,6 +347,26 @@ export function submissionAnchorDriftWarnings(
 }
 
 /**
+ * The owning creator who is not the submission holder has two real lanes onto a submitted cut —
+ * neither is the plain resume this refusal just denied: replace the cut in place with an owner
+ * amendment, or return it (with the recorded review once one exists) to reopen the rework round.
+ */
+function ownerResumeLanes(
+  snapshot: Snapshot,
+  taskId: string,
+  actor: RepoCellBinding["actor"],
+  executionId: string,
+): string {
+  const task = snapshot.task;
+  if (!task || !isSamePerson(task.createdBy, actor)) return "";
+  const review = currentCutReviewForReturn(snapshot, executionId);
+  return (
+    ` The owning creator may instead replace the cut with ha task submit --amend ${taskId} --as-owner` +
+    `, or reopen the rework round with ha task adjudicate ${taskId} --return${review ? ` --review-id ${review.reviewId}` : ""}.`
+  );
+}
+
+/**
  * An amendment replaces the in-review cut, so the prior review no longer covers it: the center
  * dispatches the reviewer for the new cut through the forward's own path. Before owner triage the
  * amendment dispatches nothing; the forward will.
@@ -423,7 +443,10 @@ export async function submitTask(
       !isSameExecution(event.actor, binding.actor) ||
       !sameWriteSource(event.source, binding.source)
     )
-      throw cell.cellCodedError("lease_required", "Only the original submission holder may resume this cut.");
+      throw cell.cellCodedError(
+        "lease_required",
+        `Only the original submission holder may resume this cut.${ownerResumeLanes(current.snapshot, taskId, binding.actor, selected.executionId)}`,
+      );
   }
   if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission && !event))
     return cell.lifecycleAction(action, binding);
