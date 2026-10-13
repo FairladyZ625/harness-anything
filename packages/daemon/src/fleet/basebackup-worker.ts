@@ -10,7 +10,6 @@ import { syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupArchive, BaseBackupInput, BaseBackupMetadata } from "./basebackup.ts";
 
 const input = workerData as BaseBackupInput;
-console.error("backup paths", input.ledgerPath, input.projectionPath);
 const ledger = new DatabaseSync(input.ledgerPath, { readOnly: true });
 const projection = new DatabaseSync(input.projectionPath, { readOnly: true });
 try {

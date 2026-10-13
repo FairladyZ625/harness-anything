@@ -164,7 +164,6 @@ export async function serve(
             }
             replicationMode = true;
             replicationFrames.push(frame);
-            console.error("replication start received", nodeId, frame.repoId);
             if (options.onReplicationStart)
               void options
                 .onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal)

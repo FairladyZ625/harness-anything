@@ -159,7 +159,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
-    console.error("onReplicationStart", nodeId, frame.repoId);
     await admitReplica(nodeId, frame.repoId, accessToken);
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
@@ -180,16 +179,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const started = startBaseBackup(
           {
             ledgerPath: store.databasePath,
-            projectionPath: layout.projectionPath,
+            projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
             directory: path.join(options.stateRoot, "replication-backups"),
           },
           backupSignal,
         );
-        console.error("backup started promise");
         const pinned = await started;
-        console.error("backup pinned", pinned.metadata);
         const archive = await pinned.complete;
-        console.error("backup complete", archive.size);
         return { ...archive, release: async () => undefined };
       },
       object: async function* (sha256: string) {

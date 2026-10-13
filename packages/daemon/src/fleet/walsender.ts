@@ -63,14 +63,12 @@ export async function runWalSender(input: {
     slots.acknowledge(lease, frame, sent);
   };
   const start = await peer.receive(signal);
-  console.error("walsender got", start.type);
   if (start.type !== "replica.start") throw new Error("replication start required");
   let position = start.position;
   for (;;) {
     assertOwner();
     const page = position === null ? null : source.read(position);
     if (page === null) {
-      console.error("walsender backup", position);
       if (position !== null) await peer.send({ type: "replica.resync", reason: "replication window unavailable" });
       const archive = await source.backup(signal);
       try {

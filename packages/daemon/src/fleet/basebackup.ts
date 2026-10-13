@@ -47,7 +47,6 @@ export function startBaseBackup(
     };
     signal?.addEventListener("abort", abort, { once: true });
     const fail = (error: Error) => {
-      console.error("basebackup worker failure", error);
       if (pinned) rejectComplete(error);
       else reject(error);
     };
