@@ -10,6 +10,42 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { policyTestCenter, signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 
+test("daemon close waits for managed RBAC resume before stopping its services", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-host-rbac-close-")),
+    events: string[] = [];
+  let releaseResume!: () => void;
+  const resumeGate = new Promise<void>((resolve) => {
+      releaseResume = resolve;
+    }),
+    host = await openDaemonHost({
+      daemonId: "rbac-close",
+      userRoot: path.join(parent, "user"),
+      managedRbac: {
+        run: async () => ({ ok: true }),
+        resume: async () => {
+          events.push("resume-start");
+          await resumeGate;
+          events.push("resume-end");
+        },
+        stop: async () => {
+          events.push("stop");
+          return { ok: true };
+        },
+      },
+    });
+  try {
+    const closing = host.close();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    assert.deepEqual(events, ["resume-start"], "shutdown must not stop an empty child set before resume launches RBAC");
+    releaseResume();
+    await closing;
+    assert.deepEqual(events, ["resume-start", "resume-end", "stop"]);
+  } finally {
+    releaseResume();
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 test("daemon startup defers runtime discovery until a runtime-instance request", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-runtime-discovery-lazy-")),
     userRoot = path.join(parent, "user");
