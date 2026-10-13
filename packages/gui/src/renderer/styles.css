@@ -26,6 +26,7 @@
   --control-height-touch: 40px;
   --long-content-cap: 55cqb;
   --overlay-content-cap: 85dvh;
+  --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
 
 .content-viewport {
@@ -349,10 +350,10 @@ html[data-theme="light"] .glass-sub {
 }
 
 /* 活跃执行行的全行脉冲光波(业主 2026-10-12 现场批示:整行都要有从左到右的脉冲光波):
-   行本体带左缘高亮边;::before 是全行呼吸微光层;::after 是贯穿全行的横向流光波束,
-   设置 z-index: 1 悬浮于行内容上方,白色与状态色交织的柔和高光束,
-   2.6s 持续循环平滑横移,肉眼可见一道波束自左向右清透划过。
-   「减少动态效果」开启时由下方全局规则关停,静态左缘边线保留。 */
+   行本体带左缘高亮边;::before 是全行呼吸微光层,状态色微光只动 opacity;::after 是贯穿全行的
+   横向流光波束,2.8s 同周期(0% 波束整段悬在行外左侧,65% 冲出行外右侧,100% 停留静默,肉眼看是
+   每个周期一道从左向右的柔和横扫脉冲)。
+   状态色通透柔和扩散,不遮挡行内文本与操作。两段动画走合成器路径(transform/opacity)。 */
 .live-row {
   position: relative;
   overflow: hidden;
@@ -365,42 +366,43 @@ html[data-theme="light"] .glass-sub {
   background:
     radial-gradient(
       ellipse 65% 100% at 0% 50%,
-      color-mix(in oklab, var(--color-status-active) 18%, transparent),
+      color-mix(in oklab, var(--color-status-active) 16%, transparent),
       transparent 70%
     ),
     color-mix(in oklab, var(--color-status-active) 4%, transparent);
-  animation: live-row-breathe 2.6s ease-in-out infinite alternate;
+  animation: live-row-breathe 2.8s var(--ease) infinite;
   pointer-events: none;
 }
 .live-row::after {
   content: "";
   position: absolute;
   inset: 0;
-  z-index: 1;
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in oklab, var(--color-status-active) 18%, transparent) 25%,
-    color-mix(in oklab, var(--color-status-active) 75%, white 25%) 50%,
-    color-mix(in oklab, var(--color-status-active) 18%, transparent) 75%,
+    color-mix(in oklab, var(--color-status-active) 14%, transparent) 28%,
+    color-mix(in oklab, var(--color-status-active) 38%, transparent) 50%,
+    color-mix(in oklab, var(--color-status-active) 14%, transparent) 72%,
     transparent 100%
   );
-  animation: live-wave-sweep 2.6s ease-in-out infinite;
+  animation: live-wave-sweep 2.8s var(--ease) infinite;
   pointer-events: none;
 }
 @keyframes live-wave-sweep {
   0% {
     transform: translateX(-100%);
   }
+  65%,
   100% {
     transform: translateX(100%);
   }
 }
 @keyframes live-row-breathe {
-  0% {
-    opacity: 0.4;
-  }
+  0%,
   100% {
+    opacity: 0.3;
+  }
+  50% {
     opacity: 1;
   }
 }
@@ -419,10 +421,10 @@ html[data-theme="light"] .glass-sub {
   background: linear-gradient(
     90deg,
     transparent 0%,
-    color-mix(in oklab, white 60%, transparent) 50%,
+    color-mix(in oklab, white 45%, transparent) 50%,
     transparent 100%
   );
-  animation: live-wave-sweep 2.6s ease-in-out infinite;
+  animation: live-wave-sweep 2.8s var(--ease) infinite;
 }
 
 /* 统计图的柱入场:挂载时从基线长出一次(标准 §6:≤180ms 缓出,不回弹不循环);数据刷新
@@ -439,13 +441,38 @@ html[data-theme="light"] .glass-sub {
 }
 
 /* 减少动态效果:与 motion 的 reducedMotion="user"(motion-config.tsx)同向,
-   CSS 与 JS 动画在同一系统偏好下一起关。 */
+   页面交互/转场/弹窗动画全局关停。但系统心跳遥测与漫反射底色(.live-row、.seg-active-shimmer、
+   .aurora)属于实时工作运行指示器与环境折射背景,保持平滑循环,避免在活跃行内
+   留下静止卡滞的高光束假死残影。 */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+
+  .live-row::after {
+    animation: live-wave-sweep 2.8s var(--ease) infinite !important;
+  }
+  .live-row::before {
+    animation: live-row-breathe 2.8s var(--ease) infinite !important;
+  }
+  .seg-active-shimmer::after {
+    animation: live-wave-sweep 2.8s var(--ease) infinite !important;
+  }
+  .aurora i {
+    animation: drift 26s var(--ease) infinite alternate !important;
+  }
+  .aurora i:nth-child(2) {
+    animation-duration: 32s !important;
+    animation-direction: alternate-reverse !important;
+  }
+  .aurora i:nth-child(3) {
+    animation-duration: 38s !important;
+  }
+  .aurora::after {
+    animation: bottom-glow-float 42s ease-in-out infinite alternate !important;
   }
 }
 
