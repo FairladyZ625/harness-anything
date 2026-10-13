@@ -34,6 +34,10 @@ describe("LiquidFilterDef", () => {
     expect(svg?.getAttribute("style")).toContain("position: absolute");
     const filter = svg?.querySelector("filter#liquid");
     expect(filter).not.toBeNull();
+    expect(filter?.getAttribute("x")).toBe("-10%");
+    expect(filter?.getAttribute("y")).toBe("-10%");
+    expect(filter?.getAttribute("width")).toBe("120%");
+    expect(filter?.getAttribute("height")).toBe("120%");
     expect(filter?.querySelector("feTurbulence")).not.toBeNull();
     expect(filter?.querySelector("feGaussianBlur")).not.toBeNull();
     expect(filter?.querySelector("feDisplacementMap")).not.toBeNull();
