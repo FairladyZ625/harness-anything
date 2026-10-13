@@ -5,7 +5,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 import { addManagedWorktree, reclaimManagedWorktree, type WorktreeReclaim } from "./schedule-occurrence-workspace.ts";
 import { checkoutTaskWorktree, openTaskWorktreeBinding, presetSnapshotReader } from "./task-worktree.ts";
-import { runWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
+import { runWorktreeSetup, worktreeSetupFailure, type WorktreeSetupSettings } from "./worktree-setup.ts";
 
 /** Where a squad worker runs: the run cwd, or its own worktree and branch cut at the run baseline. */
 export type WorkerCheckout = { readonly cwd: string; readonly branch: string; readonly baseSha: string };
@@ -18,11 +18,11 @@ export async function resolveSquadCwd(
   value: unknown,
   query: <T>(read: (projection: TaskProjection) => T) => T,
   taskId: string,
-  setup: readonly string[],
+  worktree: WorktreeSetupSettings,
 ): Promise<string> {
   if (value !== undefined) return resolveCwd(rootDir, value);
   const binding = query((read) => openTaskWorktreeBinding(read.read(taskId).snapshot.task, presetSnapshotReader(read))),
-    checkout = binding ? await checkoutTaskWorktree(rootDir, taskId, binding, setup) : null;
+    checkout = binding ? await checkoutTaskWorktree(rootDir, taskId, binding, worktree) : null;
   if (checkout && !checkout.setup.ok)
     throw new Error(worktreeSetupFailure(checkout.cwd, checkout.setup, `start the Squad run for ${taskId} again`));
   return checkout?.cwd ?? rootDir;
@@ -48,7 +48,7 @@ export async function prepareWorkerWorktree(
   baseSha: string | null,
   workerId: string,
   attemptId: string,
-  setup: { readonly rootDir: string; readonly taskId: string; readonly steps: readonly string[] },
+  setup: { readonly rootDir: string; readonly taskId: string } & WorktreeSetupSettings,
 ): Promise<WorkerCheckout | null> {
   if (baseSha === null) return null;
   // Workers branch off whatever the Commander has checked out, so the Commander can merge them back
@@ -67,7 +67,13 @@ export async function prepareWorkerWorktree(
   } else {
     await addManagedWorktree(state.cwd, { cwd, branch, baseRef: baseSha });
   }
-  const prepared = await runWorktreeSetup({ rootDir: setup.rootDir, cwd, taskId: setup.taskId, steps: setup.steps });
+  const prepared = await runWorktreeSetup({
+    rootDir: setup.rootDir,
+    cwd,
+    taskId: setup.taskId,
+    steps: setup.setup,
+    stepTimeoutMs: setup.setupStepTimeoutMs,
+  });
   if (!prepared.ok) throw new Error(worktreeSetupFailure(cwd, prepared, "let the Commander dispatch the worker again"));
   return { cwd, branch, baseSha };
 }

@@ -9,6 +9,7 @@ import type { TaskV2 } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import { renameLegacyTaskWorktrees } from "../src/task-worktree-legacy-rename.ts";
 import { checkoutTaskWorktree } from "../src/task-worktree.ts";
+import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
 const repositoryDiff = () => ({ profile: { outputShape: "repository-diff" } });
 
@@ -39,7 +40,7 @@ test("migrate renames an old-name worktree and its branch to the task id, and th
       fixture.root,
       task.taskId,
       { branch: task.taskId, path: `.worktrees/${task.taskId}` },
-      [],
+      noWorktreeSetup(),
     );
     assert.deepEqual(checkout, { cwd: renamed, branch: task.taskId, baseRef: null, setup: { ok: true, ran: [] } });
     // Nothing is left to rename.

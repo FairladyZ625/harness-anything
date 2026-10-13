@@ -33,6 +33,7 @@ import {
   settleScheduleOccurrenceWorkspace,
   type ScheduleOccurrenceWorkspace,
 } from "./schedule-occurrence-workspace.ts";
+import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 import { assertAgentDispatchable } from "./agent-entities.ts";
 
 type ScheduleSpawnReceipt = {
@@ -49,7 +50,7 @@ const packetContracts: Readonly<Record<string, PacketActionContract>> = Object.f
 
 export function makeScheduleActionRuntime(
   cell: RepoCellRuntimeContext,
-  readWorktreeSetup: () => readonly string[],
+  readWorktreeSetup: () => WorktreeSetupSettings,
 ): EntityActionCatalogRunner {
   const replay = (action: RepoTaskAction, binding: RepoCellBinding): WriteReceipt | null => {
     const opId = cell.operationId(action, binding, cell.input.repoId, 0),
@@ -179,7 +180,7 @@ function trustedScheduleAgent(cell: RepoCellRuntimeContext, agentId: string) {
 
 async function dispatchClaimedReceipt(
   cell: RepoCellRuntimeContext,
-  readWorktreeSetup: () => readonly string[],
+  readWorktreeSetup: () => WorktreeSetupSettings,
   claimed: WriteReceipt,
   idempotencyKey: string,
   binding: RepoCellBinding,

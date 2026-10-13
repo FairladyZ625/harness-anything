@@ -588,7 +588,7 @@ export function openFleetEdgeRuntime(input: {
       await pullRuntimeReplica();
     },
     prepareWorkspace: prepareRuntimeWorkspace,
-    readWorktreeSetup: () => readSettings().worktree.setup,
+    readWorktreeSetup: () => readSettings().worktree,
     readResult: (ref) => readEdgeRuntimeResult(request.viewRoot, request.repoId, request.nodeId, ref),
   });
   // Adoption is shared by concurrent requests, but a failed connection must not become a
@@ -763,7 +763,7 @@ export function openFleetEdgeRuntime(input: {
       workspace: await prepareScheduleOccurrenceWorkspace(
         request.workspaceRoot,
         scheduleValueV1,
-        () => readSettings().worktree.setup,
+        () => readSettings().worktree,
       ),
       idempotencyKey: operationKey,
       now,

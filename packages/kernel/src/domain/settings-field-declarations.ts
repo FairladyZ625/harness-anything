@@ -125,6 +125,8 @@ export const decisionReviewRequirementLevels = ["off", "high", "medium_and_high"
 export type DecisionReviewRequirement = (typeof decisionReviewRequirementLevels)[number];
 export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
+/** One worktree setup step may run this long before it fails and refuses the start (20 minutes). */
+export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
@@ -455,6 +457,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     },
     noneMeansEmpty: true,
     yamlStyle: "block-list",
+  }),
+  defineSettingsField({
+    path: ["worktree", "setupStepTimeoutMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+    minimum: 1_000,
+    description: "How long one worktree setup step may run before it fails, in milliseconds.",
+    effect:
+      "A step still running after this fails like any other: the start is refused and the step named with its log.",
+    group: "worktree",
+    action: { field: "worktreeSetupStepTimeoutMs", type: "number" },
+    cli: { name: "--worktree-setup-step-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
   }),
   defineSettingsField({
     path: ["tasks", "assignmentTtlMs"],

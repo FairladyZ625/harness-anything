@@ -562,7 +562,7 @@ export async function openRepoWriterCell(
   });
   const squadCoordinator = makeSquadCoordinator({
     rootDir,
-    readWorktreeSetup: () => readSettings().worktree.setup,
+    readWorktreeSetup: () => readSettings().worktree,
     query: (read) => read(projection),
     readResult: (ref) => readCanonicalRuntimeResult(store, ref),
     publishObservation: (observation, binding) =>
@@ -771,7 +771,7 @@ export async function openRepoWriterCell(
   const runtimeContext = Object.assign(extracted, { mode, runtimeSpawner });
   runtimeContext satisfies RepoCellRuntimeContext;
   const settings = makeRepoCellSettingsState(extracted),
-    scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree.setup),
+    scheduleActionRuntime = makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
     settingsActionRuntime = makeSettingsActionRuntime(runtimeContext, settings),
     agentActionRuntime = makeAgentActionRuntime(runtimeContext),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),

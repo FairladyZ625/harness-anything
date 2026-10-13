@@ -9,6 +9,7 @@ import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawner.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
+import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 
 /** Owner control uses the same coordinator, with task writes admitted by the center. */
 export function makeFleetSquadCoordinator(input: {
@@ -18,7 +19,7 @@ export function makeFleetSquadCoordinator(input: {
   readonly controlBinding: () => Promise<RuntimeBinding>;
   readonly sync: () => Promise<void>;
   readonly prepareWorkspace: () => Promise<void>;
-  readonly readWorktreeSetup: () => readonly string[];
+  readonly readWorktreeSetup: () => WorktreeSetupSettings;
   readonly readResult: (ref: string) => string;
 }) {
   const { request } = input;

@@ -35,6 +35,15 @@ test("absent declared keys use their declared defaults", () => {
   assert.equal(settings.schedule.admissionWindowMs, 60_000);
 });
 
+test("the worktree step timeout defaults to 20 minutes and reads a slower repository's larger value", () => {
+  assert.equal(readSettingsFacet(body).worktree.setupStepTimeoutMs, 20 * 60 * 1000);
+  assert.equal(
+    readSettingsFacet("settings:\n  worktree:\n    setupStepTimeoutMs: 3600000\n").worktree.setupStepTimeoutMs,
+    3_600_000,
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  worktree:\n    setupStepTimeoutMs: 999\n"));
+});
+
 test("the schedule admission window is read from the facet and refuses a sub-second value", () => {
   assert.equal(
     readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 600000\n").schedule.admissionWindowMs,
