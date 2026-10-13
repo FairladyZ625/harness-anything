@@ -300,8 +300,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
     minimum: 1_000,
     description: "How long the GUI waits for a daemon answer before the request fails, in milliseconds.",
-    effect:
-      "Raise it when sustained ledger writes turn ordinary reads into visible GUI errors; applies on this machine only.",
+    effect: "Raise it when sustained ledger writes turn ordinary reads into GUI errors; this machine only.",
     group: "presentation",
     action: { field: "guiRequestTimeoutMs", type: "number" },
     cli: { name: "--gui-request-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
@@ -678,8 +677,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
     minimum: 60_000,
     description: "How long one scheduled backup run may take end to end, in milliseconds.",
-    effect:
-      "A backup still running past this limit is stopped and its occurrence settles as failed; raise it for large ledgers.",
+    effect: "A backup still running past this limit is stopped and settles failed; raise it for large ledgers.",
     group: "storage-backup",
     action: { field: "storageBackupExecutionLimitMs", type: "number" },
     cli: { name: "--storage-backup-execution-limit-ms", kind: "single", regex: "^[1-9][0-9]{4,}$" },
