@@ -165,14 +165,11 @@ test("task PR provider errors surface with credentials removed", async () => {
   );
 });
 
-test("task PR runs the repository lint script itself and rejects a placeholder-only body", async (t) => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-pr-lint-"));
-  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
-  const git = (...args: string[]) => execFileSync("git", args, { cwd: rootDir, encoding: "utf8" });
-  git("init", "-q");
-  git("config", "user.name", "Fixture");
-  git("config", "user.email", "fixture@example.invalid");
-  git("commit", "--allow-empty", "-qm", "base");
+// The gate is the delivered repository's own script, resolved from its root (this checkout here).
+const checkoutRoot = path.resolve(import.meta.dirname, "../../..");
+
+test("task PR runs the repository lint script itself and rejects a placeholder-only body", async () => {
+  const rootDir = checkoutRoot;
   const placeholderBody =
     "# English\n\n## Summary\n\nReal summary sentence for the latin word count threshold.\n\n## Residual Risk\n\nTBD\n\n---\n\n# 中文\n\n## 概要\n\n概要正文有足够的中文内容通过字数检查。\n\n## 残余风险\n\n待定\n";
   const filledBody =
@@ -217,4 +214,18 @@ test("task PR runs the repository lint script itself and rejects a placeholder-o
     async () => "https://github.com/fixture/repo/pull/2",
   );
   assert.match(receipt.evidence!, /pull\/2/u);
+});
+
+test("task PR skips the body gate in a repository that has no lint script", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-task-pr-nolint-"));
+  t.after(() => rmSync(rootDir, { recursive: true, force: true }));
+  execFileSync("git", ["init", "-q"], { cwd: rootDir });
+  const f = prFixture();
+  const receipt = await createTaskPullRequest(
+    { ...f.context, rootDir } as never,
+    { kind: "task-pr", taskId: "task-ci" },
+    f.binding,
+    async () => "https://github.com/fixture/repo/pull/3",
+  );
+  assert.match(receipt.evidence!, /pull\/3/u);
 });
