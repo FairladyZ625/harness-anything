@@ -750,9 +750,11 @@ export function createJsonRpcProtocolServer(options: {
     observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
       return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
-    const receipt = await options.host.run(repo, action, options.authContext),
-      result = makeDaemonCommandReceipt(action.kind, receipt);
+    const receipt = await options.host.run(repo, action, options.authContext);
     try {
+      // Receipt assembly is result validation too: a squad-control result naming another
+      // command must answer on this request id, not tear the connection down past the handler.
+      const result = makeDaemonCommandReceipt(action.kind, receipt);
       return reply(
         commandMethod,
         isDaemonGuiActionMethod(commandMethod) ? parseDaemonGuiActionResult(commandMethod, result) : result,
