@@ -147,7 +147,7 @@
   --aurora-1: #0e3835;
   --aurora-2: #141d3d;
   --aurora-3: #381628;
-  --aurora-opacity: 0.28;
+  --aurora-opacity: 0.18;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
 }
 
@@ -216,7 +216,7 @@ html[data-theme="light"] {
   --aurora-1: #b9e6de;
   --aurora-2: #c6cfef;
   --aurora-3: #eccad9;
-  --aurora-opacity: 0.4;
+  --aurora-opacity: 0.22;
 }
 
 /*
@@ -226,78 +226,98 @@ html[data-theme="light"] {
  */
 
 /* 环境光:玻璃背后要有可折射的内容,否则 backdrop-filter 只糊一层纯色。
-   z-index:0 挂在画布底色之上、全部内容之下;漂移只动 transform(合成器路径)。
+   z-index:0 挂在画布底色之上、全部内容之下;纯径向渐变天然柔和漫反射,
+   免除 GPU 实时 80px 全屏模糊滤镜重荷;硬件加速隔离层避免视口重绘。
    内容外壳(AppShell)显式声明 relative z-1,对齐权威样张 overview-prototype.html。 */
 .aurora {
   position: fixed;
-  inset: -20%;
+  inset: -10%;
   z-index: 0;
   pointer-events: none;
-  filter: blur(80px);
+  contain: strict;
+  transform: translate3d(0, 0, 0);
   opacity: var(--aurora-opacity);
 }
 .aurora i {
   position: absolute;
   border-radius: 50%;
-  animation: drift 26s var(--ease) infinite alternate;
+  will-change: transform;
+  transform: translate3d(0, 0, 0);
 }
 .aurora i:nth-child(1) {
-  width: 42vw;
-  height: 42vw;
-  left: 8%;
-  top: 6%;
-  background: var(--aurora-1);
+  width: 44vw;
+  height: 44vw;
+  left: 6%;
+  top: 4%;
+  background: radial-gradient(
+    circle closest-side,
+    color-mix(in oklab, var(--aurora-1) 85%, transparent) 0%,
+    color-mix(in oklab, var(--aurora-1) 45%, transparent) 45%,
+    color-mix(in oklab, var(--aurora-1) 12%, transparent) 75%,
+    transparent 100%
+  );
 }
 .aurora i:nth-child(2) {
-  width: 36vw;
-  height: 36vw;
-  right: 4%;
+  width: 38vw;
+  height: 38vw;
+  right: 2%;
   top: 0;
-  background: var(--aurora-2);
-  animation-duration: 32s;
-  animation-direction: alternate-reverse;
+  background: radial-gradient(
+    circle closest-side,
+    color-mix(in oklab, var(--aurora-2) 85%, transparent) 0%,
+    color-mix(in oklab, var(--aurora-2) 45%, transparent) 45%,
+    color-mix(in oklab, var(--aurora-2) 12%, transparent) 75%,
+    transparent 100%
+  );
 }
 .aurora i:nth-child(3) {
-  width: 46vw;
-  height: 46vw;
-  left: 28%;
+  width: 48vw;
+  height: 48vw;
+  left: 26%;
   bottom: -10%;
-  background: var(--aurora-3);
-  animation-duration: 38s;
+  background: radial-gradient(
+    circle closest-side,
+    color-mix(in oklab, var(--aurora-3) 85%, transparent) 0%,
+    color-mix(in oklab, var(--aurora-3) 45%, transparent) 45%,
+    color-mix(in oklab, var(--aurora-3) 12%, transparent) 75%,
+    transparent 100%
+  );
 }
 /* 底部环境上托光(业主 2026-10-12 批示"底部背景让它也动，浮动得非常慢的那种浮动"):
-   视口下半部自底向上的一道柔和漫反射微光,带超长周期(42s)超缓浮动微呼吸 */
+   视口下半部自底向上的一道柔和漫反射微光,带超长周期(48s)超缓浮动微呼吸,走纯合成器路径 */
 .aurora::after {
   content: "";
   position: absolute;
   left: -10%;
   right: -10%;
-  bottom: -8vh;
-  height: 54vh;
+  bottom: -6vh;
+  height: 50vh;
   background: linear-gradient(
     to top,
-    color-mix(in oklab, var(--aurora-3) 35%, transparent),
+    color-mix(in oklab, var(--aurora-3) 22%, transparent),
     transparent
   );
-  animation: bottom-glow-float 42s ease-in-out infinite alternate;
+  will-change: transform, opacity;
+  transform: translate3d(0, 0, 0);
+  animation: bottom-glow-float 48s ease-in-out infinite alternate;
 }
 @keyframes bottom-glow-float {
   0% {
-    transform: translateY(0) scaleY(1);
-    opacity: 0.65;
+    transform: translate3d(0, 0, 0);
+    opacity: 0.55;
   }
   50% {
-    transform: translateY(-5vh) scaleY(1.1) skewX(-2deg);
-    opacity: 0.95;
+    transform: translate3d(0, -3vh, 0);
+    opacity: 0.8;
   }
   100% {
-    transform: translateY(3vh) scaleY(0.92) skewX(2deg);
-    opacity: 0.75;
+    transform: translate3d(0, 2vh, 0);
+    opacity: 0.65;
   }
 }
 @keyframes drift {
   to {
-    transform: translate(6vw, 4vh) scale(1.12);
+    transform: translate3d(6vw, 4vh, 0) scale(1.12);
   }
 }
 
@@ -319,6 +339,10 @@ html[data-theme="light"] {
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.12),
     0 2px 8px oklch(0 0 0 / 0.15);
+}
+/* 嵌在 .glass 内的子控件直接继承已模糊底色,免除二次嵌套 backdrop-filter 导致的 GPU 显存回读与反复重采样 */
+.glass .glass-sub {
+  backdrop-filter: none;
 }
 html[data-theme="light"] .glass-sub {
   background: oklch(1 0 0 / 0.7);
@@ -427,35 +451,35 @@ html[data-theme="light"] .glass-sub {
   animation: live-wave-sweep 2.8s var(--ease) infinite;
 }
 
-/* 运行中状态标签微心跳(StatusTag active 态):组件自身温和呼吸与微光弥散,与宏观全行流光区隔 */
+/* 运行中状态标签微心跳(StatusTag active 态):组件自身温和呼吸与微光弥散,走纯合成器 opacity 路径,免除每帧 repaint */
 .status-tag-active {
+  box-shadow: 0 0 5px 1px color-mix(in oklch, var(--color-status-active) 28%, transparent);
   animation: status-tag-breathe 2.6s var(--ease) infinite;
 }
 @keyframes status-tag-breathe {
   0%,
   100% {
-    box-shadow: 0 0 0 0 color-mix(in oklch, var(--color-status-active) 0%, transparent);
-    opacity: 0.82;
+    opacity: 0.75;
   }
   50% {
-    box-shadow: 0 0 6px 1px color-mix(in oklch, var(--color-status-active) 32%, transparent);
     opacity: 1;
   }
 }
 
-/* LiveDot 运行中微脉冲:小圆点自身柔和呼吸放缩与光晕展开 */
+/* LiveDot 运行中微脉冲:小圆点自身柔和呼吸放缩与光晕展开,走合成器 transform/opacity 路径 */
 .live-dot-pulse {
+  box-shadow: 0 0 5px 1px color-mix(in oklab, var(--color-status-done) 60%, transparent);
   animation: live-dot-breathe 2.6s var(--ease) infinite;
 }
 @keyframes live-dot-breathe {
   0%,
   100% {
     transform: scale(0.92);
-    box-shadow: 0 0 3px 0 color-mix(in oklab, var(--color-status-done) 40%, transparent);
+    opacity: 0.75;
   }
   50% {
     transform: scale(1.18);
-    box-shadow: 0 0 7px 2px color-mix(in oklab, var(--color-status-done) 75%, transparent);
+    opacity: 1;
   }
 }
 
