@@ -185,8 +185,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           },
           backupSignal,
         );
+        console.error("backup started promise");
         const pinned = await started;
+        console.error("backup pinned", pinned.metadata);
         const archive = await pinned.complete;
+        console.error("backup complete", archive.size);
         return { ...archive, release: async () => undefined };
       },
       object: async function* (sha256: string) {
