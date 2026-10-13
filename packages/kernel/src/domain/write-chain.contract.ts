@@ -329,11 +329,9 @@ function isContentAddressedTarget(target: WriteTarget): boolean {
 }
 
 function contentAddressedTargetConflicts(left: WriteTarget, right: WriteTarget): boolean {
-  return (
-    left.kind === "content_blob" &&
-    right.kind === "content_blob" &&
-    (left.size !== right.size || left.mediaType !== right.mediaType)
-  );
+  // A content target is its bytes: size is bound to the sha256, while the media type is a label
+  // each document entry carries on its own authored target.
+  return left.kind === "content_blob" && right.kind === "content_blob" && left.size !== right.size;
 }
 
 function normalizeWriteTargets(targets: readonly WriteTarget[]): readonly WriteTarget[] {
@@ -371,6 +369,7 @@ export function sameWriteTargets(left: readonly WriteTarget[], right: readonly W
   });
 }
 
+/** Content identity is bytes: one sha256 addresses one object, and the media type is per-claim metadata. */
 export function normalizeContentAddressedInputs<T extends ContentAddressedInput>(inputs: readonly T[]): readonly T[] {
   const bySha256 = new Map<string, T>();
   for (const input of inputs) {
@@ -378,12 +377,11 @@ export function normalizeContentAddressedInputs<T extends ContentAddressedInput>
     if (
       prior !== undefined &&
       (prior.size !== input.size ||
-        prior.mediaType !== input.mediaType ||
         (typeof prior.body === "string" && typeof input.body === "string" && prior.body !== input.body))
     )
       throw new WriteChainContractError(
         "invalid_write_plan",
-        `content address ${input.sha256} has conflicting size, media type, or body`,
+        `content address ${input.sha256} has conflicting size or body`,
       );
     if (prior === undefined) bySha256.set(input.sha256, input);
   }

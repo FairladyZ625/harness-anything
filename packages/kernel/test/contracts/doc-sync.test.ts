@@ -302,6 +302,48 @@ test("opaque textual paths preserve their media type", () => {
   });
 });
 
+test("one submit accepts byte-identical documents with different media types", () => {
+  const body = "# Notes\nA\n",
+    bytes = Buffer.from(body),
+    markdown = claim(body),
+    plain = { ...markdown, mediaType: "text/plain" as const };
+  const result = decide(
+    {
+      path: "context/notes.md",
+      baseBlobSha256: null,
+      policyId: DOC_POLICY_ID,
+      candidate: markdown,
+    },
+    null,
+    bytes,
+    {
+      intent: {
+        schema: "doc-write-intent/v1",
+        executionId: "execution-1",
+        baseLedgerSha,
+        changes: [
+          { path: "context/notes.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: markdown },
+          { path: "context/notes.txt", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: plain },
+        ],
+      },
+      documents: [null, null],
+      claims: [bytes, bytes],
+    },
+  );
+  assert.equal(result.accepted, true);
+  if (!result.accepted) return;
+  assert.deepEqual(result.blobs, [
+    { sha256: sha256Text(body), size: bytes.byteLength, mediaType: "text/markdown", body },
+  ]);
+  // The media type stays on each document entry; the blob is only the shared bytes.
+  assert.deepEqual(
+    result.event.payload.changes.map((change) => change.candidate?.mediaType),
+    ["text/markdown", "text/plain"],
+  );
+  assert.equal(result.plan.targets.filter((target) => target.kind === "content_blob").length, 1);
+  validateCanonicalWriteBundle({ event: result.event, plan: result.plan, blobs: result.blobs });
+});
+
 test("doc content claims accept only the supported opaque textual media types", () => {
   const base = {
     schema: "doc-write-intent/v1",

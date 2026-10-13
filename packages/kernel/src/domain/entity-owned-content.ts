@@ -71,6 +71,16 @@ export function createEntityOwnedContent(input: {
   readonly retirements?: readonly EntityContentRetirement[];
   readonly directoryRetirements?: readonly EntityContentDirectory[];
 }): EntityOwnedContentV1 {
+  // The v1 manifest records exactly one media type per content object, so identical bytes bound under two
+  // labels cannot be represented; the byte-addressed content normalizer deliberately no longer enforces label
+  // agreement, and this manifest is the one schema whose persisted shape still requires it.
+  const mediaTypeBySha = new Map<string, string>();
+  for (const binding of input.bindings) {
+    const declared = mediaTypeBySha.get(binding.sha256);
+    if (declared !== undefined && declared !== binding.mediaType)
+      throw new Error(`entity content object ${binding.sha256} is bound with conflicting media types`);
+    mediaTypeBySha.set(binding.sha256, binding.mediaType);
+  }
   const content = normalizeContentAddressedInputs(input.bindings)
       .map(({ sha256, size: byteLength, mediaType }) => ({ sha256, byteLength, mediaType }))
       .sort((left, right) => left.sha256.localeCompare(right.sha256)),

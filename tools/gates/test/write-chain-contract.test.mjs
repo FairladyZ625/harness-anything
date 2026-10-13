@@ -134,7 +134,7 @@ test("G03 still rejects two authored writes to the same path", () => {
   );
 });
 
-test("G03 folds identical content targets by SHA and rejects conflicting ones", () => {
+test("G03 folds content targets by SHA across media types and rejects size conflicts", () => {
   const content = { kind: "content_blob", sha256: "a".repeat(64), size: 4, mediaType: "text/plain" };
   const plan = freezeDeclaredWritePlan(
     {
@@ -144,7 +144,7 @@ test("G03 folds identical content targets by SHA and rejects conflicting ones", 
         { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
         { kind: "projection_invalidation", projection: "document/v1", key: "context/one.md" },
         content,
-        { ...content },
+        { ...content, mediaType: "application/json" },
       ],
     },
     ["DocSyncSubmit"],
@@ -156,7 +156,7 @@ test("G03 folds identical content targets by SHA and rejects conflicting ones", 
       freezeDeclaredWritePlan(
         {
           commandType: "DocSyncSubmit",
-          targets: [...plan.targets, { ...content, mediaType: "application/octet-stream" }],
+          targets: [...plan.targets, { ...content, size: 5 }],
         },
         ["DocSyncSubmit"],
       ),
@@ -164,18 +164,16 @@ test("G03 folds identical content targets by SHA and rejects conflicting ones", 
   );
 });
 
-test("G03 folds identical blob inputs and rejects conflicting bodies for one SHA", () => {
+test("G03 folds blob inputs by SHA and rejects conflicting size or body for one SHA", () => {
   const blob = {
     sha256: "a".repeat(64),
     size: 4,
     mediaType: "text/plain",
     body: "left",
   };
-  assert.deepEqual(normalizeContentAddressedInputs([blob, { ...blob }]), [blob]);
-  assert.throws(
-    () => normalizeContentAddressedInputs([blob, { ...blob, body: "rght" }]),
-    /conflicting size, media type, or body/u,
-  );
+  assert.deepEqual(normalizeContentAddressedInputs([blob, { ...blob, mediaType: "application/json" }]), [blob]);
+  assert.throws(() => normalizeContentAddressedInputs([blob, { ...blob, size: 5 }]), /conflicting size or body/u);
+  assert.throws(() => normalizeContentAddressedInputs([blob, { ...blob, body: "rght" }]), /conflicting size or body/u);
 });
 
 test("G02 rejects invalid or payload-reported command sources", () => {
