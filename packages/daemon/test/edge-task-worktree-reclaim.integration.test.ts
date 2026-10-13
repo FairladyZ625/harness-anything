@@ -265,6 +265,7 @@ function setCut(
 }
 
 async function checkout(node: Node, taskId: string): Promise<string> {
+  // Worktree setup is a section with both steps and timeout; this fixture intentionally declares no steps.
   return (await checkoutTaskWorktree(
     node.root,
     taskId,
