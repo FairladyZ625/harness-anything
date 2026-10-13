@@ -292,11 +292,7 @@ html[data-theme="light"] {
   right: -10%;
   bottom: -6vh;
   height: 50vh;
-  background: linear-gradient(
-    to top,
-    color-mix(in oklab, var(--aurora-3) 22%, transparent),
-    transparent
-  );
+  background: linear-gradient(to top, color-mix(in oklab, var(--aurora-3) 22%, transparent), transparent);
   will-change: transform, opacity;
   transform: translate3d(0, 0, 0);
   animation: bottom-glow-float 48s ease-in-out infinite alternate;
@@ -442,12 +438,7 @@ html[data-theme="light"] .glass-sub {
   content: "";
   position: absolute;
   inset: 0;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in oklab, white 45%, transparent) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(90deg, transparent 0%, color-mix(in oklab, white 45%, transparent) 50%, transparent 100%);
   animation: live-wave-sweep 2.8s var(--ease) infinite;
 }
 
@@ -962,13 +953,18 @@ html[data-theme="light"] ::selection {
   height: 7px;
   border-radius: 50%;
   background: var(--color-status-done);
-  box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-status-done) 45%, transparent);
-  animation: rt-breathe 1.8s ease-out infinite;
+  box-shadow: 0 0 5px 1px color-mix(in oklab, var(--color-status-done) 60%, transparent);
+  animation: rt-breathe 2.4s var(--ease) infinite;
 }
 @keyframes rt-breathe {
-  70%,
+  0%,
   100% {
-    box-shadow: 0 0 0 6px transparent;
+    transform: scale(0.92);
+    opacity: 0.75;
+  }
+  50% {
+    transform: scale(1.18);
+    opacity: 1;
   }
 }
 
@@ -1353,7 +1349,6 @@ html[data-theme="light"] ::selection {
     transform: translateY(-6px);
   }
 }
-
 
 /* Keep the spotlight direction flow at the archive reading pace, using the existing RF animation. */
 .graph-ego-canvas .react-flow__edge.animated path {
