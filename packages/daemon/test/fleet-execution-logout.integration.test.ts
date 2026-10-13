@@ -698,11 +698,10 @@ test(
     // The stale credential still reads the local replica; the center refuses only its writes below.
     const staleRead = await reviewCli(["task", "show", taskId]);
     assert.equal(staleRead.outcome, "applied", JSON.stringify(staleRead));
-    assert.equal(
-      (await reviewCli(["doc", "show", "--path", frozenEvidencePath])).code,
-      "execution_credential_rejected",
-      "a superseded reviewer cannot read the replacement submission",
-    );
+    // CH2 preserves repository reads after amendment; only the stale receipt and success settlement are fenced.
+    const supersededEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
+    assert.equal(supersededEvidence.outcome, "applied", JSON.stringify(supersededEvidence));
+    assert.equal(supersededEvidence.evidence, frozenEvidence);
     const staleReceipt = await reviewCli([
       "task",
       "review-execution",
