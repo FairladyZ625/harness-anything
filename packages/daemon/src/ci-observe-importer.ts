@@ -18,7 +18,7 @@ import { githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { BuiltinExecutionResult } from "./schedule-builtin-executor.ts";
-import { detectHostingProvider } from "./hosting-provider.ts";
+import { detectHostingProvider, hasOriginRemote } from "./hosting-provider.ts";
 
 type Target = CiObserveProgress["pending"][number];
 type Run = { readonly id: number; readonly run_attempt: number; readonly head_branch: string; readonly status: string };
@@ -62,7 +62,9 @@ export async function reconcileCiOccurrence(input: {
   const hosting = input.hostingProvider
     ? { kind: input.hostingProvider }
     : gh === runCiProviderCommand
-      ? await detectHostingProvider(cell.rootDir, undefined, true)
+      ? (await hasOriginRemote(cell.rootDir))
+        ? await detectHostingProvider(cell.rootDir, undefined, true)
+        : ({ kind: "github" } as const)
       : ({ kind: "github" } as const);
   const readApi = async <T>(endpoint: string): Promise<T> =>
     JSON.parse(await gh("gh", ["api", endpoint], { cwd: cell.rootDir })) as T;

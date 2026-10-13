@@ -46,6 +46,15 @@ export async function detectHostingProvider(
   }
 }
 
+export async function hasOriginRemote(rootDir: string): Promise<boolean> {
+  try {
+    await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function hostingProviderFromRemote(
   remote: string,
   declaration?: { readonly provider?: "github" | "gitlab"; readonly host?: string },
