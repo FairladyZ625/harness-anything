@@ -344,7 +344,9 @@ test("opening a current projection adds CI expression indexes without rebuilding
     first.close();
     const db = new DatabaseSync(projectionPath);
     const before = db.prepare("SELECT count(*) AS n FROM event_index").get();
-    db.exec("DROP INDEX ci_observation_family_members; DROP INDEX ci_observation_window_order");
+    db.exec("DROP INDEX ci_observation_family_members_v2; DROP INDEX ci_observation_window_order_v2");
+    db.exec("CREATE INDEX ci_observation_family_members ON event_index(workspace_revision)");
+    db.exec("CREATE INDEX ci_observation_window_order ON event_index(workspace_revision)");
     db.close();
     const reopened = makeTaskProjection({ rootDir, eventStore });
     reopened.readCiRunObservations(1, undefined, { familyWindow: 1 });
@@ -355,10 +357,18 @@ test("opening a current projection adds CI expression indexes without rebuilding
       assert.equal(
         inspected
           .prepare(
-            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND name IN ('ci_observation_family_members', 'ci_observation_window_order')",
+            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND name IN ('ci_observation_family_members_v2', 'ci_observation_window_order_v2')",
           )
           .get()!.n,
         2,
+      );
+      assert.equal(
+        inspected
+          .prepare(
+            "SELECT count(*) AS n FROM sqlite_master WHERE type = 'index' AND name IN ('ci_observation_family_members', 'ci_observation_window_order')",
+          )
+          .get()!.n,
+        0,
       );
     } finally {
       inspected.close();

@@ -13,7 +13,7 @@
  */
 export const QUERY_PACING_MS = {
   /** 台账探针间隔:cut 前进的唯一驱动(taskListQuery)。 */
-  ledgerProbe: 2_000,
+  ledgerProbe: 10_000,
   /** system status:daemon 级读面,cut 覆盖不到,自持低频轮询。 */
   systemStatus: 10_000,
   /** connections status:admin 面,cut 覆盖不到,自持低频轮询。 */
