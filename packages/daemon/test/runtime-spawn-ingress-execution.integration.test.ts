@@ -1041,7 +1041,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           "doc retire removes a runtime-produced artifact through the repository writer",
           async () => {
             const reason = "runtime evidence superseded",
-              action = { kind: "doc-retire", path: syncedPath, reason } as const,
+              action = { kind: "doc-retire", paths: [syncedPath], reason } as const,
               waitForPublication = (opId: string) =>
                 host.run(
                   repoId,

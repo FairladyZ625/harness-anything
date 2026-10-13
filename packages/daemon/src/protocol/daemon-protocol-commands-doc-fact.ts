@@ -106,10 +106,10 @@ export const docFactProtocolCommands = Object.freeze([
     id: "doc-retire",
     phase: "DocSync-B",
     path: ["doc", "retire"],
-    summary: "Retire one canonical document with an audited reason.",
+    summary: "Retire one or more canonical documents with one audited reason.",
     method: "repo.task.run",
     inputs: [
-      cliInput("--path", "single", true, {
+      cliInput("--path", "repeated", true, {
         code: "missing_field",
       }),
       cliInput("--reason", "single", true, {

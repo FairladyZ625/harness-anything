@@ -70,8 +70,7 @@ function validateDocEventIdentity(
     validRetirement =
       retirements.length === 0
         ? value.payload.retirementReason === undefined
-        : retirements.length === 1 &&
-          value.payload.changes.length === 1 &&
+        : retirements.length === value.payload.changes.length &&
           value.payload.executionId === null &&
           isNonEmptyString(value.payload.retirementReason),
     valid = value.payload.changes.every((change) => validDocEventMutation(change, allowUnknownFields)),

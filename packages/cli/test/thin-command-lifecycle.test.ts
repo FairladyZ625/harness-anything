@@ -711,6 +711,16 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
     allMaterialize = parseThinCommand(["doc", "materialize", "--all"]),
     show = parseThinCommand(["doc", "show", "--path", "tasks/task-1/INDEX.md"]),
     retire = parseThinCommand(["doc", "retire", "--path", "context/old.md", "--reason", "superseded scratch"]),
+    retireBatch = parseThinCommand([
+      "doc",
+      "retire",
+      "--path",
+      "context/old-a.md",
+      "--path",
+      "context/old-b.md",
+      "--reason",
+      "superseded scratch",
+    ]),
     submit = parseThinCommand(["doc", "sync", "--submit", "--path", "context/a.md", "--path", "context/b.md"]),
     allSubmit = parseThinCommand(["doc", "sync", "--submit", "--all"]),
     taskSubmit = parseThinCommand(["doc", "sync", "--submit", "--task", "task-1"]);
@@ -764,7 +774,14 @@ test("thin doc commands derive descriptor-only actions from the protocol directo
   if (retire.ok)
     assert.deepEqual(retire.command.action, {
       kind: "doc-retire",
-      path: "context/old.md",
+      paths: ["context/old.md"],
+      reason: "superseded scratch",
+    });
+  assert.equal(retireBatch.ok, true);
+  if (retireBatch.ok)
+    assert.deepEqual(retireBatch.command.action, {
+      kind: "doc-retire",
+      paths: ["context/old-a.md", "context/old-b.md"],
       reason: "superseded scratch",
     });
   if (submit.ok) {

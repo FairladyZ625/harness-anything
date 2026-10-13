@@ -146,7 +146,7 @@ export function readAction(input: Input): WriteReceipt {
 }
 
 export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1): DocSettlementReceipt {
-  const retirement = event.payload.retirementReason === undefined ? null : event.payload.changes[0]!,
+  const retirement = event.payload.retirementReason === undefined ? null : event.payload.changes,
     reads = event.payload.changes.map((change) => input.projection.readDocument(change.path)),
     canonicalVisible = reads.every((read, index) => {
       const candidate = event.payload.changes[index]!.candidate;
@@ -179,21 +179,21 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
     deletions:
       retirement === null
         ? []
-        : [
-            {
-              path: retirement.path,
-              baseBlobSha256: retirement.baseBlobSha256!,
-              source: "intent",
-            },
-          ],
+        : retirement.map((change) => ({
+            path: change.path,
+            baseBlobSha256: change.baseBlobSha256!,
+            source: "intent" as const,
+          })),
   };
   const retirementReceipt =
       retirement === null
         ? null
         : {
             schema: "doc-retirement-receipt/v1",
-            path: retirement.path,
-            baseBlobSha256: retirement.baseBlobSha256,
+            retirements: retirement.map((change) => ({
+              path: change.path,
+              baseBlobSha256: change.baseBlobSha256!,
+            })),
             reason: event.payload.retirementReason,
           },
     worktreeVisible =
@@ -204,7 +204,10 @@ export function readDocReceipt(input: Omit<Input, "action">, event: DocEventV1):
             reads.map((read) => read.document),
           )
         : localProseSource(input.binding.source)
-          ? !existsSync(path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...retirement.path.split("/")))
+          ? retirement.every(
+              (change) =>
+                !existsSync(path.join(resolveHarnessLayout(input.rootDir).authoredRoot, ...change.path.split("/"))),
+            )
           : null;
   const common = {
     opId: event.opId,

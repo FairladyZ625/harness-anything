@@ -174,6 +174,97 @@ test("an explicit single-document retirement records its reason and declares the
   if (!invalid.accepted) assert.equal(invalid.code, "invalid_retirement");
 });
 
+test("a multi-document retirement records one reason, one event, and every audited delete target", () => {
+  const documents = [state("# First\n"), { ...state("# Second\n"), path: "context/second.md" }],
+    reason = "superseded Electron profile remnants",
+    base = {
+      intent: {
+        schema: "doc-write-intent/v1" as const,
+        executionId: null,
+        baseLedgerSha,
+        changes: documents.map((document) => ({
+          path: document.path,
+          baseBlobSha256: document.blobSha256,
+          policyId: document.policyId,
+          candidate: null,
+        })),
+      },
+      opId: "doc-retire-multi-op",
+      eventId: "doc-retire-multi-event",
+      workspaceRevision: 3,
+      actor,
+      source: "local",
+      occurredAt: "2026-08-12T11:00:00.000Z",
+      currentLedgerSha,
+      lease: null,
+      authorizationDecision: null,
+      claims: [null, null],
+      retirementReason: reason,
+    };
+  const result = decideDocWrite({ ...base, documents });
+  assert.equal(result.accepted, true);
+  if (!result.accepted) return;
+  assert.equal(result.event.payload.retirementReason, reason);
+  assert.deepEqual(
+    result.event.payload.changes.map((change) => [change.path, change.candidate]),
+    [
+      ["context/notes.md", null],
+      ["context/second.md", null],
+    ],
+  );
+  assert.deepEqual(validateCurrentDocEvent(result.event), []);
+  assert.deepEqual(
+    result.plan.targets.filter((target) => target.kind === "authored_file_delete"),
+    documents.map((document) => ({
+      kind: "authored_file_delete",
+      path: document.path,
+      operation: "delete",
+      baseSha256: document.blobSha256,
+    })),
+  );
+  const missingDocument = decideDocWrite({
+    ...base,
+    opId: "doc-retire-missing-op",
+    eventId: "doc-retire-missing-event",
+    intent: {
+      ...base.intent,
+      changes: [
+        ...documents.slice(0, 1).map((document) => ({
+          path: document.path,
+          baseBlobSha256: document.blobSha256,
+          policyId: document.policyId,
+          candidate: null,
+        })),
+        { path: "context/never-canonical.md", baseBlobSha256: null, policyId: DOC_POLICY_ID, candidate: null },
+      ],
+    },
+    documents: [documents[0], null],
+  });
+  assert.equal(missingDocument.accepted, false);
+  if (!missingDocument.accepted) assert.equal(missingDocument.code, "document_not_found");
+  const mixed = decideDocWrite({
+    ...base,
+    opId: "doc-retire-mixed-op",
+    eventId: "doc-retire-mixed-event",
+    intent: {
+      ...base.intent,
+      changes: [
+        ...base.intent.changes.slice(0, 1),
+        {
+          path: "context/second.md",
+          baseBlobSha256: null,
+          policyId: DOC_POLICY_ID,
+          candidate: claim("# Second\n"),
+        },
+      ],
+    },
+    documents,
+    claims: [null, Buffer.from("# Second\n")],
+  });
+  assert.equal(mixed.accepted, false);
+  if (!mixed.accepted) assert.equal(mixed.code, "invalid_retirement");
+});
+
 test("direct CRLF claims name the line-ending repair when the contract rejects them", () => {
   const crlf = "# Notes" + String.fromCharCode(13) + "\nA" + String.fromCharCode(13) + "\n",
     result = decide(
