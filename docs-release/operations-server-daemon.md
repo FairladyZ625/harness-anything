@@ -157,6 +157,41 @@ ha daemon start --service
 ha gui
 ```
 
+## Task branch publishing and direct-push protection
+
+A task whose output is a repository change runs in a Harness-managed worktree
+on the branch named after the task. The dispatched worker commits there and
+publishes through daemon-mediated commands, never with a personal GitHub
+login:
+
+```bash
+ha task push <task-id>        # publish the task branch through the daemon-held credential
+ha task pr <task-id>          # create the pull request (--update edits the existing one)
+ha task ci <task-id> --wait   # read the branch's CI; blocks until a verdict
+```
+
+`ha task push` pushes only the branch whose name equals the task id, with
+`--force-with-lease`, so a newer remote tip is never silently replaced. It
+refuses the push when the checkout is on another branch, when the canonical
+repository resolves no git identity, or when a commit above the default branch
+carries a different author or committer than the repository's conventional
+identity; refusals surface as `delivery_publish_failed` with the reason. A
+settled task-bound run publishes its branch through the same path;
+`ha task push` is how the worker publishes before submit. Merge stays with the
+maintainer — see [PR, review, and merge](contributing/en/04-pr-review-and-merge.md).
+
+The credential these commands use is bound by the operator, not by the worker:
+[Hosted Git credentials](hosted-credentials.md).
+
+Direct-push protection is enforced in the worker's own environment, not only
+at the daemon. A task-bound worker receives its git credential through an
+askpass helper that answers `github.com` prompts only, and a git wrapper ahead
+of the real git on `PATH` refuses any `git push` that would update anything
+other than the `task_*` branch (including `--all`, `--mirror`, and `--delete`).
+The same wrapper refuses worker commits and new branch checkouts in the
+canonical repository root. A worker that pushes by hand therefore cannot
+publish anything other than its own task branch.
+
 ## Resident service (macOS and Linux)
 
 A machine that should keep its daemon running across crashes and reboots hands
@@ -225,6 +260,11 @@ value, and a retry command. Use these state rules when recovering:
 | `invalid_transition` from `task start`  | The current round already has an active execution                | Run `ha task start <task-id>` without `--execution-id` to reuse it.                                                                                                  |
 | `lease_required`                        | Submitter does not hold the execution lease                      | Run `ha task start <task-id>`, then retry submit as the holder.                                                                                                      |
 | `lease_not_found`                       | Runtime settlement already released the lease                    | Run `ha task start <task-id>` without a new execution id, then retry submit.                                                                                         |
+| `runtime_credential_unavailable` from `ha task pr` / `ha task ci` | The dispatch's runtime instance has no configured GitHub credential, or the native vault cannot resolve it | The operator binds the credential ([Hosted Git credentials](hosted-credentials.md)); the worker records the error text, marks CI unverified, and reports. |
+| `runtime_credential_unavailable` from provider key commands | The native credential vault is unavailable (for example a locked Linux keyring) | Follow the headless keyring setup in [Provider API keys](provider-credentials.md#linux-without-a-desktop). |
+| `delivery_publish_failed` from `ha task push` | The task branch push was refused or rejected (another branch checked out, missing or foreign git identity, lost compare-and-swap cut, network) | Read the reason in the receipt, fix the named cause locally, then retry `ha task push <task-id>`. |
+| `task_ci_read_failed`                   | The CI read through the GitHub CLI failed                        | Retry `ha task ci <task-id>`; if it persists, check the credential's repository access and permissions ([Hosted Git credentials](hosted-credentials.md)). |
+| `unsupported_command` naming `task push` / `task pr` / `task ci` | The CLI or daemon on that machine predates these commands | Upgrade the CLI and daemon, then retry; until then record CI as unverified in the closeout with the error text. |
 
 ## Registry v2 hard cut
 

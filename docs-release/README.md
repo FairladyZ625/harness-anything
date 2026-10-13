@@ -128,10 +128,19 @@ public docs, check the single status authority.
 ## Understand the daemon boundary
 
 Use the daemon docs for the operations shape and its current limits: local daemon
-service management, repository registration, direct-push protection, read-only
-mirrors, and the remote boundary.
+service management, repository registration, task branch publishing with
+direct-push protection, read-only mirrors, and the remote boundary.
 
 → **[operations-server-daemon.md](operations-server-daemon.md)**
+
+## Configure hosted Git credentials
+
+Task branch publishing, pull requests, and CI reading run on an operator-bound
+GitHub token held in the machine's native credential store, never on a worker's
+personal login. The page covers the binding command, the per-platform vault
+item, and the least-privilege permissions for the token.
+
+→ **[hosted-credentials.md](hosted-credentials.md)**
 
 ## Recover a repository that refuses every command
 

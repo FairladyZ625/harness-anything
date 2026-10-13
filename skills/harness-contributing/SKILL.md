@@ -357,6 +357,15 @@ always copy the live repository template for a real PR.
 
 ## Push and open the PR
 
+This section is the external-contributor path: it uses the contributor's own
+Git credentials. A different model exists for dispatched, task-bound workers in
+a registered Harness workspace — they hold no personal Git credentials and
+publish through the daemon with `ha task push <task-id>`, `ha task pr
+<task-id>`, and `ha task ci <task-id>`, with direct-push protection limiting
+any push to the task's own branch. If your session runs as such a worker, use
+those commands instead of this section; see
+[Task branch publishing](../../docs-release/operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
+
 Push only the contribution branch to a remote where the contributor has write
 access:
 

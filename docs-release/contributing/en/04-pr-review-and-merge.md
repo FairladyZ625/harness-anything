@@ -25,3 +25,8 @@ External contributors and their agents stop after the branch is current,
 conflict-free, green, and reviewed. A maintainer owns the normal merge-commit
 path and post-merge branch cleanup. Squash, rebase merge, direct pushes, and
 admin bypass are not the standard contribution path.
+
+"Maintainer" names a human with merge authority on the repository. In a
+self-hosted Harness workspace that person is the workspace operator — the
+主控/CEO in the agent skills — so the two vocabularies point at the same human
+decision, not two different authorities.

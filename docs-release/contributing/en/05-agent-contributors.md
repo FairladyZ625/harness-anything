@@ -4,6 +4,19 @@ Coding agents follow the same public contribution contract as humans. Load
 [`harness-contributing`](../../../skills/harness-contributing/SKILL.md) and use
 its complete sequence; do not derive an agent-specific shortcut from this page.
 
+## Two publishing models
+
+This page and the `harness-contributing` skill describe one model: an agent
+contributing with its operator's own Git credentials — it pushes the
+contribution branch and opens the PR itself. The other model is a dispatched,
+task-bound worker inside a registered Harness workspace: it holds no personal
+Git credentials and publishes through the daemon with `ha task push`,
+`ha task pr`, and `ha task ci`, while direct-push protection limits any push to
+the task's own branch. See
+[Task branch publishing](../../operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
+
+Both models share the same boundary: merge stays with the maintainer.
+
 ## Agent evidence boundary
 
 An agent should inspect current public source before editing, keep the declared

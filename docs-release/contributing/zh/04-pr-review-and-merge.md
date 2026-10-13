@@ -21,3 +21,6 @@ false positive、带 owner/理由延期，或明确保持 blocking。
 外部贡献者及其 agent 在 branch 已同步、无冲突、全绿、review 完成后停下。普通 merge
 commit 和合入后 branch cleanup 由 maintainer 负责。Squash、rebase merge、直推和 admin
 bypass 都不是标准贡献路径。
+
+「maintainer」指在仓库上拥有合入权的人。在自建的 Harness 工作区里，这个人就是工作区
+操作者——agent skills 里的主控/CEO——两套词汇指向同一个人类决策，不是两种不同的权威。
