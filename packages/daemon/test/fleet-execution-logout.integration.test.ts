@@ -581,12 +581,14 @@ test(
     assert.equal(rawEvidence.stdout, frozenEvidence);
     const binaryEvidence = await reviewCli(["doc", "show", "--path", "tasks/task-fleet-fleet/artifacts/evidence.bin"]);
     assert.equal(binaryEvidence.evidence, artifactBytes.toString("base64"));
-    for (const deniedPath of [
+    // dec_CF96A3C910B31D2D7498F32DDD/CH2: unfrozen reads use the shared live document view.
+    for (const readablePath of [
       "tasks/task-other/artifacts/full-evidence.txt",
       "tasks/task-fleet-fleet/artifacts/unregistered.txt",
       "tasks/task-fleet-fleet/task_plan.md",
     ])
-      assert.equal((await reviewCli(["doc", "show", "--path", deniedPath])).code, "execution_credential_rejected");
+      assert.notEqual((await reviewCli(["doc", "show", "--path", readablePath])).code, "execution_credential_rejected");
+    assert.equal((await reviewCli(["doc", "show", "--path", "../task_plan.md"])).outcome, "op_rejected");
     for (const [nodeId, executionCredential] of [
       ["node-slow", secret],
       [config.nodeId, reviewEnv.HARNESS_EXECUTION_CREDENTIAL!],
@@ -696,11 +698,10 @@ test(
     // The stale credential still reads the local replica; the center refuses only its writes below.
     const staleRead = await reviewCli(["task", "show", taskId]);
     assert.equal(staleRead.outcome, "applied", JSON.stringify(staleRead));
-    assert.equal(
-      (await reviewCli(["doc", "show", "--path", frozenEvidencePath])).code,
-      "execution_credential_rejected",
-      "a superseded reviewer cannot read the replacement submission",
-    );
+    // CH2 preserves repository reads after amendment; only the stale receipt and success settlement are fenced.
+    const supersededEvidence = await reviewCli(["doc", "show", "--path", frozenEvidencePath]);
+    assert.equal(supersededEvidence.outcome, "applied", JSON.stringify(supersededEvidence));
+    assert.equal(supersededEvidence.evidence, frozenEvidence);
     const staleReceipt = await reviewCli([
       "task",
       "review-execution",

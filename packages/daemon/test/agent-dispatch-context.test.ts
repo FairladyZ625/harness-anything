@@ -43,7 +43,13 @@ function assertScopedGuidance(prompt: string, taskId: string): void {
         payload: { action: { kind, taskId } },
       });
     assert.doesNotThrow(() => request("task-read-set"));
-    assert.throws(() => request("graph"), { code: "execution_credential_rejected" });
+    assert.doesNotThrow(() =>
+      requireExecutionRequestScope(principal, "repo.settings.read", {
+        repo: { repoId: principal.repoId },
+        payload: {},
+      }),
+    );
+    assert.doesNotThrow(() => request("graph"));
   }
 }
 

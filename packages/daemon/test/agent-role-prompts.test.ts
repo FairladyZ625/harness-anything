@@ -28,10 +28,23 @@ for (const role of ["worker", "reviewer"] as const)
       });
     };
     assert.throws(() => request("relation-relate"), { code: "execution_credential_rejected" });
+    if (role === "reviewer")
+      assert.doesNotThrow(() =>
+        requireExecutionRequestScope(principal, "repo.task.read", {
+          repo: { repoId: principal.repoId },
+          payload: { action: { kind: "decision-show", decisionId: "dec-other" } },
+        }),
+      );
     if (role === "worker")
       for (const kind of ["task-progress-append", "fact-record", "doc-submit"])
         assert.doesNotThrow(() => request(kind));
-    else assert.doesNotThrow(() => request("task-review-execution"));
+    else
+      assert.doesNotThrow(() =>
+        requireExecutionRequestScope(principal, "repo.task.run", {
+          repo: { repoId: principal.repoId },
+          payload: { action: { kind: "task-review-execution", taskId: principal.taskId } },
+        }),
+      );
 
     const mission = "Report the exact acceptance request for this task.";
     const prompts = [

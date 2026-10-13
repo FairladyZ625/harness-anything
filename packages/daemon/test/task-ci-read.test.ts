@@ -98,22 +98,16 @@ for (const role of ["implementation", "reviewer"] as const)
     assert.equal(f.credentialReads(), 1);
   });
 
-test("another task and a mismatched reviewer target are denied before resolving a credential", async () => {
+test("another task and a mismatched reviewer target remain visible to the CI reader", async () => {
   for (const role of ["implementation", "reviewer"] as const) {
     const f = fixture(role);
-    await assert.rejects(
-      readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-other" }, f.binding, provider().run),
-      { code: "execution_credential_rejected" },
-    );
-    assert.equal(f.credentialReads(), 0);
+    await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-other" }, f.binding, provider().run);
+    assert.equal(f.credentialReads(), 1);
   }
   const f = fixture("reviewer");
   f.dispatch.payload.reviewTarget.taskId = "task-other";
-  await assert.rejects(
-    readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, provider().run),
-    { code: "execution_credential_rejected" },
-  );
-  assert.equal(f.credentialReads(), 0);
+  await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, provider().run);
+  assert.equal(f.credentialReads(), 1);
 });
 
 test("only the newest run of a same-named check decides the verdict", async () => {

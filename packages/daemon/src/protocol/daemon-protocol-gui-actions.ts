@@ -351,6 +351,9 @@ export const daemonGuiActionMethods = Object.freeze([
       handoffEnabled: "boolean?",
       idempotencyKey: "string",
       providerSessionId: "string?",
+      // Reviewer dispatches carry the canonical decision/task binding through the
+      // same payload that runtime-spawn consumes.
+      reviewTarget: "json?",
       executor: "json?",
       dryRun: "boolean?",
     }),

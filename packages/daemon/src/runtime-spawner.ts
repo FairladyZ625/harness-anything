@@ -257,7 +257,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // iteration. Selection happens here so every entry (task dispatch-review, completion facade)
       // enforces the same invariant.
       reviewTarget =
-        reviewerBinding && decisionReviewTarget === null
+        reviewerBinding && taskId !== null
           ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
           : null,
       hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
