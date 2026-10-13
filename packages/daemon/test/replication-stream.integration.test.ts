@@ -3,7 +3,7 @@
 // 覆盖:无事件 rejected outcome 也复制且 sequence 前进而事件 revision 不动;ACK 丢失后重放不产生
 // 重复 canonical 事件;断线重连从持久游标续传(不重新整包);游标超出保留窗口后明确 resync 并整包
 // 重来;同一节点的第二个接收者把旧会话挤下线(单 owner fence);sequence 缺口被拒绝而不是跳号。
-// 待对齐: 见 fleet-replication.fixture.ts 文件头;resync 的 code 词表与 killpoint 阶段名是拟名。
+// 待对齐: 见 fleet-replication.fixture.ts 文头;resync.reason 为自由文本(A 已落地),killpoint 阶段名见子进程 fixture。
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
@@ -16,6 +16,8 @@ import {
 } from "./fleet-replication.fixture.ts";
 
 const seededTask = { taskId: "task_stream000000000000000000001", executionId: "exe_stream", title: "Stream" };
+let pressureCounter = 0;
+const createPressure = (): string => `task_wp${String(++pressureCounter).padStart(6, "0")}00000000000000000000`;
 
 const mirrorEventCount = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
@@ -59,7 +61,7 @@ test(
     await fixture.openCenter();
     const edge = fixture.startEdge("edge-one");
     const installed = await edge.waitForEvent("installed");
-    const revisionAtInstall = installed.revision as number,
+    const revisionAtInstall = installed.position.revision as number,
       outcomesAtInstall = mirrorOutcomeCount(String(installed.ledgerPath));
     const rejected = await fixture.centerRun({
       kind: "task-start",
@@ -92,12 +94,9 @@ test("a lost ACK replays the durable suffix without duplicating canonical events
   const edge = fixture.startEdge("edge-one", { killpoints: ["after-durable-before-ack"] });
   const installed = await edge.waitForEvent("installed");
   const appended = await fixture.centerRun({
-    kind: "task-progress-append",
-    taskId: seededTask.taskId,
-    executionId: seededTask.executionId,
-    text: "record whose ACK will be lost",
-    evidence: [],
-    baseDocumentSha256: null,
+    kind: "task-create",
+    taskId: createPressure(),
+    title: "write pressure",
   });
   assert.equal(appended.outcome, "applied", JSON.stringify(appended));
   const killpoint = await edge.waitForEvent("killpoint");
@@ -142,12 +141,9 @@ test("a disconnect resumes from the persisted cursor without a fresh basebackup"
   const edge = fixture.startEdge("edge-one");
   const installed = await edge.waitForEvent("installed");
   await fixture.centerRun({
-    kind: "task-progress-append",
-    taskId: seededTask.taskId,
-    executionId: seededTask.executionId,
-    text: "before the disconnect",
-    evidence: [],
-    baseDocumentSha256: null,
+    kind: "task-create",
+    taskId: createPressure(),
+    title: "write pressure",
   });
   await edge.waitForWhere(
     () => mirrorHead(String(installed.ledgerPath)) === fixture.eventCount(),
@@ -158,12 +154,9 @@ test("a disconnect resumes from the persisted cursor without a fresh basebackup"
   const headBeforeRestart = fixture.eventCount();
   for (let index = 0; index < 3; index += 1) {
     const appended = await fixture.centerRun({
-      kind: "task-progress-append",
-      taskId: seededTask.taskId,
-      executionId: seededTask.executionId,
-      text: `while the edge is down ${index}`,
-      evidence: [],
-      baseDocumentSha256: null,
+      kind: "task-create",
+      taskId: createPressure(),
+      title: "write pressure",
     });
     assert.equal(appended.outcome, "applied", JSON.stringify(appended));
   }
@@ -195,21 +188,19 @@ test(
     // Push the shared log past the tiny window while the node holds its durable cursor un-ACKed.
     for (let index = 0; index < 6; index += 1) {
       const appended = await fixture.centerRun({
-        kind: "task-progress-append",
-        taskId: seededTask.taskId,
-        executionId: seededTask.executionId,
-        text: `window pressure ${index}`,
-        evidence: [],
-        baseDocumentSha256: null,
+        kind: "task-create",
+        taskId: createPressure(),
+        title: "write pressure",
       });
       assert.equal(appended.outcome, "applied", JSON.stringify(appended));
     }
     lagging.control({ control: "release-acks" });
     const resync = await lagging.waitForEvent("resync-required", 60_000);
-    t.diagnostic(`resync code: ${String(resync.code)}`);
+    t.diagnostic(`resync reason: ${String(resync.reason)}`);
+    assert.match(String(resync.reason), /window/u, "the lagging node is told why it must start over");
     // The lagging node is told why it must start over, then converges through a fresh package.
     const secondHeader = await lagging.waitForEvent("basebackup-header", 120_000);
-    assert.ok((secondHeader.sequence as number) > (firstInstall.sequence as number));
+    assert.ok((secondHeader.position.sequence as number) > (firstInstall.position.sequence as number));
     await lagging.waitForWhere(
       () => mirrorHead(String(firstInstall.ledgerPath)) === fixture.eventCount(),
       "re-backup convergence to the center head",
@@ -248,41 +239,40 @@ test("a sequence gap is rejected instead of skipped", { timeout: 180_000 }, asyn
   await edge.exited;
   // Reconnect the same mirror to a fake center that skips one commit sequence.
   const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
-    if (frame.schema === "fleet.basebackup.request/v1") {
-      // The gap scenario must not fall back into a package transfer; fail fast instead.
-      send({
-        schema: "fleet.error/v1",
-        messageId: "no-backup",
-        inReplyTo: frame.messageId,
-        code: "fake_center_no_backup",
-        message: "gap fixture serves no packages",
-        retryable: false,
-        resumeOffset: null,
-      });
-      return;
-    }
-    if (frame.schema !== "fleet.replication.start/v1") return;
-    const from = (frame.fromSequence as number | null) ?? 0,
-      record = (sequence: number) => ({
-        schema: "fleet.replication.record/v1",
-        messageId: `record-${sequence}`,
-        sequence,
-        firstRevision: null,
-        lastRevision: null,
-        opId: `op-gap-${sequence}`,
-        outcomeStatus: "rejected",
-        rejectionCode: "operation_rejected",
-        events: [],
-        contentRefs: [],
-      });
-    send(record(from + 1));
-    send(record(from + 3)); // skips from+2
+    if (frame.type !== "replica.start" || frame.position === null) return;
+    const from = frame.position,
+      // Eventless, well-formed commit envelopes: only the sequence skips a step.
+      sendCommit = (sequence: number) => {
+        const bytes = Buffer.from(
+          JSON.stringify({
+            position: { history: from.history, sequence, revision: from.revision },
+            events: [],
+            outcome: {
+              opId: `op-gap-${sequence}`,
+              status: "rejected",
+              firstRevision: null,
+              lastRevision: null,
+              intentDigest: `sha256:${"a".repeat(64)}`,
+              summary: "gap probe",
+              rejectionCode: "operation_rejected",
+              recordedAt: "2026-10-13T12:00:00.000Z",
+              memberOpIds: [],
+            },
+            writer: null,
+          }),
+        );
+        send({ type: "replica.commit", size: bytes.length });
+        send({ type: "replica.data", offset: 0, data: bytes.toString("base64") });
+        send({ type: "replica.commit.end" });
+      };
+    sendCommit(from.sequence + 1);
+    sendCommit(from.sequence + 3); // skips sequence+2
   });
   const resumed = fixture.startEdge("edge-one", { port: fake.port });
   const headBefore = mirrorHead(String(installed.ledgerPath));
   const outcome = await Promise.race([
-    resumed.waitForEvent("error", 30_000).then((event) => `error:${String(event.code)}`),
-    resumed.waitForEvent("resync-required", 30_000).then((event) => `resync:${String(event.code)}`),
+    resumed.waitForEvent("error", 30_000).then((event) => `error:${String(event.message)}`),
+    resumed.waitForEvent("resync-required", 30_000).then((event) => `resync:${String(event.reason)}`),
   ]);
   t.diagnostic(`gap outcome: ${outcome}`);
   await resumed.exited;

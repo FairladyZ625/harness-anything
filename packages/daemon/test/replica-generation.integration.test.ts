@@ -25,31 +25,22 @@ test("an unsupported projection schema is a version error, not a download loop",
   const packageBytes = Buffer.alloc(2048, 9),
     packageDigest = createHash("sha256").update(packageBytes).digest("hex");
   const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
-    if (frame.schema !== "fleet.basebackup.request/v1") return;
-    const transferId = "schema-mismatch";
+    if (frame.type !== "replica.start") return;
     send({
-      schema: "fleet.basebackup.header/v1",
-      messageId: "header",
-      inReplyTo: frame.messageId,
-      transferId,
-      repoId: "replica-repo",
-      historyId: "h".repeat(40),
-      revision: 2,
-      sequence: 2,
-      ledgerGeneration: 1,
-      // A schema the current shared reader cannot open: downloading it again cannot help.
-      projectionSchema: 424_242,
-      packageBytes: packageBytes.length,
-      packageDigest,
+      type: "replica.backup",
+      metadata: {
+        schema: "fleet-basebackup/v2",
+        repoId: "replica-repo",
+        position: { history: "h".repeat(16), sequence: 2, revision: 2 },
+        ledgerGeneration: 1,
+        // A schema the current shared reader cannot open: downloading it again cannot help.
+        projectionSchema: 424_242,
+      },
+      size: packageBytes.length,
+      sha256: packageDigest,
     });
-    send({
-      schema: "fleet.basebackup.chunk/v1",
-      messageId: "chunk",
-      transferId,
-      offset: 0,
-      dataBase64: packageBytes.toString("base64"),
-    });
-    send({ schema: "fleet.basebackup.finish/v1", messageId: "finish", transferId, packageDigest });
+    send({ type: "replica.data", offset: 0, data: packageBytes.toString("base64") });
+    send({ type: "replica.backup.end" });
   });
   const edge = fixture.startEdge("edge-one", { port: fake.port });
   const failure = await edge.waitForEvent("error");
@@ -59,7 +50,7 @@ test("an unsupported projection schema is a version error, not a download loop",
   assert.equal(edge.lastEvent("installed"), undefined, "no readable generation was published");
   const counts = fake.counts();
   assert.equal(
-    counts["fleet.basebackup.request/v1"],
+    counts["replica.start"],
     1,
     "the same unopenable package is requested exactly once — no re-download loop",
   );

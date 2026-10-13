@@ -1,15 +1,15 @@
-// Fleet 主从复制 C 分片(测试先行)的进程级 fixture:1 中心 + 3 边缘。
+// Fleet 主从复制 C 分片的进程级 fixture:1 中心 + 3 边缘。
 //
 // 中心沿用既有组合根(openDaemonHost + listenFleetTls + fleetNodeOwners + 真实 openssl 证书);
 // 每个边缘是一个真实 OS 子进程(fixtures/fleet-replication-edge-child.mjs),PATH 不含 Git,
 // 持有独立 user-root/view-root/mirror-root,经真实 TLS 连接中心。写命令由本 fixture 直接按
-// 新 wire 合同(fleet.task.command/v1 等,写命令合同不变)发送,不经任何旧 fleet 客户端模块。
+// 不变的写命令合同(fleet.task.command/v1 等,contract.ts)发送;复制流按 A 分片落地的
+// protocol.ts(replica.* 帧族)驱动。
 //
-// 待对齐(dec_9284BD6119D453EEECEED62450, C 分片): 本文件从 packages/daemon/src/fleet/protocol.ts
-// 引用的 wire 编码(parseFleetFrame / serializeFleetFrame / FleetFrameV1 / FLEET_CHUNK_BYTES)
-// 与 fleet-replication-edge-child.mjs 引用的 runFleetWalReceiver,是按设计第 7 节"新写"表
-// 拟名的接口;listenFleetTls 的 replicationRetentionWindowCommits 旋钮同为拟名。A 分片落地时
-// 按 closeout 的对齐表核对,签名出入只改本 fixture 与子进程 fixture,不改断言。
+// 待对齐(dec_9284BD6119D453EEECEED62450, C 分片): listenFleetTls 的
+// replicationRetentionWindowCommits 旋钮仍为拟名(A 的 replication-slot 已有 retention,
+// 会话接线落地时核对暴露面);中心 listener 在已认证会话上服务复制帧的接线是 A/B 剩余工作,
+// 落地前本 fixture 的进程级集成测试按预期红在该接线缺失。
 import assert from "node:assert/strict";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -23,8 +23,10 @@ import { makeTaskProjectionReader, sqliteLedgerPath } from "@harness-anything/ke
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/protocol.ts";
+import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/contract.ts";
+import { parseReplicationFrame, serializeReplicationFrame, type ReplicationFrame } from "../src/fleet/protocol.ts";
 import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./fleet-store.fixture.ts";
+import { rawPeer } from "./fleet-tls-session.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -72,6 +74,7 @@ export async function fleetReplicationFixture(
     certFile = path.join(root, "tls.crt"),
     emptyPath = path.join(root, "empty-path");
   const edgeChildren: ChildProcess[] = [];
+  const trackedClosers: Array<() => void> = [];
   let center: FleetTlsCenter | null = null;
   mkdirSync(path.join(repo, "harness"), { recursive: true });
   mkdirSync(emptyPath);
@@ -120,6 +123,7 @@ export async function fleetReplicationFixture(
     host = await openDaemonHost({ daemonId: "replication-center", userRoot });
   await host.attachmentsSettled();
   t.after(async () => {
+    for (const close of trackedClosers.splice(0)) close();
     for (const child of edgeChildren.splice(0)) child.kill("SIGKILL");
     for (const child of [...edgeChildren]) await new Promise((resolve) => child.once("close", resolve));
     try {
@@ -158,6 +162,9 @@ export async function fleetReplicationFixture(
     centerReader: () => makeTaskProjectionReader({ rootDir: repo }),
     /** The listening port of the currently open center (real or reopened). */
     centerPort: (): number => assertCenterOpen(center).port,
+    track: (close: () => void) => {
+      trackedClosers.push(close);
+    },
     /** Opens (or re-opens after a close) the fleet TLS center for this host. */
     openCenter: async (): Promise<FleetTlsCenter> => {
       const opened = await listenFleetTls({
@@ -194,7 +201,7 @@ export async function fleetReplicationFixture(
       options: { readonly docChanges?: unknown } = {},
     ) => {
       const centerNow = assertCenterOpen(center);
-      const peer = await replicationPeer(fixture.track, centerNow.port, cert, nodeId, `secret-${nodeId}`);
+      const peer = await rawPeer(fixture.track, centerNow.port, cert, nodeId, `secret-${nodeId}`);
       const metadata = await peer.request({
         schema: "fleet.repo.metadata.get/v1",
         messageId: "metadata",
@@ -225,7 +232,7 @@ export async function fleetReplicationFixture(
       baseBlobSha256: string | null = null,
     ) => {
       const centerNow = assertCenterOpen(center);
-      const peer = await replicationPeer(fixture.track, centerNow.port, cert, nodeId, `secret-${nodeId}`);
+      const peer = await rawPeer(fixture.track, centerNow.port, cert, nodeId, `secret-${nodeId}`);
       const metadata = await peer.request({
         schema: "fleet.repo.metadata.get/v1",
         messageId: "metadata",
@@ -385,7 +392,8 @@ function assertCenterOpen(center: FleetTlsCenter | null): FleetTlsCenter {
   return center;
 }
 
-/** A raw TLS peer speaking the new replication wire contract, for negative and fault injection cases. */
+/** A raw TLS peer for the replication conversation: the session hello uses the unchanged session
+ * contract, every later frame on this conversation is a replica.* replication frame. */
 export async function replicationPeer(
   track: (close: () => void) => void,
   port: number,
@@ -397,8 +405,8 @@ export async function replicationPeer(
     const candidate = connect({ host: "127.0.0.1", port, ca, servername: "localhost" }, () => resolve(candidate));
     candidate.once("error", reject);
   });
-  const frames: FleetFrameV1[] = [];
-  const waiters: Array<(frame: FleetFrameV1) => void> = [];
+  const lines: string[] = [];
+  const waiters: Array<(line: string) => void> = [];
   track(() => socket.destroy());
   // A center that cuts this session destroys the socket; the close event below is the signal
   // cut cases assert on, an error here would instead fail the run.
@@ -410,32 +418,37 @@ export async function replicationPeer(
     for (;;) {
       const end = buffer.indexOf("\n");
       if (end < 0) break;
-      const frame = parseFleetFrame(buffer.slice(0, end));
+      const line = buffer.slice(0, end);
       buffer = buffer.slice(end + 1);
       const waiter = waiters.shift();
-      if (waiter) waiter(frame);
-      else frames.push(frame);
+      if (waiter) waiter(line);
+      else lines.push(line);
     }
   });
-  const next = () =>
-      frames.length ? Promise.resolve(frames.shift()!) : new Promise<FleetFrameV1>((resolve) => waiters.push(resolve)),
-    request = async (frame: FleetFrameV1) => {
-      socket.write(serializeFleetFrame({ ...frame, accessToken: `device-token-${nodeId}` }));
+  const nextLine = () =>
+      lines.length ? Promise.resolve(lines.shift()!) : new Promise<string>((resolve) => waiters.push(resolve)),
+    next = async () => parseReplicationFrame(await nextLine()),
+    request = async (frame: ReplicationFrame) => {
+      socket.write(serializeReplicationFrame(frame));
       return next();
     },
-    raw = async (frame: unknown) => {
+    raw = async (frame: Record<string, unknown>) => {
       socket.write(`${JSON.stringify(frame)}\n`);
       return next();
     },
     sendRawBytes = (bytes: Buffer) => socket.write(bytes);
-  const hello = await request({
-    schema: "fleet.session.hello/v1",
-    messageId: "hello",
-    protocolVersion: { major: 1, minor: 0 },
-    nodeId,
-    credential,
-  });
-  if (hello.schema === "fleet.error/v1") throw new Error(hello.code);
+  socket.write(
+    serializeFleetFrame({
+      schema: "fleet.session.hello/v1",
+      messageId: "hello",
+      protocolVersion: { major: 1, minor: 0 },
+      nodeId,
+      credential,
+      accessToken: `device-token-${nodeId}`,
+    }),
+  );
+  const ready = parseFleetFrame(await nextLine());
+  if (ready.schema === "fleet.error/v1") throw new Error(ready.code);
   return { request, raw, sendRawBytes, receive: next, closed, socket, close: () => socket.destroy() };
 }
 
@@ -448,20 +461,21 @@ export async function replicationPeer(
 export async function fakeReplicationCenter(
   t: TestContext,
   fixture: FleetReplicationFixture,
-  handle: (frame: FleetFrameV1, send: (frame: Record<string, unknown>) => void) => void | Promise<void>,
+  handle: (frame: ReplicationFrame, send: (frame: ReplicationFrame) => void) => void | Promise<void>,
 ): Promise<{
   port: number;
-  received: FleetFrameV1[];
+  received: ReplicationFrame[];
   counts: () => Record<string, number>;
   waitSocketCount: (count: number) => Promise<void>;
 }> {
-  const received: FleetFrameV1[] = [];
+  const received: ReplicationFrame[] = [];
   const sockets = new Set<TLSSocket>();
   const server = createServer({ key: fixture.key, cert: fixture.cert }, (socket: TLSSocket) => {
     sockets.add(socket);
     socket.on("close", () => sockets.delete(socket));
     socket.on("error", () => undefined);
-    let buffer = "";
+    let buffer = "",
+      sessionReady = false;
     socket.on("data", (chunk) => {
       buffer += chunk.toString("utf8");
       for (;;) {
@@ -469,20 +483,25 @@ export async function fakeReplicationCenter(
         if (end < 0) break;
         const line = buffer.slice(0, end);
         buffer = buffer.slice(end + 1);
-        const frame = parseFleetFrame(line);
-        received.push(frame);
-        const send = (out: Record<string, unknown>) => socket.write(`${serializeFleetFrame(out)}\n`);
-        if (frame.schema === "fleet.session.hello/v1") {
-          send({
-            schema: "fleet.session.ready/v1",
-            messageId: "ready",
-            inReplyTo: frame.messageId,
-            sessionId: "fake-session",
-            maxFrameBytes: 96 * 1024,
-            chunkBytes: 64 * 1024,
-          });
+        if (!sessionReady) {
+          const hello = parseFleetFrame(line);
+          if (hello.schema !== "fleet.session.hello/v1") throw new Error("fake center expects the session hello first");
+          socket.write(
+            serializeFleetFrame({
+              schema: "fleet.session.ready/v1",
+              messageId: "ready",
+              inReplyTo: hello.messageId,
+              sessionId: "fake-session",
+              maxFrameBytes: 96 * 1024,
+              chunkBytes: 64 * 1024,
+            }),
+          );
+          sessionReady = true;
           continue;
         }
+        const frame = parseReplicationFrame(line);
+        received.push(frame);
+        const send = (out: ReplicationFrame) => socket.write(serializeReplicationFrame(out));
         void Promise.resolve(handle(frame, send)).catch((error) => {
           socket.destroy(error instanceof Error ? error : new Error(String(error)));
         });
@@ -499,7 +518,7 @@ export async function fakeReplicationCenter(
     received,
     counts: () => {
       const tally: Record<string, number> = {};
-      for (const frame of received) tally[frame.schema] = (tally[frame.schema] ?? 0) + 1;
+      for (const frame of received) tally[frame.type] = (tally[frame.type] ?? 0) + 1;
       return tally;
     },
     waitSocketCount: (count) => waitForState(() => sockets.size === count, `fake center to hold ${count} sockets`),
@@ -550,21 +569,15 @@ export async function waitForState(
 export async function seedCenterData(
   fixture: FleetReplicationFixture,
   task: { readonly taskId: string; readonly executionId: string; readonly title: string },
-): Promise<void> {
+): Promise<{ readonly planPath: string }> {
   const created = await fixture.centerRun({ kind: "task-create", taskId: task.taskId, title: task.title });
   assert.equal(created.outcome, "applied", JSON.stringify(created));
-  await realizeTaskPlanFixture(
+  const planPath = await realizeTaskPlanFixture(
     fixture.repo,
     String((created as Record<string, unknown>).packagePath),
     (planPath) => fixture.centerRun({ kind: "doc-submit", paths: [planPath] }),
     task.title,
   );
-  const noteDir = path.join(fixture.repo, "harness", "tasks", task.taskId);
-  mkdirSync(noteDir, { recursive: true });
-  const notePath = path.join(noteDir, "notes.md");
-  writeFileSync(notePath, `# ${task.title} notes\n\nAuthored on the center before replication.\n`);
-  const submitted = await fixture.centerRun({ kind: "doc-submit", paths: [notePath] });
-  assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
   const started = await fixture.centerRun({
     kind: "task-start",
     taskId: task.taskId,
@@ -590,13 +603,5 @@ export async function seedCenterData(
     fixture.owners.auth({ nodeId: replicationNodes[0] }),
   );
   assert.equal(installation.outcome, "applied", JSON.stringify(installation));
-  const progressed = await fixture.centerRun({
-    kind: "task-progress-append",
-    taskId: task.taskId,
-    executionId: task.executionId,
-    text: "center-seeded progress",
-    evidence: [{ type: "test", path: `reports/${task.taskId}.txt`, summary: "seed" }],
-    baseDocumentSha256: null,
-  });
-  assert.equal(progressed.outcome, "applied", JSON.stringify(progressed));
+  return { planPath };
 }

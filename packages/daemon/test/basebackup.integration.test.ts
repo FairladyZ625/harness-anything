@@ -19,6 +19,8 @@ import {
 } from "./fleet-replication.fixture.ts";
 
 const seededTask = { taskId: "task_backup0000000000000000000001", executionId: "exe_backup", title: "Backup N/S" };
+let pressureCounter = 0;
+const createPressure = (): string => `task_wp${String(++pressureCounter).padStart(6, "0")}00000000000000000000`;
 
 test(
   "basebackup freezes one N/S while writes continue and the stream resumes strictly after it",
@@ -31,12 +33,9 @@ test(
     const writesUnderBackup = (async () => {
       for (let index = 0; index < 4; index += 1) {
         const appended = await fixture.centerRun({
-          kind: "task-progress-append",
-          taskId: seededTask.taskId,
-          executionId: seededTask.executionId,
-          text: `concurrent write ${index}`,
-          evidence: [],
-          baseDocumentSha256: null,
+          kind: "task-create",
+          taskId: createPressure(),
+          title: "write pressure",
         });
         assert.equal(appended.outcome, "applied", JSON.stringify(appended));
       }
@@ -44,10 +43,18 @@ test(
     const edge = fixture.startEdge("edge-one");
     const header = await edge.waitForEvent("basebackup-header"),
       installed = await edge.waitForEvent("installed");
-    assert.equal(typeof header.revision, "number");
-    assert.ok((header.revision as number) >= 1, "the backup must cover at least the seeded events");
-    assert.equal(installed.revision, header.revision, "the installed mirror reports the package revision");
-    assert.equal(installed.sequence, header.sequence, "the installed mirror reports the package commit sequence");
+    assert.equal(typeof header.position.revision, "number");
+    assert.ok((header.position.revision as number) >= 1, "the backup must cover at least the seeded events");
+    assert.equal(
+      installed.position.revision,
+      header.position.revision,
+      "the installed mirror reports the package revision",
+    );
+    assert.equal(
+      installed.position.sequence,
+      header.position.sequence,
+      "the installed mirror reports the package commit sequence",
+    );
     // The mirror ledger at install time already holds exactly the packaged event revisions —
     // a whole-file backup, not a rebuild that would converge only after replay.
     const mirrorLedger = new DatabaseSync(String(installed.ledgerPath), { readOnly: true });
@@ -55,7 +62,7 @@ test(
       const row = mirrorLedger.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as {
         head: number;
       };
-      assert.equal(row.head, header.revision, "mirror ledger head equals the frozen N");
+      assert.equal(row.head, header.position.revision, "mirror ledger head equals the frozen N");
       assert.equal(
         (mirrorLedger.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_ > 0,
         true,
@@ -67,8 +74,8 @@ test(
     // First stream record after the backup starts past the backup position: no historical replay.
     const firstApplied = await edge.waitForEvent("applied");
     assert.ok(
-      (firstApplied.sequence as number) > (installed.sequence as number),
-      `stream resumed after the backup position (first=${firstApplied.sequence}, backup=${installed.sequence})`,
+      (firstApplied.position.sequence as number) > (installed.position.sequence as number),
+      `stream resumed after the backup position (first=${firstApplied.position.sequence}, backup=${installed.position.sequence})`,
     );
     await writesUnderBackup;
   },
@@ -81,43 +88,38 @@ test(
     const fixture = await fleetReplicationFixture(t);
     const packageBytes = Buffer.alloc(4096, 7);
     const servePackage = (send: (frame: Record<string, unknown>) => void, corrupt: boolean, truncate: boolean) => {
-      // The header always tells the truth about the intended package; corruption and truncation
-      // happen to the bytes on the wire, exactly the network/staging damage the whole-package
-      // digest exists to catch (the center's own write-boundary validation cannot see these).
-      const packageDigest = createHash("sha256").update(packageBytes).digest("hex"),
-        transferId = "fake-backup";
+      // The backup frame always tells the truth about the intended package; corruption and
+      // truncation happen to the bytes on the wire, exactly the network/staging damage the
+      // whole-archive digest exists to catch (the center's write boundary cannot see these).
+      const sha256 = createHash("sha256").update(packageBytes).digest("hex");
       send({
-        schema: "fleet.basebackup.header/v1",
-        messageId: "header",
-        inReplyTo: "request",
-        transferId,
-        repoId: "replica-repo",
-        historyId: "h".repeat(40),
-        revision: 3,
-        sequence: 3,
-        ledgerGeneration: 1,
-        projectionSchema: 1,
-        packageBytes: packageBytes.length,
-        packageDigest,
+        type: "replica.backup",
+        metadata: {
+          schema: "fleet-basebackup/v2",
+          repoId: "replica-repo",
+          position: { history: "h".repeat(16), sequence: 3, revision: 3 },
+          ledgerGeneration: 1,
+          projectionSchema: 1,
+        },
+        size: packageBytes.length,
+        sha256,
       });
       const bytesToSend = truncate ? packageBytes.subarray(0, 1024) : corrupt ? Buffer.alloc(4096, 6) : packageBytes;
       for (let offset = 0; offset < bytesToSend.length; offset += 1024) {
         send({
-          schema: "fleet.basebackup.chunk/v1",
-          messageId: `chunk-${offset}`,
-          transferId,
+          type: "replica.data",
           offset,
-          dataBase64: bytesToSend.subarray(offset, offset + 1024).toString("base64"),
+          data: bytesToSend.subarray(offset, offset + 1024).toString("base64"),
         });
       }
-      send({ schema: "fleet.basebackup.finish/v1", messageId: "finish", transferId, packageDigest });
+      send({ type: "replica.backup.end" });
     };
     for (const [label, corrupt, truncate] of [
       ["corrupted", true, false],
       ["truncated", false, true],
     ] as const) {
       const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
-        if (frame.schema === "fleet.basebackup.request/v1") servePackage(send, corrupt, truncate);
+        if (frame.type === "replica.start") servePackage(send, corrupt, truncate);
       });
       const edge = fixture.startEdge("edge-one", { port: fake.port });
       const failure = await edge.waitForEvent("error");
@@ -143,12 +145,9 @@ test(
     const firstHeader = await edges[0]!.waitForEvent("basebackup-header");
     // While the first package is still in flight the center answers reads and accepts writes.
     const duringTransfer = await fixture.centerRun({
-      kind: "task-progress-append",
-      taskId: seededTask.taskId,
-      executionId: seededTask.executionId,
-      text: "written while the package ships",
-      evidence: [],
-      baseDocumentSha256: null,
+      kind: "task-create",
+      taskId: createPressure(),
+      title: "write pressure",
     });
     assert.equal(duringTransfer.outcome, "applied", JSON.stringify(duringTransfer));
     const headers = [
@@ -158,13 +157,13 @@ test(
       ],
       installs = await Promise.all(edges.map((edge) => edge.waitForEvent("installed")));
     for (const header of headers.slice(1)) {
-      assert.equal(header.packageDigest, firstHeader.packageDigest, "the same N/S ships the same package bytes");
-      assert.equal(header.packageBytes, firstHeader.packageBytes);
-      assert.equal(header.revision, firstHeader.revision);
-      assert.equal(header.sequence, firstHeader.sequence);
+      assert.equal(header.sha256, firstHeader.sha256, "the same N/S ships the same package bytes");
+      assert.equal(header.size, firstHeader.size);
+      assert.equal(header.position.revision, firstHeader.position.revision);
+      assert.equal(header.position.sequence, firstHeader.position.sequence);
     }
     for (const installed of installs) {
-      assert.equal(installed.revision, firstHeader.revision);
+      assert.equal(installed.position.revision, firstHeader.position.revision);
       // The center projection and the installed mirror are the same schema and index set:
       // the shared reader identity the whole design stands on (C1 of dec_9284BD61).
       assert.deepEqual(sqliteObjects(String(installed.projectionPath)), sqliteObjects(fixture.centerReader().path));

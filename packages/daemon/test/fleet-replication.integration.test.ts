@@ -17,10 +17,10 @@ import { OidcSessionService } from "../src/oidc-session-service.ts";
 import {
   fleetReplicationFixture,
   replicationNodes,
-  replicationPeer,
   seedCenterData,
   waitForState,
 } from "./fleet-replication.fixture.ts";
+import { rawPeer } from "./fleet-tls-session.fixture.ts";
 
 const seededTask = { taskId: "task_e2e0000000000000000000001", executionId: "exe_e2e", title: "End to end" };
 
@@ -89,7 +89,7 @@ test("three process-level edges hold one consistent mirror of every center read"
     centerList = taskListDigest(centerReader),
     centerRevision = centerReader.withSession((queries) => queries.readCut().revision);
   assert.equal(centerRevision, fixture.eventCount());
-  const noteBytes = readFileSync(path.join(fixture.repo, "harness", "tasks", seededTask.taskId, "notes.md"));
+  const noteBytes = readFileSync(path.join(fixture.repo, "tasks", seededTask.taskId, seededTask.taskId, "notes.md"));
   for (const [index, installed] of installs.entries()) {
     const reader = makeTaskProjectionReader({
       rootDir: edges[index]!.root,
@@ -117,12 +117,9 @@ test("three process-level edges hold one consistent mirror of every center read"
   const written = await Promise.all(
     replicationNodes.map((nodeId, index) =>
       fixture.edgeTaskCommand(nodeId, {
-        kind: "task-progress-append",
-        taskId: seededTask.taskId,
-        executionId: seededTask.executionId,
-        text: `write-back from ${nodeId} (${index})`,
-        evidence: [],
-        baseDocumentSha256: null,
+        kind: "task-create",
+        taskId: `task_wb${String(index).padStart(2, "0")}0000000000000000000000`,
+        title: `write-back from ${nodeId}`,
       }),
     ),
   );
@@ -163,7 +160,7 @@ test("three process-level edges hold one consistent mirror of every center read"
   // An agent dispatch from an edge is one canonical runtime event, mirrored once everywhere.
   // 待对齐: runtime 派工帧按 A 分片 protocol 落地核对;事件唯一性以 runtimeSessionId 计数。
   const runtimeSessionId = `runtime-session-${randomUUID()}`;
-  const peer = await replicationPeer(fixture.track, fixture.centerPort(), fixture.cert, "edge-one", "secret-edge-one");
+  const peer = await rawPeer(fixture.track, fixture.centerPort(), fixture.cert, "edge-one", "secret-edge-one");
   const dispatch = await peer.request({
     schema: "fleet.runtime.event/v1",
     messageId: "dispatch",
@@ -223,13 +220,7 @@ test("revoking a node's registration cuts its replication session", { timeout: 1
   assert.equal((removed as { ok?: boolean }).ok, true, JSON.stringify(removed));
   // The cut lands on the live replication session, not only in the registry.
   await Promise.race([edge.exited, edge.waitForEvent("error", 30_000)]);
-  const rejected = await replicationPeer(
-    fixture.track,
-    center.port,
-    fixture.cert,
-    "edge-three",
-    "secret-edge-three",
-  ).then(
+  const rejected = await rawPeer(fixture.track, center.port, fixture.cert, "edge-three", "secret-edge-three").then(
     (peer) => peer.request({ schema: "fleet.repo.metadata.get/v1", messageId: "after-cut", repoId: "replica-repo" }),
     (error) => `connect-failed:${String(error)}`,
   );
@@ -251,12 +242,9 @@ test(
     writeFileSync(localEdit, "# Local edit\n\nNever submitted through the center.\n");
     const headBeforeEdit = fixture.eventCount();
     const control = await fixture.edgeTaskCommand("edge-two", {
-      kind: "task-progress-append",
-      taskId: seededTask.taskId,
-      executionId: seededTask.executionId,
-      text: "positive control while edge-one holds a local edit",
-      evidence: [],
-      baseDocumentSha256: null,
+      kind: "task-create",
+      taskId: `task_ctrl00000000000000000000001`,
+      title: "positive control while edge-one holds a local edit",
     });
     assert.equal(control.schema, "fleet.task.result/v1", JSON.stringify(control));
     await edge.waitForWhere(
