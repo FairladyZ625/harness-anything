@@ -28,6 +28,10 @@ import type { RuntimeResumeHeader } from "./runtime-resume-contract.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 const streamSchema = "runtime-dispatch-stream/v1" as const;
+// Byte caps on one retained dispatch stream. They bound a runaway provider transcript's disk
+// footprint, at the cost of log retention: past the write cap only lifecycle records land and
+// provider output is dropped, past the read cap full replays are skipped. Raising them keeps
+// more provider output readable for longer on daemon disk; lowering them sheds tail output sooner.
 const dispatchStreamReadLimitBytes = 200 * 1024 * 1024;
 const dispatchStreamWriteLimitBytes = 500 * 1024 * 1024;
 const liveIndexSchema = "runtime-dispatch-live-index/v1" as const;
@@ -589,6 +593,8 @@ function openStreamAppender(
       try {
         const size = fstatSync(handle).size;
         if (size >= dispatchStreamWriteLimitBytes && input.unbounded(value)) {
+          // The disk-footprint cap wins over log retention here: unbounded provider output is
+          // dropped rather than letting one transcript grow without bound on the daemon disk.
           input.warnDroppedOutput();
           if (!owned) closeSync(handle);
           return;
@@ -620,7 +626,7 @@ export function openDispatchStreamAppender(target: string): DispatchStreamAppend
       warnOnce(
         writeLimitWarnings,
         target,
-        `${path.basename(target)} reached 524288000 bytes; dropping unbounded output`,
+        `${path.basename(target)} reached ${dispatchStreamWriteLimitBytes} bytes; dropping unbounded output`,
       ),
   });
 }
