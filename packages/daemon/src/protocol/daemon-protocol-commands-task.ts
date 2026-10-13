@@ -156,7 +156,19 @@ export const taskExecutionProtocolCommands = Object.freeze([
     path: ["task", "pr", "<task-id>"],
     summary: "Create or update a pull request for the published task branch through the daemon-held credential.",
     method: "repo.task.run",
-    inputs: [cliInput("--update", "boolean", false, { code: "invalid_field" }, { field: "update" })],
+    inputs: [
+      cliInput("--update", "boolean", false, { code: "invalid_field" }, { field: "update" }),
+      cliInput(
+        "--title",
+        "single",
+        false,
+        { code: "invalid_field" },
+        {
+          field: "title",
+          regex: "^(feat|fix|refactor|perf|test|docs|chore|ci)(\\([A-Za-z0-9._/-]+\\))?: [^\\r\\n]+$",
+        },
+      ),
+    ],
     commandClass: "repo-write" as const,
     admission: {
       local: "direct" as const,

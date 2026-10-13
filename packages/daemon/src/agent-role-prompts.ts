@@ -73,7 +73,7 @@ const taskDeliveryPublicationDiscipline = [
   "- A task-bound worker publishes its own delivery: once the affected tests pass and the work is committed, run",
   "  `ha task push <task-id>`. The daemon pushes exactly this task's branch with the dispatch-held credential; you hold",
   "  no Git credentials, so do not run `git push` yourself and never push another ref.",
-  "- After the branch is published, create the task PR with `ha task pr <task-id>`. The daemon creates it with the",
+  "- After the branch is published, create the task PR with `ha task pr <task-id> --title '<type>(<scope>): <summary>'`; use an English type (feat, fix, refactor, perf, test, docs, chore, or ci), with optional scope. The daemon validates the title before creating it.",
   "  frozen task PR body and the same dispatch-held credential; workers may not merge it.",
   "- Close the CI loop before you submit: run `ha task ci <task-id> --wait` and let it block until the branch reaches a",
   "  verdict (`--json` for the full report, `--timeout <seconds>` to bound the wait), and confirm `ci.headSha` is your",
