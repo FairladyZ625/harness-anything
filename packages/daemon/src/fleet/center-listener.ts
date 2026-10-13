@@ -48,7 +48,7 @@ import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
 import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
-import { openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/kernel";
+import { makeTaskProjection, openSqliteEventStore, sqliteLedgerPath } from "@harness-anything/kernel";
 import { runWalSender } from "./walsender.ts";
 import { openReplicationSlots } from "./replication-slot.ts";
 import { startBaseBackup } from "./basebackup.ts";
@@ -167,6 +167,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       repoId: frame.repoId,
       readOnly: true,
     });
+    const projection = makeTaskProjection({
+      rootDir,
+      projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
+      eventStore: store,
+    });
+    projection.catchUp();
     const slots = replicationSlots;
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
     const source = {
@@ -197,6 +203,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     try {
       await runWalSender({ peer, source, slots, lease, signal });
     } finally {
+      projection.close();
       store.close();
     }
   };
