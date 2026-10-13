@@ -251,4 +251,9 @@ export type PublicPublication = {
   readonly cut: CanonicalEventCut;
 };
 
+/** Fallback execution-lease TTL when a lease command carries no explicit ttlMs (consumed by
+ * task-action-catalog-runtime and repo-cell-proof). Same 24h magnitude as the `tasks.assignmentTtlMs`
+ * setting default, but the two are separate authorities — assignment expiry vs execution lease —
+ * and this constant deliberately does not derive from that setting: lease duration is a fleet
+ * concurrency-safety parameter (how long a dead holder blocks the task), not an operator knob. */
 export const leaseTtlMs = 24 * 60 * 60 * 1_000;

@@ -40,6 +40,10 @@ export type {
   RuntimeIngressAction,
 } from "./repo-cell-types.ts";
 
+/** Cold attach replays content-heavy historical events. Committing projection cuts in batches of
+ * this size lets the supervisor observe advancing watermarks during reconstruction, before ready. */
+const coldAttachCatchUpLimit = 256;
+
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
 export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
   return {
@@ -121,9 +125,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
       rootDir: context.rootDir,
       eventStore: store,
       now: context.now,
-      // Cold attach replays content-heavy historical events. Commit smaller cuts so the
-      // supervisor observes advancing watermarks during reconstruction, before ready.
-      catchUpLimit: 256,
+      catchUpLimit: coldAttachCatchUpLimit,
       onProgress: (progress) =>
         context.input.onOpenProgress?.({
           phase: "catching-up",
