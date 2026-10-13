@@ -379,7 +379,7 @@ export default {
   feature: "collaboration",
   lane: "isolated",
   description:
-    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges) on the redesigned SVG command canvas (fresh/lag/absent state-colored links with a live fleet TLS center, drawer details with cut progress), event stream filtered by node with click-to-node, task jumps, reduced-motion and motion-evidence screenshots, and an animation probe proving zero React re-renders while CSS animations run.",
+    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges) on the redesigned SVG command canvas (fresh/lag/absent state-colored links with a live fleet TLS center, drawer details with cut progress), event stream filtered by node with click-to-node, task jumps, reduced-motion and motion-evidence screenshots, the owner-mandated 1Hz since-ack metric proving the lag/fresh duration walks in real time (the only steady-state DOM mutation channel while CSS animations run), and the in-drawer device management panel (rename/remove with versioned writes; removed devices hidden from the canvas behind the show-removed toggle).",
   async run({ page, shot, fixture }) {
     // 第 2 轮:先种副本三态并启动 fleet center(daemon 空闲、center 未启动是前提)。
     const seeded = await seedGuiE2eFleetReplicaStates({
@@ -576,9 +576,29 @@ export default {
     await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
     await page.setViewportSize(originalViewport);
 
-    // 8. 动效证据(task_16c20131):视口切换后先等拓扑几何沉降(重排引发的属性写
-    //    不属于动画成本),再采样 2s 稳态窗口——动画推进走 CSS 时间轴,窗口内 DOM
-    //    零变更(= 动画期间 0 次 React 重渲染);连拍三帧留档流光/呼吸/扫描环的推进。
+    // 8. 每秒走动的落后/新鲜时长(业主裁定 2026-10-13①):卡片右下角是「距最近一次
+    //    确认」的时长,由前端每秒重算——不刷新页面数字也自己前进;拍走动前后两帧留档。
+    await page.setViewportSize({ width: 1440, height: originalViewport.height });
+    await page.getByTestId("collaboration-view").waitFor();
+    await topologySettled(page);
+    const lagMetric = page.getByTestId(`collaboration-node-since-ack-${NODE_BETA}`);
+    await lagMetric.waitFor();
+    const beforeTick = await lagMetric.innerText();
+    await shot("collaboration-lag-live-before");
+    await page.waitForFunction(
+      ({ nodeId, before }) =>
+        globalThis.document.querySelector(`[data-testid="collaboration-node-since-ack-${nodeId}"]`)?.textContent !==
+        before,
+      { nodeId: NODE_BETA, before: beforeTick },
+      { timeout: 5_000 },
+    );
+    await shot("collaboration-lag-live-after");
+    assert.match(beforeTick, /^\d/u, `the lag duration renders as a duration, got "${beforeTick}"`);
+
+    // 9. 动效证据(task_16c20131,业主裁定①后契约更新):视口切换后先等拓扑几何沉降
+    //    (重排引发的属性写不属于动画成本),再采样 2s 稳态窗口——动画推进走 CSS 时间轴;
+    //    窗口内允许的 DOM 变更只有第 8 步引入的「距最近确认」每秒文本走动(业主裁定),
+    //    除此之外必须零变更(动画仍不被 React 重渲染驱动)。
     await page.setViewportSize({ width: 1440, height: originalViewport.height });
     await page.getByTestId("collaboration-view").waitFor();
     for (let round = 0; ; round += 1) {
@@ -609,6 +629,11 @@ export default {
           const before = animations.map((a) => a.currentTime);
           const mutations = [];
           const samples = [];
+          const isLiveMetricRecord = (record) => {
+            const node = record.target;
+            const element = node instanceof globalThis.Element ? node : node.parentElement;
+            return element !== null && element.closest('[data-testid^="collaboration-node-since-ack-"]') !== null;
+          };
           const observer = new globalThis.MutationObserver((records) => {
             mutations.push(...records);
             for (const record of records)
@@ -624,10 +649,14 @@ export default {
           globalThis.setTimeout(() => {
             const after = animations.map((a) => a.currentTime);
             observer.disconnect();
+            const other = mutations.filter((record) => !isLiveMetricRecord(record));
             resolve({
               running: animations.length,
               advanced: after.some((time, index) => time !== null && before[index] !== null && time > before[index]),
               mutations: mutations.length,
+              liveMetricMutations: mutations.length - other.length,
+              otherMutations: other.length,
+              otherSamples: other.slice(0, 8).map((record) => `${record.type}:${record.attributeName ?? ""}`),
               samples,
               windowMs: performance.now() - startedAt,
             });
@@ -636,27 +665,81 @@ export default {
     );
     assert.ok(perf.running > 0, `CSS animations (breathe/scan/event-in) are running: ${JSON.stringify(perf)}`);
     assert.ok(perf.advanced, `animations advance on the wall-clock timeline: ${JSON.stringify(perf)}`);
+    assert.ok(
+      perf.liveMetricMutations > 0,
+      `the owner-mandated since-ack metric ticks every second inside the window: ${JSON.stringify(perf)}`,
+    );
     assert.equal(
-      perf.mutations,
+      perf.otherMutations,
       0,
-      `no DOM mutations while animations run (zero React re-renders): ${JSON.stringify(perf)}`,
+      `no DOM mutations besides the live since-ack metric while animations run ` +
+        `(animations stay CSS-driven, never React re-render driven): ${JSON.stringify(perf)}`,
     );
     for (let frame = 1; frame <= 3; frame += 1) {
       await shot(`collaboration-motion-frame-${frame}`);
       if (frame < 3) await page.waitForTimeout(700);
     }
 
-    // 9. reduced-motion:系统偏好「减少动态效果」下动画全部关停,静态状态色仍在。
+    // 10. reduced-motion:系统偏好「减少动态效果」下拓扑动画全部关停,静态状态色仍在。
+    //     断言范围是协作页本体:应用外壳的 aurora 环境折射背景在 reduce 下按设计保留
+    //     (d81b908d4),文档级统计会把那 4 条环境动画误算成回归。
     await page.emulateMedia({ reducedMotion: "reduce" });
     assert.equal(
-      await page.evaluate(() => globalThis.document.getAnimations().filter((a) => a.playState === "running").length),
+      await page.evaluate(
+        () =>
+          globalThis.document
+            .querySelector('[data-testid="collaboration-view"]')
+            ?.getAnimations({ subtree: true })
+            .filter((animation) => animation.playState === "running").length ?? -1,
+      ),
       0,
-      "prefers-reduced-motion stops every topology animation",
+      "prefers-reduced-motion stops every topology animation (ambient shell aurora stays by design)",
     );
     const absentLinks = await page.locator('g.fleet-link[data-state="absent"]').count();
     assert.ok(absentLinks > 0, "static state colors survive reduced motion");
     await shot("collaboration-reduced-motion-1440");
     await page.emulateMedia({ reducedMotion: "no-preference" });
+
+    // 11. 设备管理面板(业主裁定 2026-10-13②,F-1C074F8F):点节点即可管理自己的设备,
+    //     不跳 RBAC 面。给当前账号登记 NODE_ALPHA 设备(管理面板在协作页挂载时读设备
+    //     清单,登记后要重挂页面才读得到),走真实 device-* 命令面:改名 → 移除(抽屉
+    //     仍开,面板就地翻成已移除)→ 节点默认从图上隐藏 → 「显示已移除」恢复显示。
+    //     收尾清理登记,不挤占 task-assignment 场景的节点下拉。
+    fixture.keycloak.node(NODE_ALPHA, "person-gui");
+    await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
+    await page.getByTestId("board-task-card").first().waitFor();
+    await page
+      .getByTestId("app-sidebar-scroll")
+      .getByRole("button", { name: /^(?:协作|Collaboration)$/u })
+      .click();
+    await page.getByTestId("collaboration-view").waitFor();
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).click();
+    const management = page.getByTestId("collaboration-node-management");
+    await management.waitFor();
+    const managementText = await management.innerText();
+    assert.match(managementText, /设备管理/u, "the drawer carries the device management section");
+    await page.getByTestId(`collaboration-device-rename-${NODE_ALPHA}`).click();
+    await page.getByTestId("collaboration-device-name").fill("舰队长机 · fleet helm");
+    await page.getByTestId("collaboration-device-save-name").click();
+    await management.filter({ hasText: "舰队长机" }).waitFor();
+    await shot("collaboration-device-management");
+    await page.getByTestId(`collaboration-device-remove-${NODE_ALPHA}`).click();
+    await page.getByTestId("collaboration-device-confirmation").waitFor();
+    await shot("collaboration-device-remove-confirm");
+    await page.getByTestId("collaboration-device-confirm").click();
+    // 移除落地:设备重读 + 拓扑失效重读;抽屉里的面板就地翻成「已移除」,节点从图上
+    // 默认隐藏并点名隐藏数。
+    await management.filter({ hasText: /已移除|Removed/u }).waitFor();
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).waitFor({ state: "hidden", timeout: 10_000 });
+    await page.getByTestId("collaboration-hidden-removed").waitFor();
+    await shot("collaboration-device-removed-hidden");
+    // 抽屉(右侧)盖住拓扑区的「显示已移除」开关:先收起抽屉再切换。
+    await page.getByTestId("collaboration-node-details-close").click();
+    await page.getByRole("dialog").waitFor({ state: "hidden", timeout: 10_000 });
+    await page.getByTestId("collaboration-show-removed").locator("input").click();
+    await page.getByTestId(`collaboration-node-${NODE_ALPHA}`).waitFor();
+    await shot("collaboration-device-removed-shown");
+    fixture.keycloak.nodeClients.delete(`harness-node-${NODE_ALPHA}`);
   },
 };
 

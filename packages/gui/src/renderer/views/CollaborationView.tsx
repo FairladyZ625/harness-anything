@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { t } from "../i18n/index.tsx";
 import type { FleetOverviewEvent, FleetOverviewNode, FleetOverviewRead } from "../../api/renderer-dto.ts";
 import { formatListTime } from "../model/time.ts";
@@ -7,9 +7,13 @@ import { Empty } from "../components/primitives/Empty.tsx";
 import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Section } from "../components/primitives/Section.tsx";
 import { Drawer } from "../components/primitives/Drawer.tsx";
+import { useAccessRead } from "../components/identityAccess/AccessParts.tsx";
+import { useInvalidateFleetOverview } from "../collaboration-data.ts";
+import { guiHostBridge } from "../gui-transport.ts";
 import { READ_ERROR_LABELS, warningLabel } from "./collaboration/fleet-labels.ts";
 import { FleetTopology } from "./collaboration/FleetTopology.tsx";
 import { NodeDetails, nodeLabelOf } from "./collaboration/NodeDetails.tsx";
+import { NodeManagement } from "./collaboration/NodeManagement.tsx";
 
 /**
  * 协作页:舰队拓扑(task_8ce646d94 数据层 + task_16c20131 视觉重做)。数据全部来自
@@ -21,6 +25,11 @@ import { NodeDetails, nodeLabelOf } from "./collaboration/NodeDetails.tsx";
  *
  * 呈现是「指挥台」三层:上方 SVG 拓扑画布(状态光 + 数据流),底部事件流(新事件滑入,
  * 所属节点在拓扑上闪一下),点节点从右侧滑入详情抽屉(非模态,拓扑保持可点)。
+ *
+ * 2026-10-13 业主裁定:①卡片上的落后/新鲜时长按「距最近一次确认」每秒重算(时钟在
+ * 本组件,1Hz 传给拓扑),拓扑数据低频轮询、数据到达时锚点同步纠正;②详情抽屉携带
+ * 「设备管理」区(改名/暂停/恢复/移除/退出全部会话,走既有 access 命令面),已移除
+ * 的自有设备默认从图上隐藏,拓扑区可勾选「显示已移除」。
  */
 
 export function CollaborationView({
@@ -45,10 +54,34 @@ export function CollaborationView({
   const nodes = overview?.nodes ?? [];
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [eventNode, setEventNode] = useState("all");
+  const [showRemoved, setShowRemoved] = useState(false);
+  // 每秒走动的时钟:驱动节点卡「距最近确认」时长。1Hz 的 React 重渲染不在动画帧里,
+  // 拓扑 CSS/SVG 动画不被打断(DOM 节点按 key 复用)。
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  // 设备管理走既有 access 面(与「我的设备」页同一条通道);forRepository 每次调用都
+  // 返回新对象,按 (bridge, repoId) 记忆,否则 1Hz 时钟会让设备读每秒重发。
+  const access = useMemo(() => guiHostBridge()?.access?.forRepository(repoId), [repoId]);
+  const devicesRead = useAccessRead(access?.devices);
+  const invalidateFleetOverview = useInvalidateFleetOverview(repoId);
+  // 已移除的自有设备默认不在图上:daemon 只回自己名下的设备登记,他人已移除的节点
+  // 登记状态对当前身份不可见,如实保持显示(不推断)。
+  const ownRemovedNodeIds = useMemo(() => {
+    const removed = new Set<string>();
+    for (const device of devicesRead.data?.nodes ?? []) if (device.state === "removed") removed.add(device.nodeId);
+    return removed;
+  }, [devicesRead.data]);
+  const visibleNodes = useMemo(
+    () => (showRemoved ? nodes : nodes.filter((node) => node.role === "center" || !ownRemovedNodeIds.has(node.nodeId))),
+    [nodes, showRemoved, ownRemovedNodeIds],
+  );
   const selected = selectedNode === null ? null : (nodes.find((node) => node.nodeId === selectedNode) ?? null);
   const events = overview?.events ?? [];
   const visibleEvents = eventNode === "all" ? events : events.filter((event) => event.nodeId === eventNode);
-  const executing = nodes.reduce(
+  const executing = visibleNodes.reduce(
     (total, node) =>
       total +
       (Array.isArray(node.leases)
@@ -79,7 +112,7 @@ export function CollaborationView({
       <PageHeader
         title={t("collaboration.title")}
         note={t("collaboration.fleetNote")}
-        meta={t("collaboration.fleetSummary", { nodes: nodes.length, executing, events: events.length })}
+        meta={t("collaboration.fleetSummary", { nodes: visibleNodes.length, executing, events: events.length })}
         actions={<RepoModeBadge mode={mode} />}
       />
       <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
@@ -113,7 +146,33 @@ export function CollaborationView({
             <Section
               title={t("collaboration.topologyTitle")}
               note={t("collaboration.topologyNote")}
-              action={<LinkStateLegend />}
+              action={
+                <div className="flex items-center gap-3">
+                  <LinkStateLegend />
+                  {ownRemovedNodeIds.size > 0 ? (
+                    <>
+                      {/* panel 变体的动作行是隐藏信息唯一可见位:默认隐藏时点名数量,
+                          勾选「显示已移除」后只留开关本身。 */}
+                      {!showRemoved ? (
+                        <span data-testid="collaboration-hidden-removed" className="ui-micro text-text-faint">
+                          {t("collaboration.hiddenRemovedCount", { count: ownRemovedNodeIds.size })}
+                        </span>
+                      ) : null}
+                      <label
+                        data-testid="collaboration-show-removed"
+                        className="flex cursor-pointer items-center gap-1.5"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={showRemoved}
+                          onChange={(event) => setShowRemoved(event.currentTarget.checked)}
+                        />
+                        <span className="ui-micro text-text-faint">{t("collaboration.showRemoved")}</span>
+                      </label>
+                    </>
+                  ) : null}
+                </div>
+              }
               variant="panel"
             >
               {/* 画布高度:68vh(与第 2 轮一致,事件流保持在首屏内)+ 420px 地板;
@@ -121,13 +180,14 @@ export function CollaborationView({
                   少节点不留死空白、多节点内部滚动。 */}
               <div style={{ height: "max(420px, 68vh)" }} className="fleet-canvas-clip">
                 <FleetTopology
-                  nodes={nodes}
+                  nodes={visibleNodes}
                   links={overview.links}
                   center={overview.center}
                   centerRevision={overview.centerRevision}
                   selectedNode={selectedNode}
                   onSelectNode={(nodeId) => setSelectedNode((current) => (current === nodeId ? null : nodeId))}
                   flashNodes={flashNodes}
+                  nowMs={nowMs}
                 />
               </div>
             </Section>
@@ -196,6 +256,18 @@ export function CollaborationView({
             onOpenTask={onOpenTask}
             onNavigateEntity={onNavigateEntity}
             onClose={() => setSelectedNode(null)}
+            management={
+              selected.role === "edge" ? (
+                <NodeManagement
+                  node={selected}
+                  access={access}
+                  devicesList={devicesRead.data}
+                  devicesRejection={devicesRead.rejection}
+                  reloadDevices={devicesRead.reload}
+                  onMutated={invalidateFleetOverview}
+                />
+              ) : null
+            }
           />
         )}
       </Drawer>

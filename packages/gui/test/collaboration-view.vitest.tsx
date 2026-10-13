@@ -1,8 +1,9 @@
 // harness-test-tier: fast
 // @vitest-environment happy-dom
 import { act } from "react";
-import { createRoot } from "react-dom/client";
-import { beforeAll, describe, expect, it } from "vitest";
+import { createRoot, type Root } from "react-dom/client";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import { CollaborationView } from "../src/renderer/views/CollaborationView.tsx";
 import type { FleetOverviewRead } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
@@ -10,6 +11,12 @@ import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 beforeAll(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   setActiveLocale("zh-CN");
+});
+
+// 组件现在带 1Hz 时钟:卸载是清理定时器的唯一途径,渲染过的 root 统一在用例后回收。
+const mountedRoots: Root[] = [];
+afterEach(() => {
+  while (mountedRoots.length > 0) act(() => mountedRoots.pop()!.unmount());
 });
 
 /** daemon `repo.fleet.overview.read` 的最小真实形状夹具:三态字段齐全,只改需要的块。 */
@@ -262,17 +269,21 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
   it("读面刷新出现新事件时,其所属节点在拓扑上闪一下", () => {
     const host = document.createElement("div");
     const root = createRoot(host);
+    mountedRoots.push(root);
+    const queryClient = new QueryClient();
     const first = overview();
     act(() =>
       root.render(
-        <CollaborationView
-          repoId="repo-test"
-          mode="remote-center"
-          overview={first}
-          onOpenTask={() => {}}
-          onNavigateEntity={() => {}}
-          now="2026-10-06T01:00:00.000Z"
-        />,
+        <QueryClientProvider client={queryClient}>
+          <CollaborationView
+            repoId="repo-test"
+            mode="remote-center"
+            overview={first}
+            onOpenTask={() => {}}
+            onNavigateEntity={() => {}}
+            now="2026-10-06T01:00:00.000Z"
+          />
+        </QueryClientProvider>,
       ),
     );
     expect(host.querySelector('[data-testid="collaboration-node-cc90-ubuntu"]')!.getAttribute("data-flash")).toBeNull();
@@ -291,14 +302,16 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     ];
     act(() =>
       root.render(
-        <CollaborationView
-          repoId="repo-test"
-          mode="remote-center"
-          overview={refreshed}
-          onOpenTask={() => {}}
-          onNavigateEntity={() => {}}
-          now="2026-10-06T01:00:00.000Z"
-        />,
+        <QueryClientProvider client={queryClient}>
+          <CollaborationView
+            repoId="repo-test"
+            mode="remote-center"
+            overview={refreshed}
+            onOpenTask={() => {}}
+            onNavigateEntity={() => {}}
+            now="2026-10-06T01:00:00.000Z"
+          />
+        </QueryClientProvider>,
       ),
     );
     expect(host.querySelector('[data-testid="collaboration-node-cc90-ubuntu"]')!.getAttribute("data-flash")).toBe("on");
@@ -316,25 +329,30 @@ function renderView(
 ) {
   const host = document.createElement("div");
   const root = createRoot(host);
+  mountedRoots.push(root);
+  const queryClient = new QueryClient();
   const openedTasks: string[] = [];
   const navigatedRefs: string[] = [];
   act(() =>
     root.render(
-      <CollaborationView
-        repoId="repo-test"
-        mode={overrides.mode ?? "remote-center"}
-        overview={overrides.data === undefined ? overview() : overrides.data}
-        overviewError={overrides.error ?? null}
-        overviewLoading={overrides.loading ?? false}
-        now="2026-10-06T01:00:00.000Z"
-        onOpenTask={(id) => openedTasks.push(id)}
-        onNavigateEntity={(ref) => navigatedRefs.push(ref)}
-      />,
+      <QueryClientProvider client={queryClient}>
+        <CollaborationView
+          repoId="repo-test"
+          mode={overrides.mode ?? "remote-center"}
+          overview={overrides.data === undefined ? overview() : overrides.data}
+          overviewError={overrides.error ?? null}
+          overviewLoading={overrides.loading ?? false}
+          now="2026-10-06T01:00:00.000Z"
+          onOpenTask={(id) => openedTasks.push(id)}
+          onNavigateEntity={(ref) => navigatedRefs.push(ref)}
+        />
+      </QueryClientProvider>,
     ),
   );
   return {
     host,
     root,
+    queryClient,
     openedTasks,
     navigatedRefs,
     text: () => host.textContent ?? "",

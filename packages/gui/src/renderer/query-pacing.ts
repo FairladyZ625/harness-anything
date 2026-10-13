@@ -20,6 +20,10 @@ export const QUERY_PACING_MS = {
   connectionStatus: 30_000,
   /** Token 消耗聚合读:数据在派工流里,runtime_metrics 增长不推进台账 cut,自持低频轮询。 */
   tokenUsage: 10_000,
+  /** 舰队拓扑聚合读:daemon 侧 join 副本账本/租约/事件,台账 cut 覆盖不到,自持低频轮询
+   *  (2026-10-13 业主裁定:节点状态要随数据自动变化;卡片上的秒级走动由前端每秒重算,
+   *  轮询只负责把 daemon 事实带回来并纠正锚点)。 */
+  fleetOverview: 5_000,
   /** agenda 未读完游标的续读节奏(读完即停,不是周期轮询)。 */
   agendaCatchUp: 5_000,
 } as const;

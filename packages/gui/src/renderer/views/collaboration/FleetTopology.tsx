@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "
 import { t } from "../../i18n/index.tsx";
 import type { FleetOverviewLink, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";
+import { formatDuration } from "../../model/time.ts";
 import { fieldText } from "./fleet-labels.ts";
 import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } from "./fleet-topology-layout.ts";
 
@@ -13,6 +14,10 @@ import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } fro
  * 动画全部走 CSS/SVG(transform/opacity/stroke-dashoffset),hover/选择只在进出时
  * 改一次容器属性,不在动画帧里触发 React 重渲染;`prefers-reduced-motion` 由全局
  * CSS 关停,静态状态色保留。
+ *
+ * 卡片右下角的「落后/新鲜时长」按最近一次确认时间(ackedAt)由前端每秒重算
+ * (2026-10-13 业主裁定:秒数实时走动,无需 Cmd+R):nowMs 由父级每秒推进一次,
+ * 1Hz 重渲染不在动画帧里;拓扑数据低频轮询刷新,数据到达时锚点同步纠正。
  */
 
 /** 连线视觉状态:daemon links 可能一节点多行,取最差一行做节点级通道;无行 = absent。 */
@@ -47,6 +52,7 @@ export function FleetTopology({
   selectedNode,
   onSelectNode,
   flashNodes,
+  nowMs,
 }: {
   readonly nodes: readonly FleetOverviewNode[];
   readonly links: readonly FleetOverviewLink[];
@@ -55,6 +61,8 @@ export function FleetTopology({
   readonly selectedNode: string | null;
   readonly onSelectNode: (nodeId: string) => void;
   readonly flashNodes: ReadonlySet<string>;
+  /** 每秒推进的当前时刻(毫秒);驱动卡片「距最近确认」时长走动。 */
+  readonly nowMs: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const [size, setSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
@@ -169,24 +177,30 @@ export function FleetTopology({
             );
           })}
         </svg>
-        {nodes.map((node) => (
-          <TopologyNodeCard
-            key={node.nodeId}
-            node={node}
-            placement={layout.placement.get(node.nodeId)}
-            linkState={node.role === "center" ? null : linkStateOf(linksByNode.get(node.nodeId) ?? [])}
-            lagSeconds={Math.round((node.replica?.lagMs ?? linksByNode.get(node.nodeId)?.[0]?.lagMs ?? 0) / 1000)}
-            center={center}
-            centerRevision={centerRevision}
-            edgeCount={edges.length}
-            fleetExecuting={fleetExecuting}
-            selected={node.nodeId === selectedNode}
-            dimmed={dim(node.nodeId)}
-            flashed={flashNodes.has(node.nodeId)}
-            onSelect={() => onSelectNode(node.nodeId)}
-            onHover={(hovering) => setHoverNode(hovering ? node.nodeId : null)}
-          />
-        ))}
+        {nodes.map((node) => {
+          // 「距最近确认」的锚点:节点副本行的 ackedAt,缺行时回退通道行;两者都没有就
+          // 不显示时长(不编造)。daemon lagMs 是读那一刻的事件时间差,不随墙钟走,不用于走动显示。
+          const ackedAt = node.replica?.ackedAt ?? linksByNode.get(node.nodeId)?.[0]?.ackedAt ?? null,
+            ackedMs = ackedAt === null ? Number.NaN : Date.parse(ackedAt);
+          return (
+            <TopologyNodeCard
+              key={node.nodeId}
+              node={node}
+              placement={layout.placement.get(node.nodeId)}
+              linkState={node.role === "center" ? null : linkStateOf(linksByNode.get(node.nodeId) ?? [])}
+              sinceAckMs={Number.isFinite(ackedMs) ? Math.max(0, nowMs - ackedMs) : null}
+              center={center}
+              centerRevision={centerRevision}
+              edgeCount={edges.length}
+              fleetExecuting={fleetExecuting}
+              selected={node.nodeId === selectedNode}
+              dimmed={dim(node.nodeId)}
+              flashed={flashNodes.has(node.nodeId)}
+              onSelect={() => onSelectNode(node.nodeId)}
+              onHover={(hovering) => setHoverNode(hovering ? node.nodeId : null)}
+            />
+          );
+        })}
       </div>
     </div>
   );
@@ -196,7 +210,7 @@ function TopologyNodeCard({
   node,
   placement,
   linkState,
-  lagSeconds,
+  sinceAckMs,
   center,
   centerRevision,
   edgeCount,
@@ -210,7 +224,8 @@ function TopologyNodeCard({
   readonly node: FleetOverviewNode;
   readonly placement: FleetNodePlacement | undefined;
   readonly linkState: LinkVisualState | null;
-  readonly lagSeconds: number;
+  /** 距最近一次确认的毫秒数(ackedAt 锚定,每秒重算);缺锚点为 null,不显示时长。 */
+  readonly sinceAckMs: number | null;
   readonly center: FleetOverviewRead["center"];
   readonly centerRevision: number | null;
   readonly edgeCount: number;
@@ -302,8 +317,16 @@ function TopologyNodeCard({
           >
             {t("collaboration.centerHead")} {center.commitSha === null ? "unknown" : center.commitSha.slice(0, 8)}
           </span>
-        ) : linkState === "lag" && lagSeconds > 0 ? (
-          <span className="shrink-0 font-mono fleet-metric-lag">{lagSeconds}s</span>
+        ) : sinceAckMs !== null && (linkState === "lag" || linkState === "fresh") ? (
+          // 走动时长 = 距最近一次确认过了多久(每秒重算,数据到达时纠正):lag 态琥珀,
+          // fresh 态灰——同一个数,说的是「这份新鲜/落后结论是什么时候确认的」。
+          <span
+            data-testid={`collaboration-node-since-ack-${node.nodeId}`}
+            title={t("collaboration.sinceAckMetric")}
+            className={`shrink-0 font-mono ${linkState === "lag" ? "fleet-metric-lag" : "text-text-faint"}`}
+          >
+            {formatDuration(sinceAckMs)}
+          </span>
         ) : null}
       </span>
     </button>

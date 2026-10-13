@@ -32,6 +32,7 @@ export function NodeDetails({
   onOpenTask,
   onNavigateEntity,
   onClose,
+  management,
 }: {
   readonly node: FleetOverviewNode;
   readonly overview: FleetOverviewRead;
@@ -39,6 +40,8 @@ export function NodeDetails({
   readonly onOpenTask: (id: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
   readonly onClose: () => void;
+  /** 「设备管理」区(2026-10-13 业主裁定):由父级组合注入,中心节点与无桥环境传 null。 */
+  readonly management?: ReactNode;
 }) {
   return (
     <div data-testid="collaboration-node-details" className="flex flex-col gap-4">
@@ -134,6 +137,7 @@ export function NodeDetails({
         <FieldLine label={t("collaboration.fieldWatch")} state={node.watch} />
         <FieldLine label={t("collaboration.fieldLastFailure")} state={node.lastFailure} />
       </DetailBlock>
+      {management === undefined || management === null ? null : management}
       {overview.notes.length > 0 ? (
         <p className="ui-micro text-text-faint" data-testid="collaboration-read-notes">
           {overview.notes.map((note, index) => (

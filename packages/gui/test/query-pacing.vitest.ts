@@ -8,6 +8,7 @@ vi.hoisted(() => {
 
 import { agendaQuery } from "../src/renderer/agenda-data.ts";
 import { connectionsQuery } from "../src/renderer/connection-data.ts";
+import { fleetOverviewQuery } from "../src/renderer/collaboration-data.ts";
 import { entityKindCatalogQuery, governedEntityRowsQuery } from "../src/renderer/entity-kind-data.ts";
 import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS, rendererQueryDefaults } from "../src/renderer/query-pacing.ts";
 import { systemStatusQuery } from "../src/renderer/system-data.ts";
@@ -32,6 +33,8 @@ describe("renderer query pacing definitions", () => {
     expect(taskListQuery("repo-a").refetchOnWindowFocus).toBe(LEDGER_PROBE_FOCUS_REFETCH);
     expect(systemStatusQuery().refetchInterval).toBe(QUERY_PACING_MS.systemStatus);
     expect(connectionsQuery().refetchInterval).toBe(QUERY_PACING_MS.connectionStatus);
+    // 舰队拓扑聚合读也是 daemon 级自持轮询(2026-10-13 业主裁定:节点状态随数据自动变化)。
+    expect(fleetOverviewQuery("repo-a", true).refetchInterval).toBe(QUERY_PACING_MS.fleetOverview);
     const agendaInterval = agendaQuery("repo-a").refetchInterval as (query: {
       readonly state: { readonly data?: { readonly page?: { readonly nextCursor?: string | null } } };
     }) => number | false;
