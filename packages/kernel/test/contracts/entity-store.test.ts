@@ -414,6 +414,36 @@ test("an owned content object is described up to the maximum object size and ref
   );
 });
 
+// The v1 manifest persists one media type per content object, so identical bytes bound under two labels stay
+// unrepresentable here even though the byte-addressed content normalizer no longer treats labels as identity.
+test("an owned content object bound under two media types is refused", () => {
+  const binding = (mediaType: string) => ({
+    ownerRef: "agent/unified-agent",
+    schemaId: "agent-declaration/v1",
+    schemaVersion: 1,
+    bindings: [
+      {
+        path: "agents/unified-agent.json",
+        sha256: "a".repeat(64),
+        size: 4,
+        mediaType,
+        policyId: "typed-entity/v1",
+      },
+    ],
+  });
+  assert.throws(
+    () =>
+      createEntityOwnedContent({
+        ...binding("application/json"),
+        bindings: [
+          ...binding("application/json").bindings,
+          { ...binding("text/plain").bindings[0]!, path: "agents/unified-agent.txt" },
+        ],
+      }),
+    /conflicting media types/u,
+  );
+});
+
 test("write-target comparison is order independent, rejects duplicates, and reads fields linearly", () => {
   let reads = 0;
   const count = 2000,

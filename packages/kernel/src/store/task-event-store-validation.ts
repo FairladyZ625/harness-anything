@@ -203,17 +203,15 @@ export function assertBundle(bundle: CanonicalEventWriteBundle): void {
       size: claim.size,
       mediaType: claim.mediaType,
     }));
+  // Content objects are byte-addressed, so the plan-to-claims comparison here is on {sha256, size}: the media
+  // type of a folded content_blob target is whichever claim the fold kept, while every entry's own label is
+  // compared on its authored_file target above. Both sides are already unique per sha256.
+  const declaredContent = plan.targets.filter((target) => target.kind === "content_blob"),
+    expectedContent = new Map(normalizedClaims.map((claim) => [claim.sha256, claim.size] as const));
   if (
     !sameWriteTargets(declaredAuthored, expectedAuthored) ||
-    !sameWriteTargets(
-      plan.targets.filter((target) => target.kind === "content_blob"),
-      normalizedClaims.map((claim) => ({
-        kind: "content_blob",
-        sha256: claim.sha256,
-        size: claim.size,
-        mediaType: claim.mediaType,
-      })),
-    )
+    declaredContent.length !== expectedContent.size ||
+    declaredContent.some((target) => expectedContent.get(target.sha256) !== target.size)
   )
     throw new TaskEventStoreError("invalid_write_plan", "canonical write bundle claims and plan differ");
 }
@@ -270,7 +268,9 @@ export function assertContentInputs(
   }
   // Blobs may cover a subset of the claims: an object the store already holds needs no bytes resupplied, and
   // prepareContentObjects rejects a claim with neither a blob nor a stored object. Every supplied blob is
-  // hashed here — the one place content bytes are verified — and must match the claim it stands for.
+  // hashed here — the one place content bytes are verified — and must match the claim it stands for. The
+  // media type is claim metadata: the object store persists bytes under the sha alone, so one byte stream
+  // may stand for several claims whose labels differ.
   const claimsBySha = new Map(normalizedClaims.map((claim) => [claim.sha256, claim]));
   if (
     normalizedBlobs.some((blob) => {
@@ -279,7 +279,6 @@ export function assertContentInputs(
       return (
         claim === undefined ||
         claim.size !== blob.size ||
-        claim.mediaType !== blob.mediaType ||
         bytes.byteLength !== blob.size ||
         sha256Bytes(bytes) !== blob.sha256
       );
