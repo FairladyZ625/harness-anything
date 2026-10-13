@@ -170,13 +170,20 @@ ha task pr <task-id>          # create the pull request (--update edits the exis
 ha task ci <task-id> --wait   # read the branch's CI; blocks until a verdict
 ```
 
+Every bound worker gets `ha` from the CLI bin directory belonging to the
+running daemon's installation, with its dispatched repository root and daemon
+route in the worker environment. This is shared by center and edge daemons;
+the edge-only wrapper that pins a canonical root is not used. The worker's Git
+author and committer identity is derived from the dispatching person and stored
+in that checkout's worktree config. Settlement and edge delivery check commits against the
+same person identity recorded by the execution lease.
+
 `ha task push` pushes only the branch whose name equals the task id, with
 `--force-with-lease`, so a newer remote tip is never silently replaced. It
-refuses the push when the checkout is on another branch, when the canonical
-repository resolves no git identity, or when a commit above the default branch
-carries a different author or committer than the repository's conventional
-identity; refusals surface as `delivery_publish_failed` with the reason. A
-settled task-bound run publishes its branch through the same path;
+refuses the push when the checkout is on another branch or when a commit above
+the default branch carries a different author or committer than the dispatch
+person's identity; refusals surface as `delivery_publish_failed` with the
+reason. A settled task-bound run publishes its branch through the same path;
 `ha task push` is how the worker publishes before submit. Merge stays with the
 maintainer — see [PR, review, and merge](contributing/en/04-pr-review-and-merge.md).
 

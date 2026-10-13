@@ -37,6 +37,10 @@ export type WorkerGitIdentity = {
   readonly email: string;
 };
 
+export function workerGitIdentityForPerson(personId: string): WorkerGitIdentity {
+  return { name: personId, email: `${personId}@users.noreply.github.com` };
+}
+
 /** A repository-diff delivery is a task branch with at least one commit above the repository baseline. */
 export async function workerBranchHasDelivery(input: {
   readonly cwd: string;
@@ -87,23 +91,12 @@ export async function readWorkerGitIdentity(input: {
   return name && email ? { name, email } : null;
 }
 
-// Git ranks these four variables above every config file for author and committer, on commits
-// and on the commits a rebase recreates, so a worktree-local override cannot displace them.
-export function workerGitIdentityEnvironment(identity: WorkerGitIdentity): NodeJS.ProcessEnv {
-  return {
-    GIT_AUTHOR_NAME: identity.name,
-    GIT_AUTHOR_EMAIL: identity.email,
-    GIT_COMMITTER_NAME: identity.name,
-    GIT_COMMITTER_EMAIL: identity.email,
-  };
-}
-
-// Every worker launch states the conventional git identity as environment instead of leaving
-// commits and rebases to whatever the worktree's config resolves to implicitly. A root that
-// resolves no identity injects nothing; the settlement push assertion is the boundary that holds.
-export async function conventionalWorkerGitEnvironment(canonicalRoot: string): Promise<NodeJS.ProcessEnv> {
-  const identity = await readWorkerGitIdentity({ cwd: canonicalRoot });
-  return identity ? workerGitIdentityEnvironment(identity) : {};
+export async function configureWorkerGitIdentity(cwd: string, personId: string): Promise<void> {
+  const identity = workerGitIdentityForPerson(personId),
+    env = gitEnvironment();
+  await readGitText(cwd, ["config", "--local", "extensions.worktreeConfig", "true"], env);
+  await readGitText(cwd, ["config", "--worktree", "user.name", identity.name], env);
+  await readGitText(cwd, ["config", "--worktree", "user.email", identity.email], env);
 }
 
 /**
@@ -118,6 +111,7 @@ export async function pushWorkerBranch(input: {
   /** Exact remote cut observed before the current assignment was checked; empty means absent. */
   readonly expectedRemoteCommit?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly identity?: WorkerGitIdentity;
   readonly timeoutMs?: number;
 }): Promise<WorkerPushResult> {
   if (samePath(input.cwd, input.canonicalRoot)) return { attempted: false, reason: "not-a-worker-worktree" };
@@ -143,7 +137,7 @@ export async function pushWorkerBranch(input: {
   // Publication runs only when the conventional identity
   // is readable and every commit the worker added on top of the default branch carries it. Rewriting
   // authorship is a human decision, so a mismatch refuses the push instead of repairing it.
-  const identity = await readWorkerGitIdentity({ cwd: input.canonicalRoot, env });
+  const identity = input.identity ?? (await readWorkerGitIdentity({ cwd: input.canonicalRoot, env }));
   if (!identity)
     return {
       attempted: true,
@@ -211,6 +205,7 @@ export async function pushTaskWorkerBranch(input: {
   readonly taskId: string;
   readonly submittedCommitSha?: string;
   readonly env?: NodeJS.ProcessEnv;
+  readonly identity?: WorkerGitIdentity;
   readonly timeoutMs?: number;
 }): Promise<WorkerPushResult> {
   let expectedRemoteCommit: string;
@@ -348,7 +343,12 @@ export async function readWorkerRemoteCommit(
 }
 
 /** The center fetches only its configured origin and the task branch, into a request-private ref. */
-export async function fetchWorkerDelivery(rootDir: string, taskId: string, requestedCommit?: string): Promise<string> {
+export async function fetchWorkerDelivery(
+  rootDir: string,
+  taskId: string,
+  requestedCommit?: string,
+  expectedIdentity?: WorkerGitIdentity,
+): Promise<string> {
   const ref = `refs/harness/delivery/${randomUUID()}`,
     env = gitEnvironment();
   try {
@@ -360,7 +360,7 @@ export async function fetchWorkerDelivery(rootDir: string, taskId: string, reque
     const commit = (await readGitText(rootDir, ["rev-parse", `${ref}^{commit}`], env)).trim();
     if (requestedCommit !== undefined && requestedCommit !== commit)
       throw new Error(`Requested delivery commit ${requestedCommit} does not match published task branch ${commit}.`);
-    const identity = await readWorkerGitIdentity({ cwd: rootDir, env });
+    const identity = expectedIdentity ?? (await readWorkerGitIdentity({ cwd: rootDir, env }));
     if (!identity) throw new Error("The center repository resolves no conventional Git identity.");
     const mismatch = await firstCommitOutsideConventionalIdentity(
       rootDir,

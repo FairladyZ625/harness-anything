@@ -9,7 +9,12 @@ import {
 } from "./dispatch-stream.ts";
 import { archiveRuntimeDispatch, type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
 import type { ActiveRuntime } from "./runtime-spawn-types.ts";
-import { pushTaskWorkerBranch, squadWorkerBranchHasDelivery, workerBranchHasDelivery } from "./runtime-worker-push.ts";
+import {
+  pushTaskWorkerBranch,
+  squadWorkerBranchHasDelivery,
+  workerBranchHasDelivery,
+  workerGitIdentityForPerson,
+} from "./runtime-worker-push.ts";
 import { cacheWriteTokensOfUsage } from "./runtime-spawn-provider-stream.ts";
 import { classifyRuntimeExit } from "./runtime-provider-fault.ts";
 import { isProviderFailureClassification } from "./runtime-fallback-contract.ts";
@@ -149,6 +154,7 @@ export async function publishExit(
             cwd: active.cwd,
             canonicalRoot: context.input.rootDir,
             taskId: active.task.taskId,
+            identity: workerGitIdentityForPerson(active.binding.actor.principal.personId),
             ...(submittedCommitSha ? { submittedCommitSha } : {}),
             env,
           });

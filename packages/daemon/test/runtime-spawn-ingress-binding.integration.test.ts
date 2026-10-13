@@ -9,6 +9,7 @@ import test from "node:test";
 import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { daemonCliBinDirectory } from "../src/runtime-spawn-context.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { cellCodedError } from "../src/repo-cell-errors.ts";
@@ -187,6 +188,8 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchedEnv?.HARNESS_DAEMON_USER_ROOT, userRoot);
       assert.equal(launchedEnv?.HARNESS_DAEMON_ID, "runtime-spawn-ingress");
       assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, repoId);
+      const cliBinDir = daemonCliBinDirectory();
+      if (cliBinDir) assert.ok(String(launchedEnv?.PATH).split(path.delimiter).includes(cliBinDir));
       assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /[\\/]\.harness[\\/]r-[a-f0-9]{24}\.sock$/u);
       assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
       assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);

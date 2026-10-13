@@ -8,9 +8,9 @@ import test from "node:test";
 import {
   pushTaskWorkerBranch,
   pushWorkerBranch,
+  configureWorkerGitIdentity,
   readWorkerGitIdentity,
   squadWorkerBranchHasDelivery,
-  workerGitIdentityEnvironment,
 } from "../src/runtime-worker-push.ts";
 
 test("squad delivery is witnessed only on a squad-cut branch, never on an ordinary branch with a similar name", async (context) => {
@@ -288,7 +288,7 @@ test("canonical roots never trigger worker push", async () => {
   });
 });
 
-test("the injected identity overrides a misconfigured worktree for commits and rebases", async (context) => {
+test("the dispatch identity is scoped to its worktree for commits and rebases", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-identity-env-")),
     bare = path.join(root, "remote.git"),
     worker = path.join(root, "worker");
@@ -309,30 +309,28 @@ test("the injected identity overrides a misconfigured worktree for commits and r
   git(worker, "config", "--worktree", "user.name", "Misconfigured Worktree");
   assert.equal(git(worker, "config", "--get", "user.email").trim(), "misconfigured-worktree@example.invalid");
 
-  const identity = await readWorkerGitIdentity({
-    cwd: canonical,
-    env: hermeticGitEnvironment(),
+  await configureWorkerGitIdentity(worker, "person-worker");
+  const identity = await readWorkerGitIdentity({ cwd: worker, env: hermeticGitEnvironment() });
+  assert.deepEqual(identity, { name: "person-worker", email: "person-worker@users.noreply.github.com" });
+  assert.deepEqual(await readWorkerGitIdentity({ cwd: canonical, env: hermeticGitEnvironment() }), {
+    name: "Conventional Identity",
+    email: "conventional@example.invalid",
   });
-  assert.deepEqual(identity, { name: "Conventional Identity", email: "conventional@example.invalid" });
-  const workerEnvironment = {
-    ...hermeticGitEnvironment(),
-    ...workerGitIdentityEnvironment(identity!),
-  };
   writeFileSync(path.join(worker, "committed.txt"), "worker\n");
-  gitEnv(workerEnvironment, worker, "add", "committed.txt");
-  gitEnv(workerEnvironment, worker, "commit", "--quiet", "-m", "feat: worker change");
+  git(worker, "add", "committed.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
   assert.equal(
     git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
-    "Conventional Identity|conventional@example.invalid|Conventional Identity|conventional@example.invalid",
+    "person-worker|person-worker@users.noreply.github.com|person-worker|person-worker@users.noreply.github.com",
   );
 
-  // A rebase recreates commits with a fresh committer; the injected environment pins that too.
+  // A rebase recreates commits with a fresh committer; worktree config applies to both identities.
   git(canonical, "commit", "--allow-empty", "--quiet", "-m", "chore: move main forward");
   git(canonical, "push", "--quiet", "origin", "HEAD:main");
-  gitEnv(workerEnvironment, worker, "rebase", "origin/main");
+  git(worker, "rebase", "origin/main");
   assert.equal(
     git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
-    "Conventional Identity|conventional@example.invalid|Conventional Identity|conventional@example.invalid",
+    "person-worker|person-worker@users.noreply.github.com|person-worker|person-worker@users.noreply.github.com",
   );
 });
 
@@ -340,10 +338,6 @@ function git(root, ...args) {
   // Fixture commits carry only the identity the fixture states: a host GIT_AUTHOR_*/GIT_COMMITTER_*
   // outranks both repository config and -c, and the task-bound git wrapper refuses pushes to main.
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env: hermeticGitEnvironment() });
-}
-
-function gitEnv(env, root, ...args) {
-  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", env });
 }
 
 // A worker environment carries no ambient git identity of its own.
