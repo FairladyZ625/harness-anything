@@ -155,9 +155,16 @@ export async function serve(
         if (looksReplication) {
           const frame = parseReplicationFrame(line);
           if (frame.type === "replica.start" && !replicationMode) {
+            if (nodeId === null) {
+              // The Fleet hello and replication start may arrive in one TCP
+              // chunk. Hold the start until hello authentication completes;
+              // runWalSender consumes it from the peer queue after admission.
+              pendingReplicationStart = frame;
+              return;
+            }
             replicationMode = true;
             replicationFrames.push(frame);
-            if (nodeId !== null && options.onReplicationStart)
+            if (options.onReplicationStart)
               void options
                 .onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal)
                 .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
@@ -225,6 +232,7 @@ export async function serve(
           const start = pendingReplicationStart;
           pendingReplicationStart = null;
           replicationMode = true;
+          replicationFrames.push(start);
           void options
             .onReplicationStart(nodeId, accessToken, start, replicationPeer, disconnected.signal)
             .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
