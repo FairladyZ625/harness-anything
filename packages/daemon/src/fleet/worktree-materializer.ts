@@ -1,6 +1,7 @@
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,
+  locateFleetMirrorView,
   scanFleetMirrorWorktree,
   type FleetMirrorApplyResult,
   type FleetMirrorScan,
