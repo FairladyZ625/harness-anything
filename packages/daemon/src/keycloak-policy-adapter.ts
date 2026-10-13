@@ -544,7 +544,7 @@ export class KeycloakPolicyAdapter {
     });
   }
 
-  /** The center's serialized device write retains its immutable owner and login client. */
+  /** The center's serialized device write updates owner and device metadata together. */
   async writeNode(adminAccessToken: string, node: KeycloakNode): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, node.nodeId);
     if (!current) throw new Error(`Keycloak has no client for node ${node.nodeId}; it was removed.`);
@@ -566,6 +566,12 @@ export class KeycloakPolicyAdapter {
     await this.revokeNodes(adminAccessToken, [node]);
   }
 
+  /** Change the device owner once, then revoke the previous owner's offline consent. */
+  async transferNode(adminAccessToken: string, node: KeycloakNode, previousPersonId: string): Promise<void> {
+    await this.revokeNodeConsent(adminAccessToken, node.nodeId, previousPersonId);
+    await this.writeNode(adminAccessToken, node);
+  }
+
   async revokeNodes(adminAccessToken: string, nodes: readonly KeycloakNode[]): Promise<void> {
     const pending = nodes.map((node) => ({ ...node, revision: node.revision + 1, revocation: "pending" as const }));
     for (const node of pending) await this.writeNode(adminAccessToken, node);
@@ -575,10 +581,10 @@ export class KeycloakPolicyAdapter {
     }
   }
 
-  async revokeNodeConsent(adminAccessToken: string, nodeId: string): Promise<void> {
+  async revokeNodeConsent(adminAccessToken: string, nodeId: string, consentPersonId?: string): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, nodeId);
     if (!current) throw new Error(`Keycloak has no client for node ${nodeId}.`);
-    const personId = nodeOf(current).personId,
+    const personId = consentPersonId ?? nodeOf(current).personId,
       userId = await this.findUserId(adminAccessToken, personId);
     if (!userId)
       throw Object.assign(new Error(`No Keycloak account carries Harness person ${personId}.`), {

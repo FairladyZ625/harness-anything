@@ -39,10 +39,13 @@ const verify = (updates: Record<string, unknown> = {}, userUpdates: Record<strin
     }) as typeof fetch,
   });
 
-test("center online introspection binds only the current owner's interactive node session", async () => {
+test("center online introspection binds the verified person signed in on this device", async () => {
   const bound = await verify();
   assert.equal(bound.oidcPrincipal?.personId, "person-a");
   assert.equal(bound.oidcPrincipal?.accessToken, "request-token");
+  const changed = await verify({ harness_person_id: "person-b" }, { attributes: { harness_person_id: ["person-b"] } });
+  assert.equal(changed.nodePrincipal?.personId, "person-b");
+  assert.equal(changed.oidcPrincipal?.personId, "person-b");
   for (const updates of [
     { active: false },
     { exp: 1 },

@@ -356,10 +356,10 @@ export class OidcSessionService {
         this.#assertLoginGeneration(generation);
         this.#writeSession(session);
       });
-    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
+    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.expiresAt };
   }
 
-  /** `expiresAt` is the SSO deadline, or null when Keycloak decides offline validity on refresh. */
+  /** Report the current access-token deadline; offline refresh validity has no inferred deadline. */
   async status(): Promise<Record<string, unknown>> {
     const session = await this.#live();
     if (!session) return { ok: true, authenticated: false };
@@ -369,7 +369,7 @@ export class OidcSessionService {
       ok: true,
       authenticated: true,
       personId: session.personId,
-      expiresAt: session.sessionExpiresAt,
+      expiresAt: session.sessionExpiresAt === null ? null : session.expiresAt,
       deviceLoginRequests: [...this.#deviceRequests.values()].filter(
         (request) => request.personId === session.personId,
       ),
@@ -451,16 +451,33 @@ export class OidcSessionService {
           code: "authentication_required",
         });
       const config = this.#config();
-      return verifyFleetHuman({
-        auth,
-        url: config.url,
-        issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
-        realm: config.realm,
-        clientId: "harness-center",
-        clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
-        adminAccessToken: await this.#centerToken(),
-        fetch: this.#ports.fetch,
-        now: this.#ports.now(),
+      const adminAccessToken = await this.#centerToken();
+      return this.serialize(async () => {
+        const bound = await verifyFleetHuman({
+          auth,
+          url: config.url,
+          issuerUrl: config.listener ? managedRbacListenerUrl(config.listener) : config.url,
+          realm: config.realm,
+          clientId: "harness-center",
+          clientSecret: readFileSync(path.join(this.#rbacRoot, "center-client-secret"), "utf8").trim(),
+          adminAccessToken,
+          fetch: this.#ports.fetch,
+          now: this.#ports.now(),
+        });
+        const adapter = new KeycloakPolicyAdapter(
+            { ...config, resourceServerClientId: "harness-center" },
+            this.#ports.fetch,
+          ),
+          node = await adapter.readNode(adminAccessToken, bound.nodePrincipal!.nodeId);
+        if (!node || node.state !== "active" || node.revocation !== "complete")
+          throw coded("node_owner_unregistered", "The device is not active.");
+        if (node.personId !== bound.nodePrincipal!.personId)
+          await adapter.transferNode(
+            adminAccessToken,
+            { ...node, personId: bound.nodePrincipal!.personId, revision: node.revision + 1 },
+            node.personId,
+          );
+        return bound;
       });
     }
     const generation = this.#loginGeneration;

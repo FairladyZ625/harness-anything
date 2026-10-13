@@ -120,8 +120,19 @@ export function withQueryOnlyDatabaseSession<A>(
   readHead: EventStreamPort["readHead"],
   use: (db: DatabaseSync) => A,
 ): A {
-  if (queryOnlySession !== null) throw new Error("projection query-only sessions cannot be nested");
   const resolvedProjectionPath = canonicalProjectionPath(projectionPath);
+  if (queryOnlySession !== null) {
+    if (queryOnlySession.projectionPath === resolvedProjectionPath) {
+      const outer = queryOnlySession;
+      queryOnlySession = { ...outer, readHead };
+      try {
+        return use(outer.db);
+      } finally {
+        queryOnlySession = outer;
+      }
+    }
+    throw new Error("a query-only projection session cannot open a different projection");
+  }
   if (!localRuntimeStateFileSystem.exists(resolvedProjectionPath))
     throw new Error(`projection is unavailable at ${resolvedProjectionPath}`);
   const db = /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(

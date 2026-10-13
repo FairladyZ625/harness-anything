@@ -233,6 +233,45 @@ test("background replica sync follows a new center cut without a read request", 
   assert.equal(edgeCutFile(edgeRoot, fixture.subject, next, backgroundPaths[1]!), "# second\n");
 });
 
+test(
+  "running replica sync uses a login completed before its next retry without restarting",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t, backgroundPaths),
+      center = await fixture.center(),
+      sync = syncProbe(),
+      controller = new AbortController();
+    let token: string | undefined;
+    const reads: Array<string | undefined> = [];
+    await runFleetReplicaSync({
+      readAccessToken: async () => {
+        reads.push(token);
+        return token;
+      },
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot: path.join(fixture.root, "login-edge"),
+      diskQuotaBytes: replicaQuota,
+      signal: controller.signal,
+      onFailure: sync.failed,
+      onConfirmed: () => controller.abort(),
+      schedule: (retry) => {
+        token = `device-token-${fixture.subject.nodeId}`;
+        retry();
+      },
+    });
+    assert.equal(sync.failures.length, 1);
+    assert.equal((sync.failures[0] as { code: string }).code, "authentication_required");
+    assert.equal(reads[0], undefined);
+    assert.ok(reads.slice(1).every((value) => value === token));
+    assert.ok(reads.length > 1);
+  },
+);
+
 test("a daemon registered after startup starts and stops continuous replica sync", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t, backgroundPaths),
     center = await fixture.center(),

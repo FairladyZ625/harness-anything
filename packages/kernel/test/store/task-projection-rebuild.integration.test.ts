@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjection, makeTaskProjectionReader } from "../../src/projection/rebuildable-task-projection.ts";
+import { withQueryOnlyDatabaseSession } from "../../src/projection/rebuildable-task-projection-database.ts";
 import type { EventStreamPort } from "../../src/projection/rebuildable-task-projection-types.ts";
 import {
   makeTaskEventStore,
@@ -153,6 +154,13 @@ test("query-only reader sessions keep one completed projection cut while the wri
     reader.withSession((queries) => {
       assert.equal("apply" in queries, false);
       assert.equal(queries.list().rows.length, 1);
+      const nested = makeTaskProjectionReader({ rootDir });
+      nested.withSession((inner) => assert.equal(inner.list().rows.length, 1));
+      nested.close();
+      assert.throws(
+        () => withQueryOnlyDatabaseSession(`${writer.path}-other`, eventStore.readHead, () => undefined),
+        /cannot open a different projection/u,
+      );
       eventStore.append(taskBundle(second));
       writer.apply(second, taskLifecycleWritePlan(second));
       assert.equal(queries.list().rows.length, 1, "one request stays on its original SQLite snapshot");

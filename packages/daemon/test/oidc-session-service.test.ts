@@ -89,7 +89,7 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
     ok: true,
     authenticated: true,
     personId: "person-zeyu",
-    expiresAt: 1_000 + sessionLifetimeSeconds * 1_000,
+    expiresAt: 1_000 + accessTokenSeconds * 1_000,
   });
   assert.match(await requests[0]!.text(), /code_verifier=/u);
   const bound = (await service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
@@ -139,7 +139,7 @@ test("a session in use outlives its access token without signing in again", asyn
       authenticated: true,
       deviceLoginRequests: [],
       personId: "person-zeyu",
-      expiresAt: active.clock.now + sessionLifetimeSeconds * 1_000,
+      expiresAt: active.clock.now + accessTokenSeconds * 1_000,
     });
     const bound = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
     assert.equal(serialOf(bound?.accessToken), cycle + 1);
@@ -208,7 +208,7 @@ test("a lowered session lifetime applies to a signed-in session at its next rene
   await signIn(active);
   active.keycloak.lifetimeSeconds = 300;
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
-  assert.equal((await active.service.status()).expiresAt, active.clock.now + 300_000);
+  assert.equal((await active.service.status()).expiresAt, active.clock.now + 60_000);
 });
 
 test("a connection that outlives the access token carries the session as it is on each request", async (t) => {
@@ -245,8 +245,11 @@ test("a connection that outlives the access token carries the session as it is o
   assert.equal(await serial(), null);
   await signIn(active);
   assert.equal(await serial(), 1);
+  const bound = await active.service.bind({ transportKind: "unix-socket" });
+  assert.equal(serialOf(bound.oidcPrincipal?.accessToken), 1);
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   assert.equal(await serial(), 2);
+  assert.equal(serialOf(bound.oidcPrincipal?.accessToken), 1, "an already returned binding is a request snapshot");
   active.keycloak.revoked = true;
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
   assert.equal(await serial(), null);
