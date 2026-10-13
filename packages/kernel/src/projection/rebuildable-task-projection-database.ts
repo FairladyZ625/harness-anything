@@ -1,5 +1,3 @@
-import { createReplicaSequence, initializeReplicaSequenceConnection } from "./replica-sequence.ts";
-import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 // @write-boundary-exemption rebuildable-projection
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -10,8 +8,7 @@ import { createFactProjectionTables } from "./fact-event-projection.ts";
 import { createRelationGraphProjectionTables } from "./relation-graph-projection.ts";
 import { taskProjectionSchemaVersion } from "./projection-schema.ts";
 import { createTaskRelationProjectionTable } from "./task-query-projection.ts";
-import { REPOSITORY_READ_TABLES_SQL } from "./read-model-repository.ts";
-import { TASK_INDEX_TABLES_SQL } from "./read-model.ts";
+import { REPOSITORY_READ_TABLES_SQL, TASK_INDEX_TABLES_SQL } from "./projection-tables.ts";
 import type { EventStreamPort } from "./rebuildable-task-projection-types.ts";
 import { prepareQuery, queryRows, runSql } from "./rebuildable-task-projection-sql.ts";
 export type { ProjectionPage, TaskProjectionListQuery, TaskRelationQuery } from "./task-query-projection.ts";
@@ -242,7 +239,6 @@ function projectionDatabaseOwner(
       throw new ProjectionSchemaMismatchError(observed, projectionPath);
     }
     if (!schemaChecked || observed === null) createTables(db!);
-    initializeReplicaSequenceConnection(db!);
     schemaChecked = true;
   };
   const use = <A>(operation: (database: DatabaseSync) => A): A => {
@@ -401,67 +397,6 @@ function createTables(db: DatabaseSync): void {
       op_id TEXT NOT NULL UNIQUE,
       event_json TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS event_index (
-      op_id TEXT PRIMARY KEY,
-      workspace_revision INTEGER NOT NULL UNIQUE,
-      task_id TEXT,
-      event_json TEXT NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS event_index_task_id ON event_index (task_id);
-    CREATE INDEX IF NOT EXISTS event_index_submission_lookup ON event_index (
-      task_id,
-      json_extract(event_json, '$.payload.execution.executionId'),
-      workspace_revision DESC
-    ) WHERE
-      json_extract(event_json, '$.schema') = 'task-event/v1'
-      AND json_extract(event_json, '$.type') = 'execution_submitted';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_lookup ON event_index (
-      json_extract(event_json, '$.payload.runtimeSessionId'),
-      json_extract(event_json, '$.payload.definitionSnapshotRef'),
-      workspace_revision
-    ) WHERE
-      json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatches ON event_index(workspace_revision)
-      WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-        AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_id ON event_index(
-      json_extract(event_json, '$.payload.dispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_resume_source ON event_index(
-      json_extract(event_json, '$.payload.resumedFromDispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_dispatch_started ON event_index(
-      json_extract(event_json, '$.payload.startedAt'), json_extract(event_json, '$.payload.dispatchId')
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_attempt_group ON event_index(
-      json_extract(event_json, '$.payload.attemptGroupId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_task_execution ON event_index(
-      json_extract(event_json, '$.payload.taskId'), json_extract(event_json, '$.payload.executionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_review_decision ON event_index(
-      json_extract(event_json, '$.payload.reviewTarget.decisionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1'
-      AND json_extract(event_json, '$.type') = 'runtime_dispatch_requested';
-    CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
-      json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_ci_observations ON event_index(workspace_revision)
-      WHERE json_extract(event_json, '$.schema') IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4');
-    CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
-      WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (
-      json_extract(event_json, '$.entity.id'), workspace_revision
-    ) WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_actor_executor ON event_index (
-      json_extract(event_json, '$.actor.executor.id'), workspace_revision
-    ) WHERE
-      json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1');
     CREATE TABLE IF NOT EXISTS document (
       path TEXT PRIMARY KEY,
       workspace_revision INTEGER NOT NULL,
@@ -474,7 +409,6 @@ function createTables(db: DatabaseSync): void {
     );
 ${TASK_INDEX_TABLES_SQL}
 ${REPOSITORY_READ_TABLES_SQL}
-${CI_OBSERVATION_WINDOW_INDEX_SQL}
     CREATE TABLE IF NOT EXISTS task_generation (
       task_id TEXT PRIMARY KEY,
       generation TEXT NOT NULL CHECK(generation IN ('v0','v1'))
@@ -535,7 +469,6 @@ ${CI_OBSERVATION_WINDOW_INDEX_SQL}
   createRelationGraphProjectionTables(db);
   createFactProjectionTables(db);
   createDecisionProjectionTables(db);
-  createReplicaSequence(db);
 }
 
 export function projectionSchemaVersion(db: DatabaseSync): number | null {

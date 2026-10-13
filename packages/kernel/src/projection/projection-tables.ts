@@ -1,6 +1,5 @@
 import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 import type { DatabaseSync } from "node:sqlite";
-
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
     CREATE TABLE IF NOT EXISTS task_snapshot (
