@@ -95,6 +95,85 @@ test("projection-pending Schedule reads retry silently and then arm", async () =
   }
 });
 
+test("authentication blocks stay quiet for a minute while a peer retries each second", async (t) => {
+  for (const failure of ["binding", "receipt"] as const)
+    await t.test(failure, async () => {
+      const clock = fakeClock("2026-08-27T10:35:00.000Z"),
+        repo = fixtureRepo("login-required", "local", [schedule("blocked")]),
+        peer = fixtureRepo("catching-up", "local", []),
+        warnings: string[] = [],
+        originalWarn = console.warn,
+        execute = repo.cell.run;
+      let loggedIn = false,
+        attempts = 0;
+      repo.cell.run = async (...args) => {
+        if (failure === "receipt" && args[0].kind === "schedule-missed" && !loggedIn)
+          return {
+            outcome: "op_rejected",
+            code: "authentication_required",
+            origin: "daemon",
+            evidence: "rejection:authentication_required",
+          } as Awaited<ReturnType<RepoCell["run"]>>;
+        return execute(...args);
+      };
+      peer.cell.run = async () =>
+        ({
+          outcome: "op_rejected",
+          code: "projection_pending",
+          origin: "daemon",
+          evidence: "rejection:projection_pending",
+        }) as Awaited<ReturnType<RepoCell["run"]>>;
+      console.warn = (message?: unknown) => warnings.push(String(message));
+      const scheduler = makeScheduleScheduler({
+        cells: new Map([
+          [repo.repoId, repo.cell],
+          [peer.repoId, peer.cell],
+        ]),
+        localBinding: (repoId, _rootDir, action) => {
+          if (repoId === repo.repoId && action.kind === "schedule-missed") {
+            attempts += 1;
+            if (failure === "binding" && !loggedIn)
+              throw Object.assign(new Error("The schedule creator must sign in on this device."), {
+                code: "authentication_required",
+              });
+          }
+          return localBinding();
+        },
+        now: clock.now,
+        setTimer: clock.setTimer,
+        clearTimer: clock.clearTimer,
+      });
+      try {
+        await scheduler.start();
+        for (let second = 1; second < 60; second += 1) {
+          assert.equal(clock.liveTimers()[0]!.delayMs, 1_000);
+          clock.value = new Date(Date.parse("2026-08-27T10:35:00.000Z") + second * 1_000).toISOString();
+          clock.liveTimers()[0]!.callback();
+          await scheduler.refresh();
+        }
+        assert.equal(attempts, 1, "peer retries must not repeat the blocked binding read");
+        assert.equal(warnings.length, 1, "zero repeated warning lines within a minute");
+        clock.value = "2026-08-27T10:36:00.000Z";
+        await scheduler.refresh();
+        assert.equal(attempts, 2);
+        assert.equal(warnings.length, 1, "the same block stays quiet after its retry");
+        loggedIn = true;
+        clock.value = "2026-08-27T10:37:00.000Z";
+        await scheduler.refresh();
+        assert.equal(repo.missed.length, 1);
+        assert.equal(attempts, 3);
+        // A later login loss is a new block and is reported again.
+        loggedIn = false;
+        clock.value = "2026-08-27T11:05:00.000Z";
+        await scheduler.refresh();
+        assert.equal(warnings.length, 2);
+      } finally {
+        console.warn = originalWarn;
+        scheduler.close();
+      }
+    });
+});
+
 test("rejected Schedule reads report their code without parsing rejection evidence", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
     repo = fixtureRepo("rejected", "local", []),
@@ -293,15 +372,16 @@ test("an unhealthy peer cannot starve an attached Schedule at its due time", asy
           );
           assert.deepEqual(peer.fired, []);
           assert.equal(clock.liveTimers().length, 1);
-          assert.equal(clock.liveTimers()[0]!.delayMs, 1_000);
+          assert.equal(clock.liveTimers()[0]!.delayMs, failure === "missed-binding" ? 60_000 : 1_000);
           if (failure === "missed-binding") assert.ok(warnings.some((warning) => warning.includes("sign in")));
           failing = false;
+          if (failure === "missed-binding") clock.value = "2026-08-27T11:01:00.000Z";
           await scheduler.refresh();
           assert.equal(clock.liveTimers()[0]!.delayMs, 0);
           clock.liveTimers()[0]!.callback();
           await scheduler.refresh();
           assert.deepEqual(peer.fired, ["blocked"]);
-          assert.equal(clock.liveTimers()[0]!.delayMs, 30 * 60_000);
+          assert.equal(clock.liveTimers()[0]!.delayMs, failure === "missed-binding" ? 29 * 60_000 : 30 * 60_000);
         } finally {
           scheduler.close();
           console.warn = originalWarn;

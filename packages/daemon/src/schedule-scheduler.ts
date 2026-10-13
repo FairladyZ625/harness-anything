@@ -43,6 +43,8 @@ type MissedOccurrences = {
   readonly definitionRevision: number;
 };
 
+const HUMAN_BLOCK_RETRY_MS = 60_000;
+
 export function makeScheduleScheduler(input: {
   readonly cells: ReadonlyMap<string, RepoCell>;
   readonly localBinding: (
@@ -62,7 +64,8 @@ export function makeScheduleScheduler(input: {
   const now = input.now ?? (() => new Date().toISOString()),
     setTimer = input.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs)),
     clearTimer = input.clearTimer ?? clearTimeout,
-    attempted = new Set<string>();
+    attempted = new Set<string>(),
+    humanBlocked = new Map<string, number>();
   // Consecutive unanswered Schedule reads per remote-edge repository; cleared by the first answer.
   let unreachable: ReadonlyMap<string, number> = new Map();
   let started = false,
@@ -99,8 +102,13 @@ export function makeScheduleScheduler(input: {
     const plan = await evaluationPlan();
     let retryAfterMs = plan.pending ? Math.min(1_000, plan.retryAfterMs) : plan.retryAfterMs;
     if (plan.missed.length) {
-      const settlement = await applyMissed(plan.missed);
+      const settlement = await applyMissed(plan.missed, humanBlocked, Date.parse(now()));
       if (settlement === "transient") retryAfterMs = Math.min(1_000, retryAfterMs);
+      if (settlement === "human-blocked")
+        retryAfterMs = Math.min(
+          retryAfterMs,
+          ...[...humanBlocked.values()].map((at) => Math.max(0, at - Date.parse(now()))),
+        );
       // A changed plan re-evaluates at once. A receipt rejection is the cell's final verdict
       // on that interval — recorded, never retried on a timer — and the due batch below still
       // arms, so one repository's verdict cannot freeze every other schedule.
@@ -131,7 +139,7 @@ export function makeScheduleScheduler(input: {
     if (closed) return;
     const plan = await evaluationPlan();
     if (plan.missed.length) {
-      const settlement = await applyMissed(plan.missed);
+      const settlement = await applyMissed(plan.missed, humanBlocked, Date.parse(now()));
       if (settlement === "changed") {
         await reconcile();
         return;
@@ -256,6 +264,8 @@ export function makeScheduleScheduler(input: {
       }
     }
     for (const key of attempted) if (!currentOccurrences.has(key)) attempted.delete(key);
+    const currentMissed = new Set(missed.map(missedKey));
+    for (const key of humanBlocked.keys()) if (!currentMissed.has(key)) humanBlocked.delete(key);
     unreachable = stillUnreachable;
     const retryAfterMs = Math.min(...[...unreachable.values()].map((failures) => fleetEdgeBackoffMs(failures - 1)));
     return { due, missed, pending, retryAfterMs };
@@ -382,7 +392,13 @@ function occurrenceAt(trigger: ScheduleTriggerV1, first: string, offset: number)
   return occurrence;
 }
 
-async function recordMissed(input: MissedOccurrences): Promise<"settled" | "rejected"> {
+type MissedOutcome = "settled" | "rejected" | "human-blocked";
+
+function missedKey(input: MissedOccurrences): string {
+  return [input.target.repoId, input.scheduleId, input.definitionRevision].join(":");
+}
+
+async function recordMissed(input: MissedOccurrences): Promise<MissedOutcome> {
   const result = await input.target.execute({
     kind: "schedule-missed",
     scheduleId: input.scheduleId,
@@ -398,26 +414,46 @@ async function recordMissed(input: MissedOccurrences): Promise<"settled" | "reje
   const receipt = makeDaemonCommandReceipt("schedule-missed", result),
     rejectionCode = daemonCommandReceiptRejectionCode(receipt);
   if (rejectionCode) {
-    // The cell has ruled on this interval; replaying the identical settlement cannot change the
-    // verdict. Record it and leave the interval to be outgrown by the schedule's own cadence.
-    console.warn(
-      `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement rejected: ${rejectionCode}.`,
-    );
-    return "rejected";
+    if (rejectionCode !== "authentication_required")
+      console.warn(
+        `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement rejected: ${rejectionCode}.`,
+      );
+    return rejectionCode === "authentication_required" ? "human-blocked" : "rejected";
   }
   return "settled";
 }
 
-/** Every missed interval settled, receipt-rejected, or left waiting on a transient failure. */
-type MissedSettlement = "changed" | "rejected" | "transient";
+/** Every missed interval settled, receipt-rejected, human-blocked, or left waiting on a transient failure. */
+type MissedSettlement = "changed" | "rejected" | "human-blocked" | "transient";
 
-async function applyMissed(inputs: readonly MissedOccurrences[]): Promise<MissedSettlement> {
-  const outcomes = await Promise.allSettled(inputs.map(recordMissed));
-  let settlement: MissedSettlement = "rejected";
+async function applyMissed(
+  inputs: readonly MissedOccurrences[],
+  humanBlocked: Map<string, number>,
+  observedMs: number,
+): Promise<MissedSettlement> {
+  const retryable = inputs.filter((input) => (humanBlocked.get(missedKey(input)) ?? 0) <= observedMs),
+    outcomes = await Promise.allSettled(retryable.map(recordMissed));
+  let settlement: MissedSettlement = humanBlocked.size ? "human-blocked" : "rejected";
   for (const [index, outcome] of outcomes.entries()) {
+    const input = retryable[index]!,
+      key = missedKey(input),
+      blocked =
+        outcome.status === "rejected"
+          ? cellErrorCode(outcome.reason) === "authentication_required"
+          : outcome.value === "human-blocked";
+    if (outcome.status === "rejected") consumeKnownError(outcome.reason);
+    if (blocked) {
+      if (!humanBlocked.has(key))
+        console.warn(
+          `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement blocked: ` +
+            (outcome.status === "rejected" ? errorMessage(outcome.reason) : "authentication_required."),
+        );
+      humanBlocked.set(key, observedMs + HUMAN_BLOCK_RETRY_MS);
+      if (settlement === "rejected") settlement = "human-blocked";
+      continue;
+    }
+    humanBlocked.delete(key);
     if (outcome.status === "rejected") {
-      consumeKnownError(outcome.reason);
-      const input = inputs[index]!;
       console.warn(
         `[schedule-scheduler] ${input.target.repoId}/${input.scheduleId} missed settlement failed: ` +
           errorMessage(outcome.reason),
