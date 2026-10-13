@@ -156,7 +156,7 @@ export async function readTaskCi(
     const jobs = [];
     for (const job of pages.flatMap((page) => page.jobs)) {
       let failure = null;
-      if (job.conclusion === "failure" && run.status === "completed") {
+      if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
         const log = await runCommand([
           "run",
           "view",
