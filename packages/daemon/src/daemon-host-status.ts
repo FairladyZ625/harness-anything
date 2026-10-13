@@ -14,10 +14,17 @@ export function requiredCell(
     throw hostCodedError(
       warming.has(repoId) ? "repo_warming" : unavailable.has(repoId) ? "repo_unavailable" : "repo_namespace_unknown",
       warming.has(repoId)
-        ? `Repository ${repoId} is still warming; wait for its background attachment to complete.`
+        ? warmingMessage(repoId, warming.get(repoId)!)
         : (unavailable.get(repoId)?.lastError ?? `Unknown repo namespace: ${repoId}.`),
     );
   return cell;
+}
+
+function warmingMessage(repoId: string, status: RepoCellStatus): string {
+  const attach = status.attach;
+  if (attach?.phase === "catching-up" && attach.applied !== null && attach.total !== null)
+    return `Repository ${repoId} is still warming; waiting for projection catch-up (${attach.applied}/${attach.total} events applied).`;
+  return `Repository ${repoId} is still warming; waiting for ${attach?.phase ?? "background attachment"} to complete.`;
 }
 
 export function invalidRepoId(repo: InvalidDaemonRegistryRepo): string {

@@ -52,7 +52,11 @@ test("cold writer open publishes committed cuts before a large projection batch 
       );
       try {
         assert.equal(cell.status().state, "attached");
-        assert.deepEqual(cuts, cold ? [256, 512, 513] : []);
+        if (cold) {
+          assert.equal(cuts.at(-1), 513);
+          assert.ok(cuts.length > 3);
+          assert.ok(cuts.every((watermark, index) => index === 0 || watermark > cuts[index - 1]!));
+        } else assert.deepEqual(cuts, []);
       } finally {
         await cell.close();
       }

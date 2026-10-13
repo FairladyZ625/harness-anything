@@ -418,8 +418,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       watermark: null,
     },
   });
-  const warmingMessage = (repoId: string): string =>
-    `Repository ${repoId} is still warming; wait for its background attachment to complete.`;
+  const warmingMessage = (repoId: string): string => {
+    const status = warming.get(repoId),
+      attach = status?.attach;
+    if (attach?.phase === "catching-up" && attach.applied !== null && attach.total !== null)
+      return `Repository ${repoId} is still warming; waiting for projection catch-up (${attach.applied}/${attach.total} events applied).`;
+    return `Repository ${repoId} is still warming; waiting for ${attach?.phase ?? "background attachment"} to complete.`;
+  };
   const markWarming = (repoId: string, status: RepoCellStatus): void => {
     warming.set(repoId, status);
     if (!warmingSettlements.has(repoId)) warmingSettlements.set(repoId, makeWarmingSettlement());
