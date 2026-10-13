@@ -191,7 +191,7 @@ test("worker handoff templates carry framework-owned publication rules", () => {
   assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
   assert.match(prompt, /ha task ci <task-id> --wait/u);
   // The prompt source escapes backticks inside the template literal; match both spellings.
-  assert.match(prompt, /\\`pending\\` and \\`not_started\\` are not verdicts/u);
+  assert.match(prompt, /`pending` and `not_started` are not verdicts/u);
 });
 
 function makeRepo(context, prefix) {
