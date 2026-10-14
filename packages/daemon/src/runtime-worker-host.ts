@@ -187,6 +187,8 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
         if (settled) return;
         settled = true;
+        clearTimeout(interruptTimer);
+        lines.close();
         if (!acp) consumeOutput("", true);
         append({ kind: "process_exit", exitCode, signal });
       };
