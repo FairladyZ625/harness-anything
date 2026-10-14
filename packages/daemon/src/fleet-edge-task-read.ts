@@ -72,7 +72,8 @@ export function edgeFreshness(
 ): { readonly freshness: EdgeReadFreshness; readonly warning: string | null } {
   const maxAgeMs = input.maxAgeMs ?? DEFAULT_EDGE_READ_MAX_AGE_MS,
     maxLagRevisions = input.maxLagRevisions ?? DEFAULT_EDGE_READ_MAX_LAG_REVISIONS;
-  const ageMs = Math.max(0, now() - statSync(`${view.viewDir}/current.json`).mtimeMs);
+  // mtimeMs carries sub-millisecond precision; the frame contract is whole milliseconds.
+  const ageMs = Math.max(0, Math.floor(now() - statSync(`${view.viewDir}/current.json`).mtimeMs));
   const lagRevisions = Math.max(0, sourceRevision - view.revision);
   const stale = ageMs > maxAgeMs || lagRevisions > maxLagRevisions;
   return {

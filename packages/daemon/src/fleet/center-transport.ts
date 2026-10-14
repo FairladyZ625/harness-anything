@@ -156,9 +156,16 @@ export async function serve(
       socket.destroy(new FleetFault("replication_unavailable", "Replication is unavailable."));
       return;
     }
-    void options
-      .onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal)
-      .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
+    void options.onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal).catch((error) => {
+      // A peer that went away aborts its stream; any other end is a center failure worth reporting.
+      if (!disconnected.signal.aborted)
+        (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({
+          nodeId: node,
+          messageId: null,
+          error,
+        });
+      socket.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
   };
   socket.on("data", (chunk) => {
     // A cut session stops processing: lines still buffered on it never reach a handler.
