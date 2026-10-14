@@ -1,16 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { openPeer, readFleetLoginAuthorityClient } from "../src/fleet/peer.ts";
 import { readEdgeRepository, withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { fleetFixture, replicaQuota } from "./fleet-tls-session.fixture.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
-// The replica's revoked marker is the same signal the production edge read path checks
-// (fleet-edge-task-read.ts: existsSync(`${viewDir}/revoked`)).
-const isReadDenied = (viewDir: string): boolean => existsSync(path.join(viewDir, "revoked"));
+const isReadDenied = (viewDir: string): boolean => readReplicaGeneration(viewDir) === null;
 
 // dec_F01770FD0DCF72683B7C4C7A47: the same TLS connection rechecks a user's device session.
 test("Fleet reader frames require an active owner session on every request", { timeout: 60_000 }, async (t) => {
@@ -93,7 +91,8 @@ test("device session failures preserve the admitted replica while repository rev
     readEdgeRepository(
       { viewRoot, repoId, nodeId, action: { kind: "task-show", taskId } },
       async () => {
-        throw new Error("Center offline");
+        // Offline reads have no center connection.
+        return undefined;
       },
       async () => local(),
     );
@@ -101,9 +100,9 @@ test("device session failures preserve the admitted replica while repository rev
   fixture.owners.keycloak.revoke("person-owner", repoId, ["repository-read"]);
   await assert.rejects(pull(), { code: "authorization_denied" });
   assert.equal(isReadDenied(viewDir), true);
-  assert.equal((await offlineRead()).code, "authorization_denied");
+  await assert.rejects(offlineRead(), { code: "replica_unavailable" });
   fixture.owners.keycloak.permit("person-owner", repoId, ["repository-read"]);
-  assert.equal((await offlineRead()).code, "authorization_denied");
+  await assert.rejects(offlineRead(), { code: "replica_unavailable" });
   await pull();
   assert.equal((await offlineRead()).outcome, "applied");
 });

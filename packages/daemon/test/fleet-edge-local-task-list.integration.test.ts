@@ -72,6 +72,7 @@ test(
     assert.equal((later.freshness as { state: string }).state, "stale");
     assert.match(String(later.warnings), /已 5 分钟未收到中心更新/u);
     assert.match(String(later.summary), /已 5 分钟未收到中心更新/u);
+    await f.command("center-node", { kind: "task-progress-append", taskId: "local-0", text: "fresh confirmation" });
     await pull();
     assert.equal(((await local()).freshness as { state: string }).state, "fresh");
 
@@ -178,7 +179,7 @@ test("same repository pulls keep per-node authorization metadata independent", {
       personId: "person-two",
       nodeId: "node-two",
     });
-  assert.equal((await edgeOne.command({ kind: "task-list" })).code, "authorization_denied");
+  assert.equal((await edgeOne.command({ kind: "task-list" })).code, "replica_unavailable");
   const allowedTwo = await edgeTwo.command({ kind: "task-list" });
   assert.equal(allowedTwo.ok, true, JSON.stringify(allowedTwo));
 });

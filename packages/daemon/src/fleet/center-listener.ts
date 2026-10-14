@@ -185,7 +185,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       throw error;
     }
-    const backupKey = JSON.stringify([frame.repoId, readerProfile.personId, readerProfile.nodeId]);
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
     const store = openSqliteEventStore({
@@ -225,15 +224,16 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           await new Promise<void>((resolve) => setImmediate(resolve));
       },
       backup: async (backupSignal: AbortSignal) => {
-        const cached = backupCache.get(backupKey);
+        const cached = backupCache.get(frame.repoId);
         if (cached) {
           cached.users += 1;
           return {
             ...(await cached.archive),
+            metadata: { ...(await cached.archive).metadata, readerProfile },
             release: async () => {
               cached.users -= 1;
               if (cached.users === 0) {
-                backupCache.delete(backupKey);
+                backupCache.delete(frame.repoId);
                 cached.releaseQueue();
               }
             },
@@ -251,7 +251,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const unpin = retention.pin(store.replicationPosition());
         const started = startBaseBackup(
           {
-            readerProfile,
             ledgerPath: store.databasePath,
             projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
             directory: path.join(options.stateRoot, "replication-backups"),
@@ -267,21 +266,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             release();
           },
         };
-        backupCache.set(backupKey, cachedArchive);
+        backupCache.set(frame.repoId, cachedArchive);
         try {
           const archive = await archivePromise;
           return {
             ...archive,
+            metadata: { ...archive.metadata, readerProfile },
             release: async () => {
               cachedArchive.users -= 1;
               if (cachedArchive.users === 0) {
-                backupCache.delete(backupKey);
+                backupCache.delete(frame.repoId);
                 cachedArchive.releaseQueue();
               }
             },
           };
         } catch (error) {
-          backupCache.delete(backupKey);
+          backupCache.delete(frame.repoId);
           cachedArchive.releaseQueue();
           throw error;
         }
