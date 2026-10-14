@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { DatabaseSync } from "node:sqlite";
 import {
-  READ_MODEL_SCHEMA_GENERATION,
+  sqliteLedgerPath,
   compileTaskLifecycleWrite,
   lifecycleDocumentFetchPaths,
   makeTaskEventStore,
@@ -15,8 +14,6 @@ import {
   resolveHarnessLayout,
 } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { openReplicaAckStore } from "../../../packages/daemon/src/fleet/replica-ack-store.ts";
-import { openReplicaCutSource } from "../../../packages/daemon/src/fleet/replica-cut-store.ts";
 import { guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
 import { bridgeReady, nav } from "./helpers.mjs";
 
@@ -110,19 +107,8 @@ export async function seedGuiE2eCollaborationTasks(endpoint, repoId) {
  * 每笔 append 后等 cut 落行,保证 [latest-k, latest] 连续可服务 delta。 */
 export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence) {
   const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
+    // 旧 cut-source 激活随 cut 账本退役(dec_9284BD61);复制日志由 walsender 直读。
     projection = makeTaskProjection({ rootDir, eventStore: store }),
-    replica = openReplicaCutSource({
-      repoId,
-      localRoot: path.dirname(path.dirname(projection.path)),
-      // 与 repo-cell 同款读序列适配(readSequence/readRevision 口径,a310599ca 起
-      // publish 必经 readSequence;旧的 readBasis 选项已不在接口上)。
-      readSequence: projection.readReplicaSequence,
-      readRevision: projection.readReplicaRevision,
-      readLedgerCut: () => store.currentCut(),
-      readContentBlob: (sha256) => store.readContentBlob(sha256),
-      readEvent: (opId) => store.readEvent(opId),
-      readApplied: (opId) => projection.readOperation(opId),
-    }),
     leases = [
       {
         taskId: TASK_HELM,
@@ -166,10 +152,6 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
       },
     ];
   try {
-    // 激活 cut 账本:初始 cut 落在当前 head;后续每笔 lease append 都追加一条
-    // 连续 cut 行(fresh=latest,lag=latest-k 都有真实行可指)。
-    const activated = replica.activate();
-    assert.ok(activated !== null, "replica cut source produced no initial cut");
     for (const lease of leases) {
       const read = projection.read(lease.taskId);
       assert.ok(read?.snapshot?.task, `task ${lease.taskId} missing from projection before lease seed`);
@@ -242,16 +224,12 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
         compiled = compileTaskLifecycleWrite({ event, snapshot: next, packagePath, currentDocuments: documents });
       store.append({ event: compiled.event, plan: compiled.plan, blobs: compiled.blobs });
       projection.apply(compiled.event, compiled.plan);
-      // 等 cut 行落账:每笔 append 之后账本里都有该修订的 cut(delta 链连续)。
-      await replica.waitForCut(revision);
       const after = projection.read(lease.taskId);
       assert.deepEqual(after.snapshot.lease?.actor, lease.actor, `lease for ${lease.taskId} did not land`);
       assert.equal(after.snapshot.lease?.phase, lease.expiredAt === undefined ? "held" : "orphaned");
     }
-    const latestCut = replica.latest();
-    assert.ok(latestCut !== null && latestCut.revision >= 3, "the seeded ledger must carry contiguous cut rows");
+    assert.ok((store.readHead()?.revision ?? 0) >= 3, "the seeded ledger must carry the lease revisions");
   } finally {
-    replica.close();
     projection.close();
     await store.drain();
   }
@@ -259,119 +237,38 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
 
 /**
  * 第 2 轮(CEO 检查点):给 isolated 夹具种出 fresh/lag/absent 三种副本通道。
- * 前提:daemon 空闲且 fleet center 尚未启动——center 的副本读全走磁盘账本,所以
- * 先种 ack 行、后启 center,顺序不能倒。种法不伪造 daemon 读面:cursor 落在 cuts
- * 账本里真实存在的修订上(fresh=最新修订 N,lag=最大连续前驱 N-k,delta 可服务),
- * digest 取该修订的真实 cut 行;absent 是「不种」(账本无行)。
+ * 新复制模型(dec_9284BD61)下,节点副本状态 = 该节点 view 根下的 replica generation:
+ * fresh = 最新基础备份装出的 generation且 current.json 是新写的;lag = 同一 generation
+ * 但把 current.json 的 mtime 回拨到读路 max age 之外(S1 裁决的新鲜度口径:位置随流式
+ * 应用更新,龄期由 current.json 表达);absent = 不种(无 generation)。
+ * 注意:中心侧 fleet 概览的 replicas 行(status().replicas)在 src 接线完成前恒为空,
+ * 本种子先把节点侧真实数据备好;三态在 GUI 上的呈现待 src 侧副本状态面落地。
  */
 export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot, repoId }) {
-  const cutsPath = path.join(
-    resolveHarnessLayout({ rootDir }).localRoot,
-    "replica",
-    "repos",
-    repoId,
-    `g${READ_MODEL_SCHEMA_GENERATION}`,
-    "checkpoints.sqlite",
-  );
-  assert.ok(existsSync(cutsPath), `replica cut store missing at ${cutsPath}`);
-  const cuts = new DatabaseSync(cutsPath, { readOnly: true });
-  let window;
-  try {
-    // 只读窗口取最近 12 个 cut 行(WAL 允许与运行中的 daemon 并发读)。
-    window = cuts
-      .prepare(
-        "SELECT revision, head_digest, manifest_digest, occurred_at FROM cut " +
-          "WHERE revision > (SELECT MAX(revision) - 12 FROM cut) ORDER BY revision",
-      )
-      .all();
-  } finally {
-    cuts.close();
+  const layout = resolveHarnessLayout({ rootDir }),
+    ledgerPath = sqliteLedgerPath(rootDir),
+    projectionPath = path.join(layout.localRoot, "cache", "task.sqlite");
+  let latest = 0;
+  for (const nodeId of [NODE_ALPHA, NODE_BETA]) {
+    const viewDir = path.join(userRoot, "fleet-view", "repos", repoId, "views", nodeId),
+      transfer = await startBaseBackup({ ledgerPath, projectionPath, directory: path.join(viewDir, "staging") }),
+      archive = await transfer.complete;
+    const installed = await installReplicaGeneration({
+      root: viewDir,
+      archive: archive.file,
+      metadata: archive.metadata,
+      sha256: archive.sha256,
+      size: archive.size,
+      quotaBytes: 64 * 1024 * 1024,
+    });
+    latest = Math.max(latest, installed.metadata.position.revision);
+    if (nodeId === NODE_BETA) {
+      // lag 通道:位置相同,龄期超限——读路的 stale 判定口径(ageMs > maxAgeMs)。
+      const stale = new Date(Date.now() - 10 * 60_000);
+      utimesSync(path.join(viewDir, "current.json"), stale, stale);
+    }
   }
-  assert.ok(window.length >= 2, `replica cut store has no contiguous window: ${JSON.stringify(window)}`);
-  const latest = Number(window[window.length - 1].revision);
-  let lagFrom = latest;
-  while (lagFrom - 1 >= 1 && window.some((row) => Number(row.revision) === lagFrom - 1) && latest - (lagFrom - 1) < 6)
-    lagFrom -= 1;
-  assert.ok(lagFrom < latest, `no contiguous predecessor for a lagging cursor (latest=${latest})`);
-
-  const ackStore = openReplicaAckStore(path.join(userRoot, "fleet"));
-  try {
-    const seedCursor = (nodeId, viewId, revision) => {
-      const cut = window.find((row) => Number(row.revision) === revision);
-      assert.ok(cut, `cut row ${revision} vanished between read and seed`);
-      const key = { nodeId, viewId, repoId },
-        transferId = `transfer-e2e-${nodeId}-${revision}`,
-        ackedAt = new Date().toISOString(),
-        // ack 要求一条活跃的 delivery lease(transport 契约):claim 后同事务内续租生效。
-        lease = ackStore.delivery.claim(key, `seed-${nodeId}`, Date.parse(ackedAt), 60_000);
-      assert.ok(lease, `seeding ${nodeId} could not claim its delivery lease`);
-      ackStore.register(key, 1);
-      ackStore.offer(key, {
-        transferId,
-        fromCut: null,
-        toCut: { revision, headDigest: String(cut.head_digest), schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
-        manifestDigest: String(cut.manifest_digest),
-        kind: "delta",
-        issuedAt: new Date().toISOString(),
-      });
-      const acked = ackStore.ack(
-        key,
-        transferId,
-        { revision, headDigest: String(cut.head_digest), schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
-        String(cut.manifest_digest),
-        ackedAt,
-        String(cut.occurred_at),
-        lease,
-      );
-      assert.equal(acked.outcome, "applied", `seeding ${nodeId} cursor at revision ${revision}`);
-    };
-    seedCursor(NODE_ALPHA, "view-e2e-alpha", latest);
-    seedCursor(NODE_BETA, "view-e2e-beta", lagFrom);
-  } finally {
-    ackStore.close();
-  }
-
-  // 自签证书 + 真实 TLS center:center.status() 从磁盘账本读副本行,GUI 读面因此
-  // 看到 ALPHA=fresh / BETA=lag / GAMMA=absent(无行)。
-  const tlsDir = mkdtempSync(path.join(tmpdir(), "ha-fleet-e2e-tls-")),
-    keyPath = path.join(tlsDir, "tls.key"),
-    certPath = path.join(tlsDir, "tls.crt");
-  try {
-    execFileSync(
-      "openssl",
-      [
-        "req",
-        "-x509",
-        "-newkey",
-        "rsa:2048",
-        "-nodes",
-        "-keyout",
-        keyPath,
-        "-out",
-        certPath,
-        "-subj",
-        "/CN=localhost",
-        "-days",
-        "1",
-        "-addext",
-        "subjectAltName=DNS:localhost",
-      ],
-      { stdio: "ignore" },
-    );
-    const started = await requestDaemonJsonRpcAt(
-      endpoint,
-      "daemon.fleet.center.start",
-      { payload: { port: 0, keyPath, certPath, repoId, quotaBytes: 64 * 1024 * 1024 } },
-      5_000,
-      60_000,
-    );
-    assert.equal(started.ok, true, `fleet center start failed: ${JSON.stringify(started)}`);
-  } finally {
-    // The center reads the key and certificate into memory at startup; the directory itself is
-    // throwaway material and is removed here even when startup fails.
-    rmSync(tlsDir, { recursive: true, force: true });
-  }
-  return { latestRevision: latest, lagRevision: lagFrom, lagRevisions: latest - lagFrom };
+  return { latestRevision: latest, lagRevision: latest, lagRevisions: 0 };
 }
 
 export default {
