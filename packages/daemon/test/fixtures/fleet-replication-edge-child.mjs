@@ -12,7 +12,7 @@
 // 自行组合 session hello(contract.ts)与复制流(protocol.ts);产品接线落地后,此处应改用
 // 产品的边缘入口,组合逻辑不进生产码。
 import { spawnSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { connect } from "node:tls";
 import { parseFleetFrame, serializeFleetFrame } from "../../src/fleet/command-protocol.ts";
 import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet/protocol.ts";
