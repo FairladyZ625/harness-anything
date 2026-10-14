@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { consumeKnownError, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -176,18 +176,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const head = store.replicationPosition(),
           window = options.replicationRetentionWindowCommits;
         if (window !== undefined && head.sequence - after.sequence > window) return null;
-        try {
-          return store.replicationCommits(after, 64);
-        } catch (error) {
-          if (
-            error instanceof Error &&
-            error.name === "TaskEventStoreError" &&
-            error.message === "replication_snapshot_required"
-          )
-            return null;
-          consumeKnownError(error);
-          throw error;
-        }
+        return store.replicationCommits(after, 64);
       },
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
         while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)

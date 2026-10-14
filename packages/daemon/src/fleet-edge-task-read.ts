@@ -1,10 +1,5 @@
 import { watch } from "node:fs";
-import {
-  consumeKnownError,
-  makeTaskProjectionReader,
-  type EdgeReadFreshness,
-  type TaskProjectionQueries,
-} from "@harness-anything/kernel";
+import { makeTaskProjectionReader, type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
@@ -90,13 +85,7 @@ export async function readEdgeRepository(
   pull: () => Promise<unknown>,
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
-  if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId)) {
-    try {
-      await pull();
-    } catch (error) {
-      consumeKnownError(error);
-    }
-  }
+  if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId)) await pull();
   return readLocal();
 }
 export function edgeReadModelPresent(input: EdgeTaskReadInput): boolean {

@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node
 import path from "node:path";
 import {
   classifyRawArtifactPath,
-  consumeKnownError,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   makeTaskProjectionReader,
@@ -188,14 +187,7 @@ export function scanFleetMirrorWorktree(
         });
       continue;
     }
-    let route: ReturnType<typeof resolveDocRoute>;
-    try {
-      route = resolveDocRoute(documentPath(logical));
-    } catch (error) {
-      consumeKnownError(error);
-      blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
-      continue;
-    }
+    const route = resolveDocRoute(documentPath(logical));
     if (!route || !route.allowed) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
