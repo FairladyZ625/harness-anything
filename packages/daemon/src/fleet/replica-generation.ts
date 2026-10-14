@@ -4,7 +4,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
-import { consumeKnownError, makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
+import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
 
@@ -181,7 +181,7 @@ export function withReplicaGeneration<T>(root: string, read: (generation: Replic
 
 function createGenerationReaders(root: string) {
   const pins = new Map<string, number>();
-  const collect = async (): Promise<void> => {
+  const collect = (): void => {
     const current = readReplicaGeneration(root),
       directory = path.join(root, "generations");
     if (!existsSync(directory)) return;
@@ -191,7 +191,7 @@ function createGenerationReaders(root: string) {
       (entry) =>
         entry.isDirectory() && entry.name !== current?.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
     );
-    for (const entry of superseded) await rm(path.join(directory, entry.name), { recursive: true, force: true });
+    for (const entry of superseded) rmSync(path.join(directory, entry.name), { recursive: true, force: true });
   };
   /**
    * Removes what a crashed install left behind: unpublished generation staging and received base
@@ -222,11 +222,7 @@ function createGenerationReaders(root: string) {
             return;
           }
           pins.delete(current.id);
-          if (readReplicaGeneration(root)?.id !== current.id)
-            void collect().catch((error: unknown) => {
-              // The next install or release collects again; a failed removal only defers disk reuse.
-              consumeKnownError(error);
-            });
+          if (readReplicaGeneration(root)?.id !== current.id) collect();
         },
       };
     },

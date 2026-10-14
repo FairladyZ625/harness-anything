@@ -5,7 +5,6 @@ import {
   type ReplicationCommit,
   type ReplicationPosition,
 } from "@harness-anything/kernel";
-import { consumeKnownError } from "@harness-anything/kernel";
 import type { BaseBackupArchive } from "./basebackup.ts";
 import { REPLICATION_CHUNK_BYTES, type ReplicationPeer } from "./protocol.ts";
 import type { ReplicationSlotLease, ReplicationSlots } from "./replication-slot.ts";
@@ -71,17 +70,9 @@ export async function runWalSender(input: {
   let position = start.position;
   for (;;) {
     assertOwner();
-    let page: ReturnType<ReplicationSource["read"]>,
-      reason = "replication window unavailable";
-    try {
-      page = position === null ? null : source.read(position);
-    } catch (error) {
-      // Only the store's revision_conflict verdict means the replica left this history; any other read failure is a fault.
-      if ((error as { readonly code?: unknown }).code !== "revision_conflict") throw error;
-      consumeKnownError(error);
-      reason = "replication history mismatch";
-      page = null;
-    }
+    const read = readReplicationPage(source, position),
+      page = read.page,
+      reason = read.reason;
     if (page === null) {
       if (position !== null) await peer.send({ type: "replica.resync", reason });
       const archive = await source.backup(signal);
@@ -125,5 +116,21 @@ export async function runWalSender(input: {
     await acknowledge(position!);
     // S advances on every commit, including eventless outcomes. Only the reader's done terminates a page walk.
     if (page.done) await source.wait(position!, signal);
+  }
+}
+
+function readReplicationPage(
+  source: ReplicationSource,
+  position: ReplicationPosition | null,
+): {
+  readonly page: ReturnType<ReplicationSource["read"]>;
+  readonly reason: string;
+} {
+  try {
+    return { page: position === null ? null : source.read(position), reason: "replication window unavailable" };
+  } catch (error) {
+    // A different history requires a new snapshot; every other read failure propagates.
+    if ((error as { readonly code?: unknown }).code !== "revision_conflict") throw error;
+    return { page: null, reason: "replication history mismatch" };
   }
 }

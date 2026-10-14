@@ -80,7 +80,7 @@ export interface FleetReplicaStreamOptions extends FleetPeerOptions {
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
   /** Called with each position the replica acknowledged as durably applied and queryable. */
-  readonly onApplied?: (position: import("@harness-anything/kernel").ReplicationPosition) => void;
+  readonly onApplied?: (position: import("@harness-anything/kernel").ReplicationPosition) => void | Promise<void>;
 }
 export interface FleetEdgeView {
   readonly current: (repoId: string, viewId: string) => Readonly<Record<string, unknown>> | null;
@@ -225,7 +225,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       send: async (frame) => {
         if (closed) throw closed;
         const flushed = socket.write(serializeReplicationFrame(frame));
-        if (frame.type === "replica.ack") options.onApplied?.(frame.applied);
+        if (frame.type === "replica.ack") await options.onApplied?.(frame.applied);
         if (!flushed) await Promise.race([once(socket, "drain"), once(socket, "close")]);
       },
       receive: async (receiveSignal) => {

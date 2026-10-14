@@ -1,10 +1,9 @@
-import { consumeKnownError } from "@harness-anything/kernel";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "./replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
-  /** Runs after the replica applied new commits; overlapping notifications coalesce into one rerun. */
+  /** Runs after each acknowledged position, before receiving the next replication frame. */
   readonly onConfirmed?: () => void | Promise<void>;
   readonly onFailure?: (error: unknown) => void;
 }
@@ -82,59 +81,28 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   const key = syncKey(options),
     stream = { down: null as unknown },
     viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
-  // `ha doctor` on the edge reports the stream's last failure until the replica applies again. The
-  // record is an observation: an unreadable health file must not stop replication.
-  const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void => {
-    try {
-      recordReplicaHealth(viewDir, { syncFailure });
-    } catch (error) {
-      consumeKnownError(error);
-    }
-  };
+  const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
+    recordReplicaHealth(viewDir, { syncFailure });
   streams.set(key, stream);
-  let failures = 0,
-    confirming = false,
-    confirmAgain = false;
-  const confirm = (): void => {
-    if (confirming) {
-      confirmAgain = true;
-      return;
-    }
-    confirming = true;
-    void (async () => {
-      do {
-        confirmAgain = false;
-        try {
-          await options.onConfirmed?.();
-        } catch (error) {
-          consumeKnownError(error);
-          options.onFailure?.(error);
-        }
-      } while (confirmAgain && !options.signal?.aborted);
-      confirming = false;
-    })();
-  };
+  let failures = 0;
   try {
     while (!options.signal?.aborted) {
       stream.down = null;
-      try {
-        await runFleetReplicaStream({
-          ...options,
-          onApplied: (position) => {
-            failures = 0;
-            observe(null);
-            settle(key, position.sequence);
-            confirm();
-          },
-        });
-      } catch (error) {
-        // The stream only ends by failing; waiters fail with it, the failure is reported, then the loop reconnects.
-        consumeKnownError(error);
-        if (options.signal?.aborted) return;
-        stream.down = error;
-        observe(replicaFailure(error, "replica_sync_failed"));
-        settle(key, null, streamDown(error));
-        options.onFailure?.(error);
+      const attempt = await runSyncAttempt({
+        ...options,
+        onApplied: async (position) => {
+          failures = 0;
+          observe(null);
+          settle(key, position.sequence);
+          await options.onConfirmed?.();
+        },
+      });
+      if (options.signal?.aborted) return;
+      if (attempt.failed) {
+        stream.down = attempt.error;
+        observe(replicaFailure(attempt.error, "replica_sync_failed"));
+        settle(key, null, streamDown(attempt.error));
+        options.onFailure?.(attempt.error);
       }
       const ceiling = Math.min(30_000, 250 * 2 ** Math.min(failures++, 7));
       const delay = Math.floor(Math.random() * (ceiling + 1));
@@ -151,5 +119,17 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   } finally {
     if (streams.get(key) === stream) streams.delete(key);
     settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
+  }
+}
+
+/** A failed session is an explicit result for the resident owner's reconnect loop. */
+async function runSyncAttempt(
+  options: FleetReplicaStreamOptions,
+): Promise<{ readonly failed: false } | { readonly failed: true; readonly error: unknown }> {
+  try {
+    await runFleetReplicaStream(options);
+    return { failed: false };
+  } catch (error) {
+    return { failed: true, error };
   }
 }

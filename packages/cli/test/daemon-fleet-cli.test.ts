@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/src/fleet-edge-mirror.ts";
+import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
@@ -403,7 +403,10 @@ test(
         ),
         false,
       );
-    } catch (error) { console.error("TEMPDEBUG body error", error); throw error; } finally {
+    } catch (error) {
+      console.error("TEMPDEBUG body error", error);
+      throw error;
+    } finally {
       try {
         stop(fixture, "center");
       } finally {

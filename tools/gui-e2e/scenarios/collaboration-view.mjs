@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, utimesSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { utimesSync } from "node:fs";
 import path from "node:path";
 import {
   sqliteLedgerPath,
@@ -14,6 +12,8 @@ import {
   resolveHarnessLayout,
 } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { startBaseBackup } from "../../../packages/daemon/src/fleet/basebackup.ts";
+import { installReplicaGeneration } from "../../../packages/daemon/src/fleet/replica-generation.ts";
 import { guiE2eRuntimeSessionId } from "./sessions-grouping.mjs";
 import { bridgeReady, nav } from "./helpers.mjs";
 
@@ -244,7 +244,7 @@ export async function seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence
  * 注意:中心侧 fleet 概览的 replicas 行(status().replicas)在 src 接线完成前恒为空,
  * 本种子先把节点侧真实数据备好;三态在 GUI 上的呈现待 src 侧副本状态面落地。
  */
-export async function seedGuiE2eFleetReplicaStates({ endpoint, rootDir, userRoot, repoId }) {
+export async function seedGuiE2eFleetReplicaStates({ rootDir, userRoot, repoId }) {
   const layout = resolveHarnessLayout({ rootDir }),
     ledgerPath = sqliteLedgerPath(rootDir),
     projectionPath = path.join(layout.localRoot, "cache", "task.sqlite");

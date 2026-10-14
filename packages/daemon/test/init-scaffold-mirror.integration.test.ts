@@ -227,7 +227,7 @@ test(
 );
 
 test(
-  "a standard the center revises reaches the edge on its next sync, and a local edit stages a conflict",
+  "a standard the center revises reaches the edge on its next sync, and a local edit remains a candidate",
   { timeout: 60_000 },
   async (t) => {
     const fixture = await initializedCenterWithEdge();

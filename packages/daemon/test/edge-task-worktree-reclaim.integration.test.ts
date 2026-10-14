@@ -11,7 +11,6 @@ import { startBaseBackup } from "../src/fleet/basebackup.ts";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
@@ -316,15 +315,6 @@ function commit(cwd: string, file: string): string {
   git(cwd, "add", file);
   git(cwd, "commit", "-qm", `feat: ${file}`);
   return git(cwd, "rev-parse", "HEAD");
-}
-
-function writeJson(file: string, value: unknown): void {
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(value)}\n`);
-}
-
-function sha(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 function git(cwd: string, ...args: string[]): string {

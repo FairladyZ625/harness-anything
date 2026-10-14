@@ -273,16 +273,36 @@ export function applyFleetMirrorCut(
 ): FleetMirrorApplyResult {
   const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
   if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
-  const root = materializedRoot(workspaceRoot);
+  const root = materializedRoot(workspaceRoot),
+    markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
+    previous: { readonly revision: number | null; readonly entries: Record<string, string> } = existsSync(markerPath)
+      ? JSON.parse(readFileSync(markerPath, "utf8"))
+      : { revision: null, entries: {} },
+    entries = { ...previous.entries },
+    dirtyPaths: string[] = [];
   mkdirSync(root, { recursive: true });
-  for (const [logical] of view.entries) {
+  for (const [logical, blob] of view.entries) {
     const target = path.join(root, ...logical.split("/"));
-    if (!existsSync(target)) {
-      const bytes = fleetMirrorCutFile(view, logical);
-      if (bytes) writeFileDurably(target, bytes);
+    // Local files can change after materialization; compare them with the last successful write,
+    // not the newer center blob. The center's validated object digest is already authoritative.
+    if (existsSync(target)) {
+      const local = sha256Bytes(readFileSync(target));
+      if (local === blob.sha256) {
+        entries[logical] = blob.sha256;
+        continue;
+      }
+      if (local !== previous.entries[logical]) {
+        dirtyPaths.push(logical);
+        continue;
+      }
     }
+    const bytes = fleetMirrorCutFile(view, logical);
+    if (bytes === null) throw new FleetMirrorError("replica_corrupt", `Replica document object is missing: ${logical}`);
+    writeFileDurably(target, bytes);
+    entries[logical] = blob.sha256;
   }
-  return { outcome: "applied", fromRevision: null, toRevision: view.revision, dirtyPaths: [], conflicts: [] };
+  writeFileDurably(markerPath, JSON.stringify({ revision: view.revision, entries }));
+  return { outcome: "applied", fromRevision: previous.revision, toRevision: view.revision, dirtyPaths, conflicts: [] };
 }
 export function readFleetConflictRecord(_workspaceRoot: string, _id: string): never {
   throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");

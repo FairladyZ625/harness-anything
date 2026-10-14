@@ -6,7 +6,11 @@ import path from "node:path";
 import type { ReplicationPosition } from "@harness-anything/kernel";
 import { readFleetRepositoryMetadataClient } from "../src/fleet/peer.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
-import { runFleetReplicaSync, waitForFleetReplicaSequence, type ReplicaSyncOptions } from "../src/fleet/replica-sync.ts";
+import {
+  runFleetReplicaSync,
+  waitForFleetReplicaSequence,
+  type ReplicaSyncOptions,
+} from "../src/fleet/replica-sync.ts";
 
 export type CatchUpReplicaOptions = Omit<ReplicaSyncOptions, "signal" | "onConfirmed" | "onFailure">;
 
@@ -38,7 +42,11 @@ export async function catchUpReplica(
     owned?.controller.abort();
     await owned?.running;
   }
-  const generation = readReplicaGeneration(path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId));
+  const generation = readReplicaGeneration(
+    path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId),
+  );
   if (!generation) throw new Error("replica generation is unavailable after catch-up");
   return { replica: { viewId: options.nodeId, knownHead: generation.metadata.position } };
 }
+
+export { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
