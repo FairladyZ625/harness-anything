@@ -110,8 +110,16 @@ function parseRuntimeControl(
   const kind = route.id;
   if (kind === "runtime-batch") return accepted(rootDir, repoId, json, { kind, batchFile: id }, route.method);
   if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
-  const prompt = promptInput(flags.one);
-  if (!prompt) return rejectInput(inputs, kind, "--prompt", json);
+  // Like agent run, --prompt-file rides the action and is materialized into
+  // prompt client-side before the RPC; the daemon only ever sees prompt.
+  const prompt = promptInput(flags.one),
+    promptFile = flags.one.get("--prompt-file");
+  if (!prompt && !promptFile)
+    return rejected(
+      "missing_field",
+      `Use one non-empty value for --prompt or --prompt-file. Run ${inputs.get(kind)?.helpCommand ?? `ha ${kind} --help`} for accepted inputs.`,
+      json,
+    );
   return accepted(
     rootDir,
     repoId,
@@ -120,6 +128,7 @@ function parseRuntimeControl(
       kind,
       ...(id.startsWith("dispatch_") ? { dispatchId: id } : { runtimeSessionId: id }),
       ...prompt,
+      ...(promptFile ? { promptFile } : {}),
     },
     route.method,
   );
