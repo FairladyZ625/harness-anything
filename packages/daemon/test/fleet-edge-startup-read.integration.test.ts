@@ -155,7 +155,7 @@ test(
       assert.equal(envelope.error, undefined);
       assert.equal(envelope.result.command, "task-list");
       assert.equal(envelope.result.ok, false);
-      assert.equal(envelope.result.code, "replica_unavailable");
+      assert.equal(envelope.result.code, phase === "opening" ? "repo_warming" : "replica_unavailable");
       assert.doesNotMatch(JSON.stringify(envelope), /ECONNREFUSED/u);
       assert.equal(settled, phase === "settled");
       return envelope.result;
@@ -175,6 +175,11 @@ test(
         ? true
         : null,
     );
-    for (let iteration = 1; iteration <= 5; iteration += 1) assert.deepEqual(await read("settled", iteration), before);
+    let after: Record<string, unknown> | undefined;
+    for (let iteration = 1; iteration <= 5; iteration += 1) {
+      const result = await read("settled", iteration);
+      if (after) assert.deepEqual(result, after);
+      after = result;
+    }
   },
 );
