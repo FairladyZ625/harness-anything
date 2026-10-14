@@ -7,7 +7,7 @@ import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
-import { readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
+import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
@@ -122,20 +122,41 @@ export async function syncFleetEdgeMirror(
   input: FleetEdgeSyncRequest,
   readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
-  // Sync means "caught up with the center now": ask for its replication head, then let the resident
-  // stream reach it. There is no second pull path; a stopped or failing stream fails the sync.
+  // Sync means "caught up with the center now": ask for its replication head and whether the node's
+  // owner may read the repository (the replica's own admission), then let the resident stream reach
+  // the head. There is no second pull path; a stopped or failing stream fails the sync.
   const request = input.payload,
+    advise = (code: string, message: string): never => {
+      throw Object.assign(
+        new Error(
+          // The machine was recognized and its owner lacks the action; no credential change fixes that.
+          code === "authorization_denied"
+            ? `${message} Ask a center administrator to grant the node's owner repository-read` +
+              " on this repository, then retry the edge sync."
+            : code === "authentication_failed" || code === "node_owner_unregistered"
+              ? `${message} Register the node at the center and use the credential it issued,` +
+                " or correct --node-id / --credential, then retry the edge sync."
+              : `Center replica admission failed: ${message}`,
+        ),
+        { code },
+      );
+    },
     head = await readFleetRepositoryMetadataClient({
       ...(readAccessToken ? { readAccessToken } : {}),
       hostname: request.host,
       port: request.port,
-      ca: readFileSync(request.caPath),
+      ca: material(request.caPath, "--ca"),
       ...(request.servername ? { servername: request.servername } : {}),
       nodeId: request.nodeId,
       credential: request.credential,
       repoId: request.repoId,
+      actionKind: "repository-read",
       ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
-    });
+    }).catch((error: unknown) =>
+      error instanceof FleetRemoteError ? advise(error.code, error.message) : Promise.reject(error),
+    );
+  if (head.actionAllowed !== true)
+    advise("authorization_denied", "authorization_denied: The node owner may not read this repository.");
   await waitForFleetReplicaSequence(request, head.replicationSequence);
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const generation = readReplicaGeneration(
