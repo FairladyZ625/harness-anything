@@ -230,6 +230,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         projection.close();
         await events.drain();
       })();
+      const pending = ready;
+      // A failed catch-up is retried by the next replication session, not cached for the daemon's life.
+      pending.catch((error: unknown) => {
+        consumeKnownError(error);
+        if (projectionReady.get(frame.repoId) === pending) projectionReady.delete(frame.repoId);
+      });
       projectionReady.set(frame.repoId, ready);
     }
     await ready;
