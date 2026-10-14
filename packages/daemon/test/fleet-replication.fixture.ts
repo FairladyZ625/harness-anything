@@ -63,6 +63,7 @@ export async function fleetReplicationFixture(
   options: {
     /** Commit-count retention window handed to the center (拟名 knob, see file header). */
     readonly retentionWindowCommits?: number;
+    readonly replicationKeepaliveMs?: number;
     readonly now?: () => string;
   } = {},
 ) {
@@ -178,6 +179,9 @@ export async function fleetReplicationFixture(
         ...(options.retentionWindowCommits === undefined
           ? {}
           : { replicationRetentionWindowCommits: options.retentionWindowCommits }),
+        ...(options.replicationKeepaliveMs === undefined
+          ? {}
+          : { replicationKeepaliveMs: options.replicationKeepaliveMs }),
         ...(options.now ? { now: options.now } : {}),
         authenticate: (nodeId: string, credential: string) =>
           (replicationNodes as readonly string[]).includes(nodeId) && credential === `secret-${nodeId}`,

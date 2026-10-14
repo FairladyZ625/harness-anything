@@ -41,6 +41,8 @@ import { startBaseBackup } from "./basebackup.ts";
 
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
+/** Edges treat three missed keepalives as a dead connection (peer.ts). */
+export const REPLICATION_KEEPALIVE_MS = 15_000;
 function pauseUntilAborted(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => {
@@ -235,9 +237,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       acknowledged: () => retention.advance(store.replicationPosition()),
       // Commits land in the repo writer process, so this process polls the head on a short timer; an
       // idle stream costs one indexed read per interval, never a spinning event loop.
+      // Returning without a new commit makes the sender emit `replica.progress`: the idle keepalive.
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
-        while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)
-          await pauseUntilAborted(REPLICATION_HEAD_POLL_MS, waitSignal);
+        const until = AbortSignal.any([
+          waitSignal,
+          AbortSignal.timeout(options.replicationKeepaliveMs ?? REPLICATION_KEEPALIVE_MS),
+        ]);
+        while (!until.aborted && store.replicationPosition().sequence <= after.sequence)
+          await pauseUntilAborted(REPLICATION_HEAD_POLL_MS, until);
       },
       backup: async (backupSignal: AbortSignal) => {
         const cached = backupCache.get(frame.repoId);

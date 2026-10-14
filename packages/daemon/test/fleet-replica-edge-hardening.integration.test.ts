@@ -6,6 +6,8 @@
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import { connect, createServer, type Socket } from "node:net";
+import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -279,4 +281,90 @@ test("an idle connected edge costs the center no busy event loop", { timeout: 12
   const used = process.cpuUsage(before),
     cpuMs = (used.user + used.system) / 1000;
   assert.ok(cpuMs < 600, `idle replication used ${cpuMs.toFixed(0)} ms CPU in 2 s`);
+});
+
+/** A TCP relay whose center-to-edge direction can go silent without closing: a half-open link. */
+async function silenceableRelay(t: TestContext, target: number) {
+  const live = new Set<Socket>();
+  let silent = false;
+  const server = createServer((client) => {
+    const upstream = connect(target, "127.0.0.1");
+    live.add(client).add(upstream);
+    const drop = () => {
+      client.destroy();
+      upstream.destroy();
+      live.delete(client);
+      live.delete(upstream);
+    };
+    client.on("error", drop).on("close", drop);
+    upstream.on("error", drop).on("close", drop);
+    client.pipe(upstream);
+    upstream.on("data", (chunk: Buffer) => {
+      if (!silent) client.write(chunk);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => {
+    for (const socket of live) socket.destroy();
+    server.close();
+  });
+  return {
+    port: (server.address() as { port: number }).port,
+    silence: (value: boolean) => {
+      silent = value;
+    },
+  };
+}
+
+test("an idle stream is kept fresh by center keepalives", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t, { replicationKeepaliveMs: 200 });
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+    viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one");
+  const stream = startHardeningStream(t, fixture, viewRoot, { idleTimeoutMs: 1_500 });
+  await waitForState(
+    () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+    "initial convergence",
+    60_000,
+  );
+  // Let the convergence round (its trailing progress and ACK) settle before observing idleness.
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const confirmedAt = statSync(path.join(viewDir, "current.json")).mtimeMs;
+  // No commits: only keepalives arrive. They must refresh the read freshness and never trip the
+  // edge's idle timeout.
+  await new Promise((resolve) => setTimeout(resolve, 3_000));
+  assert.ok(
+    statSync(path.join(viewDir, "current.json")).mtimeMs > confirmedAt,
+    "keepalive progress refreshed the confirmed position",
+  );
+  assert.deepEqual(stream.failures, [], "keepalives kept the idle stream alive");
+});
+
+test("a silent center connection is detected and the stream reconnects", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t, { replicationKeepaliveMs: 200 });
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+    viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"),
+    link = await silenceableRelay(t, fixture.centerPort());
+  const stream = startHardeningStream(t, fixture, viewRoot, { port: link.port, idleTimeoutMs: 1_500 });
+  await waitForState(
+    () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+    "initial convergence",
+    60_000,
+  );
+  link.silence(true);
+  await waitForState(
+    () => stream.failures.some((error) => (error as { code?: string }).code === "replica_keepalive_missed"),
+    "the edge to notice the silent connection",
+    30_000,
+  );
+  link.silence(false);
+  await pressure(fixture, 2);
+  await waitForState(
+    () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+    "convergence after reconnecting",
+    60_000,
+  );
 });

@@ -29,9 +29,8 @@ export interface FleetCenterOptions {
   readonly replicaDiskQuotaBytes?: number;
   /** Number of replication log commits retained for incremental receivers. */
   readonly replicationRetentionWindowCommits?: number;
-  /** How long a replica watch waits for a newer cut before answering with the unchanged head (default 20s). */
-  readonly replicaWatchProgressMs?: number;
-  readonly replicaPreparationTimeoutMs?: number;
+  /** An idle replication stream sends `replica.progress` this often, so a dead peer is noticed. */
+  readonly replicationKeepaliveMs?: number;
   readonly port?: number;
   readonly hostname?: string;
   readonly now?: () => string;

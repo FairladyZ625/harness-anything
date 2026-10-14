@@ -42,6 +42,8 @@ export async function serve(
   replicationOwners: Map<string, TLSSocket>,
 ): Promise<void> {
   const disconnected = new AbortController();
+  // Kernel probes find a peer that vanished without a FIN (sleep, NAT reset, suspended VM).
+  socket.setKeepAlive(true, 15_000);
   socket.once("close", () => disconnected.abort());
   let nodeId: string | null = null,
     accessToken: string | undefined,

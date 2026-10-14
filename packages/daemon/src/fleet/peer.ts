@@ -76,9 +76,18 @@ export class FleetRemoteError extends Error {
 
 export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 
+/** Three missed center keepalives (REPLICATION_KEEPALIVE_MS, center-listener.ts). */
+const REPLICATION_IDLE_TIMEOUT_MS = 45_000;
+
 export interface FleetReplicaStreamOptions extends FleetPeerOptions {
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
+  /**
+   * A streaming replica that hears nothing for this long treats the connection as dead and fails the
+   * session, so the owner reconnects. The center sends `replica.progress` every keepalive interval
+   * (15 s); the default allows three to go missing. Not applied while a base backup is awaited.
+   */
+  readonly idleTimeoutMs?: number;
   /** Called with each position the replica acknowledged as durably applied and queryable. */
   readonly onApplied?: (position: import("@harness-anything/kernel").ReplicationPosition) => void | Promise<void>;
 }
@@ -237,16 +246,37 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         return new Promise<ReplicationFrame>((resolve, reject) => {
           const abort = () => reject(receiveSignal?.reason ?? new Error("replication aborted"));
           receiveSignal?.addEventListener("abort", abort, { once: true });
-          waiters.push({
-            resolve: (frame) => {
-              receiveSignal?.removeEventListener("abort", abort);
+          const settle = () => {
+            clearTimeout(idle);
+            receiveSignal?.removeEventListener("abort", abort);
+          };
+          const waiter = {
+            resolve: (frame: ReplicationFrame) => {
+              settle();
               resolve(frame);
             },
-            reject: (error) => {
-              receiveSignal?.removeEventListener("abort", abort);
+            reject: (error: Error) => {
+              settle();
               reject(error);
             },
-          });
+          };
+          // Silence past the keepalive budget is a dead connection (sleep, NAT reset, suspended VM),
+          // which TCP may never report. Only a streaming replica expects keepalives; a center still
+          // building a base backup sends nothing until the package.
+          const idle =
+            target.position() === null
+              ? undefined
+              : setTimeout(() => {
+                  const at = waiters.indexOf(waiter);
+                  if (at >= 0) waiters.splice(at, 1);
+                  socket.destroy();
+                  waiter.reject(
+                    Object.assign(new Error("replication keepalive missed: the center connection is silent"), {
+                      code: "replica_keepalive_missed",
+                    }),
+                  );
+                }, options.idleTimeoutMs ?? REPLICATION_IDLE_TIMEOUT_MS);
+          waiters.push(waiter);
         });
       },
     };
@@ -702,7 +732,10 @@ function peerSocket(options: Omit<FleetPeerOptions, "repoId">): Promise<TLSSocke
         servername: options.servername ?? "localhost",
         rejectUnauthorized: true,
       },
-      () => resolve(socket),
+      () => {
+        socket.setKeepAlive(true, 15_000);
+        resolve(socket);
+      },
     );
     socket.once("error", reject);
   });
