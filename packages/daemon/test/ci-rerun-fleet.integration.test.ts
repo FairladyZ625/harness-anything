@@ -252,7 +252,7 @@ for (const mixed of [false, true]) {
         { fetchDetails: true },
         localAuthFixture(),
       )) as Record<string, unknown>;
-      const before = await protocolRead(e);
+      const before = await protocolRead(e); console.error("TEMPDEBUG before", JSON.stringify(before).slice(0, 600));
       assert.equal(before.statisticsAvailability, "pending");
       assert.equal((before.missingDetails as string[]).length, mixed ? 4 : 2);
       const after = await protocolRead(e, true);
