@@ -38,7 +38,8 @@ test("retired People mutations are absent from the durable authorization invento
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four Task GateRun actions.
   // dec_2AAF1D0612D3295C80F87E49FE CH1: daemon-mediated task branch publication.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
-  assert.equal(durablePolicyActions.length, 151);
+  // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: runtime steering is a canonical authorized action.
+  assert.equal(durablePolicyActions.length, 152);
   assert.equal(durablePolicyActions.includes("task-push"), true);
   assert.equal(durablePolicyActions.includes("task-pr"), true);
   assert.equal(durablePolicyActions.includes("people-add"), false);

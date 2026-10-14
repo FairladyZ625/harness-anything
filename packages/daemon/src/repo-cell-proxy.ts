@@ -314,6 +314,7 @@ export async function openRepoCellProxy(
         spawnScheduled: unsupportedWrite,
         adopt: unsupportedWrite,
         cancel: unsupportedWrite,
+        steer: unsupportedWrite,
         close: unsupportedWrite,
       },
       actionContext = createRepoCellActionContext({
@@ -507,6 +508,7 @@ export async function openRepoCellProxy(
     spawnRuntime: (payload, binding) => supervisor.request("spawnRuntime", payload, binding),
     handoffRuntime: (payload, binding) => supervisor.request("handoffRuntime", payload, binding),
     cancelRuntime: (payload, binding) => supervisor.request("cancelRuntime", payload, binding),
+    steerRuntime: (payload, binding) => supervisor.request("steerRuntime", payload, binding),
     runtimeIngress: (action, binding) => supervisor.request("runtimeIngress", { action }, binding),
     catalog: {
       snapshot: () => supervisor.request("catalog", { method: "snapshot", args: [] }),

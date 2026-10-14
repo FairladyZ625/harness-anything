@@ -722,6 +722,14 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       (authorizedBinding) => context.runtimeSpawner.cancel(cancel, authorizedBinding),
     );
   };
+  const steerRuntime: RepoCell["steerRuntime"] = async (payload, binding) =>
+    enqueueRuntimePublication(
+      context,
+      "runtime-steer",
+      { kind: "runtime-steer", ...payload },
+      binding,
+      (authorizedBinding) => context.runtimeSpawner.steer(payload, authorizedBinding),
+    );
   const runtimeIngress: RepoCell["runtimeIngress"] = (action, binding) => {
     const settlementRuntimeSessionId =
       action.kind === "archive"
@@ -976,6 +984,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     presetRun,
     spawnRuntime,
     cancelRuntime,
+    steerRuntime,
     handoffRuntime,
     awaitRuntimeOutcome: context.awaitRuntimeOutcome,
     awaitRuntimeSignal: context.awaitRuntimeSignal,

@@ -372,6 +372,8 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "runtime-cancel":
       return authorizeRepoCellAction(input);
+    case "runtime-steer":
+      return authorizeRepoCellAction(input);
     case "runtime-instance-create":
       return authorizeRepoCellAction(input);
     case "runtime-instance-delete":

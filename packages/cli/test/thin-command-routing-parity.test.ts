@@ -512,6 +512,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "runtime-instance-update",
       "runtime-run",
       "runtime-status",
+      "runtime-steer",
     ],
     schedule: [
       "schedule-create",

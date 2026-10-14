@@ -41,6 +41,7 @@ export interface RuntimeProcess {
   /** Fires only after onOutput delivered every provider line; exit settlement does not re-read the stream. */
   readonly onExit: (listener: (code: number | null, lossReason?: string) => void) => void;
   readonly terminate: () => void;
+  readonly steer?: (prompt: string) => void;
   readonly terminateTree?: () => Promise<void>;
   readonly release?: () => void;
 }

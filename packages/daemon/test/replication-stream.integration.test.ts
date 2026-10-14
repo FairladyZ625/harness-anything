@@ -22,6 +22,7 @@ const createPressure = (): string => `task_wp${String(++pressureCounter).padStar
 const mirrorEventCount = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COUNT(*) AS rows_ FROM event").get() as { rows_: number }).rows_;
     } finally {
       db.close();
@@ -30,6 +31,7 @@ const mirrorEventCount = (ledgerPath: string): number => {
   mirrorOutcomeCount = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_;
     } finally {
       db.close();
@@ -38,6 +40,7 @@ const mirrorEventCount = (ledgerPath: string): number => {
   mirrorHead = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
     } finally {
       db.close();
@@ -46,6 +49,7 @@ const mirrorEventCount = (ledgerPath: string): number => {
   centerOutcomeCount = (fixture: FleetReplicationFixture): number => {
     const db = new DatabaseSync(fixture.ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COUNT(*) AS rows_ FROM command_outcome").get() as { rows_: number }).rows_;
     } finally {
       db.close();

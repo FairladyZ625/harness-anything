@@ -73,6 +73,7 @@ export interface FleetEdgeRuntimeRequest {
     readonly method:
       | "repo.agentRuntime.spawn"
       | "repo.agentRuntime.cancel"
+      | "repo.agentRuntime.steer"
       | "repo.agentRuntime.handoff"
       | "repo.agentRuntime.overview"
       | "repo.agentRuntime.sessions.await"
@@ -590,6 +591,7 @@ export function openFleetEdgeRuntime(input: {
       // Local termination cannot wait for adoption's canonical publications.
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
       if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await input.readBinding());
+      if (method === "repo.agentRuntime.steer") return spawner.steer(action, await input.readBinding());
       await ensureReady();
       await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);

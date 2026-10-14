@@ -21,6 +21,7 @@ const expectedMethods = Object.freeze([
   { method: "daemon.connection.unregister", requiresRepo: false },
   { method: "daemon.connection.probe", requiresRepo: false },
   { method: "repo.task.run", requiresRepo: true },
+  { method: "repo.agentRuntime.steer", requiresRepo: true },
   { method: "repo.task.read", requiresRepo: true },
 ]);
 // The fleet channel is part of the same closed RPC surface: every daemon-side
@@ -48,10 +49,12 @@ const transportAuthorityMarker = "@daemon-transport-authority";
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
   const registryPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+  const runtimeActionsPath = "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts";
   const serverPath = "packages/daemon/src/protocol/json-rpc-server.ts";
   const hostPath = "packages/daemon/src/daemon-host.ts";
   const authPath = "packages/daemon/src/transport/auth-context.ts";
   const registry = read(root, registryPath, violations),
+    runtimeActions = read(root, runtimeActionsPath, violations),
     server = read(root, serverPath, violations);
   const hostGraph = collectRuntimeAuthorityGraph(root, hostPath, violations),
     hostAuthorities = hostGraph.filter(({ source }) => source.includes(transportAuthorityMarker)),
@@ -72,6 +75,19 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
     if (/apiRouteContracts|capabilit|notifications?|admin\.(?:people|rbac)/u.test(registry)) {
       violations.push(`${registryPath}: retired GUI/API capability authority must not feed the W3 daemon protocol`);
     }
+  }
+  if (runtimeActions?.includes('"repo.agentRuntime.steer"'))
+    violations.push(`${runtimeActionsPath}: runtime steer must not expand the GUI action or preload surface`);
+  if (registry) {
+    const steerEntries = [...registry.matchAll(/method:\s*"repo\.agentRuntime\.steer"/gu)].length;
+    if (steerEntries !== 1)
+      violations.push(
+        `${registryPath}: repo.agentRuntime.steer must have exactly one registered method; found ${steerEntries}`,
+      );
+    const hasOwnerTarget =
+      registry.includes('runtimeSessionId: "string?"') && registry.includes('dispatchId: "string?"');
+    if (!hasOwnerTarget || !registry.includes('prompt: "string"'))
+      violations.push(`${registryPath}: runtime steer contract must bind one owner target and a prompt`);
   }
   if (server) {
     for (const token of [

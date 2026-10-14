@@ -204,13 +204,14 @@ function taskSnapshot(t) {
   return root;
 }
 
-test("G0-2 traces all 151 declared writes, including queued task catalog ingress", () => {
+test("G0-2 traces all 152 declared writes, including queued task catalog ingress", () => {
   const result = auditDurableActionAuthorization(repoRoot);
   // dec_4190D5EA63D9DD208CE946F133 and dec_5EC2631352B17EE2BF4979E37E authorize four Task GateRun writes.
   // dec_2AAF1D0612D3295C80F87E49FE CH1 authorizes daemon-mediated task push.
   // dec_F01770FD0DCF72683B7C4C7A47/CH4 authorizes the three permission request lifecycle actions.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
-  assert.equal(result.rows.length, 151);
+  // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: authorized runtime steering action.
+  assert.equal(result.rows.length, 152);
   assert.deepEqual(result.findings, []);
   assert.ok(result.rows.every((row) => row.receiptAuthorizationDecision));
 });

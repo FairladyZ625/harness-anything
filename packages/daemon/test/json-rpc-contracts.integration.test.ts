@@ -295,6 +295,20 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci", result: "pass", executor: { kind: "agent", id: "runtime" } } }).ok, false);
 });
+
+test("runtime steer is contracted outside the GUI preload surface and rejects invalid selectors", () => {
+  const call = (payload: Record<string, unknown>) =>
+    parseDaemonRpcParams("repo.agentRuntime.steer", { repo: { repoId: "alpha" }, payload });
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.steer"),
+    false,
+  );
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "Change direction." }).ok, true);
+  assert.equal(call({ runtimeSessionId: "runtime-a", prompt: "Change direction." }).ok, true);
+  assert.equal(call({ prompt: "Missing selector." }).ok, false);
+  assert.equal(call({ dispatchId: "dispatch-a", runtimeSessionId: "runtime-a", prompt: "Both selectors." }).ok, false);
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "" }).ok, false);
+});
 // prettier-ignore
 
 test("GUI command receipts and task supplements reject unknown, missing, and mistyped fields", () => {

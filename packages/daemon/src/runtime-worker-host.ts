@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
+import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
 import { createRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { runAcpProviderSession } from "./runtime-worker-acp.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeCallbackRelay } from "./runtime-spawn-types.ts";
 
 type RuntimeWorkerManifest = {
@@ -67,7 +69,18 @@ export function runtimeWorkerProviderEnvironment(
 }
 
 export async function runRuntimeWorkerHost(): Promise<void> {
-  const manifest = parseManifest(await readStandardInput());
+  const control = { handler: null as ((prompt: string) => void) | null };
+  const lines = createInterface({ input: process.stdin }),
+    iterator = lines[Symbol.asyncIterator](),
+    first = await iterator.next();
+  if (first.done) throw new Error("runtime worker manifest is missing");
+  const manifest = parseManifest(first.value);
+  void (async () => {
+    for await (const line of { [Symbol.asyncIterator]: () => iterator }) {
+      const value = JSON.parse(line) as { kind?: unknown; prompt?: unknown };
+      if (value.kind === "steer" && typeof value.prompt === "string") control.handler?.(value.prompt);
+    }
+  })();
   const stream = dispatchStreamPath(manifest.rootDir, manifest.dispatchId),
     // One descriptor for the host's whole lifetime: provider output appends once per line.
     appender = openDispatchStreamAppender(stream);
@@ -88,8 +101,19 @@ export async function runRuntimeWorkerHost(): Promise<void> {
         relayPath: manifest.callbackRelay.path,
       })
     : null;
-  let child: ReturnType<typeof spawn> | undefined;
-  let settled = false;
+  let child: ReturnType<typeof spawn> | undefined,
+    providerSessionId = manifest.providerSessionId ?? null,
+    queuedPrompt: string | null = null,
+    interruptTimer: NodeJS.Timeout | undefined;
+  const activeTools = new Set<string>();
+  let settled = false,
+    terminationRequested = false;
+  process.once("SIGTERM", () => {
+    terminationRequested = true;
+    queuedPrompt = null;
+    clearTimeout(interruptTimer);
+    if (!settled) child?.kill("SIGTERM");
+  });
   try {
     await relay?.start();
     // This host owns the provider's lifetime. WINDSURF_EXT_HOST_PID comes from the editor terminal that started
@@ -99,80 +123,151 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       providerEnv = runtimeWorkerProviderEnvironment(
         relay ? { ...hostEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment,
       );
-    child = spawn(manifest.executablePath, [...manifest.args], {
-      cwd: manifest.cwd,
-      env: providerEnv,
-      stdio: ["pipe", "pipe", "pipe"],
-      windowsHide: true,
-      ...(manifest.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
-    });
-    child.stderr!.setEncoding("utf8");
-    child.stderr!.on("data", (chunk: string) =>
-      append({
-        kind: "provider_stderr",
-        chunk: scrubProviderValue(chunk) as string,
-      }),
-    );
-    // ACP providers speak bidirectional JSON-RPC on stdout; the acp session loop
-    // owns stdout parsing and stdin writes instead of the line-relay path.
-    const acp =
-      manifest.protocolFamily === "acp" && typeof manifest.kindId === "string"
-        ? runAcpProviderSession(child, manifest as RuntimeWorkerManifest & { readonly kindId: string }, append)
-        : null;
-    let outputBuffer = "";
-    const consumeOutput = (chunk: string, flush = false): void => {
-      outputBuffer += chunk;
-      const lines = outputBuffer.split(/\r?\n/u);
-      const trailing = lines.pop() ?? "";
-      outputBuffer = flush ? "" : trailing;
-      for (const line of lines) if (line.trim()) appendProviderLine(append, line);
-      if (flush && trailing.trim()) appendProviderLine(append, trailing);
-    };
-    if (!acp) {
-      child.stdout!.setEncoding("utf8");
-      child.stdout!.on("data", (chunk: string) => consumeOutput(chunk));
-    }
-    const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
-      if (settled) return;
-      settled = true;
-      if (!acp) consumeOutput("", true);
-      append({ kind: "process_exit", exitCode, signal });
-    };
-    child.once("error", (error) => {
-      append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
-    });
-    process.once("SIGTERM", () => {
-      if (!settled) {
-        if (acp) acp.cancel();
-        else child?.kill("SIGTERM");
+    const declaration = manifest.kindId ? runtimeKindForId(manifest.kindId) : null;
+    const baseArgs = [...manifest.args];
+    let args = [...baseArgs],
+      prompt = manifest.prompt,
+      interrupted = false;
+    const interrupt = (): void => {
+      if (child && !interrupted) {
+        interrupted = true;
+        child.kill("SIGINT");
       }
-    });
-    if (!acp) child.stdin!.end(manifest.prompt);
-    const [exitCode, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) =>
-      child!.once("close", (code: number | null, closeSignal: NodeJS.Signals | null) => resolve([code, closeSignal])),
-    );
-    // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
-    await acp?.done;
-    finish(child.pid === undefined ? null : exitCode, signal);
+    };
+    control.handler = (nextPrompt) => {
+      if (!declaration?.steer) return;
+      queuedPrompt = nextPrompt;
+      if (activeTools.size === 0) interrupt();
+      else if (!interruptTimer)
+        interruptTimer = setTimeout(() => {
+          if (queuedPrompt !== null) {
+            append({ kind: "steer_forced_interrupt", occurredAt: new Date().toISOString() });
+            interrupt();
+          }
+        }, 5_000);
+    };
+    for (;;) {
+      child = spawn(manifest.executablePath, args, {
+        cwd: manifest.cwd,
+        env: providerEnv,
+        stdio: ["pipe", "pipe", "pipe"],
+        windowsHide: true,
+        ...(manifest.windowsVerbatimArguments ? { windowsVerbatimArguments: true } : {}),
+      });
+      child.stderr!.setEncoding("utf8");
+      child.stderr!.on("data", (chunk: string) =>
+        append({
+          kind: "provider_stderr",
+          chunk: scrubProviderValue(chunk) as string,
+        }),
+      );
+      // ACP providers speak bidirectional JSON-RPC on stdout; the acp session loop
+      // owns stdout parsing and stdin writes instead of the line-relay path.
+      const acp =
+        manifest.protocolFamily === "acp" && typeof manifest.kindId === "string"
+          ? runAcpProviderSession(child, manifest as RuntimeWorkerManifest & { readonly kindId: string }, append)
+          : null;
+      let outputBuffer = "";
+      const consumeOutput = (chunk: string, flush = false): void => {
+        outputBuffer += chunk;
+        const lines = outputBuffer.split(/\r?\n/u);
+        const trailing = lines.pop() ?? "";
+        outputBuffer = flush ? "" : trailing;
+        for (const line of [...lines, ...(flush && trailing.trim() ? [trailing] : [])]) {
+          if (!line.trim()) continue;
+          const parsed = appendProviderLine(append, line),
+            state = parsed ? providerSteerState(parsed, manifest.kindId) : {};
+          if (state.sessionId) providerSessionId = state.sessionId;
+          if (state.toolStart) activeTools.add(state.toolStart);
+          if (state.toolEnd === "") activeTools.clear();
+          else if (state.toolEnd) activeTools.delete(state.toolEnd);
+          if (queuedPrompt !== null && activeTools.size === 0) interrupt();
+        }
+      };
+      if (!acp) {
+        child.stdout!.setEncoding("utf8");
+        child.stdout!.on("data", (chunk: string) => consumeOutput(chunk));
+      }
+      const finish = (exitCode: number | null, signal: NodeJS.Signals | null): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(interruptTimer);
+        lines.close();
+        if (!acp) consumeOutput("", true);
+        append({ kind: "process_exit", exitCode, signal });
+      };
+      child.once("error", (error) => {
+        append({ kind: "provider_stderr", chunk: scrubProviderValue(error.message) as string });
+      });
+      if (!acp) child.stdin!.end(prompt);
+      const [exitCode, signal] = await new Promise<[number | null, NodeJS.Signals | null]>((resolve) =>
+        child!.once("close", (code: number | null, closeSignal: NodeJS.Signals | null) => resolve([code, closeSignal])),
+      );
+      // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
+      await acp?.done;
+      if (!terminationRequested && queuedPrompt !== null && declaration?.steer && providerSessionId) {
+        clearTimeout(interruptTimer);
+        interruptTimer = undefined;
+        args = [...declaration.steer.resumeArgs(baseArgs, providerSessionId)];
+        prompt = queuedPrompt;
+        queuedPrompt = null;
+        activeTools.clear();
+        interrupted = false;
+        append({ kind: "steer_resumed", providerSessionId, occurredAt: new Date().toISOString() });
+        continue;
+      }
+      finish(child.pid === undefined ? null : exitCode, signal);
+      break;
+    }
   } finally {
     appender.close();
     await relay?.stop();
   }
 }
 
-function appendProviderLine(append: (value: Readonly<Record<string, unknown>>) => void, line: string): void {
+function appendProviderLine(
+  append: (value: Readonly<Record<string, unknown>>) => void,
+  line: string,
+): Record<string, unknown> | null {
   try {
-    append({ kind: "provider_event", event: scrubProviderValue(JSON.parse(line)) });
+    const event = JSON.parse(line) as Record<string, unknown>;
+    append({ kind: "provider_event", event: scrubProviderValue(event) });
+    return event;
   } catch (error) {
     consumeKnownError(error);
     append({ kind: "provider_output_invalid", output: scrubProviderValue(line) });
+    return null;
   }
 }
 
-async function readStandardInput(): Promise<string> {
-  let value = "";
-  for await (const chunk of process.stdin) value += String(chunk);
-  return value;
+function providerSteerState(
+  value: Record<string, unknown>,
+  kindId?: string,
+): { sessionId?: string; toolStart?: string; toolEnd?: string } {
+  if (kindId === "codex") {
+    const item = value.item as Record<string, unknown> | undefined;
+    if (value.type === "thread.started" && typeof value.thread_id === "string") return { sessionId: value.thread_id };
+    if (
+      item &&
+      ["command_execution", "file_change", "mcp_tool_call", "web_search"].includes(String(item.type)) &&
+      typeof item.id === "string"
+    )
+      return value.type === "item.started"
+        ? { toolStart: item.id }
+        : value.type === "item.completed"
+          ? { toolEnd: item.id }
+          : {};
+  }
+  if (kindId === "claude") {
+    if (value.type === "system" && value.subtype === "init" && typeof value.session_id === "string")
+      return { sessionId: value.session_id };
+    const message = value.message as Record<string, unknown> | undefined,
+      content = Array.isArray(message?.content) ? (message.content as Record<string, unknown>[]) : [],
+      tool = content.find((item) => item.type === "tool_use" && typeof item.id === "string");
+    if (tool) return { toolStart: String(tool.id) };
+    if (value.type === "user") return { toolEnd: "" };
+  }
+  return {};
 }
 function parseManifest(value: string): RuntimeWorkerManifest {
   const parsed: unknown = JSON.parse(value);

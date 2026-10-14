@@ -6,7 +6,8 @@ import { openDaemonHost } from "../../../packages/daemon/src/daemon-host.ts";
 import { openRuntimeInstanceStore } from "../../../packages/daemon/src/agent-runtime-instances.ts";
 import { openPersistentWriterEpoch } from "../../../packages/daemon/src/writer-epoch.ts";
 import { listenFleetTls } from "../../../packages/daemon/src/fleet/center.ts";
-import { runFleetReplicaPullClient, runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/edge.ts";
+import { runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/peer.ts";
+import { catchUpReplica } from "../../../packages/daemon/test/replica-catch-up.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "../../../packages/daemon/test/repo-settings.fixture.ts";
 import { fleetNodeOwners } from "../../../packages/daemon/test/fleet-store.fixture.ts";
 
@@ -189,8 +190,8 @@ export async function openFleetCampaignFixture(options = {}) {
           opId,
           action,
         }),
-      pull: (subject, viewRoot, overrides = {}) =>
-        runFleetReplicaPullClient({
+      sync: (subject, viewRoot, overrides = {}) =>
+        catchUpReplica({
           ...peer(subject, overrides),
           viewRoot,
           diskQuotaBytes: quotaBytes,

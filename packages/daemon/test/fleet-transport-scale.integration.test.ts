@@ -89,7 +89,13 @@ test("production Fleet TLS entry sustains 3/10/32 Git-less edge processes across
     }
     assert.equal(results.length, count);
     assert.equal(
-      results.every((result) => result.ok && result.gitAbsent && result.replica.outcome === "applied"),
+      results.every(
+        (result) =>
+          result.ok &&
+          result.gitAbsent &&
+          Number.isSafeInteger(result.replica.knownHead?.sequence) &&
+          result.replica.knownHead.revision >= result.center.revision,
+      ),
       true,
       JSON.stringify(results),
     );

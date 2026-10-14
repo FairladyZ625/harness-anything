@@ -3,7 +3,8 @@ import { unknownFieldViolation, type JsonObject } from "./protocol/json-rpc-type
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { consumeDurableOutput } from "./runtime-spawn-provider-stream.ts";
 import { adoptRuntimes, ownedByRuntimeSpawner } from "./runtime-spawn-adoption.ts";
-import { readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { appendRuntimeWorkerRecord, readDispatchStreamHeaders, readDispatchStreamSummary } from "./dispatch-stream.ts";
+import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { RuntimeSpawnerContext } from "./runtime-spawn-context.ts";
 
@@ -93,6 +94,62 @@ export async function cancelRuntime(
     return context.controlReceipt(opId, runtimeSessionId, "cancelled");
   }
   return context.controlReceipt(opId, runtimeSessionId, "already-exited");
+}
+
+export async function steerRuntime(
+  context: RuntimeSpawnerContext,
+  payload: JsonObject,
+  binding: RuntimeBinding,
+): Promise<JsonObject> {
+  const unknownField = unknownFieldViolation(payload, ["runtimeSessionId", "dispatchId", "prompt"]);
+  if (unknownField)
+    throw runtimeSpawnError("invalid_runtime_steer", `Runtime steer payload contains an ${unknownField}`);
+  const runtimeSessionIdInput = payload.runtimeSessionId,
+    dispatchIdInput = payload.dispatchId,
+    prompt = requiredRuntimeSpawnText(payload.prompt, "prompt");
+  if ((typeof runtimeSessionIdInput === "string") === (typeof dispatchIdInput === "string"))
+    throw runtimeSpawnError("invalid_runtime_steer", "Specify exactly one runtime session id or dispatch id.");
+  const header = readDispatchStreamHeaders(context.input.rootDir).find((entry) =>
+    typeof dispatchIdInput === "string"
+      ? entry.dispatchId === dispatchIdInput
+      : entry.runtimeSessionId === runtimeSessionIdInput,
+  );
+  if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  const runtimeSessionId = header.runtimeSessionId;
+  if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
+    throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");
+  let active = context.processes.get(runtimeSessionId);
+  if (!active) {
+    await adoptRuntimes(context);
+    active = context.processes.get(runtimeSessionId);
+  }
+  if (!active) throw runtimeSpawnError("runtime_not_running", "Runtime is not running.");
+  if (!runtimeKindForId(active.kindId).steer)
+    throw runtimeSpawnError("runtime_steer_unsupported", `${active.kindId} does not support runtime steering.`);
+  if (!active.providerSessionId)
+    throw runtimeSpawnError("runtime_steer_unavailable", "Provider has not established a resumable session yet.");
+  if (!active.process.steer)
+    throw runtimeSpawnError("runtime_steer_unsupported", "Runtime control channel is unavailable.");
+  const opId = `runtime-steer-${createHash("sha256").update(`${context.input.repoId}\0${runtimeSessionId}\0${context.input.now()}\0${prompt}`).digest("hex").slice(0, 32)}`;
+  appendRuntimeWorkerRecord(context.input.rootDir, header.dispatchId, {
+    kind: "steer_requested",
+    opId,
+    runtimeSessionId,
+    occurredAt: context.input.now(),
+    actor: binding.actor,
+    source: binding.source,
+    prompt,
+  });
+  active.process.steer(prompt);
+  return {
+    schema: "command-receipt/v2",
+    ok: true,
+    command: "runtime-steer",
+    outcome: "applied",
+    opId,
+    runtimeSessionId,
+    dispatchId: header.dispatchId,
+  };
 }
 
 export function closeRuntimes(context: RuntimeSpawnerContext): void {
