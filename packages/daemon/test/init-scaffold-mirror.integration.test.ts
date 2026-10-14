@@ -6,22 +6,18 @@ import { signInAt } from "./keycloak.fixtures.ts";
 // host.bootstrap for init, a live fleet TLS center, and runFleetEdgeDocSync on the edge.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  readdirSync,
-  realpathSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
+import {
+  applyFleetMirrorCut,
+  fleetMirrorCutFile,
+  locateFleetMirrorView,
+  scanFleetMirrorWorktree,
+} from "../src/fleet-edge-mirror.ts";
 import { isReadModelPath } from "@harness-anything/kernel";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
@@ -119,24 +115,25 @@ async function initializedCenterWithEdge() {
     nodeOwner: owners.nodeOwner,
     verifyHuman: owners.verifyHuman,
   });
+  // One sync round of the edge: the resident replication stream's single-round control, then
+  // the mirror materializes the registered workspace paths.
   const edgeSync = (): Promise<Record<string, unknown>> =>
-    runFleetEdgeDocSync(
-      {
-        payload: {
-          host: "127.0.0.1",
-          port: center.port,
-          caPath: certFile,
-          servername: "localhost",
-          nodeId,
-          credential: "secret-node-one",
-          repoId,
-          viewRoot,
-          quotaBytes: replicaQuota,
-          workspaceRoot: workspace,
-        } as never,
-      },
-      owners.readAccessToken(nodeId),
-    );
+    runFleetReplicaPullClient({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: readFileSync(certFile),
+      servername: "localhost",
+      nodeId,
+      credential: "secret-node-one",
+      repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+      readAccessToken: owners.readAccessToken(nodeId),
+      stopAfterAck: true,
+    }).then((pulled) => {
+      applyFleetMirrorCut(viewRoot, repoId, workspace, "pull", { viewId: pulled.replica.viewId });
+      return { ok: true } as Record<string, unknown>;
+    });
   const centerSubmit = async (logical: string, body: string): Promise<void> => {
     writeFileSync(path.join(repo, "harness", ...logical.split("/")), body);
     const submitted = await host.run(repoId, { kind: "doc-submit", paths: [logical] } as never, auth);
@@ -155,6 +152,10 @@ async function initializedCenterWithEdge() {
       [...(locateFleetMirrorView(viewRoot, repoId)?.entries.keys() ?? [])]
         .filter((logical) => !isReadModelPath(logical))
         .sort(),
+    mirrorBytes: (logical: string): Buffer | null => {
+      const view = locateFleetMirrorView(viewRoot, repoId);
+      return view === null ? null : fleetMirrorCutFile(view, logical);
+    },
     close: async () => {
       await center.close();
       await host.close();
@@ -243,23 +244,28 @@ test(
     assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 500));
     assert.equal(readFileSync(path.join(fixture.workspace, "harness", standard), "utf8"), revised);
     assert.ok((fixture.edgeRevision() ?? 0) > (baseRevision ?? 0), "the mirror revision names the newer version");
-    // The standards are outside this edge's write scope, so a local edit is never pushed; when the
-    // center moves the same document the existing conflict staging applies, nothing is overwritten.
+    // The standards are outside this edge's write scope, so a local edit is a working-copy
+    // candidate the mirror never overwrites; the center's newer revision still lands on the
+    // next sync and the scan names the local candidate (retired: three-way conflict staging,
+    // dec_9284BD61 / owner ruling 2026-10-14).
     const local = `${revised.trimEnd()}\n\nEdited on the edge.\n`;
     writeFileSync(path.join(fixture.workspace, "harness", standard), local);
     await fixture.centerSubmit(standard, `${revised.trimEnd()}\n\nRevised at the center again.\n`);
-    const blocked = await fixture.edgeSync();
-    assert.equal(blocked.ok, false, JSON.stringify(blocked).slice(0, 500));
-    assert.equal((blocked as { readonly code?: string }).code, "pull_blocked");
     assert.equal(readFileSync(path.join(fixture.workspace, "harness", standard), "utf8"), local);
-    const conflictsRoot = path.join(fixture.workspace, ".harness", "conflicts"),
-      conflicts = readdirSync(conflictsRoot).filter((entry) => entry.startsWith("cflt-"));
-    assert.equal(conflicts.length, 1);
-    assert.equal(readFileSync(path.join(conflictsRoot, conflicts[0]!, "base", standard), "utf8"), revised);
-    assert.equal(readFileSync(path.join(conflictsRoot, conflicts[0]!, "local", standard), "utf8"), local);
-    assert.match(
-      readFileSync(path.join(conflictsRoot, conflicts[0]!, "center", standard), "utf8"),
-      /Revised at the center again/u,
+    const again = await fixture.edgeSync();
+    assert.equal(again.ok, true, JSON.stringify(again).slice(0, 500));
+    assert.equal(
+      readFileSync(path.join(fixture.workspace, "harness", standard), "utf8"),
+      local,
+      "the mirror never overwrites a local working-copy candidate",
     );
+    const view = locateFleetMirrorView(viewRoot, repoId)!,
+      scan = scanFleetMirrorWorktree(view, fixture.workspace, [standard]);
+    assert.deepEqual(
+      scan.changes.map((change) => ({ path: change.path, base: change.baseBlobSha256 !== null })),
+      [{ path: standard, base: true }],
+      "the scan names the local edit as a candidate against its mirrored base",
+    );
+    assert.equal(fixture.mirrorBytes(standard) !== null, true, "the center's newer bytes are in the mirror");
   },
 );
