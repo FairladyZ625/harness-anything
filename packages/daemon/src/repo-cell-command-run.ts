@@ -8,6 +8,7 @@ import {
   getExecutableEntityAction,
   parseEntityRef,
   readAcceptedCommandOutcome,
+  sha256Text,
   VcsCommandError,
   type AuthorizationDecision,
   type EntityActionUnmetCriterionV1,
@@ -248,6 +249,16 @@ export function makeRepoCellCommandRunner(
           }
           const executed = context.withHumanSummary(await execute(queuedDecision)),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
+          if (receipt.outcome === "op_rejected") {
+            if (!context.store.appendRejection)
+              throw new Error("canonical event store cannot persist rejected commands");
+            context.store.appendRejection({
+              opId: receipt.opId,
+              intentDigest: `sha256:${sha256Text(stableStringify(action))}`,
+              summary: action.kind,
+              rejectionCode: receipt.code ?? "operation_rejected",
+            });
+          }
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             if (action.kind === "migrate-import" && action.dryRun !== true) {
               context.recoveryProbe.clear();

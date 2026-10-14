@@ -215,6 +215,13 @@ export interface CanonicalEventStore {
   readonly readContentBlob: (sha256: string) => Uint8Array | null;
   readonly layout: () => LedgerLayoutState;
   readonly append: (bundle: CanonicalWriteBundle) => CanonicalEventAppendReceipt;
+  /** Persist a rejected command as an event-less commit inside the serialized writer turn. */
+  readonly appendRejection?: (input: {
+    readonly opId: string;
+    readonly intentDigest: `sha256:${string}`;
+    readonly summary: string;
+    readonly rejectionCode: string;
+  }) => CanonicalCommandOutcome;
   /**
    * Layout roots the most recent accepted append resolved, so receipt prose reuses the write's own
    * view of the workspace instead of re-reading harness.yaml per rendered path. Null until this
