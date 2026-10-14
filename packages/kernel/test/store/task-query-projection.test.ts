@@ -346,6 +346,43 @@ test("catch-up resumes source scanning after the applied watermark", async () =>
   });
 });
 
+test("async catch-up yields the event loop between bounded rounds", async () => {
+  const fixture = taskFixture(),
+    eventStore = {
+      readHead: () => ({
+        revision: fixture.events.length,
+        eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(fixture.events.at(-1)!))}`,
+      }),
+      readBatch: (cursor: string | null, maxItems: number) => {
+        const start = Number(cursor ?? 0),
+          events = fixture.events.slice(start, start + maxItems);
+        return {
+          sourceRevision: fixture.events.length,
+          events,
+          cursor: String(start + events.length),
+          done: start + events.length >= fixture.events.length,
+          accessedItems: events.length,
+          prefetchContent: () => new Map<string, Uint8Array | null>(),
+        };
+      },
+      readContentBlob: () => null,
+    };
+  await withTempStoreAsync(async (rootDir) => {
+    const projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 1 });
+    let yielded = false;
+    const turn = new Promise<void>((resolve) =>
+      setImmediate(() => {
+        yielded = true;
+        resolve();
+      }),
+    );
+    await projection.catchUpAsync!();
+    assert.equal(yielded, true);
+    await turn;
+    projection.close();
+  });
+});
+
 test("task runtime batch reads up to 500 ids without a variable SQLite IN list", async () => {
   const fixture = taskFixture();
   await withTempStoreAsync(async (rootDir) => {
