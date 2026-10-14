@@ -96,6 +96,8 @@ export interface TaskProjection {
   readonly apply: (event: CanonicalEventV1, plan?: FrozenWritePlan) => ProjectionApplyReceipt;
   readonly rebuild: () => ProjectionRebuildReceipt;
   readonly catchUp?: () => ProjectionCatchUpReceipt;
+  /** Catch up while yielding between bounded source batches. */
+  readonly catchUpAsync?: () => Promise<ProjectionCatchUpReceipt>;
   readonly readStateDigest: () => `sha256:${string}` | null;
   readonly readCut: () => {
     readonly status: "ready" | "pending";

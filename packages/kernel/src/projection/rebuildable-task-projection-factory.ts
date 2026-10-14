@@ -159,6 +159,31 @@ export function makeTaskProjection(options: {
         return { watermark: round.watermark, metrics: { sqliteTransactions, reducedItems, maxBatchItems } };
       }
     },
+    catchUpAsync: async () => {
+      const initialWatermark = withDatabase(projectionPath, readHead, watermark);
+      let sqliteTransactions = 0,
+        reducedItems = 0,
+        maxBatchItems = 0,
+        reportedWatermark = initialWatermark;
+      for (;;) {
+        const round = withDatabase(projectionPath, readHead, (db) => catchUpRound(db, options.eventStore, limit));
+        sqliteTransactions += round.sqliteTransactions;
+        reducedItems += round.reducedItems;
+        maxBatchItems = Math.max(maxBatchItems, round.accessedItems);
+        const total = Math.max(0, round.sourceRevision - initialWatermark);
+        if (round.watermark > reportedWatermark) {
+          onProgress({
+            applied: Math.min(total, Math.max(0, round.watermark - initialWatermark)),
+            total,
+            watermark: round.watermark,
+          });
+          reportedWatermark = round.watermark;
+        }
+        if (round.watermark === round.sourceRevision)
+          return { watermark: round.watermark, metrics: { sqliteTransactions, reducedItems, maxBatchItems } };
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+    },
     readStateDigest: () =>
       withDatabase(projectionPath, readHead, (db) => readStateDigest(db, readHead()?.revision ?? 0)),
     readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),

@@ -39,7 +39,7 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
         syncDirectory(path.dirname(target));
       },
       project: async (_position: ReplicationPosition) => {
-        projection.catchUp!();
+        await projection.catchUpAsync!();
       },
       close: async () => {
         projection.close();

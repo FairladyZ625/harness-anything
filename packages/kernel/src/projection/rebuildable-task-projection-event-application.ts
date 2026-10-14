@@ -976,8 +976,12 @@ export function catchUpRound(
   const state = prepareQuery(db, SCAN_STATE_SQL, (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-002 */ db.prepare(sql),
   ).get() as { readonly scan_cursor: string | null; readonly scanned_revision: number };
-  const shouldScan = state.scan_cursor !== null || state.scanned_revision < sourceRevision;
-  const batch = shouldScan ? eventStore.readBatch(state.scan_cursor, limit) : null;
+  // A projection apply advances the contiguous watermark without populating the source-scan
+  // cursor.  A restored projection can therefore be fully applied at a high watermark while
+  // scanned_revision remains at zero; resume the source scan after that known-complete prefix.
+  const scanRevision = state.scan_cursor === null ? Math.max(state.scanned_revision, watermark(db)) : null;
+  const shouldScan = state.scan_cursor !== null || (scanRevision ?? state.scanned_revision) < sourceRevision;
+  const batch = shouldScan ? eventStore.readBatch(state.scan_cursor ?? String(scanRevision), limit) : null;
   if (batch?.prefetchContent !== undefined) batchContentPrefetchers.set(eventStore, batch.prefetchContent);
   const hasDeferred =
     prepareQuery(db, "SELECT 1 AS present FROM event_source WHERE workspace_revision > ? LIMIT 1", (sql) =>
