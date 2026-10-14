@@ -6,7 +6,7 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-generation.ts";
 import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
@@ -127,6 +127,10 @@ export async function syncFleetEdgeMirror(
   // the head. There is no second pull path; a stopped or failing stream fails the sync.
   const request = input.payload,
     advise = (code: string, message: string): never => {
+      // A sync the center denies withholds the rows already delivered: the view stops answering, and
+      // the resident stream installs a fresh one once the center admits the replica again.
+      if (code === "authorization_denied")
+        revokeReplicaView(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId));
       throw Object.assign(
         new Error(
           // The machine was recognized and its owner lacks the action; no credential change fixes that.

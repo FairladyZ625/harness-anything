@@ -384,13 +384,36 @@ test(
     const stream = startStream(t, fixture, viewRoot, link.port);
     await waitForState(() => mirrorSequence() === centerSequence(fixture), "initial convergence", 60_000);
     fixture.owners.keycloak.revoke("person-owner", replicationRepoId, ["repository-read"]);
+    // An explicit edge sync the center denies withholds the delivered rows at once, before the stream
+    // learns of the denial.
+    await assert.rejects(
+      syncFleetEdgeMirror(
+        {
+          payload: {
+            host: "127.0.0.1",
+            port: fixture.centerPort(),
+            caPath: fixture.certFile,
+            servername: "localhost",
+            nodeId: "edge-one",
+            credential: "secret-edge-one",
+            repoId: replicationRepoId,
+            viewRoot,
+            quotaBytes: 64 * 1024 * 1024,
+            workspaceRoot: mkdtempSync(path.join(tmpdir(), "ha-denied-workspace-")),
+          },
+        },
+        async () => "device-token-edge-one",
+      ),
+      { code: "authorization_denied" },
+    );
+    assert.equal(readReplicaGeneration(viewDir), null, "the denied sync withholds the replica");
     link.cut();
     await waitForState(
       () => stream.failures.some((error) => (error as { code?: unknown }).code === "authorization_denied"),
       "the denial to be reported",
       60_000,
     );
-    assert.equal(readReplicaGeneration(viewDir), null, "the denied replica is withdrawn");
+    assert.equal(readReplicaGeneration(viewDir), null, "the denied stream keeps the replica withdrawn");
     assert.deepEqual(readdirSync(path.join(viewDir, "generations")), [], "and its files are collected");
     assert.equal(readReplicaHealth(viewDir).syncFailure?.code, "authorization_denied");
     fixture.owners.keycloak.permit("person-owner", replicationRepoId, ["repository-read"]);
