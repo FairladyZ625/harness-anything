@@ -133,18 +133,20 @@ test(
       const workspaceRoot = path.join(root, "edge-workspace"),
         viewRoot = path.join(root, "edge-view");
       initHarnessRepo(workspaceRoot, "schedule-fleet-agent-edge");
-      await catchUpReplica({
-        host: "127.0.0.1",
-        port: center.port,
-        ca: certificate,
-        servername: "localhost",
-        nodeId: subject.nodeId,
-        credential: `credential-${subject.nodeId}`,
-        repoId,
-        viewRoot,
-        diskQuotaBytes: 64 * 1024 * 1024,
-        readAccessToken: owners.readAccessToken(subject.nodeId),
-      });
+      const syncReplica = () =>
+        catchUpReplica({
+          host: "127.0.0.1",
+          port: center.port,
+          ca: certificate,
+          servername: "localhost",
+          nodeId: subject.nodeId,
+          credential: `credential-${subject.nodeId}`,
+          repoId,
+          viewRoot,
+          diskQuotaBytes: 64 * 1024 * 1024,
+          readAccessToken: owners.readAccessToken(subject.nodeId),
+        });
+      await syncReplica();
       edge = openFleetEdgeRuntime({
         readBinding: () => owners.binding(subject.nodeId),
         request: {
@@ -190,6 +192,7 @@ test(
       });
       assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
       assert.equal((rejected.error as { readonly code?: string } | undefined)?.code, "schedule_agent_unavailable");
+      await syncReplica();
       const shown = await edge.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
       assert.equal((shown.schedule as { readonly status: { readonly activeRun: unknown } }).status.activeRun, null);
 
@@ -213,6 +216,7 @@ test(
       });
       assert.equal(retiredRun.outcome, "op_rejected", JSON.stringify(retiredRun));
       assert.equal((retiredRun.error as { readonly code?: string } | undefined)?.code, "agent_retired");
+      await syncReplica();
       const retiredShown = await edge.run("repo.schedule.run", {
         kind: "schedule-show",
         scheduleId: retiredScheduleId,
