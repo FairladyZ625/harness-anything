@@ -92,6 +92,25 @@ const mirrorHead = (ledgerPath: string): number => {
         .sort(),
     );
 
+/** Compare every table in a center database and its complete edge mirror. */
+const compareDatabase = (centerPath: string, edgePath: string, label: string): void => {
+  const { replication_log: edgeLog, ...edgeTables } = tableRows(edgePath),
+    { replication_log: centerLog, ...centerTables } = tableRows(centerPath);
+  assert.deepEqual(edgeTables, centerTables, `${label}: every table row matches center`);
+  if (edgeLog === undefined) return;
+  const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence,
+    firstRetained = (edgeLog[0] as unknown as { sequence: number } | undefined)?.sequence ?? applied;
+  assert.deepEqual(
+    edgeLog,
+    (centerLog ?? []).filter((row) => {
+      const sequence = (row as unknown as { sequence: number }).sequence;
+      return sequence >= firstRetained && sequence <= applied;
+    }),
+    `${label}: every retained edge log row matches the center through its applied position`,
+  );
+  assert.equal((edgeLog.at(-1) as unknown as { sequence: number } | undefined)?.sequence, applied);
+};
+
 test("three process-level edges hold one consistent mirror of every center read", { timeout: 240_000 }, async (t) => {
   const fixture = await fleetReplicationFixture(t);
   const seeded = await seedCenterData(fixture, seededTask);
@@ -270,27 +289,6 @@ test("three process-level edges hold one consistent mirror of every center read"
       "the runtime event replicated exactly once to every mirror",
     );
   }
-  // F-97987445: compare every table in both replicated SQLite databases, ordered by primary key.
-  // Include the projection tables and runtime-owned lease rows; the edge is a complete mirror.
-  // replication_log is each node's retained transport suffix. The edge starts at its base-backup
-  // anchor; every retained row through its applied position must match the center's row.
-  const compareDatabase = (centerPath: string, edgePath: string, label: string) => {
-    const { replication_log: edgeLog, ...edgeTables } = tableRows(edgePath),
-      { replication_log: centerLog, ...centerTables } = tableRows(centerPath);
-    assert.deepEqual(edgeTables, centerTables, `${label}: every table row matches center`);
-    if (edgeLog === undefined) return;
-    const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence,
-      firstRetained = (edgeLog[0] as unknown as { sequence: number } | undefined)?.sequence ?? applied;
-    assert.deepEqual(
-      edgeLog,
-      (centerLog ?? []).filter((row) => {
-        const sequence = (row as unknown as { sequence: number }).sequence;
-        return sequence >= firstRetained && sequence <= applied;
-      }),
-      `${label}: every retained edge log row matches the center through its applied position`,
-    );
-    assert.equal((edgeLog.at(-1) as unknown as { sequence: number } | undefined)?.sequence, applied);
-  };
   for (const installed of installs) {
     compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "ledger");
     compareDatabase(
@@ -299,6 +297,87 @@ test("three process-level edges hold one consistent mirror of every center read"
       "projection",
     );
   }
+});
+
+test("full mirror comparison covers rejected and no-event commits", { timeout: 180_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const edge = fixture.startEdge("edge-one");
+  const installed = await edge.waitForEvent("installed");
+  const rejected = await fixture.centerRun({
+    kind: "task-start",
+    taskId: "task_missing00000000000000000000",
+    executionId: "exe-missing",
+  });
+  assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+  await edge.waitForWhere(
+    (event) => event.event === "applied" && event.outcomeStatus === "rejected",
+    "the rejected no-event outcome to be replicated",
+  );
+  compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "rejected ledger");
+  compareDatabase(
+    path.join(fixture.repo, ".harness/cache/task.sqlite"),
+    String(installed.projectionPath),
+    "rejected projection",
+  );
+
+  const noEvent = await fixture.centerRun({
+    kind: "task-start",
+    taskId: seededTask.taskId,
+    executionId: "ignored-new-execution",
+  });
+  assert.equal(noEvent.outcome, "no_changes", JSON.stringify(noEvent));
+  compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "no-event ledger");
+  compareDatabase(
+    path.join(fixture.repo, ".harness/cache/task.sqlite"),
+    String(installed.projectionPath),
+    "no-event projection",
+  );
+});
+
+test("full mirror comparison covers retention-window base-backup resync", { timeout: 240_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t, { retentionWindowCommits: 2 });
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const lagging = fixture.startEdge("edge-two", { holdAcks: true, retry: true });
+  const firstInstall = await lagging.waitForEvent("installed");
+  for (let index = 0; index < 6; index += 1) {
+    const appended = await fixture.centerRun({
+      kind: "task-create",
+      taskId: `task_resync${String(index).padStart(2, "0")}0000000000000000000`,
+      title: "retention pressure",
+    });
+    assert.equal(appended.outcome, "applied", JSON.stringify(appended));
+  }
+  lagging.control({ control: "release-acks" });
+  const resync = await lagging.waitForEvent("resync-required", 60_000);
+  assert.match(String(resync.reason), /window/u, "the lagging node is told why it must start over");
+  await lagging.waitForWhere(
+    (event) =>
+      event.event === "backup-header" && lagging.events.filter((entry) => entry.event === "backup-header").length > 1,
+    "a second base backup after the explicit resync",
+    120_000,
+  );
+  const secondHeader = lagging.lastEvent("backup-header")!;
+  assert.ok((secondHeader.position.sequence as number) > (firstInstall.position.sequence as number));
+  await lagging.waitForWhere(
+    (event) => event.event === "installed" && lagging.events.filter((entry) => entry.event === "installed").length > 1,
+    "the replacement generation to be installed",
+    120_000,
+  );
+  const reinstalled = lagging.lastEvent("installed")!;
+  await lagging.waitForWhere(
+    () => mirrorHead(String(reinstalled.ledgerPath)) === fixture.eventCount(),
+    "re-backup convergence to the center head",
+    120_000,
+  );
+  compareDatabase(fixture.ledgerPath, String(reinstalled.ledgerPath), "resync ledger");
+  compareDatabase(
+    path.join(fixture.repo, ".harness/cache/task.sqlite"),
+    String(reinstalled.projectionPath),
+    "resync projection",
+  );
 });
 
 test("revoking a node's registration cuts its replication session", { timeout: 120_000 }, async (t) => {
