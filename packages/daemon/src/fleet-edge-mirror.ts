@@ -124,7 +124,7 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
       try {
         const docs = reader.withSession((queries) => queries.readDocuments(""));
         const entries = new Map<string, FleetMirrorBlob>(
-          docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: "text/plain" }]),
+          docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType }]),
         );
         // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
         // same revision: a mirrorBaseCut the edge sends is checked against exactly this digest.
@@ -199,7 +199,13 @@ export function scanFleetMirrorWorktree(
       bytes = readFileSync(file),
       base = view.entries.get(logical);
     if (!logical.endsWith(".md") && !logical.endsWith(".txt")) {
-      if (classifyRawArtifactPath(logical))
+      // An unchanged accepted artifact is not a document candidate. New binary
+      // artifacts use artifact add; replacing canonical text still blocks submission.
+      if (
+        base?.mediaType.startsWith("text/") &&
+        classifyRawArtifactPath(logical) &&
+        (base.size !== bytes.byteLength || base.sha256 !== sha256Bytes(bytes))
+      )
         blocked.push({
           path: logical,
           size: statSync(file).size,
