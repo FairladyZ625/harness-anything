@@ -141,9 +141,10 @@ export async function pushWorkerBranch(input: {
   }
   const pushedCommit = input.submittedCommitSha ?? head;
 
-  // Publication runs only when the conventional identity
-  // is readable and every commit the worker added on top of the default branch carries it. Rewriting
-  // authorship is a human decision, so a mismatch refuses the push instead of repairing it.
+  // Publication runs only when the conventional identity is readable and every commit this push
+  // publishes carries it: the commits above the published remote cut when that branch exists, the
+  // whole range above the default branch when it does not. Rewriting authorship is a human
+  // decision, so a mismatch refuses the push instead of repairing it.
   const identity = input.identity ?? (await readWorkerGitIdentity({ cwd: input.canonicalRoot, env }));
   if (!identity)
     return {
@@ -156,9 +157,12 @@ export async function pushWorkerBranch(input: {
         `canonical repository ${input.canonicalRoot} resolves no git user.name/user.email, ` +
         "so the conventional worker identity cannot be verified",
     };
+  // An empty expected cut means the remote branch is absent, so everything above the default
+  // branch is new; a published cut already carried its own admission, and rewriting those
+  // ancestors is the forced history update this CAS-protected push must not attempt.
   const mismatch = await firstCommitOutsideConventionalIdentity(
     input.cwd,
-    repositoryBaseRef(input.canonicalRoot),
+    input.expectedRemoteCommit || repositoryBaseRef(input.canonicalRoot),
     pushedCommit,
     identity,
     env,
@@ -231,9 +235,11 @@ export async function pushTaskWorkerBranch(input: {
   return pushWorkerBranch({ ...input, expectedRemoteCommit });
 }
 
-// The first commit in `<default branch>..HEAD` whose author or committer email is not the
-// conventional identity, named with both of its emails; null when the whole range matches.
-// Without a default branch the worker's own commits cannot be bounded, so that also refuses.
+// The first commit in `<bound>..<pushedCommit>` whose author or committer email is not the
+// conventional identity, named with both of its emails; null when the whole range matches. The
+// caller bounds the range: the published remote cut for an increment push, the default branch for
+// a branch's first publication. Without a bound the worker's own commits cannot be delimited, so
+// that also refuses.
 async function firstCommitOutsideConventionalIdentity(
   cwd: string,
   baseRef: string | null,
