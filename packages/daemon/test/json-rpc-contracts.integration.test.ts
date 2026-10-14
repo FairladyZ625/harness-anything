@@ -259,7 +259,6 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.schedule.disable", { scheduleId: "schedule-a", idempotencyKey: "schedule-disable-once" }],
     ["repo.schedule.runNow", { scheduleId: "schedule-a", idempotencyKey: "schedule-run-once" }],
     ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
-    ["repo.agentRuntime.steer", { dispatchId: "dispatch-a", prompt: "Change direction." }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", backend: "direct-pty", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
     ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
     ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],
@@ -295,6 +294,20 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.deepEqual(actionForDaemonMethod("repo.task.attest", cases.get("repo.task.attest")!), { kind: "task-attest", ...cases.get("repo.task.attest")! });
   assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.task.attest", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", gateId: "ci", result: "pass", executor: { kind: "agent", id: "runtime" } } }).ok, false);
+});
+
+test("runtime steer is contracted outside the GUI preload surface and rejects invalid selectors", () => {
+  const call = (payload: Record<string, unknown>) =>
+    parseDaemonRpcParams("repo.agentRuntime.steer", { repo: { repoId: "alpha" }, payload });
+  assert.equal(
+    daemonGuiActionMethods.some(({ method }) => method === "repo.agentRuntime.steer"),
+    false,
+  );
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "Change direction." }).ok, true);
+  assert.equal(call({ runtimeSessionId: "runtime-a", prompt: "Change direction." }).ok, true);
+  assert.equal(call({ prompt: "Missing selector." }).ok, false);
+  assert.equal(call({ dispatchId: "dispatch-a", runtimeSessionId: "runtime-a", prompt: "Both selectors." }).ok, false);
+  assert.equal(call({ dispatchId: "dispatch-a", prompt: "" }).ok, false);
 });
 // prettier-ignore
 

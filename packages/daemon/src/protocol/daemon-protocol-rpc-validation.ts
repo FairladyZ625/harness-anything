@@ -75,6 +75,8 @@ export function validateDaemonRpcCall(value: unknown): readonly string[] {
     errors.push(...validateTaskDispatchesPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.agentRuntime.sessions.read")
     errors.push(...validateRuntimeSessionReadPayload((value.params as JsonObject).payload));
+  if (!errors.length && value.method === "repo.agentRuntime.steer")
+    errors.push(...validateRuntimeSteerPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.projection.read")
     errors.push(...validateUseCaseProjectionPayload((value.params as JsonObject).payload));
   if (!errors.length && value.method === "repo.squad.runs.list")
@@ -119,6 +121,17 @@ function validateRuntimeSessionReadPayload(value: unknown): string[] {
   if (runtimeSessionId !== undefined && (taskId !== undefined || dispatchId !== undefined))
     return ["runtime session read cannot mix runtimeSessionId with taskId or dispatchId"];
   return [];
+}
+
+function validateRuntimeSteerPayload(value: unknown): string[] {
+  if (!isJsonObject(value)) return ["runtime steer request is invalid"];
+  const { runtimeSessionId, dispatchId, prompt } = value;
+  return !nonEmpty(prompt) ||
+    nonEmpty(runtimeSessionId) === nonEmpty(dispatchId) ||
+    (runtimeSessionId !== undefined && !nonEmpty(runtimeSessionId)) ||
+    (dispatchId !== undefined && !nonEmpty(dispatchId))
+    ? ["runtime steer request is invalid"]
+    : [];
 }
 
 // Request-side half of the single selector boundary; only facet-specific value rules live here.
@@ -354,14 +367,6 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
     errors.push("runtime spawn request is invalid");
   if (method === "repo.agentRuntime.cancel" && !nonEmpty(value.runtimeSessionId))
     errors.push("runtime cancel request is invalid");
-  if (
-    method === "repo.agentRuntime.steer" &&
-    (!nonEmpty(value.prompt) ||
-      nonEmpty(value.runtimeSessionId) === nonEmpty(value.dispatchId) ||
-      (value.runtimeSessionId !== undefined && !nonEmpty(value.runtimeSessionId)) ||
-      (value.dispatchId !== undefined && !nonEmpty(value.dispatchId)))
-  )
-    errors.push("runtime steer request is invalid");
   if (method === "repo.gui.catalog.reread" && value.expectedDigest !== undefined && !digest(value.expectedDigest))
     errors.push("catalog reread digest is invalid");
   if (

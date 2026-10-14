@@ -456,16 +456,6 @@ export const daemonGuiActionMethods = Object.freeze([
     DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
   ),
   guiS3Action(
-    "agentRuntime.steer",
-    "repo.agentRuntime.steer",
-    "runtime-steer",
-    shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }),
-    "steerAgentRuntime",
-    "/api/agent-runtime/sessions/:id/steer",
-    "repo-write",
-    DAEMON_GUI_COMMAND_RECEIPT_SCHEMA.id,
-  ),
-  guiS3Action(
     "terminal.spawn",
     "repo.terminal.spawn",
     "terminal-spawn",

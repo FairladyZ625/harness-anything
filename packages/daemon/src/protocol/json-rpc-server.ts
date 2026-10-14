@@ -684,13 +684,7 @@ export function createJsonRpcProtocolServer(options: {
     if (method === "repo.agentRuntime.steer") {
       const repo = params.repo.repoId;
       try {
-        return reply(
-          method,
-          parseDaemonGuiActionResult(
-            method,
-            await options.host.steerRuntime(repo, params.payload, options.authContext),
-          ),
-        );
+        return reply(method, await options.host.steerRuntime(repo, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
