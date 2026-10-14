@@ -24,6 +24,7 @@ import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "../../src/domain/task.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
+import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { withTempStoreAsync } from "./helpers.ts";
 import { DatabaseSync } from "node:sqlite";
 
@@ -297,6 +298,50 @@ test("catch-up does not report rounds whose projection watermark stays fixed", a
     assert.throws(() => projection.catchUp(), /stop stalled catch-up fixture/u);
     assert.equal(reads, 4);
     assert.deepEqual(progress, []);
+    projection.close();
+  });
+});
+
+test("catch-up resumes source scanning after the applied watermark", async () => {
+  const fixture = taskFixture(),
+    historical = fixture.events.slice(0, -1),
+    newEvent = fixture.events.at(-1)!;
+  let sourceEvents = historical,
+    accessedItems = 0;
+  const cursors: string[] = [];
+  const eventStore = {
+    readHead: () =>
+      sourceEvents.length === 0
+        ? null
+        : {
+            revision: sourceEvents.length,
+            eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(sourceEvents.at(-1)!))}`,
+          },
+    readBatch: (cursor: string | null, maxItems: number) => {
+      const start = cursor === null ? 0 : Number(cursor),
+        slice = sourceEvents.slice(start, start + maxItems);
+      cursors.push(cursor ?? "null");
+      accessedItems += slice.length;
+      return {
+        sourceRevision: sourceEvents.length,
+        events: slice,
+        cursor: start + slice.length >= sourceEvents.length ? null : String(start + slice.length),
+        done: start + slice.length >= sourceEvents.length,
+        accessedItems: slice.length,
+        prefetchContent: () => new Map<string, Uint8Array | null>(),
+      };
+    },
+    readContentBlob: () => null,
+  };
+  await withTempStoreAsync(async (rootDir) => {
+    const projection = makeTaskProjection({ rootDir, eventStore });
+    for (const event of historical) projection.apply(event, taskLifecycleWritePlan(event));
+    sourceEvents = fixture.events;
+    projection.catchUp();
+    assert.equal(projection.readCut().watermark, fixture.events.length);
+    assert.equal(accessedItems, 1);
+    assert.deepEqual(cursors, [String(historical.length)]);
+    assert.equal(newEvent.workspaceRevision, fixture.events.length);
     projection.close();
   });
 });
