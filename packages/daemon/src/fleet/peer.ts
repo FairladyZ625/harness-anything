@@ -125,6 +125,9 @@ export function fleetReplicaDiskUsage(root: string): number {
   };
   return visit(root);
 }
+/** Received frames held before the stream stops reading; at 64 KiB per data frame about 16 MiB. */
+const queuedFramesHigh = 256,
+  queuedFramesLow = 64;
 /**
  * One resident replication stream for this node and repository: base backup when needed, then
  * ordered commits until the connection fails or the signal aborts. It never returns normally;
@@ -165,6 +168,9 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
               if (waiter) waiter.resolve(replicated);
               else queue.push(replicated);
             }
+            // Stop reading while frames wait: the unread TCP window is what makes the center's
+            // drain wait, so a base backup flows at the speed this node writes it.
+            if (queue.length >= queuedFramesHigh) socket.pause();
           });
           resolve();
           return;
@@ -241,6 +247,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       receive: async (receiveSignal) => {
         receiveSignal?.throwIfAborted();
         const queued = queue.shift();
+        if (socket.isPaused() && queue.length <= queuedFramesLow) socket.resume();
         if (queued) return queued;
         if (closed) throw closed;
         return new Promise<ReplicationFrame>((resolve, reject) => {
