@@ -7,7 +7,6 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
@@ -47,6 +46,7 @@ test("native handoff reads the launch-frozen provider directory on both nodes", 
       `
 import { mkdirSync, writeFileSync, readFileSync, globSync } from 'node:fs';
 import path from 'node:path';
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const id = ${JSON.stringify(fixtureNativeId)}, home = process.env.CODEX_HOME;
 if (process.argv.includes('--version')) { console.log('codex-cli 0.159.1'); process.exit(0); }
 if (process.argv.includes('login')) { console.log('Logged in using ChatGPT'); process.exit(0); }
@@ -148,7 +148,7 @@ for (const row of [{type:'thread.started',thread_id:id},
   async function node(nodeId: string, rootDir: string, providerHome: string) {
     const userRoot = path.join(f.root, `${nodeId}-user`),
       viewRoot = path.join(f.root, `${nodeId}-view`);
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${nodeId}`,
       port: center.port,
       ca: f.cert,
@@ -157,8 +157,6 @@ for (const row of [{type:'thread.started',thread_id:id},
       repoId,
       viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, rootDir, "pull");
     registerBootstrappedDaemonRepo({

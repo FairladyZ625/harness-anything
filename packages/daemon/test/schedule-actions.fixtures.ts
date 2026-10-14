@@ -9,7 +9,7 @@ import {
 } from "@harness-anything/kernel";
 import { initialRuntimeInstanceSettings } from "../src/runtime-spawn-allowlist.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 export const definition: AgentDefinitionSnapshot = {
   schema: "agent-definition-snapshot/v1",
@@ -70,7 +70,7 @@ export async function pullScheduleView(
   port: number,
   ca: Buffer,
 ): Promise<void> {
-  const pulled = await runFleetReplicaPullClient({
+  const pulled = await catchUpReplica({
     readAccessToken: async () => `device-token-${edge.subject.nodeId}`,
     port,
     ca,
@@ -80,9 +80,6 @@ export async function pullScheduleView(
     repoId: edge.subject.repoId,
     viewRoot: edge.viewRoot,
     diskQuotaBytes: 64 * 1024 * 1024,
-    // The walreceiver is a resident stream; a test pull stops at the first confirmed ack
-    // (same single-round control the resident sync owner uses, fleet/replica-sync.ts).
-    stopAfterAck: true,
   });
   assert.equal(
     applyFleetMirrorCut(edge.viewRoot, edge.subject.repoId, edge.workspaceRoot, "pull", {

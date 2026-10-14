@@ -15,9 +15,9 @@ import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 // Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
 // wait for materialized commits, so pin the test-local idle timer to a fast interval.
@@ -135,7 +135,7 @@ export async function dualSyncFixture(
   const edgeTask = (nodeId: NodeId, action: Record<string, unknown>): Promise<Record<string, unknown>> =>
     runFleetEdgeTask({ payload: { ...channel(nodeId), action: action as never } }, owners.readAccessToken(nodeId));
   const edgeDocSync = (nodeId: NodeId): Promise<Record<string, unknown>> =>
-    runFleetReplicaPullClient({
+    catchUpReplica({
       hostname: "127.0.0.1",
       port: center.port,
       ca: cert,
@@ -146,8 +146,6 @@ export async function dualSyncFixture(
       repoId: "dual-repo",
       viewRoot: edgeRoot(nodeId),
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     }).then((pulled) => {
       assert.equal(
         applyFleetMirrorCut(edgeRoot(nodeId), "dual-repo", workspace(nodeId), "pull", {

@@ -9,13 +9,7 @@ import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type LedgerCutIdentity } fro
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { digestId } from "../src/fleet/center-transport.ts";
-import {
-  readFleetRepositoryMetadataClient,
-  runFleetReplicaPullClient,
-  runFleetWriteClient,
-  type FleetReplicaPullClientOptions,
-  type FleetWriteClientOptions,
-} from "../src/fleet/peer.ts";
+import { readFleetRepositoryMetadataClient, runFleetWriteClient, type FleetWriteClientOptions } from "../src/fleet/peer.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import {
   FleetUtf8LineDecoder,
@@ -33,6 +27,7 @@ import {
   splitWrite,
   waitForReceiptCommit,
 } from "./fleet-tls-session.fixture.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 type RoundTripOptions = FleetWriteClientOptions & Pick<FleetReplicaPullClientOptions, "viewRoot" | "edgeKillpoint">;
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",
@@ -94,23 +89,19 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
     repoId: options.repoId,
     timeoutMs: options.timeoutMs,
   };
-  await runFleetReplicaPullClient({
+  await catchUpReplica({
     ...peer,
     viewRoot: options.viewRoot,
     diskQuotaBytes: replicaQuota,
-    // Single-round pull: the walreceiver is a resident stream.
-    stopAfterAck: true,
   });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
-  const pulled = await runFleetReplicaPullClient({
+  const pulled = await catchUpReplica({
     through: write.center.revision ?? "known-head",
     ...peer,
     viewRoot: options.viewRoot,
     diskQuotaBytes: replicaQuota,
     onFrame: options.onFrame,
     edgeKillpoint: options.edgeKillpoint,
-    // Single-round pull: the walreceiver is a resident stream.
-    stopAfterAck: true,
   });
   return { ...write, replica: pulled.replica };
 }

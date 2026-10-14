@@ -8,10 +8,11 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient, runFleetTaskCommandClient } from "../src/fleet/peer.ts";
+import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 for (const distinctNode of [false, true])
   for (const firstExitCode of [0, 1]) {
@@ -161,7 +162,7 @@ for (const distinctNode of [false, true])
         };
         for (const subject of [fixture.subject, second]) {
           const viewRoot = path.join(fixture.root, subject.viewId);
-          await runFleetReplicaPullClient({
+          await catchUpReplica({
             readAccessToken: async () => `device-token-${subject.nodeId}`,
             port: center.port,
             ca: fixture.cert,
@@ -170,8 +171,6 @@ for (const distinctNode of [false, true])
             repoId: subject.repoId,
             viewRoot,
             diskQuotaBytes: 64 * 1024 * 1024,
-            // Single-round pull: the walreceiver is a resident stream.
-            stopAfterAck: true,
           });
           applyFleetMirrorCut(viewRoot, subject.repoId, workspaceRoot, "pull");
         }

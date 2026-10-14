@@ -17,7 +17,7 @@ import sample from "../../kernel/fixtures/canonical-events/ci-run-observation-v4
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 async function seed(rootDir: string) {
   const store = makeTaskEventStore({ repoId: "lease-repo", rootDir });
@@ -138,12 +138,10 @@ test(
       await fleetEdgeHostFixture(t, f, { name: "ci-two", nodeId: "node-two" }),
     ];
     for (const e of edges)
-      await runFleetReplicaPullClient({
+      await catchUpReplica({
         ...f.peer(e.config.nodeId),
         viewRoot: e.viewRoot,
         diskQuotaBytes: e.config.quotaBytes,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
     const truth = (await f.host.read(
       "lease-repo",
@@ -243,12 +241,10 @@ for (const mixed of [false, true]) {
         seedHistory(root, mixed),
       );
       const e = await fleetEdgeHostFixture(t, f, { name: `ci-history-${mixed}` });
-      await runFleetReplicaPullClient({
+      await catchUpReplica({
         ...f.peer(e.config.nodeId),
         viewRoot: e.viewRoot,
         diskQuotaBytes: e.config.quotaBytes,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
       const truth = (await f.host.read(
         "lease-repo",

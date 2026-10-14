@@ -8,8 +8,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
   "GUI reads bind the configured node view and doc previews bind each edge workspace while offline",
@@ -23,12 +23,10 @@ test(
     const pull = async (nodeId: string) => {
       await f.host.replica("lease-repo").prepare();
       await f.host.replica("lease-repo").waitForCut(f.eventCount());
-      await runFleetReplicaPullClient({
+      await catchUpReplica({
         ...f.peer(nodeId),
         viewRoot,
         diskQuotaBytes: quota,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
     };
     await pull("node-one");

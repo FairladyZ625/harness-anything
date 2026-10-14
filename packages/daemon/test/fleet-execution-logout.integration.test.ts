@@ -11,12 +11,13 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
+import { runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
 import { OidcSessionService, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 // Real provider process, child CLI, edge socket, Fleet TLS, center writer and isolated realm.
 // The edge has neither a center admin config nor a center secret.
@@ -101,11 +102,9 @@ test(
       readAccessToken: f.owners.readAccessToken(config.nodeId),
     };
     writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     registerBootstrappedDaemonRepo({
@@ -264,11 +263,9 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const initialLocalRead = await cli(["task", "show", taskId]);
@@ -346,11 +343,9 @@ test(
     );
     // Edge reads answer from the local read model; a revocation lands at the next sync attempt.
     const resync = async () => {
-      await runFleetReplicaPullClient({
+      await catchUpReplica({
         ...peer,
         diskQuotaBytes: config.quotaBytes,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
       applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     };
@@ -418,11 +413,9 @@ test(
     const settledCut = f.host.replica(repoId);
     settledCut.activate();
     await settledCut.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     writeFileSync(
@@ -454,11 +447,9 @@ test(
     const reviewCut = f.host.replica(repoId);
     reviewCut.activate();
     await reviewCut.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const reviewRoot = path.join(f.root, "review-edge"),
@@ -468,14 +459,12 @@ test(
     const reviewConfig = { ...config, nodeId: "node-slow", viewRoot: reviewView };
     const { schema: _schema, ...reviewRoute } = reviewConfig;
     writeFileSync(path.join(reviewRoot, "fleet-edge.json"), JSON.stringify(reviewConfig));
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       nodeId: "node-slow",
       readAccessToken: f.owners.readAccessToken("node-slow"),
       viewRoot: reviewView,
       diskQuotaBytes: config.quotaBytes,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(reviewView, repoId, reviewRoot, "pull");
     registerBootstrappedDaemonRepo({
@@ -843,14 +832,12 @@ test(
     t.diagnostic(
       "Stale S1 natural exit and owner cancel reached canonical failed/cancelled terminals without reviews.",
     );
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       nodeId: "node-slow",
       readAccessToken: f.owners.readAccessToken("node-slow"),
       viewRoot: reviewView,
       diskQuotaBytes: config.quotaBytes,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(reviewView, repoId, reviewRoot, "pull");
     const fresh = await spawnReviewer("edge-review-s2");

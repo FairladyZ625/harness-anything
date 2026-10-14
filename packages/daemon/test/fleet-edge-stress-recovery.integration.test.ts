@@ -6,9 +6,9 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const quota = 64 * 1024 * 1024;
 
@@ -28,13 +28,11 @@ async function settledCenter(t: Parameters<typeof fleetNodeClaimFixture>[0], tas
   await replica.prepare();
   await replica.waitForCut(f.eventCount());
   const pull = (viewRoot: string, extra: Record<string, unknown> = {}) =>
-    runFleetReplicaPullClient({
+    catchUpReplica({
       ...f.peer("node-one"),
       viewRoot,
       diskQuotaBytes: quota,
       ...extra,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
   return { f, pull };
 }
@@ -161,15 +159,13 @@ test(
       await replica.waitForCut(f.eventCount());
     };
     const crashPull = (point: "after_page" | "before_current_rename") =>
-      runFleetReplicaPullClient({
+      catchUpReplica({
         ...f.peer("node-one"),
         viewRoot,
         diskQuotaBytes: quota,
         edgeKillpoint: (observed) => {
           if (observed === point) throw new Error(`simulated materializer crash ${point}`);
         },
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
 
     // 1. Crash while pages are still arriving: staging is durable, current is untouched.

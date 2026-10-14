@@ -7,9 +7,9 @@ import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed node owner", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
@@ -22,7 +22,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     path.join(workspaceRoot, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  await runFleetReplicaPullClient({
+  await catchUpReplica({
     readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
     port: center.port,
     ca: fixture.cert,
@@ -31,8 +31,6 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     repoId: fixture.subject.repoId,
     viewRoot,
     diskQuotaBytes: replicaQuota,
-    // Single-round pull: the walreceiver is a resident stream.
-    stopAfterAck: true,
   });
   applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
   let terminal: (() => void) | undefined;
@@ -183,7 +181,7 @@ for (const restart of [false, true])
         path.join(workspaceRoot, "harness/harness.yaml"),
         "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
       );
-      await runFleetReplicaPullClient({
+      await catchUpReplica({
         readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         port: center.port,
         ca: fixture.cert,
@@ -192,8 +190,6 @@ for (const restart of [false, true])
         repoId: fixture.subject.repoId,
         viewRoot,
         diskQuotaBytes: replicaQuota,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
       applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
       let terminal: (() => void) | undefined;

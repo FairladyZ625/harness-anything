@@ -13,19 +13,14 @@ import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import {
-  runFleetReplicaPullClient,
-  runFleetRuntimeEventClient,
-  readFleetRepositoryMetadataClient,
-  runFleetUploadClient,
-  runFleetTaskCommandClient,
-} from "../src/fleet/peer.ts";
+import { runFleetRuntimeEventClient, readFleetRepositoryMetadataClient, runFleetUploadClient, runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {
@@ -220,11 +215,10 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "publish the canonical task description, not the node execution prompt",
   );
   await f.host.replica("lease-repo").waitForCut(f.eventCount());
-  await runFleetReplicaPullClient({
+  await catchUpReplica({
     ...f.peer("node-two"),
     viewRoot: b.viewRoot,
     diskQuotaBytes: b.config.quotaBytes,
-    stopAfterAck: true,
   });
   const beforeReplay = f.eventCount();
   const replay = await runFleetRuntimeEventClient({
@@ -496,11 +490,10 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "late terminal observation cannot release or replace the successor lease",
   );
   await f.host.replica("lease-repo").waitForCut(f.eventCount());
-  await runFleetReplicaPullClient({
+  await catchUpReplica({
     ...f.peer("node-two"),
     viewRoot: b.viewRoot,
     diskQuotaBytes: b.config.quotaBytes,
-    stopAfterAck: true,
   });
   const metadata = await readFleetRepositoryMetadataClient(f.peer("node-one")),
     authority = openPersistentWriterEpoch({ stateRoot: f.writerEpochStateRoot });

@@ -403,7 +403,7 @@ test(
         ),
         false,
       );
-    } finally {
+    } catch (error) { console.error("TEMPDEBUG body error", error); throw error; } finally {
       try {
         stop(fixture, "center");
       } finally {

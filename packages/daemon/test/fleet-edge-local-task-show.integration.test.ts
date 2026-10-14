@@ -7,8 +7,8 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { readEdgeRepository } from "../src/fleet-edge-task-read.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const quota = 64 * 1024 * 1024;
 
@@ -29,12 +29,10 @@ test(
     );
     const e = await fleetEdgeHostFixture(t, f);
     const pull = () =>
-      runFleetReplicaPullClient({
+      catchUpReplica({
         ...f.peer("node-one"),
         viewRoot: e.viewRoot,
         diskQuotaBytes: quota,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
     const local = (taskId: string) => e.command({ kind: "task-show", taskId });
     const center = async (taskId: string) =>

@@ -14,12 +14,12 @@ import { CAUSAL_CONTEXT_MAX_BYTES } from "../src/dispatch-causal-context.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { evidence } from "./task-surface.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test(
   "remote-edge dispatch serves causal context from the newly confirmed replica cut",
@@ -49,7 +49,7 @@ test(
     // so the decision, fact, and relations recorded below cannot be present in
     // any edge-local copy. If the provider prompt still carries them, the block
     // provably came from the center's canonical cut on this dispatch.
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
@@ -58,8 +58,6 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     // Relation writes are admitted against the canonical vertical's relation
@@ -380,7 +378,7 @@ for (const probe of [
       path.join(workspaceRoot, "harness/harness.yaml"),
       "schema: harness-anything/v1\nname: counterexample-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
     );
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
@@ -389,8 +387,6 @@ for (const probe of [
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
     const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),

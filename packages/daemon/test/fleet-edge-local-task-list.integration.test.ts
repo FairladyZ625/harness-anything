@@ -6,10 +6,10 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const quota = 64 * 1024 * 1024;
 
@@ -26,12 +26,10 @@ test(
       );
     const e = await fleetEdgeHostFixture(t, f);
     const pull = () =>
-      runFleetReplicaPullClient({
+      catchUpReplica({
         ...f.peer("node-one"),
         viewRoot: e.viewRoot,
         diskQuotaBytes: quota,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
     const local = (action: Record<string, unknown> = { kind: "task-list" }) => e.command(action);
     const center = async (action: Record<string, unknown> = { kind: "task-list" }) =>
@@ -140,12 +138,10 @@ test(
     const base = f.host.replica("lease-repo");
     await base.prepare();
     await base.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,
       diskQuotaBytes: quota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     const written = await e.command({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
     assert.equal(written.outcome, "applied", JSON.stringify(written));
@@ -163,19 +159,15 @@ test("same repository pulls keep per-node authorization metadata independent", {
   await f.command("center-node", { kind: "task-create", taskId: "dual-owner", title: "Dual owner" });
   const first = path.join(f.root, "view-one"),
     second = path.join(f.root, "view-two");
-  await runFleetReplicaPullClient({
+  await catchUpReplica({
     ...f.peer("node-one"),
     viewRoot: first,
     diskQuotaBytes: quota,
-    // Single-round pull: the walreceiver is a resident stream.
-    stopAfterAck: true,
   });
-  await runFleetReplicaPullClient({
+  await catchUpReplica({
     ...f.peer("node-two"),
     viewRoot: second,
     diskQuotaBytes: quota,
-    // Single-round pull: the walreceiver is a resident stream.
-    stopAfterAck: true,
   });
   const one = locateFleetMirrorView(first, "lease-repo")!,
     two = locateFleetMirrorView(second, "lease-repo")!;
@@ -184,12 +176,10 @@ test("same repository pulls keep per-node authorization metadata independent", {
   assert.notEqual(one.authorizationShapeDigest, two.authorizationShapeDigest);
   f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
   await assert.rejects(
-    runFleetReplicaPullClient({
+    catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: first,
       diskQuotaBytes: quota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     }),
     {
       code: "authorization_denied",
@@ -225,12 +215,10 @@ test(
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,
       diskQuotaBytes: quota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     const confirmationPath = path.join(
       locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir,

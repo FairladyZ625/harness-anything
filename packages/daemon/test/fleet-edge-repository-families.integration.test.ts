@@ -5,7 +5,7 @@ import path from "node:path";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
   "settings provenance answers through the edge host after the center disconnects",
@@ -16,12 +16,10 @@ test(
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     const truth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());
     assert.equal(truth.outcome, "applied", JSON.stringify(truth));
@@ -54,15 +52,13 @@ test(
     assert.equal(schedule.outcome, "applied", JSON.stringify(schedule));
     await replica.waitForCut(f.eventCount());
     const frames: string[] = [];
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
       onFrame: (frame) => {
         frames.push(frame.schema);
       },
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     assert.ok(frames.includes("fleet.delta.begin/v1"), "authored settings update must arrive by delta");
     // Start the resident sync only after the observed pull owns the settings delta.

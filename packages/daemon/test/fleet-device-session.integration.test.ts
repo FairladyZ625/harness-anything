@@ -3,9 +3,10 @@ import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { openPeer, readFleetLoginAuthorityClient, runFleetReplicaPullClient } from "../src/fleet/peer.ts";
+import { openPeer, readFleetLoginAuthorityClient } from "../src/fleet/peer.ts";
 import { readEdgeRepository, withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { fleetFixture, replicaQuota } from "./fleet-tls-session.fixture.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 // The replica's revoked marker is the same signal the production edge read path checks
 // (fleet-edge-task-read.ts: existsSync(`${viewDir}/revoked`)).
@@ -60,7 +61,7 @@ test("device session failures preserve the admitted replica while repository rev
   const deviceToken = await fixture.owners.readAccessToken(nodeId)();
   let token: string | undefined = deviceToken;
   const pull = () =>
-    runFleetReplicaPullClient({
+    catchUpReplica({
       port: center.port,
       ca: fixture.cert,
       servername: "localhost",
@@ -70,8 +71,6 @@ test("device session failures preserve the admitted replica while repository rev
       viewRoot,
       diskQuotaBytes: replicaQuota,
       readAccessToken: async () => token,
-      // Resident stream, single-round pull: return at the first confirmed ack.
-      stopAfterAck: true,
     });
   const local = (principalId = "person-owner") =>
     withEdgeReadModel({ viewRoot, repoId, nodeId, principalId }, (projection) => {

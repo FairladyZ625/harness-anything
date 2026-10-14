@@ -7,12 +7,12 @@ import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { readScheduleRuns } from "../src/schedule-runs-read.ts";
 import { readEdgeRuntimeResultBytes } from "../src/runtime-result-read.ts";
 import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition, eventually, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 for (const restart of [false, true])
   test(`Schedule terminal settlement recovers on its claim (restart=${restart})`, { timeout: 60_000 }, async (t) => {
@@ -216,7 +216,7 @@ for (const restart of [false, true])
         events.some((event) => event.type === "runtime_session_outcome_observed"),
         false,
       );
-      await runFleetReplicaPullClient({
+      await catchUpReplica({
         readAccessToken: async () => `device-token-${"node-two"}`,
         host: "127.0.0.1",
         port: restoredCenter.port,
@@ -227,8 +227,6 @@ for (const restart of [false, true])
         repoId: subject.repoId,
         viewRoot: observerRoot,
         diskQuotaBytes: 64 * 1024 * 1024,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       });
       const pending = withEdgeReadModel(
         { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
@@ -252,7 +250,7 @@ for (const restart of [false, true])
         // This fixture owns no background sync loop. Refresh the completed cut explicitly;
         // schedule-show itself must never pull or trigger terminal publication.
         await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
-        await runFleetReplicaPullClient({
+        await catchUpReplica({
           readAccessToken: async () => `device-token-${subject.nodeId}`,
           port: restoredCenter.port,
           ca: fixture.cert,
@@ -262,8 +260,6 @@ for (const restart of [false, true])
           repoId: subject.repoId,
           viewRoot: path.join(fixture.root, "schedule-view"),
           diskQuotaBytes: 64 * 1024 * 1024,
-          // Single-round pull: the walreceiver is a resident stream.
-          stopAfterAck: true,
         });
         shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
         return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null;
@@ -310,7 +306,7 @@ for (const restart of [false, true])
     );
     assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
     await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${"node-two"}`,
       host: "127.0.0.1",
       port: restoredCenter.port,
@@ -321,8 +317,6 @@ for (const restart of [false, true])
       repoId: subject.repoId,
       viewRoot: observerRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     await restoredCenter.close();
     const result = withEdgeReadModel(

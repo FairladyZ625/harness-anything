@@ -11,7 +11,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import {
   applyFleetMirrorCut,
   fleetMirrorCutFile,
@@ -22,6 +21,7 @@ import { isReadModelPath } from "@harness-anything/kernel";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const repoId = "scaffold-mirror",
   nodeId = "node-one",
@@ -118,7 +118,7 @@ async function initializedCenterWithEdge() {
   // One sync round of the edge: the resident replication stream's single-round control, then
   // the mirror materializes the registered workspace paths.
   const edgeSync = (): Promise<Record<string, unknown>> =>
-    runFleetReplicaPullClient({
+    catchUpReplica({
       hostname: "127.0.0.1",
       port: center.port,
       ca: readFileSync(certFile),
@@ -129,7 +129,6 @@ async function initializedCenterWithEdge() {
       viewRoot,
       diskQuotaBytes: replicaQuota,
       readAccessToken: owners.readAccessToken(nodeId),
-      stopAfterAck: true,
     }).then((pulled) => {
       applyFleetMirrorCut(viewRoot, repoId, workspace, "pull", { viewId: pulled.replica.viewId });
       return { ok: true } as Record<string, unknown>;

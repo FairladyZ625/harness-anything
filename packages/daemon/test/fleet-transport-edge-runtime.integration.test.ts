@@ -17,7 +17,6 @@ import {
   readFleetRuntimeSessionsPaged,
 } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import {
   fleetFixture,
   git,
@@ -30,6 +29,7 @@ import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { signOutAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
@@ -89,7 +89,7 @@ test(
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
@@ -98,8 +98,6 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
     registerDaemonRepo({
@@ -461,7 +459,7 @@ test(
         );
       }
     });
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
@@ -470,8 +468,6 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     const mirrored = locateFleetMirrorView(viewRoot, fixture.subject.repoId);
@@ -562,7 +558,7 @@ test(
     git(edgeRoot, "fetch", "-q", "origin");
     git(edgeRoot, "branch", `--set-upstream-to=origin/${git(edgeRoot, "branch", "--show-current")}`);
     const base = git(edgeRoot, "rev-parse", "HEAD");
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,
@@ -571,8 +567,6 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
@@ -817,7 +811,7 @@ test(
     );
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
     await waitForFleetPublication(fixture.host, fixture.subject.repoId, revoked.opId, localAuthFixture());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
       port: center.port,
       ca: fixture.cert,
@@ -826,8 +820,6 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", {

@@ -7,8 +7,8 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 // The actual GUI JSON-RPC methods; the edge workspace deliberately has no task files.
 test(
@@ -64,12 +64,10 @@ test(
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
-      // Single-round pull: the walreceiver is a resident stream.
-      stopAfterAck: true,
     });
     const scope = await f.host.read(
       "lease-repo",
@@ -177,12 +175,10 @@ test(
     )) as unknown as Record<string, unknown>;
     assert.equal(rebuilt.rebuildCount, 1, JSON.stringify(rebuilt));
     await assert.rejects(
-      runFleetReplicaPullClient({
+      catchUpReplica({
         ...f.peer("node-one"),
         viewRoot: e.viewRoot,
         diskQuotaBytes: 64 * 1024 * 1024,
-        // Single-round pull: the walreceiver is a resident stream.
-        stopAfterAck: true,
       }),
     );
     const failed = (await e.host.run("lease-repo", { kind: "doctor-health" }, localAuthFixture())) as unknown as Record<
