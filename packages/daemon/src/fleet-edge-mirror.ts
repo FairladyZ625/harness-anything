@@ -1,14 +1,14 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import {
   classifyRawArtifactPath,
+  consumeKnownError,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   makeTaskProjectionReader,
   resolveDocRoute,
   resolveHarnessLayout,
   sha256Bytes,
-  type EdgeReadFreshness,
 } from "@harness-anything/kernel";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { writeFileDurably } from "./durable-file.ts";
@@ -83,7 +83,6 @@ export class FleetMirrorError extends Error {
   }
 }
 
-const rootFor = (view: FleetMirrorView): string => path.dirname(path.dirname(view.viewDir));
 const objectPath = (view: FleetMirrorView, sha: string): string => {
   const generation = readReplicaGeneration(view.viewDir);
   if (!generation) throw new FleetMirrorError("replica_unavailable", "Replica generation is unavailable.");
@@ -189,11 +188,13 @@ export function scanFleetMirrorWorktree(
         });
       continue;
     }
-    let route: ReturnType<typeof resolveDocRoute> | null = null;
+    let route: ReturnType<typeof resolveDocRoute>;
     try {
       route = resolveDocRoute(documentPath(logical));
-    } catch {
-      route = null;
+    } catch (error) {
+      consumeKnownError(error);
+      blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
+      continue;
     }
     if (!route || !route.allowed) {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });

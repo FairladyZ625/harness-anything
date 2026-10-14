@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { consumeKnownError, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -25,19 +25,10 @@ import {
   findOwnedClaim as findOwnedClaimImpl,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import {
-  digestId,
-  immediate,
-  loadState,
-  mid,
-  ownedUpload,
-  serve,
-  wireCut,
-  writeCenterDurableJson,
-} from "./center-transport.ts";
+import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
+import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
 import {
   makeTaskEventReader,
   makeTaskProjection,
@@ -194,6 +185,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             error.message === "replication_snapshot_required"
           )
             return null;
+          consumeKnownError(error);
           throw error;
         }
       },
@@ -325,7 +317,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     window: SessionWindow,
     _clientGone: () => boolean = () => false,
     connectionSignal: AbortSignal,
-    progress: (frame: FleetFrameV1) => Promise<void>,
+    _progress: (frame: FleetFrameV1) => Promise<void>,
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.device.sessions.revoke/v1") {
       if (!(await options.nodeOwner(nodeId)))

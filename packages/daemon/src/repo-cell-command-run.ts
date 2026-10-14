@@ -9,7 +9,6 @@ import {
   parseEntityRef,
   readAcceptedCommandOutcome,
   sha256Text,
-  VcsCommandError,
   type AuthorizationDecision,
   type EntityActionUnmetCriterionV1,
   type WriteReceipt,

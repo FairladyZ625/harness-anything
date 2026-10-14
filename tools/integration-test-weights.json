@@ -154,8 +154,6 @@
   "packages/daemon/test/relation-action.integration.test.ts": 20600,
   "packages/daemon/test/remote-proxy.integration.test.ts": 3400,
   "packages/daemon/test/replica-cut-responsiveness.integration.test.ts": 26700,
-  "packages/daemon/test/replica-cut-store.integration.test.ts": 3500,
-  "packages/daemon/test/replica-pull.integration.test.ts": 5000,
   "packages/daemon/test/repo-bootstrap-owner-person.integration.test.ts": 3400,
   "packages/daemon/test/repo-cell-latch-recovery.test.ts": 6600,
   "packages/daemon/test/repo-cell-lock-release.integration.test.ts": 5000,

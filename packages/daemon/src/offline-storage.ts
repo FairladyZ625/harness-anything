@@ -55,7 +55,7 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
           mode: flags.mode,
           approvedSnapshotGaps: new Set<string>(approvedSnapshotGaps),
           ...(flags.destination ? { destinationRoot: flags.destination } : {}),
-          invalidateDerivedState: (repoId, root) => {
+          invalidateDerivedState: (repoId, _root) => {
             const acknowledgements = openReplicationSlots(path.join(flags.fleetStateRoot!, "replication-slots.sqlite"));
             try {
               acknowledgements.invalidateOffline(repoId);

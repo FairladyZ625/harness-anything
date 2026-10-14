@@ -1,12 +1,11 @@
 import { readFileSync } from "node:fs";
-import { readEdgeCiDetail, fetchEdgeCiDetails } from "./ci-detail-cache.ts";
+import { fetchEdgeCiDetails } from "./ci-detail-cache.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
-import path from "node:path";
 import {
   consumeKnownError,
   makeTaskEventReader,

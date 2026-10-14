@@ -62,7 +62,7 @@ export async function fetchEdgeCiDetails(input: {
   try {
     for (const row of needed) {
       const chunks: Buffer[] = [];
-      let offset = 0;
+      const offset = 0;
       while (true) {
         throw new Error("CI detail objects are included in the replicated generation");
       }

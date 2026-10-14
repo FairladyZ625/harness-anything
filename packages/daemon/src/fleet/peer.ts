@@ -190,6 +190,7 @@ export async function runFleetReplicaPullClient(
         }
       } catch (error) {
         replicationError = error instanceof Error ? error : new Error(String(error));
+        consumeKnownError(error);
         socket.off("data", onData);
         reject(replicationError);
       }
