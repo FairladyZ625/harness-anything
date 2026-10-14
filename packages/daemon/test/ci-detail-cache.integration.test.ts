@@ -91,7 +91,7 @@ async function fixture(t: import("node:test").TestContext, count: number) {
       ),
       sha256 = sha256Bytes(descriptor);
     mkdirSync(path.join(objects, sha256.slice(0, 2)), { recursive: true });
-    writeFileSync(path.join(objects, sha256.slice(0, 2), sha256), descriptor);
+    writeFileSync(path.join(objects, sha256.slice(0, 2), sha256.slice(2)), descriptor);
     writeFileSync(path.join(viewDir, "ci-detail-cache", digest), bytes);
     entries.set(`.read-model/ci-details/event${i}.json`, {
       sha256,
@@ -129,10 +129,9 @@ test("fetching cached CI details reads only requested descriptors with indexed a
     // Every requested object is cached: a network connection would fail this test.
     peer: { hostname: "invalid", port: 0 } as FleetPeerOptions,
   });
-  // Thirty requested descriptors among 200; no whole-manifest authorization scan. Two entry
-  // reads per requested path in the current cache layer: the descriptor lookup and the blob
-  // resolution, which scans entries by sha (runtime-result-read.ts readEdgeViewBlob).
-  assert.equal(accesses(), 60);
+  // Thirty requested descriptors among 200: the generation object store resolves bytes
+  // directly by digest, so only the descriptor lookup accesses each entry.
+  assert.equal(accesses(), 30);
 });
 
 test("CI detail reads still reject unauthorized and altered cached bytes", async (t) => {

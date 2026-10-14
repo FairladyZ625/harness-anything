@@ -344,10 +344,7 @@ test(
         deltaBody,
         "incremental sync updates the original registered path byte-for-byte",
       );
-      assert.equal(
-        existsSync(path.join(fixture.centerUser, "fleet", "replica", "repos", "fleet-demo", "ack.sqlite")),
-        true,
-      );
+      assert.equal(existsSync(path.join(String(center.stateRoot), "replication-slots.sqlite")), true);
       // N6 regression (F-31931F21): the edge CLI's --plan-file body crosses the fleet channel
       // whole; the center lands the authored plan in the task package byte-for-byte.
       const edgePlan = sizedTaskPlan(950, "边缘 CLI 计划");
@@ -585,6 +582,20 @@ test(
       // The sync command observes the resident stream; attach its registered config first.
       stop(fixture, "edge");
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
+      assert.equal(
+        run(fixture, "edge", [
+          "daemon",
+          "repo",
+          "register",
+          "--repo-id",
+          "fleet-demo",
+          "--root",
+          fixture.edgeRepo,
+          "--mode",
+          "remote-edge",
+        ]).ok,
+        true,
+      );
       let first = sync(credential);
       for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
         first = sync(credential);
