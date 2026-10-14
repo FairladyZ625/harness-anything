@@ -284,7 +284,11 @@ export function makeRepoCellCommandRunner(
           // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
           const head = context.store.readHead(),
             accepted = head ? readAcceptedCommandOutcome(context.store, head.opId) : null;
-          if (accepted !== null && accepted.firstRevision > revisionBeforeExecution)
+          if (
+            accepted !== null &&
+            accepted.firstRevision > revisionBeforeExecution &&
+            accepted.opId === context.operationId(action, binding, context.input.repoId, revisionBeforeExecution)
+          )
             throw Object.assign(
               context.cellCodedError(
                 "publication_indeterminate",
