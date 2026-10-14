@@ -87,6 +87,8 @@ test("conn log records open/request/close with monotonic ids, active counts, and
     conn: first,
     transport: "unix-socket",
     method: "protocol.hello",
+    command: "protocol-hello",
+    wait: true,
     frameReceivedAt: Date.parse("2026-08-20T13:00:00.990Z"),
     handlerStartedAt: Date.parse("2026-08-20T13:00:01Z"),
     repliedAt: Date.parse("2026-08-20T13:00:01.003Z"),
@@ -150,6 +152,8 @@ test("conn log records open/request/close with monotonic ids, active counts, and
   assert.equal(hello.atEnd, hello.repliedAt);
   assert.equal(hello.dispatchDelayMs, 10);
   assert.equal(hello.serviceMs, 3);
+  assert.equal(hello.command, "protocol-hello");
+  assert.equal(hello.wait, true);
   assert.equal(hello.durationMs, 3);
   assert.equal(hello.ok, true);
   const close = records[4] as { conn: string; active: number; durationMs: number; requests: number };

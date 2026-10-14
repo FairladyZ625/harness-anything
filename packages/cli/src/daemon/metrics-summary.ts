@@ -10,7 +10,9 @@ export function requestWindowMetrics(
       return record.schema === "daemon-request-log/v1" && atMs >= sinceMs && atMs <= untilMs ? [{ record, atMs }] : [];
     })
     .sort((left, right) => left.atMs - right.atMs);
-  const eligible = rows.filter(({ record }) => record.method !== "repo.agentRuntime.sessions.await");
+  const eligible = rows.filter(
+    ({ record }) => record.method !== "repo.agentRuntime.sessions.await" && record.wait !== true,
+  );
   const first = rows[0]?.atMs ?? null,
     last = rows.at(-1)?.atMs ?? null;
   const silentIntervals = rows.flatMap((row, index) => {

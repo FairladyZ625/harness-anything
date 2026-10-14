@@ -23,14 +23,15 @@ test("window latency uses every eligible sample and nearest-rank P95, excluding 
     [
       ...records,
       row(900_000, { method: "repo.agentRuntime.sessions.await" }),
+      row(800_000, { method: "repo.task.read", command: "task-ci", wait: true }),
       row(80, { at: "2026-10-03T10:00:00Z" }),
       row(90, { at: "2026-10-03T12:00:01Z" }),
     ],
     until - 3_600_000,
     until,
   );
-  assert.equal(stats.requestCount, 21);
-  assert.equal(stats.excludedAwaitRequests, 1);
+  assert.equal(stats.requestCount, 22);
+  assert.equal(stats.excludedAwaitRequests, 2);
   assert.equal(stats.latency.durationMs.sampleCount, 20);
   assert.equal(stats.latency.durationMs.p95Ms, 19);
   assert.equal(stats.latency.durationMs.p50Ms, 10);
