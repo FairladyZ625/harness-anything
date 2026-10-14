@@ -7,6 +7,7 @@ import {
   effectiveCloseoutGates,
   currentExecutionCuts,
   INITIAL_SETTINGS_V1,
+  SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
   parseLocalSettings,
@@ -133,6 +134,15 @@ export function readEffectiveReviewReturnBudget(
     value: projected?.reviewReturnBudget ?? INITIAL_SETTINGS_V1.reviewReturnBudget,
     source: "repository",
   };
+}
+
+/** The optimistic-concurrency token for repository settings: the Settings singleton row's
+ * workspace revision, read at the same projection cut on both center and edge. The write path
+ * compares `expectedVersion` against exactly this value, so every caller that needs the token
+ * (GUI settings read, receipt evidence) derives it here instead of re-deriving an attribution
+ * revision that a stale cache can diverge from. */
+export function settingsSingletonRevision(projection: Pick<TaskProjectionQueries, "getEntity">): number {
+  return projection.getEntity("settings", SETTINGS_ID)?.workspaceRevision ?? 0;
 }
 
 /** Attribution is read at the same projection cut as the settings value, on both center and edge. */

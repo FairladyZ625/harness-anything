@@ -60,7 +60,7 @@ describe("renderer rejection hint extraction", () => {
 
 // dec_4190D5EA63D9DD208CE946F133: omitted defaults remain omitted at the renderer boundary.
 it("accepts unset closeout settings and rejects malformed declared profiles", () => {
-  const response = daemonSettingsRead(INITIAL_SETTINGS_V1, "initial");
+  const response = daemonSettingsRead(INITIAL_SETTINGS_V1, 1, "initial");
   expect(isSettingsSuccess(response)).toBe(true);
   for (const closeout of [{}, { profile: "standard" }, { profile: "strict" }])
     expect(isSettingsSuccess({ ...response, settings: { ...response.settings, closeout } })).toBe(true);

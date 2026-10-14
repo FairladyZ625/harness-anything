@@ -104,8 +104,8 @@ export function ProvidersWorkspace({
       : (orderProviderRows(instances, workspace.authProbeStates, allowedInstances)[0]?.instance.instanceId ?? null);
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
-  const settingsExpectedVersion =
-    settings.data?.lastChanged === "initial" || settings.data === undefined ? 0 : settings.data.lastChanged.revision;
+  // 乐观并发令牌 = settings read 的 singleton 行修订(与写路径同源);lastChanged 只作归因展示。
+  const settingsExpectedVersion = settings.data?.revision ?? 0;
   const updateProjectAllowedInstances = (instanceId: string, allowed: boolean) => {
     const current = settings.data?.settings.runtime?.allowedInstances ?? [];
     return settingsMutation.mutate({

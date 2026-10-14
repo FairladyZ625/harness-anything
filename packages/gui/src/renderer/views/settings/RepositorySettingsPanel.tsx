@@ -66,12 +66,17 @@ export function RepositorySettingsPanel({
     [query, setQuery] = useState(""),
     [advancedOpen, setAdvancedOpen] = useState(false);
 
+  // 回填依赖的是三个被消费的切片,不是整个 read:mutation 层在回执落地时会只顶新令牌
+  // (revision)并保留这三个引用,表单不因令牌前进而被服务端旧值重置;值真的变化时照常回填。
+  const loadedValues = settingsQuery.data?.values,
+    loadedGates = settingsQuery.data?.settings.gates,
+    loadedLocale = settingsQuery.data?.settings.locale;
   useEffect(() => {
-    if (!settingsQuery.data) return;
-    setDraft(settingsQuery.data.values);
-    setGateDrafts(gateMappingDrafts(settingsQuery.data.settings.gates ?? []));
-    onLocaleLoaded(settingsQuery.data.settings.locale);
-  }, [settingsQuery.data]);
+    if (loadedValues === undefined) return;
+    setDraft(loadedValues);
+    setGateDrafts(gateMappingDrafts(loadedGates ?? []));
+    onLocaleLoaded(loadedLocale!);
+  }, [loadedValues, loadedGates, loadedLocale, onLocaleLoaded]);
 
   // 仓库设置的字段面来自 settings 动作契约(目录快照的 settingsFields,daemon 与动作目录
   // 同一单源);分组与逐项解释(effect/默认值)同样由声明源投影进快照。目录选择器
@@ -234,6 +239,9 @@ export function RepositorySettingsPanel({
             onClick={() =>
               settingsMutation.mutate({
                 ...settingsPayloadFromDraft(draft, snapshot?.settingsFields ?? [], settingsQuery.data?.values),
+                // 乐观并发令牌:与写路径同源的 singleton 行修订;mutation 成功后缓存会被
+                // 回执修订立即顶新,连续两次提交不会带旧值。
+                expectedVersion: settingsQuery.data?.revision,
                 ...(gatesPayload !== undefined ? { gatesDraft: gatesPayload } : {}),
               })
             }

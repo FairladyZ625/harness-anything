@@ -7,6 +7,8 @@ export function isSettingsSuccess(value: unknown): value is SettingsRead {
   return (
     value.schema === "daemon.settings-read/v1" &&
     value.ok === true &&
+    // 乐观并发令牌(与写路径同源的 singleton 行修订):设置写入以它作 expectedVersion。
+    Number.isSafeInteger(value.revision) &&
     isRendererRecord(value.values) &&
     Object.entries(value.values).every(([field, item]) =>
       // `roles` is the one action field that is itself a record (role name to declared agent id).

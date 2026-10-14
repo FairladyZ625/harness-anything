@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { harnessClient, type SettingsUpdateInput } from "./api-client.ts";
+import type { GuiActionResult, SettingsRead } from "../api/renderer-dto.ts";
 
 export const settingsQueryKeys = {
   read: (repoId: string) => ["settings", repoId] as const,
@@ -31,6 +32,14 @@ export function useSettingsMutation(repoId: string | null) {
         const explanation = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : undefined;
         throw new Error(explanation ?? `${receipt.command} ${receipt.outcome}`);
       }
+      // 回执携带写后的 singleton 行修订:落地即顶进缓存,使刷新完成前的下一次提交带上
+      // 新令牌,而不是拿 invalidate 前的旧修订再撞一次 revision_conflict(2026-10-14 实测复现)。
+      // 修订未动(no_changes/locale-only)时保持缓存引用不变,值面消费者不因令牌读取被重置。
+      const revision = (receipt as GuiActionResult & { readonly revision?: number }).revision;
+      if (repoId !== null && Number.isSafeInteger(revision))
+        queryClient.setQueryData<SettingsRead>(settingsQueryKeys.read(repoId), (current) =>
+          current === undefined || current.revision === revision ? current : { ...current, revision: revision! },
+        );
       return receipt;
     },
     onSuccess: async () => {

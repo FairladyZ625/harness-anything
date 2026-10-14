@@ -16,7 +16,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
-import { settingsLastChanged } from "./repo-cell-settings-state.ts";
+import { settingsLastChanged, settingsSingletonRevision } from "./repo-cell-settings-state.ts";
 import type { RepoCellRuntimeContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
@@ -46,7 +46,7 @@ export function makeSettingsActionRuntime(
           "— so a person actor can apply the change.",
       );
     const row = cell.projection.getEntity("settings", SETTINGS_ID),
-      revision = row?.workspaceRevision ?? 0,
+      revision = settingsSingletonRevision(cell.projection),
       opId = settingsOperationId(cell, action, binding, revision, catalogOpId),
       targetRef = contract.target.refTemplate.replace("{id}", SETTINGS_ID),
       locale = settingsActionLocale(action.locale),
@@ -159,7 +159,7 @@ function readSettings(
 ): WriteReceipt {
   const row = cell.projection.getEntity("settings", SETTINGS_ID),
     settings = settingsState.read(),
-    revision = row?.workspaceRevision ?? 0,
+    revision = settingsSingletonRevision(cell.projection),
     cut = cell.projection.readCut(),
     visible = row !== undefined && cut.status === "ready",
     base = {

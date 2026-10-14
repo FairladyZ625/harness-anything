@@ -284,7 +284,7 @@ export async function allowFixtureRuntimeInstances(
       runtimeAllowedInstances: [
         ...new Set([...(settings.settings.runtime?.allowedInstances ?? []), ...runtimeAllowedInstances]),
       ],
-      expectedVersion: settings.lastChanged === "initial" ? 0 : settings.lastChanged.revision,
+      expectedVersion: settings.revision,
     },
     auth,
   );
