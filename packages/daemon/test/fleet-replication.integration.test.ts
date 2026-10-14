@@ -251,8 +251,20 @@ test("three process-level edges hold one consistent mirror of every center read"
   }
   // F-97987445: compare every table in both replicated SQLite databases, ordered by primary key.
   // Include the projection tables and runtime-owned lease rows; the edge is a complete mirror.
-  const compareDatabase = (centerPath: string, edgePath: string, label: string) =>
-    assert.deepEqual(tableRows(edgePath), tableRows(centerPath), `${label}: every table row matches center`);
+  // replication_log is each node's retention-pruned transport log: the center prunes it to its slowest
+  // slot (pg_wal) and the edge recycles it below its own applied position, keeping only that anchor row.
+  const compareDatabase = (centerPath: string, edgePath: string, label: string) => {
+    const { replication_log: edgeLog, ...edgeTables } = tableRows(edgePath),
+      { replication_log: centerLog, ...centerTables } = tableRows(centerPath);
+    assert.deepEqual(edgeTables, centerTables, `${label}: every table row matches center`);
+    if (edgeLog === undefined) return;
+    const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence;
+    assert.deepEqual(
+      edgeLog,
+      (centerLog ?? []).filter((row) => (row as unknown as { sequence: number }).sequence >= applied),
+      `${label}: the edge holds exactly the center log row at its applied position`,
+    );
+  };
   for (const installed of installs) {
     compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "ledger");
     compareDatabase(

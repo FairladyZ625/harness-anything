@@ -235,9 +235,12 @@ test("a second receiver for one node takes over and the older session is cut", {
   await seedCenterData(fixture, seededTask);
   const center = await fixture.openCenter();
   const stale = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-three", "secret-edge-three");
+  // The stale session owns this node's replication for the repository once its start is served.
+  const first = await stale.request({ type: "replica.start", repoId: "replica-repo", position: null });
+  assert.equal(first.type, "replica.backup");
   const edge = fixture.startEdge("edge-three");
   await edge.waitForEvent("installed");
-  // Single owner per node: the registered receiver displaces the parked raw session.
+  // Single replication owner per node and repository: the newer start displaces the older stream.
   await stale.closed;
 });
 

@@ -9,7 +9,7 @@ import {
   resolveHarnessLayout,
   sha256Bytes,
 } from "@harness-anything/kernel";
-import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 export interface FleetMirrorBlob {
@@ -82,10 +82,8 @@ export class FleetMirrorError extends Error {
   }
 }
 
-const objectPath = (view: FleetMirrorView, sha: string): string => {
-  const generation = readReplicaGeneration(view.viewDir);
-  if (!generation) throw new FleetMirrorError("replica_unavailable", "Replica generation is unavailable.");
-  return path.join(
+const objectPath = (generation: ReplicaGeneration, sha: string): string =>
+  path.join(
     generation.rootDir,
     ".harness",
     "store",
@@ -96,7 +94,6 @@ const objectPath = (view: FleetMirrorView, sha: string): string => {
     sha.slice(0, 2),
     sha.slice(2),
   );
-};
 const materializedRoot = (workspaceRoot: string): string => resolveHarnessLayout(workspaceRoot).authoredRoot;
 export function withFleetMirrorLock<T>(_viewRoot: string, _repoId: string, operation: () => Promise<T>): Promise<T> {
   return operation();
@@ -113,32 +110,35 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
   );
   let best: FleetMirrorView | null = null;
   for (const entry of names) {
-    const viewDir = path.join(viewsRoot, entry.name),
-      generation = readReplicaGeneration(viewDir);
-    if (!generation) continue;
-    const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
-    try {
-      const docs = reader.withSession((queries) => queries.readDocuments(""));
-      const entries = new Map<string, FleetMirrorBlob>(
-        docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: "text/plain" }]),
-      );
-      const revision = generation.metadata.position.revision;
-      const view: FleetMirrorView = {
-        repoId,
-        viewId: entry.name,
-        viewDir,
-        revision,
-        schemaGeneration: generation.metadata.projectionSchema,
-        headDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
-        manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
-        readerProfile: null,
-        authorizationShapeDigest: "",
-        entries,
-      };
-      if (!best || view.revision > best.revision) best = view;
-    } finally {
-      reader.close();
-    }
+    const viewDir = path.join(viewsRoot, entry.name);
+    const view = withReplicaGeneration(viewDir, (generation): FleetMirrorView | null => {
+      if (!generation) return null;
+      const reader = makeTaskProjectionReader({
+        rootDir: generation.rootDir,
+        projectionPath: generation.projectionPath,
+      });
+      try {
+        const docs = reader.withSession((queries) => queries.readDocuments(""));
+        const entries = new Map<string, FleetMirrorBlob>(
+          docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: "text/plain" }]),
+        );
+        return {
+          repoId,
+          viewId: entry.name,
+          viewDir,
+          revision: generation.metadata.position.revision,
+          schemaGeneration: generation.metadata.projectionSchema,
+          headDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+          manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+          readerProfile: null,
+          authorizationShapeDigest: "",
+          entries,
+        };
+      } finally {
+        reader.close();
+      }
+    });
+    if (view && (!best || view.revision > best.revision)) best = view;
   }
   return best;
 }
@@ -151,8 +151,11 @@ export function fleetMirrorTaskPaths(view: FleetMirrorView, taskId: string): str
 export function fleetMirrorCutFile(view: FleetMirrorView, logical: string): Buffer | null {
   const blob = view.entries.get(logical);
   if (!blob) return null;
-  const file = objectPath(view, blob.sha256);
-  return existsSync(file) ? readFileSync(file) : null;
+  return withReplicaGeneration(view.viewDir, (generation) => {
+    if (!generation) throw new FleetMirrorError("replica_unavailable", "Replica generation is unavailable.");
+    const file = objectPath(generation, blob.sha256);
+    return existsSync(file) ? readFileSync(file) : null;
+  });
 }
 export function scanFleetMirrorWorktree(
   view: FleetMirrorView,

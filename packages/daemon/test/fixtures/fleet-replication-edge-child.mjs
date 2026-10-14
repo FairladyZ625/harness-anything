@@ -19,9 +19,9 @@ import { parseFleetFrame, serializeFleetFrame } from "../../src/fleet/command-pr
 import { parseReplicationFrame, serializeReplicationFrame } from "../../src/fleet/protocol.ts";
 import { runWalReceiver, openWalReceiverGeneration } from "../../src/fleet/walreceiver.ts";
 import {
-  createReplicaGenerationReader,
   installReplicaGeneration,
   readReplicaGeneration,
+  replicaGenerationReaders,
 } from "../../src/fleet/replica-generation.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
@@ -43,8 +43,9 @@ process.stdin.on("data", (chunk) => {
       pins.push(pin);
       emit({ event: "reader-acquired", generationDir: pin.generation.rootDir });
     } else if (control.control === "release-reader") {
+      // The last release of a superseded generation collects it (the daemon reader registry).
       pins.shift().release();
-      void readers.collect().then(() => emit({ event: "reader-released" }));
+      emit({ event: "reader-released" });
     } else throw new Error(`unknown edge child control: ${line}`);
   }
 });
@@ -69,7 +70,7 @@ const maybeKill = (point) => {
 
 const mirrorRoot = config.mirrorRoot,
   quotaBytes = config.diskQuotaBytes ?? 64 * 1024 * 1024,
-  readers = createReplicaGenerationReader(mirrorRoot);
+  readers = replicaGenerationReaders(mirrorRoot);
 let attempts = 0;
 for (;;) {
   try {

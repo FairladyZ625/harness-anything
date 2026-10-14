@@ -7,6 +7,8 @@ import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
+import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
@@ -118,8 +120,23 @@ export interface FleetEdgeSyncRequest {
 }
 export async function syncFleetEdgeMirror(
   input: FleetEdgeSyncRequest,
-  _readAccessToken?: () => Promise<string | undefined>,
+  readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
+  // Sync means "caught up with the center now": ask for its replication head, then let the resident
+  // stream reach it. There is no second pull path; a stopped or failing stream fails the sync.
+  const request = input.payload,
+    head = await readFleetRepositoryMetadataClient({
+      ...(readAccessToken ? { readAccessToken } : {}),
+      hostname: request.host,
+      port: request.port,
+      ca: readFileSync(request.caPath),
+      ...(request.servername ? { servername: request.servername } : {}),
+      nodeId: request.nodeId,
+      credential: request.credential,
+      repoId: request.repoId,
+      ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+    });
+  await waitForFleetReplicaSequence(request, head.replicationSequence);
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const generation = readReplicaGeneration(
       path.join(input.payload.viewRoot, "repos", input.payload.repoId, "views", input.payload.nodeId),

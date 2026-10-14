@@ -36,7 +36,7 @@ import {
   sqliteLedgerPath,
 } from "@harness-anything/kernel";
 import { runWalSender } from "./walsender.ts";
-import { openReplicationSlots } from "./replication-slot.ts";
+import { createReplicationRetention, openReplicationSlots } from "./replication-slot.ts";
 import { startBaseBackup } from "./basebackup.ts";
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
@@ -136,6 +136,32 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
   };
   const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
+  const retentionWindowCommits = options.replicationRetentionWindowCommits ?? 4096;
+  const retentions = new Map<string, ReturnType<typeof createReplicationRetention>>();
+  // Slots hold the log back to their slowest ACK, capped by the window; pruning is a write, so it
+  // runs on the repository's single writer, never on a replication reader's read-only connection.
+  const retentionFor = (repoId: string) => {
+    let retention = retentions.get(repoId);
+    if (!retention)
+      retentions.set(
+        repoId,
+        (retention = createReplicationRetention({
+          windowCommits: retentionWindowCommits,
+          slotFloor: (head) => replicationSlots.minimumAck(repoId, head.history),
+          prune: (beforeSequence) => options.host.pruneReplicationLog(repoId, beforeSequence),
+        })),
+      );
+    return retention;
+  };
+  /** The center's replication head now; a commit accepted before this read is at or below it. */
+  const replicationHead = (repoId: string): number => {
+    const store = openSqliteEventStore({ databasePath: sqliteLedgerPath(repoRoot(repoId)), repoId, readOnly: true });
+    try {
+      return store.replicationPosition().sequence;
+    } finally {
+      store.close();
+    }
+  };
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   const backupCache = new Map<
@@ -184,13 +210,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     await ready;
     const slots = replicationSlots;
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
+    const retention = retentionFor(frame.repoId);
     const source = {
       read: (after: import("@harness-anything/kernel").ReplicationPosition) => {
-        const head = store.replicationPosition(),
-          window = options.replicationRetentionWindowCommits ?? 4096;
-        if (head.sequence - after.sequence > window) return null;
+        const head = store.replicationPosition();
+        // A slot beyond the retention cap has lost its suffix (max_slot_wal_keep_size): resync.
+        if (head.sequence - after.sequence > retentionWindowCommits) return null;
         return store.replicationCommits(after, 64);
       },
+      acknowledged: () => retention.advance(store.replicationPosition()),
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
         while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)
           await new Promise<void>((resolve) => setImmediate(resolve));
@@ -218,6 +246,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           previous.then(() => turn),
         );
         await previous;
+        // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
+        const unpin = retention.pin(store.replicationPosition());
         const started = startBaseBackup(
           {
             ledgerPath: store.databasePath,
@@ -227,7 +257,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           backupSignal,
         );
         const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
-        const cachedArchive = { archive: archivePromise, users: 1, releaseQueue: release };
+        const cachedArchive = {
+          archive: archivePromise,
+          users: 1,
+          releaseQueue: () => {
+            unpin();
+            release();
+          },
+        };
         backupCache.set(frame.repoId, cachedArchive);
         try {
           const archive = await archivePromise;
@@ -237,13 +274,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               cachedArchive.users -= 1;
               if (cachedArchive.users === 0) {
                 backupCache.delete(frame.repoId);
-                release();
+                cachedArchive.releaseQueue();
               }
             },
           };
         } catch (error) {
           backupCache.delete(frame.repoId);
-          release();
+          cachedArchive.releaseQueue();
           throw error;
         }
       },
@@ -394,6 +431,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         repoId: a.repoId,
         baseLedgerSha,
         writerEpoch: ownedEpochFor(a.repoId).epoch,
+        replicationSequence: replicationHead(a.repoId),
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {
@@ -665,6 +703,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             : ("applied" as const),
         opId: frame.opId,
         revision: receipt.revision ?? null,
+        replicationSequence: replicationHead(a.repoId),
         ...(receipt.outcome === "applied" &&
         receipt.cut &&
         typeof receipt.cut.revision === "number" &&
@@ -862,8 +901,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // One row per node for every TLS session it holds, from the moment its hello is dispatched.
   // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
   const sessions = new Map<string, Set<TLSSocket>>();
+  const replicationOwners = new Map<string, TLSSocket>();
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
-    serve(socket, { ...options, onReplicationStart }, handle, sessions),
+    serve(socket, { ...options, onReplicationStart }, handle, sessions, replicationOwners),
   );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);

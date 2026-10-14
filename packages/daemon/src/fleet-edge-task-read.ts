@@ -1,7 +1,7 @@
 import { existsSync, statSync, watch } from "node:fs";
 import { makeTaskProjectionReader, type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { withReplicaGeneration } from "./fleet/replica-generation.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 
 export const DEFAULT_EDGE_READ_MAX_AGE_MS = 60_000;
@@ -31,29 +31,31 @@ export function withEdgeReadModel<T>(
   read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   now: () => number = Date.now,
 ): T {
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId),
-    generation = view && readReplicaGeneration(view.viewDir);
-  if (!view || !generation)
-    throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
+  if (!view) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
   if (existsSync(`${view.viewDir}/revoked`))
     throw new EdgeReadError("authorization_denied", "The center revoked repository-read for this replica.");
-  const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
-  try {
-    const fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
-    return reader.withSession((projection) =>
-      read(
-        projection,
-        {
-          cut: { revision: generation.metadata.position.revision, headDigest: view.headDigest },
-          freshness: fresh.freshness,
-          warning: fresh.warning,
-        },
-        view,
-      ),
-    );
-  } finally {
-    reader.close();
-  }
+  // The read pins its generation, so an install landing mid-read cannot collect the files under it.
+  return withReplicaGeneration(view.viewDir, (generation) => {
+    if (!generation) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+    const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
+    try {
+      const fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
+      return reader.withSession((projection) =>
+        read(
+          projection,
+          {
+            cut: { revision: generation.metadata.position.revision, headDigest: view.headDigest },
+            freshness: fresh.freshness,
+            warning: fresh.warning,
+          },
+          view,
+        ),
+      );
+    } finally {
+      reader.close();
+    }
+  });
 }
 class EdgeReadError extends Error {
   readonly code: string;

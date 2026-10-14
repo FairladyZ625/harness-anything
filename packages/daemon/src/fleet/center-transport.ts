@@ -39,6 +39,7 @@ export async function serve(
     progress: (frame: FleetFrameV1) => Promise<void>,
   ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
+  replicationOwners: Map<string, TLSSocket>,
 ): Promise<void> {
   const disconnected = new AbortController();
   socket.once("close", () => disconnected.abort());
@@ -136,6 +137,29 @@ export async function serve(
       });
     },
   };
+  // One replication owner per node and repository (the slot fence): a newer start displaces only the
+  // older replication session for that pair, never the node's command sessions.
+  const startReplication = (
+    node: string,
+    frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
+  ): void => {
+    const key = `${node}\u0000${frame.repoId}`,
+      previous = replicationOwners.get(key);
+    if (previous && previous !== socket) previous.destroy();
+    replicationOwners.set(key, socket);
+    socket.once("close", () => {
+      if (replicationOwners.get(key) === socket) replicationOwners.delete(key);
+    });
+    replicationMode = true;
+    replicationFrames.push(frame);
+    if (!options.onReplicationStart) {
+      socket.destroy(new FleetFault("replication_unavailable", "Replication is unavailable."));
+      return;
+    }
+    void options
+      .onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal)
+      .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
+  };
   socket.on("data", (chunk) => {
     // A cut session stops processing: lines still buffered on it never reach a handler.
     if (socket.destroyed) return;
@@ -161,16 +185,7 @@ export async function serve(
               pendingReplicationStart = frame;
               return;
             }
-            // Single replication owner per node: this start displaces the node's other sessions,
-            // as the pending-start path does; a plain hello (an edge command) cuts nothing.
-            const live = sessions.get(nodeId);
-            if (live) for (const existing of live) if (existing !== socket) existing.destroy();
-            replicationMode = true;
-            replicationFrames.push(frame);
-            if (options.onReplicationStart)
-              void options
-                .onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal)
-                .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
+            startReplication(nodeId, frame);
           } else if (replicationMode) {
             const waiter = replicationWaiters.shift();
             if (waiter) waiter(frame);
@@ -192,21 +207,6 @@ export async function serve(
     }
   });
   const dispatch = async (line: string) => {
-    if (line.includes('"type":"replica.start"')) {
-      const frame = parseReplicationFrame(line);
-      if (frame.type !== "replica.start") throw new FleetFault("invalid_replication", "Replication start required.");
-      if (nodeId === null) {
-        pendingReplicationStart = frame;
-        return;
-      }
-      const live = sessions.get(nodeId);
-      if (live) for (const existing of live) if (existing !== socket) existing.destroy();
-      replicationMode = true;
-      replicationFrames.push(frame);
-      if (!options.onReplicationStart) throw new FleetFault("replication_unavailable", "Replication is unavailable.");
-      await options.onReplicationStart(nodeId, accessToken, frame, replicationPeer, disconnected.signal);
-      return;
-    }
     let frame: FleetFrameV1 | null = null;
     try {
       frame = parseFleetFrame(line);
@@ -233,16 +233,10 @@ export async function serve(
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         nodeId = frame.nodeId;
         accessToken = frame.accessToken;
-        if (pendingReplicationStart && options.onReplicationStart) {
+        if (pendingReplicationStart) {
           const start = pendingReplicationStart;
           pendingReplicationStart = null;
-          const live = sessions.get(nodeId);
-          if (live) for (const existing of live) if (existing !== socket) existing.destroy();
-          replicationMode = true;
-          replicationFrames.push(start);
-          void options
-            .onReplicationStart(nodeId, accessToken, start, replicationPeer, disconnected.signal)
-            .catch((error) => socket.destroy(error instanceof Error ? error : new Error(String(error))));
+          startReplication(nodeId, start);
         }
         return enqueue(
           immediate({

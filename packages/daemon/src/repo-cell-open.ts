@@ -420,6 +420,14 @@ export async function openRepoWriterCell(
     );
     return pending;
   };
+  const pruneReplicationLog: NonNullable<RepoCell["pruneReplicationLog"]> = (beforeSequence) => {
+    const pending = chainRepoCellWrite(tail, () => store.pruneReplicationLog(beforeSequence));
+    tail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  };
   let settleExecutionLease: (terminal: RuntimeAttemptTerminal) => Promise<void> = async () => {
     throw cellCodedError("runtime_preconditions_unavailable", "RepoCell execution settlement is not ready.");
   };
@@ -1083,5 +1091,5 @@ export async function openRepoWriterCell(
     },
     lock,
   };
-  return { ...createRepoCellApi(apiContext), backup };
+  return { ...createRepoCellApi(apiContext), backup, pruneReplicationLog };
 }

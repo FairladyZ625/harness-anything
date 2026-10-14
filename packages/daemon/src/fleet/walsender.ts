@@ -18,6 +18,8 @@ export interface ReplicationSource {
   } | null;
   /** Register the waiter and recheck sequence under the same owner; never lose a commit between read and wait. */
   readonly wait: (after: ReplicationPosition, signal: AbortSignal) => Promise<void>;
+  /** The slot advanced; retention may release the log below the slowest slot. */
+  readonly acknowledged: () => Promise<void>;
   readonly backup: (signal: AbortSignal) => Promise<BaseBackupArchive & { readonly release: () => Promise<void> }>;
   readonly object: (sha256: string) => AsyncIterable<Uint8Array>;
 }
@@ -62,6 +64,7 @@ export async function runWalSender(input: {
     )
       throw new Error("replication ACK does not match completed page");
     slots.acknowledge(lease, frame, sent);
+    await source.acknowledged();
   };
   const start = await peer.receive(signal);
   if (start.type !== "replica.start") throw new Error("replication start required");
