@@ -467,22 +467,30 @@ test(
     const submitted = await fixture.centerRun({ kind: "doc-submit", paths: [bulkPath] });
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     await fixture.openCenter();
-    // A slow disk on the edge: every staged write waits, so frames arrive faster than they are consumed.
+    // A stalled disk on the edge: staged writes wait until the stream stops reading, so frames
+    // can only pile up behind them. Without backpressure the pause never comes and nothing converges.
     const probe = await open(path.join(mkdtempSync(path.join(tmpdir(), "ha-harden-probe-")), "probe"), "w"),
       handlePrototype = Object.getPrototypeOf(probe) as { writeFile: (...args: unknown[]) => Promise<void> };
     await probe.close();
     const writeFile = handlePrototype.writeFile,
       pause = TLSSocket.prototype.pause;
-    let pauses = 0;
+    let pauses = 0,
+      release!: () => void;
+    const paused = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     handlePrototype.writeFile = async function (this: unknown, ...args: unknown[]) {
-      await new Promise((resolve) => setTimeout(resolve, 2));
+      await paused;
       return writeFile.apply(this, args);
     };
     TLSSocket.prototype.pause = function (this: TLSSocket) {
       pauses += 1;
+      release();
       return pause.call(this);
     };
     t.after(() => {
+      // A stream still stalled behind the gate must be able to stop.
+      release();
       handlePrototype.writeFile = writeFile;
       TLSSocket.prototype.pause = pause;
     });
