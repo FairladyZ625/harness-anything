@@ -832,6 +832,151 @@
         "value": "packages/cli/test/agent-create.integration.test.ts",
         "ref": "task_f2f6f35cfb02adcf4df7fd1ad1",
         "reason": "ha agent create was deleted whole-chain by the CEO ruling on task_e971401b34093fe6efe4d412a5; its only coverage retires with it and ha agent install --source remains the install path."
+      },
+      {
+        "value": "packages/daemon/test/edge-repository-cut.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-build-drain.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-checkpoint-delivery.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-delivery-deadlines.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-delivery-waits.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-doc-sync-ok-polarity.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-dual-sync.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-edge-replay.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-eight-edge-delivery.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-mirror-sequence-cost.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/fleet-sequence-barrier.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-ack-store.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-checkpoint-pin.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-checkpoint.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-cut-gc.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-cut-responsiveness.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-cut-store.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-cut-worker-failure.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-delivery-admission.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-generation-negative-control.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-offline-generation.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-preparation-reuse.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-preparing-multiplex.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-pull-cleanup.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-pull.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-retention-cost.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-revision-boundary.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-schema-upgrade.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-sequence-stream.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
       }
     ]
   }
