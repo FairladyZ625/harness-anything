@@ -46,8 +46,8 @@ test(
     git(fixture.repo, "remote", "add", "origin", remote);
     git(fixture.repo, "fetch", "origin");
     git(fixture.root, "clone", "--no-local", remote, edgeRoot);
-    git(edgeRoot, "config", "user.name", "Fleet lifecycle fixture");
-    git(edgeRoot, "config", "user.email", "fleet@example.invalid");
+    git(edgeRoot, "config", "user.name", "person-owner");
+    git(edgeRoot, "config", "user.email", "person-owner@users.noreply.github.com");
     fixture.owners.reassign("node-two", "person-reviewer");
     const openEdge = async (nodeId: string, edgeRoot: string, edgeUser: string) => {
       mkdirSync(path.join(edgeUser, "rbac"), { recursive: true });

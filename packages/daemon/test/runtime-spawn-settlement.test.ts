@@ -1148,7 +1148,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
       `^worker delivery\\n\\nWorker branch push failed \\(no retry\\): ` +
         `${fixtureTaskId} @ ${staleHead}: commit ${staleHead} carries author ` +
         "<stale-worker@example.invalid> and committer <stale-worker@example.invalid>, " +
-        "not the conventional identity <settle-test@example.invalid>",
+        "not the conventional identity <operator@users.noreply.github.com>",
       "u",
     ),
   );
@@ -1260,6 +1260,8 @@ function workerGitFixture(
   if (!options.reachableRemote) git(canonical, "remote", "set-url", "origin", path.join(root, "missing.git"));
   // Settlement publishes the branch named after the dispatched task.
   git(canonical, "worktree", "add", "--quiet", worker, "-b", fixtureTaskId);
+  git(worker, "config", "user.name", "operator");
+  git(worker, "config", "user.email", "operator@users.noreply.github.com");
   if (options.delivery !== false) {
     writeFileSync(path.join(worker, "change.txt"), "worker\n");
     git(worker, "add", "change.txt");
@@ -1281,7 +1283,7 @@ function workerSettlementRuntime(fixture: WorkerGitFixture, overrides: Partial<A
     dispatchOpId: "settle-dispatch-op",
     binding: {
       actor: {
-        principal: { kind: "human", id: "operator" },
+        principal: { kind: "human", id: "operator", personId: "operator" },
         executor: { kind: "agent", id: "runtime-session:runtime-settle-push" },
       },
       source: "local",

@@ -153,10 +153,15 @@ ha task pr <task-id>          # 创建 pull request（--update 更新已有）
 ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
 ```
 
+每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
+派工仓库 root 与 daemon 路由。中心与边缘 daemon 使用同一路径，不使用固定 canonical
+root 的 edge 专用包装器。worker 的 Git 作者和提交者身份由派工发起人生成，只写入该
+checkout 的 worktree config；结算和 edge delivery 均按 execution lease 记录的同一 person 身份检查提交。
+
 `ha task push` 只推送名字等于任务标识的分支，并带 `--force-with-lease`，因此不会
-静默覆盖更新的远端切点。检出不在该分支、canonical 仓库解析不出 git 身份、或默认
-分支之上存在作者/提交者与仓库常规身份不符的 commit 时，推送被拒绝，并以
-`delivery_publish_failed` 带回原因。结算成功的任务绑定运行也会经同一路径发布分支；
+静默覆盖更新的远端切点。检出不在该分支，或默认分支之上存在作者/提交者与派工 person
+身份不符的 commit 时，推送被拒绝，并以 `delivery_publish_failed` 带回原因。结算成功的
+任务绑定运行也会经同一路径发布分支；
 `ha task push` 是 worker 在 submit 之前发布的方式。合入仍归 maintainer——见
 [PR、审查与合入](contributing/zh/04-pr-review-and-merge.md)。
 

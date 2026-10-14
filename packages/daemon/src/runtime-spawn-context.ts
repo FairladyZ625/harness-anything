@@ -5,6 +5,8 @@ import {
 } from "./runtime-execution-credential.ts";
 import type { PreparedRuntimeLaunch } from "./agent-runtime-instances.ts";
 import path from "node:path";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import type { RuntimeDaemonRoute, RuntimeCallbackRelay, TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import type { AgentRuntimeEventV1, CanonicalEventStore, SessionIdentity } from "@harness-anything/kernel";
 import type { readDispatchStream } from "./dispatch-stream.ts";
@@ -100,8 +102,7 @@ export async function prepareBoundRuntimeLaunch(args: {
   readonly prepared: PreparedRuntimeLaunch;
   readonly daemonRoute?: RuntimeDaemonRoute;
   readonly callbackRelay?: RuntimeCallbackRelay;
-  readonly workerGitEnvironment?: NodeJS.ProcessEnv | null;
-  readonly workerIdentityEnvironment: NodeJS.ProcessEnv;
+  readonly cliBinDir?: string;
   readonly runtimeActor: string;
   readonly taskId: string | null;
   readonly trustedSchedule?: TrustedScheduleRuntime;
@@ -122,10 +123,12 @@ export async function prepareBoundRuntimeLaunch(args: {
     ...prepared,
     env: {
       ...prepared.env,
-      ...args.workerGitEnvironment,
-      ...args.workerIdentityEnvironment,
       HARNESS_CANONICAL_ROOT: input.rootDir,
-      PATH: [path.join(input.rootDir, "tools", "git-hooks"), prepared.env.PATH ?? process.env.PATH ?? ""]
+      PATH: [
+        args.cliBinDir ?? daemonCliBinDirectory(),
+        path.join(input.rootDir, "tools", "git-hooks"),
+        prepared.env.PATH ?? process.env.PATH ?? "",
+      ]
         .filter(Boolean)
         .join(path.delimiter),
       HARNESS_DAEMON_USER_ROOT: daemonRoute.userRoot,
@@ -146,4 +149,18 @@ export async function prepareBoundRuntimeLaunch(args: {
         : {}),
     },
   };
+}
+
+export function daemonCliBinDirectory(moduleUrl = import.meta.url): string | undefined {
+  const modulePath = fileURLToPath(moduleUrl);
+  let directory = path.dirname(modulePath);
+  while (path.dirname(directory) !== directory) {
+    const nodeModules = path.basename(directory) === "node_modules" ? directory : path.join(directory, "node_modules");
+    if (existsSync(nodeModules)) {
+      const binDirectory = path.join(nodeModules, ".bin");
+      return existsSync(path.join(binDirectory, "ha")) ? binDirectory : undefined;
+    }
+    directory = path.dirname(directory);
+  }
+  return undefined;
 }

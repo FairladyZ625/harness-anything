@@ -38,9 +38,6 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
     const baseHead = gitText(root, "rev-parse", "HEAD").trim();
     // Settlement publishes the branch named after the dispatched task.
     git(root, "worktree", "add", "--quiet", workerRoot, "-b", taskId);
-    writeFileSync(path.join(workerRoot, "worker-change.txt"), "task-bound worker change\n");
-    git(workerRoot, "add", "worker-change.txt");
-    git(workerRoot, "commit", "--quiet", "-m", "feat: add worker change");
 
     const installation: RuntimeInstallationWitness = {
         installationId: "codex-github-worker-installation",
@@ -100,12 +97,18 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
           assert.equal(prepared.env.GH_TOKEN, undefined);
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
           assert.equal(prepared.env.GIT_ASKPASS, undefined);
-          // The conventional git identity rides the worker environment explicitly, so commits
-          // and rebases in the worktree never depend on implicit config inheritance.
-          assert.equal(prepared.env.GIT_AUTHOR_NAME, "GitHub Worker Test");
-          assert.equal(prepared.env.GIT_AUTHOR_EMAIL, "github-worker@example.invalid");
-          assert.equal(prepared.env.GIT_COMMITTER_NAME, "GitHub Worker Test");
-          assert.equal(prepared.env.GIT_COMMITTER_EMAIL, "github-worker@example.invalid");
+          assert.equal(prepared.env.GIT_AUTHOR_NAME, undefined);
+          assert.equal(prepared.env.GIT_AUTHOR_EMAIL, undefined);
+          assert.equal(prepared.env.GIT_COMMITTER_NAME, undefined);
+          assert.equal(prepared.env.GIT_COMMITTER_EMAIL, undefined);
+          assert.equal(gitText(workerRoot, "config", "--worktree", "user.name").trim(), "person-github-worker");
+          assert.equal(
+            gitText(workerRoot, "config", "--worktree", "user.email").trim(),
+            "person-github-worker@users.noreply.github.com",
+          );
+          writeFileSync(path.join(workerRoot, "worker-change.txt"), "task-bound worker change\n");
+          git(workerRoot, "add", "worker-change.txt");
+          git(workerRoot, "commit", "--quiet", "-m", "feat: add worker change");
           mainPush = spawnSync("git", ["-C", workerRoot, "push", "origin", "HEAD:main"], {
             cwd: workerRoot,
             encoding: "utf8",

@@ -2,7 +2,7 @@ import path from "node:path";
 import type { Snapshot } from "./repo-cell-types.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
-import { pushWorkerBranch, readWorkerRemoteCommit } from "./runtime-worker-push.ts";
+import { pushWorkerBranch, readWorkerRemoteCommit, workerGitIdentityForPerson } from "./runtime-worker-push.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 
 export type FleetDeliveryTask = Snapshot & { readonly workspace: TaskWorkspaceView | null };
@@ -69,6 +69,7 @@ export async function prepareEdgeTaskDelivery(input: {
     cwd,
     canonicalRoot: input.workspaceRoot,
     taskId,
+    identity: workerGitIdentityForPerson(personId),
     submittedCommitSha: head.stdout,
     expectedRemoteCommit,
   });
