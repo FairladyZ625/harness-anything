@@ -7,8 +7,6 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   parseEntityRef,
-  readAcceptedCommandOutcome,
-  sha256Text,
   type AuthorizationDecision,
   type EntityActionUnmetCriterionV1,
   type WriteReceipt,
@@ -231,12 +229,11 @@ export function makeRepoCellCommandRunner(
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
-        const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
+        requireSquadBusinessAction(context.projection, action, binding);
+        // Ingested reads are their own accepted commands, recorded before the execution interval
+        // opens: a failed execution must never adopt one of them as its accepted outcome.
+        ingest?.(queuedDecision);
         try {
-          requireSquadBusinessAction(context.projection, action, binding);
-          // Ingested reads are their own accepted commands, recorded before the execution interval
-          // opens: a failed execution must never adopt one of them as its accepted outcome.
-          ingest?.(queuedDecision);
           if (isSquadControlCommand(action.kind)) {
             const controlled = await executeSquadControl(
               context.extracted,
@@ -248,16 +245,6 @@ export function makeRepoCellCommandRunner(
           }
           const executed = context.withHumanSummary(await execute(queuedDecision)),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
-          if (receipt.outcome === "op_rejected") {
-            if (!context.store.appendRejection)
-              throw new Error("canonical event store cannot persist rejected commands");
-            context.store.appendRejection({
-              opId: receipt.opId,
-              intentDigest: `sha256:${sha256Text(stableStringify(action))}`,
-              summary: action.kind,
-              rejectionCode: receipt.code ?? "operation_rejected",
-            });
-          }
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             if (action.kind === "migrate-import" && action.dryRun !== true) {
               context.recoveryProbe.clear();
@@ -278,37 +265,14 @@ export function makeRepoCellCommandRunner(
           // A coded rejection is this command's own determinate verdict, even after an earlier step
           // (one of several ingested runs, a facade's witness) was accepted as its own command.
           const code = cellErrorCode(error);
+          if (code === "publication_indeterminate" || (code !== "service_rejected" && context.fatalCellError(error)))
+            throw error;
           if (
-            code === "publication_indeterminate" ||
-            (code === "service_rejected" &&
-              !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")) ||
-            (code !== "service_rejected" && context.fatalCellError(error))
+            code === "service_rejected" &&
+            !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
           )
             throw error;
-          // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
-          const head = context.store.readHead(),
-            accepted = head ? readAcceptedCommandOutcome(context.store, head.opId) : null;
-          if (accepted !== null && accepted.firstRevision > revisionBeforeExecution)
-            throw Object.assign(
-              context.cellCodedError(
-                "publication_indeterminate",
-                error instanceof Error ? error.message : String(error),
-              ),
-              { opId: accepted.opId, cause: error },
-            );
-          const rejected = failAction(error, queuedDecision);
-          if (rejected.outcome === "op_rejected") {
-            if (!context.store.appendRejection)
-              throw new Error("canonical event store cannot persist rejected commands");
-            context.store.appendRejection({
-              opId: rejected.opId,
-              intentDigest: `sha256:${sha256Text(stableStringify(action))}`,
-              summary: action.kind,
-              rejectionCode: rejected.code ?? code,
-            });
-          }
-          context.replica.kick();
-          return rejected;
+          return failAction(error, queuedDecision);
         } finally {
           context.activeWriterEpochFence = null;
           context.activeWriterEpochFenceDescriptor = null;

@@ -65,3 +65,5 @@ export async function catchUpReplica(
 }
 
 export { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+
+export { readReplicaHealth } from "../src/fleet/replica-health.ts";

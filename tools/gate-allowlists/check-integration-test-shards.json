@@ -977,6 +977,16 @@
         "value": "packages/daemon/test/replica-sequence-stream.integration.test.ts",
         "ref": "task_aceaabaedfedcf9cb062ccf883",
         "reason": "dec_9284BD6119D453EEECEED62450 replaces the cut/pull/checkpoint/ACK-store edge delivery with a resident primary-replica stream; this test exercised the deleted mechanism. Still-valid behavior is covered by fleet-replica-resident-stream, fleet-replication and replication-stream integration tests."
+      },
+      {
+        "value": "packages/daemon/test/edge-manifest-scale.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 deletes the manifest-paged edge cut and replica publication path this scale fixture exercised; resident-stream memory bounds are covered by the walreceiver commit buffer tests."
+      },
+      {
+        "value": "packages/daemon/test/replica-sequence-memory.integration.test.ts",
+        "ref": "task_aceaabaedfedcf9cb062ccf883",
+        "reason": "dec_9284BD6119D453EEECEED62450 deletes the manifest-paged edge cut and replica publication path this scale fixture exercised; resident-stream memory bounds are covered by the walreceiver commit buffer tests."
       }
     ]
   }

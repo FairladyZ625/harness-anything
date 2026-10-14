@@ -16,9 +16,22 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
 type Waiter = { readonly sequence: number; readonly resolve: () => void; readonly reject: (error: unknown) => void };
 const waiters = new Map<string, Set<Waiter>>();
 /** Running streams by key; `down` holds the last failure until the next connection attempt. */
-const streams = new Map<string, { down: unknown }>();
+const streams = new Map<string, { down: unknown; connection: AbortController }>();
 const syncKey = (options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">): string =>
   `${options.viewRoot}\u0000${options.repoId}\u0000${options.nodeId}`;
+
+/** Withdrawal also ends the connection holding the withdrawn generation. */
+export function failFleetReplicaSync(
+  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">,
+  error: Error,
+): void {
+  const key = syncKey(options),
+    stream = streams.get(key);
+  if (!stream) return;
+  stream.down = error;
+  settle(key, null, streamDown(error));
+  stream.connection.abort(error);
+}
 export class FleetReplicaStreamDownError extends Error {
   readonly code = "replica_stream_down";
   constructor(message: string, cause?: unknown) {
@@ -85,7 +98,7 @@ export function waitForFleetReplicaSequence(
 /** One long-lived stream per node and repository; it reconnects with backoff only after a failure. */
 export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<void> {
   const key = syncKey(options),
-    stream = { down: null as unknown },
+    stream = { down: null as unknown, connection: new AbortController() },
     viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
   const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
     recordReplicaHealth(viewDir, {
@@ -122,8 +135,10 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   try {
     while (!options.signal?.aborted) {
       stream.down = null;
+      stream.connection = new AbortController();
       const attempt = await runSyncAttempt({
         ...options,
+        signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
         onApplied: async (position) => {
           failures = 0;
           observe(null);

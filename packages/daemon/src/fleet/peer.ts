@@ -294,6 +294,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
   } finally {
     await opened?.close();
     socket.destroy();
+    await generations.collect();
   }
 }
 export async function runFleetWriteClient(options: FleetWriteClientOptions): Promise<FleetWriteClientResult> {

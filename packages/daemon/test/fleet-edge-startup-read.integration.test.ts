@@ -15,6 +15,7 @@ import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
+import { eventuallyValue } from "./fixtures/runtime-ingress.ts";
 
 test(
   "remote-edge startup IPC reads contain center refusal before and after attachment",
@@ -149,12 +150,12 @@ test(
       t.diagnostic(
         `sample=${JSON.stringify({ phase, iteration, attachmentSettled: settled, method: "daemon.fleet.task.run", health, envelope })}`,
       );
-      assert.equal(health.syncFailure?.code, "ECONNREFUSED");
+      if (phase === "opening") assert.equal(health.syncFailure, null, "resident sync starts after attachment");
       assert.equal(envelope.jsonrpc, "2.0");
       assert.equal(envelope.error, undefined);
       assert.equal(envelope.result.command, "task-list");
       assert.equal(envelope.result.ok, false);
-      assert.equal(envelope.result.code, "LOCAL_UNAVAILABLE");
+      assert.equal(envelope.result.code, phase === "opening" ? "repo_warming" : "replica_unavailable");
       assert.doesNotMatch(JSON.stringify(envelope), /ECONNREFUSED/u);
       assert.equal(settled, phase === "settled");
       return envelope.result;
@@ -168,6 +169,17 @@ test(
     release.resolve();
     await settlement;
     assert.equal(e.host.status().repos.find((row) => row.repoId === e.config.repoId)?.state, "attached");
-    for (let iteration = 1; iteration <= 5; iteration += 1) assert.deepEqual(await read("settled", iteration), before);
+    await eventuallyValue(() =>
+      readReplicaHealth(path.join(e.viewRoot, "repos", e.config.repoId, "views", e.config.nodeId)).syncFailure?.code ===
+      "ECONNREFUSED"
+        ? true
+        : null,
+    );
+    let after: Record<string, unknown> | undefined;
+    for (let iteration = 1; iteration <= 5; iteration += 1) {
+      const result = await read("settled", iteration);
+      if (after) assert.deepEqual(result, after);
+      after = result;
+    }
   },
 );
