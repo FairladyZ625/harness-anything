@@ -1,8 +1,6 @@
-import { existsSync, readFileSync } from "node:fs";
-import path from "node:path";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "./fleet/replica-generation.ts";
-import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
+import { openSqliteEventStore, sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
@@ -38,24 +36,22 @@ function edgeObject(view: FleetMirrorView, sha256: string): Uint8Array | null {
   return withReplicaGeneration(view.viewDir, (generation) => {
     if (!generation)
       throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
-    const file = path.join(
-      generation.rootDir,
-      ".harness",
-      "store",
-      "generations",
-      String(generation.metadata.ledgerGeneration),
-      "objects",
-      "sha256",
-      sha256.slice(0, 2),
-      sha256,
-    );
-    if (!existsSync(file)) return null;
-    const bytes = readFileSync(file);
-    if (sha256Bytes(bytes) !== sha256)
-      throw Object.assign(new Error("Content does not match its replica object digest."), {
-        code: "replica_unavailable",
-      });
-    return bytes;
+    const store = openSqliteEventStore({
+      databasePath: generation.ledgerPath,
+      repoId: generation.metadata.repoId,
+      generation: generation.metadata.ledgerGeneration,
+      readOnly: true,
+    });
+    try {
+      const bytes = store.readContentObject(sha256);
+      if (bytes && sha256Bytes(bytes) !== sha256)
+        throw Object.assign(new Error("Content does not match its replica object digest."), {
+          code: "replica_unavailable",
+        });
+      return bytes;
+    } finally {
+      store.close();
+    }
   });
 }
 
