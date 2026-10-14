@@ -181,7 +181,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     const slots = replicationSlots;
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
     const source = {
-      read: (after: import("@harness-anything/kernel").ReplicationPosition) => store.replicationCommits(after, 64),
+      read: (after: import("@harness-anything/kernel").ReplicationPosition) => {
+        const head = store.replicationPosition(),
+          window = options.replicationRetentionWindowCommits;
+        if (window !== undefined) store.pruneReplicationLog(Math.max(0, head.sequence - Math.max(1, window) + 1));
+        return store.replicationCommits(after, 64);
+      },
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
         while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)
           await new Promise<void>((resolve) => setImmediate(resolve));

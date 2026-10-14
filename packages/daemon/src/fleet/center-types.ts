@@ -26,6 +26,8 @@ export interface FleetCenterOptions {
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
   readonly replicaDiskQuotaBytes?: number;
+  /** Number of replication log commits retained for incremental receivers. */
+  readonly replicationRetentionWindowCommits?: number;
   /** How long a replica watch waits for a newer cut before answering with the unchanged head (default 20s). */
   readonly replicaWatchProgressMs?: number;
   readonly replicaPreparationTimeoutMs?: number;
