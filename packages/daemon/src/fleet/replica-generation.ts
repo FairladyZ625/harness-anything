@@ -41,6 +41,13 @@ export function readReplicaGeneration(root: string): ReplicaGeneration | null {
   return generation(root, current.id, current.metadata);
 }
 
+export function updateReplicaGenerationPosition(root: string, position: BaseBackupMetadata["position"]): void {
+  const pointer = path.join(root, "current.json");
+  if (!existsSync(pointer)) throw new Error("replica generation is unavailable");
+  const current = JSON.parse(readFileSync(pointer, "utf8")) as { id: string; metadata: BaseBackupMetadata };
+  writeFileDurably(pointer, JSON.stringify({ id: current.id, metadata: { ...current.metadata, position } }));
+}
+
 /** The caller has decoded metadata; this verifies bytes written after the center's acceptance boundary. */
 export async function installReplicaGeneration(input: {
   readonly root: string;

@@ -53,6 +53,27 @@ const mirrorHead = (ledgerPath: string): number => {
       db.close();
     }
   },
+  tableRows = (databasePath: string): Record<string, unknown[][]> => {
+    const db = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      const tables = db
+        .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+        .all() as { name: string }[];
+      return Object.fromEntries(
+        tables.map(({ name }) => {
+          const columns = db.prepare(`PRAGMA table_info(${JSON.stringify(name)})`).all() as {
+            name: string;
+            pk: number;
+          }[];
+          const primaryKey = columns.filter((column) => column.pk > 0).sort((a, b) => a.pk - b.pk);
+          const order = (primaryKey.length ? primaryKey : columns).map((column) => `"${column.name}"`).join(", ");
+          return [name, db.prepare(`SELECT * FROM "${name}" ORDER BY ${order}`).all()];
+        }),
+      );
+    } finally {
+      db.close();
+    }
+  },
   containsBytes = (dir: string, needle: Buffer): boolean => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, entry.name);
@@ -90,7 +111,9 @@ test("three process-level edges hold one consistent mirror of every center read"
     centerList = taskListDigest(centerReader),
     centerRevision = centerReader.withSession((queries) => queries.readCut().watermark);
   assert.equal(centerRevision, fixture.eventCount());
-  const noteBytes = readFileSync(seeded.planPath);
+  const noteBytes = readFileSync(
+    path.isAbsolute(seeded.planPath) ? seeded.planPath : path.join(fixture.repo, "harness", seeded.planPath),
+  );
   for (const [index, installed] of installs.entries()) {
     const reader = makeTaskProjectionReader({
       rootDir: edges[index]!.root,
@@ -102,7 +125,7 @@ test("three process-level edges hold one consistent mirror of every center read"
       `edge ${edges[index]!.nodeId} lists exactly what the center lists`,
     );
     assert.equal(
-      reader.withSession((queries) => queries.readCut().revision),
+      reader.withSession((queries) => queries.readCut().watermark),
       centerRevision,
     );
     reader.close();
@@ -194,6 +217,18 @@ test("three process-level edges hold one consistent mirror of every center read"
       mirrorEventRows(String(installed.ledgerPath), bySession, [runtimeSessionId]).length,
       1,
       "the runtime event replicated exactly once to every mirror",
+    );
+  }
+  // F-97987445: compare every table in both replicated SQLite databases, ordered by primary key.
+  // Include the projection tables and runtime-owned lease rows; the edge is a complete mirror.
+  const compareDatabase = (centerPath: string, edgePath: string, label: string) =>
+    assert.deepEqual(tableRows(edgePath), tableRows(centerPath), `${label}: every table row matches center`);
+  for (const installed of installs) {
+    compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "ledger");
+    compareDatabase(
+      path.join(fixture.repo, ".harness/cache/task.sqlite"),
+      String(installed.projectionPath),
+      "projection",
     );
   }
 });

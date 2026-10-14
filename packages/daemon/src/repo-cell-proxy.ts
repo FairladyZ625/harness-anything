@@ -230,11 +230,6 @@ export async function openRepoCellProxy(
         freshness: frame.freshness,
         ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
       });
-      if (action.kind === "event-show")
-        throw cellCodedError(
-          "replica_unavailable",
-          `${action.kind} requires canonical event or acceptance history, which this replica does not publish.`,
-        );
       if (action.kind === "doc-status" || action.kind === "doc-dry-run")
         return readRuntime(projection).actionContext.withHumanSummary(
           stamp(readEdgeDocWorkspace(input.rootDir, view, projection, action)),

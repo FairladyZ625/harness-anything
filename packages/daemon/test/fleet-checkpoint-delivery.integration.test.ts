@@ -10,7 +10,7 @@ import workerThreads from "node:worker_threads";
 import { syncBuiltinESMExports } from "node:module";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
-import { openPeer, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { openPeer, runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { readHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";

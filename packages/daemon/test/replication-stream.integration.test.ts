@@ -116,7 +116,7 @@ test("a lost ACK replays the durable suffix without duplicating canonical events
     60_000,
   );
   assert.equal(
-    resumed.events.filter((event) => event.event === "basebackup-header").length,
+    resumed.events.filter((event) => event.event === "backup-header").length,
     0,
     "a resume inside the retention window must not re-run a full basebackup",
   );
@@ -164,7 +164,7 @@ test("a disconnect resumes from the persisted cursor without a fresh basebackup"
   const resumed = fixture.startEdge("edge-one", { retry: true });
   // Resume on the same history: no second package transfer, only the ordered suffix.
   assert.equal(
-    resumed.events.filter((event) => event.event === "basebackup-header").length,
+    resumed.events.filter((event) => event.event === "backup-header").length,
     0,
     "reconnection inside the window streams the suffix instead of re-packaging",
   );

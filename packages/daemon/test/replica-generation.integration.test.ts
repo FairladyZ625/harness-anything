@@ -70,7 +70,7 @@ test(
     assert.equal(exit.code, 76);
     assert.equal(edge.lastEvent("installed"), undefined, "the crash happened before any generation was published");
     // 待对齐: current 指针文件名按 replica-generation 落地核对;崩溃只可能留下旧完整代或无代。
-    assert.equal(existsSync(path.join(edge.mirrorRoot, "current")), false, "no current pointer was published");
+    assert.equal(existsSync(path.join(edge.mirrorRoot, "current.json")), false, "no current pointer was published");
     // A crash may only leave the old complete generation or none; the restart converges normally.
     const resumed = fixture.startEdge("edge-one", { retry: true });
     const installed = await resumed.waitForEvent("installed", 60_000);
@@ -97,19 +97,16 @@ test(
     // Drive the node out of the window so a fresh package publishes a second generation.
     for (let index = 0; index < 6; index += 1) {
       const appended = await fixture.centerRun({
-        kind: "task-progress-append",
-        taskId: seededTask.taskId,
-        executionId: seededTask.executionId,
-        text: `generation pressure ${index}`,
-        evidence: [],
-        baseDocumentSha256: null,
+        kind: "task-create",
+        taskId: `task_pressure${String(index).padStart(2, "0")}00000000000000000000`,
+        title: `generation pressure ${index}`,
       });
       assert.equal(appended.outcome, "applied", JSON.stringify(appended));
     }
     edge.control({ control: "release-acks" });
     await edge.waitForEvent("resync-required", 60_000);
     const secondInstall = await edge
-      .waitForEvent("basebackup-header", 120_000)
+      .waitForEvent("backup-header", 120_000)
       .then(() => edge.waitForEvent("installed", 120_000));
     const secondGeneration = String(secondInstall.generationDir);
     assert.notEqual(secondGeneration, firstGeneration, "a new generation was published");

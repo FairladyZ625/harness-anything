@@ -5,6 +5,7 @@ import {
   type ReplicationCommit,
   type ReplicationPosition,
 } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type { BaseBackupArchive } from "./basebackup.ts";
 import { REPLICATION_CHUNK_BYTES, type ReplicationPeer } from "./protocol.ts";
 import type { ReplicationSlotLease, ReplicationSlots } from "./replication-slot.ts";
@@ -67,7 +68,14 @@ export async function runWalSender(input: {
   let position = start.position;
   for (;;) {
     assertOwner();
-    const page = position === null ? null : source.read(position);
+    let page: ReturnType<ReplicationSource["read"]>;
+    try {
+      page = position === null ? null : source.read(position);
+    } catch (error) {
+      consumeKnownError(error);
+      if (position !== null) await peer.send({ type: "replica.resync", reason: "replication history mismatch" });
+      page = null;
+    }
     if (page === null) {
       if (position !== null) await peer.send({ type: "replica.resync", reason: "replication window unavailable" });
       const archive = await source.backup(signal);

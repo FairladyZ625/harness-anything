@@ -31,7 +31,6 @@ import {
 import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
-  runFleetReplicaPullClient,
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
@@ -48,6 +47,7 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
+import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
@@ -144,7 +144,7 @@ export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
 export async function runFleetEdgeRepositoryRead(
   input: FleetEdgeTaskRequest,
   readLocal: () => Promise<Record<string, unknown>>,
-  readAccessToken?: () => Promise<string | undefined>,
+  _readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   const payload = input.payload,
     minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
@@ -156,20 +156,7 @@ export async function runFleetEdgeRepositoryRead(
       action: payload.action,
       ...(minCut ? { minCut } : {}),
     },
-    () =>
-      runFleetReplicaPullClient({
-        through: minCut?.revision,
-        readAccessToken,
-        hostname: payload.host,
-        port: payload.port,
-        ca: readFileSync(payload.caPath, "utf8"),
-        servername: payload.servername,
-        nodeId: payload.nodeId,
-        credential: payload.credential,
-        repoId: payload.repoId,
-        viewRoot: payload.viewRoot,
-        diskQuotaBytes: payload.quotaBytes,
-      }),
+    () => Promise.resolve(),
     async () => {
       const receipt = await readLocal();
       return {
@@ -280,12 +267,6 @@ export async function runFleetEdgeTask(
         })),
       });
       if (result.center.outcome === "applied") {
-        await runFleetReplicaPullClient({
-          through: result.center.revision ?? "known-head",
-          ...peer,
-          viewRoot: payload.viewRoot,
-          diskQuotaBytes: payload.quotaBytes,
-        });
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
@@ -316,12 +297,6 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          await runFleetReplicaPullClient({
-            through: "known-head",
-            ...peer,
-            viewRoot: payload.viewRoot,
-            diskQuotaBytes: payload.quotaBytes,
-          });
           const current = readEdgeRuntimeRepository(
             {
               viewRoot: payload.viewRoot,
@@ -395,13 +370,11 @@ export async function runFleetEdgeTask(
     // center bytes staged beside the local ones for the explicit exits.
     if (!readOnly && (applied || conflictCode !== null)) {
       try {
-        const pulled = await runFleetReplicaPullClient({
-          through: result.revision ?? "known-head",
-          ...peer,
-          viewRoot: payload.viewRoot,
-          diskQuotaBytes: payload.quotaBytes,
-          timeoutMs: 60_000,
-        });
+        if (typeof result.revision === "number")
+          await waitForFleetReplicaSequence(
+            { viewRoot: payload.viewRoot, repoId: payload.repoId, nodeId: payload.nodeId },
+            result.revision,
+          );
         const settle =
           workspaceRoot === null
             ? null
@@ -424,7 +397,7 @@ export async function runFleetEdgeTask(
             : null;
         mirror = {
           outcome: settle !== null && settle.outcome === "pull_blocked" ? "pull_blocked" : "applied",
-          cut: pulled.current.cut,
+          cut: { revision: result.revision ?? 0, headDigest: "" },
           ...(settle !== null && settle.outcome !== "no_view" ? { dirtyPaths: settle.dirtyPaths } : {}),
           ...(worktrees ? { worktrees } : {}),
         };

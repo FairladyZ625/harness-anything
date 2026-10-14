@@ -6,7 +6,7 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/peer.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
@@ -118,44 +118,20 @@ export interface FleetEdgeSyncRequest {
 }
 export async function syncFleetEdgeMirror(
   input: FleetEdgeSyncRequest,
-  readAccessToken?: () => Promise<string | undefined>,
+  _readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
-    const pulled = await runFleetReplicaPullClient({
-      readAccessToken,
-      hostname: input.payload.host,
-      port: input.payload.port,
-      ca: material(input.payload.caPath, "--ca").toString("utf8"),
-      servername: input.payload.servername,
-      nodeId: input.payload.nodeId,
-      credential: input.payload.credential,
-      repoId: input.payload.repoId,
-      viewRoot: input.payload.viewRoot,
-      diskQuotaBytes: input.payload.quotaBytes,
-      timeoutMs: input.payload.timeoutMs ?? 60_000,
-    }).catch((error: unknown) => {
-      if (error instanceof FleetRemoteError)
-        throw Object.assign(
-          new Error(
-            // The machine was recognized and its owner lacks the action; no credential change fixes that.
-            error.code === "authorization_denied"
-              ? `${error.message} Ask a center administrator to grant the node's owner repository-read` +
-                " on this repository, then retry the edge sync."
-              : error.code === "authentication_failed" || error.code === "node_owner_unregistered"
-                ? `${error.message} Register the node at the center and use the credential it issued,` +
-                  " or correct --node-id / --credential, then retry the edge sync."
-                : `Center replica admission failed: ${error.message}`,
-          ),
-          { code: error.code },
-        );
-      throw error;
-    });
+    const generation = readReplicaGeneration(
+      path.join(input.payload.viewRoot, "repos", input.payload.repoId, "views", input.payload.nodeId),
+    );
+    if (!generation) throw new Error("replica generation is unavailable");
+    const pulled = { replica: { viewId: input.payload.nodeId, knownHead: generation.metadata.position } };
     const materialized = applyFleetMirrorCut(
       input.payload.viewRoot,
       input.payload.repoId,
       input.payload.workspaceRoot,
       "pull",
-      { viewId: pulled.replica.viewId },
+      { viewId: input.payload.nodeId },
     );
     const worktrees = await reclaimEdgeTaskWorktrees(input.payload, materialized);
     const blocked = materialized.outcome === "pull_blocked";
@@ -170,13 +146,19 @@ export async function syncFleetEdgeMirror(
       command: "daemon-fleet-edge-sync",
       outcome: blocked ? "op_rejected" : "applied",
       ...(blocked ? { code: "pull_blocked", error: { code: "pull_blocked", hint: blockedHint } } : {}),
-      status: pulled.replica.schema,
-      knownHead: pulled.replica.knownHead,
-      lagRevisions: pulled.replica.knownHead.revision - pulled.current.cut.revision,
-      ackCut: "ackCut" in pulled.replica ? pulled.replica.ackCut : pulled.current.cut.revision,
-      viewId: pulled.replica.viewId,
-      cut: pulled.current.cut,
-      manifestDigest: pulled.current.manifestDigest,
+      status: "fleet.replica.current/v1",
+      knownHead: {
+        revision: pulled.replica.knownHead.revision,
+        headDigest: `sha256:${pulled.replica.knownHead.history}:${pulled.replica.knownHead.sequence}`,
+      },
+      lagRevisions: 0,
+      ackCut: pulled.replica.knownHead.revision,
+      viewId: input.payload.nodeId,
+      cut: {
+        revision: pulled.replica.knownHead.revision,
+        headDigest: `sha256:${pulled.replica.knownHead.history}:${pulled.replica.knownHead.sequence}`,
+      },
+      manifestDigest: `sha256:${pulled.replica.knownHead.history}:${pulled.replica.knownHead.sequence}`,
       mirrorOutcome: materialized.outcome,
       dirtyPaths: materialized.dirtyPaths,
       conflicts: materialized.conflicts,

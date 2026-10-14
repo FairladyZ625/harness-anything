@@ -68,16 +68,19 @@ export function edgeFreshness(
 ): { readonly freshness: EdgeReadFreshness; readonly warning: string | null } {
   const maxAgeMs = input.maxAgeMs ?? DEFAULT_EDGE_READ_MAX_AGE_MS,
     maxLagRevisions = input.maxLagRevisions ?? DEFAULT_EDGE_READ_MAX_LAG_REVISIONS;
+  const ageMs = 0;
+  const lagRevisions = Math.max(0, sourceRevision - view.revision);
+  const stale = ageMs > maxAgeMs || lagRevisions > maxLagRevisions;
   return {
     freshness: {
-      state: "fresh",
-      ageMs: 0,
-      lagRevisions: 0,
+      state: stale ? "stale" : "fresh",
+      ageMs,
+      lagRevisions,
       maxAgeMs,
       maxLagRevisions,
       confirmedAt: new Date(now()).toISOString(),
     },
-    warning: null,
+    warning: stale ? "edge replica is behind center" : null,
   };
 }
 export async function readEdgeRepository(

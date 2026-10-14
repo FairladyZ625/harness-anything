@@ -41,7 +41,7 @@ test(
       }
     })();
     const edge = fixture.startEdge("edge-one");
-    const header = await edge.waitForEvent("basebackup-header"),
+    const header = await edge.waitForEvent("backup-header"),
       installed = await edge.waitForEvent("installed");
     assert.equal(typeof header.position.revision, "number");
     assert.ok((header.position.revision as number) >= 1, "the backup must cover at least the seeded events");
@@ -142,7 +142,7 @@ test(
     await seedCenterData(fixture, seededTask);
     await fixture.openCenter();
     const edges = replicationNodes.map((nodeId) => fixture.startEdge(nodeId));
-    const firstHeader = await edges[0]!.waitForEvent("basebackup-header");
+    const firstHeader = await edges[0]!.waitForEvent("backup-header");
     // While the first package is still in flight the center answers reads and accepts writes.
     const duringTransfer = await fixture.centerRun({
       kind: "task-create",
@@ -152,8 +152,8 @@ test(
     assert.equal(duringTransfer.outcome, "applied", JSON.stringify(duringTransfer));
     const headers = [
         firstHeader,
-        await edges[1]!.waitForEvent("basebackup-header"),
-        await edges[2]!.waitForEvent("basebackup-header"),
+        await edges[1]!.waitForEvent("backup-header"),
+        await edges[2]!.waitForEvent("backup-header"),
       ],
       installs = await Promise.all(edges.map((edge) => edge.waitForEvent("installed")));
     for (const header of headers.slice(1)) {
@@ -169,7 +169,7 @@ test(
       assert.deepEqual(sqliteObjects(String(installed.projectionPath)), sqliteObjects(fixture.centerReader().path));
       const plan = queryPlanRows(
         String(installed.projectionPath),
-        "SELECT revision FROM event_index WHERE task_id = ?",
+        "SELECT task_id FROM event_index WHERE task_id = ?",
         [seededTask.taskId],
       );
       assert.match(

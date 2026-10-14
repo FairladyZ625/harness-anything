@@ -51,6 +51,8 @@ export interface ReplicationTarget {
   readonly apply: (commit: ReplicationCommit, blobs: readonly CanonicalContentBlob[]) => void;
   /** Runs the common projection catchUp; resolves only once that position is queryable. */
   readonly project: (position: ReplicationPosition) => Promise<void>;
+  readonly updatePosition?: (position: ReplicationPosition) => void;
+  readonly reset?: () => Promise<void>;
 }
 
 async function receiveBytes(
@@ -92,7 +94,10 @@ export async function runWalReceiver(input: {
   for (;;) {
     signal.throwIfAborted();
     const frame = await peer.receive(signal);
-    if (frame.type === "replica.resync") continue;
+    if (frame.type === "replica.resync") {
+      await target.reset?.();
+      continue;
+    }
     if (frame.type === "replica.backup") {
       if (frame.size > input.quotaBytes) throw new Error("base backup exceeds disk quota");
       await mkdir(input.directory, { recursive: true });
@@ -142,6 +147,8 @@ export async function runWalReceiver(input: {
         });
       }
       target.apply(commit, blobs);
+      await target.project(commit.position);
+      target.updatePosition?.(commit.position);
     } else if (frame.type === "replica.progress") {
       const position = target.position();
       if (

@@ -138,6 +138,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
+  const backupCache = new Map<string, Promise<import("./basebackup.ts").BaseBackupArchive>>();
   const onReplicationStart = async (
     nodeId: string,
     accessToken: string | undefined,
@@ -183,6 +184,14 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           await new Promise<void>((resolve) => setImmediate(resolve));
       },
       backup: async (backupSignal: AbortSignal) => {
+        const cached = backupCache.get(frame.repoId);
+        if (cached)
+          return {
+            ...(await cached),
+            release: async () => {
+              backupCache.delete(frame.repoId);
+            },
+          };
         const previous = backupQueues.get(frame.repoId) ?? Promise.resolve();
         let release!: () => void;
         const turn = new Promise<void>((resolve) => (release = resolve));
@@ -199,16 +208,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           },
           backupSignal,
         );
+        const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
+        backupCache.set(frame.repoId, archivePromise);
         try {
-          const pinned = await started;
-          const archive = await pinned.complete;
+          const archive = await archivePromise;
           return {
             ...archive,
             release: async () => {
+              backupCache.delete(frame.repoId);
               release();
             },
           };
         } catch (error) {
+          backupCache.delete(frame.repoId);
           release();
           throw error;
         }

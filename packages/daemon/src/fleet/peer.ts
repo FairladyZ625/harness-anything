@@ -10,7 +10,11 @@ import {
   type ReplicationPeer,
 } from "./protocol.ts";
 import { openWalReceiverGeneration, runWalReceiver } from "./walreceiver.ts";
-import { installReplicaGeneration, readReplicaGeneration } from "./replica-generation.ts";
+import {
+  installReplicaGeneration,
+  readReplicaGeneration,
+  updateReplicaGenerationPosition,
+} from "./replica-generation.ts";
 import type { LedgerCutIdentity } from "@harness-anything/kernel";
 import {
   FleetUtf8LineDecoder,
@@ -71,7 +75,8 @@ export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
-  readonly through?: number | "known-head";
+  /** Internal single-round control used by the resident sync owner. */
+  readonly stopAfterAck?: boolean;
 }
 export interface FleetReplicaPullClientResult {
   readonly replica: {
@@ -150,6 +155,13 @@ export async function runFleetReplicaPullClient(
       if (!opened) throw new Error("replica generation is unavailable");
       await opened.project(position);
     },
+    updatePosition: (position: import("@harness-anything/kernel").ReplicationPosition) =>
+      updateReplicaGenerationPosition(viewRoot, position),
+    reset: async () => {
+      const prior = opened;
+      opened = null;
+      await prior?.close();
+    },
   };
   const socket = await peerSocket(options),
     decoder = new ReplicationDecoder(),
@@ -216,6 +228,8 @@ export async function runFleetReplicaPullClient(
       quotaBytes: options.diskQuotaBytes,
       maxBufferedBytes: 16 * 1024 * 1024,
       signal: options.signal ?? new AbortController().signal,
+      stopAfterAck: (_position: import("@harness-anything/kernel").ReplicationPosition) =>
+        Boolean(options.stopAfterAck),
     } as never);
   } finally {
     await opened?.close();

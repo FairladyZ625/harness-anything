@@ -34,7 +34,6 @@ import type { PreparedRuntimeLaunch, RuntimeInstanceSummary } from "./agent-runt
 import {
   readFleetRepositoryMetadataClient,
   readFleetReceiptClient,
-  runFleetReplicaPullClient,
   runFleetRuntimeArchiveClient,
   runFleetRuntimeEventClient,
   awaitFleetRuntimeSessionsClient,
@@ -49,6 +48,7 @@ import { makeRuntimeSpawner, type RuntimeDaemonRoute, type RuntimeLauncher } fro
 import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import {
@@ -733,12 +733,11 @@ export function openFleetEdgeRuntime(input: {
   }
 
   async function pullRuntimeReplica() {
-    const pulled = await runFleetReplicaPullClient({
-      through: "known-head",
-      ...writePeer,
-      viewRoot: request.viewRoot,
-      diskQuotaBytes: request.quotaBytes,
-    });
+    const generation = readReplicaGeneration(
+      path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
+    );
+    if (!generation) throw edgeRuntimeError("replica_unavailable", "The edge replica has not been initialized.");
+    const pulled = { replica: { viewId: request.nodeId, knownHead: generation.metadata.position } };
     replicaOwner = (await input.readBinding()).actor.principal.personId;
     return pulled;
   }
