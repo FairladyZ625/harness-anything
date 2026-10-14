@@ -120,6 +120,127 @@ test("worker push refuses the first commit outside the conventional identity and
   );
 });
 
+test("worker push validates only the commits above the published remote cut", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-published-")),
+    bare = path.join(root, "remote.git"),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_published_cut");
+  // Ancestors a human already published under a personal identity: rewriting them is the forced
+  // history rewrite this flow forbids, so the worker must publish on top of them as they are.
+  for (const name of ["first", "second"])
+    git(
+      worker,
+      "-c",
+      "user.name=Published Human",
+      "-c",
+      "user.email=human@example.invalid",
+      "commit",
+      "--allow-empty",
+      "--quiet",
+      "-m",
+      `fix: ${name} published change`,
+    );
+  git(worker, "push", "--quiet", "origin", "HEAD:refs/heads/task_published_cut");
+  const published = git(worker, "rev-parse", "HEAD").trim();
+
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  git(worker, "add", "change.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+
+  const result = await pushTaskWorkerBranch({
+    cwd: worker,
+    canonicalRoot: canonical,
+    taskId: "task_published_cut",
+  });
+  assert.equal(result.attempted, true);
+  assert.equal(result.ok, true, JSON.stringify(result));
+  const head = git(worker, "rev-parse", "HEAD").trim();
+  assert.equal(result.pushedCommit, head);
+  const remoteRef = git(bare, "show-ref", "--verify", "refs/heads/task_published_cut").trim();
+  assert.ok(
+    remoteRef.startsWith(`${head} `),
+    `the remote advances from the published ${published} to the pushed head: ${remoteRef}`,
+  );
+});
+
+test("worker push still refuses a personal-identity commit above the published remote cut", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-above-cut-")),
+    bare = path.join(root, "remote.git"),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_stale_above_cut");
+  git(
+    worker,
+    "-c",
+    "user.name=Published Human",
+    "-c",
+    "user.email=human@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "fix: published change",
+  );
+  git(worker, "push", "--quiet", "origin", "HEAD:refs/heads/task_stale_above_cut");
+  const published = git(worker, "rev-parse", "HEAD").trim();
+  git(
+    worker,
+    "-c",
+    "user.name=Stale Worker",
+    "-c",
+    "user.email=stale-worker@example.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "feat: stale worker change",
+  );
+  const staleHead = git(worker, "rev-parse", "HEAD").trim();
+
+  const result = await pushTaskWorkerBranch({
+    cwd: worker,
+    canonicalRoot: canonical,
+    taskId: "task_stale_above_cut",
+  });
+  assert.equal(result.attempted, true);
+  assert.equal(result.ok, false);
+  assert.match(
+    result.detail,
+    new RegExp(
+      `commit ${staleHead} carries author <stale-worker@example.invalid> ` +
+        "and committer <stale-worker@example.invalid>, " +
+        "not the conventional identity <push-test@example.invalid>",
+      "u",
+    ),
+  );
+  assert.equal(
+    git(bare, "rev-parse", "refs/heads/task_stale_above_cut").trim(),
+    published,
+    "the refusal leaves the published cut where it was",
+  );
+});
+
 test("worker push refuses when the canonical repository resolves no git identity", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-identity-")),
     bare = path.join(root, "remote.git"),
