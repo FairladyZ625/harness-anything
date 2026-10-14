@@ -7,6 +7,9 @@ export interface ReplicationSlotKey {
   readonly repoId: string;
   readonly nodeId: string;
 }
+export interface ReplicaDeliveryKey extends ReplicationSlotKey {
+  readonly viewId: string;
+}
 export interface ReplicationSlotLease extends ReplicationSlotKey {
   readonly fence: number;
   readonly history: string;
@@ -75,6 +78,9 @@ export function openReplicationSlots(file: string) {
           lease.history,
         );
       if (result.changes !== 1) throw new Error("replication session fenced");
+    },
+    invalidateOffline(repoId: string): void {
+      db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL WHERE repo=?").run(repoId);
     },
     close: () => db.close(),
   };

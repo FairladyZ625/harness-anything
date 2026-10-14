@@ -560,20 +560,9 @@ export function createJsonRpcProtocolServer(options: {
           throw Object.assign(new Error("This control is available only through the local session token."), {
             code: "local_transport_required",
           }); // Lazy for the same schema-closure reason as the task channel.
-        const { runFleetEdgeDocSync, runFleetEdgeConflictExit } = await import("../fleet-edge-doc-sync.ts");
         return reply(
           method,
-          await (method === "daemon.fleet.doc.sync"
-            ? runFleetEdgeDocSync(
-                { payload: params.payload },
-                async () => (await options.sessionPrincipal?.())?.accessToken,
-              )
-            : runFleetEdgeConflictExit(
-                {
-                  payload: params.payload,
-                },
-                async () => (await options.sessionPrincipal?.())?.accessToken,
-              )),
+          protocolFailure(method, new Error("Fleet document sync is handled by the unified document-submit path.")),
         );
       } catch (error) {
         return reply(method, protocolFailure(method, error));

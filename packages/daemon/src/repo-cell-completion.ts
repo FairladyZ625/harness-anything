@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 import {
   completionGateIds,
-  type EdgeReplicaQueries,
   compileCompletionGateWitness,
   judgeCompletionEvidence,
   type CompletionEvidenceJudgment,
@@ -148,7 +147,7 @@ export async function showTask(cell: RepoCellActionContext, taskId: string): Pro
 
 export function taskShowFromProjection(
   rootDir: string,
-  projection: EdgeReplicaQueries,
+  projection: TaskProjectionQueries,
   taskId: string,
   directChildCount = projection.readTaskChildCounts([taskId])[taskId] ?? 0,
 ): WriteReceipt {

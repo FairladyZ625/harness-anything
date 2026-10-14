@@ -1,4 +1,3 @@
-import { edgeManifestBlob } from "./fleet/replica-read-model.ts";
 import { readFileSync } from "node:fs";
 import { readEdgeCiDetail, fetchEdgeCiDetails } from "./ci-detail-cache.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
@@ -24,7 +23,6 @@ import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
-import { openReplicaCutWorker } from "./fleet/replica-cut-worker.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
@@ -167,22 +165,11 @@ export async function openRepoCellProxy(
       },
     }),
     readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => read(ledgerReadStore()),
-    replica = openReplicaCutWorker(
-      {
-        repoId: input.repoId,
-        localRoot: path.dirname(path.dirname(reader.path)),
-        readSequence: (from, read) => reader.withSession((projection) => projection.readReplicaSequence(from, read)),
-        readRevision: (revision) => reader.withSession((projection) => projection.readReplicaRevision(revision)),
-        // Fleet replication follows the acknowledged writer cut, including the durable
-        // ledger suffix that may not have reached Git yet. This reader is immutable; the
-        // RepoWriterCell remains the only accepting writer.
-        readLedgerCut: () => readCurrentLedger((store) => store.currentCut()),
-        readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
-        readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
-        readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
-      },
-      { ...ledgerOptions, localRoot: path.dirname(path.dirname(reader.path)) },
-    ),
+    replica = {
+      kick: () => undefined,
+      close: () => undefined,
+      ledgerCut: () => readCurrentLedger((store) => store.currentCut()),
+    },
     readSession = (runtimeSessionId: string) =>
       reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId)),
     runtime = makeAgentRuntimeStreamHub({
@@ -302,10 +289,7 @@ export async function openRepoCellProxy(
               if (property === "currentCut")
                 return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
               if (property === "readContentBlob")
-                return (sha256: string) =>
-                  edgeManifestBlob(edgeView.viewDir, edgeView, sha256)
-                    ? readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256)
-                    : readEdgeCiDetail(edgeConfig!.viewRoot, edgeView, sha256);
+                return (sha256: string) => readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256);
               throw cellCodedError(
                 "replica_unavailable",
                 `Replica query requires unmaterialized canonical store operation ${String(property)}.`,

@@ -1,6 +1,14 @@
 import { readFileSync } from "node:fs";
-import { runFleetWriteClient, type FleetEdgeChange } from "./edge.ts";
-import type { FleetEdgeChannelPayload } from "../fleet-edge-doc-sync.ts";
+import { runFleetWriteClient, type FleetEdgeChange } from "./peer.ts";
+interface FleetEdgeChannelPayload {
+  readonly host: string;
+  readonly port: number;
+  readonly caPath: string;
+  readonly servername?: string;
+  readonly nodeId: string;
+  readonly credential: string;
+  readonly repoId: string;
+}
 
 /** Submit explicit document candidates to the center queue. Local files are candidates only. */
 export async function submitDocuments(input: {

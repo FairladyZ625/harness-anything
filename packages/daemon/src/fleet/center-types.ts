@@ -2,10 +2,10 @@ import type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./replica-del
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";
-import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
-import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./command-protocol.ts";
+import type { ReplicationSlotKey } from "./replication-slot.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./contract.ts";
+import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
 import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
 
 export interface FleetCenterOptions {
@@ -56,7 +56,8 @@ export interface FleetCenterOptions {
   ) => Promise<void>;
 }
 
-export interface FleetReplicaStatus extends ReplicaDeliveryKey {
+export interface FleetReplicaStatus extends ReplicationSlotKey {
+  readonly viewId: string;
   readonly centerRevision: number;
   readonly centerEventAt: string | null;
   readonly centerManifestBytes: number;
@@ -73,6 +74,10 @@ export interface FleetReplicaStatus extends ReplicaDeliveryKey {
   readonly sendWindowBytes: number;
   readonly sendQuotaBytes: number;
   readonly diskQuotaBytes: number | null;
+}
+
+export interface ReplicaDeliveryKey extends ReplicationSlotKey {
+  readonly viewId: string;
 }
 
 export interface FleetTlsCenter {

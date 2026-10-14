@@ -1,10 +1,9 @@
-import { untilAborted } from "./center-replica-wait.ts";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError, isContractVersionCompatible, READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
+import { consumeKnownError, isContractVersionCompatible } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
@@ -20,8 +19,7 @@ import {
   serializeFleetFrame,
   type FleetCut,
   type FleetFrameV1,
-} from "./contract.ts";
-import type { SnapshotCut } from "./replica-cut-store.ts";
+} from "./command-protocol.ts";
 import {
   parseReplicationFrame,
   serializeReplicationFrame,
@@ -327,8 +325,13 @@ export function ownedUpload(state: State, nodeId: string, uploadId: string): Upl
   return upload;
 }
 
-export function wireCut(cut: Pick<SnapshotCut, "revision" | "headDigest">): FleetCut {
-  return { revision: cut.revision, headDigest: cut.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION };
+export function wireCut(cut: { readonly revision: number; readonly headDigest: string }): FleetCut {
+  return { revision: cut.revision, headDigest: cut.headDigest, schemaGeneration: 0 };
+}
+
+async function untilAborted<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return await operation();
 }
 
 export function digestId(...parts: string[]): string {

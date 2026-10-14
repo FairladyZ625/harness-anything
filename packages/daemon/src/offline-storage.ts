@@ -8,8 +8,7 @@ import {
 } from "@harness-anything/kernel";
 import { canonicalRoot } from "./protocol/daemon-protocol-identifiers.ts";
 import { acquireWorkspaceLock } from "./repo-cell-lock.ts";
-import { openReplicaAckStore } from "./fleet/replica-ack-store.ts";
-import { invalidateReplicaCutsOffline } from "./fleet/replica-cut-store.ts";
+import { openReplicationSlots } from "./fleet/replication-slot.ts";
 import { completionMigrationCommand, generationMigrationCommand } from "./offline-storage-command.ts";
 import { migrateCompletion } from "@harness-anything/preset/internal/preset-resolver";
 
@@ -57,8 +56,7 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
           approvedSnapshotGaps: new Set<string>(approvedSnapshotGaps),
           ...(flags.destination ? { destinationRoot: flags.destination } : {}),
           invalidateDerivedState: (repoId, root) => {
-            invalidateReplicaCutsOffline(path.join(root, ".harness"), repoId);
-            const acknowledgements = openReplicaAckStore(flags.fleetStateRoot!);
+            const acknowledgements = openReplicationSlots(path.join(flags.fleetStateRoot!, "replication-slots.sqlite"));
             try {
               acknowledgements.invalidateOffline(repoId);
             } finally {

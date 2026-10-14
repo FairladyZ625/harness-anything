@@ -30,7 +30,7 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
     return {
       position: store.position,
       apply: store.apply,
-      project: async () => {
+      project: async (_position: ReplicationPosition) => {
         projection.catchUp!();
       },
       close: async () => {
@@ -78,6 +78,7 @@ export async function runWalReceiver(input: {
   readonly quotaBytes: number;
   readonly maxBufferedBytes: number;
   readonly signal: AbortSignal;
+  readonly stopAfterAck?: (position: ReplicationPosition) => boolean;
 }): Promise<void> {
   const { peer, target, signal } = input;
   await peer.send({ type: "replica.start", repoId: input.repoId, position: target.position() });
@@ -109,6 +110,7 @@ export async function runWalReceiver(input: {
         }
         await target.install(file, frame.metadata, frame.size, frame.sha256);
         await ack(frame.metadata.position);
+        if (input.stopAfterAck?.(frame.metadata.position)) return;
       } finally {
         await rm(file, { force: true });
       }
@@ -150,6 +152,7 @@ export async function runWalReceiver(input: {
       )
         throw new Error("replication progress differs from durable position");
       await ack(position);
+      if (input.stopAfterAck?.(position)) return;
     } else throw new Error("unexpected replication stream frame");
   }
 }

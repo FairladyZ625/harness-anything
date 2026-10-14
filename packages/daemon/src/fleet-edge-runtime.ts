@@ -41,7 +41,7 @@ import {
   runFleetScheduleCommandClient,
   runFleetTaskCommandClient,
   type FleetPeerOptions,
-} from "./fleet/edge.ts";
+} from "./fleet/peer.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
@@ -832,7 +832,7 @@ function fleetScheduleOpId(repoId: string, nodeId: string, key: string): string 
 
 function scheduleResult(
   kind: unknown,
-  result: Extract<import("./fleet/contract.ts").FleetFrameV1, { schema: "fleet.schedule.result/v1" }>,
+  result: Extract<import("./fleet/command-protocol.ts").FleetFrameV1, { schema: "fleet.schedule.result/v1" }>,
 ): JsonObject {
   const ok = ["applied", "pending", "no_changes"].includes(result.outcome);
   return {

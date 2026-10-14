@@ -23,8 +23,8 @@ export {
   type FleetWriteClientOptions,
   type FleetWriteClientResult,
   type FleetEdgeView,
-} from "./fleet/edge.ts";
-export { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "./fleet/contract.ts";
+} from "./fleet/peer.ts";
+export { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "./fleet/command-protocol.ts";
 export { createJsonRpcProtocolServer, type JsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 export { jsonRpcMethodContracts } from "./protocol/daemon-protocol.contract.ts";
 export type {

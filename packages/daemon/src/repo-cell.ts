@@ -17,8 +17,6 @@ import {
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
-import { openReplicaCutSource } from "./fleet/replica-cut-store.ts";
-import { openReplicaCutWorker } from "./fleet/replica-cut-worker.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -83,7 +81,7 @@ export interface RepoCellCore {
   readonly entityActionExecutor: ReturnType<typeof makeEntityActionCatalogExecutor>;
   readonly runtimeReads: ReturnType<typeof makeAgentRuntimeReadModel>;
   readonly service: ReturnType<typeof makeTaskLifecycleService>;
-  readonly replica: ReturnType<typeof openReplicaCutSource>;
+  readonly replica: import("./repo-cell-types.ts").ReplicaCutSource;
 }
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
@@ -181,23 +179,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         projection,
         killpoint: context.input.killpoint,
       }),
-      replica = openReplicaCutWorker(
-        {
-          repoId: context.input.repoId,
-          localRoot: path.dirname(path.dirname(projection.path)),
-          readSequence: projection.readReplicaSequence,
-          readRevision: projection.readReplicaRevision,
-          readLedgerCut: store.currentCut,
-          readContentBlob: store.readContentBlob,
-          readEvent: store.readEvent,
-          readApplied: projection.readOperation,
-        },
-        {
-          repoId: context.input.repoId,
-          rootDir: context.rootDir,
-          localRoot: path.dirname(path.dirname(projection.path)),
-        },
-      );
+      replica = { kick: () => undefined, close: () => undefined, ledgerCut: store.currentCut };
     return {
       store,
       recovery,

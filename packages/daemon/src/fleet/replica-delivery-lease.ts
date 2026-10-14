@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import type { ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import type { ReplicaDeliveryKey } from "./replication-slot.ts";
 
 export interface ReplicaDeliveryLease extends ReplicaDeliveryKey {
   readonly holderId: string;

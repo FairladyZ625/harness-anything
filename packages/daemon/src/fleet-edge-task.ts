@@ -35,9 +35,9 @@ import {
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
-} from "./fleet/edge.ts";
-import type { FleetDescriptor } from "./fleet/contract.ts";
-import type { FleetTaskAction } from "./fleet/contract.ts";
+} from "./fleet/peer.ts";
+import type { FleetDescriptor } from "./fleet/command-protocol.ts";
+import type { FleetTaskAction } from "./fleet/command-protocol.ts";
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,

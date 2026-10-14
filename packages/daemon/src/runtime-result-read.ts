@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { edgeManifestBlob } from "./fleet/replica-read-model.ts";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { sha256Bytes, sha256Text, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
@@ -54,12 +54,27 @@ export function readEdgeRuntimeResultBytes(
 
 /** Only objects in the already-authorized immutable view may be read; sharing the CAS grants no authority. */
 export function readEdgeViewBlob(viewRoot: string, view: FleetMirrorView, sha256: string): Uint8Array {
-  const entry = edgeManifestBlob(view.viewDir, view, sha256);
+  const entry = [...view.entries.values()].find((candidate) => candidate.sha256 === sha256);
   if (!entry)
     throw Object.assign(new Error("Content is not present in the authorized replica cut."), {
       code: "replica_unavailable",
     });
-  const bytes = readFileSync(path.join(viewRoot, "repos", view.repoId, "cas", "sha256", sha256.slice(0, 2), sha256));
+  const generation = readReplicaGeneration(view.viewDir);
+  if (!generation)
+    throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
+  const bytes = readFileSync(
+    path.join(
+      generation.rootDir,
+      ".harness",
+      "store",
+      "generations",
+      String(generation.metadata.ledgerGeneration),
+      "objects",
+      "sha256",
+      sha256.slice(0, 2),
+      sha256,
+    ),
+  );
   if (bytes.byteLength !== entry.size || sha256Bytes(bytes) !== sha256)
     throw Object.assign(new Error("Content does not match the authorized replica cut."), {
       code: "replica_unavailable",

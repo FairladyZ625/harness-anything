@@ -102,7 +102,7 @@ import {
 import { AccessAdminService, accessAdminOperations } from "./access-admin-service.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
-import { FleetReplicaSessionPool, runFleetReplicaSync } from "./fleet/edge-replica-sync.ts";
+import { runFleetReplicaSync } from "./fleet/replica-sync.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -144,7 +144,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       endpoint: input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId),
     },
     remoteProxy = openRemoteProxyManager(input.userRoot),
-    replicaSessionPool = new FleetReplicaSessionPool(),
     replicaSyncControllers = new Map<string, AbortController>();
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
@@ -825,7 +824,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       parkedWaitController.abort();
       for (const controller of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
-      replicaSessionPool.close();
       await rbacResumed;
       await managedRbac.stop();
       await lifecycle.close();
@@ -860,7 +858,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         repoId: config.repoId,
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
-        sessionPool: replicaSessionPool,
         signal: controller.signal,
         onConfirmed: () =>
           edgeRuntimeFor({

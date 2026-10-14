@@ -1,6 +1,6 @@
 import type { SquadDispatchSelection } from "./agent-entities.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
-import type { FleetRuntimeDispatchContext } from "./fleet/contract.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import type {
   CanonicalEventStore,
   SettingsV1,

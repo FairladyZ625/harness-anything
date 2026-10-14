@@ -1,4 +1,3 @@
-import { headAfterOrProgress, untilAborted } from "./center-replica-wait.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { fetchWorkerDelivery } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
@@ -15,15 +14,9 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { SnapshotCut } from "./replica-cut-store.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import {
-  edgeReadAuthorizationShapeDigest,
-  READ_MODEL_SCHEMA_GENERATION,
-  resolveHarnessLayout,
-  sha256Bytes,
-} from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -32,8 +25,6 @@ import {
   findOwnedClaim as findOwnedClaimImpl,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { deliverReplicaOffer } from "./center-replica-offer.ts";
-import { deriveReplicaReceipt, replicaDeliveryFenced as fenced, replicaStatus } from "./center-replica-receipt.ts";
 import {
   digestId,
   immediate,
@@ -46,8 +37,7 @@ import {
 } from "./center-transport.ts";
 import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
-import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
 import {
   makeTaskEventReader,
   makeTaskProjection,
@@ -64,9 +54,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
-    ackStore = openReplicaAckStore(options.stateRoot),
     now = options.now ?? (() => new Date().toISOString()),
-    knownKeys = new Map<string, ReplicaDeliveryKey>(),
     writerEpoch = openPersistentWriterEpoch({
       stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
       holderId: options.writerId,
@@ -260,7 +248,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return discardOwnedClaimsImpl(extracted, nodeId, repoId, changes);
   }
   const persist = () => writeCenterDurableJson(stateFile, state),
-    keyId = (key: ReplicaDeliveryKey) => `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
     auth = writerAuth;
   const nodeContext = async (nodeId: string, repoId: string, accessToken?: string) => {
     const node = { nodeId, repoId, accessToken };
@@ -563,181 +550,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         code: receipt.code ?? null,
       });
     }
-    if (
-      (frame.schema === "fleet.replica.watch/v1" || frame.schema === "fleet.replica.pull/v1") &&
-      options.buildDraining?.()
-    )
-      throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-    if (frame.schema === "fleet.replica.watch/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
-      if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
-      const signal = AbortSignal.any([connectionSignal, closing.signal]);
-      const latest = replica.latest(),
-        // Wait for the next published checkpoint; its revision may skip ledger integers.
-        next =
-          latest && latest.revision > frame.afterRevision
-            ? latest
-            : await untilAborted(
-                () =>
-                  headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000, signal),
-                signal,
-              );
-      return immediate({
-        schema: "fleet.replica.head-hint/v1",
-        messageId: mid(frame.messageId, "head-hint"),
-        inReplyTo: frame.messageId,
-        repoId: frame.repoId,
-        cut: wireCut(next),
-        knownHead: wireCut(replica.ledgerCut()!),
-      });
-    }
-    if (frame.schema === "fleet.ci-detail.get/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
-      if (replica.cut(frame.revision)?.headDigest !== frame.headDigest)
-        throw new FleetFault("not_in_cut", "CI detail cut identity is unavailable.");
-      const entry = replica.manifestEntry(frame.revision, `.read-model/ci-details/${frame.eventId}.json`);
-      if (!entry) throw new FleetFault("not_in_cut", "CI observation is not in the authorized cut.");
-      const descriptor = JSON.parse(Buffer.from(replica.content(entry.blob)).toString("utf8")) as {
-        ref: { sha256: string; encodedBytes: number; mediaType: string };
-      };
-      const bytes = replica.content({
-        sha256: descriptor.ref.sha256,
-        size: descriptor.ref.encodedBytes,
-        mediaType: descriptor.ref.mediaType,
-      });
-      if (frame.offset > bytes.byteLength)
-        throw new FleetFault("invalid_offset", "CI detail offset is outside the object.");
-      const end = Math.min(bytes.byteLength, frame.offset + FLEET_CHUNK_BYTES);
-      return immediate({
-        schema: "fleet.ci-detail.chunk/v1",
-        messageId: mid(frame.messageId, "ci-detail"),
-        inReplyTo: frame.messageId,
-        eventId: frame.eventId,
-        offset: frame.offset,
-        dataBase64: Buffer.from(bytes.subarray(frame.offset, end)).toString("base64"),
-        done: end === bytes.byteLength,
-      });
-    }
-    if (frame.schema === "fleet.replica.pull/v1") {
-      const { a, replica, readerProfile } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
-      const preparation = new AbortController();
-      const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
-      const preparationDeadlineAt = Date.now() + (options.replicaPreparationTimeoutMs ?? 60_000);
-      const deadline = setTimeout(
-        () => preparation.abort(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
-        preparationDeadlineAt - Date.now(),
-      );
-      let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
-      try {
-        const ready = untilAborted(async () => {
-          const existing = replica.latest();
-          if (existing) replica.activate();
-          const checkpoint = existing ?? (await untilAborted(() => replica.prepare(), signal));
-          const latest = checkpoint ?? (await replica.waitForCut(1, signal));
-          replica.kick();
-          const ledgerCut = replica.ledgerCut();
-          if (!ledgerCut || ledgerCut.revision === 0)
-            throw new FleetFault("replica_pending", "No center head is known.", true);
-          return { latest, ledgerCut };
-        }, signal).then(
-          (value) => ({ value }),
-          (error: unknown) => ({ error }),
-        );
-        for (;;) {
-          await untilAborted(
-            () =>
-              progress({
-                schema: "fleet.replica.preparing/v1",
-                messageId: mid(frame.messageId, "preparing"),
-                inReplyTo: frame.messageId,
-                repoId: frame.repoId,
-              }),
-            signal,
-          );
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const outcome = await untilAborted(
-            () =>
-              Promise.race([
-                ready,
-                new Promise<null>((resolve) => {
-                  timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
-                }),
-              ]),
-            signal,
-          ).finally(() => clearTimeout(timer));
-          if (outcome === null) continue;
-          if ("error" in outcome) throw outcome.error;
-          prepared = outcome.value;
-          break;
-        }
-        const { latest, ledgerCut } = prepared,
-          key = { nodeId, viewId: nodeId, repoId: a.repoId },
-          id = keyId(key);
-        if (!window.keys.has(id) && window.keys.size >= 8)
-          throw new FleetFault("busy", "Session already has eight active replica keys.", true);
-        if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
-          throw new FleetFault(
-            "replica_quota_insufficient",
-            "Replica quota cannot hold current, incoming, and staging reserve.",
-          );
-        window.keys.add(id);
-        knownKeys.set(id, key);
-        ackStore.register(key, latest.revision);
-        const cursor = ackStore.cursor(key);
-        if (
-          cursor?.revision === latest.revision &&
-          cursor.headDigest === latest.headDigest &&
-          cursor.manifestDigest === latest.manifest.digest
-        ) {
-          window.keys.delete(id);
-          return immediate({
-            schema:
-              latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
-                ? "fleet.replica.current/v1"
-                : "fleet.replica.checkpoint/v1",
-            messageId: mid(frame.messageId, "current"),
-            inReplyTo: frame.messageId,
-            repoId: key.repoId,
-            viewId: key.viewId,
-            cut: wireCut(latest),
-            knownHead: wireCut(ledgerCut),
-            manifestDigest: latest.manifest.digest,
-            readerProfile,
-            authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, readerProfile }),
-          });
-        }
-        if (
-          [...window.offers.values()].some((delivery) => keyId(delivery.key) === id && !delivery.renewalFailure.aborted)
-        )
-          throw new FleetFault(
-            "replica_delivery_busy",
-            "This session already has a delivery for the node/repository",
-            true,
-          );
-        if (options.buildDraining?.())
-          throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-        return await deliverReplicaOffer({
-          key,
-          replica,
-          ackStore,
-          window,
-          lifecycle: deliveries.admit(),
-          signal,
-          connectionSignal,
-          quotaBytes: options.replicaDiskQuotaBytes!,
-          stateRoot: options.stateRoot,
-          issuedAt: now(),
-          authorization: {
-            readerProfile,
-            digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, readerProfile }),
-          },
-        });
-      } finally {
-        clearTimeout(deadline);
-        preparation.abort();
-      }
-    }
-
     if (frame.schema === "fleet.task.command/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       try {
@@ -750,7 +562,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
       let command = frame.action;
       if (command.kind === "runtime-handoff-export") {
-        const candidate = command.candidate as import("./contract.ts").FleetDescriptor;
+        const candidate = command.candidate as import("./command-protocol.ts").FleetDescriptor;
         if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
           throw new FleetFault(
             "claim_not_owned",
@@ -830,7 +642,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               appliedCut: {
                 revision: receipt.cut.revision,
                 headDigest: receipt.cut.headDigest,
-                schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+                schemaGeneration: 0,
               },
             }
           : {}),
@@ -840,7 +652,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
       if (command.kind === "runtime-handoff-export" && command.candidate)
         discardOwnedClaims(nodeId, a.repoId, [
-          { candidate: command.candidate as import("./contract.ts").FleetDescriptor },
+          { candidate: command.candidate as import("./command-protocol.ts").FleetDescriptor },
         ]);
       if (receipt.outcome === "applied" && frame.artifact)
         discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
@@ -1014,50 +826,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         result: result as unknown as Readonly<Record<string, unknown>>,
       });
     }
-    if (frame.schema === "fleet.ack/v1") {
-      const delivery = window.offers.get(frame.transferId),
-        key = delivery?.key;
-      if (!key || !delivery || key.nodeId !== nodeId)
-        throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      await readerAuth({ nodeId, repoId: key.repoId, accessToken: frame.accessToken });
-      let acknowledged = false;
-      try {
-        delivery.renewalFailure.throwIfAborted();
-        if (!options.host.replica(key.repoId).pinActive(delivery.lease))
-          throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
-        const at = Date.now();
-        const renewal = ackStore.delivery.renew(delivery.lease, at, 30_000);
-        if (!renewal.renewed) throw fenced(delivery.lease, "ACK", true, renewal.evidence);
-        const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
-        if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
-        const result = ackStore.ack(
-          key,
-          frame.transferId,
-          frame.cut,
-          frame.manifestDigest,
-          new Date(Date.now()).toISOString(),
-          cutEventAt,
-          delivery.lease,
-        );
-        if (result.outcome === "op_rejected" || !result.cursor)
-          throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
-        acknowledged = true;
-        return immediate({
-          schema: "fleet.ack.result/v1",
-          messageId: mid(frame.messageId, "ack"),
-          inReplyTo: frame.messageId,
-          outcome: result.outcome,
-          viewId: key.viewId,
-          ackCut: result.cursor.revision,
-          knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
-          code: null,
-        });
-      } finally {
-        delivery.release(acknowledged);
-        window.offers.delete(frame.transferId);
-        window.keys.delete(keyId(key));
-      }
-    }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };
   // One row per node for every TLS session it holds, from the moment its hello is dispatched.
@@ -1104,26 +872,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             await options.host.settleMaterialization(repoId, "fleet center close");
         }
       } finally {
-        ackStore.close();
         writerEpoch.close();
       }
     },
-    replicaReceipt: (opId, nodeId, viewId, repoId) =>
-      deriveReplicaReceipt(options.host.replica(repoId), ackStore, { nodeId, viewId, repoId }, opId),
-    status: () => {
-      const keys = new Map(ackStore.keys().map((key) => [keyId(key), key]));
-      for (const [id, key] of knownKeys) keys.set(id, key);
-      return {
-        replicas: [...keys.values()].map((key) =>
-          replicaStatus(
-            options.host.replica(key.repoId),
-            ackStore,
-            key,
-            options.replicaDiskQuotaBytes ?? null,
-            Date.now(),
-          ),
-        ),
-      };
+    replicaReceipt: () => {
+      throw new Error("replica receipt is retired");
     },
+    status: () => ({ replicas: [] }),
   };
 }

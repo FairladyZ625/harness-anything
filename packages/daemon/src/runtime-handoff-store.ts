@@ -13,7 +13,7 @@ import { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { validateHandoffRollout } from "./runtime-handoff-native.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { FLEET_CHUNK_BYTES, type FleetDescriptor } from "./fleet/contract.ts";
+import { FLEET_CHUNK_BYTES, type FleetDescriptor } from "./fleet/command-protocol.ts";
 
 export interface RuntimeHandoffCheckpoint {
   readonly dispatchId: string;

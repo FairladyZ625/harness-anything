@@ -6,7 +6,7 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
+import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/peer.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";

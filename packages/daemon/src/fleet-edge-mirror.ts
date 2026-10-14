@@ -1,0 +1,306 @@
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
+import path from "node:path";
+import {
+  classifyRawArtifactPath,
+  DOC_SYNC_INLINE_MAX_BYTES,
+  documentPath,
+  makeTaskProjectionReader,
+  resolveDocRoute,
+  resolveHarnessLayout,
+  sha256Bytes,
+  type EdgeReadFreshness,
+} from "@harness-anything/kernel";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { writeFileDurably } from "./durable-file.ts";
+
+export interface FleetMirrorBlob {
+  readonly sha256: string;
+  readonly size: number;
+  readonly mediaType: string;
+}
+export interface FleetMirrorView {
+  readonly repoId: string;
+  readonly viewId: string;
+  readonly viewDir: string;
+  readonly revision: number;
+  readonly schemaGeneration: number;
+  readonly headDigest: string;
+  readonly manifestDigest: string;
+  readonly readerProfile: Readonly<Record<string, unknown>> | null;
+  readonly authorizationShapeDigest: string;
+  readonly entries: ReadonlyMap<string, FleetMirrorBlob>;
+}
+export interface FleetMirrorDirtyFile {
+  readonly path: string;
+  readonly bytes: Uint8Array;
+  readonly baseBlobSha256: string | null;
+  readonly mediaType: "text/markdown" | "text/plain";
+}
+export interface FleetMirrorScan {
+  readonly changes: readonly FleetMirrorDirtyFile[];
+  readonly cleanCount: number;
+  readonly cleanPaths: readonly string[];
+  readonly deletedPaths: readonly string[];
+  readonly blocked: readonly {
+    readonly path: string;
+    readonly reason: string;
+    readonly size?: number;
+    readonly maxInlineBytes?: number;
+    readonly code?: string;
+    readonly requiredRoute?: string;
+  }[];
+}
+export type FleetConflictTrigger = "pull" | "push-rejected" | "command-rejected";
+export interface FleetConflictPathRow {
+  readonly path: string;
+  readonly baseBlobSha256: string | null;
+  readonly localBlobSha256: string | null;
+  readonly centerBlobSha256: string | null;
+}
+export interface FleetStagedConflict {
+  readonly conflictId: string;
+  readonly paths: readonly string[];
+  readonly dir: string;
+}
+export interface FleetConflictRecord {
+  readonly conflictId: string;
+  readonly paths: readonly FleetConflictPathRow[];
+  readonly repoId: string;
+  readonly state: "staged" | "resolved";
+}
+export interface FleetMirrorApplyResult {
+  readonly outcome: "applied" | "pull_blocked" | "no_view";
+  readonly fromRevision: number | null;
+  readonly toRevision: number | null;
+  readonly dirtyPaths: readonly string[];
+  readonly conflicts: readonly FleetStagedConflict[];
+}
+export class FleetMirrorError extends Error {
+  readonly code: string;
+  constructor(code: string, message: string) {
+    super(message);
+    this.code = code;
+  }
+}
+
+const rootFor = (view: FleetMirrorView): string => path.dirname(path.dirname(view.viewDir));
+const objectPath = (view: FleetMirrorView, sha: string): string => {
+  const generation = readReplicaGeneration(view.viewDir);
+  if (!generation) throw new FleetMirrorError("replica_unavailable", "Replica generation is unavailable.");
+  return path.join(
+    generation.rootDir,
+    ".harness",
+    "store",
+    "generations",
+    String(generation.metadata.ledgerGeneration),
+    "objects",
+    "sha256",
+    sha.slice(0, 2),
+    sha.slice(2),
+  );
+};
+const materializedRoot = (workspaceRoot: string): string => resolveHarnessLayout(workspaceRoot).authoredRoot;
+export function withFleetMirrorLock<T>(_viewRoot: string, _repoId: string, operation: () => Promise<T>): Promise<T> {
+  return operation();
+}
+export function withFleetReplicaPullLock<T>(_viewDir: string, operation: () => Promise<T>): Promise<T> {
+  return operation();
+}
+
+export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?: string): FleetMirrorView | null {
+  const viewsRoot = path.join(viewRoot, "repos", repoId, "views");
+  if (!existsSync(viewsRoot)) return null;
+  const names = readdirSync(viewsRoot, { withFileTypes: true }).filter(
+    (entry) => entry.isDirectory() && (viewId === undefined || entry.name === viewId),
+  );
+  let best: FleetMirrorView | null = null;
+  for (const entry of names) {
+    const viewDir = path.join(viewsRoot, entry.name),
+      generation = readReplicaGeneration(viewDir);
+    if (!generation) continue;
+    const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
+    try {
+      const docs = reader.withSession((queries) => queries.readDocuments(""));
+      const entries = new Map<string, FleetMirrorBlob>(
+        docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: "text/plain" }]),
+      );
+      const revision = generation.metadata.position.revision;
+      const view: FleetMirrorView = {
+        repoId,
+        viewId: entry.name,
+        viewDir,
+        revision,
+        schemaGeneration: generation.metadata.projectionSchema,
+        headDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+        manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+        readerProfile: null,
+        authorizationShapeDigest: "",
+        entries,
+      };
+      if (!best || view.revision > best.revision) best = view;
+    } finally {
+      reader.close();
+    }
+  }
+  return best;
+}
+export function fleetMirrorTaskPaths(view: FleetMirrorView, taskId: string): string[] {
+  return [...view.entries.keys()].filter((p) => {
+    const folder = p.split("/")[1];
+    return p.startsWith("tasks/") && (folder === taskId || folder?.startsWith(`${taskId}-`));
+  });
+}
+export function fleetMirrorCutFile(view: FleetMirrorView, logical: string): Buffer | null {
+  const blob = view.entries.get(logical);
+  if (!blob) return null;
+  const file = objectPath(view, blob.sha256);
+  return existsSync(file) ? readFileSync(file) : null;
+}
+export function scanFleetMirrorWorktree(
+  view: FleetMirrorView,
+  workspaceRoot: string,
+  selection?: readonly string[],
+): FleetMirrorScan {
+  const root = materializedRoot(workspaceRoot),
+    wanted = selection ? new Set(selection) : null,
+    changes: FleetMirrorDirtyFile[] = [],
+    cleanPaths: string[] = [],
+    blocked: {
+      path: string;
+      reason: string;
+      size?: number;
+      maxInlineBytes?: number;
+      code?: string;
+      requiredRoute?: string;
+    }[] = [];
+  for (const logical of materializedPaths(root)) {
+    if (wanted && !wanted.has(logical)) continue;
+    const file = path.join(root, ...logical.split("/")),
+      bytes = readFileSync(file),
+      base = view.entries.get(logical);
+    if (!logical.endsWith(".md") && !logical.endsWith(".txt")) {
+      if (classifyRawArtifactPath(logical))
+        blocked.push({
+          path: logical,
+          size: statSync(file).size,
+          reason: "non-textual artifact is outside doc sync",
+          code: "raw_artifact_outside_doc_sync",
+          requiredRoute: "typed-binary-content",
+        });
+      continue;
+    }
+    let route: ReturnType<typeof resolveDocRoute> | null = null;
+    try {
+      route = resolveDocRoute(documentPath(logical));
+    } catch {
+      route = null;
+    }
+    if (!route || !route.allowed) {
+      blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
+      continue;
+    }
+    if (bytes.byteLength > DOC_SYNC_INLINE_MAX_BYTES) {
+      blocked.push({
+        path: logical,
+        size: bytes.byteLength,
+        maxInlineBytes: DOC_SYNC_INLINE_MAX_BYTES,
+        reason: "document exceeds inline limit",
+        code: "doc_candidate_too_large",
+        requiredRoute: "blob-content",
+      });
+      continue;
+    }
+    if (base && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) cleanPaths.push(logical);
+    else
+      changes.push({
+        path: logical,
+        bytes,
+        baseBlobSha256: base?.sha256 ?? null,
+        mediaType: logical.endsWith(".md") ? "text/markdown" : "text/plain",
+      });
+  }
+  const deletedPaths = [...view.entries.keys()].filter(
+    (logical) =>
+      (!wanted || wanted.has(logical)) &&
+      (logical.endsWith(".md") || logical.endsWith(".txt")) &&
+      !existsSync(path.join(root, ...logical.split("/"))),
+  );
+  for (const logical of deletedPaths)
+    blocked.push({ path: logical, reason: "canonical document is missing from the registered harness" });
+  return { changes, cleanCount: cleanPaths.length, cleanPaths, deletedPaths, blocked };
+}
+export function cacheFleetMirrorDirtyBases(
+  viewRoot: string,
+  repoId: string,
+  workspaceRoot: string,
+  packagePath?: string,
+): FleetMirrorScan | null {
+  const view = locateFleetMirrorView(viewRoot, repoId);
+  return view
+    ? scanFleetMirrorWorktree(
+        view,
+        workspaceRoot,
+        packagePath ? [...view.entries.keys()].filter((p) => p.startsWith(`${packagePath}/`)) : undefined,
+      )
+    : null;
+}
+export function applyFleetMirrorCut(
+  viewRoot: string,
+  repoId: string,
+  workspaceRoot: string,
+  _trigger: FleetConflictTrigger,
+  context: {
+    readonly viewId?: string;
+    readonly taskId?: string | null;
+    readonly executionId?: string | null;
+    readonly kind?: string;
+    readonly code?: string;
+  } = {},
+): FleetMirrorApplyResult {
+  const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
+  if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
+  const root = materializedRoot(workspaceRoot);
+  mkdirSync(root, { recursive: true });
+  for (const [logical] of view.entries) {
+    const target = path.join(root, ...logical.split("/"));
+    if (!existsSync(target)) {
+      const bytes = fleetMirrorCutFile(view, logical);
+      if (bytes) writeFileDurably(target, bytes);
+    }
+  }
+  return { outcome: "applied", fromRevision: null, toRevision: view.revision, dirtyPaths: [], conflicts: [] };
+}
+export function readFleetConflictRecord(_workspaceRoot: string, _id: string): never {
+  throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
+}
+export function readFleetUnresolvedConflicts(_workspaceRoot: string, _repoId?: string): readonly FleetConflictRecord[] {
+  return [];
+}
+export function settleFleetConflictRecord(_workspaceRoot: string, _id: string, _via: string): never {
+  throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
+}
+export function fleetConflictSideFile(
+  _workspaceRoot: string,
+  _id: string,
+  _logical: string,
+  _side: "base" | "local" | "center",
+): string | null {
+  return null;
+}
+export function restoreFleetConflictCenterBytes(_workspaceRoot: string, _id: string, _row: FleetMirrorBlob): void {
+  throw new FleetMirrorError("conflict_not_found", "No staged conflict record exists.");
+}
+function materializedPaths(root: string): string[] {
+  const found: string[] = [];
+  if (!existsSync(root)) return found;
+  const visit = (dir: string, depth: number): void => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (depth === 0 && [".git", ".harness", ".worktrees"].includes(entry.name)) continue;
+      const target = path.join(dir, entry.name);
+      if (entry.isDirectory()) visit(target, depth + 1);
+      else if (entry.isFile()) found.push(path.relative(root, target).split(path.sep).join("/"));
+    }
+  };
+  visit(root, 0);
+  return found;
+}
