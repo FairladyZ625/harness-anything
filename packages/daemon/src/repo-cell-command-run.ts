@@ -168,7 +168,8 @@ export function makeRepoCellCommandRunner(
       if (context.fatalCellError(error)) context.latchWith(error);
       const contract = getExecutableEntityAction(action.kind),
         receipt = context.failed(
-          context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
+          context.errorOperationId(error) ??
+            context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
           error,
           contract,
           contract ? action : undefined,
@@ -278,12 +279,7 @@ export function makeRepoCellCommandRunner(
           // A coded rejection is this command's own determinate verdict, even after an earlier step
           // (one of several ingested runs, a facade's witness) was accepted as its own command.
           const code = cellErrorCode(error);
-          if (
-            code === "publication_indeterminate" ||
-            (code === "service_rejected" &&
-              !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")) ||
-            (code !== "service_rejected" && context.fatalCellError(error))
-          )
+          if (code === "publication_indeterminate" || (code !== "service_rejected" && context.fatalCellError(error)))
             throw error;
           // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
           const head = context.store.readHead(),
@@ -296,6 +292,11 @@ export function makeRepoCellCommandRunner(
               ),
               { opId: accepted.opId, cause: error },
             );
+          if (
+            code === "service_rejected" &&
+            !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
+          )
+            throw error;
           const rejected = failAction(error, queuedDecision);
           if (rejected.outcome === "op_rejected") {
             if (!context.store.appendRejection)

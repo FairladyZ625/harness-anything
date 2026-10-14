@@ -16,6 +16,7 @@ import {
   resolveLedgerGitLayout,
   sha256Bytes,
   stableStringify,
+  normalizeCommandEnvelope,
   type ActorIdentity,
   type AuthorizationDecision,
   type EventPublicationKillpoint,
@@ -113,7 +114,7 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
     const explicitSelection = Array.isArray(input.action.paths) && input.action.paths.length > 0;
     if (explicitSelection && scan.rows.some((row) => row.state === "conflict")) {
       const rejection = rejectDocSyncAction(
-        `scan:${scan.baseLedgerSha.headDigest}`,
+        scanCommandId(input, scan),
         "preview_blocked",
         scanDetail(input, scan, "preview_blocked"),
       );
@@ -139,10 +140,9 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
     const code = scanRejectionCode(scan),
       blocked = scanDetail(input, scan, code ?? "preview_blocked");
     return scan.rows.some((row) => row.state === "blocked" || row.state === "deletion")
-      ? Object.assign(
-          rejectDocSyncAction(`scan:${scan.baseLedgerSha.headDigest}`, code ?? "preview_blocked", blocked),
-          { summary: scanRejectionSummary(code ?? "preview_blocked", scan) },
-        )
+      ? Object.assign(rejectDocSyncAction(scanCommandId(input, scan), code ?? "preview_blocked", blocked), {
+          summary: scanRejectionSummary(code ?? "preview_blocked", scan),
+        })
       : noOp(input, scan);
   }
   const prepared = scan ? intentFromScan(scan, input.workspaceId) : null,
@@ -160,6 +160,16 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
   return scan && (receipt.outcome === "applied" || receipt.outcome === "pending")
     ? scannerSettlement(input, scan, receipt)
     : receipt;
+}
+
+function scanCommandId(input: Input, scan: DocCandidateScan): string {
+  return normalizeCommandEnvelope({
+    workspaceId: input.workspaceId,
+    actor: input.binding.actor,
+    source: input.binding.source,
+    expectedRevision: scan.baseLedgerSha.revision ?? 0,
+    command: input.action,
+  }).opId;
 }
 
 // A local doc-submit that names neither a task nor a path is the deleted submit-all shape;

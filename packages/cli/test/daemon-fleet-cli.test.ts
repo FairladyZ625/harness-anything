@@ -291,6 +291,14 @@ test(
       assert.equal(restarted.ok, true);
       assert.equal(Number.isSafeInteger(restarted.pid), true);
       assert.notEqual(restarted.pid, stoppedPid, "replay must run in a new daemon process");
+      let attached = false;
+      for (let attempt = 0; attempt < 40 && !attached; attempt += 1) {
+        const status = run(fixture, "edge", ["daemon", "status"]);
+        attached = (status.repos as { repoId: string; state: string }[]).some(
+          (repo) => repo.repoId === "fleet-demo" && repo.state === "attached",
+        );
+      }
+      assert.equal(attached, true, "the restarted host owns the resident stream before sync");
       const again = sync();
       assert.equal(again.status, "fleet.replica.current/v1");
       assert.deepEqual(again.cut, pulled.cut);
