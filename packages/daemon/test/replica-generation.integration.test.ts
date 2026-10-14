@@ -90,7 +90,11 @@ test(
     const firstInstall = await edge.waitForEvent("installed");
     const firstGeneration = String(firstInstall.generationDir),
       firstProjection = String(firstInstall.projectionPath);
-    // A read session pins the first generation for its whole lifetime.
+    // A reader pins the first generation for its whole lifetime. Pins live in the edge process that
+    // collects generations, so this test-process reader registers its pin there.
+    edge.control({ control: "acquire-reader" });
+    const pinned = await edge.waitForEvent("reader-acquired");
+    assert.equal(pinned.generationDir, firstGeneration, "the pin names the generation being read");
     const holdingReader = makeTaskProjectionReader({ rootDir: edge.root, projectionPath: firstProjection });
     const heldList = holdingReader.withSession((queries) => queries.list({}).rows.length);
     assert.ok(heldList > 0, "the held reader sees the seeded task rows");
@@ -105,12 +109,17 @@ test(
     }
     edge.control({ control: "release-acks" });
     await edge.waitForEvent("resync-required", 60_000);
-    const secondInstall = await edge
-      .waitForEvent("backup-header", 120_000)
-      .then(() => edge.waitForEvent("installed", 120_000));
+    // waitForEvent answers with the first matching event, which is the first install; wait for the second.
+    await edge.waitForWhere(
+      () => edge.events.filter((event) => event.event === "installed").length === 2,
+      "a second installed generation",
+      120_000,
+    );
+    const secondInstall = edge.lastEvent("installed")!;
     const secondGeneration = String(secondInstall.generationDir);
     assert.notEqual(secondGeneration, firstGeneration, "a new generation was published");
     assert.equal(existsSync(secondGeneration), true, "the new generation is durable before the pointer names it");
+    assert.equal(existsSync(firstGeneration), true, "the pinned old generation survives the publish");
     // The holding reader still answers from the old generation, unaffected by the publish.
     assert.equal(
       holdingReader.withSession((queries) => queries.list({}).rows.length),
@@ -127,6 +136,7 @@ test(
     );
     // After the last reader of the old generation closes, the old directory is recycled.
     holdingReader.close();
+    edge.control({ control: "release-reader" });
     await waitForState(() => !existsSync(firstGeneration), "the old generation directory to be recycled", 60_000);
     switchedReader.close();
   },

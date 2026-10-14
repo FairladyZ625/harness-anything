@@ -68,16 +68,19 @@ export async function runWalSender(input: {
   let position = start.position;
   for (;;) {
     assertOwner();
-    let page: ReturnType<ReplicationSource["read"]>;
+    let page: ReturnType<ReplicationSource["read"]>,
+      reason = "replication window unavailable";
     try {
       page = position === null ? null : source.read(position);
     } catch (error) {
+      // Only the store's revision_conflict verdict means the replica left this history; any other read failure is a fault.
+      if ((error as { readonly code?: unknown }).code !== "revision_conflict") throw error;
       consumeKnownError(error);
-      if (position !== null) await peer.send({ type: "replica.resync", reason: "replication history mismatch" });
+      reason = "replication history mismatch";
       page = null;
     }
     if (page === null) {
-      if (position !== null) await peer.send({ type: "replica.resync", reason: "replication window unavailable" });
+      if (position !== null) await peer.send({ type: "replica.resync", reason });
       const archive = await source.backup(signal);
       try {
         assertOwner();

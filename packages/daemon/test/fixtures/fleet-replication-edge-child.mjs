@@ -4,7 +4,8 @@
 // process-level 1 中心 + 3 边缘 fixture. Communication with the driving test:
 //   stdout  one JSON line per event: backup-header / installed / applied / ack /
 //           resync-required / killpoint / error / exit
-//   stdin   {"control":"release-acks"} opens an ACK gate previously held by config.holdAcks
+//   stdin   {"control":"release-acks"} opens an ACK gate previously held by config.holdAcks;
+//           {"control":"acquire-reader"|"release-reader"} pins/unpins the current generation for the test
 // Exit codes follow the fleet-edge-child convention: 74 killed after basebackup install
 // before its ACK, 75 killed after a durable commit apply before its ACK, 76 killed after
 // package verification before generation install.
@@ -29,13 +30,22 @@ if (!spawnSync("git", ["--version"]).error) throw new Error("edge test PATH unex
 const emit = (event) => process.stdout.write(`${JSON.stringify(event)}\n`);
 
 let acksReleased = !config.holdAcks;
+// Reader pins the driving test registers on this edge's generation reader (the collector's registry).
+const pins = [];
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (chunk) => {
   for (const line of chunk.split("\n")) {
     if (!line.trim()) continue;
     const control = JSON.parse(line);
     if (control.control === "release-acks") acksReleased = true;
-    else throw new Error(`unknown edge child control: ${line}`);
+    else if (control.control === "acquire-reader") {
+      const pin = readers.acquire();
+      pins.push(pin);
+      emit({ event: "reader-acquired", generationDir: pin.generation.rootDir });
+    } else if (control.control === "release-reader") {
+      pins.shift().release();
+      void readers.collect().then(() => emit({ event: "reader-released" }));
+    } else throw new Error(`unknown edge child control: ${line}`);
   }
 });
 if (!acksReleased) emit({ event: "acks-held" });

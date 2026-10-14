@@ -161,6 +161,10 @@ export async function serve(
               pendingReplicationStart = frame;
               return;
             }
+            // Single replication owner per node: this start displaces the node's other sessions,
+            // as the pending-start path does; a plain hello (an edge command) cuts nothing.
+            const live = sessions.get(nodeId);
+            if (live) for (const existing of live) if (existing !== socket) existing.destroy();
             replicationMode = true;
             replicationFrames.push(frame);
             if (options.onReplicationStart)
@@ -214,7 +218,6 @@ export async function serve(
         // authenticate verdict revive the connection afterwards.
         const helloNodeId = frame.nodeId,
           live = sessions.get(helloNodeId) ?? new Set<TLSSocket>();
-        for (const existing of live) existing.destroy();
         sessions.set(helloNodeId, live.add(socket));
         socket.once("close", () => {
           const set = sessions.get(helloNodeId);

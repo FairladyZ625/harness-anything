@@ -9,7 +9,7 @@ import assert from "node:assert/strict";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { DatabaseSync } from "node:sqlite";
 import { makeTaskProjectionReader } from "@harness-anything/kernel";
 import { AccessAdminService } from "../src/access-admin-service.ts";
@@ -161,7 +161,7 @@ test("three process-level edges hold one consistent mirror of every center read"
   for (const installed of installs) {
     const rows = mirrorEventRows(
       String(installed.ledgerPath),
-      "json_extract(event_json, '$.payload.text') LIKE 'write-back from %'",
+      "json_extract(event_json, '$.payload.task.title') LIKE 'write-back from %'",
     );
     assert.equal(rows.length, 3, "each write-back event appears exactly once on every mirror");
   }
@@ -183,18 +183,48 @@ test("three process-level edges hold one consistent mirror of every center read"
   assert.ok(containsBytes(String(installs[2]!.generationDir), edgeNote), "edge-three received the submitted object");
   // An agent dispatch from an edge is one canonical runtime event, mirrored once everywhere.
   // 待对齐: runtime 派工帧按 A 分片 protocol 落地核对;事件唯一性以 runtimeSessionId 计数。
-  const runtimeSessionId = `runtime-session-${randomUUID()}`;
+  // Dispatch identities are derived from the repository idempotency key (repo-cell-runtime-ingress).
+  const idempotencyKey = `edge-dispatch-${randomUUID()}`,
+    dispatchHash = createHash("sha256").update(`replica-repo\0${idempotencyKey}`).digest("hex"),
+    runtimeSessionId = `runtime_${dispatchHash.slice(24, 48)}`;
   const peer = await rawPeer(fixture.track, fixture.centerPort(), fixture.cert, "edge-one", "secret-edge-one");
+  const metadata = await peer.request({
+    schema: "fleet.repo.metadata.get/v1",
+    messageId: "metadata",
+    repoId: "replica-repo",
+  });
+  if (metadata.schema !== "fleet.repo.metadata.result/v1") throw new Error(JSON.stringify(metadata));
   const dispatch = await peer.request({
     schema: "fleet.runtime.event/v1",
     messageId: "dispatch",
-    writerEpoch: 1,
+    writerEpoch: metadata.writerEpoch,
     repoId: "replica-repo",
-    opId: `op-${runtimeSessionId}`,
+    opId: `runtime-spawn-${dispatchHash.slice(0, 32)}`,
     eventType: "runtime_dispatch_requested",
-    payload: { runtimeSessionId, taskId: seededTask.taskId, executionId: seededTask.executionId },
+    payload: {
+      dispatchId: `dispatch_${dispatchHash.slice(0, 24)}`,
+      runtimeSessionId,
+      instanceId: "runtime-instance-edge",
+      installationId: `installation-${seededTask.taskId}`,
+      kindId: "codex",
+      idempotencyKey,
+      definitionSnapshotRef: "artifact:runtime-definition/edge",
+      definitionSnapshot: {
+        schema: "agent-definition-snapshot/v1",
+        configVersion: 1,
+        instanceId: "runtime-instance-edge",
+        installationId: `installation-${seededTask.taskId}`,
+        kindId: "codex",
+        providerId: "openai",
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        baseUrl: null,
+        authMode: "subscription",
+      },
+    },
     result: null,
-    dispatchContext: { role: "worker", taskId: seededTask.taskId, executionId: seededTask.executionId },
+    // A task-less dispatch: edge-one holds no lease on the center-started seeded task.
+    dispatchContext: { role: null, taskId: null, executionId: null },
   });
   t.diagnostic(`runtime dispatch reply: ${dispatch.schema}`);
   peer.close();
