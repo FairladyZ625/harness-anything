@@ -22,8 +22,9 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
   readonly timeoutMs: number;
   readonly write: () => Promise<T>;
 }): Promise<T> {
-  const receipt = await options.write(),
-    signal = AbortSignal.timeout(options.timeoutMs);
+  const receipt = await options.write();
+  if ("outcome" in receipt && receipt.outcome !== "applied") return receipt;
+  const signal = AbortSignal.timeout(options.timeoutMs);
   try {
     await waitForFleetReplicaSequence(
       { viewRoot: options.viewRoot, repoId: options.repoId, nodeId: options.nodeId },
