@@ -59,6 +59,7 @@ test(
     // a whole-file backup, not a rebuild that would converge only after replay.
     const mirrorLedger = new DatabaseSync(String(installed.ledgerPath), { readOnly: true });
     try {
+      mirrorLedger.exec("PRAGMA busy_timeout=5000");
       const row = mirrorLedger.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as {
         head: number;
       };
@@ -187,6 +188,7 @@ test(
       mirrorHead = (ledgerPath: string): number => {
         const db = new DatabaseSync(ledgerPath, { readOnly: true });
         try {
+          db.exec("PRAGMA busy_timeout=5000");
           return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
         } finally {
           db.close();
