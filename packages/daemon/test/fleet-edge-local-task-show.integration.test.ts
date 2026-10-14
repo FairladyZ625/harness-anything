@@ -151,13 +151,17 @@ test(
   },
 );
 
-test("an edge read that cannot reach its own write cut in time says so without reading", async () => {
+test("an edge read that cannot reach its own write cut in time says so without reading", async (t) => {
+  const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+  const e = await fleetEdgeHostFixture(t, f);
+  await catchUpReplica({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+  const view = locateFleetMirrorView(e.viewRoot, "lease-repo", "node-one")!;
   const answer = await readEdgeRepository(
     {
-      viewRoot: "/nonexistent-edge-view",
+      viewRoot: e.viewRoot,
       nodeId: "node-one",
       repoId: "lease-repo",
-      minCut: { revision: 10, headDigest: `sha256:${"f".repeat(64)}` },
+      minCut: { revision: view.revision + 1, headDigest: `sha256:${"f".repeat(64)}` },
       writeReadWaitMs: 5,
       action: { kind: "task-show", taskId: "show-1" },
     },

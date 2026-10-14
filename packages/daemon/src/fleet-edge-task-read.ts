@@ -98,8 +98,11 @@ export async function readEdgeRepository(
   pull: () => Promise<unknown>,
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
+  if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId)) {
+    await pull();
+    return readLocal();
+  }
   if (!(await waitForMinimumCut(input))) return { outcome: "pending", code: "write_committed_read_pending", ok: false };
-  if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId)) await pull();
   return readLocal();
 }
 export function edgeReadModelPresent(input: EdgeTaskReadInput): boolean {
