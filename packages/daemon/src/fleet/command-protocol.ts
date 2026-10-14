@@ -118,6 +118,7 @@ export type FleetFrameV1 =
         outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         opId: string;
         revision: number | null;
+        replicationSequence: number;
         code: string | null;
       }
     >
@@ -144,7 +145,7 @@ export type FleetFrameV1 =
         opId: string;
         revision: number | null;
         /** Center replication head after this command; a write-then-read waits for the edge to apply it. */
-        replicationSequence: number | null;
+        replicationSequence: number;
         appliedCut?: FleetCut | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>> | null;
@@ -168,7 +169,7 @@ export type FleetFrameV1 =
         outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         revision: number | null;
         /** Center replication head after this command; applied edge writes wait until it is local. */
-        replicationSequence: number | null;
+        replicationSequence: number;
         code: string | null;
         receipt: Readonly<Record<string, unknown>>;
       }
@@ -195,7 +196,10 @@ export type FleetFrameV1 =
       }
     >
   | Msg<"fleet.runtime.archive/v1", { writerEpoch: number; repoId: string; archive: Readonly<Record<string, unknown>> }>
-  | Msg<"fleet.runtime.archive.result/v1", { inReplyTo: string; receipt: Readonly<Record<string, unknown>> }>
+  | Msg<
+      "fleet.runtime.archive.result/v1",
+      { inReplyTo: string; replicationSequence: number; receipt: Readonly<Record<string, unknown>> }
+    >
   | Msg<
       "fleet.runtime.await/v1",
       {
@@ -668,6 +672,7 @@ const schemas: Readonly<Record<string, Check>> = {
     outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
     opId: text,
     revision: nullable(uint),
+    replicationSequence: uint,
     code: nullable(text),
   }),
   "fleet.task.command/v1": optionalShape(
@@ -692,7 +697,7 @@ const schemas: Readonly<Record<string, Check>> = {
       outcome: one("applied", "op_rejected"),
       opId: id,
       revision: nullable(uint),
-      replicationSequence: nullable(uint),
+      replicationSequence: uint,
       appliedCut: nullable(cut),
       code: nullable(text),
       receipt: nullable(record),
@@ -712,7 +717,7 @@ const schemas: Readonly<Record<string, Check>> = {
     opId: id,
     outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
     revision: nullable(uint),
-    replicationSequence: nullable(uint),
+    replicationSequence: uint,
     code: nullable(text),
     receipt: record,
   }),
@@ -728,7 +733,7 @@ const schemas: Readonly<Record<string, Check>> = {
   }),
   "fleet.runtime.event.result/v1": shape({ ...reply, replicationSequence: uint, event: record, receipt: record }),
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
-  "fleet.runtime.archive.result/v1": shape({ ...reply, receipt: record }),
+  "fleet.runtime.archive.result/v1": shape({ ...reply, replicationSequence: uint, receipt: record }),
   "fleet.runtime.await/v1": shape({
     ...common,
     repoId: id,

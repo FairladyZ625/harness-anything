@@ -58,8 +58,7 @@ const settle = (key: string, sequence: number | null, failure?: unknown): void =
 };
 /**
  * Write-then-read: resolves once the resident stream applied the center commit sequence of a write.
- * It fails instead of waiting while no stream runs for the view or the stream is down, and when the
- * stream fails or stops before reaching the sequence; the caller's signal cancels it.
+ * It waits across resident stream reconnects; the caller's signal owns the wait budget.
  */
 export function waitForFleetReplicaSequence(
   options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">,
@@ -71,7 +70,6 @@ export function waitForFleetReplicaSequence(
   const key = syncKey(options),
     stream = streams.get(key);
   if (!stream) return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
-  if (stream.down !== null) return Promise.reject(streamDown(stream.down));
   if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const pending = waiters.get(key) ?? new Set<Waiter>();
@@ -150,7 +148,6 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       if (attempt.failed) {
         stream.down = attempt.error;
         observe(replicaFailure(attempt.error, "replica_sync_failed"));
-        settle(key, null, streamDown(attempt.error));
         options.onFailure?.(attempt.error);
       }
       const ceiling = Math.min(30_000, 250 * 2 ** Math.min(failures++, 7));

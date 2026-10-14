@@ -49,7 +49,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
-import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
+import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import {
@@ -237,19 +237,14 @@ export function openFleetEdgeRuntime(input: {
     ready = null;
   });
   const schedule = workQueue.schedule;
-  const waitForReplicaWrite = (sequence: number): Promise<void> =>
-    waitForFleetReplicaSequence(
-      { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId },
-      sequence,
-    );
   const runScheduleCommand: typeof runFleetScheduleCommandClient = async (options) => {
-    const result = await runFleetScheduleCommandClient(options);
-    if (result.outcome === "applied") {
-      if (result.replicationSequence === null)
-        throw new Error("Applied Schedule command omitted its replication sequence.");
-      await waitForReplicaWrite(result.replicationSequence);
-    }
-    return result;
+    return runFleetEdgeWrite({
+      viewRoot: request.viewRoot,
+      repoId: request.repoId,
+      nodeId: request.nodeId,
+      timeoutMs: centerWriteWaitMs,
+      write: () => runFleetScheduleCommandClient(options),
+    });
   };
   const spawner = makeRuntimeSpawner({
     repoId: request.repoId,
@@ -396,16 +391,22 @@ export function openFleetEdgeRuntime(input: {
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
       publish: async (draft) => {
-        const response = await runFleetRuntimeEventClient({
-          ...writePeer,
+        const response = await runFleetEdgeWrite({
+          viewRoot: request.viewRoot,
           repoId: request.repoId,
-          opId: draft.opId,
-          eventType: draft.type,
-          payload: draft.payload,
-          ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
-          ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
+          nodeId: request.nodeId,
+          timeoutMs: centerWriteWaitMs,
+          write: () =>
+            runFleetRuntimeEventClient({
+              ...writePeer,
+              repoId: request.repoId,
+              opId: draft.opId,
+              eventType: draft.type,
+              payload: draft.payload,
+              ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
+              ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
+            }),
         });
-        await waitForReplicaWrite(response.replicationSequence);
         // A returned dispatch is immediately usable by local status/foreground wait. This
         // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
@@ -429,12 +430,21 @@ export function openFleetEdgeRuntime(input: {
           } as JsonObject,
         };
       },
-      archive: async (archive) =>
-        (await runFleetRuntimeArchiveClient({
-          ...writePeer,
+      archive: async (archive) => {
+        const response = await runFleetEdgeWrite({
+          viewRoot: request.viewRoot,
           repoId: request.repoId,
-          archive: archive as unknown as Readonly<Record<string, unknown>>,
-        })) as { readonly outcome: string },
+          nodeId: request.nodeId,
+          timeoutMs: centerWriteWaitMs,
+          write: () =>
+            runFleetRuntimeArchiveClient({
+              ...writePeer,
+              repoId: request.repoId,
+              archive: archive as unknown as Readonly<Record<string, unknown>>,
+            }),
+        });
+        return response.receipt as { readonly outcome: string };
+      },
     },
     stream,
     now,
@@ -468,19 +478,26 @@ export function openFleetEdgeRuntime(input: {
     onAttemptTerminal: async (terminal) => {
       if (terminal.task) {
         const { taskId, executionId } = terminal.task,
-          settled = await runFleetTaskCommandClient({
-            ...writePeer,
+          settled = await runFleetEdgeWrite({
+            viewRoot: request.viewRoot,
             repoId: request.repoId,
-            taskId,
-            opId: `runtime-terminal-${terminal.runtimeSessionId}`,
-            waitMs: centerWriteWaitMs,
-            action: {
-              kind: "task-release",
-              taskId,
-              terminalExecutionId: executionId,
-              terminalRuntimeSessionId: terminal.runtimeSessionId,
-              reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
-            },
+            nodeId: request.nodeId,
+            timeoutMs: centerWriteWaitMs,
+            write: () =>
+              runFleetTaskCommandClient({
+                ...writePeer,
+                repoId: request.repoId,
+                taskId,
+                opId: `runtime-terminal-${terminal.runtimeSessionId}`,
+                waitMs: centerWriteWaitMs,
+                action: {
+                  kind: "task-release",
+                  taskId,
+                  terminalExecutionId: executionId,
+                  terminalRuntimeSessionId: terminal.runtimeSessionId,
+                  reason: `Runtime session ${terminal.runtimeSessionId} reached a terminal dispatch state.`,
+                },
+              }),
           });
         if (
           settled.outcome !== "applied" &&
@@ -617,14 +634,21 @@ export function openFleetEdgeRuntime(input: {
           rootDir: request.workspaceRoot,
           payload: action,
           command: async (command, body) => {
-            const result = await runFleetTaskCommandClient({
-              ...writePeer,
+            const result = await runFleetEdgeWrite({
+              viewRoot: request.viewRoot,
               repoId: request.repoId,
-              taskId: null,
-              opId: `handoff_${Date.now()}`,
-              waitMs: centerWriteWaitMs,
-              action: command as { kind: string },
-              ...(body ? { privatePayload: body } : {}),
+              nodeId: request.nodeId,
+              timeoutMs: centerWriteWaitMs,
+              write: () =>
+                runFleetTaskCommandClient({
+                  ...writePeer,
+                  repoId: request.repoId,
+                  taskId: null,
+                  opId: `handoff_${Date.now()}`,
+                  waitMs: centerWriteWaitMs,
+                  action: command as { kind: string },
+                  ...(body ? { privatePayload: body } : {}),
+                }),
             });
             return result.receipt as JsonObject;
           },

@@ -9,7 +9,7 @@ import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed node owner", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
@@ -34,6 +34,18 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
       diskQuotaBytes: replicaQuota,
     });
   await syncReplica();
+  const resident = startResidentReplicaSync({
+    hostname: "127.0.0.1",
+    port: center.port,
+    ca: fixture.cert,
+    nodeId: fixture.subject.nodeId,
+    credential: "machine-secret",
+    readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    repoId: fixture.subject.repoId,
+    viewRoot,
+    diskQuotaBytes: replicaQuota,
+  });
+  fixture.track(resident.close);
   applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
   let terminal: (() => void) | undefined;
   const runtime = openFleetEdgeRuntime({
@@ -197,6 +209,18 @@ for (const restart of [false, true])
           diskQuotaBytes: replicaQuota,
         });
       await syncReplica();
+      const resident = startResidentReplicaSync({
+        hostname: "127.0.0.1",
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
+      fixture.track(resident.close);
       applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
       let terminal: (() => void) | undefined;
       const createRuntime = () =>

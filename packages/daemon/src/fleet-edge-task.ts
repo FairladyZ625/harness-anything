@@ -47,7 +47,7 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
-import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
+import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
@@ -253,20 +253,29 @@ export async function runFleetEdgeTask(
       if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
       if (changes.length === 0)
         return { schema: "command-receipt/v2", command: action.kind, ok: true, outcome: "no_changes" };
-      const result = await runFleetWriteClient({
-        ...peer,
-        taskId,
-        executionId: null,
-        channel: "collaborator",
-        changes: changes.map((change) => ({
-          path: change.path,
-          body: Buffer.from(change.bytes),
-          baseBlobSha256: change.baseBlobSha256,
-          policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
-          mediaType: change.mediaType,
-        })),
+      const center = await runFleetEdgeWrite({
+        viewRoot: payload.viewRoot,
+        repoId: payload.repoId,
+        nodeId: payload.nodeId,
+        timeoutMs: waitMs,
+        write: async () =>
+          (
+            await runFleetWriteClient({
+              ...peer,
+              taskId,
+              executionId: null,
+              channel: "collaborator",
+              changes: changes.map((change) => ({
+                path: change.path,
+                body: Buffer.from(change.bytes),
+                baseBlobSha256: change.baseBlobSha256,
+                policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+                mediaType: change.mediaType,
+              })),
+            })
+          ).center,
       });
-      if (result.center.outcome === "applied") {
+      if (center.outcome === "applied") {
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
@@ -276,10 +285,10 @@ export async function runFleetEdgeTask(
           throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
       }
       return {
-        ...result.center,
+        ...center,
         schema: "command-receipt/v2",
         command: action.kind,
-        ok: result.center.outcome === "applied" || result.center.outcome === "no_changes",
+        ok: center.outcome === "applied" || center.outcome === "no_changes",
       };
     }
     if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
@@ -329,24 +338,35 @@ export async function runFleetEdgeTask(
       action = target as FleetTaskAction;
     }
     const bundle = readOnly || artifact ? null : await attachTaskDocs();
-    const deadline = Date.now() + waitMs + 30_000 + (bundle === null ? 0 : 60_000);
+    const commandTimeoutMs = waitMs + 30_000 + (bundle === null ? 0 : 60_000),
+      deadline = Date.now() + commandTimeoutMs;
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null,
       attempt = 0;
     while (result === null) {
       const remaining = Math.max(1, deadline - Date.now());
       try {
-        const next = await runFleetTaskCommandClient({
-          ...peer,
-          opId,
-          repoId: payload.repoId,
-          taskId,
-          action,
-          ...(artifact ? { artifact } : {}),
-          waitMs,
-          timeoutMs: remaining + 10_000,
-          docChanges: bundle === null ? undefined : bundle.docChanges,
-          mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
-        });
+        const write = () =>
+          runFleetTaskCommandClient({
+            ...peer,
+            opId,
+            repoId: payload.repoId,
+            taskId,
+            action,
+            ...(artifact ? { artifact } : {}),
+            waitMs,
+            timeoutMs: remaining + 10_000,
+            docChanges: bundle === null ? undefined : bundle.docChanges,
+            mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
+          });
+        const next = readOnly
+          ? await write()
+          : await runFleetEdgeWrite({
+              viewRoot: payload.viewRoot,
+              repoId: payload.repoId,
+              nodeId: payload.nodeId,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+              write,
+            });
         if (Date.now() < deadline && transientResult(next)) {
           await sleep(fleetEdgeBackoffMs(attempt++));
           continue;
@@ -370,12 +390,6 @@ export async function runFleetEdgeTask(
     // center bytes staged beside the local ones for the explicit exits.
     if (!readOnly && (applied || conflictCode !== null)) {
       try {
-        if (result.replicationSequence === null)
-          throw new Error("Applied task command omitted its replication sequence.");
-        await waitForFleetReplicaSequence(
-          { viewRoot: payload.viewRoot, repoId: payload.repoId, nodeId: payload.nodeId },
-          result.replicationSequence,
-        );
         const settle =
           workspaceRoot === null
             ? null

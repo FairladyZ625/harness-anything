@@ -663,6 +663,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         outcome: receipt.outcome,
         opId: receipt.opId,
         revision: receipt.revision ?? null,
+        replicationSequence: replicationHead(a.repoId),
         code: receipt.code ?? null,
       });
     }
@@ -911,6 +912,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.runtime.archive.result/v1",
         messageId: mid(frame.messageId, "runtime-archive"),
         inReplyTo: frame.messageId,
+        replicationSequence: replicationHead(a.repoId),
         receipt,
       });
     }

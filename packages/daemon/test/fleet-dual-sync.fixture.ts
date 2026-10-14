@@ -17,7 +17,7 @@ import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mi
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 // Idle WAL→Git materialization defaults to one hour (owner ruling 2026-08-31). These suites
 // wait for materialized commits, so pin the test-local idle timer to a fast interval.
@@ -132,6 +132,36 @@ export async function dualSyncFixture(
     quotaBytes: replicaQuota,
     workspaceRoot: workspace(nodeId),
   });
+  const residentStreams = nodes.map((nodeId) =>
+    startResidentReplicaSync({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: cert,
+      servername: "localhost",
+      nodeId,
+      credential: `secret-${nodeId}`,
+      readAccessToken: owners.readAccessToken(nodeId),
+      repoId: "dual-repo",
+      viewRoot: edgeRoot(nodeId),
+      diskQuotaBytes: replicaQuota,
+    }),
+  );
+  await Promise.all(
+    nodes.map((nodeId) =>
+      catchUpReplica({
+        hostname: "127.0.0.1",
+        port: center.port,
+        ca: cert,
+        servername: "localhost",
+        nodeId,
+        credential: `secret-${nodeId}`,
+        readAccessToken: owners.readAccessToken(nodeId),
+        repoId: "dual-repo",
+        viewRoot: edgeRoot(nodeId),
+        diskQuotaBytes: replicaQuota,
+      }),
+    ),
+  );
   const edgeTask = (nodeId: NodeId, action: Record<string, unknown>): Promise<Record<string, unknown>> =>
     runFleetEdgeTask({ payload: { ...channel(nodeId), action: action as never } }, owners.readAccessToken(nodeId));
   const edgeDocSync = (nodeId: NodeId): Promise<Record<string, unknown>> =>
@@ -233,6 +263,7 @@ export async function dualSyncFixture(
     git,
     owners,
     close: async () => {
+      await Promise.all(residentStreams.map((stream) => stream.close()));
       await center.close();
       await host.close();
       await owners.close();

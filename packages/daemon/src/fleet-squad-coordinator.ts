@@ -4,6 +4,7 @@ import { deriveSquadChildPlan, reacquireSquadTaskLease } from "./repo-cell-squad
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { runFleetEdgeTask } from "./fleet-edge-task.ts";
 import { readFleetRepositoryMetadataClient, runFleetRuntimeEventClient, type FleetPeerOptions } from "./fleet/peer.ts";
+import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawner.ts";
 import type { RuntimeBinding } from "./runtime-spawn-types.ts";
@@ -42,12 +43,19 @@ export function makeFleetSquadCoordinator(input: {
     readResult: input.readResult,
     readWorktreeSetup: input.readWorktreeSetup,
     publishObservation: async (observation) => {
-      await runFleetRuntimeEventClient({
-        ...input.peer,
+      await runFleetEdgeWrite({
+        viewRoot: request.viewRoot,
         repoId: request.repoId,
-        opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
-        eventType: "runtime_squad_run_observed",
-        payload: { ...observation },
+        nodeId: request.nodeId,
+        timeoutMs: input.peer.timeoutMs ?? 60_000,
+        write: () =>
+          runFleetRuntimeEventClient({
+            ...input.peer,
+            repoId: request.repoId,
+            opId: `squad-observed-${observation.squadRunId}-${observation.runRevision}`,
+            eventType: "runtime_squad_run_observed",
+            payload: { ...observation },
+          }),
       });
       await input.sync();
     },

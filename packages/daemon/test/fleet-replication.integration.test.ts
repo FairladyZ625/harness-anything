@@ -242,6 +242,27 @@ test("three process-level edges hold one consistent mirror of every center read"
       ),
     ),
   );
+  const settledProjection = fixture.centerReader(),
+    settledWatermark = settledProjection.withSession((queries) => queries.readCut().watermark);
+  settledProjection.close();
+  await Promise.all(
+    installs.map((installed) =>
+      waitForState(() => {
+        const db = new DatabaseSync(String(installed.projectionPath), { readOnly: true });
+        try {
+          return (
+            (
+              db.prepare("SELECT watermark FROM projection_meta WHERE singleton=1").get() as
+                | { watermark: number }
+                | undefined
+            )?.watermark >= settledWatermark
+          );
+        } finally {
+          db.close();
+        }
+      }, `projection watermark ${settledWatermark} on ${installed.nodeId}`),
+    ),
+  );
   for (const installed of installs) {
     assert.equal(
       mirrorEventRows(String(installed.ledgerPath), bySession, [runtimeSessionId]).length,
@@ -251,19 +272,24 @@ test("three process-level edges hold one consistent mirror of every center read"
   }
   // F-97987445: compare every table in both replicated SQLite databases, ordered by primary key.
   // Include the projection tables and runtime-owned lease rows; the edge is a complete mirror.
-  // replication_log is each node's retention-pruned transport log: the center prunes it to its slowest
-  // slot (pg_wal) and the edge recycles it below its own applied position, keeping only that anchor row.
+  // replication_log is each node's retained transport suffix. The edge starts at its base-backup
+  // anchor; every retained row through its applied position must match the center's row.
   const compareDatabase = (centerPath: string, edgePath: string, label: string) => {
     const { replication_log: edgeLog, ...edgeTables } = tableRows(edgePath),
       { replication_log: centerLog, ...centerTables } = tableRows(centerPath);
     assert.deepEqual(edgeTables, centerTables, `${label}: every table row matches center`);
     if (edgeLog === undefined) return;
-    const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence;
+    const applied = (edgeTables.replication_state as unknown as readonly { sequence: number }[])[0]!.sequence,
+      firstRetained = (edgeLog[0] as unknown as { sequence: number } | undefined)?.sequence ?? applied;
     assert.deepEqual(
       edgeLog,
-      (centerLog ?? []).filter((row) => (row as unknown as { sequence: number }).sequence >= applied),
-      `${label}: the edge holds exactly the center log row at its applied position`,
+      (centerLog ?? []).filter((row) => {
+        const sequence = (row as unknown as { sequence: number }).sequence;
+        return sequence >= firstRetained && sequence <= applied;
+      }),
+      `${label}: every retained edge log row matches the center through its applied position`,
     );
+    assert.equal((edgeLog.at(-1) as unknown as { sequence: number } | undefined)?.sequence, applied);
   };
   for (const installed of installs) {
     compareDatabase(fixture.ledgerPath, String(installed.ledgerPath), "ledger");

@@ -7,7 +7,7 @@
 // log on its single writer down to the slowest slot and the edge recycles its own log below its applied
 // position; a resync installs a new generation and the old one is deleted once no read pins it; stream
 // start removes staging a crashed install left; edge sync waits for the center's head on the resident
-// stream, and replica waits fail with the stream's error while it is down or stopped.
+// stream, and write waits survive reconnects but fail when their own signal expires or the stream stops.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { createServer, connect, type Socket } from "node:net";
@@ -341,18 +341,18 @@ test(
       Number(receipt.knownHead.headDigest.split(":").at(-1)) >= head,
       `sync reported ${receipt.knownHead.headDigest} before the center head ${head}`,
     );
-    // A wait pending when the stream fails rejects with the stream's error, and so does a wait
-    // started while it cannot reconnect.
+    // A wait pending across a transient disconnect remains registered until the resident reconnects.
     link.hold();
     await pressure(fixture);
     const target = centerSequence(fixture),
+      failuresBeforeCut = stream.failures.length,
       pending = waitForFleetReplicaSequence(view, target);
     link.refuse(true);
     link.cut();
-    await assert.rejects(pending, streamDown(/replica stream is down: /u));
-    await assert.rejects(waitForFleetReplicaSequence(view, target), streamDown(/replica stream is down: /u));
+    await waitForState(() => stream.failures.length > failuresBeforeCut, "resident stream to observe the disconnect");
     link.refuse(false);
     link.release();
+    await pending;
     await converged("convergence after the outage");
     await waitForFleetReplicaSequence(view, target);
     // The caller's signal cancels a wait; stopping the stream fails the waits it would have served.
@@ -360,6 +360,8 @@ test(
       cancelled = waitForFleetReplicaSequence(view, target + 1000, caller.signal);
     caller.abort(new Error("caller gave up"));
     await assert.rejects(cancelled, /caller gave up/u);
+    const timedOut = waitForFleetReplicaSequence(view, target + 1000, AbortSignal.timeout(20));
+    await assert.rejects(timedOut, (error: unknown) => (error as { name?: string }).name === "TimeoutError");
     const orphan = waitForFleetReplicaSequence(view, target + 1000);
     await stream.stop();
     await assert.rejects(orphan, streamDown(/stopped/u));

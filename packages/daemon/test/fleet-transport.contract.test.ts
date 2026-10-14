@@ -80,12 +80,15 @@ test("runtime event receipts require the center replication position", () => {
       schema: "fleet.runtime.archive.result/v1",
       messageId: "archive-result",
       inReplyTo: "archive",
+      replicationSequence: 13,
       receipt: { outcome: "applied" },
     };
   assert.deepEqual(parseFleetFrame(event), event);
   assert.deepEqual(parseFleetFrame(archive), archive);
   const { replicationSequence: _sequence, ...missingEventSequence } = event;
   assert.throws(() => parseFleetFrame(missingEventSequence), FleetContractError);
+  const { replicationSequence: _archiveSequence, ...missingArchiveSequence } = archive;
+  assert.throws(() => parseFleetFrame(missingArchiveSequence), FleetContractError);
 });
 test("fleet runtime await admits only the parked operational wait", () => {
   const frame = {
@@ -178,6 +181,7 @@ const frames = [
     outcome: "applied",
     opId: "op1",
     revision: 7,
+    replicationSequence: 7,
     code: null,
   },
   {

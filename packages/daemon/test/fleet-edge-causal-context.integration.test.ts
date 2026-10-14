@@ -19,7 +19,7 @@ import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { evidence } from "./task-surface.fixtures.ts";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test(
   "remote-edge dispatch serves causal context from the newly confirmed replica cut",
@@ -220,6 +220,18 @@ test(
       { allowHost: fixture.host },
     );
     await catchUp();
+    const resident = startResidentReplicaSync({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    fixture.track(resident.close);
     // Line-anchored: the lookup guidance names the tag mid-sentence, so only an
     // element that starts its own line is the injected block.
     const causalBlock = (prompt: string) => /^<task-context[^>]*>[\s\S]*?<\/task-context>/mu.exec(prompt)?.[0] ?? null;
@@ -393,6 +405,18 @@ for (const probe of [
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
+    const resident = startResidentReplicaSync({
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    fixture.track(resident.close);
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
     const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),
       missionPath = path.join(packageRoot, "artifacts/missions/probe.md"),
