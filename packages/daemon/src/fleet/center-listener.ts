@@ -175,8 +175,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
+    let readerProfile: { personId: string; nodeId: string };
     try {
-      await admitReplica(nodeId, frame.repoId, accessToken);
+      ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
@@ -184,6 +185,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       throw error;
     }
+    const backupKey = JSON.stringify([frame.repoId, readerProfile.personId, readerProfile.nodeId]);
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
     const store = openSqliteEventStore({
@@ -223,7 +225,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           await new Promise<void>((resolve) => setImmediate(resolve));
       },
       backup: async (backupSignal: AbortSignal) => {
-        const cached = backupCache.get(frame.repoId);
+        const cached = backupCache.get(backupKey);
         if (cached) {
           cached.users += 1;
           return {
@@ -231,7 +233,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             release: async () => {
               cached.users -= 1;
               if (cached.users === 0) {
-                backupCache.delete(frame.repoId);
+                backupCache.delete(backupKey);
                 cached.releaseQueue();
               }
             },
@@ -249,6 +251,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const unpin = retention.pin(store.replicationPosition());
         const started = startBaseBackup(
           {
+            readerProfile,
             ledgerPath: store.databasePath,
             projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
             directory: path.join(options.stateRoot, "replication-backups"),
@@ -264,7 +267,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             release();
           },
         };
-        backupCache.set(frame.repoId, cachedArchive);
+        backupCache.set(backupKey, cachedArchive);
         try {
           const archive = await archivePromise;
           return {
@@ -272,13 +275,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             release: async () => {
               cachedArchive.users -= 1;
               if (cachedArchive.users === 0) {
-                backupCache.delete(frame.repoId);
+                backupCache.delete(backupKey);
                 cachedArchive.releaseQueue();
               }
             },
           };
         } catch (error) {
-          backupCache.delete(frame.repoId);
+          backupCache.delete(backupKey);
           cachedArchive.releaseQueue();
           throw error;
         }

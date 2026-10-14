@@ -4,6 +4,7 @@ import type { ReplicationPosition } from "@harness-anything/kernel";
 
 export interface BaseBackupMetadata {
   readonly schema: "fleet-basebackup/v2";
+  readonly readerProfile: { readonly personId: string; readonly nodeId: string } | null;
   readonly repoId: string;
   readonly position: ReplicationPosition;
   readonly ledgerGeneration: number;
@@ -16,6 +17,7 @@ export interface BaseBackupArchive {
   readonly sha256: string;
 }
 export interface BaseBackupInput {
+  readonly readerProfile?: BaseBackupMetadata["readerProfile"];
   readonly ledgerPath: string;
   readonly projectionPath: string;
   readonly directory: string;

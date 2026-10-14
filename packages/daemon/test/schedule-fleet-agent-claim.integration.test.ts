@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -132,6 +133,18 @@ test(
       const workspaceRoot = path.join(root, "edge-workspace"),
         viewRoot = path.join(root, "edge-view");
       initHarnessRepo(workspaceRoot, "schedule-fleet-agent-edge");
+      await catchUpReplica({
+        host: "127.0.0.1",
+        port: center.port,
+        ca: certificate,
+        servername: "localhost",
+        nodeId: subject.nodeId,
+        credential: `credential-${subject.nodeId}`,
+        repoId,
+        viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+        readAccessToken: owners.readAccessToken(subject.nodeId),
+      });
       edge = openFleetEdgeRuntime({
         readBinding: () => owners.binding(subject.nodeId),
         request: {

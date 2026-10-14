@@ -165,6 +165,7 @@ export async function runWalReceiver(input: {
         position.revision !== frame.head.revision
       )
         throw new Error("replication progress differs from durable position");
+      target.updatePosition?.(position);
       await ack(position);
     } else throw new Error("unexpected replication stream frame");
   }

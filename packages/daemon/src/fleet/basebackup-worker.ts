@@ -26,6 +26,7 @@ try {
   const metadata: BaseBackupMetadata = {
     schema: "fleet-basebackup/v2",
     repoId: String(state.repo_id),
+    readerProfile: input.readerProfile ?? null,
     position: { history: String(state.history), sequence: Number(state.sequence), revision: Number(state.revision) },
     ledgerGeneration: Number(state.generation),
     projectionSchema: Number(projected.schema_version),

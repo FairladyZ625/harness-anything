@@ -10,11 +10,12 @@ import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/re
  * places the readable generation under the view root the edge config names. The caller reopens
  * the cell in remote-edge mode and answers reads from this replica without a center.
  */
-export async function materializeCellReplica(rootDir: string, repoId: string) {
+export async function materializeCellReplica(rootDir: string, repoId: string, personId: string) {
   const viewRoot = path.join(rootDir, ".fleet-view"),
     viewDir = path.join(viewRoot, "repos", repoId, "views", "test-edge"),
     layout = resolveHarnessLayout(rootDir),
     transfer = await startBaseBackup({
+      readerProfile: { personId, nodeId: "test-edge" },
       ledgerPath: sqliteLedgerPath(rootDir),
       projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
       directory: path.join(rootDir, ".fleet-transfer"),

@@ -148,7 +148,7 @@ test("typed Entity Action read preserves one cut for 1..500 refs and has no writ
     assert.equal(git(rootDir, "status", "--porcelain=v1"), beforeWorktree);
     observerProjection.close();
 
-    await materializeCellReplica(rootDir, repoId);
+    await materializeCellReplica(rootDir, repoId, actor.principal.personId);
     await cell.close();
     cell = await openRepoCell({
       repoId,

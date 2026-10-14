@@ -148,7 +148,7 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
           schemaGeneration: generation.metadata.projectionSchema,
           headDigest,
           manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
-          readerProfile: null,
+          readerProfile: generation.metadata.readerProfile ?? null,
           authorizationShapeDigest: "",
           entries,
         };

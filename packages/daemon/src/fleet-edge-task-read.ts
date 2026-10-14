@@ -36,6 +36,9 @@ export function withEdgeReadModel<T>(
   // The read pins its generation, so an install landing mid-read cannot collect the files under it.
   return withReplicaGeneration(view.viewDir, (generation) => {
     if (!generation) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+    const owner = generation.metadata.readerProfile;
+    if (!owner?.personId || owner.personId !== input.principalId || owner.nodeId !== input.nodeId)
+      throw new EdgeReadError("authorization_denied", "Only the admitted node owner may read this replica.");
     const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
     try {
       const fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
@@ -95,6 +98,7 @@ export async function readEdgeRepository(
   pull: () => Promise<unknown>,
   readLocal: () => Promise<Record<string, unknown>>,
 ): Promise<Record<string, unknown>> {
+  if (!(await waitForMinimumCut(input))) return { outcome: "pending", code: "write_committed_read_pending", ok: false };
   if (!locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId)) await pull();
   return readLocal();
 }

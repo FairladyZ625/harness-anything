@@ -97,6 +97,7 @@ test(
         type: "replica.backup",
         metadata: {
           schema: "fleet-basebackup/v2",
+          readerProfile: null,
           repoId: "replica-repo",
           position: { history: "h".repeat(16), sequence: 3, revision: 3 },
           ledgerGeneration: 1,

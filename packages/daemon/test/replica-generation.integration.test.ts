@@ -30,6 +30,7 @@ test("an unsupported projection schema is a version error, not a download loop",
       type: "replica.backup",
       metadata: {
         schema: "fleet-basebackup/v2",
+        readerProfile: null,
         repoId: "replica-repo",
         position: { history: "h".repeat(16), sequence: 2, revision: 2 },
         ledgerGeneration: 1,

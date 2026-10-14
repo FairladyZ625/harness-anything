@@ -48,12 +48,12 @@ export function waitForFleetReplicaSequence(
   signal?: AbortSignal,
 ): Promise<void> {
   const current = readReplicaGeneration(`${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`);
-  if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
   if (signal?.aborted) return Promise.reject(signal.reason);
   const key = syncKey(options),
     stream = streams.get(key);
   if (!stream) return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
   if (stream.down !== null) return Promise.reject(streamDown(stream.down));
+  if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const pending = waiters.get(key) ?? new Set<Waiter>();
     const waiter: Waiter = {

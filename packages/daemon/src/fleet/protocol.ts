@@ -45,6 +45,7 @@ export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadat
   shape(value, {
     schema: (v) => v === "fleet-basebackup/v2",
     repoId: text,
+    readerProfile: (v) => v === null || shape(v, { personId: text, nodeId: text }),
     position: isReplicationPosition,
     ledgerGeneration: uint,
     projectionSchema: uint,

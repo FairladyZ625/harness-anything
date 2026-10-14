@@ -32,8 +32,23 @@ export async function catchUpReplica(
   } catch (error) {
     if (!/not running/u.test(String(error))) throw unwrap(error);
     const controller = new AbortController();
-    owned = { controller, running: runFleetReplicaSync({ ...options, signal: controller.signal }) };
+    let confirmed!: () => void;
+    let failed!: (error: unknown) => void;
+    const admitted = new Promise<void>((resolve, reject) => {
+      confirmed = resolve;
+      failed = reject;
+    });
+    owned = {
+      controller,
+      running: runFleetReplicaSync({
+        ...options,
+        signal: controller.signal,
+        onConfirmed: confirmed,
+        onFailure: failed,
+      }),
+    };
     try {
+      await admitted;
       await waitForFleetReplicaSequence(options, head);
     } catch (failure) {
       throw unwrap(failure);
