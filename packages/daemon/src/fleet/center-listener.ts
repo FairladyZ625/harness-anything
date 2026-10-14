@@ -146,7 +146,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     peer: import("./protocol.ts").ReplicationPeer,
     signal: AbortSignal,
   ) => {
-    await admitReplica(nodeId, frame.repoId, accessToken);
+    try {
+      await admitReplica(nodeId, frame.repoId, accessToken);
+    } catch (error) {
+      if (error instanceof FleetFault && error.code === "authorization_denied") {
+        await peer.send({ type: "replica.resync", reason: "authorization_denied" });
+        return;
+      }
+      throw error;
+    }
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
     const store = openSqliteEventStore({
@@ -175,8 +183,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     const source = {
       read: (after: import("@harness-anything/kernel").ReplicationPosition) => {
         const head = store.replicationPosition(),
-          window = options.replicationRetentionWindowCommits;
-        if (window !== undefined && head.sequence - after.sequence > window) return null;
+          window = options.replicationRetentionWindowCommits ?? 4096;
+        if (!backupCache.has(frame.repoId)) store.pruneReplicationLog(Math.max(0, head.sequence - window));
+        if (head.sequence - after.sequence > window) return null;
         return store.replicationCommits(after, 64);
       },
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {

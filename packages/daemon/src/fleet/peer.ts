@@ -2,6 +2,7 @@
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
 import { existsSync, readdirSync, statSync } from "node:fs";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   ReplicationDecoder,
@@ -162,6 +163,7 @@ export async function runFleetReplicaPullClient(
       opened = null;
       await prior?.close();
     },
+    revoke: () => writeFileSync(path.join(viewRoot, "revoked"), "authorization_denied\n"),
   };
   const socket = await peerSocket(options),
     decoder = new ReplicationDecoder(),

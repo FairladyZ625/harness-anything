@@ -53,6 +53,7 @@ export interface ReplicationTarget {
   readonly project: (position: ReplicationPosition) => Promise<void>;
   readonly updatePosition?: (position: ReplicationPosition) => void;
   readonly reset?: () => Promise<void>;
+  readonly revoke?: () => void;
 }
 
 async function receiveBytes(
@@ -95,6 +96,7 @@ export async function runWalReceiver(input: {
     signal.throwIfAborted();
     const frame = await peer.receive(signal);
     if (frame.type === "replica.resync") {
+      if (frame.reason === "authorization_denied") input.target.revoke?.();
       await target.reset?.();
       continue;
     }

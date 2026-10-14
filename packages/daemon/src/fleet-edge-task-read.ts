@@ -1,4 +1,4 @@
-import { watch } from "node:fs";
+import { existsSync, statSync, watch } from "node:fs";
 import { makeTaskProjectionReader, type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -35,6 +35,8 @@ export function withEdgeReadModel<T>(
     generation = view && readReplicaGeneration(view.viewDir);
   if (!view || !generation)
     throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
+  if (existsSync(`${view.viewDir}/revoked`))
+    throw new EdgeReadError("authorization_denied", "The center revoked repository-read for this replica.");
   const reader = makeTaskProjectionReader({ rootDir: generation.rootDir, projectionPath: generation.projectionPath });
   try {
     const fresh = edgeFreshness(view, generation.metadata.position.revision, input, now);
@@ -68,7 +70,7 @@ export function edgeFreshness(
 ): { readonly freshness: EdgeReadFreshness; readonly warning: string | null } {
   const maxAgeMs = input.maxAgeMs ?? DEFAULT_EDGE_READ_MAX_AGE_MS,
     maxLagRevisions = input.maxLagRevisions ?? DEFAULT_EDGE_READ_MAX_LAG_REVISIONS;
-  const ageMs = 0;
+  const ageMs = Math.max(0, now() - statSync(`${view.viewDir}/current.json`).mtimeMs);
   const lagRevisions = Math.max(0, sourceRevision - view.revision);
   const stale = ageMs > maxAgeMs || lagRevisions > maxLagRevisions;
   return {
