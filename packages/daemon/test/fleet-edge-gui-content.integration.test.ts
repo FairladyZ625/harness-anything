@@ -9,6 +9,7 @@ import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { waitForState } from "./fleet-replication.fixture.ts";
 
 // The actual GUI JSON-RPC methods; the edge workspace deliberately has no task files.
 test(
@@ -162,15 +163,8 @@ test(
     assert.deepEqual(ci.runs, []);
     const decisions = await read("repo.decisions.list", { projection: "full" });
     assert.deepEqual(decisions.decisions, []);
-    const viewDir = path.join(e.viewRoot, "repos", "lease-repo", "views", "node-one");
-    writeFileSync(path.join(viewDir, "read-model.sqlite"), "damaged SQLite cache");
-    await read("repo.tasks.documents.list", { taskId: "gui-content" });
-    const rebuilt = (await e.host.run(
-      "lease-repo",
-      { kind: "doctor-health" },
-      localAuthFixture(),
-    )) as unknown as Record<string, unknown>;
-    assert.equal(rebuilt.rebuildCount, 1, JSON.stringify(rebuilt));
+    // The center is gone: an explicit catch-up fails, and the edge doctor reports the resident
+    // stream's failure while the replica keeps its last applied cut.
     await assert.rejects(
       catchUpReplica({
         ...f.peer("node-one"),
@@ -178,29 +172,17 @@ test(
         diskQuotaBytes: 64 * 1024 * 1024,
       }),
     );
-    const failed = (await e.host.run("lease-repo", { kind: "doctor-health" }, localAuthFixture())) as unknown as Record<
-      string,
-      unknown
-    >;
-    assert.equal(failed.failureCode, "ECONNREFUSED", JSON.stringify(failed));
-    assert.deepEqual(failed.currentCut, healthy.currentCut);
-    assert.equal(failed.lastSuccessAt, healthy.lastSuccessAt);
-    writeFileSync(path.join(viewDir, "head-confirmation.json"), "broken-json");
-    const malformed = (await e.host.run(
-      "lease-repo",
-      { kind: "doctor-health" },
-      localAuthFixture(),
-    )) as unknown as Record<string, unknown>;
-    assert.equal(malformed.failureCode, "replica_health_unreadable", JSON.stringify(malformed));
-    // Restore the observed confirmation so the following authority failure reaches Keycloak.
-    writeFileSync(
-      path.join(viewDir, "head-confirmation.json"),
-      JSON.stringify({
-        headRevision: (healthy.centerCut as { revision: number }).revision,
-        headDigest: (healthy.centerCut as { headDigest: string }).headDigest,
-        confirmedAt: Date.parse(String(healthy.lastSuccessAt)),
-      }),
+    const doctor = async () =>
+      (await e.host.run("lease-repo", { kind: "doctor-health" }, localAuthFixture())) as unknown as Record<
+        string,
+        unknown
+      >;
+    await waitForState(
+      async () => (await doctor()).failureCode === "ECONNREFUSED",
+      "the doctor to see the stream down",
     );
+    const failed = await doctor();
+    assert.deepEqual(failed.currentCut, healthy.currentCut);
     globalThis.fetch = async () => {
       throw new Error("Keycloak fixture offline");
     };

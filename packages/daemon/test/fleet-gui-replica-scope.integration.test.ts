@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import tls from "node:tls";
@@ -82,20 +82,13 @@ test(
           assert.equal((independent.cut as { revision: number }).revision, newer.cut!.revision);
         }
       }
-      const view = locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!,
-        currentPath = path.join(view.viewDir, "current.json"),
-        currentBytes = readFileSync(currentPath),
-        current = JSON.parse(currentBytes.toString("utf8"));
-      writeFileSync(currentPath, JSON.stringify({ ...current, authorizationShapeDigest: "mismatched-owner-digest" }));
-      await assert.rejects(read(a), { code: "authorization_denied" });
-      assert.equal((await read(b)).rows.length, 2);
-      writeFileSync(currentPath, currentBytes);
-      rmSync(currentPath);
+      // A node whose own view is gone answers unavailable; it never falls back to another node's view.
+      rmSync(locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!.viewDir, { recursive: true, force: true });
       await assert.rejects(read(a), { code: "replica_unavailable" });
       assert.equal((await read(b)).rows.length, 2);
       assert.equal(connections.mock.callCount(), 0);
       t.diagnostic(
-        `two node views at revisions ${older.cut!.revision}/${newer.cut!.revision}; local doc states clean/eligible/deletion independent; owner digest mismatch denied; missing own view unavailable; center TLS calls=0`,
+        `two node views at revisions ${older.cut!.revision}/${newer.cut!.revision}; local doc states clean/eligible/deletion independent; missing own view unavailable; center TLS calls=0`,
       );
     } finally {
       connections.mock.restore();

@@ -22,6 +22,8 @@ import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
 import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 
 test(
   "viewer GUI reads page from a replica cut and withhold it after the next sync reports revocation",
@@ -362,16 +364,22 @@ test(
       auth,
     );
     assert.equal(secret.outcome, "applied", JSON.stringify(secret));
-    // Cross-repository authorization is enforced when acquiring the view, before any rows reach the edge.
-    await assert.rejects(
-      catchUpReplica({
-        ...f.peer("node-two"),
-        repoId: "other-repo",
-        viewRoot: config.viewRoot,
-        diskQuotaBytes: config.quotaBytes,
-      }),
-      { code: "authorization_denied" },
-    );
+    // Cross-repository authorization is enforced when the replica stream starts, before any rows reach the edge.
+    const stopped = new AbortController();
+    let denied: unknown;
+    await runFleetReplicaSync({
+      ...f.peer("node-two"),
+      repoId: "other-repo",
+      viewRoot: config.viewRoot,
+      diskQuotaBytes: config.quotaBytes,
+      signal: stopped.signal,
+      onFailure: (error) => {
+        denied ??= error;
+        stopped.abort();
+      },
+    });
+    assert.equal((denied as { code?: string }).code, "authorization_denied", String(denied));
+    assert.equal(readReplicaGeneration(path.join(config.viewRoot, "repos", "other-repo", "views", "node-two")), null);
 
     assert.equal(
       local.withSession((projection) => projection.list().rows.length),
