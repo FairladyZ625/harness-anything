@@ -1,9 +1,11 @@
 // harness-test-tier: integration
 // dec_9284BD6119D453EEECEED62450 real-machine hardening of the resident edge stream (runFleetReplicaSync):
 // edge-runtime confirmations never run inside the receiver's ACK path; an edge upgraded in place over
-// the retired cut/pull layout starts a fresh replica instead of failing on the old pointer.
+// the retired cut/pull layout starts a fresh replica instead of failing on the old pointer; content
+// objects larger than the in-memory envelope bound stream to staging files and are digest-checked.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -14,6 +16,8 @@ import {
   type ReplicaSyncOptions,
 } from "../src/fleet/replica-sync.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { runWalReceiver } from "../src/fleet/walreceiver.ts";
+import { REPLICATION_CHUNK_BYTES, type ReplicationFrame } from "../src/fleet/protocol.ts";
 import {
   fleetReplicationFixture,
   replicationRepoId,
@@ -174,3 +178,84 @@ test(
     assert.deepEqual(stream.failures, []);
   },
 );
+
+/** Feeds one commit carrying one content object to the receiver, then stops it. */
+async function receiveOneObjectCommit(object: Buffer, announcedSha256: string) {
+  const directory = mkdtempSync(path.join(tmpdir(), "ha-harden-objects-")),
+    stop = new Error("stop"),
+    commit = Buffer.from(
+      JSON.stringify({ position: { history: "h", sequence: 1, revision: 0 }, events: [], outcome: null, writer: null }),
+    ),
+    data = (bytes: Buffer): ReplicationFrame[] => {
+      const frames: ReplicationFrame[] = [];
+      for (let offset = 0; offset < bytes.length; offset += REPLICATION_CHUNK_BYTES)
+        frames.push({
+          type: "replica.data",
+          offset,
+          data: bytes.subarray(offset, offset + REPLICATION_CHUNK_BYTES).toString("base64"),
+        });
+      return frames;
+    },
+    frames: ReplicationFrame[] = [
+      { type: "replica.commit", size: commit.length },
+      ...data(commit),
+      { type: "replica.object", sha256: announcedSha256, size: object.length },
+      ...data(object),
+      { type: "replica.object.end" },
+      { type: "replica.commit.end" },
+    ],
+    installed: { sha256: string; bytes: Buffer }[] = [],
+    applied: number[] = [];
+  const result = await runWalReceiver({
+    peer: {
+      send: async () => undefined,
+      receive: async () => {
+        const next = frames.shift();
+        if (!next) throw stop;
+        return next;
+      },
+    },
+    repoId: replicationRepoId,
+    directory,
+    quotaBytes: 64 * 1024 * 1024,
+    // Far below the object: the object never sits in memory, only the commit envelope does.
+    maxBufferedBytes: 64 * 1024,
+    signal: new AbortController().signal,
+    target: {
+      position: () => null,
+      install: async () => {
+        throw new Error("unexpected install");
+      },
+      installObject: async (sha256, file) => {
+        installed.push({ sha256, bytes: readFileSync(file) });
+      },
+      apply: (applying) => {
+        applied.push(applying.position.sequence);
+      },
+      project: async () => undefined,
+    },
+  }).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  return { result, stop, installed, applied };
+}
+
+test("a content object larger than the in-memory bound streams to staging and installs before apply", async () => {
+  const object = Buffer.alloc(512 * 1024, 0x61),
+    sha256 = createHash("sha256").update(object).digest("hex");
+  const received = await receiveOneObjectCommit(object, sha256);
+  assert.equal(received.result, received.stop, String(received.result));
+  assert.equal(received.installed.length, 1);
+  assert.equal(received.installed[0]!.sha256, sha256);
+  assert.ok(received.installed[0]!.bytes.equals(object), "the staged object holds the exact bytes");
+  assert.deepEqual(received.applied, [1], "the commit applies after its object is installed");
+});
+
+test("a streamed content object whose bytes differ from its digest is rejected before apply", async () => {
+  const object = Buffer.alloc(256 * 1024, 0x62);
+  const received = await receiveOneObjectCommit(object, "0".repeat(64));
+  assert.match(String(received.result), /digest differs/u);
+  assert.deepEqual(received.installed, []);
+  assert.deepEqual(received.applied, []);
+});

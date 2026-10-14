@@ -207,8 +207,9 @@ async function runOneSession() {
       maybeKill("after-install-before-ack");
       await readers.collect();
     },
-    apply: (commit, blobs) => {
-      opened.apply(commit, blobs);
+    installObject: (sha256, file) => opened.installObject(sha256, file),
+    apply: (commit) => {
+      opened.apply(commit);
       emit({
         event: "applied",
         position: commit.position,

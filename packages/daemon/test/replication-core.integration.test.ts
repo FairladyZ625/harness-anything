@@ -316,7 +316,10 @@ test("sender streams eventless commits to the real replica and records an applie
       signal: abort.signal,
       target: {
         position: replica.position,
-        apply: replica.apply,
+        apply: (commit) => replica.apply(commit, []),
+        installObject: async () => {
+          throw new Error("unexpected object");
+        },
         install: async () => {
           throw new Error("unexpected install");
         },

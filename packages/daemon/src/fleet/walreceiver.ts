@@ -1,17 +1,17 @@
-import { mkdir, open, rm } from "node:fs/promises";
+import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   makeTaskEventReader,
   makeTaskProjection,
   openReplicaStore,
-  type CanonicalContentBlob,
   type ReplicationCommit,
   type ReplicationPosition,
 } from "@harness-anything/kernel";
 import { parseReplicationCommit, type ReplicationPeer } from "./protocol.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
 import type { ReplicaGeneration } from "./replica-generation.ts";
+import { syncDirectory } from "../durable-file.ts";
 
 /** The receiver owns the only mutable ledger handle; projection application is the center's implementation. */
 export function openWalReceiverGeneration(generation: ReplicaGeneration) {
@@ -27,9 +27,17 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
       projectionPath: generation.projectionPath,
       eventStore: events,
     });
+    const objectRoot = path.join(path.dirname(generation.ledgerPath), "objects", "sha256");
     return {
       position: store.position,
-      apply: store.apply,
+      apply: (commit: ReplicationCommit) => store.apply(commit, []),
+      /** Content-addressed and immutable: a verified object is published ahead of the commit claiming it. */
+      installObject: async (sha256: string, file: string) => {
+        const target = path.join(objectRoot, sha256.slice(0, 2), sha256.slice(2));
+        await mkdir(path.dirname(target), { recursive: true });
+        await rename(file, target);
+        syncDirectory(path.dirname(target));
+      },
       project: async (_position: ReplicationPosition) => {
         projection.catchUp!();
       },
@@ -48,7 +56,9 @@ export function openWalReceiverGeneration(generation: ReplicaGeneration) {
 export interface ReplicationTarget {
   readonly position: () => ReplicationPosition | null;
   readonly install: (archive: string, metadata: BaseBackupMetadata, size: number, sha256: string) => Promise<void>;
-  readonly apply: (commit: ReplicationCommit, blobs: readonly CanonicalContentBlob[]) => void;
+  /** Applies a commit whose content objects were already installed through installObject. */
+  readonly apply: (commit: ReplicationCommit) => void;
+  readonly installObject: (sha256: string, file: string) => Promise<void>;
   /** Runs the common projection catchUp; resolves only once that position is queryable. */
   readonly project: (position: ReplicationPosition) => Promise<void>;
   readonly updatePosition?: (position: ReplicationPosition) => void;
@@ -79,6 +89,7 @@ export async function runWalReceiver(input: {
   readonly target: ReplicationTarget;
   readonly directory: string;
   readonly quotaBytes: number;
+  /** Bounds the in-memory commit envelope; content objects stream to staging files instead. */
   readonly maxBufferedBytes: number;
   readonly signal: AbortSignal;
 }): Promise<void> {
@@ -133,27 +144,35 @@ export async function runWalReceiver(input: {
         chunks.push(bytes);
       });
       const commit = parseReplicationCommit(Buffer.concat(chunks));
-      const blobs: CanonicalContentBlob[] = [];
-      let buffered = frame.size;
+      let staged = 0;
       for (;;) {
         const object = await peer.receive(signal);
         if (object.type === "replica.commit.end") break;
         if (object.type !== "replica.object") throw new Error("expected replication content object");
-        buffered += object.size;
-        if (buffered > input.maxBufferedBytes) throw new Error("replication commit exceeds memory capacity");
-        const content: Buffer[] = [];
-        await receiveBytes(peer, object.size, signal, async (bytes) => {
-          content.push(bytes);
-        });
-        await expect("replica.object.end");
-        blobs.push({
-          sha256: object.sha256,
-          size: object.size,
-          mediaType: "application/octet-stream",
-          body: Buffer.concat(content),
-        });
+        staged += object.size;
+        if (staged > input.quotaBytes) throw new Error("replication commit exceeds disk quota");
+        await mkdir(input.directory, { recursive: true });
+        const file = path.join(input.directory, `${randomUUID()}.object`),
+          handle = await open(file, "wx"),
+          digest = createHash("sha256");
+        try {
+          try {
+            await receiveBytes(peer, object.size, signal, async (bytes) => {
+              digest.update(bytes);
+              await handle.writeFile(bytes);
+            });
+            await handle.sync();
+          } finally {
+            await handle.close();
+          }
+          await expect("replica.object.end");
+          if (digest.digest("hex") !== object.sha256) throw new Error("replication content object digest differs");
+          await target.installObject(object.sha256, file);
+        } finally {
+          await rm(file, { force: true });
+        }
       }
-      target.apply(commit, blobs);
+      target.apply(commit);
       await target.project(commit.position);
       target.updatePosition?.(commit.position);
     } else if (frame.type === "replica.progress") {

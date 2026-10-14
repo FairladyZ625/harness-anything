@@ -198,12 +198,13 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         // Superseded generations go now unless a read still pins one; its release collects it.
         await generations.collect();
       },
-      apply: (
-        commit: import("@harness-anything/kernel").ReplicationCommit,
-        blobs: readonly import("@harness-anything/kernel").CanonicalContentBlob[],
-      ) => {
+      apply: (commit: import("@harness-anything/kernel").ReplicationCommit) => {
         if (!opened) throw new Error("replica generation is unavailable");
-        opened.apply(commit, blobs);
+        opened.apply(commit);
+      },
+      installObject: async (sha256: string, file: string) => {
+        if (!opened) throw new Error("replica generation is unavailable");
+        await opened.installObject(sha256, file);
       },
       project: async (_position: import("@harness-anything/kernel").ReplicationPosition) => {
         if (!opened) throw new Error("replica generation is unavailable");
@@ -255,6 +256,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       target,
       directory: path.join(viewRoot, "staging"),
       quotaBytes: options.diskQuotaBytes,
+      // The commit envelope only (events and outcome); content objects stream to staging files.
       maxBufferedBytes: 16 * 1024 * 1024,
       signal,
     });
