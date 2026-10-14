@@ -216,7 +216,10 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         opened = null;
         await prior?.close();
       },
-      revoke: () => revokeReplicaView(viewRoot),
+      revoke: async () => {
+        revokeReplicaView(viewRoot);
+        await generations.collect();
+      },
     };
     const replicationPeer: ReplicationPeer = {
       send: async (frame) => {
