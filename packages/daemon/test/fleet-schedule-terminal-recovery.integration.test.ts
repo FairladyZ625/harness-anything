@@ -9,7 +9,8 @@ import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { readScheduleRuns } from "../src/schedule-runs-read.ts";
-import { readEdgeRuntimeResultBytes } from "../src/runtime-result-read.ts";
+import { readEdgeViewBlob } from "../src/runtime-result-read.ts";
+import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition, eventually, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
@@ -160,6 +161,21 @@ for (const restart of [false, true])
       });
     let runtime = createRuntime();
     fixture.track(() => runtime.close());
+    // This fixture owns no background sync loop: the owner's replica is caught up explicitly
+    // wherever the edge runtime reads center state.
+    const catchUpOwner = (port: number) =>
+      catchUpReplica({
+        readAccessToken: async () => `device-token-${subject.nodeId}`,
+        port,
+        ca: fixture.cert,
+        servername: "localhost",
+        nodeId: subject.nodeId,
+        credential: "machine-secret",
+        repoId: subject.repoId,
+        viewRoot: path.join(fixture.root, "schedule-view"),
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
+    await catchUpOwner(center.port);
     const created = await runtime.run("repo.schedule.run", {
       kind: "schedule-create",
       scheduleId,
@@ -171,6 +187,7 @@ for (const restart of [false, true])
       idempotencyKey: "create-recovery",
     });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await catchUpOwner(center.port);
     const launched = await runtime
       .run("repo.schedule.run", { kind: "schedule-run-now", scheduleId, idempotencyKey: "run-recovery" })
       .catch(async (error: unknown) => {
@@ -203,6 +220,8 @@ for (const restart of [false, true])
       runtime = createRuntime();
     }
     const restoredCenter = await startCenter(center.port);
+    // A resident stream would have delivered the run's claim before the restart; catch up to it.
+    await catchUpOwner(restoredCenter.port);
     const recovery = runtime.reconcile();
     const recovered = Promise.allSettled([recovery]);
     const observerRoot = path.join(fixture.root, "schedule-reader-view");
@@ -218,7 +237,7 @@ for (const restart of [false, true])
       );
       await catchUpReplica({
         readAccessToken: async () => `device-token-${"node-two"}`,
-        host: "127.0.0.1",
+        hostname: "127.0.0.1",
         port: restoredCenter.port,
         ca: fixture.cert,
         servername: "localhost",
@@ -247,19 +266,8 @@ for (const restart of [false, true])
     assert.equal(
       await eventually(async () => {
         await runtime.reconcile();
-        // This fixture owns no background sync loop. Refresh the completed cut explicitly;
         // schedule-show itself must never pull or trigger terminal publication.
-        await catchUpReplica({
-          readAccessToken: async () => `device-token-${subject.nodeId}`,
-          port: restoredCenter.port,
-          ca: fixture.cert,
-          servername: "localhost",
-          nodeId: subject.nodeId,
-          credential: "machine-secret",
-          repoId: subject.repoId,
-          viewRoot: path.join(fixture.root, "schedule-view"),
-          diskQuotaBytes: 64 * 1024 * 1024,
-        });
+        await catchUpOwner(restoredCenter.port);
         shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
         return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null;
       }),
@@ -306,7 +314,7 @@ for (const restart of [false, true])
     assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
     await catchUpReplica({
       readAccessToken: async () => `device-token-${"node-two"}`,
-      host: "127.0.0.1",
+      hostname: "127.0.0.1",
       port: restoredCenter.port,
       ca: fixture.cert,
       servername: "localhost",
@@ -324,7 +332,8 @@ for (const restart of [false, true])
           {
             projection,
             store: {
-              readContentBlob: (sha) => readEdgeRuntimeResultBytes(observerRoot, subject.repoId, "node-two", sha),
+              readContentBlob: (sha) =>
+                readEdgeViewBlob(locateFleetMirrorView(observerRoot, subject.repoId, "node-two")!, sha),
             },
           },
           scheduleId,
