@@ -1174,6 +1174,109 @@ describe("总览派生(纯函数)", () => {
     expect(drillWipRows(undefined, runtime, read)).toEqual([]);
   });
 
+  it("drillWipRows:活跃执行任务优先置顶,再按最新活动时间(since)倒序,缺失时间回退分数与状态", () => {
+    const counted = [
+      { taskId: "task_idle_high_score_older", status: "active" as const, title: "高分旧任务" },
+      { taskId: "task_running_older", status: "active" as const, title: "在跑较早任务" },
+      { taskId: "task_idle_no_time", status: "active" as const, title: "无时间待命中任务" },
+      { taskId: "task_blocked_no_time", status: "blocked" as const, title: "无时间阻塞任务" },
+      { taskId: "task_running_newer", status: "active" as const, title: "在跑最新任务" },
+      { taskId: "task_idle_low_score_newer", status: "active" as const, title: "低分较新任务" },
+    ];
+    const read = agenda({
+      attentionItems: [
+        {
+          ref: "task/task_idle_high_score_older",
+          title: "高分旧任务",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 100, reasons: [] },
+        },
+        {
+          ref: "task/task_running_older",
+          title: "在跑较早任务",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 50, reasons: [] },
+        },
+        {
+          ref: "task/task_idle_no_time",
+          title: "无时间待命中任务",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 20, reasons: [] },
+        },
+        {
+          ref: "task/task_blocked_no_time",
+          title: "无时间阻塞任务",
+          kind: "task",
+          region: "stuck",
+          workTaskId: null,
+          attention: { score: 20, reasons: [] },
+        },
+      ],
+      stalled: [
+        {
+          taskId: "task_idle_high_score_older",
+          title: "高分旧任务",
+          status: "active",
+          updatedAt: "2026-10-14T08:00:00.000Z",
+          attention: { score: 100, reasons: [] },
+        },
+        {
+          taskId: "task_idle_low_score_newer",
+          title: "低分较新任务",
+          status: "active",
+          updatedAt: "2026-10-14T09:30:00.000Z",
+          attention: { score: 5, reasons: [] },
+        },
+      ],
+    });
+    const runtime = {
+      ok: true,
+      status: "ready",
+      installations: [],
+      instances: [],
+      sessions: [
+        {
+          runtimeSessionId: "rs_older",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "gpt-6.1-sol" },
+          associations: [{ taskId: "task_running_older" }],
+          activity: { lastObservedAt: "2026-10-14T10:00:00.000Z" },
+        },
+        {
+          runtimeSessionId: "rs_newer",
+          kindId: "zcode",
+          liveness: "live",
+          definitionSnapshot: { model: "glm-5.3" },
+          associations: [{ taskId: "task_running_newer" }],
+          activity: { lastObservedAt: "2026-10-14T11:00:00.000Z" },
+        },
+      ],
+      watermark: 8,
+      sourceRevision: 8,
+    } as unknown as AgentRuntimeOverviewResult;
+    const snapshot = { ok: true, limit: 30, limitLabel: "l", counted, roots: [], threshold: 3 } as never;
+
+    const rows = drillWipRows(snapshot, runtime, read);
+    // 1. 在跑任务(handlers.length > 0)全部置顶,且按 lastObservedAt 降序(11:00 在前、10:00 在后)
+    // 2. 待命任务按 updatedAt 降序(09:30 在前、08:00 在后,不被高分 100 反客为主)
+    // 3. 无时间任务回退至注意力分与状态定序(active 在 blocked 前)
+    expect(rows.map(({ taskId }) => taskId)).toEqual([
+      "task_running_newer",
+      "task_running_older",
+      "task_idle_low_score_newer",
+      "task_idle_high_score_older",
+      "task_idle_no_time",
+      "task_blocked_no_time",
+    ]);
+  });
+
   it("pinnedTaskRows:可派在前,其余按议程注意力分降序", () => {
     const read = agenda({
       pinnedEntities: [

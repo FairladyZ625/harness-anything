@@ -363,11 +363,11 @@ export function taskAttentionScores(agenda: AgendaSuccess | undefined): Map<stri
 }
 
 /**
- * 「执行与下钻 → 进行中的任务」的内联名单行(2026-10-11 合并在飞任务流):counted ×
- * 注意力分——分数降序(原设计的重要性口径),平分按占位状态生命周期序,再按 taskId
- * 定序。行内并进原在飞任务流的执行信息:当前在跑的执行者(live 会话去重;非空 = 活跃
- * 执行,呈现层挂呼吸光条,空 = 静止待命)与最近一次可观察活动(live 会话 lastObservedAt,
- * 兜底议程行 updatedAt;两个源都没有就不显示时间,不造起点)。
+ * 「执行与下钻 → 进行中的任务」的内联名单行(2026-10-11 合并在飞任务流;2026-10-14 执行中置顶与最新活动倒序):
+ * 排序准则:
+ * 1. 活跃执行优先:当前有 live 会话在跑(handlers.length > 0,呈现层挂脉冲波呼吸条)的任务严格置顶在待命任务之前;
+ * 2. 最新活动倒序:同为执行中或同为待命中时,按最新可观察活动时间(since)倒序排列(新活动在前、旧在后);
+ * 3. 稳定兜底:活动时间相同或均缺失时,平滑回退到议程注意力分降序、状态生命周期序与 taskId 定序。
  */
 export interface DrillWipRow {
   readonly taskId: string;
@@ -412,12 +412,21 @@ export function drillWipRows(
         since: session?.latest ?? agendaUpdatedAt.get(entry.taskId) ?? null,
       };
     })
-    .sort(
-      (left, right) =>
+    .sort((left, right) => {
+      const leftRunning = left.handlers.length > 0 ? 1 : 0;
+      const rightRunning = right.handlers.length > 0 ? 1 : 0;
+      if (rightRunning !== leftRunning) return rightRunning - leftRunning;
+
+      const leftTime = left.since !== null ? Date.parse(left.since) || 0 : 0;
+      const rightTime = right.since !== null ? Date.parse(right.since) || 0 : 0;
+      if (rightTime !== leftTime) return rightTime - leftTime;
+
+      return (
         right.score - left.score ||
         WIP_STATUS_ORDER.indexOf(left.status) - WIP_STATUS_ORDER.indexOf(right.status) ||
-        left.taskId.localeCompare(right.taskId),
-    );
+        left.taskId.localeCompare(right.taskId)
+      );
+    });
 }
 
 /** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)
