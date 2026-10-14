@@ -85,7 +85,11 @@ export function edgeFreshness(
       maxLagRevisions,
       confirmedAt: new Date(now()).toISOString(),
     },
-    warning: stale ? "edge replica is behind center" : null,
+    warning: !stale
+      ? null
+      : ageMs > maxAgeMs
+        ? `可能过期，已 ${Math.max(1, Math.floor(ageMs / 60_000))} 分钟未收到中心更新。`
+        : `可能过期：本地落后中心 ${lagRevisions} 个版本。`,
   };
 }
 export async function readEdgeRepository(

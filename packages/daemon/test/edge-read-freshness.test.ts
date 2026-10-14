@@ -24,3 +24,20 @@ test("edge read freshness is a valid repository read frame for a sub-millisecond
   );
   assert.equal(fresh.freshness.ageMs, 249);
 });
+
+test("a stale edge read warns the reader in words that name the cause", (t) => {
+  const viewDir = mkdtempSync(path.join(tmpdir(), "ha-edge-freshness-"));
+  t.after(() => rmSync(viewDir, { recursive: true, force: true }));
+  writeFileSync(path.join(viewDir, "current.json"), "{}");
+  utimesSync(path.join(viewDir, "current.json"), 1_000, 1_000);
+  const view = { viewDir, revision: 3 } as FleetMirrorView;
+  assert.equal(edgeFreshness(view, 3, {}, () => 1_000_250).warning, null);
+  assert.equal(
+    edgeFreshness(view, 3, {}, () => 1_000_000 + 10 * 60_000).warning,
+    "可能过期，已 10 分钟未收到中心更新。",
+  );
+  assert.equal(
+    edgeFreshness(view, 9, { maxLagRevisions: 2 }, () => 1_000_250).warning,
+    "可能过期：本地落后中心 6 个版本。",
+  );
+});
