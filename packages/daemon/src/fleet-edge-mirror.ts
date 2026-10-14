@@ -5,9 +5,12 @@ import {
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   makeTaskProjectionReader,
+  openSqliteEventStore,
   resolveDocRoute,
   resolveHarnessLayout,
+  serializeEventHead,
   sha256Bytes,
+  sha256Text,
 } from "@harness-anything/kernel";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
 import { writeFileDurably } from "./durable-file.ts";
@@ -122,13 +125,28 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
         const entries = new Map<string, FleetMirrorBlob>(
           docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: "text/plain" }]),
         );
+        // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
+        // same revision: a mirrorBaseCut the edge sends is checked against exactly this digest.
+        const ledger = openSqliteEventStore({
+          databasePath: generation.ledgerPath,
+          repoId,
+          generation: generation.metadata.ledgerGeneration,
+          readOnly: true,
+        });
+        let headDigest: string;
+        try {
+          const head = ledger.eventIdentityAtRevision(generation.metadata.position.revision);
+          headDigest = `sha256:${sha256Text(head === null ? "null\n" : serializeEventHead(head))}`;
+        } finally {
+          ledger.close();
+        }
         return {
           repoId,
           viewId: entry.name,
           viewDir,
           revision: generation.metadata.position.revision,
           schemaGeneration: generation.metadata.projectionSchema,
-          headDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+          headDigest,
           manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
           readerProfile: null,
           authorizationShapeDigest: "",
