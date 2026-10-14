@@ -63,6 +63,7 @@ interface ObservedRequest {
   readonly repoId: string;
   readonly command: string;
   readonly executor: DaemonRequestLogEntry["executor"];
+  readonly wait: boolean;
 }
 export function createJsonRpcProtocolServer(options: {
   readonly host: DaemonHost;
@@ -122,6 +123,7 @@ export function createJsonRpcProtocolServer(options: {
       repoId: "",
       command: typeof request.method === "string" ? request.method : "",
       executor: null,
+      wait: false,
     };
     if (request.jsonrpc !== "2.0" || typeof request.method !== "string") {
       traffic(
@@ -165,6 +167,8 @@ export function createJsonRpcProtocolServer(options: {
         resultOk(result),
         resultErrorCode(result),
         resultErrorDetail(result),
+        observed.command,
+        observed.wait,
       );
       return request.id === undefined ? undefined : { jsonrpc: "2.0", id, result };
     };
@@ -756,7 +760,12 @@ export function createJsonRpcProtocolServer(options: {
     } catch (error) {
       return reply(commandMethod, protocolFailure(commandMethod, error));
     }
-    observed = { ...observed, command: action.kind, executor: declaredExecutorOrNull(action) };
+    observed = {
+      ...observed,
+      command: action.kind,
+      executor: declaredExecutorOrNull(action),
+      wait: action.kind === "task-ci" || action.kind === "runtime-sessions-await",
+    };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
       return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
     const receipt = await options.host.run(repo, action, options.authContext),
@@ -875,6 +884,7 @@ export function createJsonRpcProtocolServer(options: {
         connectionId,
         auth: options.authContext,
         executor: observed.executor,
+        wait: observed.wait,
         result,
         dispatchDelayMs,
         serviceMs,
@@ -891,6 +901,8 @@ export function createJsonRpcProtocolServer(options: {
     ok: boolean,
     code: string | null,
     detail: string | null,
+    command = method,
+    wait = false,
   ): void {
     if (!options.recordTraffic) return;
     options.recordTraffic({
@@ -907,6 +919,8 @@ export function createJsonRpcProtocolServer(options: {
       ok,
       code,
       detail,
+      command,
+      wait,
     });
   }
 }
