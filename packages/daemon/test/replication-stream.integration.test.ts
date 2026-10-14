@@ -199,10 +199,23 @@ test(
     t.diagnostic(`resync reason: ${String(resync.reason)}`);
     assert.match(String(resync.reason), /window/u, "the lagging node is told why it must start over");
     // The lagging node is told why it must start over, then converges through a fresh package.
-    const secondHeader = await lagging.waitForEvent("basebackup-header", 120_000);
+    await lagging.waitForWhere(
+      (event) =>
+        event.event === "backup-header" && lagging.events.filter((entry) => entry.event === "backup-header").length > 1,
+      "a second base backup after the explicit resync",
+      120_000,
+    );
+    const secondHeader = lagging.lastEvent("backup-header")!;
     assert.ok((secondHeader.position.sequence as number) > (firstInstall.position.sequence as number));
     await lagging.waitForWhere(
-      () => mirrorHead(String(firstInstall.ledgerPath)) === fixture.eventCount(),
+      (event) =>
+        event.event === "installed" && lagging.events.filter((entry) => entry.event === "installed").length > 1,
+      "the replacement generation to be installed",
+      120_000,
+    );
+    const reinstalled = lagging.lastEvent("installed")!;
+    await lagging.waitForWhere(
+      () => mirrorHead(String(reinstalled.ledgerPath)) === fixture.eventCount(),
       "re-backup convergence to the center head",
       120_000,
     );
