@@ -13,9 +13,6 @@ test(
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
     const viewRoot = path.join(f.root, "edge-view");
-    const replica = f.host.replica("lease-repo");
-    await replica.prepare();
-    await replica.waitForCut(f.eventCount());
     await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot,
@@ -50,7 +47,6 @@ test(
       localAuthFixture(),
     );
     assert.equal(schedule.outcome, "applied", JSON.stringify(schedule));
-    await replica.waitForCut(f.eventCount());
     const frames: string[] = [];
     await catchUpReplica({
       ...f.peer("node-one"),

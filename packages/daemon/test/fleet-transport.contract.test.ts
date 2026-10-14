@@ -106,6 +106,7 @@ const frames = [
     repoId: "repo",
     baseLedgerSha: ledgerCut,
     writerEpoch: 1,
+    replicationSequence: 7,
   },
   { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", repoId: "a1", opId: "op1" },
   {
@@ -176,6 +177,7 @@ const frames = [
     outcome: "applied",
     opId: "op-task-1",
     revision: 8,
+    replicationSequence: 8,
     code: null,
     receipt: { outcome: "applied", taskId: "task_abc" },
   },

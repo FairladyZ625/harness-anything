@@ -45,20 +45,22 @@ test(
     );
     git(edgeRoot, "add", "harness");
     git(edgeRoot, "commit", "-qm", "edge harness");
-    // The mirror is pulled BEFORE the causal neighborhood exists at the center,
-    // so the decision, fact, and relations recorded below cannot be present in
-    // any edge-local copy. If the provider prompt still carries them, the block
-    // provably came from the center's canonical cut on this dispatch.
-    await catchUpReplica({
-      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
-      port: center.port,
-      ca: fixture.cert,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId: fixture.subject.repoId,
-      viewRoot,
-      diskQuotaBytes: replicaQuota,
-    });
+    // The workspace mirror is materialized BEFORE the causal neighborhood exists at the center,
+    // so the decision, fact, and relations recorded below are never in the edge workspace. The
+    // replica is caught up after them: if the provider prompt carries them, the block came from
+    // the newly confirmed replica cut, not from workspace files.
+    const catchUp = () =>
+      catchUpReplica({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
+    await catchUp();
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     // Relation writes are admitted against the canonical vertical's relation
     // direction registry, which reads the materialized declaration document —
@@ -217,6 +219,7 @@ test(
       },
       { allowHost: fixture.host },
     );
+    await catchUp();
     // Line-anchored: the lookup guidance names the tag mid-sentence, so only an
     // element that starts its own line is the injected block.
     const causalBlock = (prompt: string) => /^<task-context[^>]*>[\s\S]*?<\/task-context>/mu.exec(prompt)?.[0] ?? null;
@@ -285,6 +288,8 @@ test(
       fixture.auth,
     );
     assert.equal(reclaimed.outcome, "applied", JSON.stringify(reclaimed));
+    await waitForFleetPublication(fixture.host, fixture.subject.repoId, reclaimed.opId, fixture.auth);
+    await catchUp();
     const taskBound = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",

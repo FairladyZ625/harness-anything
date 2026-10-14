@@ -207,8 +207,6 @@ test(
       assert.match(JSON.stringify(await rereadCatalog()), code);
     };
     const pull = async () => {
-      await f.host.replica("lease-repo").prepare();
-      await f.host.replica("lease-repo").waitForCut(f.eventCount());
       return catchUpReplica({
         ...f.peer("node-one"),
         viewRoot: config.viewRoot,

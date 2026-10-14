@@ -37,9 +37,6 @@ test(
     // The center publishes the read model with the cut it describes: wait for the cut at the ledger
     // head, then one pull carries every task.
     const settle = async (count: number) => {
-      const replica = f.host.replica("lease-repo");
-      await replica.prepare();
-      await replica.waitForCut(f.eventCount());
       await pull();
       assert.equal(locateFleetMirrorView(e.viewRoot, "lease-repo")?.schemaGeneration, READ_MODEL_SCHEMA_GENERATION);
       const answer = await local();
@@ -135,9 +132,6 @@ test(
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
     await f.command("center-node", { kind: "task-create", taskId: "write-read-base", title: "Base" });
     const e = await fleetEdgeHostFixture(t, f);
-    const base = f.host.replica("lease-repo");
-    await base.prepare();
-    await base.waitForCut(f.eventCount());
     await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,
@@ -212,9 +206,6 @@ test(
         }) as typeof fetch,
       },
     });
-    const replica = f.host.replica("lease-repo");
-    await replica.prepare();
-    await replica.waitForCut(f.eventCount());
     await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,

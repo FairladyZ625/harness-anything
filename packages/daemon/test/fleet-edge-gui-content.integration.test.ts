@@ -61,9 +61,6 @@ test(
     assert.equal(expectedContent.outcome, "directory");
     assert.ok(expectedContent.entries.some((entry) => entry.path === "reserved" && entry.directory));
     const e = await fleetEdgeHostFixture(t, f);
-    const replica = f.host.replica("lease-repo");
-    await replica.prepare();
-    await replica.waitForCut(f.eventCount());
     await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: e.viewRoot,

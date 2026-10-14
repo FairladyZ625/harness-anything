@@ -111,6 +111,9 @@ test(
         reason: "Review this iteration.",
       });
       assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+      // The edge runtime answers from its replica; this fixture runs no resident stream, so catch up
+      // to the center-side forward before dispatching reviewers.
+      assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
       const reviewers: string[] = [];
       for (const explicit of [false, true]) {
         const result = await spawn(`review-${iteration}-${explicit}`, explicit ? executionId : undefined);

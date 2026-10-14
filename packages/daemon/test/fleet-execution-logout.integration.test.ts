@@ -410,9 +410,6 @@ test(
     assert.equal(offlineShow.outcome, "applied", JSON.stringify(offlineShow));
     assert.ok(offlineShow.freshness, JSON.stringify(offlineShow));
     offline = false;
-    const settledCut = f.host.replica(repoId);
-    settledCut.activate();
-    await settledCut.waitForCut(f.eventCount());
     await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,
@@ -444,9 +441,6 @@ test(
       localAuthFixture(),
     );
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-    const reviewCut = f.host.replica(repoId);
-    reviewCut.activate();
-    await reviewCut.waitForCut(f.eventCount());
     await catchUpReplica({
       ...peer,
       diskQuotaBytes: config.quotaBytes,

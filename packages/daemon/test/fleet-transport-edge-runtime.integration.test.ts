@@ -100,6 +100,21 @@ test(
       diskQuotaBytes: replicaQuota,
     });
     assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
+    // The edge config makes the edge daemon own the resident replica stream, which `edgeSync` waits on.
+    writeFileSync(
+      path.join(edgeRoot, "fleet-edge.json"),
+      JSON.stringify({
+        schema: "fleet-edge-config/v1",
+        repoId: fixture.subject.repoId,
+        host: "127.0.0.1",
+        port: center.port,
+        caPath: fixture.certFile,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        viewRoot,
+        quotaBytes: replicaQuota,
+      }),
+    );
     registerDaemonRepo({
       canonicalRoot: edgeRoot,
       repoId: fixture.subject.repoId,
@@ -205,6 +220,17 @@ test(
         },
         { allowHost: fixture.host },
       );
+    // The center-side allowlist change reaches the edge through its replica before the spawn reads it.
+    await catchUpReplica({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
     const receipt = await edgeHost.fleet.edgeRuntime(
       {
         host: "127.0.0.1",
@@ -658,69 +684,80 @@ test(
     );
   },
 );
-test("remote-edge control retries startup adoption after the center recovers", { timeout: 60_000 }, async (t) => {
-  const fixture = await fleetFixture(t);
-  t.after(() => fixture.close());
-  const initialCenter = await fixture.center(),
-    unavailablePort = initialCenter.port;
-  await initialCenter.close();
-  const workspaceRoot = path.join(fixture.root, "startup-recovery-edge");
-  mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
-  writeFileSync(
-    path.join(workspaceRoot, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nname: startup-recovery-edge\n" +
-      "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
-  );
-  const runtime = openFleetEdgeRuntime({
-    readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
-    request: {
-      host: "127.0.0.1",
-      port: unavailablePort,
-      caPath: fixture.certFile,
+test(
+  "remote-edge control answers once the replica is installed after the center recovers",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetFixture(t);
+    t.after(() => fixture.close());
+    const initialCenter = await fixture.center(),
+      unavailablePort = initialCenter.port;
+    await initialCenter.close();
+    const workspaceRoot = path.join(fixture.root, "startup-recovery-edge");
+    mkdirSync(path.join(workspaceRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(workspaceRoot, "harness/harness.yaml"),
+      "schema: harness-anything/v1\nname: startup-recovery-edge\n" +
+        "layout:\n  authoredRoot: harness\n  localRoot: .harness\n",
+    );
+    const runtime = openFleetEdgeRuntime({
+      readBinding: () => fixture.owners.binding(fixture.subject.nodeId),
+      request: {
+        host: "127.0.0.1",
+        port: unavailablePort,
+        caPath: fixture.certFile,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot: path.join(fixture.root, "startup-recovery-view"),
+        quotaBytes: replicaQuota,
+        workspaceRoot,
+        method: "repo.agentRuntime.overview",
+        action: { limit: 1 },
+      },
+      daemonGeneration: 1,
+      daemonRoute: {
+        userRoot: path.join(fixture.root, "startup-recovery-user"),
+        daemonId: "startup-recovery-edge",
+        endpoint: path.join(fixture.root, "startup-recovery.sock"),
+      },
+      ports: {
+        runtimeInstances: () => [],
+        prepareRuntimeLaunch: async () => {
+          throw new Error("runtime launch is not part of startup recovery");
+        },
+        prepareDaemonGitEnvironment: async () => null,
+      },
+    });
+    fixture.track(() => runtime.close());
+    // Edge control answers from the replica the resident stream installs; with the center down there
+    // is none yet, so every control read says so locally instead of hanging on the center.
+    const awaitMissing = () => runtime.run("repo.agentRuntime.sessions.await", { runtimeSessionIds: ["missing"] });
+    await assert.rejects(runtime.run("repo.agentRuntime.overview", { limit: 1 }), { code: "replica_unavailable" });
+    await assert.rejects(awaitMissing(), { code: "replica_unavailable" });
+
+    const recoveredCenter = await fixture.center(unavailablePort);
+    await catchUpReplica({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      port: recoveredCenter.port,
+      ca: fixture.cert,
       nodeId: fixture.subject.nodeId,
       credential: "machine-secret",
       repoId: fixture.subject.repoId,
       viewRoot: path.join(fixture.root, "startup-recovery-view"),
-      quotaBytes: replicaQuota,
-      workspaceRoot,
-      method: "repo.agentRuntime.overview",
-      action: { limit: 1 },
-    },
-    daemonGeneration: 1,
-    daemonRoute: {
-      userRoot: path.join(fixture.root, "startup-recovery-user"),
-      daemonId: "startup-recovery-edge",
-      endpoint: path.join(fixture.root, "startup-recovery.sock"),
-    },
-    ports: {
-      runtimeInstances: () => [],
-      prepareRuntimeLaunch: async () => {
-        throw new Error("runtime launch is not part of startup recovery");
-      },
-      prepareDaemonGitEnvironment: async () => null,
-    },
-  });
-  fixture.track(() => runtime.close());
-  await assert.rejects(runtime.run("repo.agentRuntime.overview", { limit: 1 }), { code: "replica_unavailable" });
-  const awaitMissing = () => runtime.run("repo.agentRuntime.sessions.await", { runtimeSessionIds: ["missing"] });
-  await assert.rejects(
-    awaitMissing(),
-    (error: unknown) =>
-      /ECONNREFUSED/u.test(String((error as Error).message)) ||
-      String((error as { readonly code?: unknown }).code) === "ECONNREFUSED",
-  );
-
-  await fixture.center(unavailablePort);
-  const concurrent = await Promise.all([awaitMissing(), awaitMissing()]);
-  assert.equal(concurrent.length, 2);
-  for (const result of concurrent) {
-    assert.deepEqual(result.sessions, []);
-    assert.deepEqual(result.unavailable, [{ runtimeSessionId: "missing", code: "runtime_session_not_found" }]);
-  }
-  const recovered = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
-  assert.deepEqual(recovered.sessions, []);
-  assert.ok(recovered.cut, "successful control preparation materializes the owner-bound read cut");
-});
+      diskQuotaBytes: replicaQuota,
+    });
+    const concurrent = await Promise.all([awaitMissing(), awaitMissing()]);
+    assert.equal(concurrent.length, 2);
+    for (const result of concurrent) {
+      assert.deepEqual(result.sessions, []);
+      assert.deepEqual(result.unavailable, [{ runtimeSessionId: "missing", code: "runtime_session_not_found" }]);
+    }
+    const recovered = await runtime.run("repo.agentRuntime.overview", { limit: 1 });
+    assert.deepEqual(recovered.sessions, []);
+    assert.ok(recovered.cut, "successful control preparation materializes the owner-bound read cut");
+  },
+);
 
 test("closing an edge runtime skips work queued behind an unfinished reconciliation", async () => {
   let releaseBinding!: () => void;
@@ -791,6 +828,18 @@ test(
       }),
     });
     fixture.track(() => runtime.close());
+    const catchUp = () =>
+      catchUpReplica({
+        readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
+    await catchUp();
     const sessionIds: string[] = [];
     for (let index = 0; index < 17; index += 1) {
       const launched = await runtime.run("repo.agentRuntime.spawn", {
@@ -811,16 +860,7 @@ test(
     );
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));
     await waitForFleetPublication(fixture.host, fixture.subject.repoId, revoked.opId, localAuthFixture());
-    await catchUpReplica({
-      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
-      port: center.port,
-      ca: fixture.cert,
-      nodeId: fixture.subject.nodeId,
-      credential: "machine-secret",
-      repoId: fixture.subject.repoId,
-      viewRoot,
-      diskQuotaBytes: replicaQuota,
-    });
+    await catchUp();
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", {
         runtimeInstanceId: definition.instanceId,

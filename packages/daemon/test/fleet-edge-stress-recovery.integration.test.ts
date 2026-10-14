@@ -24,9 +24,6 @@ async function settledCenter(t: Parameters<typeof fleetNodeClaimFixture>[0], tas
       (await f.command("center-node", { kind: "task-create", taskId, title: `Stress ${taskId}` })).outcome,
       "applied",
     );
-  const replica = f.host.replica("lease-repo");
-  await replica.prepare();
-  await replica.waitForCut(f.eventCount());
   const pull = (viewRoot: string, extra: Record<string, unknown> = {}) =>
     catchUpReplica({
       ...f.peer("node-one"),
@@ -67,9 +64,6 @@ test(
       created += 1;
     }
     assert.ok(f.eventCount() >= behindAt + 70, "the center must advance past the retained cut window");
-    const replica = f.host.replica("lease-repo");
-    await replica.prepare();
-    await replica.waitForCut(f.eventCount());
     assert.equal(
       f.center.status().replicas.find((row) => row.viewId === "node-one")?.delivery,
       "snapshot_required",
@@ -154,9 +148,6 @@ test(
         (await f.command("center-node", { kind: "task-create", taskId, title: `Crash ${taskId}` })).outcome,
         "applied",
       );
-      const replica = f.host.replica("lease-repo");
-      await replica.prepare();
-      await replica.waitForCut(f.eventCount());
     };
     const crashPull = (point: "after_page" | "before_current_rename") =>
       catchUpReplica({

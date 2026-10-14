@@ -21,6 +21,7 @@ import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { waitForState } from "./fleet-replication.fixture.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {
@@ -214,7 +215,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "Canonical Squad run",
     "publish the canonical task description, not the node execution prompt",
   );
-  await f.host.replica("lease-repo").waitForCut(f.eventCount());
   await catchUpReplica({
     ...f.peer("node-two"),
     viewRoot: b.viewRoot,
@@ -489,7 +489,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     observed.payload.executionId,
     "late terminal observation cannot release or replace the successor lease",
   );
-  await f.host.replica("lease-repo").waitForCut(f.eventCount());
   await catchUpReplica({
     ...f.peer("node-two"),
     viewRoot: b.viewRoot,
@@ -665,8 +664,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   await f.closeHost(restartedHost);
   const recoveryHost = await f.openHost(),
     recoveryCenter = await f.openCenter(recoveryHost, f.center.port);
-  const recoveryCut = recoveryHost.replica("lease-repo");
-  recoveryCut.activate();
   const beforeRecovery = f.eventCount();
   const restoredOwner = await openDaemonHost({
     daemonId: "owner-daemon",
@@ -677,7 +674,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   });
   t.after(() => restoredOwner.close());
   await restoredOwner.attachmentsSettled();
-  await recoveryCut.waitForCut(beforeRecovery + 1);
+  await waitForState(() => f.eventCount() > beforeRecovery, "the restored owner to publish the pending terminal");
   const recovered = makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo }).read().events.at(-1)!;
   assert.equal(recovered.type, "runtime_squad_run_observed");
   assert.equal(recovered.payload.runRevision, 5);

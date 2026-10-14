@@ -42,9 +42,6 @@ test(
         readonly evidence?: string;
       };
     const settle = async () => {
-      const replica = f.host.replica("lease-repo");
-      await replica.prepare();
-      await replica.waitForCut(f.eventCount());
       await pull();
     };
     await settle();

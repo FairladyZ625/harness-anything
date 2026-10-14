@@ -249,7 +249,6 @@ for (const restart of [false, true])
         await runtime.reconcile();
         // This fixture owns no background sync loop. Refresh the completed cut explicitly;
         // schedule-show itself must never pull or trigger terminal publication.
-        await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
         await catchUpReplica({
           readAccessToken: async () => `device-token-${subject.nodeId}`,
           port: restoredCenter.port,
@@ -305,7 +304,6 @@ for (const restart of [false, true])
       "recovery and subsequent reads do not replace or duplicate settlement",
     );
     assert.equal(fixture.eventCount(), revision, "a recovered claim must not settle again");
-    await fixture.host.replica(subject.repoId).waitForCut(fixture.eventCount());
     await catchUpReplica({
       readAccessToken: async () => `device-token-${"node-two"}`,
       host: "127.0.0.1",
