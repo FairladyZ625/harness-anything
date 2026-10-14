@@ -1068,7 +1068,164 @@ describe("总览派生(纯函数)", () => {
         { days: 3, now: new Date().toISOString() },
       );
     expect(windowed.watched.map(({ work }) => work.taskId)).toEqual(["task_w2", "task_w1"]);
-    expect(windowed.watched.map(({ source }) => source)).toEqual(["pinned", "recent"]);
+  });
+
+  it("watchedWorks:活跃执行工作优先置顶,再按最新活动时间倒序,在跑工作不被窗口截断", () => {
+    const baseWorks: WorkIndexRead = {
+      schema: "daemon.work-index/v1",
+      ok: true,
+      status: "ready",
+      works: [
+        {
+          taskId: "work_pinned_older",
+          title: "旧置顶待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T08:00:00.000Z",
+          memberTaskIds: ["task_m_po"],
+        },
+        {
+          taskId: "work_pinned_newer",
+          title: "新置顶待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T10:00:00.000Z",
+          memberTaskIds: ["task_m_pn"],
+        },
+        {
+          taskId: "work_recent_older",
+          title: "旧近期待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T07:00:00.000Z",
+          memberTaskIds: ["task_m_ro"],
+        },
+        {
+          taskId: "work_recent_newer",
+          title: "新近期待命工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 1,
+          counts: { done: 0, executing: 0, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T11:00:00.000Z",
+          memberTaskIds: ["task_m_rn"],
+        },
+        {
+          taskId: "work_recent_running",
+          title: "近期在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 2,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T09:00:00.000Z",
+          memberTaskIds: ["task_m_rr"],
+        },
+        {
+          taskId: "work_pinned_running",
+          title: "置顶在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 2,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-14T09:30:00.000Z",
+          memberTaskIds: ["task_m_pr"],
+        },
+        {
+          taskId: "work_recent_running_stale_activity",
+          title: "窗口外但在跑工作",
+          status: "active",
+          root: "declared",
+          parentTaskId: null,
+          taskCount: 2,
+          counts: { done: 0, executing: 1, pending: 0, blocked: 0, planned: 1, cancelled: 0 },
+          lastActivityAt: "2026-10-01T00:00:00.000Z", // 远早于3天窗口
+          memberTaskIds: ["task_m_stale_running"],
+        },
+      ],
+      watermark: 1,
+      sourceRevision: 1,
+      warnings: [],
+    };
+
+    const agendaData = agenda({
+      pinnedEntities: [
+        { ref: "task/work_pinned_older", kind: "task", title: "旧置顶待命工作", status: "active", pinnedAt: AT },
+        { ref: "task/work_pinned_newer", kind: "task", title: "新置顶待命工作", status: "active", pinnedAt: AT },
+        { ref: "task/work_pinned_running", kind: "task", title: "置顶在跑工作", status: "active", pinnedAt: AT },
+      ],
+    });
+
+    const runtimeData = {
+      ok: true,
+      status: "ready",
+      installations: [],
+      instances: [],
+      sessions: [
+        {
+          runtimeSessionId: "rs_pr",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "gpt-6.1-sol" },
+          associations: [{ taskId: "task_m_pr" }],
+          activity: { lastObservedAt: "2026-10-14T09:30:00.000Z" },
+        },
+        {
+          runtimeSessionId: "rs_rr",
+          kindId: "zcode",
+          liveness: "live",
+          definitionSnapshot: { model: "glm-5.3" },
+          associations: [{ taskId: "task_m_rr" }],
+          activity: { lastObservedAt: "2026-10-14T09:00:00.000Z" },
+        },
+        {
+          runtimeSessionId: "rs_stale",
+          kindId: "codex",
+          liveness: "live",
+          definitionSnapshot: { model: "gpt-6.1-sol" },
+          associations: [{ taskId: "task_m_stale_running" }],
+          activity: { lastObservedAt: "2026-10-14T08:30:00.000Z" },
+        },
+      ],
+      watermark: 3,
+      sourceRevision: 3,
+    } as unknown as AgentRuntimeOverviewResult;
+
+    const result = watchedWorks(baseWorks, agendaData, { days: 3, now: "2026-10-14T12:00:00.000Z" }, runtimeData);
+
+    // 1. 活跃执行中任务全部置顶(不论是否置顶),且按 lastActivityAt 倒序
+    //    - work_pinned_running (09:30)
+    //    - work_recent_running (09:00)
+    //    - work_recent_running_stale_activity (虽为 10-01 但在跑不被截断,排名下)
+    // 2. 待命中置顶工作保持在近期工作前,且按 lastActivityAt 倒序
+    //    - work_pinned_newer (10:00)
+    //    - work_pinned_older (08:00)
+    // 3. 待命中近期工作按 lastActivityAt 倒序
+    //    - work_recent_newer (11:00)
+    //    - work_recent_older (07:00)
+    expect(result.watched.map(({ work }) => work.taskId)).toEqual([
+      "work_pinned_running",
+      "work_recent_running",
+      "work_recent_running_stale_activity",
+      "work_pinned_newer",
+      "work_pinned_older",
+      "work_recent_newer",
+      "work_recent_older",
+    ]);
+    expect(result.watched.find(({ work }) => work.taskId === "work_recent_running_stale_activity")?.source).toBe(
+      "recent",
+    );
   });
 
   it("工作行排序:已收尾沉底;注意力优先于最近活动", () => {

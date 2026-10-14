@@ -163,8 +163,8 @@ export function OverviewView({
       : WATCHED_ACTIVITY_DAYS_DEFAULT;
   }, [settingsQuery.data]);
   const { watched, pinnedClosed } = useMemo(
-    () => watchedWorks(works, agenda, { days: activityDays, now }),
-    [works, agenda, activityDays, now],
+    () => watchedWorks(works, agenda, { days: activityDays, now }, runtimeQuery.data),
+    [works, agenda, activityDays, now, runtimeQuery.data],
   );
   // 卡点行接回源行的映射(一次构建,attentionOf 逐项查;行上动作需要源读面的完整行)。
   const attentionSourceMap = useMemo(() => (agenda === undefined ? null : attentionSources(agenda)), [agenda]);
