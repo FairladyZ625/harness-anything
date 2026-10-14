@@ -106,8 +106,12 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     queuedPrompt: string | null = null,
     interruptTimer: NodeJS.Timeout | undefined;
   const activeTools = new Set<string>();
-  let settled = false;
+  let settled = false,
+    terminationRequested = false;
   process.once("SIGTERM", () => {
+    terminationRequested = true;
+    queuedPrompt = null;
+    clearTimeout(interruptTimer);
     if (!settled) child?.kill("SIGTERM");
   });
   try {
@@ -201,7 +205,7 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       );
       // The daemon stops reading at process_exit, so the ACP session's last frame must land first.
       await acp?.done;
-      if (queuedPrompt !== null && declaration?.steer && providerSessionId) {
+      if (!terminationRequested && queuedPrompt !== null && declaration?.steer && providerSessionId) {
         clearTimeout(interruptTimer);
         interruptTimer = undefined;
         args = [...declaration.steer.resumeArgs(baseArgs, providerSessionId)];

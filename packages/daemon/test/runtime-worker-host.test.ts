@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
@@ -215,6 +215,82 @@ test(
     assert.equal(records.filter((record) => record.kind === "process_exit").length, 1);
   },
 );
+
+test("queued steer is discarded when cancellation reaches the worker host", { timeout: 15_000 }, async (t) => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-steer-cancel-")),
+    rootDir = path.join(parent, "repo"),
+    executablePath = path.join(parent, "provider.mjs"),
+    tracePath = path.join(parent, "provider-trace.jsonl"),
+    dispatchId = "dispatch_123456789012345679901234",
+    runtimeSessionId = "runtime_123456789012345679901234";
+  mkdirSync(rootDir);
+  writeFileSync(
+    executablePath,
+    `#!/usr/bin/env node\n` +
+      `import fs from "node:fs";\n` +
+      `let prompt = ""; for await (const chunk of process.stdin) prompt += chunk;\n` +
+      `fs.appendFileSync(process.env.STEER_TRACE, JSON.stringify({ args: process.argv.slice(2), prompt }) + "\\n");\n` +
+      `const emit = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\n` +
+      `emit({ type: "thread.started", thread_id: "provider-thread-cancel" });\n` +
+      `emit({ type: "item.started", item: { id: "tool-cancel", type: "command_execution" } });\n` +
+      `setInterval(() => undefined, 1000);\n`,
+  );
+  chmodSync(executablePath, 0o755);
+  openDispatchStream(rootDir, {
+    dispatchId,
+    taskId: null,
+    executionId: null,
+    runtimeSessionId,
+    instanceId: "codex-test",
+    startedAt: new Date().toISOString(),
+    dispatchOpId: "dispatch-op-steer-cancel-test",
+    kindId: "codex",
+    permissionMode: null,
+    binding: { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+    cwd: rootDir,
+    prompt: "initial prompt",
+    model: "test-model",
+    reasoningEffort: null,
+    fast: false,
+  });
+  const runtimeProcess = launchNative(
+    {
+      executablePath,
+      args: ["exec", "--json", "--model", "test-model", "-"],
+      env: { ...runtimeWorkerProviderEnvironment(process.env), STEER_TRACE: tracePath },
+      cwd: rootDir,
+      prompt: "initial prompt",
+      installation: { kindId: "codex" },
+      protocolFamily: "codex",
+    } as never,
+    { rootDir, dispatchId },
+  );
+  t.after(async () => {
+    await runtimeProcess.terminateTree?.();
+    rmSync(parent, { recursive: true, force: true });
+  });
+  await eventually(
+    () =>
+      readDispatchStream(rootDir, dispatchId)?.records.some(
+        (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "item.started",
+      ) === true,
+  );
+  runtimeProcess.steer!("queued follow-up");
+  const exited = new Promise<void>((resolve, reject) =>
+    runtimeProcess.onExit((code) => (code === null ? resolve() : reject(new Error(`worker exited ${code}`)))),
+  );
+  process.kill(runtimeProcess.pid, "SIGTERM");
+  await exited;
+  await eventually(() => existsSync(tracePath) && readFileSync(tracePath, "utf8").trim().length > 0);
+  const invocations = readFileSync(tracePath, "utf8")
+    .trim()
+    .split(/\r?\n/u)
+    .map((line) => JSON.parse(line) as { args: string[]; prompt: string });
+  assert.equal(invocations.length, 1);
+  assert.equal(invocations[0]!.prompt, "initial prompt");
+  const records = readDispatchStream(rootDir, dispatchId)!.records;
+  assert.equal(records.filter((record) => record.kind === "steer_resumed").length, 0);
+});
 
 async function eventually(check: () => boolean): Promise<void> {
   while (!check()) await new Promise<void>((resolve) => setImmediate(resolve));
