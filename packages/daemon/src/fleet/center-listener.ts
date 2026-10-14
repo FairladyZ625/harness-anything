@@ -158,7 +158,9 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     },
   };
   const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
-  const retentionWindowCommits = options.replicationRetentionWindowCommits ?? 4096;
+  // The cap only bounds a slot that never returns: log rows are a few columns, while a slot past the cap
+  // costs a full base backup. A busy center writes thousands of commits a day; keep months of them.
+  const retentionWindowCommits = options.replicationRetentionWindowCommits ?? 1_000_000;
   const retentions = new Map<string, ReturnType<typeof createReplicationRetention>>();
   // Slots hold the log back to their slowest ACK, capped by the window; pruning is a write, so it
   // runs on the repository's single writer, never on a replication reader's read-only connection.
