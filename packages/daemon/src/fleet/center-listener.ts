@@ -39,6 +39,20 @@ import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots } from "./replication-slot.ts";
 import { startBaseBackup } from "./basebackup.ts";
 
+/** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
+const REPLICATION_HEAD_POLL_MS = 50;
+function pauseUntilAborted(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController();
@@ -219,9 +233,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         return store.replicationCommits(after, 64);
       },
       acknowledged: () => retention.advance(store.replicationPosition()),
+      // Commits land in the repo writer process, so this process polls the head on a short timer; an
+      // idle stream costs one indexed read per interval, never a spinning event loop.
       wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
         while (!waitSignal.aborted && store.replicationPosition().sequence <= after.sequence)
-          await new Promise<void>((resolve) => setImmediate(resolve));
+          await pauseUntilAborted(REPLICATION_HEAD_POLL_MS, waitSignal);
       },
       backup: async (backupSignal: AbortSignal) => {
         const cached = backupCache.get(frame.repoId);

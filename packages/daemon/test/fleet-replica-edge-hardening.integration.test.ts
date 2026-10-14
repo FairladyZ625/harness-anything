@@ -259,3 +259,24 @@ test("a streamed content object whose bytes differ from its digest is rejected b
   assert.deepEqual(received.installed, []);
   assert.deepEqual(received.applied, []);
 });
+
+test("an idle connected edge costs the center no busy event loop", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await seedCenterData(fixture, seededTask);
+  await fixture.openCenter();
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+    viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one");
+  startHardeningStream(t, fixture, viewRoot);
+  await waitForState(
+    () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+    "initial convergence",
+    60_000,
+  );
+  // The center's sender and the edge's receiver both live in this process; idle, they must sleep.
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  const before = process.cpuUsage();
+  await new Promise((resolve) => setTimeout(resolve, 2_000));
+  const used = process.cpuUsage(before),
+    cpuMs = (used.user + used.system) / 1000;
+  assert.ok(cpuMs < 600, `idle replication used ${cpuMs.toFixed(0)} ms CPU in 2 s`);
+});
