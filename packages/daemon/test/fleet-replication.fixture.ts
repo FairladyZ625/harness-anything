@@ -23,7 +23,7 @@ import { makeTaskProjectionReader, sqliteLedgerPath } from "@harness-anything/ke
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/contract.ts";
+import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/command-protocol.ts";
 import { parseReplicationFrame, serializeReplicationFrame, type ReplicationFrame } from "../src/fleet/protocol.ts";
 import { fleetHostWriterOptions, fleetLedgerRevision, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { rawPeer } from "./fleet-tls-session.fixture.ts";

@@ -195,6 +195,8 @@ export async function serve(
         pendingReplicationStart = frame;
         return;
       }
+      const live = sessions.get(nodeId);
+      if (live) for (const existing of live) if (existing !== socket) existing.destroy();
       replicationMode = true;
       replicationFrames.push(frame);
       if (!options.onReplicationStart) throw new FleetFault("replication_unavailable", "Replication is unavailable.");
@@ -230,6 +232,8 @@ export async function serve(
         if (pendingReplicationStart && options.onReplicationStart) {
           const start = pendingReplicationStart;
           pendingReplicationStart = null;
+          const live = sessions.get(nodeId);
+          if (live) for (const existing of live) if (existing !== socket) existing.destroy();
           replicationMode = true;
           replicationFrames.push(start);
           void options
