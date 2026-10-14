@@ -764,7 +764,7 @@ export function createJsonRpcProtocolServer(options: {
       ...observed,
       command: action.kind,
       executor: declaredExecutorOrNull(action),
-      wait: action.kind === "task-ci" || action.kind === "runtime-sessions-await",
+      wait: action.wait === true || action.kind === "runtime-sessions-await",
     };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
       return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));

@@ -261,7 +261,7 @@ export async function waitForTaskCi(
   },
 ): Promise<JsonObject> {
   const { wait: _wait, timeoutSeconds, ...readAction } = command.action,
-    read = { ...command, action: readAction },
+    read = { ...command, action: { ...readAction, wait: true } },
     startedAt = clock.now(),
     deadline = startedAt + (typeof timeoutSeconds === "number" ? timeoutSeconds * 1000 : taskCiWaitDefaults.timeoutMs);
   for (;;) {
