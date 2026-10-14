@@ -806,7 +806,7 @@ test(
     const settings = await fixture.host.read(fixture.subject.repoId, "repo.settings.read", {}, localAuthFixture());
     const revoked = await fixture.host.run(
       fixture.subject.repoId,
-      { kind: "settings-update", runtimeAllowedInstances: [], expectedVersion: settings.lastChanged.revision },
+      { kind: "settings-update", runtimeAllowedInstances: [], expectedVersion: settings.revision },
       localAuthFixture(),
     );
     assert.equal(revoked.outcome, "applied", JSON.stringify(revoked));

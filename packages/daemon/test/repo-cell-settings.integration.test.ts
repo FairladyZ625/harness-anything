@@ -718,3 +718,58 @@ function decisionProposal() {
     }),
   } as const;
 }
+
+// 评审 review-dispatch_e3e70b3b ①:harness.yaml 被其他写入改动后(台账侧的 doc 写与
+// 文件侧的操作者/工具改动),用改动前读到的令牌保存设置不报 revision_conflict——
+// 令牌只跟 settings singleton 行修订走,与文档世界的其他变化解耦。
+test("settings saves keep their token across doc writes and harness.yaml edits by other writers", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-foreign-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-foreign"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-foreign-test",
+    });
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    const readToken = async (): Promise<number> => {
+      const read = (await cell.read("repo.settings.read")) as { readonly revision: number };
+      assert.ok(Number.isSafeInteger(read.revision));
+      return read.revision;
+    };
+
+    const token = await readToken();
+    // 台账侧的「其他写入」:task plan/closeout 同族的 doc 写落在 harness 树的其他文档上
+    // (harness.yaml 本身归 workspace-config 路由,doc 通道不能认领——改动后 dry-run 即拦)。
+    mkdirSync(path.join(root, "harness/context"), { recursive: true });
+    writeFileSync(path.join(root, "harness/context/notes.md"), "# Notes\n\nforeign write\n");
+    const docSubmitted = await cell.run({ kind: "doc-submit", paths: ["context/notes.md"] }, binding);
+    assert.equal(docSubmitted.outcome, "applied", JSON.stringify(docSubmitted));
+    // 文件侧的「其他写入」:操作者/工具直接改 authored harness.yaml(等值漂移,非 settings
+    // 事件);doc 通道拒绝认领它,这份改动只能经 settings 入口进账。
+    const configPath = path.join(root, "harness/harness.yaml");
+    writeFileSync(
+      configPath,
+      readFileSync(configPath, "utf8").replace("  walFlush:", "  # operator note\n  walFlush:"),
+    );
+    const workspaceDryRun = await cell.run({ kind: "doc-dry-run", paths: ["harness.yaml"] }, binding);
+    assert.match(String(workspaceDryRun.evidence), /"path":"harness\.yaml"/u);
+    assert.match(String(workspaceDryRun.evidence), /path is owned by workspace-config/u);
+    // 两类其他写入都不移动 singleton 行修订:改动前的令牌照常保存,文件漂移由编译器吸收。
+    assert.equal(await readToken(), token);
+    const applied = await cell.run(
+      {
+        kind: "settings-update",
+        reviewReturnBudget: 5,
+        expectedVersion: token,
+        idempotencyKey: "settings-foreign-token",
+      },
+      binding,
+    );
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
