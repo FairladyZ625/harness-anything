@@ -4,7 +4,7 @@
 // the retired cut/pull layout starts a fresh replica instead of failing on the old pointer; content
 // objects larger than the in-memory envelope bound stream to staging files and are digest-checked.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { connect, createServer, type Socket } from "node:net";
 import { statSync } from "node:fs";
@@ -428,3 +428,25 @@ test(
     );
   },
 );
+
+test("each base backup owns a directory that keeps only its archive", { timeout: 120_000 }, async (t) => {
+  const fixture = await fleetReplicationFixture(t);
+  await seedCenterData(fixture, seededTask);
+  const backupsRoot = path.join(fixture.stateRoot, "replication-backups");
+  // A directory left by a previous center process is not served and is removed at start.
+  mkdirSync(path.join(backupsRoot, "payload"), { recursive: true });
+  await fixture.openCenter();
+  assert.equal(existsSync(path.join(backupsRoot, "payload")), false);
+  const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+    viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one");
+  startHardeningStream(t, fixture, viewRoot);
+  await waitForState(
+    () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+    "initial convergence",
+    60_000,
+  );
+  const backups = readdirSync(backupsRoot);
+  assert.equal(backups.length, 1, JSON.stringify(backups));
+  assert.match(backups[0]!, /^[0-9a-f-]{36}$/u, "a backup directory is named for that backup, not shared");
+  assert.deepEqual(readdirSync(path.join(backupsRoot, backups[0]!)), ["base.tar.gz"], "the staged payload is gone");
+});

@@ -10,10 +10,12 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
 import { consumeKnownError, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
@@ -189,10 +191,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
-  const backupCache = new Map<
-    string,
-    { readonly archive: Promise<import("./basebackup.ts").BaseBackupArchive>; users: number; releaseQueue: () => void }
-  >();
+  type CachedBackup = {
+    readonly archive: Promise<import("./basebackup.ts").BaseBackupArchive>;
+    readonly directory: string;
+    users: number;
+    readonly releaseQueue: () => void;
+  };
+  const backupCache = new Map<string, CachedBackup>();
+  // Each backup owns a directory under replication-backups; none outlives the process that built it.
+  const backupsRoot = path.join(options.stateRoot, "replication-backups");
+  rmSync(backupsRoot, { recursive: true, force: true });
+  const retireBackup = (repoId: string, cached: CachedBackup): void => {
+    if (backupCache.get(repoId) === cached) backupCache.delete(repoId);
+    cached.releaseQueue();
+    rmSync(cached.directory, { recursive: true, force: true });
+  };
+  // Concurrent edges share one archive. It is deleted with its last user: kept longer, its retention pin
+  // would hold the log back and a later edge could get a start already past the retention window.
+  const releaseBackupUser = (repoId: string, cached: CachedBackup): void => {
+    cached.users -= 1;
+    if (cached.users === 0) retireBackup(repoId, cached);
+  };
   const onReplicationStart = async (
     nodeId: string,
     accessToken: string | undefined,
@@ -268,13 +287,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           return {
             ...(await cached.archive),
             metadata: { ...(await cached.archive).metadata, readerProfile },
-            release: async () => {
-              cached.users -= 1;
-              if (cached.users === 0) {
-                backupCache.delete(frame.repoId);
-                cached.releaseQueue();
-              }
-            },
+            release: async () => releaseBackupUser(frame.repoId, cached),
           };
         }
         const previous = backupQueues.get(frame.repoId) ?? Promise.resolve();
@@ -287,17 +300,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         await previous;
         // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
         const unpin = retention.pin(store.replicationPosition());
+        const directory = path.join(backupsRoot, randomUUID());
         const started = startBaseBackup(
           {
             ledgerPath: store.databasePath,
             projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
-            directory: path.join(options.stateRoot, "replication-backups"),
+            directory,
           },
           backupSignal,
         );
         const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
-        const cachedArchive = {
+        const cachedArchive: CachedBackup = {
           archive: archivePromise,
+          directory,
           users: 1,
           releaseQueue: () => {
             unpin();
@@ -310,17 +325,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           return {
             ...archive,
             metadata: { ...archive.metadata, readerProfile },
-            release: async () => {
-              cachedArchive.users -= 1;
-              if (cachedArchive.users === 0) {
-                backupCache.delete(frame.repoId);
-                cachedArchive.releaseQueue();
-              }
-            },
+            release: async () => releaseBackupUser(frame.repoId, cachedArchive),
           };
         } catch (error) {
-          backupCache.delete(frame.repoId);
-          cachedArchive.releaseQueue();
+          retireBackup(frame.repoId, cachedArchive);
           throw error;
         }
       },

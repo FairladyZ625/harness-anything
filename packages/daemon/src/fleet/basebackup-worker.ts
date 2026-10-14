@@ -2,7 +2,7 @@ import { parentPort, workerData } from "node:worker_threads";
 import { backup, DatabaseSync } from "node:sqlite";
 import { createHash } from "node:crypto";
 import { createReadStream, existsSync } from "node:fs";
-import { copyFile, mkdir, stat } from "node:fs/promises";
+import { copyFile, mkdir, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import * as tar from "tar";
 import { replicationContentClaims, type PersistedCanonicalEventV1 } from "@harness-anything/kernel";
@@ -57,6 +57,8 @@ try {
   const file = path.join(input.directory, "base.tar.gz");
   await tar.create({ file, cwd: payload, gzip: true, portable: true, strict: true }, ["backup.json", ".harness"]);
   syncFile(file);
+  // The archive is what ships; the staged copy would double the backup's disk use while edges download.
+  await rm(payload, { recursive: true, force: true });
   const digest = createHash("sha256");
   for await (const chunk of createReadStream(file)) digest.update(chunk);
   const archive: BaseBackupArchive = { metadata, file, size: (await stat(file)).size, sha256: digest.digest("hex") };
