@@ -868,6 +868,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             method: "repo.squad.control",
             action: {},
           }).reconcile(),
+        onConfirmedFailure: (error) =>
+          input.recordLifecycle?.({
+            event: "replica_confirm_failed",
+            repoId: repo.repoId,
+            error: error instanceof Error ? error.message : String(error),
+          }),
         onFailure: (error) =>
           input.recordLifecycle?.({
             event: "replica_sync_failed",

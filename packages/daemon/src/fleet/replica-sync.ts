@@ -1,10 +1,16 @@
+import { consumeKnownError } from "@harness-anything/kernel";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "./replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
-  /** Runs after each acknowledged position, before receiving the next replication frame. */
+  /**
+   * Runs after acknowledged positions, outside the receiver: confirmations coalesce into at most one
+   * run in flight plus one queued. The receiver never waits for it, so work that itself waits for a
+   * later replicated commit cannot block the stream that applies that commit.
+   */
   readonly onConfirmed?: () => void | Promise<void>;
+  readonly onConfirmedFailure?: (error: unknown) => void;
   readonly onFailure?: (error: unknown) => void;
 }
 type Waiter = { readonly sequence: number; readonly resolve: () => void; readonly reject: (error: unknown) => void };
@@ -84,7 +90,31 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
     recordReplicaHealth(viewDir, { syncFailure });
   streams.set(key, stream);
-  let failures = 0;
+  let failures = 0,
+    confirming = false,
+    confirmAgain = false;
+  const confirm = (): void => {
+    if (!options.onConfirmed) return;
+    if (confirming) {
+      confirmAgain = true;
+      return;
+    }
+    confirming = true;
+    void (async () => {
+      do {
+        confirmAgain = false;
+        try {
+          await options.onConfirmed!();
+        } catch (error) {
+          consumeKnownError(error);
+          (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
+            error,
+          );
+        }
+      } while (confirmAgain && !options.signal?.aborted);
+      confirming = false;
+    })();
+  };
   try {
     while (!options.signal?.aborted) {
       stream.down = null;
@@ -94,7 +124,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
           failures = 0;
           observe(null);
           settle(key, position.sequence);
-          await options.onConfirmed?.();
+          confirm();
         },
       });
       if (options.signal?.aborted) return;
