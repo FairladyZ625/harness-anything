@@ -80,6 +80,8 @@ export type FleetFrameV1 =
         repoId: string;
         baseLedgerSha: LedgerCutIdentity;
         writerEpoch: number;
+        /** The center's replication head when it answered; an edge sync waits for its stream to reach it. */
+        replicationSequence: number;
         personId: string;
         actionAllowed: boolean | null;
       }
@@ -627,6 +629,7 @@ const schemas: Readonly<Record<string, Check>> = {
     repoId: id,
     baseLedgerSha: ledgerCut,
     writerEpoch: uint,
+    replicationSequence: uint,
   }),
   "fleet.receipt.get/v1": shape({ ...common, repoId: id, opId: id }),
   "fleet.receipt.result/v1": shape({ ...reply, opId: id, receipt: record }),

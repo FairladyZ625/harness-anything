@@ -431,6 +431,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         repoId: a.repoId,
         baseLedgerSha,
         writerEpoch: ownedEpochFor(a.repoId).epoch,
+        replicationSequence: replicationHead(a.repoId),
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {

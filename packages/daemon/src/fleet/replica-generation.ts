@@ -41,6 +41,11 @@ export function readReplicaGeneration(root: string): ReplicaGeneration | null {
   return generation(root, current.id, current.metadata);
 }
 
+/** The center denied this node's replica; edge reads of the view refuse from now on. */
+export function revokeReplicaView(root: string): void {
+  writeFileDurably(path.join(root, "revoked"), "authorization_denied\n");
+}
+
 export function updateReplicaGenerationPosition(root: string, position: BaseBackupMetadata["position"]): void {
   const pointer = path.join(root, "current.json");
   if (!existsSync(pointer)) throw new Error("replica generation is unavailable");
@@ -184,6 +189,18 @@ function createGenerationReaders(root: string) {
     );
     for (const entry of superseded) await rm(path.join(directory, entry.name), { recursive: true, force: true });
   };
+  /**
+   * Removes what a crashed install left behind: unpublished generation staging and received base
+   * backup archives. Only the single installer of this root calls it, before it can install again.
+   */
+  const discardStaging = async (): Promise<void> => {
+    const directory = path.join(root, "generations");
+    if (existsSync(directory))
+      for (const entry of readdirSync(directory, { withFileTypes: true }))
+        if (entry.isDirectory() && entry.name.endsWith(".staging"))
+          await rm(path.join(directory, entry.name), { recursive: true, force: true });
+    await rm(path.join(root, "staging"), { recursive: true, force: true });
+  };
   return {
     acquire(): { readonly generation: ReplicaGeneration; readonly release: () => void } | null {
       const current = readReplicaGeneration(root);
@@ -210,5 +227,6 @@ function createGenerationReaders(root: string) {
       };
     },
     collect,
+    discardStaging,
   };
 }

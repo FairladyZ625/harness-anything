@@ -3,7 +3,6 @@ import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
-import { writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   ReplicationDecoder,
@@ -16,6 +15,7 @@ import {
   installReplicaGeneration,
   readReplicaGeneration,
   replicaGenerationReaders,
+  revokeReplicaView,
   updateReplicaGenerationPosition,
 } from "./replica-generation.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
@@ -175,7 +175,9 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         }),
       );
     });
-    // A crash between an install and its collection leaves superseded generations behind.
+    // A crash mid-install leaves staging behind, and one between an install and its collection
+    // leaves superseded generations behind.
+    await generations.discardStaging();
     await generations.collect();
     const current = readReplicaGeneration(viewRoot);
     opened = current ? openWalReceiverGeneration(current) : null;
@@ -214,7 +216,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
         opened = null;
         await prior?.close();
       },
-      revoke: () => writeFileSync(path.join(viewRoot, "revoked"), "authorization_denied\n"),
+      revoke: () => revokeReplicaView(viewRoot),
     };
     const replicationPeer: ReplicationPeer = {
       send: async (frame) => {
