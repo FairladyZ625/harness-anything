@@ -58,6 +58,8 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     // Relation writes are admitted against the canonical vertical's relation
@@ -387,6 +389,8 @@ for (const probe of [
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
     const packageRoot = path.join(workspaceRoot, "harness/tasks/task-fleet-fleet"),

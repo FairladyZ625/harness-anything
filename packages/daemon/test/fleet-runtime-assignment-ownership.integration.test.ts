@@ -170,6 +170,8 @@ for (const distinctNode of [false, true])
             repoId: subject.repoId,
             viewRoot,
             diskQuotaBytes: 64 * 1024 * 1024,
+            // Single-round pull: the walreceiver is a resident stream.
+            stopAfterAck: true,
           });
           applyFleetMirrorCut(viewRoot, subject.repoId, workspaceRoot, "pull");
         }

@@ -23,7 +23,13 @@ test(
     const pull = async (nodeId: string) => {
       await f.host.replica("lease-repo").prepare();
       await f.host.replica("lease-repo").waitForCut(f.eventCount());
-      await runFleetReplicaPullClient({ ...f.peer(nodeId), viewRoot, diskQuotaBytes: quota });
+      await runFleetReplicaPullClient({
+        ...f.peer(nodeId),
+        viewRoot,
+        diskQuotaBytes: quota,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
+      });
     };
     await pull("node-one");
     await f.command("center-node", { kind: "task-create", taskId: "newer-task", title: "Newer other view" });

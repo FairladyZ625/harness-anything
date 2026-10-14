@@ -98,6 +98,8 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     assert.equal(applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull").outcome, "applied");
     registerDaemonRepo({
@@ -468,6 +470,8 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, fixture.subject.repoId, edgeRoot, "pull");
     const mirrored = locateFleetMirrorView(viewRoot, fixture.subject.repoId);
@@ -567,6 +571,8 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
@@ -820,6 +826,8 @@ test(
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     await assert.rejects(
       runtime.run("repo.agentRuntime.spawn", {

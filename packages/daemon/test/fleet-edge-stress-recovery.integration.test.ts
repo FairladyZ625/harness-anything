@@ -28,7 +28,14 @@ async function settledCenter(t: Parameters<typeof fleetNodeClaimFixture>[0], tas
   await replica.prepare();
   await replica.waitForCut(f.eventCount());
   const pull = (viewRoot: string, extra: Record<string, unknown> = {}) =>
-    runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: quota, ...extra });
+    runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot,
+      diskQuotaBytes: quota,
+      ...extra,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
   return { f, pull };
 }
 
@@ -161,6 +168,8 @@ test(
         edgeKillpoint: (observed) => {
           if (observed === point) throw new Error(`simulated materializer crash ${point}`);
         },
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       });
 
     // 1. Crash while pages are still arriving: staging is durable, current is untouched.

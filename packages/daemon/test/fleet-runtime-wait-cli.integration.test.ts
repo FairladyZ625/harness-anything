@@ -117,6 +117,8 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
       repoId: fixture.subject.repoId,
       viewRoot,
       diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);

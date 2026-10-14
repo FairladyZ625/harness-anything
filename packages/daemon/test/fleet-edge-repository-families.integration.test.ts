@@ -16,7 +16,13 @@ test(
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     const truth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());
     assert.equal(truth.outcome, "applied", JSON.stringify(truth));
     const updated = await f.host.run(
@@ -55,6 +61,8 @@ test(
       onFrame: (frame) => {
         frames.push(frame.schema);
       },
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     assert.ok(frames.includes("fleet.delta.begin/v1"), "authored settings update must arrive by delta");
     // Start the resident sync only after the observed pull owns the settings delta.

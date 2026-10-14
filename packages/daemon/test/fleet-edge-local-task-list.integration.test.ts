@@ -26,7 +26,13 @@ test(
       );
     const e = await fleetEdgeHostFixture(t, f);
     const pull = () =>
-      runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+      runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: e.viewRoot,
+        diskQuotaBytes: quota,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
+      });
     const local = (action: Record<string, unknown> = { kind: "task-list" }) => e.command(action);
     const center = async (action: Record<string, unknown> = { kind: "task-list" }) =>
       (await f.host.run("lease-repo", action as never, localAuthFixture())) as unknown as Record<string, unknown>;
@@ -134,7 +140,13 @@ test(
     const base = f.host.replica("lease-repo");
     await base.prepare();
     await base.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+    await runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot: e.viewRoot,
+      diskQuotaBytes: quota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     const written = await e.command({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
     assert.equal(written.outcome, "applied", JSON.stringify(written));
     assert.ok(written.appliedCut);
@@ -151,17 +163,38 @@ test("same repository pulls keep per-node authorization metadata independent", {
   await f.command("center-node", { kind: "task-create", taskId: "dual-owner", title: "Dual owner" });
   const first = path.join(f.root, "view-one"),
     second = path.join(f.root, "view-two");
-  await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota });
-  await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: second, diskQuotaBytes: quota });
+  await runFleetReplicaPullClient({
+    ...f.peer("node-one"),
+    viewRoot: first,
+    diskQuotaBytes: quota,
+    // Single-round pull: the walreceiver is a resident stream.
+    stopAfterAck: true,
+  });
+  await runFleetReplicaPullClient({
+    ...f.peer("node-two"),
+    viewRoot: second,
+    diskQuotaBytes: quota,
+    // Single-round pull: the walreceiver is a resident stream.
+    stopAfterAck: true,
+  });
   const one = locateFleetMirrorView(first, "lease-repo")!,
     two = locateFleetMirrorView(second, "lease-repo")!;
   assert.deepEqual(one.readerProfile, { personId: "person-one", nodeId: "node-one" });
   assert.deepEqual(two.readerProfile, { personId: "person-two", nodeId: "node-two" });
   assert.notEqual(one.authorizationShapeDigest, two.authorizationShapeDigest);
   f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
-  await assert.rejects(runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota }), {
-    code: "authorization_denied",
-  });
+  await assert.rejects(
+    runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot: first,
+      diskQuotaBytes: quota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    }),
+    {
+      code: "authorization_denied",
+    },
+  );
   const edgeOne = await fleetEdgeHostFixture(t, f, { name: "edge-one", viewRoot: first }),
     edgeTwo = await fleetEdgeHostFixture(t, f, {
       name: "edge-two",
@@ -192,7 +225,13 @@ test(
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+    await runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot: e.viewRoot,
+      diskQuotaBytes: quota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     const confirmationPath = path.join(
       locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir,
       "head-confirmation.json",

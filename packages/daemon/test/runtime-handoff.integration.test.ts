@@ -168,7 +168,13 @@ test(
     assert.equal(existsSync(checkpointFile), true);
     assert.equal(readFileSync(checkpointFile, "utf8").includes("private-native-sentinel"), false);
     const viewRoot = path.join(f.root, "private-checkpoint-replica");
-    await runFleetReplicaPullClient({ ...peer(target.nodeId), viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await runFleetReplicaPullClient({
+      ...peer(target.nodeId),
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     const view = locateFleetMirrorView(viewRoot, source.repoId);
     assert.ok(view);
     assert.equal(

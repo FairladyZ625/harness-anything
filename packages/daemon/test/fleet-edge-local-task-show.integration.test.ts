@@ -29,7 +29,13 @@ test(
     );
     const e = await fleetEdgeHostFixture(t, f);
     const pull = () =>
-      runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+      runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: e.viewRoot,
+        diskQuotaBytes: quota,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
+      });
     const local = (taskId: string) => e.command({ kind: "task-show", taskId });
     const center = async (taskId: string) =>
       (await f.host.run("lease-repo", { kind: "task-show", taskId } as never, localAuthFixture())) as unknown as {

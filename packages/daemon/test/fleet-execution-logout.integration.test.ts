@@ -101,7 +101,12 @@ test(
       readAccessToken: f.owners.readAccessToken(config.nodeId),
     };
     writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await runFleetReplicaPullClient({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     registerBootstrappedDaemonRepo({
       canonicalRoot: edgeRoot,
@@ -259,7 +264,12 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await runFleetReplicaPullClient({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const initialLocalRead = await cli(["task", "show", taskId]);
     assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
@@ -336,7 +346,12 @@ test(
     );
     // Edge reads answer from the local read model; a revocation lands at the next sync attempt.
     const resync = async () => {
-      await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+      await runFleetReplicaPullClient({
+        ...peer,
+        diskQuotaBytes: config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
+      });
       applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     };
     f.owners.keycloak.revoke("person-owner", repoId, ["repository-read"]);
@@ -403,7 +418,12 @@ test(
     const settledCut = f.host.replica(repoId);
     settledCut.activate();
     await settledCut.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await runFleetReplicaPullClient({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     writeFileSync(
       path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md"),
@@ -434,7 +454,12 @@ test(
     const reviewCut = f.host.replica(repoId);
     reviewCut.activate();
     await reviewCut.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await runFleetReplicaPullClient({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const reviewRoot = path.join(f.root, "review-edge"),
       reviewUser = path.join(f.root, "review-user"),
@@ -449,6 +474,8 @@ test(
       readAccessToken: f.owners.readAccessToken("node-slow"),
       viewRoot: reviewView,
       diskQuotaBytes: config.quotaBytes,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(reviewView, repoId, reviewRoot, "pull");
     registerBootstrappedDaemonRepo({
@@ -822,6 +849,8 @@ test(
       readAccessToken: f.owners.readAccessToken("node-slow"),
       viewRoot: reviewView,
       diskQuotaBytes: config.quotaBytes,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(reviewView, repoId, reviewRoot, "pull");
     const fresh = await spawnReviewer("edge-review-s2");

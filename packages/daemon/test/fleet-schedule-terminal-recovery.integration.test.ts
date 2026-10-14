@@ -227,6 +227,8 @@ for (const restart of [false, true])
         repoId: subject.repoId,
         viewRoot: observerRoot,
         diskQuotaBytes: 64 * 1024 * 1024,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       });
       const pending = withEdgeReadModel(
         { viewRoot: observerRoot, repoId: subject.repoId, nodeId: "node-two", principalId: "person-owner" },
@@ -260,6 +262,8 @@ for (const restart of [false, true])
           repoId: subject.repoId,
           viewRoot: path.join(fixture.root, "schedule-view"),
           diskQuotaBytes: 64 * 1024 * 1024,
+          // Single-round pull: the walreceiver is a resident stream.
+          stopAfterAck: true,
         });
         shown = await runtime.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
         return (shown.schedule as { status: { activeRun: unknown } }).status.activeRun === null;
@@ -317,6 +321,8 @@ for (const restart of [false, true])
       repoId: subject.repoId,
       viewRoot: observerRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     await restoredCenter.close();
     const result = withEdgeReadModel(

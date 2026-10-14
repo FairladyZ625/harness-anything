@@ -27,11 +27,11 @@ import {
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
-} from "../src/fleet/edge.ts";
+} from "../src/fleet/peer.ts";
 import { FleetReplicaSessionPool, runFleetReplicaSync } from "../src/fleet/edge-replica-sync.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
-import { type FleetCut } from "../src/fleet/contract.ts";
+import { type FleetCut } from "../src/fleet/command-protocol.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 type FleetTestSubject = {

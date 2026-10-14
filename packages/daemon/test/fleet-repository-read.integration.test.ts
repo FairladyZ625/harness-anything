@@ -213,6 +213,8 @@ test(
         ...f.peer("node-one"),
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       });
     };
     await pull();
@@ -371,6 +373,8 @@ test(
         repoId: "other-repo",
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       }),
       { code: "authorization_denied" },
     );
@@ -386,6 +390,8 @@ test(
       ...f.peer("node-one"),
       viewRoot: config.viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     assert.equal(viewerPull.current.cut.revision > 0, true);
     f.owners.keycloak.account("person-outsider");
@@ -397,6 +403,8 @@ test(
         ...f.peer("node-two"),
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       }),
       { code: "human_confirmation_required" },
     );
@@ -415,6 +423,8 @@ test(
         ...f.peer("node-one"),
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       }),
       { code: "authorization_denied" },
     );
@@ -445,6 +455,8 @@ test(
         ...f.peer("node-one"),
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       }),
       { code: "node_owner_unregistered" },
     );

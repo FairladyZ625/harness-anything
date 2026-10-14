@@ -64,7 +64,13 @@ test(
     const replica = f.host.replica("lease-repo");
     await replica.prepare();
     await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await runFleetReplicaPullClient({
+      ...f.peer("node-one"),
+      viewRoot: e.viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    });
     const scope = await f.host.read(
       "lease-repo",
       "repo.workspace.scope.read",
@@ -171,7 +177,13 @@ test(
     )) as unknown as Record<string, unknown>;
     assert.equal(rebuilt.rebuildCount, 1, JSON.stringify(rebuilt));
     await assert.rejects(
-      runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: 64 * 1024 * 1024 }),
+      runFleetReplicaPullClient({
+        ...f.peer("node-one"),
+        viewRoot: e.viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
+      }),
     );
     const failed = (await e.host.run("lease-repo", { kind: "doctor-health" }, localAuthFixture())) as unknown as Record<
       string,

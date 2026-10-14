@@ -1,11 +1,8 @@
-// W3-C class-A/class-B dual sync state machines: every test drives the real
-// product entry points (runFleetEdgeTask / runFleetEdgeDocSync /
-// runFleetEdgeConflictExit) against a live fleet TLS center, mirroring the
-// lease-broker and transport integration fixtures. P0 semantics under test:
-// non-holder task-doc pushes are rejected; a base conflict voids the whole
-// transition; CENTER_REJECTED never silently overwrites; conflict staging
-// lands base/local/center with three explicit exits; pull-blocked is reported
-// on the dual axis instead of masquerading as synced.
+// Fleet edge fixture for the surviving dual-sync consumers (review rework,
+// CLI task delivery): real edge task commands against a live fleet TLS center.
+// The class-A/class-B doc-sync state machine retired with fleet-edge-doc-sync
+// (dec_9284BD61); the pull side is the resident replication stream's
+// single-round control plus the mirror materializer.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -16,10 +13,9 @@ import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { runFleetEdgeConflictExit, runFleetEdgeDocSync } from "../src/fleet-edge-doc-sync.ts";
-import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetWriteClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { realizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 
@@ -138,26 +134,8 @@ export async function dualSyncFixture(
   });
   const edgeTask = (nodeId: NodeId, action: Record<string, unknown>): Promise<Record<string, unknown>> =>
     runFleetEdgeTask({ payload: { ...channel(nodeId), action: action as never } }, owners.readAccessToken(nodeId));
-  const edgeDocSync = (
-    nodeId: NodeId,
-    options: { readonly dryRun?: boolean; readonly paths?: readonly string[] } = {},
-  ): Promise<Record<string, unknown>> =>
-    runFleetEdgeDocSync({ payload: { ...channel(nodeId), ...options } as never }, owners.readAccessToken(nodeId));
-  const conflictExit = (
-    nodeId: NodeId,
-    action: "resolve" | "discard-local" | "overwrite-center",
-    conflictId: string,
-  ): Promise<Record<string, unknown>> =>
-    runFleetEdgeConflictExit(
-      { payload: { ...channel(nodeId), action, conflictId } as never },
-      owners.readAccessToken(nodeId),
-    );
-  const rawWrite = (
-    nodeId: NodeId,
-    changes: readonly { readonly path: string; readonly body: string; readonly baseBlobSha256?: string | null }[],
-    executionId: string | null = null,
-  ) =>
-    runFleetWriteClient({
+  const edgeDocSync = (nodeId: NodeId): Promise<Record<string, unknown>> =>
+    runFleetReplicaPullClient({
       hostname: "127.0.0.1",
       port: center.port,
       ca: cert,
@@ -166,10 +144,18 @@ export async function dualSyncFixture(
       credential: `secret-${nodeId}`,
       readAccessToken: owners.readAccessToken(nodeId),
       repoId: "dual-repo",
-      timeoutMs: 30_000,
-      channel: "collaborator",
-      executionId,
-      changes,
+      viewRoot: edgeRoot(nodeId),
+      diskQuotaBytes: replicaQuota,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
+    }).then((pulled) => {
+      assert.equal(
+        applyFleetMirrorCut(edgeRoot(nodeId), "dual-repo", workspace(nodeId), "pull", {
+          viewId: pulled.replica.viewId,
+        }).outcome,
+        "applied",
+      );
+      return { ok: true } as Record<string, unknown>;
     });
   const view = (nodeId: NodeId) => locateFleetMirrorView(edgeRoot(nodeId), "dual-repo");
   const worktree = (nodeId: NodeId, logical: string): string =>
@@ -239,8 +225,6 @@ export async function dualSyncFixture(
     channel,
     edgeTask,
     edgeDocSync,
-    conflictExit,
-    rawWrite,
     view,
     worktree,
     writeWorktree,

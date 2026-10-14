@@ -94,7 +94,13 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
     repoId: options.repoId,
     timeoutMs: options.timeoutMs,
   };
-  await runFleetReplicaPullClient({ ...peer, viewRoot: options.viewRoot, diskQuotaBytes: replicaQuota });
+  await runFleetReplicaPullClient({
+    ...peer,
+    viewRoot: options.viewRoot,
+    diskQuotaBytes: replicaQuota,
+    // Single-round pull: the walreceiver is a resident stream.
+    stopAfterAck: true,
+  });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
   const pulled = await runFleetReplicaPullClient({
     through: write.center.revision ?? "known-head",
@@ -103,6 +109,8 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
     diskQuotaBytes: replicaQuota,
     onFrame: options.onFrame,
     edgeKillpoint: options.edgeKillpoint,
+    // Single-round pull: the walreceiver is a resident stream.
+    stopAfterAck: true,
   });
   return { ...write, replica: pulled.replica };
 }

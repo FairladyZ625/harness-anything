@@ -137,14 +137,13 @@ test(
       await fleetEdgeHostFixture(t, f, { name: "ci-one" }),
       await fleetEdgeHostFixture(t, f, { name: "ci-two", nodeId: "node-two" }),
     ];
-    const replica = f.host.replica("lease-repo");
-    replica.activate();
-    await replica.waitForCut(f.eventCount());
     for (const e of edges)
       await runFleetReplicaPullClient({
         ...f.peer(e.config.nodeId),
         viewRoot: e.viewRoot,
         diskQuotaBytes: e.config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       });
     const truth = (await f.host.read(
       "lease-repo",
@@ -244,13 +243,12 @@ for (const mixed of [false, true]) {
         seedHistory(root, mixed),
       );
       const e = await fleetEdgeHostFixture(t, f, { name: `ci-history-${mixed}` });
-      const replica = f.host.replica("lease-repo");
-      replica.activate();
-      await replica.waitForCut(f.eventCount());
       await runFleetReplicaPullClient({
         ...f.peer(e.config.nodeId),
         viewRoot: e.viewRoot,
         diskQuotaBytes: e.config.quotaBytes,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       });
       const truth = (await f.host.read(
         "lease-repo",

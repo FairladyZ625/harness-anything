@@ -31,6 +31,8 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     repoId: fixture.subject.repoId,
     viewRoot,
     diskQuotaBytes: replicaQuota,
+    // Single-round pull: the walreceiver is a resident stream.
+    stopAfterAck: true,
   });
   applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
   let terminal: (() => void) | undefined;
@@ -190,6 +192,8 @@ for (const restart of [false, true])
         repoId: fixture.subject.repoId,
         viewRoot,
         diskQuotaBytes: replicaQuota,
+        // Single-round pull: the walreceiver is a resident stream.
+        stopAfterAck: true,
       });
       applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
       let terminal: (() => void) | undefined;

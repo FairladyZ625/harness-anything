@@ -157,6 +157,8 @@ for (const row of [{type:'thread.started',thread_id:id},
       repoId,
       viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
+      // Single-round pull: the walreceiver is a resident stream.
+      stopAfterAck: true,
     });
     applyFleetMirrorCut(viewRoot, repoId, rootDir, "pull");
     registerBootstrappedDaemonRepo({
