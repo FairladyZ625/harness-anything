@@ -6,7 +6,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { sha256Bytes } from "../../packages/kernel/src/index.ts";
+import { makeTaskEventReader, sha256Bytes } from "../../packages/kernel/src/index.ts";
 import { prepareScheduleOccurrenceWorkspace } from "../../packages/daemon/src/schedule-occurrence-workspace.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO6 } from "./core/oracles.mjs";
@@ -342,12 +342,12 @@ async function clockInjectionArm(fixture, alphaSubject, priorRevision, writerEpo
   assert.equal(past.outcome, "applied");
   assert.ok(future.revision > priorRevision);
   assert.ok(past.revision > future.revision);
-  const replica = fixture.host.replica(alphaSubject.repoId);
-  replica.kick();
-  await replica.waitForCut(future.revision);
-  await replica.waitForCut(past.revision);
-  const futureAt = replica.eventAt(future.revision),
-    pastAt = replica.eventAt(past.revision),
+  const reader = makeTaskEventReader({
+      repoId: alphaSubject.repoId,
+      rootDir: fixture.repos.find((repo) => repo.repoId === alphaSubject.repoId).rootDir,
+    }),
+    futureAt = reader.readEventAtRevision(future.revision)?.occurredAt,
+    pastAt = reader.readEventAtRevision(past.revision)?.occurredAt,
     identity = {
       writes: [
         {
@@ -460,11 +460,9 @@ async function centerTakeoverArm(fixture, repo, subjects, priorRevision) {
   ]);
   assert.deepEqual(warmResult.replica.knownHead, freshResult.replica.knownHead);
   assert.deepEqual(disconnectedResult.replica.knownHead, freshResult.replica.knownHead);
-  const replica = fixture.host.replica(repo.repoId);
-  replica.kick();
-  await replica.waitForCut(newWrite.revision);
-  assert.equal(typeof replica.eventAt(oldWrite.revision), "string");
-  assert.equal(typeof replica.eventAt(newWrite.revision), "string");
+  const reader = makeTaskEventReader({ repoId: repo.repoId, rootDir: repo.rootDir });
+  assert.equal(typeof reader.readEventAtRevision(oldWrite.revision)?.occurredAt, "string");
+  assert.equal(typeof reader.readEventAtRevision(newWrite.revision)?.occurredAt, "string");
   const identity = {
       writes: [
         {

@@ -7,6 +7,7 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   parseEntityRef,
+  normalizeCommandEnvelope,
   type AuthorizationDecision,
   type EntityActionUnmetCriterionV1,
   type WriteReceipt,
@@ -202,6 +203,26 @@ export function makeRepoCellCommandRunner(
       context.queueDepth += 1;
       let queuedDecision: AuthorizationDecision | undefined,
         replaceAfterPublication = false;
+      const recordRejection = (receipt: WriteReceipt): WriteReceipt => {
+        if (receipt.outcome !== "op_rejected") return receipt;
+        const rejectionCode = receipt.code ?? "operation_rejected",
+          envelope = normalizeCommandEnvelope({
+            workspaceId: context.input.repoId,
+            actor: binding.actor,
+            source: binding.source,
+            expectedRevision: context.store.readHead()?.revision ?? 0,
+            command: { type: "CommandRejection", action, rejectionCode },
+          });
+        if (!context.store.appendRejection) throw new Error("canonical event store cannot persist rejected commands");
+        // A contextual rejection is its own outcome, not the id of a future accepted execution.
+        context.store.appendRejection({
+          opId: envelope.opId,
+          intentDigest: envelope.commandDigest,
+          summary: action.kind,
+          rejectionCode,
+        });
+        return { ...receipt, opId: envelope.opId };
+      };
       const pending = chainRepoCellWrite(context.tail, async () => {
         context.queueDepth -= 1;
         const claimRejected = claimAtPublication ? await bindExecutorClaim() : null;
@@ -244,7 +265,9 @@ export function makeRepoCellCommandRunner(
             return controlled;
           }
           const executed = context.withHumanSummary(await execute(queuedDecision)),
-            receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
+            receipt = recordRejection(
+              queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt),
+            );
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             if (action.kind === "migrate-import" && action.dryRun !== true) {
               context.recoveryProbe.clear();
@@ -272,7 +295,7 @@ export function makeRepoCellCommandRunner(
             !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
           )
             throw error;
-          return failAction(error, queuedDecision);
+          return recordRejection(failAction(error, queuedDecision));
         } finally {
           context.activeWriterEpochFence = null;
           context.activeWriterEpochFenceDescriptor = null;
