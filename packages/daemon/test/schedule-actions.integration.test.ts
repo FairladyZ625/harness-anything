@@ -701,6 +701,8 @@ test(
           edgeRuntimes.push(runtime);
           return { subject, runtime, workspaceRoot, viewRoot };
         });
+      // Edge schedule reads answer from each node's replica; this fixture runs no resident stream.
+      for (const workspace of workspaces) await pullScheduleView(workspace, center.port, certificate);
       await t.test("edge schedule requires action kind", async () => {
         await assert.rejects(workspaces[0]!.runtime.run("repo.schedule.run", {}), {
           code: "invalid_field",

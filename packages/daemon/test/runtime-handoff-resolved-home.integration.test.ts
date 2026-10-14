@@ -14,6 +14,7 @@ import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const fixtureNativeId = "019abcdef-1234-5678-9999-abcdef123456";
 const phrase = "resolved-home-handoff-sentinel";
@@ -46,7 +47,6 @@ test("native handoff reads the launch-frozen provider directory on both nodes", 
       `
 import { mkdirSync, writeFileSync, readFileSync, globSync } from 'node:fs';
 import path from 'node:path';
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const id = ${JSON.stringify(fixtureNativeId)}, home = process.env.CODEX_HOME;
 if (process.argv.includes('--version')) { console.log('codex-cli 0.159.1'); process.exit(0); }
 if (process.argv.includes('login')) { console.log('Logged in using ChatGPT'); process.exit(0); }
@@ -148,16 +148,18 @@ for (const row of [{type:'thread.started',thread_id:id},
   async function node(nodeId: string, rootDir: string, providerHome: string) {
     const userRoot = path.join(f.root, `${nodeId}-user`),
       viewRoot = path.join(f.root, `${nodeId}-view`);
-    await catchUpReplica({
-      readAccessToken: async () => `device-token-${nodeId}`,
-      port: center.port,
-      ca: f.cert,
-      nodeId,
-      credential: "machine-secret",
-      repoId,
-      viewRoot,
-      diskQuotaBytes: 64 * 1024 * 1024,
-    });
+    const catchUp = () =>
+      catchUpReplica({
+        readAccessToken: async () => `device-token-${nodeId}`,
+        port: center.port,
+        ca: f.cert,
+        nodeId,
+        credential: "machine-secret",
+        repoId,
+        viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
+    await catchUp();
     applyFleetMirrorCut(viewRoot, repoId, rootDir, "pull");
     registerBootstrappedDaemonRepo({
       canonicalRoot: rootDir,
@@ -167,17 +169,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       createConvenienceLinks: false,
     });
     f.owners.signIn(userRoot, nodeId);
-    const host = await openDaemonHost({
-      daemonId: nodeId,
-      userRoot,
-      runtimeDiscover: () => [installation],
-      // The daemon's operator environment pins this node's provider home; the real
-      // launch resolves CODEX_HOME from here, not from any instance layout.
-      runtimeEnv: { CODEX_HOME: providerHome },
-    });
-    t.after(() => host.close());
-    await host.attachmentsSettled();
-    await host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
+    // The edge config before the host opens: the edge daemon owns the resident replica stream.
     const request = {
       host: "127.0.0.1",
       port: center.port,
@@ -193,12 +185,23 @@ for (const row of [{type:'thread.started',thread_id:id},
       path.join(rootDir, "fleet-edge.json"),
       JSON.stringify({ schema: "fleet-edge-config/v1", ...request }),
     );
+    const host = await openDaemonHost({
+      daemonId: nodeId,
+      userRoot,
+      runtimeDiscover: () => [installation],
+      // The daemon's operator environment pins this node's provider home; the real
+      // launch resolves CODEX_HOME from here, not from any instance layout.
+      runtimeEnv: { CODEX_HOME: providerHome },
+    });
+    t.after(() => host.close());
+    await host.attachmentsSettled();
+    await host.runtimeInstance("daemon.runtimeInstance.create", instance, localAuth);
     return {
       userRoot,
       rootDir,
       host,
       run: (method: "repo.agentRuntime.spawn" | "repo.agentRuntime.handoff", action: JsonObject) =>
-        host.fleet.edgeRuntime({ ...request, method, action }, localAuth),
+        catchUp().then(() => host.fleet.edgeRuntime({ ...request, method, action }, localAuth)),
     };
   }
   const source = await node("node-one", sourceRoot, homeA),
