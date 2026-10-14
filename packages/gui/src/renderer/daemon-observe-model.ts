@@ -34,6 +34,8 @@ export interface ObserveRow {
   readonly refs: readonly ObserveRefChip[];
   /** 日志行的成败位(events 行为 null)。 */
   readonly ok: boolean | null;
+  /** 日志记录显式标记的等待请求;只有 true 会从执行耗时统计中排除。 */
+  readonly wait: boolean;
   readonly gapMarker: { readonly reason: string; readonly requestedFileId: string } | null;
   /** at 的 epoch 毫秒(解析失败为 null):HUD 时间分桶与时段过滤的输入,建行时解析一次。 */
   readonly atMs: number | null;
@@ -495,6 +497,7 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     detail: "",
     refs: [],
     ok: null,
+    wait: false,
     gapMarker: gap,
     atMs: null,
     durationMs: null,
@@ -537,6 +540,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       detail: clip(JSON.stringify(event)),
       refs: eventRefs({ payload, taskId, decisionId, factId }),
       ok: null as boolean | null,
+      wait: false,
       gapMarker: null,
       atMs: epochMsOf(at),
       durationMs: null as number | null,
@@ -566,6 +570,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       detail: clip(JSON.stringify(record)),
       refs: [] as readonly ObserveRefChip[],
       ok: typeof record.ok === "boolean" ? record.ok : null,
+      wait: record.wait === true,
       gapMarker: null,
       atMs: epochMsOf(at),
       durationMs:

@@ -146,8 +146,6 @@ export interface ObserveStats {
   readonly windows: { readonly "15m": ObserveWindowStats; readonly "1h": ObserveWindowStats };
 }
 
-const WAIT_COMMANDS = new Set(["repo.agentRuntime.sessions.await", "runtime-sessions-await", "task-ci"]);
-
 /** 分位点(0<q≤1):最近邻上取整秩,空序列返回 null;调用方传排序副本亦可。 */
 export function observePercentile(durations: readonly number[], q: number): number | null {
   if (durations.length === 0) return null;
@@ -268,7 +266,7 @@ export class ObserveStatsState {
       gapped = row.gapMarker !== null;
     if (failed || gapped) this.anomalies += 1;
     if (row.atMs !== null) this.bucketRow(row, failed || gapped);
-    if (row.durationMs !== null) this.ingestOp(row.type, row.durationMs, WAIT_COMMANDS.has(row.type));
+    if (row.durationMs !== null) this.ingestOp(row.type, row.durationMs, row.wait);
     if (failed) this.ingestCluster(row);
     else if (gapped) this.ingestGapCluster(row);
     for (const chip of row.refs) {
@@ -281,7 +279,7 @@ export class ObserveStatsState {
       if (this.failures.length > FAILURE_CAP) this.failures.splice(0, this.failures.length - FAILURE_CAP);
     }
     if (
-      !WAIT_COMMANDS.has(row.type) &&
+      !row.wait &&
       row.opClass === "write" &&
       row.durationMs !== null &&
       row.durationMs > OBSERVE_SLOW_WRITE_MS &&
