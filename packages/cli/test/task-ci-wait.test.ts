@@ -14,6 +14,11 @@ function waitCommand(argv: readonly string[] = ["task", "ci", "task-1", "--wait"
   return parsed.command;
 }
 
+test("plain task-ci reads have no wait marker", () => {
+  const command = waitCommand(["task", "ci", "task-1"]);
+  assert.deepEqual(command.action, { kind: "task-ci", taskId: "task-1" });
+});
+
 const report = (conclusion: string, notStarted?: JsonObject): JsonObject => ({
   ok: true,
   command: "task-ci",
@@ -58,7 +63,7 @@ test("the facade strips the wait flags before the daemon read and returns a firs
       },
     );
     assert.equal(seen.length, 1);
-    assert.deepEqual(seen[0]!.action, { kind: "task-ci", taskId: "task-1" });
+    assert.deepEqual(seen[0]!.action, { kind: "task-ci", taskId: "task-1", wait: true });
     assert.equal(result.ci.conclusion, conclusion);
     assert.equal(result.exitCode, exitCode);
   }

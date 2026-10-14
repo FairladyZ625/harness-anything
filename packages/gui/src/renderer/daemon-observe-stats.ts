@@ -266,7 +266,7 @@ export class ObserveStatsState {
       gapped = row.gapMarker !== null;
     if (failed || gapped) this.anomalies += 1;
     if (row.atMs !== null) this.bucketRow(row, failed || gapped);
-    if (row.durationMs !== null) this.ingestOp(row.type, row.durationMs);
+    if (row.durationMs !== null) this.ingestOp(row.type, row.durationMs, row.wait);
     if (failed) this.ingestCluster(row);
     else if (gapped) this.ingestGapCluster(row);
     for (const chip of row.refs) {
@@ -279,7 +279,7 @@ export class ObserveStatsState {
       if (this.failures.length > FAILURE_CAP) this.failures.splice(0, this.failures.length - FAILURE_CAP);
     }
     if (
-      row.type !== "repo.agentRuntime.sessions.await" &&
+      !row.wait &&
       row.opClass === "write" &&
       row.durationMs !== null &&
       row.durationMs > OBSERVE_SLOW_WRITE_MS &&
@@ -387,9 +387,8 @@ export class ObserveStatsState {
     if (row.subject !== null) bumpKeyBucket(this.subjectBuckets, row.subject, index);
   }
 
-  private ingestOp(method: string, durationMs: number): void {
-    const waiting = method === "repo.agentRuntime.sessions.await",
-      target = waiting ? this.waits : this.ops;
+  private ingestOp(method: string, durationMs: number, waiting = false): void {
+    const target = waiting ? this.waits : this.ops;
     let op = target.get(method);
     if (op === undefined) {
       op = { count: 0, maxMs: 0, durations: [] };

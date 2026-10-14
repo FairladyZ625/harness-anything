@@ -32,7 +32,9 @@ const REPO_ID = "analytics-probe",
 
 function logItem(input: {
   method: string;
+  command?: string;
   durationMs: number;
+  wait?: boolean;
   ok?: boolean;
   code?: string | null;
   atMs?: number;
@@ -45,6 +47,8 @@ function logItem(input: {
     schema: "daemon-request-log/v1",
     at: new Date(input.atMs ?? T0).toISOString(),
     method: input.method,
+    ...(input.command === undefined ? {} : { command: input.command }),
+    ...(input.wait === undefined ? {} : { wait: input.wait }),
     event: "request",
     ok: input.ok ?? true,
     code: input.code ?? null,
@@ -176,6 +180,30 @@ describe("时序吞吐分桶(固定 10s × 360 环形缓冲)", () => {
     expect(stats.total).toBe(3);
     expect(stats.buckets.reduce((sum, bucket) => sum + bucket.count, 0)).toBe(1);
     expect(stats.buckets.at(-1)!.count).toBe(1);
+  });
+});
+
+describe("协议命令级慢请求统计", () => {
+  it("只把显式 wait=true 的 task-ci 请求从执行分位点排除", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 60_000 }),
+          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 40_000, wait: false }),
+          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 120_000, wait: true }),
+          logItem({ method: "repo.task.read", command: "task-list", durationMs: 4 }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.waits).toMatchObject([{ method: "task-ci", count: 1, maxMs: 120_000 }]);
+    expect(stats.ops.map((entry) => entry.method)).toContain("task-list");
+    expect(stats.ops.find((entry) => entry.method === "task-ci")).toMatchObject({ count: 2, maxMs: 60_000 });
+    expect(stats.p95Ms).toBe(60_000);
   });
 });
 

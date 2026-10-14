@@ -34,6 +34,8 @@ export interface ObserveRow {
   readonly refs: readonly ObserveRefChip[];
   /** 日志行的成败位(events 行为 null)。 */
   readonly ok: boolean | null;
+  /** 日志记录显式标记的等待请求;只有 true 会从执行耗时统计中排除。 */
+  readonly wait: boolean;
   readonly gapMarker: { readonly reason: string; readonly requestedFileId: string } | null;
   /** at 的 epoch 毫秒(解析失败为 null):HUD 时间分桶与时段过滤的输入,建行时解析一次。 */
   readonly atMs: number | null;
@@ -495,6 +497,7 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     detail: "",
     refs: [],
     ok: null,
+    wait: false,
     gapMarker: gap,
     atMs: null,
     durationMs: null,
@@ -537,6 +540,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       detail: clip(JSON.stringify(event)),
       refs: eventRefs({ payload, taskId, decisionId, factId }),
       ok: null as boolean | null,
+      wait: false,
       gapMarker: null,
       atMs: epochMsOf(at),
       durationMs: null as number | null,
@@ -553,7 +557,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
 export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: number): ObserveRow {
   const method = stringOf(record.method),
     event = stringOf(record.event),
-    command = stringOf(record.command),
+    command = stringOf(record.command) ?? method,
     outcome = stringOf(record.outcome) ?? stringOf(record.code),
     duration = numberToMs(record.durationMs),
     at = stringOf(record.at),
@@ -561,11 +565,12 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       key: `log:${seq}`,
       at,
       revision: null as number | null,
-      type: method ?? event ?? stringOf(record.schema) ?? "record",
+      type: command ?? event ?? stringOf(record.schema) ?? "record",
       text: [command, outcome, duration].filter(Boolean).join(" "),
       detail: clip(JSON.stringify(record)),
       refs: [] as readonly ObserveRefChip[],
       ok: typeof record.ok === "boolean" ? record.ok : null,
+      wait: record.wait === true,
       gapMarker: null,
       atMs: epochMsOf(at),
       durationMs:
@@ -576,7 +581,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       subject: (stringOf(recordOf(record.executor)?.id) ?? stringOf(record.connectionId) ?? stringOf(record.conn)) as
         | string
         | null,
-      opClass: observeLogOpClass(method ?? event ?? command ?? "", stringOf(record.commandClass)),
+      opClass: observeLogOpClass(command ?? event ?? method ?? "", stringOf(record.commandClass)),
     };
   return { ...base, searchText: searchTextOf(base) };
 }

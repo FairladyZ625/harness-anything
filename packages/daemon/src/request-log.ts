@@ -21,6 +21,7 @@ export interface DaemonRequestLogEntry {
   readonly method: string;
   readonly repoId: string;
   readonly command: string;
+  readonly wait?: boolean;
   readonly connectionId: string;
   readonly auth: DaemonAuthenticationContext;
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
@@ -44,6 +45,7 @@ export interface DaemonRequestLogRecord {
   readonly executor: { readonly kind: "agent"; readonly id: string } | null;
   readonly method: string;
   readonly command: string | null;
+  readonly wait: boolean;
   readonly commandClass: string | null;
   readonly repoId: string;
   readonly ok: boolean;
@@ -171,6 +173,7 @@ function buildRecord(entry: DaemonRequestLogEntry, at: Date): DaemonRequestLogRe
     executor: entry.executor,
     method: entry.method,
     command: entry.command,
+    wait: entry.wait === true,
     commandClass: commandClassOrNull(entry.command),
     repoId: entry.repoId,
     ok: entry.ok,

@@ -111,6 +111,7 @@ export function daemonRequestLogEntry(input: {
   readonly connectionId: string;
   readonly auth: DaemonAuthenticationContext;
   readonly executor: DaemonRequestLogEntry["executor"];
+  readonly wait?: boolean;
   readonly result: object;
   readonly dispatchDelayMs: number;
   readonly serviceMs: number;
@@ -123,6 +124,7 @@ export function daemonRequestLogEntry(input: {
     connectionId: input.connectionId,
     auth: input.auth,
     executor: input.executor,
+    wait: input.wait === true,
     ok,
     outcome: "outcome" in input.result && typeof input.result.outcome === "string" ? input.result.outcome : null,
     code: resultErrorCode(input.result),

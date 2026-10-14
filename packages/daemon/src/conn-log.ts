@@ -31,6 +31,10 @@ export interface DaemonTrafficLogEntry {
   readonly conn: string;
   readonly transport: string;
   readonly method: string | null;
+  /** Protocol command/action id when the request resolves one; method remains the transport fallback. */
+  readonly command?: string | null;
+  /** True for requests whose completion is intentionally deferred or polled by the caller. */
+  readonly wait?: boolean;
   readonly startedAt: number;
   readonly frameReceivedAt?: number;
   readonly handlerStartedAt?: number;
@@ -138,6 +142,8 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         conn: entry.conn,
         transport: entry.transport,
         method: entry.method,
+        command: entry.command ?? entry.method,
+        ...(entry.wait === true ? { wait: true } : {}),
         at: new Date(entry.startedAt).toISOString(),
         frameReceivedAt: new Date(frameReceivedAt).toISOString(),
         handlerStartedAt: new Date(handlerStartedAt).toISOString(),
