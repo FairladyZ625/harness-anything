@@ -13,7 +13,7 @@ import { readEdgeViewBlob } from "../src/runtime-result-read.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { fleetFixture, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition, eventually, initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 for (const restart of [false, true])
   test(`Schedule terminal settlement recovers on its claim (restart=${restart})`, { timeout: 60_000 }, async (t) => {
@@ -161,8 +161,8 @@ for (const restart of [false, true])
       });
     let runtime = createRuntime();
     fixture.track(() => runtime.close());
-    // This fixture owns no background sync loop: the owner's replica is caught up explicitly
-    // wherever the edge runtime reads center state.
+    // The resident stream is part of the edge write-after-read contract; explicit catch-up remains
+    // useful after the center restarts and the test replaces that stream.
     const catchUpOwner = (port: number) =>
       catchUpReplica({
         readAccessToken: async () => `device-token-${subject.nodeId}`,
@@ -176,6 +176,18 @@ for (const restart of [false, true])
         diskQuotaBytes: 64 * 1024 * 1024,
       });
     await catchUpOwner(center.port);
+    let replicaSync = startResidentReplicaSync({
+      readAccessToken: async () => `device-token-${subject.nodeId}`,
+      port: center.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: subject.nodeId,
+      credential: "machine-secret",
+      repoId: subject.repoId,
+      viewRoot: path.join(fixture.root, "schedule-view"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
+    t.after(() => replicaSync.close());
     const created = await runtime.run("repo.schedule.run", {
       kind: "schedule-create",
       scheduleId,
@@ -212,6 +224,7 @@ for (const restart of [false, true])
     t.mock.method(console, "error", (...args: unknown[]) => {
       if (String(args[0]).includes("[fleet-edge-runtime]")) reportFailure();
     });
+    await replicaSync.close();
     await center.close();
     terminal();
     await failure;
@@ -220,8 +233,19 @@ for (const restart of [false, true])
       runtime = createRuntime();
     }
     const restoredCenter = await startCenter(center.port);
-    // A resident stream would have delivered the run's claim before the restart; catch up to it.
+    // Reconnect the edge's resident stream after the center restart before recovering settlement.
     await catchUpOwner(restoredCenter.port);
+    replicaSync = startResidentReplicaSync({
+      readAccessToken: async () => `device-token-${subject.nodeId}`,
+      port: restoredCenter.port,
+      ca: fixture.cert,
+      servername: "localhost",
+      nodeId: subject.nodeId,
+      credential: "machine-secret",
+      repoId: subject.repoId,
+      viewRoot: path.join(fixture.root, "schedule-view"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
     const recovery = runtime.reconcile();
     const recovered = Promise.allSettled([recovery]);
     const observerRoot = path.join(fixture.root, "schedule-reader-view");

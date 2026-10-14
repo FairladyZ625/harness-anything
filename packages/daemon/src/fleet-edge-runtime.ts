@@ -237,6 +237,20 @@ export function openFleetEdgeRuntime(input: {
     ready = null;
   });
   const schedule = workQueue.schedule;
+  const waitForReplicaWrite = (sequence: number): Promise<void> =>
+    waitForFleetReplicaSequence(
+      { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId },
+      sequence,
+    );
+  const runScheduleCommand: typeof runFleetScheduleCommandClient = async (options) => {
+    const result = await runFleetScheduleCommandClient(options);
+    if (result.outcome === "applied") {
+      if (result.replicationSequence === null)
+        throw new Error("Applied Schedule command omitted its replication sequence.");
+      await waitForReplicaWrite(result.replicationSequence);
+    }
+    return result;
+  };
   const spawner = makeRuntimeSpawner({
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
@@ -391,6 +405,7 @@ export function openFleetEdgeRuntime(input: {
           ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
           ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
         });
+        await waitForReplicaWrite(response.replicationSequence);
         // A returned dispatch is immediately usable by local status/foreground wait. This
         // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
@@ -480,7 +495,7 @@ export function openFleetEdgeRuntime(input: {
       await squad.reconcile();
       const scheduled = terminal.schedule;
       if (!scheduled) return;
-      const linked = await runFleetScheduleCommandClient({
+      const linked = await runScheduleCommand({
         ...writePeer,
         repoId: request.repoId,
         scheduleId: scheduled.scheduleId,
@@ -496,7 +511,7 @@ export function openFleetEdgeRuntime(input: {
       if (linked.outcome !== "applied")
         throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule terminal link was ${linked.outcome}.`);
       const detail = await scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.reason);
-      const response = await runFleetScheduleCommandClient({
+      const response = await runScheduleCommand({
         ...writePeer,
         repoId: request.repoId,
         scheduleId: scheduled.scheduleId,
@@ -640,7 +655,7 @@ export function openFleetEdgeRuntime(input: {
         typeof action.idempotencyKey === "string" && action.idempotencyKey
           ? action.idempotencyKey
           : `${actionKind}:${scheduleId}:${Date.now().toString(36)}`,
-      command = await runFleetScheduleCommandClient({
+      command = await runScheduleCommand({
         ...writePeer,
         repoId: request.repoId,
         scheduleId,
@@ -648,11 +663,6 @@ export function openFleetEdgeRuntime(input: {
         writerEpoch: assigned.writerEpoch,
         action: { ...action, kind: actionKind, scheduleId },
       });
-    if (command.outcome === "applied" && command.replicationSequence !== null)
-      await waitForFleetReplicaSequence(
-        { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId },
-        command.replicationSequence,
-      );
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
     if (actionKind !== "schedule-run-now") {
@@ -709,7 +719,7 @@ export function openFleetEdgeRuntime(input: {
         };
       },
       linkDispatch: ({ idempotencyKey, ...linked }) =>
-        runFleetScheduleCommandClient({
+        runScheduleCommand({
           ...writePeer,
           repoId: request.repoId,
           scheduleId,
@@ -717,7 +727,7 @@ export function openFleetEdgeRuntime(input: {
           action: { kind: "schedule-dispatch-link", ...linked },
         }),
       settleFailure: ({ idempotencyKey, ...failed }) =>
-        runFleetScheduleCommandClient({
+        runScheduleCommand({
           ...writePeer,
           repoId: request.repoId,
           scheduleId,

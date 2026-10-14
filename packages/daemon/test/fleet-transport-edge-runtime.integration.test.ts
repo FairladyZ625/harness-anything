@@ -29,7 +29,7 @@ import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { signOutAt } from "./keycloak.fixtures.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually, scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 // A `node --test` timeout suspends the test body at its current await and never resumes it, so `try…finally`
 // teardown does not run on the timeout path. Every fixture therefore owns its OS resources and every test hands
@@ -342,6 +342,16 @@ test(
       );
       assert.equal(rejoined.outcome, "applied", JSON.stringify(rejoined));
       await waitForFleetPublication(fixture.host, fixture.subject.repoId, rejoined.opId, fixture.auth);
+      await catchUpReplica({
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+        port: center.port,
+        ca: fixture.cert,
+        nodeId: fixture.subject.nodeId,
+        credential: "machine-secret",
+        repoId: fixture.subject.repoId,
+        viewRoot,
+        diskQuotaBytes: replicaQuota,
+      });
       const outcomeFailure = fixture.failNextRuntimeOutcome();
       let reportQueueFailure!: () => void;
       const queueFailure = new Promise<void>((resolve) => {
@@ -603,6 +613,17 @@ test(
       viewRoot,
       diskQuotaBytes: replicaQuota,
     });
+    const replicaSync = startResidentReplicaSync({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+    t.after(() => replicaSync.close());
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     assert.equal(existsSync(path.join(edgeRoot, "harness/agents/edge-worker.json")), true);
     registerDaemonRepo({
@@ -849,6 +870,16 @@ test(
         diskQuotaBytes: replicaQuota,
       });
     await catchUp();
+    const replicaSync = startResidentReplicaSync({
+      readAccessToken: fixture.owners.readAccessToken(fixture.subject.nodeId),
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
     const sessionIds: string[] = [];
     for (let index = 0; index < 17; index += 1) {
       const launched = await runtime.run("repo.agentRuntime.spawn", {
@@ -879,6 +910,7 @@ test(
       }),
       { code: "runtime_instance_not_allowed" },
     );
+    await replicaSync.close();
     await center.close();
     const payloads: Record<string, unknown>[] = [],
       pageSizes: number[] = [];

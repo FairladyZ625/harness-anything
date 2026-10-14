@@ -66,6 +66,27 @@ test("runtime dispatch frames carry typed center admission context without mirro
     FleetContractError,
   );
 });
+
+test("runtime event receipts require the center replication position", () => {
+  const event = {
+      schema: "fleet.runtime.event.result/v1",
+      messageId: "event-result",
+      inReplyTo: "event",
+      replicationSequence: 12,
+      event: { type: "runtime_session_started" },
+      receipt: { outcome: "applied" },
+    },
+    archive = {
+      schema: "fleet.runtime.archive.result/v1",
+      messageId: "archive-result",
+      inReplyTo: "archive",
+      receipt: { outcome: "applied" },
+    };
+  assert.deepEqual(parseFleetFrame(event), event);
+  assert.deepEqual(parseFleetFrame(archive), archive);
+  const { replicationSequence: _sequence, ...missingEventSequence } = event;
+  assert.throws(() => parseFleetFrame(missingEventSequence), FleetContractError);
+});
 test("fleet runtime await admits only the parked operational wait", () => {
   const frame = {
     schema: "fleet.runtime.await/v1",

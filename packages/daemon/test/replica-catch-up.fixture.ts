@@ -14,6 +14,17 @@ import {
 
 export type CatchUpReplicaOptions = Omit<ReplicaSyncOptions, "signal" | "onConfirmed" | "onFailure">;
 
+export function startResidentReplicaSync(options: CatchUpReplicaOptions): { readonly close: () => Promise<void> } {
+  const controller = new AbortController(),
+    running = runFleetReplicaSync({ ...options, signal: controller.signal });
+  return {
+    close: async () => {
+      controller.abort();
+      await running;
+    },
+  };
+}
+
 /**
  * Resolves once the replica applied the center head observed at the call; rejects with the
  * stream's own failure (for example `authorization_denied`) when the stream fails first.

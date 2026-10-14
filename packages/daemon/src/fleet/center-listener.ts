@@ -879,6 +879,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.runtime.event.result/v1",
         messageId: mid(frame.messageId, "runtime-event"),
         inReplyTo: frame.messageId,
+        replicationSequence: replicationHead(a.repoId),
         event: event as Readonly<Record<string, unknown>>,
         receipt,
       });
