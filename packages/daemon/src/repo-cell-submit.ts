@@ -622,7 +622,12 @@ export async function settleTask(
     cell.assertTaskWipCapacity(taskId, "active");
     const started = await cell.lifecycleAction({ kind: "task-start", taskId }, binding);
     steps.push(started);
-    if (!["applied", "no_changes"].includes(started.outcome)) return { ...started, steps } as WriteReceiptDraft;
+    if (!["applied", "no_changes"].includes(started.outcome))
+      return {
+        ...started,
+        opId: cell.operationId(action, binding, cell.input.repoId, current.snapshot.revision),
+        steps,
+      } as WriteReceiptDraft;
   }
   const submitted = await submitTask(cell, { ...action, kind: "task-submit", taskId }, binding),
     mergedSteps = [...steps, ...((submitted as { readonly steps?: readonly WriteReceiptDraft[] }).steps ?? [])];

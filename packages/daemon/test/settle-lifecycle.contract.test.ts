@@ -497,9 +497,10 @@ test("owner retries preparation failure on the same submitted cut without a seco
     armed = true;
     const failed = await cell.run({ kind: "task-settle", taskId }, ownerRejoinBinding);
     assert.equal(interrupted, true, JSON.stringify(failed));
-    // The outer receipt preserves the already durable submission while reporting the
-    // interrupted follow-up; it must not imply the missing witness was prepared.
-    assert.equal(failed.code, "publication_indeterminate", JSON.stringify(failed));
+    // SQLite accepted the submission, but the follow-up failed before its append began.
+    // Its determinate failure must not imply the missing witness was prepared.
+    assert.equal(failed.code, "service_rejected", JSON.stringify(failed));
+    assert.match(String(failed.rejectionExplanation), /fixture interrupts evidence preparation after submission/u);
     assert.equal(
       reader.read().events.some((event) => event.type === "code_doc_reconciled"),
       false,

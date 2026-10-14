@@ -157,7 +157,7 @@ export async function adoptRuntimes(
               signal: active.lossSignal,
             });
           await consumeDurableOutput(context, active);
-          await context.publishExit(active, active.lossExitCode);
+          await context.publishExit(active, active.lossExitCode, session?.liveness === "exited");
         }
       })(),
     ]);
