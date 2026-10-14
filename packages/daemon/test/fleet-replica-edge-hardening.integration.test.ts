@@ -5,7 +5,9 @@
 // objects larger than the in-memory envelope bound stream to staging files and are digest-checked.
 import assert from "node:assert/strict";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { open } from "node:fs/promises";
+import { TLSSocket } from "node:tls";
 import { connect, createServer, type Socket } from "node:net";
 import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -450,3 +452,49 @@ test("each base backup owns a directory that keeps only its archive", { timeout:
   assert.match(backups[0]!, /^[0-9a-f-]{36}$/u, "a backup directory is named for that backup, not shared");
   assert.deepEqual(readdirSync(path.join(backupsRoot, backups[0]!)), ["base.tar.gz"], "the staged payload is gone");
 });
+
+test(
+  "a base backup larger than the receive window flows at the edge's write speed",
+  { timeout: 180_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    const { planPath } = await seedCenterData(fixture, seededTask);
+    // Incompressible content keeps the archive past the receive window (256 frames of 64 KiB).
+    const bulkPath = `${path.posix.dirname(planPath)}/artifacts/bulk.md`,
+      bulkFile = path.join(fixture.repo, "harness", bulkPath);
+    mkdirSync(path.dirname(bulkFile), { recursive: true });
+    writeFileSync(bulkFile, `# Bulk\n\n${randomBytes(32 * 1024 * 1024).toString("base64")}\n`);
+    const submitted = await fixture.centerRun({ kind: "doc-submit", paths: [bulkPath] });
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await fixture.openCenter();
+    // A slow disk on the edge: every staged write waits, so frames arrive faster than they are consumed.
+    const probe = await open(path.join(mkdtempSync(path.join(tmpdir(), "ha-harden-probe-")), "probe"), "w"),
+      handlePrototype = Object.getPrototypeOf(probe) as { writeFile: (...args: unknown[]) => Promise<void> };
+    await probe.close();
+    const writeFile = handlePrototype.writeFile,
+      pause = TLSSocket.prototype.pause;
+    let pauses = 0;
+    handlePrototype.writeFile = async function (this: unknown, ...args: unknown[]) {
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      return writeFile.apply(this, args);
+    };
+    TLSSocket.prototype.pause = function (this: TLSSocket) {
+      pauses += 1;
+      return pause.call(this);
+    };
+    t.after(() => {
+      handlePrototype.writeFile = writeFile;
+      TLSSocket.prototype.pause = pause;
+    });
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+      viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one");
+    const stream = startHardeningStream(t, fixture, viewRoot, { diskQuotaBytes: 256 * 1024 * 1024 });
+    await waitForState(
+      () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+      "convergence after a backup larger than the receive window",
+      150_000,
+    );
+    assert.ok(pauses > 0, "the edge stopped reading while received frames waited to be written");
+    assert.deepEqual(stream.failures, []);
+  },
+);
