@@ -7,7 +7,6 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   parseEntityRef,
-  sha256Text,
   type AuthorizationDecision,
   type EntityActionUnmetCriterionV1,
   type WriteReceipt,
@@ -167,8 +166,7 @@ export function makeRepoCellCommandRunner(
       if (context.fatalCellError(error)) context.latchWith(error);
       const contract = getExecutableEntityAction(action.kind),
         receipt = context.failed(
-          context.errorOperationId(error) ??
-            context.operationId(action, binding, context.input.repoId, context.store.readHead()?.revision ?? 0),
+          context.errorOperationId(error) ?? context.operationId(action, binding, context.input.repoId, 0),
           error,
           contract,
           contract ? action : undefined,
@@ -231,11 +229,11 @@ export function makeRepoCellCommandRunner(
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        requireSquadBusinessAction(context.projection, action, binding);
+        // Ingested reads are their own accepted commands, recorded before the execution interval
+        // opens: a failed execution must never adopt one of them as its accepted outcome.
+        ingest?.(queuedDecision);
         try {
-          requireSquadBusinessAction(context.projection, action, binding);
-          // Ingested reads are their own accepted commands, recorded before the execution interval
-          // opens: a failed execution must never adopt one of them as its accepted outcome.
-          ingest?.(queuedDecision);
           if (isSquadControlCommand(action.kind)) {
             const controlled = await executeSquadControl(
               context.extracted,
@@ -247,16 +245,6 @@ export function makeRepoCellCommandRunner(
           }
           const executed = context.withHumanSummary(await execute(queuedDecision)),
             receipt = queuedDecision ? withAuthorizationDecision(executed, queuedDecision) : (executed as WriteReceipt);
-          if (receipt.outcome === "op_rejected") {
-            if (!context.store.appendRejection)
-              throw new Error("canonical event store cannot persist rejected commands");
-            context.store.appendRejection({
-              opId: receipt.opId,
-              intentDigest: `sha256:${sha256Text(stableStringify(action))}`,
-              summary: action.kind,
-              rejectionCode: receipt.code ?? "operation_rejected",
-            });
-          }
           if (recoveryCommand?.settlesLatch && receipt.outcome === "applied") {
             if (action.kind === "migrate-import" && action.dryRun !== true) {
               context.recoveryProbe.clear();
@@ -284,19 +272,7 @@ export function makeRepoCellCommandRunner(
             !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
           )
             throw error;
-          const rejected = failAction(error, queuedDecision);
-          if (rejected.outcome === "op_rejected") {
-            if (!context.store.appendRejection)
-              throw new Error("canonical event store cannot persist rejected commands");
-            context.store.appendRejection({
-              opId: rejected.opId,
-              intentDigest: `sha256:${sha256Text(stableStringify(action))}`,
-              summary: action.kind,
-              rejectionCode: rejected.code ?? code,
-            });
-          }
-          context.replica.kick();
-          return rejected;
+          return failAction(error, queuedDecision);
         } finally {
           context.activeWriterEpochFence = null;
           context.activeWriterEpochFenceDescriptor = null;
