@@ -15,6 +15,7 @@ const records = [
     at: "2026-10-07T06:22:54.298Z",
     durationMs: 1067342,
     code: "provider_exit",
+    wait: true,
   },
   { method: "repo.task.run", at: "2026-10-07T06:41:25.396Z", durationMs: 22049 },
   { method: "repo.task.run", at: "2026-10-07T06:45:16.203Z", durationMs: 12023 },
