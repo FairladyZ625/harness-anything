@@ -1,6 +1,7 @@
 import { consumeKnownError } from "@harness-anything/kernel";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "./replica-generation.ts";
+import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
   /** Runs after the replica applied new commits; overlapping notifications coalesce into one rerun. */
@@ -79,7 +80,17 @@ export function waitForFleetReplicaSequence(
 /** One long-lived stream per node and repository; it reconnects with backoff only after a failure. */
 export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<void> {
   const key = syncKey(options),
-    stream = { down: null as unknown };
+    stream = { down: null as unknown },
+    viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
+  // `ha doctor` on the edge reports the stream's last failure until the replica applies again. The
+  // record is an observation: an unreadable health file must not stop replication.
+  const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void => {
+    try {
+      recordReplicaHealth(viewDir, { syncFailure });
+    } catch (error) {
+      consumeKnownError(error);
+    }
+  };
   streams.set(key, stream);
   let failures = 0,
     confirming = false,
@@ -111,6 +122,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
           ...options,
           onApplied: (position) => {
             failures = 0;
+            observe(null);
             settle(key, position.sequence);
             confirm();
           },
@@ -120,6 +132,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
         consumeKnownError(error);
         if (options.signal?.aborted) return;
         stream.down = error;
+        observe(replicaFailure(error, "replica_sync_failed"));
         settle(key, null, streamDown(error));
         options.onFailure?.(error);
       }
