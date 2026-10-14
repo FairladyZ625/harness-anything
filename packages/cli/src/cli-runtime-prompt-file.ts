@@ -3,7 +3,11 @@ import path from "node:path";
 import type { ThinCommand } from "./cli/thin-command.ts";
 
 export function materializePromptFile(command: ThinCommand): ThinCommand {
-  if (command.action.kind !== "runtime-run" || typeof command.action.promptFile !== "string") return command;
+  if (
+    (command.action.kind !== "runtime-run" && command.action.kind !== "runtime-steer") ||
+    typeof command.action.promptFile !== "string"
+  )
+    return command;
   const promptPath = path.resolve(command.rootDir, command.action.promptFile),
     relative = path.relative(command.rootDir, promptPath);
   if (relative.startsWith("..") || path.isAbsolute(relative))
