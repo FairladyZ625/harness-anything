@@ -1,4 +1,4 @@
-import { existsSync, statSync, watch } from "node:fs";
+import { statSync, watch } from "node:fs";
 import { makeTaskProjectionReader, type EdgeReadFreshness, type TaskProjectionQueries } from "@harness-anything/kernel";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
 import { withReplicaGeneration } from "./fleet/replica-generation.ts";
@@ -33,8 +33,6 @@ export function withEdgeReadModel<T>(
 ): T {
   const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
   if (!view) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
-  if (existsSync(`${view.viewDir}/revoked`))
-    throw new EdgeReadError("authorization_denied", "The center revoked repository-read for this replica.");
   // The read pins its generation, so an install landing mid-read cannot collect the files under it.
   return withReplicaGeneration(view.viewDir, (generation) => {
     if (!generation) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
