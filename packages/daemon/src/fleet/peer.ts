@@ -11,7 +11,7 @@ import {
 } from "./protocol.ts";
 import { openWalReceiverGeneration, runWalReceiver } from "./walreceiver.ts";
 import { installReplicaGeneration, readReplicaGeneration } from "./replica-generation.ts";
-import { consumeKnownError, type LedgerCutIdentity } from "@harness-anything/kernel";
+import type { LedgerCutIdentity } from "@harness-anything/kernel";
 import {
   FleetUtf8LineDecoder,
   currentFleetProtocolVersion,
@@ -693,30 +693,17 @@ function peerFor(socket: TLSSocket, timeoutMs: number) {
       }
     };
   socket.on("data", (chunk) => {
-    try {
-      for (const line of reader.push(chunk)) {
-        const frame = parseFleetFrame(line),
-          waiter = waiting.shift();
-        if (waiter) {
-          clearTimeout(waiter.timer);
-          waiter.resolve(frame);
-        } else queue.push(frame);
-      }
-    } catch (error) {
-      consumeKnownError(error);
-      closed = error instanceof Error ? error : new Error(String(error));
-      settleWaiters(closed);
-      socket.destroy(closed);
+    for (const line of reader.push(chunk)) {
+      const frame = parseFleetFrame(line),
+        waiter = waiting.shift();
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        waiter.resolve(frame);
+      } else queue.push(frame);
     }
   });
   socket.on("end", () => {
-    try {
-      reader.finish();
-    } catch (error) {
-      consumeKnownError(error);
-      closed = error instanceof Error ? error : new Error(String(error));
-      settleWaiters(closed);
-    }
+    reader.finish();
   });
   socket.on("error", (error) => {
     closed = error;
