@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes, TaskEventStoreError } from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -188,7 +188,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         try {
           return store.replicationCommits(after, 64);
         } catch (error) {
-          if (error instanceof TaskEventStoreError && error.message === "replication_snapshot_required") return null;
+          if (
+            error instanceof Error &&
+            error.name === "TaskEventStoreError" &&
+            error.message === "replication_snapshot_required"
+          )
+            return null;
           throw error;
         }
       },
