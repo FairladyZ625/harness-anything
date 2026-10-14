@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
-import { parseFleetFrame } from "@harness-anything/daemon/internal/fleet/contract";
+import { parseFleetFrame } from "@harness-anything/daemon/internal/fleet/command-protocol";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import {
   fleetDocRoute,

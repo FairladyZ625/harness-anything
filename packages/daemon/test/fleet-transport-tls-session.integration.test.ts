@@ -15,7 +15,7 @@ import {
   runFleetWriteClient,
   type FleetReplicaPullClientOptions,
   type FleetWriteClientOptions,
-} from "../src/fleet/edge.ts";
+} from "../src/fleet/peer.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import {
   FleetUtf8LineDecoder,
@@ -23,7 +23,7 @@ import {
   serializeFleetFrame,
   type FleetCut,
   type FleetFrameV1,
-} from "../src/fleet/contract.ts";
+} from "../src/fleet/command-protocol.ts";
 import {
   fleetFixture,
   git,

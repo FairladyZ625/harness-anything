@@ -5,7 +5,7 @@ import path from "node:path";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 
 test(
   "settings provenance answers through the edge host after the center disconnects",

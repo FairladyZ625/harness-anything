@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import { runFleetReplicaPullClient, runFleetWriteClient } from "../../src/fleet/edge.ts";
+import { runFleetReplicaPullClient, runFleetWriteClient } from "../../src/fleet/peer.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
 if (!spawnSync("git", ["--version"]).error) throw new Error("edge test PATH unexpectedly contains Git");

@@ -17,7 +17,7 @@ import sample from "../../kernel/fixtures/canonical-events/ci-run-observation-v4
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 
 async function seed(rootDir: string) {
   const store = makeTaskEventStore({ repoId: "lease-repo", rootDir });

@@ -7,7 +7,7 @@ import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
 const replicaQuota = 64 * 1024 * 1024;

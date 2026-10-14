@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 import { OidcSessionService, type DeviceLoginRequest } from "../src/oidc-session-service.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { reportFleetDeviceLogin } from "../src/fleet/edge.ts";
+import { reportFleetDeviceLogin } from "../src/fleet/peer.ts";
 import { fleetFixture } from "./fleet-tls-session.fixture.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 

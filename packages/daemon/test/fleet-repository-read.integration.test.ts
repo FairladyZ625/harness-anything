@@ -20,7 +20,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
 
 test(

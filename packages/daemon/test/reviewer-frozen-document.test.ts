@@ -12,7 +12,7 @@ import {
   FleetUtf8LineDecoder,
   parseFleetFrame,
   serializeFleetFrame,
-} from "../src/fleet/contract.ts";
+} from "../src/fleet/command-protocol.ts";
 
 test("several bounded evidence frames share a transport chunk while an oversized evidence frame is rejected", () => {
   const frame = {

@@ -7,7 +7,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";

@@ -6,7 +6,7 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 

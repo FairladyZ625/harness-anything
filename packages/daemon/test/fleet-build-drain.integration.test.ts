@@ -8,7 +8,7 @@ import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { startDaemon, type RunningDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
-import type { FleetFrameV1 } from "../src/fleet/contract.ts";
+import { FleetFrameV1 } from "../src/fleet/command-protocol.ts";
 
 const realSetTimeout = setTimeout;
 

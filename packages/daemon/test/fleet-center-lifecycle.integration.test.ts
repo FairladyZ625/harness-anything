@@ -10,7 +10,6 @@ import test, { type TestContext } from "node:test";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import type { DaemonHostOpenInput } from "../src/daemon-host-open.ts";
 import { openRepoCell } from "../src/repo-cell.ts";
-import { openReplicaAckStore } from "../src/fleet/replica-ack-store.ts";
 import { fleetCenterConfigPath, readFleetCenterConfig } from "../src/fleet-center-config.ts";
 import { auth, rosterRepo } from "./daemon-host-recovery.fixture.ts";
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
@@ -170,14 +169,11 @@ test("repair after failed restore waits for attachment before reading persisted 
     first = await f.open("warming-repair"),
     started = await first.fleet.startCenter(f.request, auth);
   await first.close();
+  // The persisted-replica-status surface the old ack store seeded retired with it; the center
+  // now reports slot state, and the parking-behind-attachment behavior below is what this case
+  // proves without it.
   const file = fleetCenterConfigPath(f.userRoot, "warming-repair"),
-    saved = JSON.parse(readFileSync(file, "utf8")),
-    replicas = openReplicaAckStore(saved.stateRoot);
-  try {
-    replicas.register({ repoId: f.request.repoId, nodeId: "edge-one", viewId: "edge-one" }, 0);
-  } finally {
-    replicas.close();
-  }
+    saved = JSON.parse(readFileSync(file, "utf8"));
   writeFileSync(file, JSON.stringify({ ...saved, keyPath: path.join(f.root, "missing.key") }));
   let entered!: () => void, release!: () => void;
   const opening = new Promise<void>((resolve) => {
@@ -223,7 +219,6 @@ test("repair after failed restore waits for attachment before reading persisted 
   const result = await repair;
   assert.equal(result.ok, true);
   assert.equal(result.serviceStatus, "listening");
-  assert.equal((result.replicas as unknown[]).length, 1);
   assert.equal(host.status().repos.find((repo) => repo.repoId === f.request.repoId)?.state, "attached");
   await handshake(Number(result.port), f.certPath);
 });

@@ -10,10 +10,10 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetUploadClient,
   runFleetTaskCommandClient,
-} from "../src/fleet/edge.ts";
+} from "../src/fleet/peer.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
-import { parseFleetFrame } from "../src/fleet/contract.ts";
+import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 
 // The retired broker suite is replaced by canonical lease tests through actual TLS clients.
 test(

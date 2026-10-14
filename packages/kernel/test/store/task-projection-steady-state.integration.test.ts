@@ -1,5 +1,4 @@
 // harness-test-tier: integration
-import { edgeReadModelEntries } from "../../src/projection/read-model.ts";
 import { canonicalEventWritePlan, type AgentRuntimeEventV1 } from "../../src/index.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -16,6 +15,9 @@ import { serializeCanonicalEvent, type CanonicalEventV1 } from "../../src/domain
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { lifecycleFixture, twoRoundLifecycleEvents } from "./task-lifecycle-fixture.ts";
 import { withTempStoreAsync } from "./helpers.ts";
+// The replica-sequence family (full-model match, schema-34 rebuild, interrupted upgrade resume)
+// retired with projection/replica-sequence.ts and projection/read-model.ts (dec_9284BD61); the
+// replication-log primitives carry the equivalent in store/replication-primitives tests.
 test("steady apply reads only the projection rows its event touches", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);
@@ -34,140 +36,6 @@ test("steady apply reads only the projection rows its event touches", async () =
     }
     assert.equal(projection.read("task-1").snapshot.task?.status, "done");
     projection.close();
-  });
-});
-test("replica sequence matches the independent full model after every lifecycle transaction and replay", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    const projection = makeTaskProjection({ rootDir, eventStore });
-    try {
-      const accumulated = new Map<
-        string,
-        { path: string; blob: { sha256: string; size: number; mediaType: string } }
-      >();
-      let from: number | null = null;
-      for (const event of lifecycleFixture().events) {
-        eventStore.append(taskBundle(event));
-        projection.apply(event);
-        const sequence = projection.readReplicaSequence(from, materializeSequence)!;
-        assert.equal(sequence.to.revision, event.workspaceRevision);
-        for (const change of sequence.changes) {
-          if (change.op === "delete") accumulated.delete(change.path);
-          else
-            accumulated.set(change.path, {
-              path: change.path,
-              blob: change.blob ?? {
-                sha256: sha256Text(change.text!),
-                size: Buffer.byteLength(change.text!),
-                mediaType: "application/json",
-              },
-            });
-        }
-        const expected = projection.readEdgeReadModel((model) =>
-          [...edgeReadModelEntries({ sourceRevision: model.sourceRevision, rootThreshold: 3, rows: model.rows })].map(
-            (entry) => ({
-              path: entry.path,
-              blob: {
-                sha256: sha256Text(entry.text),
-                size: Buffer.byteLength(entry.text),
-                mediaType: "application/json",
-              },
-            }),
-          ),
-        );
-        assert.deepEqual(
-          [...accumulated.values()].sort((a, b) => a.path.localeCompare(b.path)),
-          expected.sort((a, b) => a.path.localeCompare(b.path)),
-        );
-        from = event.workspaceRevision;
-        assert.throws(
-          () =>
-            projection.readEdgeReadModel(() => {
-              throw new Error("close this projection connection");
-            }),
-          /close this projection connection/u,
-        );
-      }
-      const before = projection.readReplicaSequence(null, materializeSequence);
-      projection.apply(lifecycleFixture().events.at(-1)!);
-      assert.deepEqual(
-        projection.readReplicaSequence(null, materializeSequence),
-        before,
-        "duplicate application has no second sequence record",
-      );
-      projection.rebuild();
-      assert.deepEqual(projection.readReplicaSequence(null, materializeSequence), before);
-    } finally {
-      projection.close();
-    }
-  });
-});
-test("schema 34 cache rebuilds the replica sequence from the canonical stream", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    let projection = makeTaskProjection({ rootDir, eventStore });
-    try {
-      for (const event of lifecycleFixture().events) {
-        eventStore.append(taskBundle(event));
-        projection.apply(event);
-      }
-      const expected = projection.readReplicaSequence(null, materializeSequence);
-      const head = eventStore.readHead();
-      projection.close();
-      const oldCache = new DatabaseSync(projection.path);
-      // main's schema 34 already normalizes Schedule history but has no replica sequence.
-      oldCache.exec(`DROP TABLE replica_revision; DROP TABLE replica_entry; DROP TABLE replica_change;
-        UPDATE projection_meta SET schema_version=34 WHERE singleton=1`);
-      oldCache.close();
-      projection = makeTaskProjection({ rootDir, eventStore });
-      projection.catchUp();
-      assert.deepEqual(projection.readReplicaSequence(null, materializeSequence), expected);
-      assert.deepEqual(eventStore.readHead(), head, "cache upgrade does not append a canonical event");
-    } finally {
-      projection.close();
-    }
-  });
-});
-test("interrupted schema upgrade resumes from the committed replica batch", async () => {
-  await withTempStoreAsync(async (rootDir) => {
-    initRepo(rootDir);
-    const eventStore = makeTaskEventStore({ repoId: "test-repo", rootDir });
-    let projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
-    try {
-      for (const event of lifecycleFixture().events) {
-        eventStore.append(taskBundle(event));
-        projection.apply(event);
-      }
-      const expected = projection.readReplicaSequence(null, materializeSequence);
-      projection.close();
-      const oldCache = new DatabaseSync(projection.path);
-      oldCache.exec(`DROP TABLE replica_revision; DROP TABLE replica_entry; DROP TABLE replica_change;
-        UPDATE projection_meta SET schema_version=34 WHERE singleton=1`);
-      oldCache.close();
-      let batches = 0;
-      const interrupted = {
-        ...eventStore,
-        readBatch: (...args: Parameters<typeof eventStore.readBatch>) => {
-          if (++batches === 3) throw new Error("interrupt after committed upgrade batches");
-          return eventStore.readBatch(...args);
-        },
-      };
-      projection = makeTaskProjection({ rootDir, eventStore: interrupted, catchUpLimit: 2 });
-      assert.throws(() => projection.catchUp(), /interrupt after committed upgrade batches/u);
-      const committed = projection.readReplicaRevision()!.revision;
-      assert.ok(committed > 0 && committed < expected!.to.revision);
-      projection.close();
-      projection = makeTaskProjection({ rootDir, eventStore, catchUpLimit: 2 });
-      assert.equal(projection.readReplicaRevision()!.revision, committed);
-      const result = projection.catchUp();
-      assert.ok(result.metrics.maxBatchItems <= 2);
-      assert.deepEqual(projection.readReplicaSequence(null, materializeSequence), expected);
-    } finally {
-      projection.close();
-      await eventStore.drain();
-    }
   });
 });
 // harness-contract: projection.deterministic-rebuild
@@ -525,10 +393,6 @@ test("canonical Squad and live session rows are byte-stable on reopen and cold r
         run: projection.readSquadRuns(),
         session: projection.readRuntimeSessions(),
         entity: projection.getEntity("runtime-session", "runtime-1"),
-        model: projection.readEdgeReadModel((model) => ({
-          ...model,
-          rows: { ...model.rows, repository: [...model.rows.repository] },
-        })),
       });
     const before = bytes();
     assert.equal(projection.readRuntimeSession("runtime-1")?.liveness, "live");
@@ -743,8 +607,4 @@ function initRepo(rootDir: string): void {
 }
 function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-}
-
-function materializeSequence(sequence: import("../../src/projection/replica-sequence.ts").ReplicaSequenceRead | null) {
-  return sequence && { ...sequence, changes: [...sequence.changes] };
 }

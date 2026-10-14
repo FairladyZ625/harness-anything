@@ -11,7 +11,7 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
 import { OidcSessionService, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";

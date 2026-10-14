@@ -11,7 +11,7 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient, awaitFleetRuntimeSessionsClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient, awaitFleetRuntimeSessionsClient } from "../src/fleet/peer.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";

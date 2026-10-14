@@ -1,11 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
-import { openPeer, readFleetLoginAuthorityClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { isReadDenied } from "../src/fleet/replica-read-model.ts";
+import { openPeer, readFleetLoginAuthorityClient, runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { readEdgeRepository, withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { fleetFixture, replicaQuota } from "./fleet-tls-session.fixture.ts";
+
+// The replica's revoked marker is the same signal the production edge read path checks
+// (fleet-edge-task-read.ts: existsSync(`${viewDir}/revoked`)).
+const isReadDenied = (viewDir: string): boolean => existsSync(path.join(viewDir, "revoked"));
 
 // dec_F01770FD0DCF72683B7C4C7A47: the same TLS connection rechecks a user's device session.
 test("Fleet reader frames require an active owner session on every request", { timeout: 60_000 }, async (t) => {
@@ -66,6 +70,8 @@ test("device session failures preserve the admitted replica while repository rev
       viewRoot,
       diskQuotaBytes: replicaQuota,
       readAccessToken: async () => token,
+      // Resident stream, single-round pull: return at the first confirmed ack.
+      stopAfterAck: true,
     });
   const local = (principalId = "person-owner") =>
     withEdgeReadModel({ viewRoot, repoId, nodeId, principalId }, (projection) => {

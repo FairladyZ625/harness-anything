@@ -8,7 +8,7 @@ import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetRuntimeEventClient, runFleetTaskCommandClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetRuntimeEventClient, runFleetTaskCommandClient, runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
 

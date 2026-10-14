@@ -5,7 +5,7 @@ import { createServer } from "node:http";
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { reportFleetDeviceLogin } from "../../../packages/daemon/src/fleet/edge.ts";
+import { reportFleetDeviceLogin } from "../../../packages/daemon/src/fleet/peer.ts";
 
 // Real daemon inbox + TLS authentication + Electron IPC/browser; the provider page is a protocol fixture.
 export default {

@@ -7,7 +7,7 @@ import test from "node:test";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { withEdgeReadModel } from "../src/fleet-edge-task-read.ts";
 import { readScheduleRuns } from "../src/schedule-runs-read.ts";
 import { readEdgeRuntimeResultBytes } from "../src/runtime-result-read.ts";

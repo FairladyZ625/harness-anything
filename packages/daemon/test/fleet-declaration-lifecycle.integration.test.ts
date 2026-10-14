@@ -10,7 +10,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { fleetFixture, git, initRepo, rawPeer, localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { fleetLedgerRevision } from "./fleet-store.fixture.ts";
-import { runFleetUploadClient } from "../src/fleet/edge.ts";
+import { runFleetUploadClient } from "../src/fleet/peer.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { classifyTextualArtifactPath, openSqliteEventStore, isTaskEvent, sha256Text } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";

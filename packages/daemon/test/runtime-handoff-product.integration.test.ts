@@ -12,7 +12,7 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { runtimePidIsAlive } from "../src/runtime-process-liveness.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";

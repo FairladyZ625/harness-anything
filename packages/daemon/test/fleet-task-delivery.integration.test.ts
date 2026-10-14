@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-protocol-runtime-context.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";

@@ -6,7 +6,7 @@ import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";

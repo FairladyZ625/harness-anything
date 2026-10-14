@@ -1,12 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import {
-  parseFleetFrame,
-  FleetUtf8LineDecoder,
-  serializeFleetFrame,
-  FLEET_CHUNK_BYTES,
-} from "../src/fleet/contract.ts";
+import { parseFleetFrame, serializeFleetFrame } from "../src/fleet/command-protocol.ts";
 
 test("retired repository forward request and response schemas are rejected", () => {
   for (const schema of ["fleet.repository.read/v1", "fleet.repository.read.result/v1"])
@@ -43,22 +38,6 @@ test("task command authentication uses the UTF-8 byte bound", () => {
   assert.throws(() => parseFleetFrame({ ...command, accessToken: "\u0001".repeat(16 * 1024) }), /exceeds 98304 bytes/);
 });
 
-test("several full snapshot frames may share a transport chunk without exceeding the pending remainder bound", () => {
-  const frame = {
-    schema: "fleet.snapshot.chunk/v1",
-    messageId: "part",
-    transferId: "transfer",
-    blobSha256: "a".repeat(64),
-    offset: 0,
-    dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES, 97).toString("base64"),
-  };
-  const first = serializeFleetFrame(frame),
-    last = serializeFleetFrame({ ...frame, messageId: "last", offset: FLEET_CHUNK_BYTES }),
-    reader = new FleetUtf8LineDecoder();
-  assert.equal(reader.push(Buffer.from(first + last)).length, 2);
-  reader.finish();
-  assert.throws(
-    () => parseFleetFrame({ ...frame, dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") }),
-    /closed schema/,
-  );
-});
+// The old snapshot-chunk transport sharing case retired with the fleet.snapshot.* frame family;
+// the equivalent chunk-bound proof for the replication stream lives in
+// replication-protocol.contract.test.ts ("decoder accepts many frames per chunk ...").

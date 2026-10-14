@@ -17,7 +17,7 @@ import {
   readFleetRuntimeSessionsPaged,
 } from "../src/fleet-edge-runtime.ts";
 import { runFleetEdgeTask } from "../src/fleet-edge-task.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetReplicaPullClient } from "../src/fleet/peer.ts";
 import {
   fleetFixture,
   git,
