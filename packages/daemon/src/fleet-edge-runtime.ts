@@ -579,7 +579,7 @@ export function openFleetEdgeRuntime(input: {
                   operationId,
                   requiredCellText,
                   cellCodedError,
-                  store: { readContentBlob: (sha256) => readEdgeViewBlob(request.viewRoot, view, sha256) },
+                  store: { readContentBlob: (sha256) => readEdgeViewBlob(view, sha256) },
                 },
                 action as { kind: string },
                 readBinding,
