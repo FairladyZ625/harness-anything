@@ -472,12 +472,13 @@ test("protocol SQLite failures preserve native result details in the error objec
 });
 
 test("the settings read built by its only constructor passes its own result validator, with and without roles", () => {
-  assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(INITIAL_SETTINGS_V1, "initial")), []);
+  assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(INITIAL_SETTINGS_V1, 4, "initial")), []);
   const configured = { ...INITIAL_SETTINGS_V1, roles: { defaultReviewer: "closeout-reviewer" } };
-  assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(configured, "initial")), []);
-  const read = daemonSettingsRead(configured, "initial");
+  assert.deepEqual(validateDaemonSettingsRead(daemonSettingsRead(configured, 4, "initial")), []);
+  const read = daemonSettingsRead(configured, 4, "initial");
+  assert.equal(read.revision, 4);
   assert.equal(Object.hasOwn(read.values, "closeoutProfile"), false);
-  const strict = daemonSettingsRead({ ...configured, closeout: { profile: "strict" } }, "initial");
+  const strict = daemonSettingsRead({ ...configured, closeout: { profile: "strict" } }, 4, "initial");
   assert.equal(strict.values.closeoutProfile, "strict");
   assert.deepEqual(validateDaemonSettingsRead(strict), []);
   assert.notDeepEqual(
@@ -485,4 +486,5 @@ test("the settings read built by its only constructor passes its own result vali
     [],
   );
   assert.notDeepEqual(validateDaemonSettingsRead({ ...read, values: { ...read.values, taskScaffold: {} } }), []);
+  assert.notDeepEqual(validateDaemonSettingsRead({ ...read, revision: "initial" as unknown as number }), []);
 });

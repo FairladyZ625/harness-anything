@@ -40,6 +40,7 @@ function seedQueries(client: QueryClient): void {
   client.setQueryData(settingsQueryKeys.read(REPO_ID), {
     schema: "daemon.settings-read/v1",
     ok: true,
+    revision: 1,
     settings: {
       schema: "settings/v1",
       settingsId: "repository",
@@ -357,6 +358,7 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
         command: "settings-update",
         outcome: "applied",
         opId: String(payload.idempotencyKey),
+        revision: 2,
       })),
       values = {
         defaultVertical: settings.defaultVertical,
@@ -379,6 +381,7 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
         ok: true,
         settings,
         values,
+        revision: 1,
         lastChanged: "initial" as const,
       }));
     Object.defineProperty(window, "harness", {

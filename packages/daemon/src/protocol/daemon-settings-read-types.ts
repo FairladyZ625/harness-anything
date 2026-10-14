@@ -10,19 +10,24 @@ export interface DaemonSettingsLastChange {
 
 /** `repo.settings.read` 的结果:`settings` 原样返回(含 locale 本地偏好),`values` 是 kernel
  * `repositorySettingsActionValues` 的扁平动作值面——派生设置表单据此回填,无需手写嵌套→扁平映射。
- * `lastChanged` 携带最近一条 settings_changed 事件的归因;仓库尚无设置变更事件时为 "initial"。 */
+ * `revision` 是乐观并发令牌:服务端写路径比对 `expectedVersion` 用的 Settings singleton 行修订
+ * (`settingsSingletonRevision`,与写路径同源)。`lastChanged` 只作归因展示,不再充当令牌;
+ * 仓库尚无设置变更事件时为 "initial"。 */
 export interface DaemonSettingsRead {
   readonly schema: "daemon.settings-read/v1";
   readonly ok: true;
   readonly settings: SettingsV1;
   readonly values: ReturnType<typeof repositorySettingsActionValues>;
+  readonly revision: number;
   readonly lastChanged: DaemonSettingsLastChange | "initial";
 }
 
 /** `repo.settings.read` 的唯一构造口:settings 原样返回(含 locale 本地偏好),
- * values 为 kernel 拍平的动作值面(键 = 契约字段,内部归一化仓库视图)。 */
+ * values 为 kernel 拍平的动作值面(键 = 契约字段,内部归一化仓库视图),
+ * revision 为与服务端写路径同源的 Settings singleton 行修订。 */
 export function daemonSettingsRead(
   settings: SettingsV1,
+  revision: number,
   lastChanged: DaemonSettingsLastChange | "initial",
 ): DaemonSettingsRead {
   return {
@@ -30,6 +35,7 @@ export function daemonSettingsRead(
     ok: true,
     settings,
     values: repositorySettingsActionValues(settings),
+    revision,
     lastChanged,
   };
 }

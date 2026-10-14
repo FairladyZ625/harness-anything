@@ -42,6 +42,7 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
       ciWorkflows: [],
       closeoutProfile: "standard",
     },
+    revision: 7,
     lastChanged: "initial",
   };
   assert.equal(parseDaemonGuiReadResult("repo.settings.read", valid), valid);

@@ -223,6 +223,7 @@ async function mountView(
     command: "settings-update",
     outcome: "applied",
     opId: String(payload.idempotencyKey),
+    revision: 2,
   }));
   Object.defineProperty(window, "harness", {
     configurable: true,
@@ -233,6 +234,7 @@ async function mountView(
         ok: true,
         settings: SETTINGS,
         values,
+        revision: 1,
         lastChanged: "initial",
       }),
       ...(options.catalogBridge ? { getCatalogSnapshot: options.catalogBridge } : {}),
@@ -244,6 +246,7 @@ async function mountView(
     ok: true,
     settings: SETTINGS,
     values,
+    revision: 1,
     lastChanged: "initial",
   });
   // 目录快照与 agent 目录都走缓存种子(与 preset-detail/system-group-widescreen 同一模式),

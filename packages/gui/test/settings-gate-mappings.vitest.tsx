@@ -100,18 +100,27 @@ async function mountView(options: { readonly gates?: unknown } = {}): Promise<HT
         command: "settings-update",
         outcome: "applied",
         opId: String(payload.idempotencyKey),
+        revision: 2,
       })),
       getSettings: async () => ({
         schema: "daemon.settings-read/v1",
         ok: true,
         settings,
         values: {},
+        revision: 1,
         lastChanged: "initial",
       }),
     },
   });
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const read = { schema: "daemon.settings-read/v1", ok: true, settings, values: {}, lastChanged: "initial" };
+  const read = {
+    schema: "daemon.settings-read/v1",
+    ok: true,
+    settings,
+    values: {},
+    revision: 1,
+    lastChanged: "initial",
+  };
   client.setQueryData(settingsQueryKeys.read(REPO_ID), read);
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), SNAPSHOT);
   client.setQueryData(["agents", REPO_ID], []);

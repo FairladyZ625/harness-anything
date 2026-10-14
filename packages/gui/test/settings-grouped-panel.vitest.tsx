@@ -152,6 +152,7 @@ async function mountView(values: Record<string, unknown> = {}): Promise<HTMLElem
       command: "settings-update",
       outcome: "applied",
       opId: String(payload.idempotencyKey),
+      revision: 2,
     }));
   Object.defineProperty(window, "harness", {
     configurable: true,
@@ -162,6 +163,7 @@ async function mountView(values: Record<string, unknown> = {}): Promise<HTMLElem
         ok: true,
         settings: SETTINGS,
         values: merged,
+        revision: 1,
         lastChanged: "initial",
       }),
     },
@@ -172,6 +174,7 @@ async function mountView(values: Record<string, unknown> = {}): Promise<HTMLElem
     ok: true,
     settings: SETTINGS,
     values: merged,
+    revision: 1,
     lastChanged: "initial",
   });
   client.setQueryData(catalogQueryKeys.snapshot(REPO_ID), SNAPSHOT);
@@ -314,7 +317,8 @@ describe("设置页按用途分组并逐项解释", () => {
     await act(async () => {
       saveButton(container).click();
     });
-    expect(lastUpdatePayload()).toMatchObject({ restoreDrillRetention: 3 });
+    // 整表提交携带乐观并发令牌:settings read 的 singleton 行修订(不是 lastChanged 归因修订)。
+    expect(lastUpdatePayload()).toMatchObject({ restoreDrillRetention: 3, expectedVersion: 1 });
   });
 
   it("closeout 覆写的默认值随 profile 走:standard 下显式 true 标记已修改,恢复回落 false", async () => {

@@ -626,3 +626,95 @@ test("settingsLastChanged uses the canonical projection cut without scanning the
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// GUI 修订令牌契约(task_abfd845f39b26fc9da3d8ca9e9):repo.settings.read 携带与写路径
+// 同源的 Settings singleton 行修订,GUI 以它作 expectedVersion。三类行为都在 cell 层锁定:
+// 非 settings 事件不移动令牌、写后令牌前进且链式提交成功、陈旧令牌仍被拒。
+test("repo.settings.read carries the write-path singleton revision as the GUI optimistic token", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-settings-token-"));
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("settings-token"),
+      rootDir: canonicalRoot(root),
+      ownerId: "settings-token-test",
+    });
+    const binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+    const readToken = async (): Promise<number> => {
+      const read = (await cell.read("repo.settings.read")) as {
+        readonly revision: number;
+        readonly lastChanged: { readonly revision: number } | "initial";
+      };
+      assert.ok(Number.isSafeInteger(read.revision));
+      return read.revision;
+    };
+
+    // 非 settings 事件(决策提案)落在最后一次 settings 变更之后,令牌不动:
+    // 拿事件前读到的 revision 仍能保存——事件修订(attribution)与行修订(令牌)不再互相冒充。
+    const before = await readToken();
+    const proposed = await cell.run(decisionProposal(), binding);
+    assert.equal(proposed.outcome, "applied", JSON.stringify(proposed));
+    assert.equal(await readToken(), before);
+    const first = await cell.run(
+      {
+        kind: "settings-update",
+        reviewReturnBudget: 5,
+        expectedVersion: before,
+        idempotencyKey: "settings-token-first",
+      },
+      binding,
+    );
+    assert.equal(first.outcome, "applied", JSON.stringify(first));
+
+    // 连续两次快速提交:GUI 在回执后立即用回执修订顶新缓存,第二次提交带新令牌;
+    // 写后的 read.revision 就是那份新令牌。带写前旧令牌的提交仍然被拒(真并发保护)。
+    const afterFirst = await readToken();
+    assert.equal(afterFirst, first.revision);
+    const second = await cell.run(
+      {
+        kind: "settings-update",
+        reviewReturnBudget: 6,
+        expectedVersion: afterFirst,
+        idempotencyKey: "settings-token-second",
+      },
+      binding,
+    );
+    assert.equal(second.outcome, "applied", JSON.stringify(second));
+    const stale = await cell.run(
+      {
+        kind: "settings-update",
+        reviewReturnBudget: 7,
+        expectedVersion: before,
+        idempotencyKey: "settings-token-stale",
+      },
+      binding,
+    );
+    assert.equal(stale.outcome, "op_rejected");
+    assert.equal(stale.code, "revision_conflict");
+  } finally {
+    cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+function decisionProposal() {
+  return {
+    kind: "decision-propose",
+    body: "# Settings token behavior\n\n## 背景\n\nNon-settings events must not move the settings token.\n\n## 权衡\n\nRow revision versus event attribution.\n\n## 结论\n\nThe token stays on the singleton row revision.\n",
+    jsonInput: JSON.stringify({
+      title: "Settings token stays on the singleton row",
+      question: "Do non-settings events move the settings optimistic token?",
+      riskTier: "medium",
+      urgency: "low",
+      vertical: "default",
+      preset: "default",
+      decisionClass: "ordinary",
+      appliesTo: { modules: ["daemon"], productLines: [] },
+      chosen: [{ id: "CH1", text: "The token does not move" }],
+      rejected: [{ id: "RJ1", text: "The token follows every event", whyNot: "It would reject every save" }],
+      claims: [],
+      fulfillments: [],
+    }),
+  } as const;
+}
