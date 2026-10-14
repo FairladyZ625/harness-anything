@@ -19,6 +19,17 @@ const runProvider: RunProvider = async (args, env, cwd) =>
 
 type PrBodyLintProvider = (body: string, rootDir: string) => Promise<void>;
 
+const taskPrTitlePattern = /^(feat|fix|refactor|perf|test|docs|chore|ci)(\([A-Za-z0-9._/-]+\))?: [^\r\n]+$/u;
+const taskPrTitleFormat =
+  "<type>(<scope>): <summary> (type: feat|fix|refactor|perf|test|docs|chore|ci; scope is optional)";
+
+function requireTaskPrTitle(title: unknown, required: boolean): string | undefined {
+  if (title === undefined && !required) return undefined;
+  if (typeof title !== "string" || !taskPrTitlePattern.test(title))
+    throw new Error(`Pull request title must match ${taskPrTitleFormat}.`);
+  return title;
+}
+
 /**
  * Runs the repository PR body gate — the same script CI's pr-body-lint job runs — on the task's
  * PR body before the pull request exists, so placeholder-only required sections are named here
@@ -60,6 +71,12 @@ export async function createTaskPullRequest(
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
   if (!taskId) throw context.cellCodedError("invalid_command", "Task PR creation requires a task id.");
   requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
+  let title: string | undefined;
+  try {
+    title = requireTaskPrTitle(action.title, action.update !== true);
+  } catch (error) {
+    throw context.cellCodedError("invalid_field", error instanceof Error ? error.message : String(error));
+  }
   const principal = binding.executionPrincipal;
   const instanceId = principal
     ? context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId
@@ -98,8 +115,8 @@ export async function createTaskPullRequest(
   try {
     const args =
       action.update === true
-        ? ["pr", "edit", taskId, "--body", document.body]
-        : ["pr", "create", "--head", taskId, "--title", String(task.title), "--body", document.body];
+        ? ["pr", "edit", taskId, ...(title ? ["--title", title] : []), "--body", document.body]
+        : ["pr", "create", "--head", taskId, "--title", title!, "--body", document.body];
     const url = redact(await provider(args, env, context.rootDir)).trim();
     return context.withHumanSummary({
       outcome: "applied",

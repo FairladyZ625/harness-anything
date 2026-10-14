@@ -124,12 +124,15 @@ function parseTaskPublication(
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${id.slice("task-".length)} <task-id>.`, json);
   const flags = readFlags(id, args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  if (id === "task-pr" && !flags.booleans.has("--update") && !flags.one.has("--title"))
+    return rejected("missing_field", "Creating a task PR requires --title '<type>(<scope>): <summary>'.", json);
   // --wait/--timeout ride the CLI facade's poll loop; the facade strips them before the daemon read.
   const timeout = flags.one.get("--timeout");
   return accepted(rootDir, repoId, json, {
     kind: id,
     taskId,
     ...(flags.booleans.has("--update") ? { update: true } : {}),
+    ...(flags.one.has("--title") ? { title: flags.one.get("--title") } : {}),
     ...(id === "task-ci" && flags.booleans.has("--wait") ? { wait: true } : {}),
     ...(id === "task-ci" && timeout !== undefined ? { timeoutSeconds: Number(timeout) } : {}),
   });
