@@ -129,7 +129,7 @@ async function protocolRead(
 }
 
 test(
-  "center and two real edge hosts calculate the same fixed-cut statistics; cached details remain readable offline",
+  "center and two real edge hosts calculate the same statistics from the mirror; they remain readable offline",
   { timeout: 180_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true, {}, seed);
@@ -150,26 +150,24 @@ test(
       localAuthFixture(),
     )) as Record<string, unknown>;
     assert.equal(truth.statisticsAvailability, "ready");
+    // The edge mirrors the center's ledger and content objects, so its statistics equal the center's
+    // and every job detail is already local: a detail read answers like the center with no download.
     for (const e of edges) {
-      const before = (await protocolRead(e)) as Record<string, unknown>;
-      assert.equal(before.statisticsAvailability, "pending");
-      assert.deepEqual(before.tests, []);
-      const beforeJobs = (before.runs as { scope: string; detailAvailability: string; detail: unknown }[]).filter(
-        (run) => run.scope === "job",
-      );
+      const read = (await protocolRead(e)) as Record<string, unknown>;
+      assert.equal(read.statisticsAvailability, "ready", JSON.stringify(read).slice(0, 500));
+      assert.deepEqual(read.tests, truth.tests);
+      assert.deepEqual(read.recoveries, truth.recoveries);
+      assert.equal(read.sourceRevision, truth.sourceRevision);
       assert.ok(
-        beforeJobs.length > 0 &&
-          beforeJobs.every((run) => run.detailAvailability === "not_cached" && run.detail === null),
+        (read.runs as { scope: string; detailAvailability: string }[])
+          .filter((run) => run.scope === "job")
+          .every((run) => run.detailAvailability === "ready"),
       );
-      const after = (await protocolRead(e, true)) as Record<string, unknown>;
-      assert.equal(after.statisticsAvailability, "ready");
-      assert.deepEqual(after.tests, truth.tests);
-      assert.deepEqual(after.recoveries, truth.recoveries);
-      assert.equal(after.sourceRevision, truth.sourceRevision);
-      assert.deepEqual(after.runs, truth.runs);
-      assert.deepEqual(after.importer, truth.importer);
+      const detailed = (await protocolRead(e, true)) as Record<string, unknown>;
+      assert.deepEqual(detailed.runs, truth.runs);
+      assert.deepEqual(detailed.importer, truth.importer);
       assert.ok(
-        (after.runs as { scope: string; detail: unknown }[])
+        (detailed.runs as { scope: string; detail: unknown }[])
           .filter((run) => run.scope === "job")
           .every((run) => run.detail !== null),
       );
@@ -184,7 +182,7 @@ test(
     assert.equal(
       unchanged.sourceRevision,
       truth.sourceRevision,
-      "edge detail downloads must not write occurrence or canonical evidence",
+      "edge reads must not write occurrence or canonical evidence",
     );
     assert.deepEqual(unchanged.importer, truth.importer);
     await f.center.close();
@@ -234,7 +232,7 @@ async function seedHistory(rootDir: string, mixed: boolean) {
 
 for (const mixed of [false, true]) {
   test(
-    `fetch-details preserves pending history and caches authorized cold objects in a ${mixed ? "mixed" : "legacy-only"} window`,
+    `edge statistics keep detail-less history pending like the center in a ${mixed ? "mixed" : "legacy-only"} window`,
     { timeout: 180_000 },
     async (t) => {
       const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true, {}, (root) =>
@@ -252,9 +250,10 @@ for (const mixed of [false, true]) {
         { fetchDetails: true },
         localAuthFixture(),
       )) as Record<string, unknown>;
-      const before = await protocolRead(e); console.error("TEMPDEBUG before", JSON.stringify(before).slice(0, 600));
-      assert.equal(before.statisticsAvailability, "pending");
-      assert.equal((before.missingDetails as string[]).length, mixed ? 4 : 2);
+      // History whose detail the center never had stays pending on the edge exactly as at the center;
+      // every detail the center holds is already in the mirror, so a fetch changes nothing.
+      const before = await protocolRead(e);
+      assert.deepEqual(before.missingDetails, truth.missingDetails);
       const after = await protocolRead(e, true);
       assert.equal(after.statisticsAvailability, "pending", JSON.stringify(after));
       assert.deepEqual(after.missingDetails, ["unavailable:event-ci-history-0", "unavailable:event-ci-history-1"]);
