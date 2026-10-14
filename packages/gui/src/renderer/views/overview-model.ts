@@ -279,10 +279,13 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
 }
 
 /**
- * 主区「关注的工作」(2026-10-11 业主意见 4):置顶的非终态工作保留在前(显式关注,
- * 不受活动窗口限制);其余非终态工作默认只列最近 N 天内有活动的(N 来自设置项
- * 「关注的工作活动天数」,未读到时用声明默认 3),按最近活动倒排——总览是「现在在
- * 发生什么」,不是全量工作索引,全量在工作页。已收尾的置顶工作不进列表,只计数提及。
+ * 主区「关注的工作」(2026-10-11 业主意见 4; 2026-10-14 活跃执行置顶与最新活动倒序):
+ * 排序准则:
+ * 1. 活跃执行优先:名下任务当前有 live 会话在跑(handlers.length > 0,呈现层挂脉冲波呼吸条)的工作严格置顶在待命工作之前;
+ * 2. 静止待命中置顶优先:均无 live 会话在跑时,显式置顶的非终态工作保留在前,近期活跃工作列于其后;
+ * 3. 最新活动倒序:同等状态组内(同为在跑、同为待命置顶、同为待命近期),按最近活动时间(lastActivityAt)倒序排列(新活动在前);
+ * 4. 稳定兜底:时间相同时平滑回退至注意力最高分降序、本人卡点数与 taskId 定序。
+ * 此外:处于活跃执行状态的工作即使超出活动窗口天数,也绝不被截断隐藏。已收尾的置顶工作不进列表,只计数提及。
  */
 export interface WatchedWork {
   readonly work: WorkRow;
@@ -298,6 +301,7 @@ export function watchedWorks(
   works: WorkIndexRead | undefined,
   agenda: AgendaSuccess | undefined,
   activity?: { readonly days: number; readonly now: string },
+  runtime?: AgentRuntimeOverviewResult | undefined,
 ): { readonly watched: readonly WatchedWork[]; readonly pinnedClosed: number } {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
@@ -310,25 +314,58 @@ export function watchedWorks(
     const row = rows.find((entry) => entry.taskId === id);
     return row !== undefined && TERMINAL_WORK.has(row.status);
   }).length;
-  const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000,
-    entryOf = (source: WatchedWork["source"]) => (work: WorkRow) => ({
-      work,
-      source,
-      memberTaskIds: members.get(work.taskId) ?? [],
-    }),
-    watched = [
-      ...rows.filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status)).map(entryOf("pinned")),
-      ...rows
-        .filter(
-          (row) =>
-            !pinnedIds.has(row.taskId) &&
-            !TERMINAL_WORK.has(row.status) &&
-            (cutoff === null || Date.parse(row.lastActivityAt) >= cutoff),
-        )
-        // 置顶区保持注意力序(显式承诺),近期区按最近活动倒排(窗口本身就是活动口径)。
-        .sort((left, right) => Date.parse(right.lastActivityAt) - Date.parse(left.lastActivityAt))
-        .map(entryOf("recent")),
-    ];
+  const cutoff = activity === undefined ? null : Date.parse(activity.now) - Math.max(1, activity.days) * 86_400_000;
+  const runningOf = (taskId: string, memberTaskIds: readonly string[]): number =>
+    workHandlers(runtime, taskId, memberTaskIds).length > 0 ? 1 : 0;
+  const entryOf = (source: WatchedWork["source"]) => (work: WorkRow) => ({
+    work,
+    source,
+    memberTaskIds: members.get(work.taskId) ?? [],
+  });
+
+  const pinnedEntries = rows
+    .filter((row) => pinnedIds.has(row.taskId) && !TERMINAL_WORK.has(row.status))
+    .map(entryOf("pinned"));
+  const recentEntries = rows
+    .filter((row) => {
+      if (pinnedIds.has(row.taskId) || TERMINAL_WORK.has(row.status)) return false;
+      const memberTasks = members.get(row.taskId) ?? [];
+      const isRunning = runningOf(row.taskId, memberTasks) > 0;
+      return isRunning || cutoff === null || Date.parse(row.lastActivityAt) >= cutoff;
+    })
+    .map(entryOf("recent"));
+
+  const watched = [...pinnedEntries, ...recentEntries].sort((left, right) => {
+    // 1. 活跃执行优先置顶 (live 会话处理者非空,挂脉冲呼吸光条)
+    const leftRunning = runningOf(left.work.taskId, left.memberTaskIds);
+    const rightRunning = runningOf(right.work.taskId, right.memberTaskIds);
+    if (rightRunning !== leftRunning) return rightRunning - leftRunning;
+
+    // 2. 静止待命中,置顶优先于近期
+    if (leftRunning === 0 && rightRunning === 0) {
+      const leftPinned = left.source === "pinned" ? 1 : 0;
+      const rightPinned = right.source === "pinned" ? 1 : 0;
+      if (rightPinned !== leftPinned) return rightPinned - leftPinned;
+    }
+
+    // 3. 最新活动时间倒序(新活动在前、旧在后)
+    const leftTime = Date.parse(left.work.lastActivityAt) || 0;
+    const rightTime = Date.parse(right.work.lastActivityAt) || 0;
+    if (rightTime !== leftTime) return rightTime - leftTime;
+
+    // 4. 同为在跑且活动时间相同时,置顶优先
+    const leftPinned = left.source === "pinned" ? 1 : 0;
+    const rightPinned = right.source === "pinned" ? 1 : 0;
+    if (rightPinned !== leftPinned) return rightPinned - leftPinned;
+
+    // 5. 稳定兜底(注意力最高分、本人卡点数、taskId)
+    return (
+      right.work.topScore - left.work.topScore ||
+      right.work.mineCount - left.work.mineCount ||
+      left.work.taskId.localeCompare(right.work.taskId)
+    );
+  });
+
   return { watched, pinnedClosed };
 }
 
