@@ -55,3 +55,38 @@ test("the 12 ACP provider launch contracts stay pinned", () => {
     assert.equal(kind.auth.acpCredentialKey, expected.acpCredentialKey, `${expected.kindId} acpCredentialKey`);
   }
 });
+
+test("only Codex and Claude declare steer resume and Codex resumes before stdin input", () => {
+  const codex = runtimeKinds.find((entry) => entry.kindId === "codex")!,
+    claude = runtimeKinds.find((entry) => entry.kindId === "claude")!;
+  assert.ok(codex.steer);
+  assert.ok(claude.steer);
+  const codexResume = codex.steer!.resumeArgs(
+    ["exec", "--json", "--sandbox", "workspace-write", "--model", "o4-mini", "-"],
+    "thread-123",
+  );
+  assert.deepEqual(codexResume, [
+    "exec",
+    "resume",
+    "--json",
+    "--sandbox",
+    "workspace-write",
+    "--model",
+    "o4-mini",
+    "thread-123",
+    "-",
+  ]);
+  assert.deepEqual(
+    codex.steer!.resumeArgs(["exec", "resume", "--json", "--model", "o4-mini", "thread-old", "-"], "thread-123"),
+    ["exec", "resume", "--json", "--model", "o4-mini", "thread-123", "-"],
+  );
+  assert.deepEqual(claude.steer!.resumeArgs(["-p", "--output-format", "stream-json"], "session-123"), [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--resume",
+    "session-123",
+  ]);
+  assert.equal(runtimeKinds.filter((entry) => entry.steer).length, 2);
+  assert.equal(runtimeKinds.find((entry) => entry.kindId === "copilot")!.steer, undefined);
+});

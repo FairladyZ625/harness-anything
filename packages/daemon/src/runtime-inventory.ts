@@ -66,6 +66,10 @@ export interface RuntimeProviderDeclaration {
     readonly apiKeyArgs?: readonly string[];
     readonly fastArgs?: readonly string[];
   };
+  readonly steer?: {
+    readonly strategy: "interrupt-resume";
+    readonly resumeArgs: (args: readonly string[], providerSessionId: string) => readonly string[];
+  };
   readonly sessionIdentity: {
     readonly eventDiscriminator: readonly [string, string] | null;
     readonly eventIdField: string;
@@ -223,6 +227,15 @@ export const runtimeKinds = [
       },
       apiKeyArgs: ["--bare"],
     },
+    steer: {
+      strategy: "interrupt-resume",
+      resumeArgs: (args, providerSessionId) => {
+        const clean = [...args],
+          index = clean.indexOf("--resume");
+        if (index >= 0) clean.splice(index, 2);
+        return [...clean, "--resume", providerSessionId];
+      },
+    },
     sessionIdentity: {
       eventDiscriminator: null,
       eventIdField: "session_id",
@@ -348,6 +361,21 @@ export const runtimeKinds = [
         "read-only": ["--config", 'sandbox_mode="read-only"'],
       },
       fastArgs: ["--config", 'service_tier="fast"'],
+    },
+    steer: {
+      strategy: "interrupt-resume",
+      resumeArgs: (args, providerSessionId) => {
+        const clean = [...args],
+          execIndex = clean.indexOf("exec"),
+          inputIndex = clean.lastIndexOf("-");
+        if (execIndex < 0 || inputIndex < execIndex) throw new Error("Codex resume arguments lack exec stdin input.");
+        if (clean[execIndex + 1] === "resume") {
+          clean.splice(execIndex + 1, 1);
+          clean.splice(clean.lastIndexOf("-") - 1, 1);
+        }
+        const options = clean.slice(execIndex + 1, clean.lastIndexOf("-"));
+        return [...clean.slice(0, execIndex + 1), "resume", ...options, providerSessionId, "-"];
+      },
     },
     sessionIdentity: {
       eventDiscriminator: ["type", "thread.started"],
@@ -932,7 +960,10 @@ export const runtimeKinds = [
 ] as const satisfies readonly RuntimeProviderDeclaration[];
 
 export type RuntimeProtocolFamily = (typeof runtimeKinds)[number]["protocolFamily"];
-export type RuntimeKindInventory = (typeof runtimeKinds)[number] & RuntimeKind;
+export type RuntimeKindInventory = (typeof runtimeKinds)[number] &
+  RuntimeKind & {
+    readonly steer?: RuntimeProviderDeclaration["steer"];
+  };
 export type { RuntimeKindId };
 // Catalog-derived, mirroring runtimeProtocolFamilies below; the annotation keeps the
 // catalog fail-closed against the kernel vocabulary (an extra kindId fails to compile).

@@ -410,7 +410,8 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four GateRun Task actions.
   // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle adds three host actions.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
-  assert.equal(actionDeclarations.length, 152);
+  // dec_12A87C0F08E4B8304C4BC25BA7/CH1: runtime steer is one owner-routed action.
+  assert.equal(actionDeclarations.length, 153);
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

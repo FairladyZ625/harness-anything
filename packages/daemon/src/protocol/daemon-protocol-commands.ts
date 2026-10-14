@@ -216,6 +216,12 @@ export function repoCellExecutionForAction(kind: string): "query-only" | "writer
 }
 
 export function actionForDaemonMethod(method: string, payload: JsonObject): JsonObject & { readonly kind: string } {
+  if (method === "repo.agentRuntime.steer") {
+    const descriptor = runtimeFleetProtocolCommands.find((entry) => entry.method === method);
+    if (!descriptor)
+      throw new DaemonProtocolContractError("unsupported_command", `No action descriptor exists for ${method}.`);
+    return { ...payload, kind: descriptor.id };
+  }
   if (method === "repo.task.run" || method === "repo.task.read") {
     const action = payload.action as JsonObject & { readonly kind: string },
       descriptor = commandDescriptorByActionKind.get(action.kind);

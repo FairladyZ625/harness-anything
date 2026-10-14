@@ -466,6 +466,7 @@ export function createJsonRpcProtocolServer(options: {
               "repo.squad.control",
               "repo.agentRuntime.spawn",
               "repo.agentRuntime.cancel",
+              "repo.agentRuntime.steer",
               "repo.agentRuntime.handoff",
               "repo.agentRuntime.overview",
               "repo.agentRuntime.sessions.read",
@@ -676,6 +677,14 @@ export function createJsonRpcProtocolServer(options: {
             await options.host.cancelRuntime(repo, params.payload, options.authContext),
           ),
         );
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
+    if (method === "repo.agentRuntime.steer") {
+      const repo = params.repo.repoId;
+      try {
+        return reply(method, await options.host.steerRuntime(repo, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
       }
