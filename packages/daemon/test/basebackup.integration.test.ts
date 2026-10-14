@@ -30,6 +30,9 @@ test(
     await seedCenterData(fixture, seededTask);
     await fixture.openCenter();
     // Writes keep landing on the single write queue while the package is being built and shipped.
+    const edge = fixture.startEdge("edge-one");
+    const header = await edge.waitForEvent("backup-header"),
+      installed = await edge.waitForEvent("installed");
     const writesUnderBackup = (async () => {
       for (let index = 0; index < 4; index += 1) {
         const appended = await fixture.centerRun({
@@ -40,9 +43,6 @@ test(
         assert.equal(appended.outcome, "applied", JSON.stringify(appended));
       }
     })();
-    const edge = fixture.startEdge("edge-one");
-    const header = await edge.waitForEvent("backup-header"),
-      installed = await edge.waitForEvent("installed");
     assert.equal(typeof header.position.revision, "number");
     assert.ok((header.position.revision as number) >= 1, "the backup must cover at least the seeded events");
     assert.equal(
