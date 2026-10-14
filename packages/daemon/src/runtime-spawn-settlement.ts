@@ -29,7 +29,6 @@ export async function publishExit(
   context: RuntimeSpawnerContext,
   active: ActiveRuntime,
   code: number | null,
-  resumePublishedExit = false,
 ): Promise<void> {
   if (
     context.exiting.has(active.runtimeSessionId) ||
@@ -53,9 +52,9 @@ export async function publishExit(
     squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
   try {
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
-    // A local snapshot alone does not prove that the center accepted settlement.
-    // Only an already-published exit lets adoption skip those side effects.
-    if (resumePublishedExit && persistedTerminal) {
+    // The terminal snapshot is written after archive and lease settlement. Replay its
+    // idempotent exit/outcome writes even while the replica still shows an earlier liveness.
+    if (persistedTerminal) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);

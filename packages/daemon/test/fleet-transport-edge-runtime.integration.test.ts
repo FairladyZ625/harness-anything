@@ -379,6 +379,9 @@ test(
       await outcomeFailure;
       await queueFailure;
       errorProbe.mock.restore();
+      const archiveCount = fixture.runtimeArchiveReceipts.length;
+      const persistedTerminal = readDispatchStream(edgeRoot, String(resumed.dispatchId))?.terminalOutcome;
+      assert.equal(persistedTerminal?.payload.outcome, "stopped", JSON.stringify(persistedTerminal));
       const partial = makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
         .read()
         .events.filter(
@@ -441,6 +444,12 @@ test(
         { liveness: "exited", outcome: "stopped" },
         "edge sync with the device session recovers the outcome after the center accepted exited",
       );
+      assert.equal(
+        fixture.runtimeArchiveReceipts.length,
+        archiveCount,
+        "recovery must not rearchive a settled dispatch",
+      );
+      assert.deepEqual(readDispatchStream(edgeRoot, String(resumed.dispatchId))?.terminalOutcome, persistedTerminal);
       assert.match(String(recoveredSession?.session.activity.resultRef), /^artifact:runtime-result\/sha256\//u);
       assert.equal(
         recoveredSession?.session.associations.find((item) => item.taskId === fixture.subject.taskId)?.lease?.phase,
