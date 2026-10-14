@@ -217,7 +217,7 @@ describe("G6-B observe 模型:分页 → 行流", () => {
       const state = applyObserveTailPage(initialObserveTail(), logPage(kind));
       expect(state.rows).toHaveLength(1);
       expect(state.rows.at(0)!.type).toBe("repo.tasks.list");
-      expect(state.rows.at(0)!.text).toBe("4ms");
+      expect(state.rows.at(0)!.text).toBe("repo.tasks.list 4ms");
       expect(state.rows.at(0)!.ok).toBe(true);
       expect(state.liveCursor).toEqual({ kind, fileId: "file-g6b", offset: 88 });
       expect(state.historyCursor).toEqual({ kind, fileId: "file-g6b", offset: 0 });
