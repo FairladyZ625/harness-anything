@@ -26,7 +26,7 @@ export function openReplicationSlots(file: string) {
   db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
     CREATE TABLE IF NOT EXISTS replication_slot (
       repo TEXT NOT NULL, node TEXT NOT NULL, fence INTEGER NOT NULL,
-      history TEXT NOT NULL, ack TEXT, PRIMARY KEY(repo,node)
+      history TEXT NOT NULL, ack TEXT, acked_at TEXT, PRIMARY KEY(repo,node)
     ) STRICT`);
   const row = (key: ReplicationSlotKey) =>
     db.prepare("SELECT * FROM replication_slot WHERE repo=? AND node=?").get(key.repoId, key.nodeId);
@@ -38,9 +38,10 @@ export function openReplicationSlots(file: string) {
     claim(key: ReplicationSlotKey, history: string): ReplicationSlotLease {
       const value = db
         .prepare(
-          `INSERT INTO replication_slot VALUES(?,?,1,?,NULL)
+          `INSERT INTO replication_slot VALUES(?,?,1,?,NULL,NULL)
         ON CONFLICT(repo,node) DO UPDATE SET fence=fence+1, history=excluded.history,
-        ack=CASE WHEN history=excluded.history THEN ack ELSE NULL END RETURNING fence`,
+        ack=CASE WHEN history=excluded.history THEN ack ELSE NULL END,
+        acked_at=CASE WHEN history=excluded.history THEN acked_at ELSE NULL END RETURNING fence`,
         )
         .get(key.repoId, key.nodeId, history)!;
       return { ...key, history, fence: Number(value.fence) };
@@ -69,9 +70,10 @@ export function openReplicationSlots(file: string) {
       if (prior && (ack.durable.sequence < prior.durable.sequence || ack.applied.sequence < prior.applied.sequence))
         throw new Error("replication ACK regressed");
       const result = db
-        .prepare("UPDATE replication_slot SET ack=? WHERE repo=? AND node=? AND fence=? AND history=?")
+        .prepare("UPDATE replication_slot SET ack=?, acked_at=? WHERE repo=? AND node=? AND fence=? AND history=?")
         .run(
           JSON.stringify({ durable: ack.durable, applied: ack.applied }),
+          new Date().toISOString(),
           lease.repoId,
           lease.nodeId,
           lease.fence,
@@ -89,7 +91,24 @@ export function openReplicationSlots(file: string) {
       return value?.floor == null ? null : Number(value.floor);
     },
     invalidateOffline(repoId: string): void {
-      db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL WHERE repo=?").run(repoId);
+      db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL, acked_at=NULL WHERE repo=?").run(repoId);
+    },
+    /** Every slot's last durable ACK, for the center's replica status. */
+    list(): readonly (ReplicationSlotKey & {
+      readonly history: string;
+      readonly ack: ReplicationAcknowledgement | null;
+      readonly ackedAt: string | null;
+    })[] {
+      return db
+        .prepare("SELECT repo, node, history, ack, acked_at FROM replication_slot ORDER BY repo, node")
+        .all()
+        .map((value) => ({
+          repoId: String(value.repo),
+          nodeId: String(value.node),
+          history: String(value.history),
+          ack: value.ack == null ? null : (JSON.parse(String(value.ack)) as ReplicationAcknowledgement),
+          ackedAt: value.acked_at == null ? null : String(value.acked_at),
+        }));
     },
     close: () => db.close(),
   };

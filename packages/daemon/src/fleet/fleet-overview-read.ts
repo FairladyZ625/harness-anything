@@ -124,14 +124,15 @@ export interface FleetNodeRow {
         FleetReplicaStatus,
         | "viewId"
         | "centerRevision"
-        | "centerEventAt"
+        | "centerSequence"
         | "ackRevision"
+        | "ackSequence"
         | "ackedAt"
         | "lagRevisions"
+        | "lagCommits"
         | "lagMs"
+        | "connected"
         | "delivery"
-        | "deliveryLease"
-        | "transferMetrics"
       > & { readonly repoId: string })
     | null;
   /** replica 为 null 时必给原因;非 null 时为 null。 */
@@ -263,7 +264,7 @@ export function buildFleetOverview(input: FleetOverviewInput): FleetOverviewResu
       state:
         replica.delivery === "current" && replica.lagRevisions === 0
           ? "fresh"
-          : replica.ackRevision === null || replica.delivery === "snapshot_required" || replica.delivery === "degraded"
+          : replica.ackRevision === null || replica.delivery === "snapshot_required"
             ? "unsynced"
             : "lag",
       delivery: replica.delivery,
@@ -348,14 +349,15 @@ function projectReplica(replica: FleetReplicaStatus): NonNullable<FleetNodeRow["
     repoId: replica.repoId,
     viewId: replica.viewId,
     centerRevision: replica.centerRevision,
-    centerEventAt: replica.centerEventAt,
+    centerSequence: replica.centerSequence,
     ackRevision: replica.ackRevision,
+    ackSequence: replica.ackSequence,
     ackedAt: replica.ackedAt,
     lagRevisions: replica.lagRevisions,
+    lagCommits: replica.lagCommits,
     lagMs: replica.lagMs,
+    connected: replica.connected,
     delivery: replica.delivery,
-    deliveryLease: replica.deliveryLease,
-    transferMetrics: replica.transferMetrics,
   };
 }
 

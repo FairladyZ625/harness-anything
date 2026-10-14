@@ -1,4 +1,4 @@
-import type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./replica-delivery-lease.ts";
+import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";
@@ -58,23 +58,21 @@ export interface FleetCenterOptions {
   ) => Promise<void>;
 }
 
+/** One replication slot as the center sees it: the node's last durable ACK against the log head. */
 export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly viewId: string;
   readonly centerRevision: number;
-  readonly centerEventAt: string | null;
-  readonly centerManifestBytes: number;
+  readonly centerSequence: number;
   readonly ackRevision: number | null;
-  readonly ackCutEventAt: string | null;
+  readonly ackSequence: number | null;
   readonly ackedAt: string | null;
   readonly lagRevisions: number;
+  readonly lagCommits: number | null;
+  /** How long the node has been behind: now minus its last ACK while lagging, 0 when current. */
   readonly lagMs: number | null;
-  readonly catchUpBytes: number;
-  readonly delivery: "current" | "delta" | "snapshot_required" | "busy" | "degraded";
-  readonly activeTransfers: number;
-  readonly deliveryLease: ReplicaDeliveryLease | null;
-  readonly transferMetrics: ReplicaTransferMetrics;
-  readonly sendWindowBytes: number;
-  readonly sendQuotaBytes: number;
+  /** The node holds the replication session for this repository right now. */
+  readonly connected: boolean;
+  readonly delivery: "current" | "delta" | "snapshot_required";
   readonly diskQuotaBytes: number | null;
 }
 

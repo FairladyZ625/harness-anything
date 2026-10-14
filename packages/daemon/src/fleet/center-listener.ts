@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { consumeKnownError, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -26,7 +26,13 @@ import {
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
-import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
+import type {
+  Delivery,
+  FleetCenterOptions,
+  FleetReplicaStatus,
+  FleetTlsCenter,
+  SessionWindow,
+} from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
 import {
@@ -170,14 +176,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return retention;
   };
   /** The center's replication head now; a commit accepted before this read is at or below it. */
-  const replicationHead = (repoId: string): number => {
+  const readReplicationHead = (repoId: string) => {
     const store = openSqliteEventStore({ databasePath: sqliteLedgerPath(repoRoot(repoId)), repoId, readOnly: true });
     try {
-      return store.replicationPosition().sequence;
+      return store.replicationPosition();
     } finally {
       store.close();
     }
   };
+  const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   const backupCache = new Map<
@@ -927,6 +934,47 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
   const sessions = new Map<string, Set<TLSSocket>>();
   const replicationOwners = new Map<string, TLSSocket>();
+  // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
+  const replicaStatus = (): FleetReplicaStatus[] => {
+    const heads = new Map<string, import("@harness-anything/kernel").ReplicationPosition | null>(),
+      head = (repoId: string) => {
+        if (!heads.has(repoId))
+          try {
+            heads.set(repoId, readReplicationHead(repoId));
+          } catch (error) {
+            consumeKnownError(error);
+            heads.set(repoId, null);
+          }
+        return heads.get(repoId)!;
+      },
+      now = Date.now();
+    return replicationSlots.list().flatMap((slot) => {
+      const center = head(slot.repoId);
+      if (center === null) return [];
+      const ack = slot.history === center.history ? slot.ack : null,
+        ackSequence = ack?.durable.sequence ?? null,
+        lagCommits = ackSequence === null ? null : Math.max(0, center.sequence - ackSequence),
+        ackedAt = ack === null ? null : slot.ackedAt;
+      return [
+        {
+          repoId: slot.repoId,
+          nodeId: slot.nodeId,
+          viewId: slot.nodeId,
+          centerRevision: center.revision,
+          centerSequence: center.sequence,
+          ackRevision: ack?.durable.revision ?? null,
+          ackSequence,
+          ackedAt,
+          lagRevisions: Math.max(0, center.revision - (ack?.durable.revision ?? 0)),
+          lagCommits,
+          lagMs: lagCommits === 0 ? 0 : ackedAt === null ? null : Math.max(0, now - Date.parse(ackedAt)),
+          connected: replicationOwners.has(`${slot.nodeId}\u0000${slot.repoId}`),
+          delivery: lagCommits === null ? "snapshot_required" : lagCommits === 0 ? "current" : "delta",
+          diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
+        },
+      ];
+    });
+  };
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(socket, { ...options, onReplicationStart }, handle, sessions, replicationOwners),
   );
@@ -974,6 +1022,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({ replicas: [] }),
+    status: () => ({ replicas: replicaStatus() }),
   };
 }

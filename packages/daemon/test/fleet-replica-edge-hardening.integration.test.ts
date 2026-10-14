@@ -18,6 +18,7 @@ import {
   type ReplicaSyncOptions,
 } from "../src/fleet/replica-sync.ts";
 import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { edgeReplicaDoctor } from "../src/edge-replica-doctor.ts";
 import { runWalReceiver } from "../src/fleet/walreceiver.ts";
 import { REPLICATION_CHUNK_BYTES, type ReplicationFrame } from "../src/fleet/protocol.ts";
 import {
@@ -368,3 +369,62 @@ test("a silent center connection is detected and the stream reconnects", { timeo
     60_000,
   );
 });
+
+test(
+  "the center reports each slot's ACK against the head and the edge doctor ages its stream",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    const center = await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+      viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one");
+    const stream = startHardeningStream(t, fixture, viewRoot);
+    await waitForState(
+      () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+      "initial convergence",
+      60_000,
+    );
+    await waitForState(
+      () => center.status().replicas.some((row) => row.nodeId === "edge-one" && row.lagCommits === 0),
+      "the slot ACK to reach the head",
+    );
+    const row = center.status().replicas.find((replica) => replica.nodeId === "edge-one")!;
+    assert.equal(row.repoId, replicationRepoId);
+    assert.equal(row.connected, true);
+    assert.equal(row.delivery, "current");
+    assert.equal(row.ackSequence, centerSequence(fixture));
+    assert.equal(row.centerSequence, centerSequence(fixture));
+    assert.equal(typeof row.ackedAt, "string");
+
+    // Edge doctor: a confirming stream is healthy; a stream silent past three keepalives is not.
+    const workspace = mkdtempSync(path.join(tmpdir(), "ha-harden-workspace-"));
+    writeFileSync(
+      path.join(workspace, "fleet-edge.json"),
+      JSON.stringify({
+        schema: "fleet-edge-config/v1",
+        repoId: replicationRepoId,
+        host: "127.0.0.1",
+        port: fixture.centerPort(),
+        caPath: "ca.pem",
+        nodeId: "edge-one",
+        credential: "secret-edge-one",
+        viewRoot,
+        quotaBytes: 64 * 1024 * 1024,
+      }),
+    );
+    const fresh = edgeReplicaDoctor(workspace, replicationRepoId);
+    assert.equal(fresh.failureCode, null, JSON.stringify(fresh));
+    assert.equal(fresh.lag, 0);
+    assert.equal(typeof fresh.lastSuccessAt, "string");
+    const silent = edgeReplicaDoctor(workspace, replicationRepoId, () => Date.now() + 10 * 60_000);
+    assert.equal(silent.failureCode, "replica_stream_silent", JSON.stringify(silent));
+    assert.equal(silent.lag, null);
+
+    await stream.stop();
+    await waitForState(
+      () => center.status().replicas.find((replica) => replica.nodeId === "edge-one")?.connected === false,
+      "the center to see the replication session end",
+    );
+  },
+);

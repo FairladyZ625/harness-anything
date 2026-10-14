@@ -88,7 +88,11 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     stream = { down: null as unknown },
     viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
   const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
-    recordReplicaHealth(viewDir, { syncFailure });
+    recordReplicaHealth(viewDir, {
+      syncFailure,
+      // Every ACK, keepalive progress included, proves the stream alive; edge doctor ages it.
+      ...(syncFailure === null ? { lastHeartbeatAt: new Date().toISOString() } : {}),
+    });
   streams.set(key, stream);
   let failures = 0,
     confirming = false,

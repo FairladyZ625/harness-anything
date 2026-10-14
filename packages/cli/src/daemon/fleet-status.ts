@@ -103,7 +103,8 @@ function renderSyncLine(node: FleetNode): string {
     return `  sync no replica row (${node.replicaNote ?? "center-replica-ledger-has-no-row-for-node"})`;
   return (
     `  sync view=${node.replica.viewId} ack=${node.replica.ackRevision ?? "never-acked"} center=${node.replica.centerRevision} lag=${node.replica.lagRevisions}rev` +
-    ` ackedAt=${node.replica.ackedAt ?? "never"} delivery=${node.replica.delivery}`
+    ` commits=${node.replica.ackSequence ?? "never-acked"}/${node.replica.centerSequence} lagCommits=${node.replica.lagCommits ?? "unknown"}` +
+    ` ackedAt=${node.replica.ackedAt ?? "never"} delivery=${node.replica.delivery} stream=${node.replica.connected ? "connected" : "disconnected"}`
   );
 }
 
