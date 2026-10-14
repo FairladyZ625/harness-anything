@@ -7,7 +7,7 @@ import {
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
-} from "../../../packages/daemon/src/fleet/edge.ts";
+} from "../../../packages/daemon/src/fleet/peer.ts";
 import { oracleO1, oracleO3, oracleO6 } from "../core/oracles.mjs";
 import { openFleetCampaignFixture } from "./fleet-fixture.mjs";
 import { completedUpload, killPausedUpload, spawnUploadProcess, waitForMarker } from "./upload-process.mjs";

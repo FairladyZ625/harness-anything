@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/edge.ts";
+import { runFleetScheduleCommandClient } from "../../../packages/daemon/src/fleet/peer.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
 

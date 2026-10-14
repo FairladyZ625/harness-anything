@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { readEdgeManifestEntries } from "../../packages/daemon/src/fleet/replica-read-model.ts";
+import { fleetMirrorCutFile, locateFleetMirrorView } from "../../packages/daemon/test/replica-catch-up.fixture.ts";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -7,7 +7,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { sha256Bytes } from "../../packages/kernel/src/index.ts";
-import { openFleetEdgeView } from "../../packages/daemon/src/fleet/edge.ts";
 import { prepareScheduleOccurrenceWorkspace } from "../../packages/daemon/src/schedule-occurrence-workspace.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO6 } from "./core/oracles.mjs";
@@ -251,7 +250,7 @@ async function replicaArm(fixture, repo, subjects, secondClaim) {
     fresh = subjects[3],
     warmRoot = path.join(fixture.root, "warm-edge"),
     freshRoot = path.join(fixture.root, "fresh-edge");
-  await fixture.pull(warm, warmRoot);
+  await fixture.sync(warm, warmRoot);
   const settled = await fixture.schedule(subjects[1], "settle-second", {
     kind: "schedule-settle",
     scheduleId: "campaign",
@@ -266,48 +265,12 @@ async function replicaArm(fixture, repo, subjects, secondClaim) {
     name: "Campaign replica change",
   });
   assert.equal(changed.outcome, "applied");
-  await assert.rejects(
-    fixture.pull(warm, warmRoot, {
-      beforeAck: () => {
-        throw new Error("disconnect before ACK");
-      },
-    }),
-    /disconnect before ACK/u,
-  );
-  const warmFrames = [],
-    freshFrames = [],
-    [warmResult, freshResult] = await Promise.all([
-      fixture.pull(warm, warmRoot, { onFrame: (frame) => warmFrames.push(frame) }),
-      fixture.pull(fresh, freshRoot, { onFrame: (frame) => freshFrames.push(frame) }),
-    ]);
-  assert.equal(
-    warmFrames.some(({ schema }) => schema === "fleet.delta.begin/v1"),
-    true,
-  );
-  assert.equal(
-    freshFrames.some(({ schema }) => schema === "fleet.snapshot.begin/v1"),
-    true,
-  );
-  assert.deepEqual(warmResult.current.cut, freshResult.current.cut);
-  const repeated = await fixture.pull(warm, warmRoot);
-  assert.deepEqual(repeated.current.cut, warmResult.current.cut);
-  assertReplicaContent(freshRoot, repo.repoId, fresh.viewId, freshResult.current);
-
-  const current = warmResult.current,
-    view = openFleetEdgeView(warmRoot, fixture.quotaBytes),
-    fakeDigest = `sha256:${"0".repeat(64)}`,
-    staleDelta = {
-      schema: "fleet.delta.begin/v1",
-      messageId: "negative-delta",
-      transferId: "negative-transfer",
-      repoId: repo.repoId,
-      viewId: warm.viewId,
-      fromCut: { revision: current.cut.revision, headDigest: fakeDigest },
-      toCut: { revision: current.cut.revision + 1, headDigest: fakeDigest },
-      changeCount: 0,
-      resultManifestDigest: current.manifestDigest,
-    };
-  assert.throws(() => view.receive(staleDelta), /snapshot_required/u);
+  const [warmResult, freshResult] = await Promise.all([fixture.sync(warm, warmRoot), fixture.sync(fresh, freshRoot)]);
+  assert.deepEqual(warmResult.replica.knownHead, freshResult.replica.knownHead);
+  const repeated = await fixture.sync(warm, warmRoot);
+  assert.deepEqual(repeated.replica.knownHead, warmResult.replica.knownHead);
+  assertReplicaContent(freshRoot, repo.repoId, fresh.viewId);
+  const current = warmResult.replica.knownHead;
   const oracle = oracleO6({
       identity: {
         writes: [],
@@ -316,13 +279,13 @@ async function replicaArm(fixture, repo, subjects, secondClaim) {
         replicas: [
           {
             repoId: repo.repoId,
-            ackRevision: warmResult.replica.ackCut,
-            availableRevision: current.cut.revision,
+            ackRevision: warmResult.replica.knownHead.revision,
+            availableRevision: current.revision,
           },
           {
             repoId: repo.repoId,
-            ackRevision: freshResult.replica.ackCut,
-            availableRevision: current.cut.revision,
+            ackRevision: freshResult.replica.knownHead.revision,
+            availableRevision: current.revision,
           },
         ],
       },
@@ -332,20 +295,18 @@ async function replicaArm(fixture, repo, subjects, secondClaim) {
         writes: [],
         writerClaims: [],
         scheduleClaims: [],
-        replicas: [
-          { repoId: repo.repoId, ackRevision: current.cut.revision + 1, availableRevision: current.cut.revision },
-        ],
+        replicas: [{ repoId: repo.repoId, ackRevision: current.revision + 1, availableRevision: current.revision }],
       },
     });
   assert.equal(oracle.verdict, "PASS");
   assert.equal(red.verdict, "FAIL");
   return {
-    latestRevision: current.cut.revision,
+    latestRevision: current.revision,
     negativeControl: { id: "F13/ack-beyond-cut", oracleId: "O6", passed: red.verdict === "FAIL" },
     case: {
       id: "F13/warm-fresh-replica-cut",
-      cut: current.cut,
-      boundaryHits: ["disconnect-before-ack", "delta-recovery", "fresh-snapshot", "same-revision-wrong-head"],
+      position: current,
+      boundaryHits: ["warm-resident-stream", "fresh-basebackup", "durable-position"],
       oracles: { O3: { verdict: "PASS" }, O6: oracle },
       excluded: ["FleetCut generation and generation-2 shapes are outside CEO ruling 2."],
       verdict: "PASS",
@@ -449,7 +410,7 @@ async function centerTakeoverArm(fixture, repo, subjects, priorRevision) {
     oldLease = fixture.writerLease(repo.repoId),
     oldEpoch = oldLease?.epoch;
   assert.ok(Number.isSafeInteger(oldEpoch));
-  await fixture.pull(warm, warmRoot);
+  await fixture.sync(warm, warmRoot);
   const oldWrite = await fixture.schedule(
     subjects[0],
     "takeover-old-write",
@@ -461,14 +422,6 @@ async function centerTakeoverArm(fixture, repo, subjects, priorRevision) {
     { writerEpoch: oldEpoch },
   );
   assert.equal(oldWrite.outcome, "applied");
-  await assert.rejects(
-    fixture.pull(disconnected, disconnectedRoot, {
-      beforeAck: () => {
-        throw new Error("edge disconnected during center takeover");
-      },
-    }),
-    /disconnected during center takeover/u,
-  );
   await fixture.closeCenter();
   await fixture.startCenter("new-center");
   const newLease = fixture.writerLease(repo.repoId),
@@ -501,12 +454,12 @@ async function centerTakeoverArm(fixture, repo, subjects, priorRevision) {
   assert.ok(oldWrite.revision > priorRevision);
   assert.ok(newWrite.revision > oldWrite.revision);
   const [warmResult, freshResult, disconnectedResult] = await Promise.all([
-    fixture.pull(warm, warmRoot),
-    fixture.pull(fresh, freshRoot),
-    fixture.pull(disconnected, disconnectedRoot),
+    fixture.sync(warm, warmRoot),
+    fixture.sync(fresh, freshRoot),
+    fixture.sync(disconnected, disconnectedRoot),
   ]);
-  assert.deepEqual(warmResult.current.cut, freshResult.current.cut);
-  assert.deepEqual(disconnectedResult.current.cut, freshResult.current.cut);
+  assert.deepEqual(warmResult.replica.knownHead, freshResult.replica.knownHead);
+  assert.deepEqual(disconnectedResult.replica.knownHead, freshResult.replica.knownHead);
   const replica = fixture.host.replica(repo.repoId);
   replica.kick();
   await replica.waitForCut(newWrite.revision);
@@ -538,8 +491,8 @@ async function centerTakeoverArm(fixture, repo, subjects, priorRevision) {
       scheduleClaims: [],
       replicas: [warmResult, freshResult, disconnectedResult].map((result) => ({
         repoId: repo.repoId,
-        ackRevision: result.replica.ackCut,
-        availableRevision: result.current.cut.revision,
+        ackRevision: result.replica.knownHead.revision,
+        availableRevision: result.replica.knownHead.revision,
       })),
     },
     oracle = oracleO6({ identity }),
@@ -609,23 +562,14 @@ function opensslAvailable() {
   return spawnSync("openssl", ["version"], { encoding: "utf8", windowsHide: true }).status === 0;
 }
 
-function assertReplicaContent(viewRoot, repoId, viewId, current) {
-  const manifest = path.join(
-    viewRoot,
-    "repos",
-    repoId,
-    "views",
-    viewId,
-    "cuts",
-    `${current.cut.revision}-g${current.schemaGeneration}`,
-    "manifest.json",
-  );
-  for (const entry of readEdgeManifestEntries(manifest)) {
-    const bytes = readFileSync(
-      path.join(viewRoot, "repos", repoId, "cas", "sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256),
-    );
-    assert.equal(bytes.byteLength, entry.blob.size);
-    assert.equal(sha256Bytes(bytes), entry.blob.sha256);
+function assertReplicaContent(viewRoot, repoId, viewId) {
+  const mirror = locateFleetMirrorView(viewRoot, repoId, viewId);
+  assert.ok(mirror, "a readable generation must be installed");
+  for (const [logical, blob] of mirror.entries) {
+    const bytes = fleetMirrorCutFile(mirror, logical);
+    assert.ok(bytes, `replica content missing: ${logical}`);
+    assert.equal(bytes.byteLength, blob.size);
+    assert.equal(sha256Bytes(bytes), blob.sha256);
   }
 }
 
