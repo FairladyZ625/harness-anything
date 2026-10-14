@@ -214,6 +214,7 @@ export async function serve(
         // authenticate verdict revive the connection afterwards.
         const helloNodeId = frame.nodeId,
           live = sessions.get(helloNodeId) ?? new Set<TLSSocket>();
+        for (const existing of live) existing.destroy();
         sessions.set(helloNodeId, live.add(socket));
         socket.once("close", () => {
           const set = sessions.get(helloNodeId);
