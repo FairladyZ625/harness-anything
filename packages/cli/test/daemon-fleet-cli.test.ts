@@ -141,6 +141,10 @@ test(
           quotaBytes,
         }),
       );
+      // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
+      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
+      realm.bind(fixture.edgeUser);
+      signInAt(fixture.edgeUser, "edge-operator");
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       assert.equal(
         run(fixture, "edge", [
@@ -182,10 +186,6 @@ test(
         "--quota-bytes",
         String(quotaBytes),
       ] as const;
-      // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
-      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
-      realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
       const edgeGitHead = readFileSync(path.join(fixture.edgeRepo, ".git", "HEAD"), "utf8");
       const observed = await spawnedRun(fixture, "edge", syncArgs),
         exposed = JSON.stringify({ argv: observed.argv, stdout: observed.stdout, stderr: observed.stderr });
@@ -403,9 +403,6 @@ test(
         ),
         false,
       );
-    } catch (error) {
-      console.error("TEMPDEBUG body error", error);
-      throw error;
     } finally {
       try {
         stop(fixture, "center");
@@ -571,16 +568,6 @@ test(
         resource: "fleet-demo",
         actions: ["repository-read"],
       });
-      let first = sync(credential);
-      for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
-        first = sync(credential);
-      assert.equal(first.status, 0, JSON.stringify(first.receipt));
-      assert.equal(first.receipt.viewId, "edge-one");
-      assert.equal(
-        readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
-        readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
-        "the first sync materializes the center ledger in the clean workspace",
-      );
       writeFileSync(
         path.join(fixture.edgeRepo, "fleet-edge.json"),
         JSON.stringify({
@@ -594,6 +581,19 @@ test(
           viewRoot: fixture.viewRoot,
           quotaBytes,
         }),
+      );
+      // The sync command observes the resident stream; attach its registered config first.
+      stop(fixture, "edge");
+      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
+      let first = sync(credential);
+      for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
+        first = sync(credential);
+      assert.equal(first.status, 0, JSON.stringify(first.receipt));
+      assert.equal(first.receipt.viewId, "edge-one");
+      assert.equal(
+        readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
+        readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
+        "the first sync materializes the center ledger in the clean workspace",
       );
       // Mirroring is reading: the one repository-read grant admits both the sync and the reads.
       // The newly authored registration config belongs to the next RepoCell attachment.
@@ -647,7 +647,7 @@ function retryReplicaPending(sync: () => Record<string, unknown>): Record<string
 // A replica document is read through the installed generation's object store; the view IS the
 // current generation, so the revision argument only names what the caller expects it to be.
 function readCutFile(viewRoot: string, revision: number, logical: string): string {
-  const view = locateFleetMirrorView(path.resolve(viewRoot, "..", "..", ".."), "fleet-demo");
+  const view = locateFleetMirrorView(path.resolve(viewRoot, "..", "..", "..", ".."), "fleet-demo");
   if (view === null) throw new Error(`no replica view under ${viewRoot}`);
   if (view.revision !== revision) throw new Error(`view at revision ${view.revision}, expected ${revision}`);
   const bytes = fleetMirrorCutFile(view, logical);
