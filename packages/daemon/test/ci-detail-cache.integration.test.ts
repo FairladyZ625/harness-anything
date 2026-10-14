@@ -71,18 +71,9 @@ async function fixture(t: import("node:test").TestContext, count: number) {
     size: archive.size,
     quotaBytes: 16 * 1024 * 1024,
   });
-  const generation = readReplicaGeneration(viewDir)!,
-    generationRoot = generation.rootDir;
+  const generation = readReplicaGeneration(viewDir)!;
   mkdirSync(path.join(viewDir, "ci-detail-cache"), { recursive: true });
-  const objects = path.join(
-    generationRoot,
-    ".harness",
-    "store",
-    "generations",
-    String(generation.metadata.ledgerGeneration),
-    "objects",
-    "sha256",
-  );
+  const objects = path.join(path.dirname(generation.ledgerPath), "objects", "sha256");
   for (let i = 0; i < count; i++) {
     const bytes = Buffer.from(JSON.stringify({ diagnostic: i })),
       digest = sha256Bytes(bytes),
