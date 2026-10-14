@@ -16,6 +16,7 @@ import { classifyTextualArtifactPath, openSqliteEventStore, isTaskEvent, sha256T
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
   "remote-edge CLI completes a baseline lifecycle with independent review and interactive consent",
@@ -98,6 +99,18 @@ test(
       t.after(() => transport.stop());
     };
     await openEdge("node-one", edgeRoot, edgeUser);
+    await catchUpReplica({
+      host: "127.0.0.1",
+      port: center.port,
+      ca: fixture.certFile,
+      servername: "localhost",
+      nodeId: "node-one",
+      credential: "machine-secret",
+      repoId,
+      viewRoot: path.join(edgeUser, "view"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+      readAccessToken: fixture.owners.readAccessToken("node-one"),
+    });
     let activeRoot = edgeRoot,
       activeUser = edgeUser;
     const invoke = async (args: string[], expectedCode = 0) => {
