@@ -16,6 +16,7 @@ import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
+import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { runFleetReplicaSync, waitForFleetReplicaSequence } from "../src/fleet/replica-sync.ts";
 import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/replica-generation.ts";
 import {
@@ -208,6 +209,14 @@ test(
       command.closed.then(() => ({ schema: "closed" })),
     ]);
     assert.equal(metadata.schema, "fleet.repo.metadata.result/v1", "the command session was never cut");
+    // A converged edge names the center's own ledger cut, so the mirrorBaseCut it sends with document
+    // changes passes the protocol shape and the center's base check.
+    if (metadata.schema !== "fleet.repo.metadata.result/v1") return;
+    const view = locateFleetMirrorView(viewRoot, replicationRepoId, "edge-one")!;
+    assert.deepEqual(
+      { revision: view.revision, headDigest: view.headDigest },
+      { revision: metadata.baseLedgerSha.revision, headDigest: metadata.baseLedgerSha.headDigest },
+    );
   },
 );
 
