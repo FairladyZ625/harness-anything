@@ -7,7 +7,6 @@ import * as tar from "tar";
 import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
-import { isBaseBackupMetadata } from "./protocol.ts";
 
 export interface ReplicaGeneration {
   readonly id: string;
@@ -35,12 +34,14 @@ function generation(root: string, id: string, metadata: BaseBackupMetadata): Rep
   };
 }
 
+// The base-backup schema marks a generation pointer; readers judge the rest of its metadata (a missing
+// reader profile is an authorization refusal, not an absent replica).
 const isGenerationPointer = (value: unknown): value is { id: string; metadata: BaseBackupMetadata } =>
   value !== null &&
   typeof value === "object" &&
   typeof (value as { id?: unknown }).id === "string" &&
   /^[A-Za-z0-9-]+$/u.test((value as { id: string }).id) &&
-  isBaseBackupMetadata((value as { metadata?: unknown }).metadata);
+  (value as { metadata?: { schema?: unknown } | null }).metadata?.schema === "fleet-basebackup/v2";
 
 /** A pointer of any other shape (the retired cut/pull replica's current.json) names no generation. */
 export function readReplicaGeneration(root: string): ReplicaGeneration | null {
