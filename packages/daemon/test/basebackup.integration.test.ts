@@ -174,7 +174,7 @@ test(
       );
       assert.match(
         plan.map((row) => row.detail).join(" "),
-        /USING INDEX event_index_task_id/u,
+        /USING (?:COVERING )?INDEX event_index_task_id/u,
         "task_id lookups ride the index instead of scanning event_index",
       );
       assert.equal(

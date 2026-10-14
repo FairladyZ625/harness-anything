@@ -210,6 +210,14 @@ async function runOneSession() {
     project: async () => {
       await opened.project();
     },
+    updatePosition: (position) => {
+      const current = readReplicaGeneration(mirrorRoot);
+      if (!current) throw new Error("replica generation is unavailable after apply");
+      writeFileSync(
+        `${mirrorRoot}/current.json`,
+        JSON.stringify({ id: current.id, metadata: { ...current.metadata, position } }),
+      );
+    },
   };
 
   const signal = new AbortController().signal;
