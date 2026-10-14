@@ -1,9 +1,9 @@
 // harness-test-tier: integration
 import { signInAt } from "./keycloak.fixtures.ts";
 // The scaffold documents `init` writes under the authored root are ledger documents: they are
-// in the document projection, so the replica cut carries them and an edge node can read every
+// in the document projection, so the replica generation carries them and an edge node can read every
 // ledger path the generated agent entry names. Driven through the real product entry points —
-// host.bootstrap for init, a live fleet TLS center, and runFleetEdgeDocSync on the edge.
+// host.bootstrap for init, a live fleet TLS center, and runFleetReplicaSync on the edge.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
@@ -17,7 +17,7 @@ import {
   locateFleetMirrorView,
   scanFleetMirrorWorktree,
 } from "../src/fleet-edge-mirror.ts";
-import { isReadModelPath } from "@harness-anything/kernel";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
@@ -146,11 +146,8 @@ async function initializedCenterWithEdge() {
     viewRoot,
     repoId,
     edgeRevision: () => locateFleetMirrorView(viewRoot, repoId)?.revision ?? null,
-    // Ledger documents the cut carries; its derived read-model entries are not documents.
-    mirroredPaths: () =>
-      [...(locateFleetMirrorView(viewRoot, repoId)?.entries.keys() ?? [])]
-        .filter((logical) => !isReadModelPath(logical))
-        .sort(),
+    // The shared projection exposes documents; replica databases are generation-local.
+    mirroredPaths: () => [...(locateFleetMirrorView(viewRoot, repoId)?.entries.keys() ?? [])].sort(),
     mirrorBytes: (logical: string): Buffer | null => {
       const view = locateFleetMirrorView(viewRoot, repoId);
       return view === null ? null : fleetMirrorCutFile(view, logical);
@@ -183,8 +180,10 @@ test("init publishes every scaffold document it writes under the authored root",
   // Whatever init committed to the ledger repository is a ledger document the replica cut carries:
   // no file is on the center's disk only.
   assert.deepEqual(fixture.mirroredPaths(), written);
-  // The cut does carry the derived read model, and it never lands in the edge workspace.
-  assert.ok([...(locateFleetMirrorView(fixture.viewRoot, fixture.repoId)?.entries.keys() ?? [])].some(isReadModelPath));
+  // The generation carries the shared projection database outside the authored workspace.
+  const generation = readReplicaGeneration(path.join(fixture.viewRoot, "repos", fixture.repoId, "views", nodeId));
+  assert.ok(generation);
+  assert.equal(existsSync(generation.projectionPath), true);
   assert.equal(existsSync(path.join(fixture.workspace, "harness", "context", "README.md")), true);
   assert.equal(existsSync(path.join(fixture.workspace, "harness", ".read-model")), false);
 });
@@ -258,7 +257,7 @@ test(
       local,
       "the mirror never overwrites a local working-copy candidate",
     );
-    const view = locateFleetMirrorView(viewRoot, repoId)!,
+    const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId)!,
       scan = scanFleetMirrorWorktree(view, fixture.workspace, [standard]);
     assert.deepEqual(
       scan.changes.map((change) => ({ path: change.path, base: change.baseBlobSha256 !== null })),
