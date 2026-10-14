@@ -232,12 +232,12 @@ export function makeRepoCellCommandRunner(
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
-        requireSquadBusinessAction(context.projection, action, binding);
-        // Ingested reads are their own accepted commands, recorded before the execution interval
-        // opens: a failed execution must never adopt one of them as its accepted outcome.
-        ingest?.(queuedDecision);
         const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
         try {
+          requireSquadBusinessAction(context.projection, action, binding);
+          // Ingested reads are their own accepted commands, recorded before the execution interval
+          // opens: a failed execution must never adopt one of them as its accepted outcome.
+          ingest?.(queuedDecision);
           if (isSquadControlCommand(action.kind)) {
             const controlled = await executeSquadControl(
               context.extracted,
@@ -280,9 +280,10 @@ export function makeRepoCellCommandRunner(
           // (one of several ingested runs, a facade's witness) was accepted as its own command.
           const code = cellErrorCode(error);
           if (
-            !(error instanceof VcsCommandError) &&
-            code !== "service_rejected" &&
-            code !== "publication_indeterminate"
+            code === "publication_indeterminate" ||
+            (code === "service_rejected" &&
+              !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")) ||
+            (code !== "service_rejected" && context.fatalCellError(error))
           )
             throw error;
           // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
@@ -296,7 +297,19 @@ export function makeRepoCellCommandRunner(
               ),
               { opId: accepted.opId, cause: error },
             );
-          throw error;
+          const rejected = failAction(error, queuedDecision);
+          if (rejected.outcome === "op_rejected") {
+            if (!context.store.appendRejection)
+              throw new Error("canonical event store cannot persist rejected commands");
+            context.store.appendRejection({
+              opId: rejected.opId,
+              intentDigest: `sha256:${sha256Text(stableStringify(action))}`,
+              summary: action.kind,
+              rejectionCode: rejected.code ?? code,
+            });
+          }
+          context.replica.kick();
+          return rejected;
         } finally {
           context.activeWriterEpochFence = null;
           context.activeWriterEpochFenceDescriptor = null;

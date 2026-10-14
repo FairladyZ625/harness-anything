@@ -184,7 +184,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       read: (after: import("@harness-anything/kernel").ReplicationPosition) => {
         const head = store.replicationPosition(),
           window = options.replicationRetentionWindowCommits;
-        if (window !== undefined) store.pruneReplicationLog(Math.max(0, head.sequence - Math.max(1, window) + 1));
+        if (window !== undefined && head.sequence - after.sequence > window) return null;
         try {
           return store.replicationCommits(after, 64);
         } catch (error) {
