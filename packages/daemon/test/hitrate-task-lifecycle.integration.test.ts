@@ -150,6 +150,7 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
     const settleRejected = (await cell.run({ kind: "task-settle", taskId }, foreign)) as Record<string, unknown>;
     assert.equal(settleRejected.outcome, "op_rejected", JSON.stringify(settleRejected));
     assert.equal(settleRejected.code, "lease_conflict");
+    assert.notEqual(settleRejected.opId, rejected.opId, "settle rejection belongs to its own command intent");
     assertForeignLeaseGuidance(settleRejected);
     assert.equal(events().length, startedEvents, "foreign settle must not append an event");
 

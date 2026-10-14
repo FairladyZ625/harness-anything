@@ -1,10 +1,9 @@
-import { untilAborted } from "./center-replica-wait.ts";
 import { once } from "node:events";
 import { randomUUID } from "node:crypto";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { type TLSSocket } from "node:tls";
-import { consumeKnownError, isContractVersionCompatible, READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
+import { consumeKnownError, isContractVersionCompatible } from "@harness-anything/kernel";
 import { writeFileDurably } from "../durable-file.ts";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
@@ -20,8 +19,13 @@ import {
   serializeFleetFrame,
   type FleetCut,
   type FleetFrameV1,
-} from "./contract.ts";
-import type { SnapshotCut } from "./replica-cut-store.ts";
+} from "./command-protocol.ts";
+import {
+  parseReplicationFrame,
+  serializeReplicationFrame,
+  type ReplicationFrame,
+  type ReplicationPeer,
+} from "./protocol.ts";
 
 export async function serve(
   socket: TLSSocket,
@@ -35,11 +39,19 @@ export async function serve(
     progress: (frame: FleetFrameV1) => Promise<void>,
   ) => Promise<Delivery>,
   sessions: Map<string, Set<TLSSocket>>,
+  replicationOwners: Map<string, TLSSocket>,
 ): Promise<void> {
   const disconnected = new AbortController();
+  // Kernel probes find a peer that vanished without a FIN (sleep, NAT reset, suspended VM).
+  socket.setKeepAlive(true, 15_000);
   socket.once("close", () => disconnected.abort());
   let nodeId: string | null = null,
+    accessToken: string | undefined,
     pumping = false;
+  let pendingReplicationStart: Extract<ReplicationFrame, { readonly type: "replica.start" }> | null = null;
+  let replicationMode = false;
+  const replicationFrames: ReplicationFrame[] = [];
+  const replicationWaiters: ((frame: ReplicationFrame) => void)[] = [];
   const reader = new FleetUtf8LineDecoder(),
     window: SessionWindow = {
       holderId: randomUUID(),
@@ -108,11 +120,88 @@ export async function serve(
         pumping = false;
       }
     };
+  const replicationPeer: ReplicationPeer = {
+    send: async (frame) => {
+      const line = serializeReplicationFrame(frame);
+      if (!socket.write(line))
+        await untilAborted(() => once(socket, "drain", { signal: disconnected.signal }), disconnected.signal);
+    },
+    receive: async (signal) => {
+      signal?.throwIfAborted();
+      if (replicationFrames.length) return replicationFrames.shift()!;
+      return await new Promise<ReplicationFrame>((resolve, reject) => {
+        const abort = () => reject(signal?.reason ?? new Error("replication aborted"));
+        signal?.addEventListener("abort", abort, { once: true });
+        replicationWaiters.push((frame) => {
+          signal?.removeEventListener("abort", abort);
+          resolve(frame);
+        });
+      });
+    },
+  };
+  // One replication owner per node and repository (the slot fence): a newer start displaces only the
+  // older replication session for that pair, never the node's command sessions.
+  const startReplication = (
+    node: string,
+    frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
+  ): void => {
+    const key = `${node}\u0000${frame.repoId}`,
+      previous = replicationOwners.get(key);
+    if (previous && previous !== socket) previous.destroy();
+    replicationOwners.set(key, socket);
+    socket.once("close", () => {
+      if (replicationOwners.get(key) === socket) replicationOwners.delete(key);
+    });
+    replicationMode = true;
+    replicationFrames.push(frame);
+    if (!options.onReplicationStart) {
+      socket.destroy(new FleetFault("replication_unavailable", "Replication is unavailable."));
+      return;
+    }
+    void options.onReplicationStart(node, accessToken, frame, replicationPeer, disconnected.signal).catch((error) => {
+      // A peer that went away aborts its stream; any other end is a center failure worth reporting.
+      if (!disconnected.signal.aborted)
+        (options.onError ?? ((entry) => console.error("[fleet-center] replication failed", entry)))({
+          nodeId: node,
+          messageId: null,
+          error,
+        });
+      socket.destroy(error instanceof Error ? error : new Error(String(error)));
+    });
+  };
   socket.on("data", (chunk) => {
     // A cut session stops processing: lines still buffered on it never reach a handler.
     if (socket.destroyed) return;
     try {
-      for (const line of reader.push(chunk)) void dispatch(line);
+      for (const line of reader.push(chunk)) {
+        let looksReplication = replicationMode;
+        if (!looksReplication) {
+          try {
+            const candidate = JSON.parse(line) as { type?: unknown; repoId?: unknown };
+            looksReplication = candidate.type === "replica.start" && typeof candidate.repoId === "string";
+          } catch (error) {
+            consumeKnownError(error);
+            looksReplication = false;
+          }
+        }
+        if (looksReplication) {
+          const frame = parseReplicationFrame(line);
+          if (frame.type === "replica.start" && !replicationMode) {
+            if (nodeId === null) {
+              // The Fleet hello and replication start may arrive in one TCP
+              // chunk. Hold the start until hello authentication completes;
+              // runWalSender consumes it from the peer queue after admission.
+              pendingReplicationStart = frame;
+              return;
+            }
+            startReplication(nodeId, frame);
+          } else if (replicationMode) {
+            const waiter = replicationWaiters.shift();
+            if (waiter) waiter(frame);
+            else replicationFrames.push(frame);
+          }
+        } else void dispatch(line);
+      }
     } catch (error) {
       consumeKnownError(error);
       socket.destroy(error instanceof Error ? error : new Error(String(error)));
@@ -152,6 +241,12 @@ export async function serve(
         )
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         nodeId = frame.nodeId;
+        accessToken = frame.accessToken;
+        if (pendingReplicationStart) {
+          const start = pendingReplicationStart;
+          pendingReplicationStart = null;
+          startReplication(nodeId, start);
+        }
         return enqueue(
           immediate({
             schema: "fleet.session.ready/v1",
@@ -241,8 +336,13 @@ export function ownedUpload(state: State, nodeId: string, uploadId: string): Upl
   return upload;
 }
 
-export function wireCut(cut: Pick<SnapshotCut, "revision" | "headDigest">): FleetCut {
-  return { revision: cut.revision, headDigest: cut.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION };
+export function wireCut(cut: { readonly revision: number; readonly headDigest: string }): FleetCut {
+  return { revision: cut.revision, headDigest: cut.headDigest, schemaGeneration: 0 };
+}
+
+async function untilAborted<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  signal.throwIfAborted();
+  return await operation();
 }
 
 export function digestId(...parts: string[]): string {

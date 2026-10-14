@@ -17,6 +17,7 @@ import { openRuntimeInstanceStore } from "../src/agent-runtime-instances.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
+import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
 import { initHarnessRepo, pullScheduleView, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
 
 const actor = withPolicyGroup(
@@ -701,6 +702,26 @@ test(
           edgeRuntimes.push(runtime);
           return { subject, runtime, workspaceRoot, viewRoot };
         });
+      // The writing edge owns a resident stream, as the daemon does. The second edge stays
+      // deliberately stale so its disabled-view claim still tests center-side fencing.
+      for (const workspace of workspaces) await pullScheduleView(workspace, center.port, certificate);
+      const writerEdge = workspaces[0]!,
+        controller = new AbortController();
+      const replication = runFleetReplicaSync({
+        readAccessToken: owners.readAccessToken(writerEdge.subject.nodeId),
+        port: center.port,
+        ca: certificate,
+        nodeId: writerEdge.subject.nodeId,
+        credential: `credential-${writerEdge.subject.nodeId}`,
+        repoId,
+        viewRoot: writerEdge.viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+        signal: controller.signal,
+      });
+      t.after(async () => {
+        controller.abort();
+        await replication;
+      });
       await t.test("edge schedule requires action kind", async () => {
         await assert.rejects(workspaces[0]!.runtime.run("repo.schedule.run", {}), {
           code: "invalid_field",
@@ -855,17 +876,19 @@ test(
           true,
         );
       });
-      await t.test("edge schedule rejects a blocked definition pull", async () => {
+      await t.test("edge schedule preserves a local definition candidate after a center write", async () => {
         const localPath = path.join(winnerEdge.workspaceRoot, "harness/schedules/e2e-probe.json");
-        writeFileSync(localPath, `${readFileSync(localPath, "utf8")}\nlocal divergence\n`);
-        await assert.rejects(
-          winnerEdge.runtime.run("repo.schedule.run", {
-            kind: "schedule-disable",
-            scheduleId,
-            idempotencyKey: "dirty-definition-disable",
-          }),
-          { code: "pull_blocked", message: /cannot materialize the canonical cut because local changes conflict/u },
-        );
+        const local = `${readFileSync(localPath, "utf8")}\nlocal divergence\n`;
+        writeFileSync(localPath, local);
+        // Three-way pull blocking retired with the cut protocol. A local candidate must survive
+        // materialization while the center still accepts the authorized schedule command.
+        const disabled = await winnerEdge.runtime.run("repo.schedule.run", {
+          kind: "schedule-disable",
+          scheduleId,
+          idempotencyKey: "dirty-definition-disable",
+        });
+        assert.equal(disabled.outcome, "applied", JSON.stringify(disabled));
+        assert.equal(readFileSync(localPath, "utf8"), local, "materialization preserves the local candidate");
       });
     } finally {
       for (const runtime of edgeRuntimes) runtime.close();

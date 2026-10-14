@@ -1007,7 +1007,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     opId: string,
     binding: RuntimeBinding,
     resultBody?: string,
-    dispatchContext?: import("./fleet/contract.ts").FleetRuntimeDispatchContext,
+    dispatchContext?: import("./fleet/command-protocol.ts").FleetRuntimeDispatchContext,
   ): Promise<{
     readonly event: RuntimeEventOf<T>;
     readonly publication?: ReturnType<CanonicalEventStore["append"]>;

@@ -1,4 +1,3 @@
-import type { ReplicaSequenceRead, ReplicaRevision } from "./replica-sequence.ts";
 import type { ArtifactEntityState } from "../domain/artifact-entity-state.ts";
 import type { EventListQuery, EventListPage } from "../domain/event-list.ts";
 import type { SettingsEventV1 } from "../domain/settings-event.ts";
@@ -112,14 +111,6 @@ export interface TaskProjection {
     query?: TaskProjectionListQuery,
   ) => import("./projection-reads.ts").TaskIndexProjectionRead & { readonly page: ProjectionPage | null };
   readonly readTaskChildCounts: (parentTaskIds: readonly string[]) => Readonly<Record<string, number>>;
-  /** The raw rows an edge read model replicates, with the projection revision they describe. */
-  readonly readEdgeReadModel: <T>(
-    read: (model: {
-      readonly status: "ready" | "pending";
-      readonly sourceRevision: number;
-      readonly rows: import("./read-model.ts").EdgeReadModelRows;
-    }) => T,
-  ) => T;
   readonly readWorkspaceSummary: () => WorkspaceSummaryProjectionRead;
   readonly readTaskRelations: () => TaskRelationProjectionRead;
   readonly readTaskRelationNeighborhood: (
@@ -154,8 +145,6 @@ export interface TaskProjection {
   readonly readDecisionDocumentState?: (decisionId: string) => DecisionDocumentState | null;
   readonly readTaskOperation: (opId: string) => { readonly event: TaskEventV1; readonly watermark: number } | null;
   readonly readDocument: (path: string) => DocumentProjectionRead;
-  readonly readReplicaRevision: (revision?: number) => ReplicaRevision | null;
-  readonly readReplicaSequence: <A>(from: number | null, read: (sequence: ReplicaSequenceRead | null) => A) => A;
   readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
   readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskSubmissionOperation: (taskId: string, executionId: string) => string | null;

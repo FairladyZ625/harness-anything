@@ -111,6 +111,8 @@ test(
         reason: "Review this iteration.",
       });
       assert.equal(forward.outcome, "applied", JSON.stringify(forward));
+      // The edge runtime answers from the resident replica after the center-side forward lands.
+      assert.equal((await fixture.edgeDocSync("node-one")).ok, true);
       const reviewers: string[] = [];
       for (const explicit of [false, true]) {
         const result = await spawn(`review-${iteration}-${explicit}`, explicit ? executionId : undefined);

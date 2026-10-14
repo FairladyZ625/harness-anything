@@ -1,4 +1,3 @@
-import { readReplicaSequence, readReplicaRevision } from "./replica-sequence.ts";
 import { readTaskDocumentOwner } from "./task-document-owner-query.ts";
 import { listPinnedEntityRows } from "./rebuildable-task-projection-entities.ts";
 // @write-boundary-exemption rebuildable-projection
@@ -25,7 +24,6 @@ import {
 import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
-import { readEdgeReadModelRows } from "./read-model.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
 import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
 import {
@@ -80,7 +78,6 @@ export function taskQueryApi(
   | "readTaskRelationNeighborhood"
   | "readTaskIndex"
   | "readTaskChildCounts"
-  | "readEdgeReadModel"
   | "readWorkspaceSummary"
   | "readTaskDependencyClosure"
   | "readTaskRelationsByTargets"
@@ -120,8 +117,6 @@ export function taskQueryApi(
   | "readDocuments"
   | "readDocument"
   | "readReplicaBasis"
-  | "readReplicaSequence"
-  | "readReplicaRevision"
   | "taskIdForDocumentPath"
   | "readPresetSnapshot"
   | "readProgress"
@@ -145,11 +140,6 @@ export function taskQueryApi(
         };
       });
     },
-    readEdgeReadModel: (read) =>
-      withDatabase(projectionPath, readHead, (db) => {
-        const cut = readProjectionCut(db, readHead);
-        return read({ status: cut.status, sourceRevision: cut.sourceRevision, rows: readEdgeReadModelRows(db) });
-      }),
     readTaskChildCounts: (parentTaskIds) =>
       withDatabase(projectionPath, readHead, (db) => readTaskChildCounts(db, parentTaskIds)),
     readWorkspaceSummary: () =>
@@ -310,10 +300,6 @@ export function taskQueryApi(
         };
       }),
     readDocument: (documentPath) => readDocument(projectionPath, readHead, eventStore, documentPath, limit),
-    readReplicaRevision: (revision) =>
-      withDatabase(projectionPath, readHead, (db) => readReplicaRevision(db, revision)),
-    readReplicaSequence: (from, read) =>
-      withDatabase(projectionPath, readHead, (db) => queryTransaction(db, () => read(readReplicaSequence(db, from)))),
     readReplicaBasis: (afterRevision) => {
       if (afterRevision !== null && (!Number.isSafeInteger(afterRevision) || afterRevision < 0))
         throw new Error("replica basis revision must be a non-negative integer or null");

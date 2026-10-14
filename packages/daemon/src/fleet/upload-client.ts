@@ -1,6 +1,6 @@
 import { sha256Bytes } from "@harness-anything/kernel";
-import { FLEET_CHUNK_BYTES, type FleetFrameV1, type FleetDescriptor } from "./contract.ts";
-import type { FleetEdgeChange } from "./edge.ts";
+import { FLEET_CHUNK_BYTES, type FleetFrameV1, type FleetDescriptor } from "./command-protocol.ts";
+import type { FleetEdgeChange } from "./peer.ts";
 
 type FleetUploadSession = {
   readonly messageId: () => string;

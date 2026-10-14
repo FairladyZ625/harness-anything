@@ -63,13 +63,13 @@ test("a write path that reaches a repository worktree mounts no pid-liveness rec
   assert.equal(durableWrite.includes("processMayBeAlive"), false);
   const durableFile = readFileSync(path.join(packagesRoot, "daemon/src/durable-file.ts"), "utf8");
   assert.equal(durableFile.includes("process.kill"), false);
-  // The mirror does probe a pid, for the .mirror-round.lock it holds under the replica view
-  // store, which never leaves this machine. That probe must stay in the lock and out of the
-  // write path, which now reaches harness/ through writeFileDurably.
+  // The mirror's cross-process lock (and its pid probe) retired with the old pull machinery
+  // (dec_9284BD61): the replica generation is installed atomically and needs no stale-round
+  // reclaim, so nothing in the mirror may probe a pid at all.
   const mirror = readFileSync(path.join(packagesRoot, "daemon/src/fleet-edge-mirror.ts"), "utf8");
   const probing = mirror
     .split(/\nfunction |\nasync function /u)
     .filter((body) => body.includes("process.kill("))
     .map((body) => body.slice(0, body.indexOf("(")));
-  assert.deepEqual(probing, ["fleetMirrorLockIsStale"]);
+  assert.deepEqual(probing, []);
 });

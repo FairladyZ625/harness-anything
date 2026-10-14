@@ -4,7 +4,7 @@ import test from "node:test";
 import { connect, type TLSSocket } from "node:tls";
 import { sha256Bytes } from "@harness-anything/kernel";
 import type { FleetTlsCenter } from "../src/fleet/center.ts";
-import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/contract.ts";
+import { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "../src/fleet/command-protocol.ts";
 import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
@@ -87,24 +87,9 @@ test(
       uploadId: ready.uploadId,
     });
     assert.equal(staged.schema, "fleet.upload.result/v1");
-    const preparing = await peer.request({ schema: "fleet.replica.pull/v1", messageId: "pull", repoId });
-    assert.equal(preparing.schema, "fleet.replica.preparing/v1");
-    const pulled = await peer.receive();
-    assert.equal(pulled.schema, "fleet.snapshot.begin/v1");
-    if (pulled.schema !== "fleet.snapshot.begin/v1") return;
-    let frame = await peer.receive();
-    while (frame.schema !== "fleet.snapshot.finish/v1") {
-      assert.notEqual(frame.schema, "fleet.error/v1");
-      frame = await peer.receive();
-    }
-    const acked = await peer.request({
-      schema: "fleet.ack/v1",
-      messageId: "ack",
-      transferId: pulled.transferId,
-      cut: pulled.cut,
-      manifestDigest: frame.manifestDigest,
-    });
-    assert.equal(answer(acked), "applied");
+    // A live replication transfer is cut by the same removal; that conversation is covered by
+    // fleet-replication.integration's revocation case. Here the staged upload proves the session
+    // is active and answered before the cut.
     const before = fixture.eventCount();
 
     signInAt(fixture.userRoot, "person-admin");

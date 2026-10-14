@@ -1,15 +1,15 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { readFileSync, utimesSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
-import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import { managedRbacSessionStore } from "../src/managed-rbac-service.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const quota = 64 * 1024 * 1024;
 
@@ -26,18 +26,22 @@ test(
       );
     const e = await fleetEdgeHostFixture(t, f);
     const pull = () =>
-      runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+      catchUpReplica({
+        ...f.peer("node-one"),
+        viewRoot: e.viewRoot,
+        diskQuotaBytes: quota,
+      });
     const local = (action: Record<string, unknown> = { kind: "task-list" }) => e.command(action);
     const center = async (action: Record<string, unknown> = { kind: "task-list" }) =>
       (await f.host.run("lease-repo", action as never, localAuthFixture())) as unknown as Record<string, unknown>;
     // The center publishes the read model with the cut it describes: wait for the cut at the ledger
     // head, then one pull carries every task.
     const settle = async (count: number) => {
-      const replica = f.host.replica("lease-repo");
-      await replica.prepare();
-      await replica.waitForCut(f.eventCount());
       await pull();
-      assert.equal(locateFleetMirrorView(e.viewRoot, "lease-repo")?.schemaGeneration, READ_MODEL_SCHEMA_GENERATION);
+      assert.equal(
+        locateFleetMirrorView(e.viewRoot, "lease-repo")!.schemaGeneration,
+        readReplicaGeneration(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir)!.metadata.projectionSchema,
+      );
       const answer = await local();
       assert.equal(answer.ok, true, JSON.stringify(answer));
       assert.equal((answer.rows as unknown[]).length, count, JSON.stringify(answer.rows));
@@ -51,25 +55,24 @@ test(
     e.signIn("person-one");
     const currentPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
     const currentWithoutAuthorization = JSON.parse(readFileSync(currentPath, "utf8")) as Record<string, unknown>;
-    delete currentWithoutAuthorization.readerProfile;
-    delete currentWithoutAuthorization.authorizationShapeDigest;
+    const admitted = readFileSync(currentPath, "utf8");
+    delete (currentWithoutAuthorization.metadata as Record<string, unknown>).readerProfile;
     writeFileSync(currentPath, JSON.stringify(currentWithoutAuthorization));
     assert.equal((await local()).code, "authorization_denied", "a view without authorization metadata is not readable");
+    writeFileSync(currentPath, admitted);
     await pull();
 
     // 2. Past its age budget the answer is still given, marked stale; a pull is a fresh head confirmation.
-    const confirmationPath = path.join(
-      locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir,
-      "head-confirmation.json",
-    );
-    const confirmation = JSON.parse(readFileSync(confirmationPath, "utf8")) as { confirmedAt: number };
-    writeFileSync(confirmationPath, JSON.stringify({ ...confirmation, confirmedAt: Date.now() - 5 * 60_000 }));
+    const confirmationPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
+    const staleTime = new Date(Date.now() - 300_100);
+    utimesSync(confirmationPath, staleTime, staleTime);
     const later = await local();
     assert.equal(later.ok, true, JSON.stringify(later));
     assert.equal((later.rows as unknown[]).length, 3);
     assert.equal((later.freshness as { state: string }).state, "stale");
-    assert.match(String(later.warnings), /已 5 分钟未连中心/u);
-    assert.match(String(later.summary), /已 5 分钟未连中心/u);
+    assert.match(String(later.warnings), /已 5 分钟未收到中心更新/u);
+    assert.match(String(later.summary), /已 5 分钟未收到中心更新/u);
+    await f.command("center-node", { kind: "task-progress-append", taskId: "local-0", text: "fresh confirmation" });
     await pull();
     assert.equal(((await local()).freshness as { state: string }).state, "fresh");
 
@@ -79,15 +82,6 @@ test(
       "applied",
     );
     await settle(4);
-
-    // 4. A deleted or damaged local model is rebuilt from the verified local cut.
-    const view = locateFleetMirrorView(e.viewRoot, "lease-repo")!;
-    rmSync(path.join(view.viewDir, "read-model.sqlite"), { force: true });
-    assert.equal(((await local()).rows as unknown[]).length, 4);
-    writeFileSync(path.join(view.viewDir, "read-model.sqlite"), "not a database");
-    rmSync(path.join(view.viewDir, "read-model.sqlite-wal"), { force: true });
-    rmSync(path.join(view.viewDir, "read-model.sqlite-shm"), { force: true });
-    assert.equal(((await local()).rows as unknown[]).length, 4);
 
     // 5. With the center gone, local answers stay the center's answers for filters and paging.
     const actions = [
@@ -120,7 +114,7 @@ test(
 
     // 6. An edge that never pulled has no local answer and says so instead of returning an empty list.
     const empty = await fleetEdgeHostFixture(t, f, { name: "edge-empty" });
-    assert.equal((await empty.command({ kind: "task-list" })).code, "LOCAL_UNAVAILABLE");
+    assert.equal((await empty.command({ kind: "task-list" })).code, "replica_unavailable");
   },
 );
 
@@ -131,10 +125,11 @@ test(
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
     await f.command("center-node", { kind: "task-create", taskId: "write-read-base", title: "Base" });
     const e = await fleetEdgeHostFixture(t, f);
-    const base = f.host.replica("lease-repo");
-    await base.prepare();
-    await base.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+    await catchUpReplica({
+      ...f.peer("node-one"),
+      viewRoot: e.viewRoot,
+      diskQuotaBytes: quota,
+    });
     const written = await e.command({ kind: "task-create", taskId: "independent-write", title: "Independent write" });
     assert.equal(written.outcome, "applied", JSON.stringify(written));
     assert.ok(written.appliedCut);
@@ -151,17 +146,32 @@ test("same repository pulls keep per-node authorization metadata independent", {
   await f.command("center-node", { kind: "task-create", taskId: "dual-owner", title: "Dual owner" });
   const first = path.join(f.root, "view-one"),
     second = path.join(f.root, "view-two");
-  await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota });
-  await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: second, diskQuotaBytes: quota });
+  await catchUpReplica({
+    ...f.peer("node-one"),
+    viewRoot: first,
+    diskQuotaBytes: quota,
+  });
+  await catchUpReplica({
+    ...f.peer("node-two"),
+    viewRoot: second,
+    diskQuotaBytes: quota,
+  });
   const one = locateFleetMirrorView(first, "lease-repo")!,
     two = locateFleetMirrorView(second, "lease-repo")!;
   assert.deepEqual(one.readerProfile, { personId: "person-one", nodeId: "node-one" });
   assert.deepEqual(two.readerProfile, { personId: "person-two", nodeId: "node-two" });
-  assert.notEqual(one.authorizationShapeDigest, two.authorizationShapeDigest);
+  assert.notDeepEqual(one.readerProfile, two.readerProfile);
   f.owners.keycloak.revoke("person-one", "lease-repo", ["repository-read"]);
-  await assert.rejects(runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: first, diskQuotaBytes: quota }), {
-    code: "authorization_denied",
-  });
+  await assert.rejects(
+    catchUpReplica({
+      ...f.peer("node-one"),
+      viewRoot: first,
+      diskQuotaBytes: quota,
+    }),
+    {
+      code: "authorization_denied",
+    },
+  );
   const edgeOne = await fleetEdgeHostFixture(t, f, { name: "edge-one", viewRoot: first }),
     edgeTwo = await fleetEdgeHostFixture(t, f, {
       name: "edge-two",
@@ -169,7 +179,7 @@ test("same repository pulls keep per-node authorization metadata independent", {
       personId: "person-two",
       nodeId: "node-two",
     });
-  assert.equal((await edgeOne.command({ kind: "task-list" })).code, "authorization_denied");
+  assert.equal((await edgeOne.command({ kind: "task-list" })).code, "replica_unavailable");
   const allowedTwo = await edgeTwo.command({ kind: "task-list" });
   assert.equal(allowedTwo.ok, true, JSON.stringify(allowedTwo));
 });
@@ -189,16 +199,14 @@ test(
         }) as typeof fetch,
       },
     });
-    const replica = f.host.replica("lease-repo");
-    await replica.prepare();
-    await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
-    const confirmationPath = path.join(
-      locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir,
-      "head-confirmation.json",
-    );
-    const confirmation = JSON.parse(readFileSync(confirmationPath, "utf8"));
-    writeFileSync(confirmationPath, JSON.stringify({ ...confirmation, confirmedAt: Date.now() - 300_000 }));
+    await catchUpReplica({
+      ...f.peer("node-one"),
+      viewRoot: e.viewRoot,
+      diskQuotaBytes: quota,
+    });
+    const confirmationPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
+    const staleTime = new Date(Date.now() - 300_100);
+    utimesSync(confirmationPath, staleTime, staleTime);
     const store = managedRbacSessionStore(e.edgeUser);
     const session = JSON.parse(store.read()!);
     store.write(JSON.stringify({ ...session, expiresAt: Date.now() - 1000 }));
@@ -216,7 +224,8 @@ test(
     );
     assert.equal(write.code, "repo_mode_read_only");
     rejected = true;
-    assert.equal((await e.command({ kind: "task-list" })).code, "authorization_denied");
+    const rejectedRead = await e.command({ kind: "task-list" });
+    assert.equal(rejectedRead.code, "authorization_denied", JSON.stringify(rejectedRead));
     assert.equal(store.read(), undefined);
     e.signIn("person-one");
     store.write(

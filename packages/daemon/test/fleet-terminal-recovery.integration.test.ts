@@ -7,9 +7,9 @@ import test from "node:test";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { fleetFixture, localAuthFixture, rawPeer } from "./fleet-runtime-recovery.fixtures.ts";
 import { eventually, scheduleRuntimePorts, definition as settlementDefinition } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 test("edge terminal task settlement rejects a changed node owner", { timeout: 60_000 }, async (t) => {
   const fixture = await fleetFixture(t, ["tasks/task-fleet-fleet"]);
@@ -22,16 +22,30 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     path.join(workspaceRoot, "harness/harness.yaml"),
     "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
   );
-  await runFleetReplicaPullClient({
-    readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+  const syncReplica = () =>
+    catchUpReplica({
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot,
+      diskQuotaBytes: replicaQuota,
+    });
+  await syncReplica();
+  const resident = startResidentReplicaSync({
+    hostname: "127.0.0.1",
     port: center.port,
     ca: fixture.cert,
     nodeId: fixture.subject.nodeId,
     credential: "machine-secret",
+    readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
     repoId: fixture.subject.repoId,
     viewRoot,
     diskQuotaBytes: replicaQuota,
   });
+  fixture.track(resident.close);
   applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
   let terminal: (() => void) | undefined;
   const runtime = openFleetEdgeRuntime({
@@ -152,12 +166,14 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
   assert.equal(snapshot.lease.actor.principal.personId, "person-owner");
   assert.deepEqual(snapshot.lease.source, { kind: "node", nodeId: fixture.subject.nodeId });
   fixture.setOwner("person-owner");
+  await syncReplica();
   await runtime.reconcile();
   assert.equal(await eventually(async () => outcomes().length > 0), true);
   // dec_614F7BBB18C8687E7EFC72173D: no recorded process means no exit evidence, so outcome stays unknown.
   assert.equal(outcomes()[0]?.outcome, "unknown", JSON.stringify(outcomes()));
   // Ownership is rejected before archive publication. This injected process has no
   // worker-host record, so restored ownership recovers an explicit lost-session result.
+  await syncReplica();
   const recovered = await runtime.run("repo.agentRuntime.sessions.read", {
     runtimeSessionId: launched.runtimeSessionId,
   });
@@ -181,16 +197,30 @@ for (const restart of [false, true])
         path.join(workspaceRoot, "harness/harness.yaml"),
         "schema: harness-anything/v1\nname: settlement-edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n",
       );
-      await runFleetReplicaPullClient({
-        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+      const syncReplica = () =>
+        catchUpReplica({
+          readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+          port: center.port,
+          ca: fixture.cert,
+          nodeId: fixture.subject.nodeId,
+          credential: "machine-secret",
+          repoId: fixture.subject.repoId,
+          viewRoot,
+          diskQuotaBytes: replicaQuota,
+        });
+      await syncReplica();
+      const resident = startResidentReplicaSync({
+        hostname: "127.0.0.1",
         port: center.port,
         ca: fixture.cert,
         nodeId: fixture.subject.nodeId,
         credential: "machine-secret",
+        readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
         repoId: fixture.subject.repoId,
         viewRoot,
         diskQuotaBytes: replicaQuota,
       });
+      fixture.track(resident.close);
       applyFleetMirrorCut(viewRoot, fixture.subject.repoId, workspaceRoot, "pull");
       let terminal: (() => void) | undefined;
       const createRuntime = () =>
@@ -261,6 +291,7 @@ for (const restart of [false, true])
         runtime = createRuntime();
       }
       await fixture.center(center.port);
+      await syncReplica();
       await runtime.reconcile();
       const outcomes = () =>
         makeTaskEventReader({ repoId: fixture.subject.repoId, rootDir: fixture.repo })
@@ -273,6 +304,7 @@ for (const restart of [false, true])
           .map((event) => event.payload);
       assert.equal(await eventually(async () => outcomes().length > 0), true);
       assert.equal(outcomes().length, 1, "recovery publishes one canonical terminal outcome");
+      await syncReplica();
       await runtime.reconcile();
       runtime.close();
       runtime = createRuntime();

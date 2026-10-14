@@ -1,4 +1,3 @@
-import { headAfterOrProgress, untilAborted } from "./center-replica-wait.ts";
 import { createFleetDeliveryDrain } from "./center-delivery-drain.ts";
 import { fetchWorkerDelivery, workerGitIdentityForPerson } from "../runtime-worker-push.ts";
 import { assertFleetDeliveryHolder, type FleetDeliveryTask } from "../fleet-task-delivery.ts";
@@ -11,19 +10,15 @@ import {
   mkdirSync,
   readFileSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import type { SnapshotCut } from "./replica-cut-store.ts";
+import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import {
-  edgeReadAuthorizationShapeDigest,
-  READ_MODEL_SCHEMA_GENERATION,
-  resolveHarnessLayout,
-  sha256Bytes,
-} from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -32,22 +27,41 @@ import {
   findOwnedClaim as findOwnedClaimImpl,
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
-import { deliverReplicaOffer } from "./center-replica-offer.ts";
-import { deriveReplicaReceipt, replicaDeliveryFenced as fenced, replicaStatus } from "./center-replica-receipt.ts";
-import {
-  digestId,
-  immediate,
-  loadState,
-  mid,
-  ownedUpload,
-  serve,
-  wireCut,
-  writeCenterDurableJson,
-} from "./center-transport.ts";
-import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
+import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
+import type {
+  Delivery,
+  FleetCenterOptions,
+  FleetReplicaStatus,
+  FleetTlsCenter,
+  SessionWindow,
+} from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
-import { FLEET_CHUNK_BYTES, FLEET_SESSION_SEND_WINDOW_BYTES, type FleetFrameV1 } from "./contract.ts";
-import { openReplicaAckStore, type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
+import {
+  makeTaskEventReader,
+  makeTaskProjection,
+  openSqliteEventStore,
+  sqliteLedgerPath,
+} from "@harness-anything/kernel";
+import { runWalSender } from "./walsender.ts";
+import { createReplicationRetention, openReplicationSlots } from "./replication-slot.ts";
+import { startBaseBackup } from "./basebackup.ts";
+
+/** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
+const REPLICATION_HEAD_POLL_MS = 50;
+/** Edges treat three missed keepalives as a dead connection (peer.ts). */
+export const REPLICATION_KEEPALIVE_MS = 15_000;
+function delay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
 
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
@@ -55,9 +69,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const deliveries = createFleetDeliveryDrain(options.onDeliverySettled);
   const stateFile = path.join(options.stateRoot, "state.json"),
     state = loadState(stateFile),
-    ackStore = openReplicaAckStore(options.stateRoot),
     now = options.now ?? (() => new Date().toISOString()),
-    knownKeys = new Map<string, ReplicaDeliveryKey>(),
     writerEpoch = openPersistentWriterEpoch({
       stateRoot: options.writerEpochStateRoot ?? options.stateRoot,
       holderId: options.writerId,
@@ -147,6 +159,191 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       return uploadPath;
     },
   };
+  const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
+  // The cap only bounds a slot that never returns: log rows are a few columns, while a slot past the cap
+  // costs a full base backup. A busy center writes thousands of commits a day; keep months of them.
+  const retentionWindowCommits = options.replicationRetentionWindowCommits ?? 1_000_000;
+  const retentions = new Map<string, ReturnType<typeof createReplicationRetention>>();
+  // Slots hold the log back to their slowest ACK, capped by the window; pruning is a write, so it
+  // runs on the repository's single writer, never on a replication reader's read-only connection.
+  const retentionFor = (repoId: string) => {
+    let retention = retentions.get(repoId);
+    if (!retention)
+      retentions.set(
+        repoId,
+        (retention = createReplicationRetention({
+          windowCommits: retentionWindowCommits,
+          slotFloor: (head) => replicationSlots.minimumAck(repoId, head.history),
+          prune: (beforeSequence) => options.host.pruneReplicationLog(repoId, beforeSequence),
+        })),
+      );
+    return retention;
+  };
+  /** The center's replication head now; a commit accepted before this read is at or below it. */
+  const readReplicationHead = (repoId: string) => {
+    const store = openSqliteEventStore({ databasePath: sqliteLedgerPath(repoRoot(repoId)), repoId, readOnly: true });
+    try {
+      return store.replicationPosition();
+    } finally {
+      store.close();
+    }
+  };
+  const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
+  const projectionReady = new Map<string, Promise<void>>();
+  const backupQueues = new Map<string, Promise<void>>();
+  type CachedBackup = {
+    readonly archive: Promise<import("./basebackup.ts").BaseBackupArchive>;
+    readonly directory: string;
+    users: number;
+    readonly releaseQueue: () => void;
+  };
+  const backupCache = new Map<string, CachedBackup>();
+  // Each backup owns a directory under replication-backups; none outlives the process that built it.
+  const backupsRoot = path.join(options.stateRoot, "replication-backups");
+  rmSync(backupsRoot, { recursive: true, force: true });
+  const retireBackup = (repoId: string, cached: CachedBackup): void => {
+    if (backupCache.get(repoId) === cached) backupCache.delete(repoId);
+    cached.releaseQueue();
+    rmSync(cached.directory, { recursive: true, force: true });
+  };
+  // Concurrent edges share one archive. It is deleted with its last user: kept longer, its retention pin
+  // would hold the log back and a later edge could get a start already past the retention window.
+  const releaseBackupUser = (repoId: string, cached: CachedBackup): void => {
+    cached.users -= 1;
+    if (cached.users === 0) retireBackup(repoId, cached);
+  };
+  const onReplicationStart = async (
+    nodeId: string,
+    accessToken: string | undefined,
+    frame: import("./protocol.ts").ReplicationFrame & { readonly type: "replica.start" },
+    peer: import("./protocol.ts").ReplicationPeer,
+    signal: AbortSignal,
+  ) => {
+    let readerProfile: { personId: string; nodeId: string };
+    try {
+      ({ readerProfile } = await admitReplica(nodeId, frame.repoId, accessToken));
+    } catch (error) {
+      if (error instanceof FleetFault && error.code === "authorization_denied") {
+        await peer.send({ type: "replica.resync", reason: "authorization_denied" });
+        throw error;
+      }
+      throw error;
+    }
+    const rootDir = repoRoot(frame.repoId),
+      layout = resolveHarnessLayout(rootDir);
+    const store = openSqliteEventStore({
+      databasePath: sqliteLedgerPath(rootDir),
+      repoId: frame.repoId,
+      readOnly: true,
+    });
+    let ready = projectionReady.get(frame.repoId);
+    if (!ready) {
+      ready = (async () => {
+        const events = makeTaskEventReader({ rootDir, repoId: frame.repoId });
+        const projection = makeTaskProjection({
+          rootDir,
+          projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
+          eventStore: events,
+        });
+        projection.catchUp?.();
+        projection.close();
+        await events.drain();
+      })();
+      projectionReady.set(frame.repoId, ready);
+    }
+    try {
+      await ready;
+    } catch (error) {
+      // A failed catch-up fails this session; the next one tries again instead of reusing the rejection.
+      if (projectionReady.get(frame.repoId) === ready) projectionReady.delete(frame.repoId);
+      throw error;
+    }
+    const slots = replicationSlots;
+    const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
+    const retention = retentionFor(frame.repoId);
+    const source = {
+      read: (after: import("@harness-anything/kernel").ReplicationPosition) => {
+        const head = store.replicationPosition();
+        // A slot beyond the retention cap has lost its suffix (max_slot_wal_keep_size): resync.
+        if (head.sequence - after.sequence > retentionWindowCommits) return null;
+        return store.replicationCommits(after, 64);
+      },
+      acknowledged: () => retention.advance(store.replicationPosition()),
+      // Commits land in the repo writer process, so this process polls the head on a short timer; an
+      // idle stream costs one indexed read per interval, never a spinning event loop.
+      // Returning without a new commit makes the sender emit `replica.progress`: the idle keepalive.
+      wait: async (after: import("@harness-anything/kernel").ReplicationPosition, waitSignal: AbortSignal) => {
+        const until = AbortSignal.any([
+          waitSignal,
+          AbortSignal.timeout(options.replicationKeepaliveMs ?? REPLICATION_KEEPALIVE_MS),
+        ]);
+        while (!until.aborted && store.replicationPosition().sequence <= after.sequence)
+          await delay(REPLICATION_HEAD_POLL_MS, until);
+      },
+      backup: async (backupSignal: AbortSignal) => {
+        const cached = backupCache.get(frame.repoId);
+        if (cached) {
+          cached.users += 1;
+          return {
+            ...(await cached.archive),
+            metadata: { ...(await cached.archive).metadata, readerProfile },
+            release: async () => releaseBackupUser(frame.repoId, cached),
+          };
+        }
+        const previous = backupQueues.get(frame.repoId) ?? Promise.resolve();
+        let release!: () => void;
+        const turn = new Promise<void>((resolve) => (release = resolve));
+        backupQueues.set(
+          frame.repoId,
+          previous.then(() => turn),
+        );
+        await previous;
+        // Pin a start no later than the snapshot, so the log keeps the suffix this backup resumes from.
+        const unpin = retention.pin(store.replicationPosition());
+        const directory = path.join(backupsRoot, randomUUID());
+        const started = startBaseBackup(
+          {
+            ledgerPath: store.databasePath,
+            projectionPath: path.join(layout.localRoot, "cache", "task.sqlite"),
+            directory,
+          },
+          backupSignal,
+        );
+        const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
+        const cachedArchive: CachedBackup = {
+          archive: archivePromise,
+          directory,
+          users: 1,
+          releaseQueue: () => {
+            unpin();
+            release();
+          },
+        };
+        backupCache.set(frame.repoId, cachedArchive);
+        try {
+          const archive = await archivePromise;
+          return {
+            ...archive,
+            metadata: { ...archive.metadata, readerProfile },
+            release: async () => releaseBackupUser(frame.repoId, cachedArchive),
+          };
+        } catch (error) {
+          retireBackup(frame.repoId, cachedArchive);
+          throw error;
+        }
+      },
+      object: async function* (sha256: string) {
+        const bytes = store.readContentObject(sha256);
+        if (bytes === null) throw new Error(`replication content object missing: ${sha256}`);
+        yield bytes;
+      },
+    };
+    try {
+      await runWalSender({ peer, source, slots, lease, signal });
+    } finally {
+      store.close();
+    }
+  };
 
   function verifyOwnedClaims(
     nodeId: string,
@@ -166,7 +363,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     return discardOwnedClaimsImpl(extracted, nodeId, repoId, changes);
   }
   const persist = () => writeCenterDurableJson(stateFile, state),
-    keyId = (key: ReplicaDeliveryKey) => `${key.nodeId}\0${key.viewId}\0${key.repoId}`,
     auth = writerAuth;
   const nodeContext = async (nodeId: string, repoId: string, accessToken?: string) => {
     const node = { nodeId, repoId, accessToken };
@@ -229,7 +425,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     window: SessionWindow,
     _clientGone: () => boolean = () => false,
     connectionSignal: AbortSignal,
-    progress: (frame: FleetFrameV1) => Promise<void>,
+    _progress: (frame: FleetFrameV1) => Promise<void>,
   ): Promise<Delivery> => {
     if (frame.schema === "fleet.device.sessions.revoke/v1") {
       if (!(await options.nodeOwner(nodeId)))
@@ -283,6 +479,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         repoId: a.repoId,
         baseLedgerSha,
         writerEpoch: ownedEpochFor(a.repoId).epoch,
+        replicationSequence: replicationHead(a.repoId),
       });
     }
     if (frame.schema === "fleet.receipt.get/v1") {
@@ -466,184 +663,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         outcome: receipt.outcome,
         opId: receipt.opId,
         revision: receipt.revision ?? null,
+        replicationSequence: replicationHead(a.repoId),
         code: receipt.code ?? null,
       });
     }
-    if (
-      (frame.schema === "fleet.replica.watch/v1" || frame.schema === "fleet.replica.pull/v1") &&
-      options.buildDraining?.()
-    )
-      throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-    if (frame.schema === "fleet.replica.watch/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
-      if (!replica.latest()) throw new FleetFault("replica_pending", "No center cut is ready.", true);
-      const signal = AbortSignal.any([connectionSignal, closing.signal]);
-      const latest = replica.latest(),
-        // Wait for the next published checkpoint; its revision may skip ledger integers.
-        next =
-          latest && latest.revision > frame.afterRevision
-            ? latest
-            : await untilAborted(
-                () =>
-                  headAfterOrProgress(replica, frame.afterRevision, options.replicaWatchProgressMs ?? 20_000, signal),
-                signal,
-              );
-      return immediate({
-        schema: "fleet.replica.head-hint/v1",
-        messageId: mid(frame.messageId, "head-hint"),
-        inReplyTo: frame.messageId,
-        repoId: frame.repoId,
-        cut: wireCut(next),
-        knownHead: wireCut(replica.ledgerCut()!),
-      });
-    }
-    if (frame.schema === "fleet.ci-detail.get/v1") {
-      const { replica } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
-      if (replica.cut(frame.revision)?.headDigest !== frame.headDigest)
-        throw new FleetFault("not_in_cut", "CI detail cut identity is unavailable.");
-      const entry = replica.manifestEntry(frame.revision, `.read-model/ci-details/${frame.eventId}.json`);
-      if (!entry) throw new FleetFault("not_in_cut", "CI observation is not in the authorized cut.");
-      const descriptor = JSON.parse(Buffer.from(replica.content(entry.blob)).toString("utf8")) as {
-        ref: { sha256: string; encodedBytes: number; mediaType: string };
-      };
-      const bytes = replica.content({
-        sha256: descriptor.ref.sha256,
-        size: descriptor.ref.encodedBytes,
-        mediaType: descriptor.ref.mediaType,
-      });
-      if (frame.offset > bytes.byteLength)
-        throw new FleetFault("invalid_offset", "CI detail offset is outside the object.");
-      const end = Math.min(bytes.byteLength, frame.offset + FLEET_CHUNK_BYTES);
-      return immediate({
-        schema: "fleet.ci-detail.chunk/v1",
-        messageId: mid(frame.messageId, "ci-detail"),
-        inReplyTo: frame.messageId,
-        eventId: frame.eventId,
-        offset: frame.offset,
-        dataBase64: Buffer.from(bytes.subarray(frame.offset, end)).toString("base64"),
-        done: end === bytes.byteLength,
-      });
-    }
-    if (frame.schema === "fleet.replica.pull/v1") {
-      const { a, replica, readerProfile } = await admitReplica(nodeId, frame.repoId, frame.accessToken);
-      const preparation = new AbortController();
-      const signal = AbortSignal.any([connectionSignal, closing.signal, preparation.signal]);
-      const preparationDeadlineAt = Date.now() + (options.replicaPreparationTimeoutMs ?? 60_000);
-      const deadline = setTimeout(
-        () => preparation.abort(new FleetFault("replica_pending", "Checkpoint preparation deadline exceeded.", false)),
-        preparationDeadlineAt - Date.now(),
-      );
-      let prepared: { latest: SnapshotCut; ledgerCut: NonNullable<ReturnType<typeof replica.ledgerCut>> };
-      try {
-        const ready = untilAborted(async () => {
-          const existing = replica.latest();
-          if (existing) replica.activate();
-          const checkpoint = existing ?? (await untilAborted(() => replica.prepare(), signal));
-          const latest = checkpoint ?? (await replica.waitForCut(1, signal));
-          replica.kick();
-          const ledgerCut = replica.ledgerCut();
-          if (!ledgerCut || ledgerCut.revision === 0)
-            throw new FleetFault("replica_pending", "No center head is known.", true);
-          return { latest, ledgerCut };
-        }, signal).then(
-          (value) => ({ value }),
-          (error: unknown) => ({ error }),
-        );
-        for (;;) {
-          await untilAborted(
-            () =>
-              progress({
-                schema: "fleet.replica.preparing/v1",
-                messageId: mid(frame.messageId, "preparing"),
-                inReplyTo: frame.messageId,
-                repoId: frame.repoId,
-              }),
-            signal,
-          );
-          let timer: ReturnType<typeof setTimeout> | undefined;
-          const outcome = await untilAborted(
-            () =>
-              Promise.race([
-                ready,
-                new Promise<null>((resolve) => {
-                  timer = setTimeout(() => resolve(null), options.replicaWatchProgressMs ?? 20_000);
-                }),
-              ]),
-            signal,
-          ).finally(() => clearTimeout(timer));
-          if (outcome === null) continue;
-          if ("error" in outcome) throw outcome.error;
-          prepared = outcome.value;
-          break;
-        }
-        const { latest, ledgerCut } = prepared,
-          key = { nodeId, viewId: nodeId, repoId: a.repoId },
-          id = keyId(key);
-        if (!window.keys.has(id) && window.keys.size >= 8)
-          throw new FleetFault("busy", "Session already has eight active replica keys.", true);
-        if (latest.manifest.totalBytes * 2 + FLEET_SESSION_SEND_WINDOW_BYTES > options.replicaDiskQuotaBytes!)
-          throw new FleetFault(
-            "replica_quota_insufficient",
-            "Replica quota cannot hold current, incoming, and staging reserve.",
-          );
-        window.keys.add(id);
-        knownKeys.set(id, key);
-        ackStore.register(key, latest.revision);
-        const cursor = ackStore.cursor(key);
-        if (
-          cursor?.revision === latest.revision &&
-          cursor.headDigest === latest.headDigest &&
-          cursor.manifestDigest === latest.manifest.digest
-        ) {
-          window.keys.delete(id);
-          return immediate({
-            schema:
-              latest.revision === ledgerCut.revision && latest.headDigest === ledgerCut.headDigest
-                ? "fleet.replica.current/v1"
-                : "fleet.replica.checkpoint/v1",
-            messageId: mid(frame.messageId, "current"),
-            inReplyTo: frame.messageId,
-            repoId: key.repoId,
-            viewId: key.viewId,
-            cut: wireCut(latest),
-            knownHead: wireCut(ledgerCut),
-            manifestDigest: latest.manifest.digest,
-            readerProfile,
-            authorizationShapeDigest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, readerProfile }),
-          });
-        }
-        if (
-          [...window.offers.values()].some((delivery) => keyId(delivery.key) === id && !delivery.renewalFailure.aborted)
-        )
-          throw new FleetFault(
-            "replica_delivery_busy",
-            "This session already has a delivery for the node/repository",
-            true,
-          );
-        if (options.buildDraining?.())
-          throw new FleetFault("daemon_build_draining", "Center is draining deliveries before a build handoff.", true);
-        return await deliverReplicaOffer({
-          key,
-          replica,
-          ackStore,
-          window,
-          lifecycle: deliveries.admit(),
-          signal,
-          connectionSignal,
-          quotaBytes: options.replicaDiskQuotaBytes!,
-          stateRoot: options.stateRoot,
-          issuedAt: now(),
-          authorization: {
-            readerProfile,
-            digest: edgeReadAuthorizationShapeDigest({ repoId: a.repoId, readerProfile }),
-          },
-        });
-      } finally {
-        clearTimeout(deadline);
-        preparation.abort();
-      }
-    }
-
     if (frame.schema === "fleet.task.command/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       try {
@@ -656,7 +679,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
       let command = frame.action;
       if (command.kind === "runtime-handoff-export") {
-        const candidate = command.candidate as import("./contract.ts").FleetDescriptor;
+        const candidate = command.candidate as import("./command-protocol.ts").FleetDescriptor;
         if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
           throw new FleetFault(
             "claim_not_owned",
@@ -729,6 +752,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             : ("applied" as const),
         opId: frame.opId,
         revision: receipt.revision ?? null,
+        replicationSequence: replicationHead(a.repoId),
         ...(receipt.outcome === "applied" &&
         receipt.cut &&
         typeof receipt.cut.revision === "number" &&
@@ -737,7 +761,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               appliedCut: {
                 revision: receipt.cut.revision,
                 headDigest: receipt.cut.headDigest,
-                schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+                schemaGeneration: 0,
               },
             }
           : {}),
@@ -747,7 +771,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
       if (command.kind === "runtime-handoff-export" && command.candidate)
         discardOwnedClaims(nodeId, a.repoId, [
-          { candidate: command.candidate as import("./contract.ts").FleetDescriptor },
+          { candidate: command.candidate as import("./command-protocol.ts").FleetDescriptor },
         ]);
       if (receipt.outcome === "applied" && frame.artifact)
         discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
@@ -796,6 +820,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         opId: frame.opId,
         outcome: receipt.outcome,
         revision: receipt.revision ?? null,
+        replicationSequence: replicationHead(a.repoId),
         code: receipt.code ?? null,
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       });
@@ -855,6 +880,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.runtime.event.result/v1",
         messageId: mid(frame.messageId, "runtime-event"),
         inReplyTo: frame.messageId,
+        replicationSequence: replicationHead(a.repoId),
         event: event as Readonly<Record<string, unknown>>,
         receipt,
       });
@@ -886,6 +912,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.runtime.archive.result/v1",
         messageId: mid(frame.messageId, "runtime-archive"),
         inReplyTo: frame.messageId,
+        replicationSequence: replicationHead(a.repoId),
         receipt,
       });
     }
@@ -921,57 +948,56 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         result: result as unknown as Readonly<Record<string, unknown>>,
       });
     }
-    if (frame.schema === "fleet.ack/v1") {
-      const delivery = window.offers.get(frame.transferId),
-        key = delivery?.key;
-      if (!key || !delivery || key.nodeId !== nodeId)
-        throw new FleetFault("invalid_ack", "ACK does not match an offer issued in this authenticated session.");
-      await readerAuth({ nodeId, repoId: key.repoId, accessToken: frame.accessToken });
-      let acknowledged = false;
-      try {
-        delivery.renewalFailure.throwIfAborted();
-        if (!options.host.replica(key.repoId).pinActive(delivery.lease))
-          throw fenced(delivery.lease, "ACK", false, ackStore.delivery.inspect(delivery.lease, Date.now()));
-        const at = Date.now();
-        const renewal = ackStore.delivery.renew(delivery.lease, at, 30_000);
-        if (!renewal.renewed) throw fenced(delivery.lease, "ACK", true, renewal.evidence);
-        const cutEventAt = options.host.replica(key.repoId).eventAt(frame.cut.revision);
-        if (!cutEventAt) throw new FleetFault("invalid_ack", "ACK cut is no longer exact at the center.");
-        const result = ackStore.ack(
-          key,
-          frame.transferId,
-          frame.cut,
-          frame.manifestDigest,
-          new Date(Date.now()).toISOString(),
-          cutEventAt,
-          delivery.lease,
-        );
-        if (result.outcome === "op_rejected" || !result.cursor)
-          throw new FleetFault("invalid_ack", "ACK cut or manifest differs from its exact active offer.");
-        acknowledged = true;
-        return immediate({
-          schema: "fleet.ack.result/v1",
-          messageId: mid(frame.messageId, "ack"),
-          inReplyTo: frame.messageId,
-          outcome: result.outcome,
-          viewId: key.viewId,
-          ackCut: result.cursor.revision,
-          knownHead: wireCut(options.host.replica(key.repoId).ledgerCut()!),
-          code: null,
-        });
-      } finally {
-        delivery.release(acknowledged);
-        window.offers.delete(frame.transferId);
-        window.keys.delete(keyId(key));
-      }
-    }
     throw new FleetFault("unexpected_direction", `Frame ${frame.schema} is not accepted by the center.`);
   };
   // One row per node for every TLS session it holds, from the moment its hello is dispatched.
   // Unregistration settles in the access-admin queue; this table is how that cut reaches sockets.
   const sessions = new Map<string, Set<TLSSocket>>();
+  const replicationOwners = new Map<string, TLSSocket>();
+  // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
+  const replicaStatus = (): FleetReplicaStatus[] => {
+    // A slot of a repository this center no longer serves has no head to lag behind.
+    const attached = new Set(
+        options.host
+          .status()
+          .repos.filter((repo) => repo.state === "attached")
+          .map((repo) => repo.repoId),
+      ),
+      heads = new Map<string, import("@harness-anything/kernel").ReplicationPosition>(),
+      head = (repoId: string) => {
+        if (!heads.has(repoId)) heads.set(repoId, readReplicationHead(repoId));
+        return heads.get(repoId)!;
+      },
+      now = Date.now();
+    return replicationSlots.list().flatMap((slot) => {
+      if (!attached.has(slot.repoId)) return [];
+      const center = head(slot.repoId);
+      const ack = slot.history === center.history ? slot.ack : null,
+        ackSequence = ack?.durable.sequence ?? null,
+        lagCommits = ackSequence === null ? null : Math.max(0, center.sequence - ackSequence),
+        ackedAt = ack === null ? null : slot.ackedAt;
+      return [
+        {
+          repoId: slot.repoId,
+          nodeId: slot.nodeId,
+          viewId: slot.nodeId,
+          centerRevision: center.revision,
+          centerSequence: center.sequence,
+          ackRevision: ack?.durable.revision ?? null,
+          ackSequence,
+          ackedAt,
+          lagRevisions: Math.max(0, center.revision - (ack?.durable.revision ?? 0)),
+          lagCommits,
+          lagMs: lagCommits === 0 ? 0 : ackedAt === null ? null : Math.max(0, now - Date.parse(ackedAt)),
+          connected: replicationOwners.has(`${slot.nodeId}\u0000${slot.repoId}`),
+          delivery: lagCommits === null ? "snapshot_required" : lagCommits === 0 ? "current" : "delta",
+          diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
+        },
+      ];
+    });
+  };
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
-    serve(socket, options, handle, sessions),
+    serve(socket, { ...options, onReplicationStart }, handle, sessions, replicationOwners),
   );
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
@@ -1011,26 +1037,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             await options.host.settleMaterialization(repoId, "fleet center close");
         }
       } finally {
-        ackStore.close();
         writerEpoch.close();
       }
     },
-    replicaReceipt: (opId, nodeId, viewId, repoId) =>
-      deriveReplicaReceipt(options.host.replica(repoId), ackStore, { nodeId, viewId, repoId }, opId),
-    status: () => {
-      const keys = new Map(ackStore.keys().map((key) => [keyId(key), key]));
-      for (const [id, key] of knownKeys) keys.set(id, key);
-      return {
-        replicas: [...keys.values()].map((key) =>
-          replicaStatus(
-            options.host.replica(key.repoId),
-            ackStore,
-            key,
-            options.replicaDiskQuotaBytes ?? null,
-            Date.now(),
-          ),
-        ),
-      };
+    replicaReceipt: () => {
+      throw new Error("replica receipt is retired");
     },
+    status: () => ({ replicas: replicaStatus() }),
   };
 }

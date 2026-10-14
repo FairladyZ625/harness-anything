@@ -1,7 +1,8 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { setTimeout as delay } from "node:timers/promises";
-import { runFleetReplicaPullClient, runFleetWriteClient } from "../../src/fleet/edge.ts";
+import { runFleetWriteClient } from "../../src/fleet/peer.ts";
+import { catchUpReplica } from "../replica-catch-up.fixture.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8"));
 if (!spawnSync("git", ["--version"]).error) throw new Error("edge test PATH unexpectedly contains Git");
@@ -49,7 +50,7 @@ for (;;) {
         readAccessToken: async () => `device-token-${config.nodeId}`,
       },
       diskQuotaBytes = config.diskQuotaBytes ?? 64 * 1024 * 1024;
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes });
+    await catchUpReplica({ ...peer, diskQuotaBytes });
     if (!released) await waitForWriteRelease();
     const startedAt = Date.now();
     const onFrame = (frame) => {
@@ -75,18 +76,7 @@ for (;;) {
     });
     if (write.center.outcome !== "applied")
       throw new Error(`center write ${write.center.outcome}:${write.center.code ?? "retry"}`);
-    const pulled = await runFleetReplicaPullClient({
-      through: write.center.revision,
-      ...peer,
-      diskQuotaBytes,
-      onFrame,
-      edgeKillpoint: (point) => {
-        if (config.edgeKillpoint === point) {
-          if (config.markerFile) writeFileSync(config.markerFile, point);
-          process.exit(75);
-        }
-      },
-    });
+    const pulled = await catchUpReplica({ ...peer, diskQuotaBytes });
     process.stdout.write(
       `${JSON.stringify({ ok: true, label: config.label, repoId: config.repoId, attempts: attempts + 1, gitAbsent: true, startedAt, endedAt: Date.now(), center: write.center, replica: pulled.replica })}\n`,
     );

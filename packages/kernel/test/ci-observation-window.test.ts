@@ -5,7 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import { ciRunWindow } from "../src/domain/ci-rerun-statistics.ts";
 import { decodeCiObservation } from "../src/domain/ci-run-observation-v4.ts";
 import { repositoryEventQueries } from "../src/projection/repository-event-queries.ts";
-import { createRepositoryReadModelTables } from "../src/projection/read-model-repository.ts";
+import { createProjectionTables } from "../src/projection/projection-tables.ts";
 import {
   ciObservationWindowOrder,
   ciObservationWindowPredicate,
@@ -45,7 +45,7 @@ test("mixed providers have one transitive window across every input permutation"
 test("indexed window matches the domain across legacy, bigint, ties and late imports", () => {
   const db = new DatabaseSync(":memory:");
   try {
-    createRepositoryReadModelTables(db);
+    createProjectionTables(db);
     const legacy = db
       .prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'ci_observation_%' ORDER BY name")
       .all()
@@ -86,7 +86,7 @@ test("indexed window matches the domain across legacy, bigint, ties and late imp
 test("window event decoding stays constant as unrelated historical families grow", () => {
   const db = new DatabaseSync(":memory:");
   try {
-    createRepositoryReadModelTables(db);
+    createProjectionTables(db);
     const insert = db.prepare("INSERT INTO event_index(op_id, workspace_revision, event_json) VALUES (?, ?, ?)");
     const q = repositoryEventQueries((read) => read(db, { status: "ready", watermark: 5000, sourceRevision: 5000 }));
     for (let revision = 1; revision <= 2000; revision++) {

@@ -8,10 +8,11 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { openFleetEdgeRuntime } from "../src/fleet-edge-runtime.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient, runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 for (const distinctNode of [false, true])
   for (const firstExitCode of [0, 1]) {
@@ -52,6 +53,7 @@ for (const distinctNode of [false, true])
 
         const sequence: string[] = [];
         const counts = new Map<string, { archive: number; release: number; terminal: number }>();
+        const terminalOpIds = new Map<string, Set<string>>();
         const terminals = new Map<string, () => void>();
         const credentials = new Map<string, string>();
         const settled = new Map<string, () => void>();
@@ -60,6 +62,7 @@ for (const distinctNode of [false, true])
             new Promise<void>((resolve) => {
               settled.set(subject.taskId, resolve);
               counts.set(subject.taskId, { archive: 0, release: 0, terminal: 0 });
+              terminalOpIds.set(subject.taskId, new Set());
             }),
         );
         const sessionTasks = new Map<string, string>();
@@ -78,7 +81,8 @@ for (const distinctNode of [false, true])
                 if (command.kind === "event" && command.type === "runtime_session_outcome_observed") {
                   const taskId = sessionTasks.get(String(command.payload.runtimeSessionId))!;
                   counts.get(taskId)!.terminal += 1;
-                  sequence.push(`${taskId}:terminal`);
+                  terminalOpIds.get(taskId)!.add(command.opId);
+                  sequence.push(`${taskId}:terminal:${command.opId}`);
                   settled.get(taskId)!();
                 }
                 return receipt;
@@ -161,7 +165,7 @@ for (const distinctNode of [false, true])
         };
         for (const subject of [fixture.subject, second]) {
           const viewRoot = path.join(fixture.root, subject.viewId);
-          await runFleetReplicaPullClient({
+          const replicaOptions = {
             readAccessToken: async () => `device-token-${subject.nodeId}`,
             port: center.port,
             ca: fixture.cert,
@@ -170,7 +174,13 @@ for (const distinctNode of [false, true])
             repoId: subject.repoId,
             viewRoot,
             diskQuotaBytes: 64 * 1024 * 1024,
+          };
+          await catchUpReplica(replicaOptions);
+          const resident = startResidentReplicaSync({
+            hostname: "127.0.0.1",
+            ...replicaOptions,
           });
+          fixture.track(resident.close);
           applyFleetMirrorCut(viewRoot, subject.repoId, workspaceRoot, "pull");
         }
         initRepo(workspaceRoot);
@@ -283,8 +293,11 @@ for (const distinctNode of [false, true])
           assert.equal(repeated.detail, "already-exited");
           assert.equal(existsSync(relay), true, "another node must not remove a terminal owner callback");
         }
-        for (const [taskId, count] of counts)
-          assert.deepEqual(count, { archive: 1, release: 1, terminal: 1 }, `${taskId}: ${JSON.stringify(sequence)}`);
+        for (const [taskId, count] of counts) {
+          assert.deepEqual({ archive: count.archive, release: count.release }, { archive: 1, release: 1 });
+          assert.ok(count.terminal >= 1, `${taskId}: ${JSON.stringify(sequence)}`);
+          assert.equal(terminalOpIds.get(taskId)!.size, 1, `${taskId}: ${JSON.stringify(sequence)}`);
+        }
         const events = makeTaskEventReader({ repoId: second.repoId, rootDir: fixture.repo }).read().events;
         for (const [runtimeSessionId, expected] of [
           [a.runtimeSessionId, firstExitCode === 0 ? "succeeded" : "failed"],

@@ -6,10 +6,13 @@ import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
 import type { FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
-import { FleetRemoteError, runFleetReplicaPullClient } from "./fleet/edge.ts";
+import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-generation.ts";
+import { FleetRemoteError, readFleetRepositoryMetadataClient } from "./fleet/peer.ts";
+import { failFleetReplicaSync, waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -119,43 +122,66 @@ export interface FleetEdgeSyncRequest {
 export async function syncFleetEdgeMirror(
   input: FleetEdgeSyncRequest,
   readAccessToken?: () => Promise<string | undefined>,
+  onAdmitted?: () => void,
 ): Promise<Record<string, unknown>> {
+  // Sync means "caught up with the center now": ask for its replication head and whether the node's
+  // owner may read the repository (the replica's own admission), then let the resident stream reach
+  // the head. There is no second pull path; a stopped or failing stream fails the sync.
+  const request = input.payload,
+    advise = (code: string, message: string): never => {
+      // A sync the center denies withholds the rows already delivered: the view stops answering, and
+      // the resident stream installs a fresh one once the center admits the replica again.
+      if (code === "authorization_denied") {
+        revokeReplicaView(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId));
+        failFleetReplicaSync(request, Object.assign(new Error(message), { code }));
+      }
+      throw Object.assign(
+        new Error(
+          // The machine was recognized and its owner lacks the action; no credential change fixes that.
+          code === "authorization_denied"
+            ? `${message} Ask a center administrator to grant the node's owner repository-read` +
+              " on this repository, then retry the edge sync."
+            : code === "authentication_failed" || code === "node_owner_unregistered"
+              ? `${message} Register the node at the center and use the credential it issued,` +
+                " or correct --node-id / --credential, then retry the edge sync."
+              : `Center replica admission failed: ${message}`,
+        ),
+        { code },
+      );
+    },
+    head = await readFleetRepositoryMetadataClient({
+      ...(readAccessToken ? { readAccessToken } : {}),
+      hostname: request.host,
+      port: request.port,
+      ca: material(request.caPath, "--ca"),
+      ...(request.servername ? { servername: request.servername } : {}),
+      nodeId: request.nodeId,
+      credential: request.credential,
+      repoId: request.repoId,
+      actionKind: "repository-read",
+      ...(request.timeoutMs ? { timeoutMs: request.timeoutMs } : {}),
+    }).catch((error: unknown) =>
+      error instanceof FleetRemoteError ? advise(error.code, error.message) : Promise.reject(error),
+    );
+  if (head.actionAllowed !== true)
+    advise("authorization_denied", "authorization_denied: The node owner may not read this repository.");
+  // The admitted connection becomes the workspace's fleet-edge.json, which the resident stream follows
+  // (started or restarted by onAdmitted); sync then waits on that stream.
+  persistEdgeConnection(request);
+  onAdmitted?.();
+  await waitForFleetReplicaSequence(request, head.replicationSequence);
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
-    const pulled = await runFleetReplicaPullClient({
-      readAccessToken,
-      hostname: input.payload.host,
-      port: input.payload.port,
-      ca: material(input.payload.caPath, "--ca").toString("utf8"),
-      servername: input.payload.servername,
-      nodeId: input.payload.nodeId,
-      credential: input.payload.credential,
-      repoId: input.payload.repoId,
-      viewRoot: input.payload.viewRoot,
-      diskQuotaBytes: input.payload.quotaBytes,
-      timeoutMs: input.payload.timeoutMs ?? 60_000,
-    }).catch((error: unknown) => {
-      if (error instanceof FleetRemoteError)
-        throw Object.assign(
-          new Error(
-            // The machine was recognized and its owner lacks the action; no credential change fixes that.
-            error.code === "authorization_denied"
-              ? `${error.message} Ask a center administrator to grant the node's owner repository-read` +
-                " on this repository, then retry the edge sync."
-              : error.code === "authentication_failed" || error.code === "node_owner_unregistered"
-                ? `${error.message} Register the node at the center and use the credential it issued,` +
-                  " or correct --node-id / --credential, then retry the edge sync."
-                : `Center replica admission failed: ${error.message}`,
-          ),
-          { code: error.code },
-        );
-      throw error;
-    });
+    const generation = readReplicaGeneration(
+      path.join(input.payload.viewRoot, "repos", input.payload.repoId, "views", input.payload.nodeId),
+    );
+    if (!generation) throw new Error("replica generation is unavailable");
+    const pulled = { replica: { viewId: input.payload.nodeId, knownHead: generation.metadata.position } };
     const materialized = applyFleetMirrorCut(
       input.payload.viewRoot,
       input.payload.repoId,
       input.payload.workspaceRoot,
       "pull",
-      { viewId: pulled.replica.viewId },
+      { viewId: input.payload.nodeId },
     );
     const worktrees = await reclaimEdgeTaskWorktrees(input.payload, materialized);
     const blocked = materialized.outcome === "pull_blocked";
@@ -170,17 +196,42 @@ export async function syncFleetEdgeMirror(
       command: "daemon-fleet-edge-sync",
       outcome: blocked ? "op_rejected" : "applied",
       ...(blocked ? { code: "pull_blocked", error: { code: "pull_blocked", hint: blockedHint } } : {}),
-      status: pulled.replica.schema,
-      knownHead: pulled.replica.knownHead,
-      lagRevisions: pulled.replica.knownHead.revision - pulled.current.cut.revision,
-      ackCut: "ackCut" in pulled.replica ? pulled.replica.ackCut : pulled.current.cut.revision,
-      viewId: pulled.replica.viewId,
-      cut: pulled.current.cut,
-      manifestDigest: pulled.current.manifestDigest,
+      status: "fleet.replica.current/v1",
+      knownHead: {
+        revision: pulled.replica.knownHead.revision,
+        headDigest: `sha256:${pulled.replica.knownHead.history}:${pulled.replica.knownHead.sequence}`,
+      },
+      lagRevisions: 0,
+      ackCut: pulled.replica.knownHead.revision,
+      viewId: input.payload.nodeId,
+      cut: {
+        revision: pulled.replica.knownHead.revision,
+        headDigest: `sha256:${pulled.replica.knownHead.history}:${pulled.replica.knownHead.sequence}`,
+      },
+      manifestDigest: `sha256:${pulled.replica.knownHead.history}:${pulled.replica.knownHead.sequence}`,
       mirrorOutcome: materialized.outcome,
       dirtyPaths: materialized.dirtyPaths,
       conflicts: materialized.conflicts,
       ...(worktrees ? { worktrees } : {}),
     };
+  });
+}
+
+/** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid one fails the sync. */
+function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
+  const previous = readFleetEdgeConfig(request.workspaceRoot);
+  writeFleetEdgeConfig(request.workspaceRoot, {
+    repoId: request.repoId,
+    host: request.host,
+    port: request.port,
+    caPath: request.caPath,
+    ...(request.servername ? { servername: request.servername } : {}),
+    nodeId: request.nodeId,
+    credential: request.credential,
+    viewRoot: request.viewRoot,
+    quotaBytes: request.quotaBytes,
+    ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),
+    ...(previous?.maxAgeMs !== undefined ? { maxAgeMs: previous.maxAgeMs } : {}),
+    ...(previous?.maxLagRevisions !== undefined ? { maxLagRevisions: previous.maxLagRevisions } : {}),
   });
 }

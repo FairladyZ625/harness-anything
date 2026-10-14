@@ -2,7 +2,7 @@ import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
 
-import type { FleetDescriptor } from "./contract.ts";
+import type { FleetDescriptor } from "./command-protocol.ts";
 import { FleetFault, type State, type Upload } from "./center-types.ts";
 
 export interface FleetLeaseClaimsContext {

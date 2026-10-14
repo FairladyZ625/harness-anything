@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -10,12 +10,13 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { fleetFixture, git, initRepo, rawPeer, localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { fleetLedgerRevision } from "./fleet-store.fixture.ts";
-import { runFleetUploadClient } from "../src/fleet/edge.ts";
+import { runFleetUploadClient } from "../src/fleet/peer.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { classifyTextualArtifactPath, openSqliteEventStore, isTaskEvent, sha256Text } from "@harness-anything/kernel";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
   "remote-edge CLI completes a baseline lifecycle with independent review and interactive consent",
@@ -82,6 +83,16 @@ test(
       const edge = await openDaemonHost({ daemonId, userRoot: edgeUser, oidc });
       t.after(() => edge.close());
       await edge.attachmentsSettled();
+      await catchUpReplica({
+        port: center.port,
+        ca: fixture.cert,
+        nodeId,
+        credential: "machine-secret",
+        repoId,
+        viewRoot: path.join(edgeUser, "view"),
+        diskQuotaBytes: 64 * 1024 * 1024,
+        readAccessToken: fixture.owners.readAccessToken(nodeId),
+      });
       const transport = createUnixSocketTransportServer({
         daemonId,
         socketPath: localUserDaemonEndpoint(edgeUser, daemonId),
@@ -142,7 +153,15 @@ test(
     git(edgeRoot, "worktree", "add", "-b", taskId, cwd, "HEAD");
     writeFileSync(path.join(cwd, "delivery.ts"), "export const complete = true;\n");
     git(cwd, "add", "delivery.ts");
-    git(cwd, "commit", "-qm", "feat: exercise fleet delivery");
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "feat: exercise fleet delivery"], {
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "person-owner",
+        GIT_AUTHOR_EMAIL: "person-owner@users.noreply.github.com",
+        GIT_COMMITTER_NAME: "person-owner",
+        GIT_COMMITTER_EMAIL: "person-owner@users.noreply.github.com",
+      },
+    });
     const delivery = git(cwd, "rev-parse", "HEAD");
     await invoke([
       "fact",

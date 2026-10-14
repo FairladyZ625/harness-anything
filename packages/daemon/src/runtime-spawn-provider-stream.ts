@@ -7,7 +7,7 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
 import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
-import type { FleetRuntimeDispatchContext } from "./fleet/contract.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import { transcriptRefForSessionIdentity } from "./session-identity/index.ts";
 import { observeProviderFault } from "./runtime-provider-fault.ts";
 import {

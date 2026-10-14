@@ -11,7 +11,7 @@ import type { RuntimeInstallationWitness } from "../src/agent-runtime-instances.
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetReplicaPullClient, awaitFleetRuntimeSessionsClient } from "../src/fleet/edge.ts";
+import { awaitFleetRuntimeSessionsClient } from "../src/fleet/peer.ts";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
@@ -19,6 +19,7 @@ import { fleetFixture, git, initRepo, localAuthFixture } from "./fleet-runtime-r
 import { waitForFleetPublication } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventually } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
 for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect"] as const)
   test(`edge CLI wait: ${scenario}`, { timeout: 60_000 }, async (t) => {
@@ -108,7 +109,7 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
     git(fixture.root, "init", "--bare", "-q", remote);
     git(edgeRoot, "remote", "add", "origin", remote);
     git(edgeRoot, "push", "-q", "-u", "origin", git(edgeRoot, "branch", "--show-current"));
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
       port: center.port,
       ca: fixture.cert,

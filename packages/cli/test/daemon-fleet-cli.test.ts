@@ -1,5 +1,5 @@
 // harness-test-tier: integration
-import { readEdgeManifestEntries } from "../../daemon/test/replica-sequence.fixture.ts";
+import { fleetMirrorCutFile, locateFleetMirrorView } from "../../daemon/test/replica-catch-up.fixture.ts";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
 import { localDaemonTargetKey } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { signInProcessPolicyTestUser } from "../../daemon/test/keycloak-process-policy.fixtures.ts";
@@ -21,6 +21,8 @@ import path from "node:path";
 import test from "node:test";
 import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
+import { readReplicaHealth } from "../../daemon/test/replica-catch-up.fixture.ts";
+import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import { realizedTaskPlan, sizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
@@ -141,6 +143,10 @@ test(
           quotaBytes,
         }),
       );
+      // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
+      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
+      realm.bind(fixture.edgeUser);
+      signInAt(fixture.edgeUser, "edge-operator");
       assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
       assert.equal(
         run(fixture, "edge", [
@@ -182,10 +188,6 @@ test(
         "--quota-bytes",
         String(quotaBytes),
       ] as const;
-      // dec_F01770FD0DCF72683B7C4C7A47/CH5: transport registration and a user-device login are separate.
-      await realm.control({ op: "session", nodeId: "edge-one", personId: "edge-operator", issuer: realm.url });
-      realm.bind(fixture.edgeUser);
-      signInAt(fixture.edgeUser, "edge-operator");
       const edgeGitHead = readFileSync(path.join(fixture.edgeRepo, ".git", "HEAD"), "utf8");
       const observed = await spawnedRun(fixture, "edge", syncArgs),
         exposed = JSON.stringify({ argv: observed.argv, stdout: observed.stdout, stderr: observed.stderr });
@@ -283,14 +285,22 @@ test(
       writeFileSync(path.join(fixture.edgeRepo, "harness", docPath), docBody);
       // Restart and later writes keep the independently approved device owner session.
       const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as {
-        cut: { revision: number };
+        metadata: { position: { revision: number } };
       };
-      assert.equal(current.cut.revision, pulled.ackCut);
+      assert.equal(current.metadata.position.revision, pulled.ackCut);
       const stoppedPid = stop(fixture, "edge");
       const restarted = run(fixture, "edge", ["daemon", "start", "--service"]);
       assert.equal(restarted.ok, true);
       assert.equal(Number.isSafeInteger(restarted.pid), true);
       assert.notEqual(restarted.pid, stoppedPid, "replay must run in a new daemon process");
+      let attached = false;
+      for (let attempt = 0; attempt < 40 && !attached; attempt += 1) {
+        const status = run(fixture, "edge", ["daemon", "status"]);
+        attached = (status.repos as { repoId: string; state: string }[]).some(
+          (repo) => repo.repoId === "fleet-demo" && repo.state === "attached",
+        );
+      }
+      assert.equal(attached, true, "the restarted host owns the resident stream before sync");
       const again = sync();
       assert.equal(again.status, "fleet.replica.current/v1");
       assert.deepEqual(again.cut, pulled.cut);
@@ -344,10 +354,7 @@ test(
         deltaBody,
         "incremental sync updates the original registered path byte-for-byte",
       );
-      assert.equal(
-        existsSync(path.join(fixture.centerUser, "fleet", "replica", "repos", "fleet-demo", "ack.sqlite")),
-        true,
-      );
+      assert.equal(existsSync(path.join(String(center.stateRoot), "replication-slots.sqlite")), true);
       // N6 regression (F-31931F21): the edge CLI's --plan-file body crosses the fleet channel
       // whole; the center lands the authored plan in the task package byte-for-byte.
       const edgePlan = sizedTaskPlan(950, "边缘 CLI 计划");
@@ -396,6 +403,7 @@ test(
         String(quotaBytes),
       ]);
       assert.equal(repaired.ok, true);
+      await eventuallyValue(() => (readReplicaHealth(viewRoot).syncFailure === null ? true : null));
       assert.equal(retryReplicaPending(sync).ok, true);
       assert.equal(
         existsSync(
@@ -568,16 +576,6 @@ test(
         resource: "fleet-demo",
         actions: ["repository-read"],
       });
-      let first = sync(credential);
-      for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
-        first = sync(credential);
-      assert.equal(first.status, 0, JSON.stringify(first.receipt));
-      assert.equal(first.receipt.viewId, "edge-one");
-      assert.equal(
-        readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
-        readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
-        "the first sync materializes the center ledger in the clean workspace",
-      );
       writeFileSync(
         path.join(fixture.edgeRepo, "fleet-edge.json"),
         JSON.stringify({
@@ -591,6 +589,33 @@ test(
           viewRoot: fixture.viewRoot,
           quotaBytes,
         }),
+      );
+      // The sync command observes the resident stream; attach its registered config first.
+      stop(fixture, "edge");
+      assert.equal(run(fixture, "edge", ["daemon", "start", "--service"]).ok, true);
+      assert.equal(
+        run(fixture, "edge", [
+          "daemon",
+          "repo",
+          "register",
+          "--repo-id",
+          "fleet-demo",
+          "--root",
+          fixture.edgeRepo,
+          "--mode",
+          "remote-edge",
+        ]).ok,
+        true,
+      );
+      let first = sync(credential);
+      for (let attempt = 0; attempt < 40 && first.receipt.code === "replica_pending"; attempt += 1)
+        first = sync(credential);
+      assert.equal(first.status, 0, JSON.stringify(first.receipt));
+      assert.equal(first.receipt.viewId, "edge-one");
+      assert.equal(
+        readFileSync(path.join(fixture.edgeRepo, "harness", planPath), "utf8"),
+        readFileSync(path.join(fixture.repo, "harness", planPath), "utf8"),
+        "the first sync materializes the center ledger in the clean workspace",
       );
       // Mirroring is reading: the one repository-read grant admits both the sync and the reads.
       // The newly authored registration config belongs to the next RepoCell attachment.
@@ -641,21 +666,15 @@ function retryReplicaPending(sync: () => Record<string, unknown>): Record<string
   }
   return last;
 }
-// Snapshot cuts address their blobs through the verified edge CAS instead of
-// materializing cuts/<revision>-g<generation>/files/, so a cut document is read through its
-// indexed manifest entry for both snapshot and delta cuts.
+// A replica document is read through the installed generation's object store; the view IS the
+// current generation, so the revision argument only names what the caller expects it to be.
 function readCutFile(viewRoot: string, revision: number, logical: string): string {
-  const current = JSON.parse(readFileSync(path.join(viewRoot, "current.json"), "utf8")) as {
-    schemaGeneration: number;
-  };
-  const entry = readEdgeManifestEntries(
-    path.join(viewRoot, "cuts", `${revision}-g${current.schemaGeneration}`, "manifest.json"),
-  ).find((row) => row.path === logical);
-  if (entry === undefined) throw new Error(`cut ${revision} manifest has no entry for ${logical}`);
-  return readFileSync(
-    path.join(path.resolve(viewRoot, "..", ".."), "cas", "sha256", entry.blob.sha256.slice(0, 2), entry.blob.sha256),
-    "utf8",
-  );
+  const view = locateFleetMirrorView(path.resolve(viewRoot, "..", "..", "..", ".."), "fleet-demo");
+  if (view === null) throw new Error(`no replica view under ${viewRoot}`);
+  if (view.revision !== revision) throw new Error(`view at revision ${view.revision}, expected ${revision}`);
+  const bytes = fleetMirrorCutFile(view, logical);
+  if (bytes === null) throw new Error(`cut ${revision} has no entry for ${logical}`);
+  return bytes.toString("utf8");
 }
 function setup(): {
   root: string;

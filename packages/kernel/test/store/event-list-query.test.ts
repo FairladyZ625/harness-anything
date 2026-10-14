@@ -4,7 +4,7 @@ import test, { afterEach } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import type { CanonicalEventV1 } from "../../src/index.ts";
 import { canonicalEventEntityRefs as eventEntityRefs } from "../../src/store/task-event-store-types.ts";
-import { REPOSITORY_READ_TABLES_SQL } from "../../src/projection/read-model-repository.ts";
+import { REPOSITORY_READ_TABLES_SQL } from "../../src/projection/projection-tables.ts";
 import { projectEventSummary } from "../../src/projection/event-summary-projection.ts";
 import { readEventList as selectLedgerEvents } from "../../src/projection/event-list-query.ts";
 const databases: DatabaseSync[] = [];

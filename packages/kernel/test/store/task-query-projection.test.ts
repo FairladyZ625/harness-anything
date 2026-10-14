@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
-import { TASK_INDEX_TABLES_SQL } from "../../src/projection/read-model.ts";
+import { TASK_INDEX_TABLES_SQL } from "../../src/projection/projection-tables.ts";
 import {
   createFactProjectionTables,
   searchFactRowsPage,

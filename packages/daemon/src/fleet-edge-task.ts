@@ -31,13 +31,12 @@ import {
 import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
-  runFleetReplicaPullClient,
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
-} from "./fleet/edge.ts";
-import type { FleetDescriptor } from "./fleet/contract.ts";
-import type { FleetTaskAction } from "./fleet/contract.ts";
+} from "./fleet/peer.ts";
+import type { FleetDescriptor } from "./fleet/command-protocol.ts";
+import type { FleetTaskAction } from "./fleet/command-protocol.ts";
 import {
   applyFleetMirrorCut,
   cacheFleetMirrorDirtyBases,
@@ -48,6 +47,7 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
+import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
@@ -144,7 +144,7 @@ export function isFleetEdgeRepositoryRead(action: FleetTaskAction): boolean {
 export async function runFleetEdgeRepositoryRead(
   input: FleetEdgeTaskRequest,
   readLocal: () => Promise<Record<string, unknown>>,
-  readAccessToken?: () => Promise<string | undefined>,
+  _readAccessToken?: () => Promise<string | undefined>,
 ): Promise<Record<string, unknown>> {
   const payload = input.payload,
     minCut = recentAppliedCuts.get(edgeReadStateKey(payload.viewRoot, payload.repoId, payload.nodeId));
@@ -156,20 +156,7 @@ export async function runFleetEdgeRepositoryRead(
       action: payload.action,
       ...(minCut ? { minCut } : {}),
     },
-    () =>
-      runFleetReplicaPullClient({
-        through: minCut?.revision,
-        readAccessToken,
-        hostname: payload.host,
-        port: payload.port,
-        ca: readFileSync(payload.caPath, "utf8"),
-        servername: payload.servername,
-        nodeId: payload.nodeId,
-        credential: payload.credential,
-        repoId: payload.repoId,
-        viewRoot: payload.viewRoot,
-        diskQuotaBytes: payload.quotaBytes,
-      }),
+    () => Promise.resolve(),
     async () => {
       const receipt = await readLocal();
       return {
@@ -266,26 +253,29 @@ export async function runFleetEdgeTask(
       if (blocked.length) throw new FleetEdgeTaskError("preview_blocked", blocked.map((row) => row.reason).join("; "));
       if (changes.length === 0)
         return { schema: "command-receipt/v2", command: action.kind, ok: true, outcome: "no_changes" };
-      const result = await runFleetWriteClient({
-        ...peer,
-        taskId,
-        executionId: null,
-        channel: "collaborator",
-        changes: changes.map((change) => ({
-          path: change.path,
-          body: Buffer.from(change.bytes),
-          baseBlobSha256: change.baseBlobSha256,
-          policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
-          mediaType: change.mediaType,
-        })),
+      const center = await runFleetEdgeWrite({
+        viewRoot: payload.viewRoot,
+        repoId: payload.repoId,
+        nodeId: payload.nodeId,
+        timeoutMs: waitMs,
+        write: async () =>
+          (
+            await runFleetWriteClient({
+              ...peer,
+              taskId,
+              executionId: null,
+              channel: "collaborator",
+              changes: changes.map((change) => ({
+                path: change.path,
+                body: Buffer.from(change.bytes),
+                baseBlobSha256: change.baseBlobSha256,
+                policyId: classifyTextualArtifactPath(change.path)?.policyId ?? DOC_POLICY_ID,
+                mediaType: change.mediaType,
+              })),
+            })
+          ).center,
       });
-      if (result.center.outcome === "applied") {
-        await runFleetReplicaPullClient({
-          through: result.center.revision ?? "known-head",
-          ...peer,
-          viewRoot: payload.viewRoot,
-          diskQuotaBytes: payload.quotaBytes,
-        });
+      if (center.outcome === "applied") {
         const materialized = applyFleetMirrorCut(payload.viewRoot, payload.repoId, workspaceRoot, "pull", {
           kind: "task-docs",
           taskId,
@@ -295,10 +285,10 @@ export async function runFleetEdgeTask(
           throw new FleetEdgeTaskError("pull_blocked", "Task document materialization is blocked.");
       }
       return {
-        ...result.center,
+        ...center,
         schema: "command-receipt/v2",
         command: action.kind,
-        ok: result.center.outcome === "applied" || result.center.outcome === "no_changes",
+        ok: center.outcome === "applied" || center.outcome === "no_changes",
       };
     }
     if (action.kind === "task-submit" && workspaceRoot !== null && taskId !== null)
@@ -316,12 +306,6 @@ export async function runFleetEdgeTask(
           return metadata.personId;
         },
         readTask: async () => {
-          await runFleetReplicaPullClient({
-            through: "known-head",
-            ...peer,
-            viewRoot: payload.viewRoot,
-            diskQuotaBytes: payload.quotaBytes,
-          });
           const current = readEdgeRuntimeRepository(
             {
               viewRoot: payload.viewRoot,
@@ -354,24 +338,35 @@ export async function runFleetEdgeTask(
       action = target as FleetTaskAction;
     }
     const bundle = readOnly || artifact ? null : await attachTaskDocs();
-    const deadline = Date.now() + waitMs + 30_000 + (bundle === null ? 0 : 60_000);
+    const commandTimeoutMs = waitMs + 30_000 + (bundle === null ? 0 : 60_000),
+      deadline = Date.now() + commandTimeoutMs;
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null,
       attempt = 0;
     while (result === null) {
       const remaining = Math.max(1, deadline - Date.now());
       try {
-        const next = await runFleetTaskCommandClient({
-          ...peer,
-          opId,
-          repoId: payload.repoId,
-          taskId,
-          action,
-          ...(artifact ? { artifact } : {}),
-          waitMs,
-          timeoutMs: remaining + 10_000,
-          docChanges: bundle === null ? undefined : bundle.docChanges,
-          mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
-        });
+        const write = () =>
+          runFleetTaskCommandClient({
+            ...peer,
+            opId,
+            repoId: payload.repoId,
+            taskId,
+            action,
+            ...(artifact ? { artifact } : {}),
+            waitMs,
+            timeoutMs: remaining + 10_000,
+            docChanges: bundle === null ? undefined : bundle.docChanges,
+            mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
+          });
+        const next = readOnly
+          ? await write()
+          : await runFleetEdgeWrite({
+              viewRoot: payload.viewRoot,
+              repoId: payload.repoId,
+              nodeId: payload.nodeId,
+              timeoutMs: Math.max(1, deadline - Date.now()),
+              write,
+            });
         if (Date.now() < deadline && transientResult(next)) {
           await sleep(fleetEdgeBackoffMs(attempt++));
           continue;
@@ -395,13 +390,6 @@ export async function runFleetEdgeTask(
     // center bytes staged beside the local ones for the explicit exits.
     if (!readOnly && (applied || conflictCode !== null)) {
       try {
-        const pulled = await runFleetReplicaPullClient({
-          through: result.revision ?? "known-head",
-          ...peer,
-          viewRoot: payload.viewRoot,
-          diskQuotaBytes: payload.quotaBytes,
-          timeoutMs: 60_000,
-        });
         const settle =
           workspaceRoot === null
             ? null
@@ -424,7 +412,7 @@ export async function runFleetEdgeTask(
             : null;
         mirror = {
           outcome: settle !== null && settle.outcome === "pull_blocked" ? "pull_blocked" : "applied",
-          cut: pulled.current.cut,
+          cut: { revision: result.revision ?? 0, headDigest: "" },
           ...(settle !== null && settle.outcome !== "no_view" ? { dirtyPaths: settle.dirtyPaths } : {}),
           ...(worktrees ? { worktrees } : {}),
         };

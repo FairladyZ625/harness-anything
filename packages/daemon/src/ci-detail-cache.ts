@@ -3,8 +3,7 @@ import path from "node:path";
 import { sha256Bytes, type CiDetailRef } from "@harness-anything/kernel";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { edgeManifestPaths } from "./fleet/replica-read-model.ts";
-import { fleetReplicaDiskUsage, openPeer, type FleetPeerOptions } from "./fleet/edge.ts";
+import { fleetReplicaDiskUsage, openPeer, type FleetPeerOptions } from "./fleet/peer.ts";
 import { writeFileDurably } from "./durable-file.ts";
 
 type Descriptor = { eventId: string; ref: CiDetailRef };
@@ -15,11 +14,11 @@ export function edgeCiDetailDescriptors(
 ): readonly Descriptor[] {
   const paths = eventIds
     ? eventIds.map((id) => `.read-model/ci-details/${id}.json`)
-    : edgeManifestPaths(view.viewDir, view, ".read-model/ci-details/");
+    : [...view.entries.keys()].filter((logical) => logical.startsWith(".read-model/ci-details/"));
   return paths.map((logical) => {
     const blob = view.entries.get(logical);
     if (!blob) throw new Error(`CI observation ${logical} is not in the authorized cut`);
-    return JSON.parse(Buffer.from(readEdgeViewBlob(viewRoot, view, blob.sha256)).toString("utf8")) as Descriptor;
+    return JSON.parse(Buffer.from(readEdgeViewBlob(view, blob.sha256)).toString("utf8")) as Descriptor;
   });
 }
 function cachePath(view: FleetMirrorView, digest: string): string {
@@ -63,25 +62,9 @@ export async function fetchEdgeCiDetails(input: {
   try {
     for (const row of needed) {
       const chunks: Buffer[] = [];
-      let offset = 0;
+      const offset = 0;
       while (true) {
-        const frame = await session.request({
-          schema: "fleet.ci-detail.get/v1",
-          messageId: session.messageId(),
-          repoId: input.view.repoId,
-          revision: input.view.revision,
-          headDigest: input.view.headDigest,
-          eventId: row.eventId,
-          offset,
-        });
-        if (frame.schema !== "fleet.ci-detail.chunk/v1" || frame.eventId !== row.eventId || frame.offset !== offset)
-          throw new Error("CI detail response does not match the requested observation");
-        const bytes = Buffer.from(frame.dataBase64, "base64");
-        chunks.push(bytes);
-        offset += bytes.byteLength;
-        if (offset > row.ref.encodedBytes) throw new Error("CI detail exceeds declared size");
-        if (frame.done) break;
-        if (!bytes.byteLength) throw new Error("CI detail reader did not advance");
+        throw new Error("CI detail objects are included in the replicated generation");
       }
       const bytes = Buffer.concat(chunks);
       if (offset !== row.ref.encodedBytes || sha256Bytes(bytes) !== row.ref.sha256)

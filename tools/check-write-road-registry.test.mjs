@@ -48,6 +48,20 @@ test("write-road registry rejects an undeclared promise-based write sink", () =>
     );
   }));
 
+// dec_9284BD6119D453EEECEED62450: replacement replication modules remain declared physical sinks.
+test("write-road registry rejects an unregistered replication receiver", () =>
+  withFixture((root) => {
+    write(
+      root,
+      "packages/daemon/src/fleet/walreceiver.ts",
+      'import { open } from "node:fs/promises";\nawait open(target, "wx");\n',
+    );
+    assert.match(
+      findWriteRoadRegistryViolations(root).join("\n"),
+      /walreceiver\.ts: physical write sink is not declared/u,
+    );
+  }));
+
 test("write-road registry binds the workspace admission lock to RepoCell", () =>
   withFixture((root) => {
     const file = path.join(root, "tools/write-road-registry.json"),

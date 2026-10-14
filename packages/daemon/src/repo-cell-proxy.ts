@@ -1,13 +1,11 @@
-import { edgeManifestBlob } from "./fleet/replica-read-model.ts";
 import { readFileSync } from "node:fs";
-import { readEdgeCiDetail, fetchEdgeCiDetails } from "./ci-detail-cache.ts";
+import { fetchEdgeCiDetails } from "./ci-detail-cache.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
 import type { FleetMirrorView } from "./fleet-edge-mirror.ts";
 import type { RepositoryReadFrame } from "./protocol/repository-read-frame.ts";
 import { readEdgeViewBlob } from "./runtime-result-read.ts";
-import path from "node:path";
 import {
   consumeKnownError,
   makeTaskEventReader,
@@ -24,7 +22,6 @@ import { readObservedRuntimeSession } from "./agent-runtime-read.ts";
 import { makeAgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { taskShowFromProjection } from "./repo-cell-completion.ts";
 import { readRuntimeSessionActivityEvidence } from "./dispatch-read.ts";
-import { openReplicaCutWorker } from "./fleet/replica-cut-worker.ts";
 import { readObserveEventTail, readObserveTail } from "./observe-tail.ts";
 import { openTerminalHost } from "./terminal-host.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
@@ -94,7 +91,8 @@ export async function openRepoCellProxy(
       for (const waiter of waiters) waiter();
     };
   let wakeReplica = (): void => undefined;
-  const edgeConfig = input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null;
+  // Read per use: the first `ha daemon fleet edge sync` writes fleet-edge.json after this cell opened.
+  const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
@@ -121,7 +119,7 @@ export async function openRepoCellProxy(
   } catch (error) {
     // An edge answers replica reads even when its own runtime ledger cannot attach; its writer
     // state reports that failure, and every write rejects with it.
-    if (edgeConfig === null) {
+    if (edgeConfig() === null) {
       await lock.close();
       throw error;
     }
@@ -167,22 +165,11 @@ export async function openRepoCellProxy(
       },
     }),
     readCurrentLedger = <T>(read: (store: ReturnType<typeof makeTaskEventReader>) => T): T => read(ledgerReadStore()),
-    replica = openReplicaCutWorker(
-      {
-        repoId: input.repoId,
-        localRoot: path.dirname(path.dirname(reader.path)),
-        readSequence: (from, read) => reader.withSession((projection) => projection.readReplicaSequence(from, read)),
-        readRevision: (revision) => reader.withSession((projection) => projection.readReplicaRevision(revision)),
-        // Fleet replication follows the acknowledged writer cut, including the durable
-        // ledger suffix that may not have reached Git yet. This reader is immutable; the
-        // RepoWriterCell remains the only accepting writer.
-        readLedgerCut: () => readCurrentLedger((store) => store.currentCut()),
-        readContentBlob: (sha256) => readCurrentLedger((store) => store.readContentBlob(sha256)),
-        readEvent: (opId) => readCurrentLedger((store) => store.readEvent(opId)),
-        readApplied: (opId) => reader.withSession((projection) => projection.readOperation(opId)),
-      },
-      { ...ledgerOptions, localRoot: path.dirname(path.dirname(reader.path)) },
-    ),
+    replica = {
+      kick: () => undefined,
+      close: () => undefined,
+      ledgerCut: () => readCurrentLedger((store) => store.currentCut()),
+    },
     readSession = (runtimeSessionId: string) =>
       reader.withSession((projection) => readObservedRuntimeSession(projection, input.rootDir, runtimeSessionId)),
     runtime = makeAgentRuntimeStreamHub({
@@ -220,15 +207,16 @@ export async function openRepoCellProxy(
     read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   ): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
-    if (!edgeConfig) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
+    const config = edgeConfig();
+    if (!config) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
     return withEdgeReadModel(
       {
-        viewRoot: edgeConfig.viewRoot,
+        viewRoot: config.viewRoot,
         repoId: input.repoId,
-        nodeId: edgeConfig.nodeId,
+        nodeId: config.nodeId,
         principalId: binding?.actor.principal.personId,
-        ...(edgeConfig.maxAgeMs === undefined ? {} : { maxAgeMs: edgeConfig.maxAgeMs }),
-        ...(edgeConfig.maxLagRevisions === undefined ? {} : { maxLagRevisions: edgeConfig.maxLagRevisions }),
+        ...(config.maxAgeMs === undefined ? {} : { maxAgeMs: config.maxAgeMs }),
+        ...(config.maxLagRevisions === undefined ? {} : { maxLagRevisions: config.maxLagRevisions }),
       },
       (projection, frame, view) => {
         edgeViews.set(projection, view);
@@ -244,11 +232,6 @@ export async function openRepoCellProxy(
         freshness: frame.freshness,
         ...(frame.warning === null ? {} : { warnings: [...(receipt.warnings ?? []), frame.warning] }),
       });
-      if (action.kind === "event-show")
-        throw cellCodedError(
-          "replica_unavailable",
-          `${action.kind} requires canonical event or acceptance history, which this replica does not publish.`,
-        );
       if (action.kind === "doc-status" || action.kind === "doc-dry-run")
         return readRuntime(projection).actionContext.withHumanSummary(
           stamp(readEdgeDocWorkspace(input.rootDir, view, projection, action)),
@@ -301,11 +284,7 @@ export async function openRepoCellProxy(
             get: (_target, property) => {
               if (property === "currentCut")
                 return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
-              if (property === "readContentBlob")
-                return (sha256: string) =>
-                  edgeManifestBlob(edgeView.viewDir, edgeView, sha256)
-                    ? readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256)
-                    : readEdgeCiDetail(edgeConfig!.viewRoot, edgeView, sha256);
+              if (property === "readContentBlob") return (sha256: string) => readEdgeViewBlob(edgeView, sha256);
               throw cellCodedError(
                 "replica_unavailable",
                 `Replica query requires unmaterialized canonical store operation ${String(property)}.`,
@@ -579,7 +558,7 @@ export async function openRepoCellProxy(
           view: edgeViews.get(projection)!,
           answer: readAtCut(projection, method, payload, binding) as unknown as { missingDetails: readonly string[] },
         }));
-        const config = edgeConfig!;
+        const config = edgeConfig()!;
         await fetchEdgeCiDetails({
           peer: {
             hostname: config.host,
@@ -726,6 +705,7 @@ export async function openRepoCellProxy(
       ),
     settlePendingMaterialization: (context) => supervisor.request("settlePendingMaterialization", context),
     backup: (request) => supervisor.request("backup", request),
+    pruneReplicationLog: (beforeSequence) => supervisor.request("pruneReplicationLog", beforeSequence),
     close: async () => {
       if (closed) return;
       closed = true;

@@ -16,8 +16,7 @@ import {
 import { type PresetRunReceiptV1 } from "@harness-anything/preset";
 import { type AgentRuntimeAttachSubscription, type AgentRuntimeStreamHub } from "./agent-runtime-stream.ts";
 import { type RuntimeDispatchArchive } from "./doc-sync-actions.ts";
-import type { FleetRuntimeDispatchContext } from "./fleet/contract.ts";
-import { type ReplicaCutSource } from "./fleet/replica-cut-store.ts";
+import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
 import { openGuiCatalog } from "./gui-catalog.ts";
 import {
   type DaemonRepoAttachProgress,
@@ -92,6 +91,12 @@ export type RuntimeIngressAction =
       readonly dispatchContext?: FleetRuntimeDispatchContext;
     }
   | { readonly kind: "archive"; readonly archive: RuntimeDispatchArchive };
+
+export interface ReplicaCutSource {
+  readonly kick: () => void;
+  readonly close: () => void;
+  readonly ledgerCut: () => { readonly repoId: string; readonly revision: number; readonly headDigest: string } | null;
+}
 
 export type TaskCreateReceipt = WriteReceiptDraft & {
   readonly summary: string;
@@ -235,6 +240,8 @@ export interface RepoCell {
   }) => Promise<
     ReturnType<typeof createLedgerBackup> | ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>
   >;
+  /** Replication-log retention, run on this repository's single write chain. */
+  readonly pruneReplicationLog?: (beforeSequence: number) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 

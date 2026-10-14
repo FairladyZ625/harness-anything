@@ -7,8 +7,8 @@ import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListen
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import type { FleetDeviceLoginNotice } from "./fleet/contract.ts";
-import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/edge.ts";
+import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
+import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 
 interface RbacConfig {
   readonly url: string;

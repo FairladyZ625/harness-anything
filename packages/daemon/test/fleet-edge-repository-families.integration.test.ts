@@ -5,7 +5,8 @@ import path from "node:path";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 
 test(
   "settings provenance answers through the edge host after the center disconnects",
@@ -13,10 +14,11 @@ test(
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
     const viewRoot = path.join(f.root, "edge-view");
-    const replica = f.host.replica("lease-repo");
-    await replica.prepare();
-    await replica.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await catchUpReplica({
+      ...f.peer("node-one"),
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
     const truth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());
     assert.equal(truth.outcome, "applied", JSON.stringify(truth));
     const updated = await f.host.run(
@@ -46,18 +48,16 @@ test(
       localAuthFixture(),
     );
     assert.equal(schedule.outcome, "applied", JSON.stringify(schedule));
-    await replica.waitForCut(f.eventCount());
-    const frames: string[] = [];
-    await runFleetReplicaPullClient({
+    // The authored settings update reaches the replica as replicated commits on the same generation,
+    // not as a fresh base backup.
+    const viewDir = path.join(viewRoot, "repos", "lease-repo", "views", "node-one"),
+      generationBefore = readReplicaGeneration(viewDir)!.id;
+    await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
-      onFrame: (frame) => {
-        frames.push(frame.schema);
-      },
     });
-    assert.ok(frames.includes("fleet.delta.begin/v1"), "authored settings update must arrive by delta");
-    // Start the resident sync only after the observed pull owns the settings delta.
+    assert.equal(readReplicaGeneration(viewDir)!.id, generationBefore, "settings update must arrive incrementally");
     const e = await fleetEdgeHostFixture(t, f, { viewRoot });
     const updatedTruth = await f.host.run("lease-repo", { kind: "settings-read" }, localAuthFixture());
     const listTruth = await f.host.run("lease-repo", { kind: "schedule-list" }, localAuthFixture());

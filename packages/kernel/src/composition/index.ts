@@ -34,6 +34,9 @@ export {
   sqliteLedgerPath,
 } from "../store/sqlite-event-store.ts";
 export { reconcileSqliteEvents } from "../store/sqlite-ledger-reconcile.ts";
+export { openReplicaStore } from "../store/replica-store.ts";
+export type { ReplicationPosition, ReplicationCommit } from "../store/replication-log.ts";
+export { contentClaims as replicationContentClaims } from "../store/task-event-store-claims-layout.ts";
 export {
   createLedgerBackup,
   drillLedgerBackup,

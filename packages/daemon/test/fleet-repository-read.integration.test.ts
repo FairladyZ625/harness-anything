@@ -20,8 +20,11 @@ import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts"
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
 import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { auth } from "./daemon-host-recovery.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { repositoryReadData } from "../src/protocol/repository-read-frame.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
+import { runFleetReplicaSync } from "../src/fleet/replica-sync.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 
 test(
   "viewer GUI reads page from a replica cut and withhold it after the next sync reports revocation",
@@ -207,9 +210,7 @@ test(
       assert.match(JSON.stringify(await rereadCatalog()), code);
     };
     const pull = async () => {
-      await f.host.replica("lease-repo").prepare();
-      await f.host.replica("lease-repo").waitForCut(f.eventCount());
-      return runFleetReplicaPullClient({
+      return catchUpReplica({
         ...f.peer("node-one"),
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
@@ -364,16 +365,22 @@ test(
       auth,
     );
     assert.equal(secret.outcome, "applied", JSON.stringify(secret));
-    // Cross-repository authorization is enforced when acquiring the view, before any rows reach the edge.
-    await assert.rejects(
-      runFleetReplicaPullClient({
-        ...f.peer("node-two"),
-        repoId: "other-repo",
-        viewRoot: config.viewRoot,
-        diskQuotaBytes: config.quotaBytes,
-      }),
-      { code: "authorization_denied" },
-    );
+    // Cross-repository authorization is enforced when the replica stream starts, before any rows reach the edge.
+    const stopped = new AbortController();
+    let denied: unknown;
+    await runFleetReplicaSync({
+      ...f.peer("node-two"),
+      repoId: "other-repo",
+      viewRoot: config.viewRoot,
+      diskQuotaBytes: config.quotaBytes,
+      signal: stopped.signal,
+      onFailure: (error) => {
+        denied ??= error;
+        stopped.abort();
+      },
+    });
+    assert.equal((denied as { code?: string }).code, "authorization_denied", String(denied));
+    assert.equal(readReplicaGeneration(path.join(config.viewRoot, "repos", "other-repo", "views", "node-two")), null);
 
     assert.equal(
       local.withSession((projection) => projection.list().rows.length),
@@ -382,18 +389,21 @@ test(
     );
     // Mirroring is reading: a viewer's node receives the replica its repository-read admits, which is
     // what lets its edge answer reads locally (dec_0C26B97C5B6CEA37101FC0A84D).
-    const viewerPull = await runFleetReplicaPullClient({
+    // `ha daemon fleet edge sync` for this edge: the production sync waits on the edge daemon's stream.
+    const edgeSync = () =>
+      syncFleetEdgeMirror({ payload: { ...config, workspaceRoot: edgeRoot } }, f.peer("node-one").readAccessToken);
+    const viewerPull = await catchUpReplica({
       ...f.peer("node-one"),
       viewRoot: config.viewRoot,
       diskQuotaBytes: 64 * 1024 * 1024,
     });
-    assert.equal(viewerPull.current.cut.revision > 0, true);
+    assert.equal(viewerPull.replica.knownHead.revision > 0, true);
     f.owners.keycloak.account("person-outsider");
     f.owners.keycloak.node("node-two", "person-outsider");
     // dec_F01770FD0DCF72683B7C4C7A47: ownership transfer revokes the previous consent.
     f.owners.keycloak.endInteractiveSession("device-token-node-two");
     await assert.rejects(
-      runFleetReplicaPullClient({
+      catchUpReplica({
         ...f.peer("node-two"),
         viewRoot: config.viewRoot,
         diskQuotaBytes: config.quotaBytes,
@@ -410,14 +420,7 @@ test(
     );
     // The edge answers task list from rows already delivered to it; a revocation reaches those rows at
     // the node's next sync, which the center refuses and the edge records by withholding them.
-    await assert.rejects(
-      runFleetReplicaPullClient({
-        ...f.peer("node-one"),
-        viewRoot: config.viewRoot,
-        diskQuotaBytes: config.quotaBytes,
-      }),
-      { code: "authorization_denied" },
-    );
+    await assert.rejects(edgeSync(), { code: "authorization_denied" });
     await refusedRead(/replica_unavailable/);
     await refusedAgentRead(/replica_unavailable/);
     await refusedCatalogRead(/replica_unavailable/);
@@ -431,7 +434,8 @@ test(
     });
     assert.ok(revokedCli && !Array.isArray(revokedCli) && "result" in revokedCli, JSON.stringify(revokedCli));
     assert.equal((revokedCli.result as { ok?: boolean }).ok, false);
-    assert.equal((revokedCli.result as { code?: string }).code, "authorization_denied");
+    // The CLI reads the same withheld view as the GUI.
+    assert.equal((revokedCli.result as { code?: string }).code, "replica_unavailable");
     // task-show no longer crosses the fleet channel at all; the edge's own answer is the one
     // the revoked-cli assertion above already proves withheld.
     await assert.rejects(
@@ -440,14 +444,7 @@ test(
     );
     f.owners.keycloak.permit("person-one", "lease-repo", ["repository-read"]);
     f.owners.keycloak.nodeClients.delete("harness-node-node-one");
-    await assert.rejects(
-      runFleetReplicaPullClient({
-        ...f.peer("node-one"),
-        viewRoot: config.viewRoot,
-        diskQuotaBytes: config.quotaBytes,
-      }),
-      { code: "node_owner_unregistered" },
-    );
+    await assert.rejects(edgeSync(), { code: "node_owner_unregistered" });
     await f.center.close();
     await refusedRead(/replica_unavailable/);
     await refusedAgentRead(/replica_unavailable/);

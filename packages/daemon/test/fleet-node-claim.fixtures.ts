@@ -11,7 +11,7 @@ import {
 } from "./fleet-store.fixture.ts";
 import { openDaemonHost, type DaemonHost } from "../src/daemon-host.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { randomUUID } from "node:crypto";
 import {
   registerBootstrappedDaemonRepo as registerDaemonRepo,

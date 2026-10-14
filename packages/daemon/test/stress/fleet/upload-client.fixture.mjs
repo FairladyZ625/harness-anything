@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync } from "node:fs";
-import { runFleetWriteClient } from "../../../src/fleet/edge.ts";
+import { runFleetWriteClient } from "../../../src/fleet/peer.ts";
 
 const config = JSON.parse(readFileSync(process.argv[2], "utf8")),
   body = readFileSync(config.bodyFile);

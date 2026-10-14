@@ -24,20 +24,15 @@ function replica(nodeId: string, overrides: Partial<FleetReplicaStatus> = {}): F
     viewId: `view-${nodeId}`,
     repoId: "repo-test",
     centerRevision: 164,
-    centerEventAt: "2026-10-06T00:30:00.000Z",
-    centerManifestBytes: 1024,
+    centerSequence: 200,
     ackRevision: 164,
-    ackCutEventAt: "2026-10-06T00:30:00.000Z",
+    ackSequence: 200,
     ackedAt: "2026-10-06T00:30:01.000Z",
     lagRevisions: 0,
+    lagCommits: 0,
     lagMs: 1_000,
-    catchUpBytes: 0,
+    connected: true,
     delivery: "current",
-    activeTransfers: 0,
-    deliveryLease: null,
-    transferMetrics: { transferBytes: 0, snapshotStarts: 0, deltaStarts: 0, errors: 0, lastFailureCode: null },
-    sendWindowBytes: 0,
-    sendQuotaBytes: 0,
     diskQuotaBytes: null,
     ...overrides,
   };
@@ -124,8 +119,8 @@ test("the overview joins daemon facts: center node from daemon identity, edges f
   );
   const ubuntu = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
   assert.equal(ubuntu.replica?.ackRevision, 164);
-  assert.equal(ubuntu.replica?.deliveryLease, null);
-  assert.deepEqual(ubuntu.replica?.transferMetrics, replica("cc90-ubuntu").transferMetrics);
+  assert.equal(ubuntu.replica?.ackSequence, 200);
+  assert.equal(ubuntu.replica?.connected, true);
   assert.equal(ubuntu.owner.kind, "value");
   assert.deepEqual(
     ubuntu.leases instanceof Array && ubuntu.leases.map((row) => [row.taskId, row.agentLabel, row.runtimeSessionId]),

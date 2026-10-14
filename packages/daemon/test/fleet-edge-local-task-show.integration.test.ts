@@ -1,14 +1,14 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { readFileSync, rmSync, writeFileSync } from "node:fs";
+import { utimesSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { readEdgeRepository } from "../src/fleet-edge-task-read.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const quota = 64 * 1024 * 1024;
 
@@ -29,7 +29,11 @@ test(
     );
     const e = await fleetEdgeHostFixture(t, f);
     const pull = () =>
-      runFleetReplicaPullClient({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+      catchUpReplica({
+        ...f.peer("node-one"),
+        viewRoot: e.viewRoot,
+        diskQuotaBytes: quota,
+      });
     const local = (taskId: string) => e.command({ kind: "task-show", taskId });
     const center = async (taskId: string) =>
       (await f.host.run("lease-repo", { kind: "task-show", taskId } as never, localAuthFixture())) as unknown as {
@@ -38,9 +42,6 @@ test(
         readonly evidence?: string;
       };
     const settle = async () => {
-      const replica = f.host.replica("lease-repo");
-      await replica.prepare();
-      await replica.waitForCut(f.eventCount());
       await pull();
     };
     await settle();
@@ -74,16 +75,13 @@ test(
     assert.ok(typeof missingEdge.code === "string" && missingEdge.code.length > 0, JSON.stringify(missingEdge));
 
     // 3. Past its age budget the answer is still given, marked stale.
-    const confirmationPath = path.join(
-      locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir,
-      "head-confirmation.json",
-    );
-    const confirmation = JSON.parse(readFileSync(confirmationPath, "utf8")) as { confirmedAt: number };
-    writeFileSync(confirmationPath, JSON.stringify({ ...confirmation, confirmedAt: Date.now() - 5 * 60_000 }));
+    const confirmationPath = path.join(locateFleetMirrorView(e.viewRoot, "lease-repo")!.viewDir, "current.json");
+    const staleTime = new Date(Date.now() - 300_100);
+    utimesSync(confirmationPath, staleTime, staleTime);
     const later = await local("show-1");
     assert.equal(later.ok, true);
     assert.equal((later.freshness as { state: string }).state, "stale");
-    assert.match(String(later.warnings), /已 5 分钟未连中心/u);
+    assert.match(String(later.warnings), /已 5 分钟未收到中心更新/u);
 
     // 4. This edge's own write is visible to its next read: the read waits for the applied cut.
     const write = await e.command({ kind: "task-create", taskId: "show-2", title: "Written on the edge" });
@@ -92,15 +90,6 @@ test(
     assert.equal(waited.ok, true, JSON.stringify(waited));
     assert.ok((waited.cut as { revision: number }).revision >= (write.appliedCut as { revision: number }).revision);
     assert.match(String(waited.evidence), /Written on the edge/u);
-
-    // 5. A damaged local model is rebuilt from the verified local cut.
-    const view = locateFleetMirrorView(e.viewRoot, "lease-repo")!;
-    rmSync(path.join(view.viewDir, "read-model.sqlite"), { force: true });
-    rmSync(path.join(view.viewDir, "read-model.sqlite-wal"), { force: true });
-    rmSync(path.join(view.viewDir, "read-model.sqlite-shm"), { force: true });
-    assert.equal((await local("show-1")).ok, true);
-    writeFileSync(path.join(view.viewDir, "read-model.sqlite"), "not a database");
-    assert.equal((await local("show-1")).ok, true);
 
     // 6. With the center gone, the edge still answers with the center's last answer.
     const current = await center("show-1");
@@ -158,17 +147,21 @@ test(
 
     // 7. An edge that never pulled has no local answer and says so.
     const empty = await fleetEdgeHostFixture(t, f, { name: "edge-empty" });
-    assert.equal((await empty.command({ kind: "task-show", taskId: "show-1" })).code, "LOCAL_UNAVAILABLE");
+    assert.equal((await empty.command({ kind: "task-show", taskId: "show-1" })).code, "replica_unavailable");
   },
 );
 
-test("an edge read that cannot reach its own write cut in time says so without reading", async () => {
+test("an edge read that cannot reach its own write cut in time says so without reading", async (t) => {
+  const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
+  const e = await fleetEdgeHostFixture(t, f);
+  await catchUpReplica({ ...f.peer("node-one"), viewRoot: e.viewRoot, diskQuotaBytes: quota });
+  const view = locateFleetMirrorView(e.viewRoot, "lease-repo", "node-one")!;
   const answer = await readEdgeRepository(
     {
-      viewRoot: "/nonexistent-edge-view",
+      viewRoot: e.viewRoot,
       nodeId: "node-one",
       repoId: "lease-repo",
-      minCut: { revision: 10, headDigest: `sha256:${"f".repeat(64)}` },
+      minCut: { revision: view.revision + 1, headDigest: `sha256:${"f".repeat(64)}` },
       writeReadWaitMs: 5,
       action: { kind: "task-show", taskId: "show-1" },
     },

@@ -1,30 +1,27 @@
 // harness-test-tier: integration
+import { utimesSync } from "node:fs";
+import path from "node:path";
 import { registerFixtureRuntimeInstance } from "./repo-settings.fixture.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import tls from "node:tls";
 import { syncBuiltinESMExports } from "node:module";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { recordHeadConfirmation } from "../src/fleet/replica-read-model.ts";
 import { parseDaemonGuiReadResult } from "../src/protocol/gui-result-validation.ts";
 import { daemonMethodAcceptsPayload } from "../src/protocol/daemon-protocol-rpc-validation.ts";
-import { makeTaskEventReader, READ_MODEL_SCHEMA_GENERATION, sha256Text } from "@harness-anything/kernel";
+import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import {
-  runFleetReplicaPullClient,
-  runFleetRuntimeEventClient,
-  readFleetRepositoryMetadataClient,
-  runFleetUploadClient,
-  runFleetTaskCommandClient,
-} from "../src/fleet/edge.ts";
+import { runFleetRuntimeEventClient, readFleetRepositoryMetadataClient, runFleetUploadClient, runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord } from "../src/dispatch-stream.ts";
 import { squadRunObservation } from "../src/squad-observation.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { waitForState } from "./fleet-replication.fixture.ts";
 
 test("owner edge Squad launch publishes a canonical run visible on another edge", { timeout: 180_000 }, async (t) => {
   const witness = {
@@ -218,8 +215,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "Canonical Squad run",
     "publish the canonical task description, not the node execution prompt",
   );
-  await f.host.replica("lease-repo").waitForCut(f.eventCount());
-  await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: b.viewRoot, diskQuotaBytes: b.config.quotaBytes });
+  await catchUpReplica({
+    ...f.peer("node-two"),
+    viewRoot: b.viewRoot,
+    diskQuotaBytes: b.config.quotaBytes,
+  });
   const beforeReplay = f.eventCount();
   const replay = await runFleetRuntimeEventClient({
     ...f.peer("node-one"),
@@ -489,8 +489,11 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     observed.payload.executionId,
     "late terminal observation cannot release or replace the successor lease",
   );
-  await f.host.replica("lease-repo").waitForCut(f.eventCount());
-  await runFleetReplicaPullClient({ ...f.peer("node-two"), viewRoot: b.viewRoot, diskQuotaBytes: b.config.quotaBytes });
+  await catchUpReplica({
+    ...f.peer("node-two"),
+    viewRoot: b.viewRoot,
+    diskQuotaBytes: b.config.quotaBytes,
+  });
   const metadata = await readFleetRepositoryMetadataClient(f.peer("node-one")),
     authority = openPersistentWriterEpoch({ stateRoot: f.writerEpochStateRoot });
   try {
@@ -555,11 +558,10 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   );
   assert.ok(answer.cut);
   const view = locateFleetMirrorView(b.viewRoot, "lease-repo")!;
-  recordHeadConfirmation(
-    view.viewDir,
-    { revision: view.revision, headDigest: view.headDigest, schemaGeneration: READ_MODEL_SCHEMA_GENERATION },
-    0,
-  );
+  // Freshness is the replica stream's own signal now (ruling S1): the age of the generation's
+  // current.json position. Backdate it past the read-path max age so offline reads report stale.
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60_000);
+  utimesSync(path.join(view.viewDir, "current.json"), tenMinutesAgo, tenMinutesAgo);
   const connections = t.mock.method(tls, "connect");
   syncBuiltinESMExports();
   const response = await b.rpc.handle({
@@ -662,8 +664,6 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   await f.closeHost(restartedHost);
   const recoveryHost = await f.openHost(),
     recoveryCenter = await f.openCenter(recoveryHost, f.center.port);
-  const recoveryCut = recoveryHost.replica("lease-repo");
-  recoveryCut.activate();
   const beforeRecovery = f.eventCount();
   const restoredOwner = await openDaemonHost({
     daemonId: "owner-daemon",
@@ -674,7 +674,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   });
   t.after(() => restoredOwner.close());
   await restoredOwner.attachmentsSettled();
-  await recoveryCut.waitForCut(beforeRecovery + 1);
+  await waitForState(() => f.eventCount() > beforeRecovery, "the restored owner to publish the pending terminal");
   const recovered = makeTaskEventReader({ repoId: "lease-repo", rootDir: f.repo }).read().events.at(-1)!;
   assert.equal(recovered.type, "runtime_squad_run_observed");
   assert.equal(recovered.payload.runRevision, 5);

@@ -8,9 +8,10 @@ import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
-import { runFleetRuntimeEventClient, runFleetTaskCommandClient, runFleetReplicaPullClient } from "../src/fleet/edge.ts";
+import { runFleetRuntimeEventClient, runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { fleetFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { definition } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 const nativeId = "019abcdef-1234-5678-9999-abcdef123456";
 const body = Buffer.from(
@@ -168,7 +169,11 @@ test(
     assert.equal(existsSync(checkpointFile), true);
     assert.equal(readFileSync(checkpointFile, "utf8").includes("private-native-sentinel"), false);
     const viewRoot = path.join(f.root, "private-checkpoint-replica");
-    await runFleetReplicaPullClient({ ...peer(target.nodeId), viewRoot, diskQuotaBytes: 64 * 1024 * 1024 });
+    await catchUpReplica({
+      ...peer(target.nodeId),
+      viewRoot,
+      diskQuotaBytes: 64 * 1024 * 1024,
+    });
     const view = locateFleetMirrorView(viewRoot, source.repoId);
     assert.ok(view);
     assert.equal(

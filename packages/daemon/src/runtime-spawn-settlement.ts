@@ -53,9 +53,10 @@ export async function publishExit(
     squadLeaderControl = active.squadId !== null && active.delegatedBy === null;
   try {
     const persistedTerminal = readDispatchStream(context.input.rootDir, active.dispatchId)?.terminalOutcome;
-    // A local snapshot alone does not prove that the center accepted settlement.
-    // Only an already-published exit lets adoption skip those side effects.
-    if (resumePublishedExit && persistedTerminal) {
+    // A non-failed terminal snapshot follows successful lease settlement and can replay
+    // while the replica still shows an earlier liveness. Failed snapshots can include a
+    // rejected lease settlement, so retain their recovery path until exit was published.
+    if (persistedTerminal && (resumePublishedExit || persistedTerminal.payload.outcome !== "failed")) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);

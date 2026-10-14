@@ -63,6 +63,8 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
   readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
   readonly followerStatus: () => { readonly git: FollowerFacet; readonly worktree: FollowerFacet };
+  /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
+  readonly pruneReplicationLog: (beforeSequence: number) => void;
 }
 
 export interface SqliteTaskEventStoreOptions {
@@ -438,6 +440,18 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     worktreeConflicts,
     layout: () => resolveHarnessLayout(input),
   });
+  const appendRejection: CanonicalEventStore["appendRejection"] = (value) => {
+    if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
+    const fence = options.writerFence?.() ?? { repoId: options.repoId, holderId: "direct-store", epoch: 1 },
+      operation = () =>
+        sqlite.appendCommand({
+          fence: { repoId: fence.repoId, holder: fence.holderId, epoch: fence.epoch },
+          intent: { opId: value.opId, intentDigest: value.intentDigest, summary: value.summary },
+          events: [],
+          rejectionCode: value.rejectionCode,
+        });
+    return options.withAppendFence ? options.withAppendFence(operation) : operation();
+  };
 
   return {
     canonicalRef: `sqlite:generation-${sqlite.metadata().generation}`,
@@ -448,6 +462,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
       ledgerCommitSha(options.repoId, localGitObjectRefStore.resolveCommit(ledger().rootDir, authoredRef())),
     // Migration import asks for the cut of a prepared event before it commits, so derive it from the event.
     publication: (event) => ({ commitSha: null, cut: canonicalEventCut(options.repoId, event) }),
+    appendRejection,
     readEvent: sqlite.event,
     readEventById: sqlite.eventById,
     readEventAtRevision: sqlite.eventAtRevision,
@@ -485,6 +500,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readCommandOutcome: sqlite.readCommandOutcome,
     ledgerMetadata: sqlite.metadata,
     followerStatus: () => follower,
+    pruneReplicationLog: (beforeSequence) => {
+      if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
+      sqlite.pruneReplicationLog(beforeSequence);
+    },
   };
 
   function health(state: "ok" | "retrying" | "failed", reason?: string): MaterializationHealth {

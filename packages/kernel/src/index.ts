@@ -265,22 +265,7 @@ export type { TaskSourceEntry } from "./projection/sqlite-task-source.ts";
 export { renderDecisionDocument } from "./domain/decision-event.ts";
 export { renderFactsDocument } from "./domain/fact-event.ts";
 export type { ProjectionWarning, TaskProjectionRow } from "./projection/types.ts";
-export {
-  applyEdgeReadModelEntry,
-  createEdgeReadModelTables,
-  deleteEdgeReadModelEntry,
-  edgeReadAuthorizationShapeDigest,
-  isReadModelPath,
-  parseEdgeReadModelMeta,
-  READ_MODEL_META_PATH,
-  READ_MODEL_SCHEMA_GENERATION,
-} from "./projection/read-model.ts";
-export type { EdgeReadModelMeta, EdgeReaderProfile } from "./projection/read-model.ts";
-export { canonicalJson } from "./projection/rebuildable-task-projection-sql.ts";
-export { makeEdgeReplicaQueries, type EdgeReplicaQueries } from "./projection/edge-replica-queries.ts";
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
-export { docByteLength } from "./domain/doc-sync-codec.ts";
-export type { DocumentState } from "./domain/doc-sync-types.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { VerticalCompletionDeclaration } from "./domain/completion-source.ts";
 export { VerticalCompletionDeclarationSchema } from "./schemas/completion-source.ts";
@@ -310,6 +295,8 @@ export {
   makeTaskEventStore,
   makeTaskProjection,
   openSqliteEventStore,
+  openReplicaStore,
+  replicationContentClaims,
   readOfflineLedgerEvents,
   resolveActiveGeneration,
   restoreDrillRetentionFor,
@@ -322,6 +309,7 @@ export {
   readVerifiedLedgerBackup,
 } from "./composition/index.ts";
 export type { LedgerBackupRetentionPolicyV1 } from "./composition/index.ts";
+export type { ReplicationPosition, ReplicationCommit } from "./composition/index.ts";
 export type {
   CanonicalContentBlob,
   CanonicalEventAppendReceipt,
@@ -392,13 +380,6 @@ export type { CanonicalEventSummary } from "./domain/canonical-event-summary.ts"
 export type { EventListQuery } from "./domain/event-list.ts";
 
 export { reduceArtifactEntityState, type ArtifactEntityState } from "./domain/artifact-entity-state.ts";
-
-export {
-  replicaManifestDigest,
-  updateReplicaManifestDigest,
-  type ReplicaSequenceRead,
-  type ReplicaRevision,
-} from "./projection/replica-sequence.ts";
 
 export { currentGateRun, claimGateRun, settleGateRun, validCompletionWitnessResult } from "./domain/gate-run.ts";
 export type { GateRun, CompletionWitnessResult } from "./domain/gate-run.ts";

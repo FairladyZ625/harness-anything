@@ -2,11 +2,14 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import path from "node:path";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { locateFleetMirrorView } from "./fleet-edge-mirror.ts";
-import { isReadDenied, openEdgeReadModel, readHeadConfirmation } from "./fleet/replica-read-model.ts";
+import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { readReplicaHealth, replicaFailure } from "./fleet/replica-health.ts";
 
+/** Three missed center keepalives: a stream this quiet is not delivering (REPLICATION_KEEPALIVE_MS). */
+const REPLICA_STREAM_SILENT_MS = 45_000;
+
 /** Local observations remain available when the replica, transport or canonical writer is broken. */
-export function edgeReplicaDoctor(rootDir: string, repoId: string) {
+export function edgeReplicaDoctor(rootDir: string, repoId: string, now: () => number = Date.now) {
   const replica = {
     currentCut: null as { revision: number; headDigest: string } | null,
     centerCut: null as { revision: number; headDigest: string } | null,
@@ -25,33 +28,33 @@ export function edgeReplicaDoctor(rootDir: string, repoId: string) {
       throw Object.assign(new Error("Replica configuration is unavailable"), { code: "fleet_edge_config_invalid" });
     const viewRoot = path.resolve(rootDir, config.viewRoot),
       viewDir = path.join(viewRoot, "repos", repoId, "views", config.nodeId);
-    const confirmation = readHeadConfirmation(viewDir);
-    if (confirmation) {
-      replica.centerCut = { revision: confirmation.headRevision, headDigest: confirmation.headDigest };
-      replica.lastSuccessAt = new Date(confirmation.confirmedAt).toISOString();
-    }
     const view = locateFleetMirrorView(viewRoot, repoId, config.nodeId);
     if (view) {
       replica.currentCut = { revision: view.revision, headDigest: view.headDigest };
       replica.authorizationShapeDigest = view.authorizationShapeDigest;
-      if (!isReadDenied(viewDir)) {
-        const model = openEdgeReadModel(view, path.join(viewRoot, "repos", repoId, "cas", "sha256"));
-        if (model) {
-          replica.schemaGeneration = model.meta.schemaGeneration;
-          model.db.close();
-        }
-      }
+      const generation = readReplicaGeneration(viewDir);
+      replica.schemaGeneration = generation?.metadata.projectionSchema ?? null;
+      // The edge learns the center head only from the stream: its last confirmation is that head.
+      replica.centerCut = replica.currentCut;
     }
     const health = readReplicaHealth(viewDir),
-      failure = health.modelFailure ?? health.syncFailure;
+      failure = health.modelFailure ?? health.syncFailure,
+      heartbeatAge = health.lastHeartbeatAt === null ? null : now() - Date.parse(health.lastHeartbeatAt),
+      silent = view !== null && failure === null && (heartbeatAge === null || heartbeatAge > REPLICA_STREAM_SILENT_MS);
     replica.rebuildCount = health.rebuildCount;
     replica.lastHeartbeatAt = health.lastHeartbeatAt;
-    replica.failureCode = isReadDenied(viewDir)
-      ? "authorization_denied"
-      : (failure?.code ?? (view ? null : "replica_unavailable"));
-    replica.failureMessage = failure?.message ?? null;
+    replica.lastSuccessAt = health.lastHeartbeatAt;
+    replica.failureCode = failure?.code ?? (view ? (silent ? "replica_stream_silent" : null) : "replica_unavailable");
+    replica.failureMessage =
+      failure?.message ??
+      (silent
+        ? health.lastHeartbeatAt === null
+          ? "The replication stream has never confirmed a position."
+          : `No center confirmation since ${health.lastHeartbeatAt}; the replication stream is not delivering.`
+        : null);
+    // Lag is only known while the stream confirms the center head; a silent or failed stream's lag is unknown.
     replica.lag =
-      replica.currentCut && replica.centerCut
+      replica.currentCut && replica.centerCut && replica.failureCode === null
         ? Math.max(0, replica.centerCut.revision - replica.currentCut.revision)
         : null;
   } catch (error) {

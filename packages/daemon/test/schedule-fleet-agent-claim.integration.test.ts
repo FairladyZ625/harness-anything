@@ -1,4 +1,5 @@
 // harness-test-tier: integration
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
@@ -32,7 +33,8 @@ test(
       };
     let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
       host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
-      edge: ReturnType<typeof openFleetEdgeRuntime> | null = null;
+      edge: ReturnType<typeof openFleetEdgeRuntime> | null = null,
+      replicaSync: ReturnType<typeof startResidentReplicaSync> | null = null;
     try {
       initHarnessRepo(repo, "schedule-fleet-agent-center");
       registerDaemonRepo({
@@ -132,6 +134,32 @@ test(
       const workspaceRoot = path.join(root, "edge-workspace"),
         viewRoot = path.join(root, "edge-view");
       initHarnessRepo(workspaceRoot, "schedule-fleet-agent-edge");
+      const syncReplica = () =>
+        catchUpReplica({
+          host: "127.0.0.1",
+          port: center.port,
+          ca: certificate,
+          servername: "localhost",
+          nodeId: subject.nodeId,
+          credential: `credential-${subject.nodeId}`,
+          repoId,
+          viewRoot,
+          diskQuotaBytes: 64 * 1024 * 1024,
+          readAccessToken: owners.readAccessToken(subject.nodeId),
+        });
+      await syncReplica();
+      replicaSync = startResidentReplicaSync({
+        readAccessToken: owners.readAccessToken(subject.nodeId),
+        host: "127.0.0.1",
+        port: center.port,
+        ca: certificate,
+        servername: "localhost",
+        nodeId: subject.nodeId,
+        credential: `credential-${subject.nodeId}`,
+        repoId,
+        viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+      });
       edge = openFleetEdgeRuntime({
         readBinding: () => owners.binding(subject.nodeId),
         request: {
@@ -177,6 +205,7 @@ test(
       });
       assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
       assert.equal((rejected.error as { readonly code?: string } | undefined)?.code, "schedule_agent_unavailable");
+      await syncReplica();
       const shown = await edge.run("repo.schedule.run", { kind: "schedule-show", scheduleId });
       assert.equal((shown.schedule as { readonly status: { readonly activeRun: unknown } }).status.activeRun, null);
 
@@ -200,6 +229,7 @@ test(
       });
       assert.equal(retiredRun.outcome, "op_rejected", JSON.stringify(retiredRun));
       assert.equal((retiredRun.error as { readonly code?: string } | undefined)?.code, "agent_retired");
+      await syncReplica();
       const retiredShown = await edge.run("repo.schedule.run", {
         kind: "schedule-show",
         scheduleId: retiredScheduleId,
@@ -209,6 +239,7 @@ test(
         null,
       );
     } finally {
+      await replicaSync?.close();
       edge?.close();
       await center?.close();
       await host?.close();

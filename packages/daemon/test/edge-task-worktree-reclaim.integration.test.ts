@@ -1,9 +1,16 @@
 // harness-test-tier: integration
-import { commitEdgeManifest } from "../src/fleet/replica-read-model.ts";
-import { fleetManifestDigest } from "../src/fleet/contract.ts";
+import {
+  activateEmptyCanonicalGeneration,
+  makeTaskProjection,
+  openSqliteEventStore,
+  sha256Bytes,
+  sqliteLedgerPath,
+} from "@harness-anything/kernel";
+import { DatabaseSync } from "node:sqlite";
+import { startBaseBackup } from "../src/fleet/basebackup.ts";
+import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { devNull, tmpdir } from "node:os";
 import path from "node:path";
@@ -24,7 +31,7 @@ const repoId = "edge-repo",
   harnessYaml = "schema: harness-anything/v1\nname: edge\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n";
 
 test("a node reclaims its clean checkout of a closed task once its own mirror carries the close", async (t) => {
-  const fixture = nodesFixture(t),
+  const fixture = await nodesFixture(t),
     onA = await checkout(fixture.nodeA, doneId),
     onB = await checkout(fixture.nodeB, doneId),
     openOnA = await checkout(fixture.nodeA, openId);
@@ -60,7 +67,7 @@ test("a node reclaims its clean checkout of a closed task once its own mirror ca
 });
 
 test("a closed task's checkout holding work no remote has is kept and named until that work is published", async (t) => {
-  const fixture = nodesFixture(t),
+  const fixture = await nodesFixture(t),
     cwd = await checkout(fixture.nodeA, doneId),
     head = commit(cwd, "only-here.txt");
   assert.deepEqual(await sync(fixture.nodeA, { [doneId]: "cancelled" }), {
@@ -86,7 +93,7 @@ test("a closed task's checkout holding work no remote has is kept and named unti
 
 test("a tombstoned or archived package closes its task whatever its status says", async (t) => {
   for (const disposition of ["tombstoned", "archived"]) {
-    const fixture = nodesFixture(t),
+    const fixture = await nodesFixture(t),
       cwd = await checkout(fixture.nodeA, doneId);
     assert.deepEqual(
       (await sync(fixture.nodeA, { [doneId]: "active" }, { [doneId]: disposition }))?.removed,
@@ -97,18 +104,21 @@ test("a tombstoned or archived package closes its task whatever its status says"
   }
 });
 
-test("a blocked pull, a directory no mirrored package declares and a checkout on another branch are left alone", async (t) => {
-  const fixture = nodesFixture(t),
+test("an unconverged view, a directory no mirrored package declares and a checkout on another branch are left alone", async (t) => {
+  const fixture = await nodesFixture(t),
     node = fixture.nodeA,
     cwd = await checkout(node, doneId);
 
-  // The mirror has not converged with the center, so the close it carries is not acted on yet.
-  await sync(node, { [doneId]: "active" });
-  writeFileSync(path.join(node.root, "harness", "tasks", doneId, "INDEX.md"), "edited on this node\n");
-  setCut(node, { [doneId]: "done" });
-  const blocked = applyFleetMirrorCut(node.viewRoot, repoId, node.root, "pull");
-  assert.equal(blocked.outcome, "pull_blocked");
-  assert.equal(await reclaimEdgeTaskWorktrees(mirrorOf(node), blocked), null);
+  // A view that has not converged with the center does not act on the close it has not yet
+  // carried. The old dirty-pull block retired with the dual-sync machinery (ruling 2026-10-14:
+  // edge-local edits stay working-copy candidates; the mirror always applies the cut).
+  const beforeClose = await sync(node, { [doneId]: "active" });
+  assert.equal(beforeClose, null);
+  const stillOpen = await reclaimEdgeTaskWorktrees(
+    mirrorOf(node),
+    applyFleetMirrorCut(node.viewRoot, repoId, node.root, "pull"),
+  );
+  assert.equal(stillOpen, null);
   assert.equal(existsSync(cwd), true);
 
   // A schedule occurrence's worktree has the same shape — directory and branch of one name — and no task package.
@@ -151,10 +161,61 @@ function sync(
   statuses: Readonly<Record<string, string>>,
   dispositions: Readonly<Record<string, string>> = {},
 ) {
+  const viewDir = path.join(node.viewRoot, "repos", repoId, "views", "edge-view");
+  if (readReplicaGeneration(viewDir) === null) {
+    // No replica view at all: nothing has converged, so there is nothing to reclaim.
+    const applied = applyFleetMirrorCut(node.viewRoot, repoId, node.root, "pull");
+    assert.equal(applied.outcome, "no_view");
+    return reclaimEdgeTaskWorktrees(mirrorOf(node), applied);
+  }
   setCut(node, statuses, dispositions);
   const applied = applyFleetMirrorCut(node.viewRoot, repoId, node.root, "pull");
   assert.equal(applied.outcome, "applied");
   return reclaimEdgeTaskWorktrees(mirrorOf(node), applied);
+}
+
+/**
+ * Installs the node's initial replica generation: one real base backup of a minimal ledger +
+ * projection. Later rounds move the view forward in place (see setCut).
+ */
+async function installNodeView(node: Node): Promise<void> {
+  const repo = path.join(node.viewRoot, "center-repo");
+  mkdirSync(path.join(repo, "harness"), { recursive: true });
+  git(repo, "init", "-q");
+  git(repo, "config", "user.name", "Edge Reclaim Test");
+  git(repo, "config", "user.email", "edge-reclaim@example.invalid");
+  writeFileSync(path.join(repo, "harness/harness.yaml"), harnessYaml);
+  git(repo, "add", "harness");
+  git(repo, "commit", "--allow-empty", "-qm", "base");
+  activateEmptyCanonicalGeneration({ repoId, rootInput: repo });
+  const ledgerStore = openSqliteEventStore({ repoId, rootInput: repo });
+  ledgerStore.close();
+  const projection = makeTaskProjection({
+    rootDir: repo,
+    eventStore: {
+      readHead: () => null,
+      readBatch: () => ({ sourceRevision: 0, events: [], cursor: null, done: true, accessedItems: 0 }),
+      readContentBlob: () => null,
+    },
+  });
+  projection.catchUp();
+  const projectionPath = projection.path;
+  projection.close();
+  const viewDir = path.join(node.viewRoot, "repos", repoId, "views", "edge-view");
+  const transfer = await startBaseBackup({
+    ledgerPath: sqliteLedgerPath(repo),
+    projectionPath,
+    directory: path.join(node.viewRoot, "transfer"),
+  });
+  const archive = await transfer.complete;
+  await installReplicaGeneration({
+    root: viewDir,
+    archive: archive.file,
+    metadata: archive.metadata,
+    sha256: archive.sha256,
+    size: archive.size,
+    quotaBytes: 64 * 1024 * 1024,
+  });
 }
 
 /** Writes the center's next cut into the node's replica view: one task package per id, the INDEX.md the kernel writes. */
@@ -165,40 +226,41 @@ function setCut(
 ): void {
   const revision = (node.revision += 1),
     viewDir = path.join(node.viewRoot, "repos", repoId, "views", "edge-view"),
-    cutDir = path.join(viewDir, "cuts", `${revision}-g0`),
-    files = Object.entries(statuses).map(([taskId, status]) => ({
-      path: `tasks/${taskId}/INDEX.md`,
-      body:
-        `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: "status: done"\nlifecycle:\n` +
-        `  engine: kernel/task-lifecycle/v1\n  status: ${status}\n` +
-        `packageDisposition: ${dispositions[taskId] ?? "active"}\nowner: machine\n---\n# Task\n\nstatus: done\n`,
-    }));
-  const entries = files.map((file) => ({
-    path: file.path,
-    blob: { sha256: sha(file.body), size: Buffer.byteLength(file.body), mediaType: "text/markdown" },
-  }));
-  const header = {
-    cut: { revision, schemaGeneration: 0, headDigest: `sha256:${sha(`head-${revision}`)}` },
-    schemaGeneration: 0,
-    manifestDigest: fleetManifestDigest(entries),
-  };
-  commitEdgeManifest(
-    viewDir,
-    header,
-    null,
-    entries.map((entry) => ({ op: "put", ...entry })),
+    generation = readReplicaGeneration(viewDir)!;
+  const objects = path.join(
+    generation.rootDir,
+    ".harness",
+    "store",
+    "generations",
+    String(generation.metadata.ledgerGeneration),
+    "objects",
+    "sha256",
   );
-  writeJson(path.join(cutDir, "manifest.json"), header);
-  for (const file of files) {
-    const cas = path.join(viewDir, "../../cas/sha256", sha(file.body).slice(0, 2), sha(file.body));
-    mkdirSync(path.dirname(cas), { recursive: true });
-    writeFileSync(cas, file.body);
+  const db = new DatabaseSync(generation.projectionPath);
+  try {
+    for (const [taskId, status] of Object.entries(statuses)) {
+      const logical = `tasks/${taskId}/INDEX.md`,
+        body =
+          `---\nschema: task-package/v2\ntask_id: ${taskId}\ntitle: "status: done"\nlifecycle:\n` +
+          `  engine: kernel/task-lifecycle/v1\n  status: ${status}\n` +
+          `packageDisposition: ${dispositions[taskId] ?? "active"}\nowner: machine\n---\n# Task\n\nstatus: done\n`,
+        sha = sha256Bytes(Buffer.from(body));
+      mkdirSync(path.join(objects, sha.slice(0, 2)), { recursive: true });
+      writeFileSync(path.join(objects, sha.slice(0, 2), sha.slice(2)), body);
+      db.prepare("INSERT OR REPLACE INTO document (path, workspace_revision, value_json) VALUES (?, ?, ?)").run(
+        logical,
+        revision,
+        JSON.stringify({ blobSha256: sha, size: Buffer.byteLength(body), mediaType: "text/markdown" }),
+      );
+    }
+  } finally {
+    db.close();
   }
-  writeJson(path.join(viewDir, "current.json"), {
-    schemaGeneration: 0,
-    cut: { revision, headDigest: `sha256:${sha(`head-${revision}`)}` },
-    manifestDigest: `sha256:${sha(`manifest-${revision}`)}`,
-  });
+  const pointer = {
+    id: generation.id,
+    metadata: { ...generation.metadata, position: { ...generation.metadata.position, revision } },
+  };
+  writeFileSync(path.join(viewDir, "current.json"), `${JSON.stringify(pointer)}\n`);
 }
 
 async function checkout(node: Node, taskId: string): Promise<string> {
@@ -212,7 +274,9 @@ async function deliver(node: Node, cwd: string, taskId: string, withCommit = tru
   assert.equal(pushed.attempted && pushed.ok, true, JSON.stringify(pushed));
 }
 
-function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA: Node; readonly nodeB: Node } {
+async function nodesFixture(
+  t: TestContext,
+): Promise<{ readonly remote: string; readonly nodeA: Node; readonly nodeB: Node }> {
   const base = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-edge-reclaim-"))),
     remote = path.join(base, "remote.git"),
     seed = path.join(base, "seed");
@@ -234,7 +298,11 @@ function nodesFixture(t: TestContext): { readonly remote: string; readonly nodeA
     writeFileSync(path.join(root, "harness", "harness.yaml"), harnessYaml);
     return { root, viewRoot: path.join(base, `${name}-view`), revision: 0 };
   };
-  return { remote, nodeA: node("node-a"), nodeB: node("node-b") };
+  const nodeA = node("node-a"),
+    nodeB = node("node-b");
+  await installNodeView(nodeA);
+  await installNodeView(nodeB);
+  return { remote, nodeA, nodeB };
 }
 
 function identify(root: string): void {
@@ -247,15 +315,6 @@ function commit(cwd: string, file: string): string {
   git(cwd, "add", file);
   git(cwd, "commit", "-qm", `feat: ${file}`);
   return git(cwd, "rev-parse", "HEAD");
-}
-
-function writeJson(file: string, value: unknown): void {
-  mkdirSync(path.dirname(file), { recursive: true });
-  writeFileSync(file, `${JSON.stringify(value)}\n`);
-}
-
-function sha(value: string): string {
-  return createHash("sha256").update(value).digest("hex");
 }
 
 function git(cwd: string, ...args: string[]): string {

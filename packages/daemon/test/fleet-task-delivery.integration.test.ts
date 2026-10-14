@@ -8,7 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import type { DaemonTaskRuntimeContextResult } from "../src/protocol/daemon-protocol-runtime-context.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
-import { runFleetTaskCommandClient } from "../src/fleet/edge.ts";
+import { runFleetTaskCommandClient } from "../src/fleet/peer.ts";
 import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
@@ -16,6 +16,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 for (const explicit of [false, true])
   test(
@@ -192,6 +193,18 @@ for (const explicit of [false, true])
       }
       const submitted = await invoke(explicit ? ["--commit", commitSha] : []);
       assert.equal(submitted.code, 0, JSON.stringify(submitted));
+      await catchUpReplica({
+        host: config.host,
+        port: config.port,
+        ca: readFileSync(config.caPath),
+        servername: config.servername,
+        nodeId: config.nodeId,
+        credential: config.credential,
+        repoId: config.repoId,
+        viewRoot: config.viewRoot,
+        diskQuotaBytes: 64 * 1024 * 1024,
+        readAccessToken: fixture.owners.readAccessToken(config.nodeId),
+      });
       const accepted = readEdgeRuntimeRepository(config, "repo.tasks.runtimeContext.read", { taskId: created.taskId })
         .snapshot as unknown as DaemonTaskRuntimeContextResult["snapshot"];
       assert.equal(accepted.executions[0].submission.commitSha, commitSha);

@@ -39,6 +39,8 @@ export interface DaemonHost {
     auth: DaemonAuthenticationContext,
   ) => ReturnType<RepoCell["presetRun"]>;
   readonly replica: (repoId: string) => RepoCell["replica"];
+  /** Replication-log retention for a center repository, on its single writer. */
+  readonly pruneReplicationLog: (repoId: string, beforeSequence: number) => Promise<void>;
   readonly settleMaterialization: (repoId: string, context: string) => Promise<void>;
   readonly read: <M extends DaemonGuiRpcReadMethod>(
     repoId: string,

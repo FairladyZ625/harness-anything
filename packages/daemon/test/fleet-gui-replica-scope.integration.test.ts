@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import tls from "node:tls";
@@ -8,8 +8,8 @@ import { syncBuiltinESMExports } from "node:module";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetReplicaPullClient } from "../src/fleet/edge.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 test(
   "GUI reads bind the configured node view and doc previews bind each edge workspace while offline",
@@ -21,9 +21,11 @@ test(
       created = await f.command("center-node", { kind: "task-create", taskId: "scope-task", title: "Own view" });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
     const pull = async (nodeId: string) => {
-      await f.host.replica("lease-repo").prepare();
-      await f.host.replica("lease-repo").waitForCut(f.eventCount());
-      await runFleetReplicaPullClient({ ...f.peer(nodeId), viewRoot, diskQuotaBytes: quota });
+      await catchUpReplica({
+        ...f.peer(nodeId),
+        viewRoot,
+        diskQuotaBytes: quota,
+      });
     };
     await pull("node-one");
     await f.command("center-node", { kind: "task-create", taskId: "newer-task", title: "Newer other view" });
@@ -80,20 +82,13 @@ test(
           assert.equal((independent.cut as { revision: number }).revision, newer.cut!.revision);
         }
       }
-      const view = locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!,
-        currentPath = path.join(view.viewDir, "current.json"),
-        currentBytes = readFileSync(currentPath),
-        current = JSON.parse(currentBytes.toString("utf8"));
-      writeFileSync(currentPath, JSON.stringify({ ...current, authorizationShapeDigest: "mismatched-owner-digest" }));
-      await assert.rejects(read(a), { code: "authorization_denied" });
-      assert.equal((await read(b)).rows.length, 2);
-      writeFileSync(currentPath, currentBytes);
-      rmSync(currentPath);
+      // A node whose own view is gone answers unavailable; it never falls back to another node's view.
+      rmSync(locateFleetMirrorView(viewRoot, "lease-repo", "node-one")!.viewDir, { recursive: true, force: true });
       await assert.rejects(read(a), { code: "replica_unavailable" });
       assert.equal((await read(b)).rows.length, 2);
       assert.equal(connections.mock.callCount(), 0);
       t.diagnostic(
-        `two node views at revisions ${older.cut!.revision}/${newer.cut!.revision}; local doc states clean/eligible/deletion independent; owner digest mismatch denied; missing own view unavailable; center TLS calls=0`,
+        `two node views at revisions ${older.cut!.revision}/${newer.cut!.revision}; local doc states clean/eligible/deletion independent; missing own view unavailable; center TLS calls=0`,
       );
     } finally {
       connections.mock.restore();

@@ -13,6 +13,7 @@ import { listenFleetTls } from "../src/fleet/center.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { initHarnessRepo, scheduleRuntimePorts } from "./schedule-actions.fixtures.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
 
 // A mutating center round trip settles when the single-writer queue applies the operation, so the
 // edge's write sessions carry the configured center wait budget instead of the read path's flat
@@ -32,7 +33,8 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
   let center: Awaited<ReturnType<typeof listenFleetTls>> | null = null,
     host: Awaited<ReturnType<typeof openDaemonHost>> | null = null,
     edge: ReturnType<typeof openFleetEdgeRuntime> | null = null,
-    owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null;
+    owners: Awaited<ReturnType<typeof fleetNodeOwners>> | null = null,
+    replicaSync: ReturnType<typeof startResidentReplicaSync> | null = null;
   try {
     initHarnessRepo(repo, "fleet-write-wait-center");
     registerDaemonRepo({ canonicalRoot: repo, repoId, mode: "remote-center", userRoot, createConvenienceLinks: false });
@@ -66,8 +68,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     host = await openDaemonHost({ daemonId: "fleet-write-wait-center", userRoot });
     await host.attachmentsSettled();
     initHarnessRepo(path.join(root, "edge-workspace"), "fleet-write-wait-edge");
-    // The edge pulls before its first command, so the center needs one published cut: warm the
-    // ledger with an unstalled local write before any fleet session exists.
+    // Warm the ledger with an unstalled local write before any fleet session exists.
     const warmed = await host.run(
       repoId,
       {
@@ -111,6 +112,21 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
       verifyHuman: owners.verifyHuman,
     });
     const workspaceRoot = path.join(root, "edge-workspace");
+    // The edge runtime answers from its replica and waits for writes on its resident stream.
+    const replicaOptions = {
+      readAccessToken: owners.readAccessToken(nodeId),
+      hostname: "127.0.0.1",
+      port: center.port,
+      ca: readFileSync(certFile),
+      servername: "localhost",
+      nodeId,
+      credential: `credential-${nodeId}`,
+      repoId,
+      viewRoot: path.join(root, "edge-view"),
+      diskQuotaBytes: 64 * 1024 * 1024,
+    };
+    await catchUpReplica(replicaOptions);
+    replicaSync = startResidentReplicaSync(replicaOptions);
     edge = openFleetEdgeRuntime({
       request: {
         host: "127.0.0.1",
@@ -164,6 +180,7 @@ test("edge write round trips wait out a briefly stalled center", { timeout: 120_
     });
     assert.equal(control.outcome, "applied", JSON.stringify(control));
   } finally {
+    await replicaSync?.close();
     edge?.close();
     await center?.close();
     await host?.close();

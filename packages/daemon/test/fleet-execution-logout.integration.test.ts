@@ -11,12 +11,14 @@ import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 import { applyFleetMirrorCut } from "../src/fleet-edge-mirror.ts";
-import { runFleetReplicaPullClient, runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/edge.ts";
+import { runFleetTaskCommandClient, runFleetRuntimeEventClient } from "../src/fleet/peer.ts";
 import { OidcSessionService, signInAt } from "./keycloak.fixtures.ts";
 import { fleetFixture, git, localAuthFixture } from "./fleet-runtime-recovery.fixtures.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { eventuallyValue, spawnCli } from "./fixtures/runtime-ingress.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 
 // Real provider process, child CLI, edge socket, Fleet TLS, center writer and isolated realm.
 // The edge has neither a center admin config nor a center secret.
@@ -101,7 +103,10 @@ test(
       readAccessToken: f.owners.readAccessToken(config.nodeId),
     };
     writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await catchUpReplica({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     registerBootstrappedDaemonRepo({
       canonicalRoot: edgeRoot,
@@ -259,7 +264,10 @@ test(
       assert.ok(result.stdout.trim(), result.stderr);
       return JSON.parse(result.stdout) as JsonObject;
     };
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await catchUpReplica({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const initialLocalRead = await cli(["task", "show", taskId]);
     assert.equal(initialLocalRead.outcome, "applied", JSON.stringify(initialLocalRead));
@@ -336,14 +344,22 @@ test(
     );
     // Edge reads answer from the local read model; a revocation lands at the next sync attempt.
     const resync = async () => {
-      await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
-      applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
+      const { schema: _schema, waitTimeoutMs, ...connection } = config;
+      return rpc("daemon.fleet.edge.sync", {
+        payload: { ...connection, timeoutMs: waitTimeoutMs, workspaceRoot: edgeRoot },
+      });
     };
     f.owners.keycloak.revoke("person-owner", repoId, ["repository-read"]);
-    await assert.rejects(resync(), { code: "authorization_denied" });
-    assert.equal((await cli(["task", "show", taskId])).code, "authorization_denied");
+    const revoked = await resync();
+    assert.equal(revoked.code, "authorization_denied", JSON.stringify(revoked));
+    assert.equal((await cli(["task", "show", taskId])).code, "replica_unavailable");
     f.owners.keycloak.permit("person-owner", repoId, ["repository-read"]);
-    await resync();
+    await eventuallyValue(async () =>
+      readReplicaGeneration(path.join(viewRoot, "repos", repoId, "views", config.nodeId)),
+    );
+    await catchUpReplica({ ...peer, diskQuotaBytes: config.quotaBytes });
+    applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
+    assert.equal((await cli(["task", "show", taskId])).outcome, "applied");
     const client = f.owners.keycloak.nodeClients.get(secret.split(":")[0]!)!;
     client.enabled = false;
     await assert.rejects(
@@ -400,10 +416,10 @@ test(
     assert.equal(offlineShow.outcome, "applied", JSON.stringify(offlineShow));
     assert.ok(offlineShow.freshness, JSON.stringify(offlineShow));
     offline = false;
-    const settledCut = f.host.replica(repoId);
-    settledCut.activate();
-    await settledCut.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await catchUpReplica({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     writeFileSync(
       path.join(edgeRoot, "harness/tasks/task-fleet-fleet/closeout.md"),
@@ -431,10 +447,10 @@ test(
       localAuthFixture(),
     );
     assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-    const reviewCut = f.host.replica(repoId);
-    reviewCut.activate();
-    await reviewCut.waitForCut(f.eventCount());
-    await runFleetReplicaPullClient({ ...peer, diskQuotaBytes: config.quotaBytes });
+    await catchUpReplica({
+      ...peer,
+      diskQuotaBytes: config.quotaBytes,
+    });
     applyFleetMirrorCut(viewRoot, repoId, edgeRoot, "pull");
     const reviewRoot = path.join(f.root, "review-edge"),
       reviewUser = path.join(f.root, "review-user"),
@@ -443,7 +459,7 @@ test(
     const reviewConfig = { ...config, nodeId: "node-slow", viewRoot: reviewView };
     const { schema: _schema, ...reviewRoute } = reviewConfig;
     writeFileSync(path.join(reviewRoot, "fleet-edge.json"), JSON.stringify(reviewConfig));
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       nodeId: "node-slow",
       readAccessToken: f.owners.readAccessToken("node-slow"),
@@ -816,7 +832,7 @@ test(
     t.diagnostic(
       "Stale S1 natural exit and owner cancel reached canonical failed/cancelled terminals without reviews.",
     );
-    await runFleetReplicaPullClient({
+    await catchUpReplica({
       ...peer,
       nodeId: "node-slow",
       readAccessToken: f.owners.readAccessToken("node-slow"),

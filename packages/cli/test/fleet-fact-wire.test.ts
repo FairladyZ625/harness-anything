@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { parseFleetFrame, serializeFleetFrame } from "@harness-anything/daemon/internal/fleet/contract";
+import { parseFleetFrame, serializeFleetFrame } from "@harness-anything/daemon/internal/fleet/command-protocol";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 
 test("real fact CLI fields survive the fleet wire, including long text and retirement provenance", () => {

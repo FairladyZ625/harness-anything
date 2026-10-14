@@ -14,7 +14,7 @@ import {
   parseFleetFrame,
   serializeFleetFrame,
   type FleetFrameV1,
-} from "../src/fleet/contract.ts";
+} from "../src/fleet/command-protocol.ts";
 import { fleetHostWriterOptions, fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-settings.fixture.ts";
 

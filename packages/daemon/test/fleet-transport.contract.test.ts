@@ -1,7 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { READ_MODEL_SCHEMA_GENERATION } from "@harness-anything/kernel";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
@@ -11,12 +10,12 @@ import {
   FleetUtf8LineDecoder,
   parseFleetFrame,
   serializeFleetFrame,
-} from "../src/fleet/contract.ts";
+} from "../src/fleet/command-protocol.ts";
 
 const cut = {
   revision: 7,
   headDigest: `sha256:${"b".repeat(64)}`,
-  schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
+  schemaGeneration: 35,
 } as const;
 const ledgerCut = { repoId: "repo", revision: cut.revision, headDigest: cut.headDigest } as const;
 const blob = { sha256: "c".repeat(64), size: 3, mediaType: "text/markdown" } as const;
@@ -39,12 +38,6 @@ test("fleet authentication metadata admits a standard JWT and remains separate f
     () => parseFleetFrame({ ...frame, action: { ...frame.action, accessToken: frame.accessToken } }),
     FleetContractError,
   );
-});
-test("replica cut identity requires schema generation", () => {
-  const frame = frames.find((candidate) => candidate.schema === "fleet.replica.head-hint/v1")!;
-  const { schemaGeneration: _generation, ...revisionOnly } = cut;
-  assert.throws(() => parseFleetFrame({ ...frame, cut: revisionOnly }), FleetContractError);
-  assert.deepEqual(parseFleetFrame(frame), frame);
 });
 test("runtime dispatch frames carry typed center admission context without mirrored budget state", () => {
   const frame = {
@@ -72,6 +65,30 @@ test("runtime dispatch frames carry typed center admission context without mirro
       }),
     FleetContractError,
   );
+});
+
+test("runtime event receipts require the center replication position", () => {
+  const event = {
+      schema: "fleet.runtime.event.result/v1",
+      messageId: "event-result",
+      inReplyTo: "event",
+      replicationSequence: 12,
+      event: { type: "runtime_session_started" },
+      receipt: { outcome: "applied" },
+    },
+    archive = {
+      schema: "fleet.runtime.archive.result/v1",
+      messageId: "archive-result",
+      inReplyTo: "archive",
+      replicationSequence: 13,
+      receipt: { outcome: "applied" },
+    };
+  assert.deepEqual(parseFleetFrame(event), event);
+  assert.deepEqual(parseFleetFrame(archive), archive);
+  const { replicationSequence: _sequence, ...missingEventSequence } = event;
+  assert.throws(() => parseFleetFrame(missingEventSequence), FleetContractError);
+  const { replicationSequence: _archiveSequence, ...missingArchiveSequence } = archive;
+  assert.throws(() => parseFleetFrame(missingArchiveSequence), FleetContractError);
 });
 test("fleet runtime await admits only the parked operational wait", () => {
   const frame = {
@@ -113,6 +130,7 @@ const frames = [
     repoId: "repo",
     baseLedgerSha: ledgerCut,
     writerEpoch: 1,
+    replicationSequence: 7,
   },
   { schema: "fleet.receipt.get/v1", messageId: "m4-receipt-get", repoId: "a1", opId: "op1" },
   {
@@ -163,111 +181,7 @@ const frames = [
     outcome: "applied",
     opId: "op1",
     revision: 7,
-    code: null,
-  },
-  { schema: "fleet.replica.pull/v1", messageId: "m11-pull", repoId: "a1" },
-  { schema: "fleet.replica.preparing/v1", messageId: "m11-preparing", inReplyTo: "m11-pull", repoId: "a1" },
-  { schema: "fleet.replica.watch/v1", messageId: "m11-watch", repoId: "a1", afterRevision: 7 },
-  {
-    schema: "fleet.replica.head-hint/v1",
-    messageId: "m11-hint",
-    inReplyTo: "m11-watch",
-    repoId: "a1",
-    cut,
-    knownHead: cut,
-  },
-  {
-    schema: "fleet.replica.current/v1",
-    messageId: "m11-current",
-    inReplyTo: "m11-pull",
-    repoId: "repo",
-    viewId: "v1",
-    cut,
-    knownHead: cut,
-    manifestDigest: "d".repeat(64),
-    readerProfile: { personId: "person-owner", nodeId: "node-one" },
-    authorizationShapeDigest: "d".repeat(64),
-  },
-  {
-    schema: "fleet.replica.checkpoint/v1",
-    messageId: "m11-current",
-    inReplyTo: "m11-pull",
-    repoId: "repo",
-    viewId: "v1",
-    cut,
-    knownHead: { ...cut, revision: 72 },
-    manifestDigest: "d".repeat(64),
-    readerProfile: { personId: "person-owner", nodeId: "node-one" },
-    authorizationShapeDigest: "d".repeat(64),
-  },
-  {
-    schema: "fleet.snapshot.begin/v1",
-    messageId: "m12",
-    transferId: "t1",
-    repoId: "repo",
-    viewId: "v1",
-    cut,
-    manifest: { digest: "d".repeat(64), entryCount: 1, totalBytes: 3 },
-    readerProfile: { personId: "person-owner", nodeId: "node-one" },
-    authorizationShapeDigest: "d".repeat(64),
-  },
-  {
-    schema: "fleet.snapshot.page/v1",
-    messageId: "m13",
-    transferId: "t1",
-    pageIndex: 0,
-    entries: [{ path: "tasks/task/a.md", blob }],
-  },
-  {
-    schema: "fleet.snapshot.chunk/v1",
-    messageId: "m14",
-    transferId: "t1",
-    blobSha256: blob.sha256,
-    offset: 0,
-    dataBase64: "YWJj",
-  },
-  { schema: "fleet.snapshot.finish/v1", messageId: "m15", transferId: "t1", manifestDigest: "d".repeat(64) },
-  {
-    schema: "fleet.delta.begin/v1",
-    messageId: "m16",
-    transferId: "t2",
-    repoId: "repo",
-    viewId: "v1",
-    fromCut: { ...cut, revision: 6 },
-    toCut: cut,
-    changeCount: 2,
-    resultManifestDigest: "d".repeat(64),
-    readerProfile: { personId: "person-owner", nodeId: "node-one" },
-    authorizationShapeDigest: "d".repeat(64),
-  },
-  {
-    schema: "fleet.delta.page/v1",
-    messageId: "m17",
-    transferId: "t2",
-    pageIndex: 0,
-    changes: [
-      { op: "put", path: "tasks/task/a.md", blob },
-      { op: "delete", path: "tasks/task/b.md" },
-    ],
-  },
-  {
-    schema: "fleet.delta.chunk/v1",
-    messageId: "m18",
-    transferId: "t2",
-    blobSha256: blob.sha256,
-    offset: 0,
-    dataBase64: "YWJj",
-  },
-  { schema: "fleet.delta.finish/v1", messageId: "m19", transferId: "t2", resultManifestDigest: "d".repeat(64) },
-  { schema: "fleet.ack/v1", messageId: "m20", transferId: "t1", cut, manifestDigest: "d".repeat(64) },
-  {
-    schema: "fleet.ack.result/v1",
-    messageId: "m21",
-    inReplyTo: "m20",
-    outcome: "applied",
-    viewId: "v1",
-    ackCut: 7,
-    knownHead: cut,
+    replicationSequence: 7,
     code: null,
   },
   {
@@ -288,6 +202,7 @@ const frames = [
     outcome: "applied",
     opId: "op-task-1",
     revision: 8,
+    replicationSequence: 8,
     code: null,
     receipt: { outcome: "applied", taskId: "task_abc" },
   },
@@ -315,6 +230,7 @@ const frames = [
     opId: "op-schedule-1",
     outcome: "applied",
     revision: 9,
+    replicationSequence: 9,
     code: null,
     receipt: { outcome: "applied", scheduleId: "probe" },
   },
@@ -477,10 +393,7 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
   const taskCommand = frames.find((frame) => frame.schema === "fleet.task.command/v1")!,
     scheduleCommand = frames.find((frame) => frame.schema === "fleet.schedule.command/v1")!,
     subject = frames.find((frame) => frame.schema === "fleet.repo.metadata.result/v1")!,
-    taskResult = frames.find((frame) => frame.schema === "fleet.task.result/v1")!,
-    snapshotPage = frames.find((frame) => frame.schema === "fleet.snapshot.page/v1")!,
-    snapshotChunk = frames.find((frame) => frame.schema === "fleet.snapshot.chunk/v1")!,
-    snapshotCurrent = frames.find((frame) => frame.schema === "fleet.replica.current/v1")!;
+    taskResult = frames.find((frame) => frame.schema === "fleet.task.result/v1")!;
   const spoofFields = [
     "actor",
     "executor",
@@ -497,10 +410,26 @@ test("Fleet codec rejects unknown provenance, nested fields, malformed values, a
   for (const invalid of [
     { ...frames[6], actor: { principal: { personId: "spoof" } } },
     { ...frames[6], content: { ...blob, extra: true } },
-    { ...snapshotPage, entries: Array.from({ length: 129 }, (_, index) => ({ path: `tasks/task/${index}.md`, blob })) },
-    { ...snapshotChunk, dataBase64: Buffer.alloc(FLEET_CHUNK_BYTES + 1).toString("base64") },
-    { ...snapshotPage, entries: [{ path: "../escape", blob }] },
-    { ...snapshotCurrent, cut: { ...cut, commitSha: "a".repeat(40) } },
+    // The retired replica/snapshot/delta/ack frame family is rejected at the wire boundary.
+    { schema: "fleet.replica.pull/v1", messageId: "retired", repoId: "a1" },
+    {
+      schema: "fleet.replica.current/v1",
+      messageId: "retired",
+      repoId: "a1",
+      viewId: "v1",
+      cut,
+      knownHead: cut,
+      manifestDigest: "d".repeat(64),
+    },
+    {
+      schema: "fleet.snapshot.begin/v1",
+      messageId: "retired",
+      transferId: "t1",
+      repoId: "repo",
+      viewId: "v1",
+      cut,
+      manifest: { digest: "d".repeat(64), entryCount: 1, totalBytes: 3 },
+    },
     { ...taskCommand, action: { kind: "task-start", taskId: "task_abc", actor: { principal: { personId: "spoof" } } } },
     { ...taskCommand, action: { kind: "task-complete", taskId: "task_abc", consentId: "old" } },
     { ...taskCommand, action: { kind: "task-complete", taskId: "task_abc", consent: true } },
@@ -585,15 +514,6 @@ test("Fleet error requires and preserves the center's diagnostic message", () =>
   const { message: omitted, ...withoutMessage } = error;
   assert.equal(typeof omitted, "string");
   assert.throws(() => parseFleetFrame(withoutMessage), FleetContractError);
-});
-
-test("checkpoint receipts require a known ledger head independently of their delivered revision", () => {
-  for (const schema of ["fleet.ack.result/v1", "fleet.replica.checkpoint/v1", "fleet.replica.head-hint/v1"]) {
-    const frame = frames.find((candidate) => candidate.schema === schema)!;
-    const { knownHead: _head, ...missing } = frame;
-    assert.throws(() => parseFleetFrame(missing), FleetContractError);
-    assert.deepEqual(parseFleetFrame(frame), frame);
-  }
 });
 
 // dec_F01770FD0DCF72683B7C4C7A47: user credentials are transport metadata on every business request.

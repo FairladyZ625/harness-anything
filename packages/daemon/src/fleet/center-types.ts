@@ -1,16 +1,18 @@
-import type { ReplicaDeliveryLease, ReplicaTransferMetrics } from "./replica-delivery-lease.ts";
+import type { ReplicaDeliveryLease } from "./replica-delivery-lease.ts";
 import { type WriteReceiptDraft as WriteReceipt } from "@harness-anything/kernel";
 import type { DaemonHost } from "../daemon-host.ts";
 import type { WriterEpochLease } from "../writer-epoch.ts";
-import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./contract.ts";
-import { type ReplicaDeliveryKey } from "./replica-ack-store.ts";
+import { type FleetBlob, type FleetDescriptor, type FleetFrameV1 } from "./command-protocol.ts";
+import type { ReplicationSlotKey } from "./replication-slot.ts";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
-import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./contract.ts";
+import type { FleetDeviceLoginNotice, FleetLoginAuthority } from "./command-protocol.ts";
+import type { ReplicationFrame, ReplicationPeer } from "./protocol.ts";
 
 export interface FleetCenterOptions {
   readonly host: Pick<
     DaemonHost,
     | "replica"
+    | "pruneReplicationLog"
     | "run"
     | "read"
     | "awaitRuntimeSessions"
@@ -25,9 +27,10 @@ export interface FleetCenterOptions {
   readonly key: string | Buffer;
   readonly cert: string | Buffer;
   readonly replicaDiskQuotaBytes?: number;
-  /** How long a replica watch waits for a newer cut before answering with the unchanged head (default 20s). */
-  readonly replicaWatchProgressMs?: number;
-  readonly replicaPreparationTimeoutMs?: number;
+  /** Number of replication log commits retained for incremental receivers. */
+  readonly replicationRetentionWindowCommits?: number;
+  /** An idle replication stream sends `replica.progress` this often, so a dead peer is noticed. */
+  readonly replicationKeepaliveMs?: number;
   readonly port?: number;
   readonly hostname?: string;
   readonly now?: () => string;
@@ -46,25 +49,35 @@ export interface FleetCenterOptions {
     readonly messageId: string | null;
     readonly error: unknown;
   }) => void;
+  readonly onReplicationStart?: (
+    nodeId: string,
+    accessToken: string | undefined,
+    frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
+    peer: ReplicationPeer,
+    signal: AbortSignal,
+  ) => Promise<void>;
 }
 
-export interface FleetReplicaStatus extends ReplicaDeliveryKey {
+/** One replication slot as the center sees it: the node's last durable ACK against the log head. */
+export interface FleetReplicaStatus extends ReplicationSlotKey {
+  readonly viewId: string;
   readonly centerRevision: number;
-  readonly centerEventAt: string | null;
-  readonly centerManifestBytes: number;
+  readonly centerSequence: number;
   readonly ackRevision: number | null;
-  readonly ackCutEventAt: string | null;
+  readonly ackSequence: number | null;
   readonly ackedAt: string | null;
   readonly lagRevisions: number;
+  readonly lagCommits: number | null;
+  /** How long the node has been behind: now minus its last ACK while lagging, 0 when current. */
   readonly lagMs: number | null;
-  readonly catchUpBytes: number;
-  readonly delivery: "current" | "delta" | "snapshot_required" | "busy" | "degraded";
-  readonly activeTransfers: number;
-  readonly deliveryLease: ReplicaDeliveryLease | null;
-  readonly transferMetrics: ReplicaTransferMetrics;
-  readonly sendWindowBytes: number;
-  readonly sendQuotaBytes: number;
+  /** The node holds the replication session for this repository right now. */
+  readonly connected: boolean;
+  readonly delivery: "current" | "delta" | "snapshot_required";
   readonly diskQuotaBytes: number | null;
+}
+
+export interface ReplicaDeliveryKey extends ReplicationSlotKey {
+  readonly viewId: string;
 }
 
 export interface FleetTlsCenter {
