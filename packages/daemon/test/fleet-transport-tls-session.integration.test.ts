@@ -5,17 +5,20 @@ import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "nod
 import path from "node:path";
 import test from "node:test";
 import { createServer } from "node:tls";
-import { READ_MODEL_SCHEMA_GENERATION, sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
+import { sha256Bytes, type LedgerCutIdentity } from "@harness-anything/kernel";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { digestId } from "../src/fleet/center-transport.ts";
-import { readFleetRepositoryMetadataClient, runFleetWriteClient, type FleetWriteClientOptions } from "../src/fleet/peer.ts";
+import {
+  readFleetRepositoryMetadataClient,
+  runFleetWriteClient,
+  type FleetWriteClientOptions,
+} from "../src/fleet/peer.ts";
 import { signInAt } from "./keycloak.fixtures.ts";
 import {
   FleetUtf8LineDecoder,
   parseFleetFrame,
   serializeFleetFrame,
-  type FleetCut,
   type FleetFrameV1,
 } from "../src/fleet/command-protocol.ts";
 import {
@@ -27,8 +30,10 @@ import {
   splitWrite,
   waitForReceiptCommit,
 } from "./fleet-tls-session.fixture.ts";
+import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
+import { fleetMirrorCutFile, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
-type RoundTripOptions = FleetWriteClientOptions & Pick<FleetReplicaPullClientOptions, "viewRoot" | "edgeKillpoint">;
+type RoundTripOptions = FleetWriteClientOptions & { readonly viewRoot: string };
 test(
   "fact record from the real CLI parser crosses TLS and reaches the canonical ledger",
   { timeout: 30_000 },
@@ -96,17 +101,14 @@ async function runFleetRoundTrip(options: RoundTripOptions) {
   });
   const write = await runFleetWriteClient({ ...options, channel: "replica" });
   const pulled = await catchUpReplica({
-    through: write.center.revision ?? "known-head",
     ...peer,
     viewRoot: options.viewRoot,
     diskQuotaBytes: replicaQuota,
-    onFrame: options.onFrame,
-    edgeKillpoint: options.edgeKillpoint,
   });
   return { ...write, replica: pulled.replica };
 }
 test(
-  "production Fleet TLS path stages claims, writes without edge Git, atomically snapshots/deltas, and recovers ACK",
+  "production Fleet TLS writes durable claims, replicates document revisions, and resumes after center restart",
   { timeout: 30_000 },
   async (t) => {
     const fixture = await fleetFixture(t);
@@ -126,22 +128,16 @@ test(
       changes: [{ path: fixture.path, body: firstBody }],
     });
     assert.equal(first.center.outcome, "applied");
-    assert.equal(first.replica.outcome, "applied");
-    assert.equal(first.replica.ackCut, first.center.revision);
+    assert.equal(first.replica.knownHead.revision, first.center.revision);
     assert.match(first.descriptors[0]!.ref, /^doc-sync-claims\/[0-9a-f]{32}$/u);
     assert.equal("nodeId" in first.descriptors[0]!, false);
     assert.equal("actor" in first.descriptors[0]!, false);
-    const currentOne = JSON.parse(
-        readFileSync(
-          path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.viewId, "current.json"),
-          "utf8",
-        ),
-      ) as { manifestDigest: string; cut: FleetCut },
+    const currentOne = readReplicaGeneration(
+        path.join(edgeRoot, "repos", fixture.subject.repoId, "views", fixture.subject.nodeId),
+      ),
       durable = JSON.parse(readFileSync(path.join(fixture.stateRoot, "state.json"), "utf8")) as Record<string, unknown>;
-    assert.equal(currentOne.cut.revision, first.center.revision);
-    assert.equal("commitSha" in currentOne.cut, false);
-    assert.equal("transferId" in currentOne, false);
-    assert.notEqual(currentOne.cut.headDigest.slice(7), currentOne.manifestDigest);
+    assert.ok(currentOne);
+    assert.equal(currentOne.metadata.position.revision, first.center.revision);
     assert.equal("transfers" in durable, false);
     assert.equal("cursors" in durable, false);
     assert.equal(JSON.stringify(durable).includes(firstBody), false);
@@ -158,41 +154,23 @@ test(
         changes: [{ path: fixture.path, body: secondBody, baseBlobSha256: sha256Bytes(Buffer.from(firstBody)) }],
       });
     assert.equal(second.center.outcome, "applied");
-    assert.equal(second.replica.outcome, "applied");
-    assert.ok(second.replica.ackCut > first.replica.ackCut);
-    const replica = center.replicaReceipt(
-      second.center.opId,
-      fixture.subject.nodeId,
-      fixture.subject.viewId,
-      fixture.subject.repoId,
-    );
-    assert.deepEqual(replica.visibility, { kind: "replica", viewId: fixture.subject.viewId });
-    assert.equal(replica.proof?.worktreeVisible, true);
-    const peer = await rawPeer(fixture.track, center.port, fixture.cert, fixture.subject.nodeId, "machine-secret"),
-      forged = await peer.request({
-        schema: "fleet.ack/v1",
-        messageId: "forged",
-        transferId: "not-issued",
-        cut: {
-          revision: second.center.revision!,
-          headDigest: `sha256:${"0".repeat(64)}`,
-          schemaGeneration: READ_MODEL_SCHEMA_GENERATION,
-        },
-        manifestDigest: "0".repeat(64),
-      });
-    assert.equal(forged.schema, "fleet.error/v1");
-    if (forged.schema === "fleet.error/v1") assert.equal(forged.code, "invalid_ack");
-    peer.close();
+    assert.ok(second.replica.knownHead.sequence > first.replica.knownHead.sequence);
+    assert.equal(second.replica.knownHead.revision, second.center.revision);
+    const view = locateFleetMirrorView(edgeRoot, fixture.subject.repoId)!;
+    assert.equal(fleetMirrorCutFile(view, fixture.path)?.toString("utf8"), secondBody);
     await center.close();
     center = await fixture.center();
-    const recovered = center.replicaReceipt(
-      second.center.opId,
-      fixture.subject.nodeId,
-      fixture.subject.viewId,
-      fixture.subject.repoId,
-    );
-    assert.equal(recovered.opId, replica.opId);
-    assert.equal(recovered.proof?.ackCut, replica.proof?.ackCut);
+    const recovered = await catchUpReplica({
+      port: center.port,
+      ca: fixture.cert,
+      nodeId: fixture.subject.nodeId,
+      credential: "machine-secret",
+      repoId: fixture.subject.repoId,
+      viewRoot: edgeRoot,
+      diskQuotaBytes: replicaQuota,
+      readAccessToken: async () => `device-token-${fixture.subject.nodeId}`,
+    });
+    assert.deepEqual(recovered.replica.knownHead, second.replica.knownHead);
     const shown = await fixture.host.run(
       fixture.subject.repoId,
       { kind: "doc-show", path: fixture.path },
@@ -458,6 +436,7 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
               repoId: fixture.subject.repoId,
               baseLedgerSha: { repoId: fixture.subject.repoId, revision: 0, headDigest: `sha256:${"0".repeat(64)}` },
               writerEpoch: 1,
+              replicationSequence: 0,
             }),
           );
         else if (frame.schema === "fleet.upload.begin/v1") {
@@ -613,16 +592,6 @@ test(
     });
     assert.equal(replayedHello.schema, "fleet.error/v1");
     if (replayedHello.schema === "fleet.error/v1") assert.equal(replayedHello.code, "hello_replayed");
-    const preparing = await peer.request({
-      schema: "fleet.replica.pull/v1",
-      messageId: "insufficient-quota",
-      repoId: fixture.subject.repoId,
-    });
-    assert.equal(preparing.schema, "fleet.replica.preparing/v1");
-    const insufficientQuota = await peer.receive();
-    assert.equal(insufficientQuota.schema, "fleet.error/v1");
-    if (insufficientQuota.schema === "fleet.error/v1")
-      assert.equal(insufficientQuota.code, "replica_quota_insufficient");
     const staging = path.join(fixture.repo, ".harness", "fleet-uploads"),
       stagingTarget = path.join(fixture.root, "unsafe-staging-target");
     mkdirSync(stagingTarget);
@@ -658,7 +627,7 @@ test(
         changes: [{ path: fixture.path, body: "timeout" }],
         timeoutMs: 5,
       }),
-      /Fleet replica pull timeout/u,
+      /Fleet response timeout/u,
     );
     fixture.setOwnerLookupDelay(0);
     const spoofed = await peer.raw({
@@ -779,7 +748,7 @@ test(
   },
 );
 test(
-  "disconnect and crash recovery preserve upload/view/ACK idempotency while an unacked replica never holds the repo mutex",
+  "disconnect and crash recovery preserve upload and document idempotency while a lagging replica never holds the repo mutex",
   { timeout: 60_000 },
   async (t) => {
     const fixture = await fleetFixture(t),
@@ -862,67 +831,6 @@ test(
       0,
     );
     assert.equal(fixture.eventCount(), afterProbe);
-    const thirdBody = `${secondBody}third\n`,
-      thirdBase = await ledgerBase(fixture);
-    writeFileSync(bodyFile, thirdBody);
-    const beforeThird = fixture.eventCount();
-    assert.equal(
-      (
-        await runFaultChild(fixture, {
-          ...base,
-          baseLedgerSha: thirdBase.ledger,
-          baseBlobSha256: sha256Bytes(Buffer.from(secondBody)),
-          edgeKillpoint: "before_current_rename",
-        })
-      ).code,
-      75,
-    );
-    await waitForEventCount(fixture, beforeThird + 1);
-    rmSync(markerFile, { force: true });
-    assert.equal(
-      (
-        await runFaultChild(fixture, {
-          ...base,
-          baseLedgerSha: thirdBase.ledger,
-          baseBlobSha256: sha256Bytes(Buffer.from(secondBody)),
-        })
-      ).code,
-      0,
-    );
-    assert.equal(fixture.eventCount(), beforeThird + 1);
-    const fourthBody = `${thirdBody}fourth\n`,
-      fourthBase = await ledgerBase(fixture);
-    writeFileSync(bodyFile, fourthBody);
-    const beforeFourth = fixture.eventCount();
-    assert.equal(
-      (
-        await runFaultChild(fixture, {
-          ...base,
-          baseLedgerSha: fourthBase.ledger,
-          baseBlobSha256: sha256Bytes(Buffer.from(thirdBody)),
-          killOnSchema: "fleet.ack.result/v1",
-        })
-      ).code,
-      73,
-    );
-    await waitForEventCount(fixture, beforeFourth + 1);
-    const ackedBeforeRetry = center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision;
-    rmSync(markerFile, { force: true });
-    assert.equal(
-      (
-        await runFaultChild(fixture, {
-          ...base,
-          baseLedgerSha: fourthBase.ledger,
-          baseBlobSha256: sha256Bytes(Buffer.from(thirdBody)),
-        })
-      ).code,
-      0,
-    );
-    assert.equal(fixture.eventCount(), beforeFourth + 1);
-    assert.equal(
-      center.status().replicas.find((row) => row.viewId === fixture.subject.viewId)?.ackRevision,
-      ackedBeforeRetry,
-    );
   },
 );
 async function waitForEventCount(fixture: Awaited<ReturnType<typeof fleetFixture>>, expected: number): Promise<void> {

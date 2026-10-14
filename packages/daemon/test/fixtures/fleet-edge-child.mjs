@@ -76,18 +76,7 @@ for (;;) {
     });
     if (write.center.outcome !== "applied")
       throw new Error(`center write ${write.center.outcome}:${write.center.code ?? "retry"}`);
-    const pulled = await catchUpReplica({
-      through: write.center.revision,
-      ...peer,
-      diskQuotaBytes,
-      onFrame,
-      edgeKillpoint: (point) => {
-        if (config.edgeKillpoint === point) {
-          if (config.markerFile) writeFileSync(config.markerFile, point);
-          process.exit(75);
-        }
-      },
-    });
+    const pulled = await catchUpReplica({ ...peer, diskQuotaBytes });
     process.stdout.write(
       `${JSON.stringify({ ok: true, label: config.label, repoId: config.repoId, attempts: attempts + 1, gitAbsent: true, startedAt, endedAt: Date.now(), center: write.center, replica: pulled.replica })}\n`,
     );
