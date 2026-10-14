@@ -876,17 +876,19 @@ test(
           true,
         );
       });
-      await t.test("edge schedule rejects a blocked definition pull", async () => {
+      await t.test("edge schedule preserves a local definition candidate after a center write", async () => {
         const localPath = path.join(winnerEdge.workspaceRoot, "harness/schedules/e2e-probe.json");
-        writeFileSync(localPath, `${readFileSync(localPath, "utf8")}\nlocal divergence\n`);
-        await assert.rejects(
-          winnerEdge.runtime.run("repo.schedule.run", {
-            kind: "schedule-disable",
-            scheduleId,
-            idempotencyKey: "dirty-definition-disable",
-          }),
-          { code: "pull_blocked", message: /cannot materialize the canonical cut because local changes conflict/u },
-        );
+        const local = `${readFileSync(localPath, "utf8")}\nlocal divergence\n`;
+        writeFileSync(localPath, local);
+        // Three-way pull blocking retired with the cut protocol. A local candidate must survive
+        // materialization while the center still accepts the authorized schedule command.
+        const disabled = await winnerEdge.runtime.run("repo.schedule.run", {
+          kind: "schedule-disable",
+          scheduleId,
+          idempotencyKey: "dirty-definition-disable",
+        });
+        assert.equal(disabled.outcome, "applied", JSON.stringify(disabled));
+        assert.equal(readFileSync(localPath, "utf8"), local, "materialization preserves the local candidate");
       });
     } finally {
       for (const runtime of edgeRuntimes) runtime.close();
