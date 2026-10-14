@@ -53,7 +53,7 @@ export interface ReplicationTarget {
   readonly project: (position: ReplicationPosition) => Promise<void>;
   readonly updatePosition?: (position: ReplicationPosition) => void;
   readonly reset?: () => Promise<void>;
-  readonly revoke?: () => void;
+  readonly revoke?: () => Promise<void>;
 }
 
 async function receiveBytes(
@@ -95,8 +95,15 @@ export async function runWalReceiver(input: {
     signal.throwIfAborted();
     const frame = await peer.receive(signal);
     if (frame.type === "replica.resync") {
-      if (frame.reason === "authorization_denied") input.target.revoke?.();
       await target.reset?.();
+      // A denied replica is withdrawn and the stream fails: the owner and doctor see the denial, and
+      // the reconnect loop re-admits the replica once the grant returns.
+      if (frame.reason === "authorization_denied") {
+        await input.target.revoke?.();
+        throw Object.assign(new Error("authorization_denied: The node owner may not read this repository."), {
+          code: "authorization_denied",
+        });
+      }
       continue;
     }
     if (frame.type === "replica.backup") {

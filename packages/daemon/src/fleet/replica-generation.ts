@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, existsSync, readFileSync, readdirSync, renameSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, readdirSync, renameSync, rmSync } from "node:fs";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -41,9 +41,12 @@ export function readReplicaGeneration(root: string): ReplicaGeneration | null {
   return generation(root, current.id, current.metadata);
 }
 
-/** The center denied this node's replica; edge reads of the view refuse from now on. */
+/** A denied view stops answering at once; its generation files go with the next collect. */
 export function revokeReplicaView(root: string): void {
-  writeFileDurably(path.join(root, "revoked"), "authorization_denied\n");
+  const pointer = path.join(root, "current.json");
+  if (!existsSync(pointer)) return;
+  rmSync(pointer);
+  syncDirectory(root);
 }
 
 export function updateReplicaGenerationPosition(root: string, position: BaseBackupMetadata["position"]): void {
@@ -181,11 +184,12 @@ function createGenerationReaders(root: string) {
   const collect = async (): Promise<void> => {
     const current = readReplicaGeneration(root),
       directory = path.join(root, "generations");
-    if (current === null || !existsSync(directory)) return;
-    // Staging belongs to an install in flight; only published, superseded, unpinned generations go.
+    if (!existsSync(directory)) return;
+    // Staging belongs to an install in flight; only unpinned generations other than the published one
+    // go (all of them once a revocation withdrew the pointer).
     const superseded = readdirSync(directory, { withFileTypes: true }).filter(
       (entry) =>
-        entry.isDirectory() && entry.name !== current.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
+        entry.isDirectory() && entry.name !== current?.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
     );
     for (const entry of superseded) await rm(path.join(directory, entry.name), { recursive: true, force: true });
   };

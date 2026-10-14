@@ -369,3 +369,31 @@ test(
     await assert.rejects(sync(), streamDown(/not running/u));
   },
 );
+
+test(
+  "a node owner who loses repository-read has the replica withdrawn and the failure reported; a re-grant restores it",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-denied-view-")),
+      viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"),
+      mirrorSequence = () => readReplicaGeneration(viewDir)?.metadata.position.sequence ?? -1;
+    const link = await relay(t, fixture.centerPort());
+    const stream = startStream(t, fixture, viewRoot, link.port);
+    await waitForState(() => mirrorSequence() === centerSequence(fixture), "initial convergence", 60_000);
+    fixture.owners.keycloak.revoke("person-owner", replicationRepoId, ["repository-read"]);
+    link.cut();
+    await waitForState(
+      () => stream.failures.some((error) => (error as { code?: unknown }).code === "authorization_denied"),
+      "the denial to be reported",
+      60_000,
+    );
+    assert.equal(readReplicaGeneration(viewDir), null, "the denied replica is withdrawn");
+    assert.deepEqual(readdirSync(path.join(viewDir, "generations")), [], "and its files are collected");
+    assert.equal(readReplicaHealth(viewDir).syncFailure?.code, "authorization_denied");
+    fixture.owners.keycloak.permit("person-owner", replicationRepoId, ["repository-read"]);
+    await waitForState(() => mirrorSequence() === centerSequence(fixture), "re-admission after the grant", 60_000);
+  },
+);
