@@ -138,7 +138,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const replicationSlots = openReplicationSlots(path.join(options.stateRoot, "replication-slots.sqlite"));
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
-  const backupCache = new Map<string, Promise<import("./basebackup.ts").BaseBackupArchive>>();
+  const backupCache = new Map<
+    string,
+    { readonly archive: Promise<import("./basebackup.ts").BaseBackupArchive>; users: number; releaseQueue: () => void }
+  >();
   const onReplicationStart = async (
     nodeId: string,
     accessToken: string | undefined,
@@ -195,13 +198,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       },
       backup: async (backupSignal: AbortSignal) => {
         const cached = backupCache.get(frame.repoId);
-        if (cached)
+        if (cached) {
+          cached.users += 1;
           return {
-            ...(await cached),
+            ...(await cached.archive),
             release: async () => {
-              backupCache.delete(frame.repoId);
+              cached.users -= 1;
+              if (cached.users === 0) {
+                backupCache.delete(frame.repoId);
+                cached.releaseQueue();
+              }
             },
           };
+        }
         const previous = backupQueues.get(frame.repoId) ?? Promise.resolve();
         let release!: () => void;
         const turn = new Promise<void>((resolve) => (release = resolve));
@@ -219,14 +228,18 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           backupSignal,
         );
         const archivePromise = started.then((pinned) => pinned.complete).then((archive) => archive);
-        backupCache.set(frame.repoId, archivePromise);
+        const cachedArchive = { archive: archivePromise, users: 1, releaseQueue: release };
+        backupCache.set(frame.repoId, cachedArchive);
         try {
           const archive = await archivePromise;
           return {
             ...archive,
             release: async () => {
-              backupCache.delete(frame.repoId);
-              release();
+              cachedArchive.users -= 1;
+              if (cachedArchive.users === 0) {
+                backupCache.delete(frame.repoId);
+                release();
+              }
             },
           };
         } catch (error) {
