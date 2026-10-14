@@ -264,6 +264,18 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       idempotencyKey: "runtime-route",
     },
   });
+  const steerCommand = parseThinCommand(["runtime", "steer", "dispatch_123", "--prompt", "change direction"], root);
+  assert.equal(steerCommand.ok, true);
+  if (steerCommand.ok) {
+    assert.equal(steerCommand.command.method, "repo.agentRuntime.steer");
+    const routedSteer = await fleetRuntimeRoute(steerCommand.command, env);
+    assert.ok(routedSteer, `no fleet route for ${steerCommand.command.method} at ${steerCommand.command.rootDir}`);
+    assert.deepEqual(routedSteer.action, {
+      kind: "fleet-runtime",
+      method: "repo.agentRuntime.steer",
+      payload: { dispatchId: "dispatch_123", prompt: "change direction" },
+    });
+  }
   const missing: string[] = [],
     unexpected: string[] = [];
   for (const descriptor of daemonProtocolCommands) {

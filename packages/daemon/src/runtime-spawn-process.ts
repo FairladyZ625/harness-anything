@@ -468,8 +468,8 @@ export function launchNative(
     pid,
   });
   child.stdin?.on("error", consumeKnownError);
-  child.stdin?.end(
-    JSON.stringify({
+  child.stdin?.write(
+    `${JSON.stringify({
       ...persistence,
       executablePath: command.executablePath,
       args: command.args,
@@ -491,10 +491,17 @@ export function launchNative(
         : {}),
       windowsVerbatimArguments:
         process.platform === "win32" && command.executablePath.toLowerCase().endsWith("cmd.exe"),
-    }),
+    })}\n`,
   );
   child.unref();
-  return observed;
+  return {
+    ...observed,
+    steer: (prompt) => {
+      if (!child.stdin?.writable)
+        throw runtimeSpawnError("runtime_steer_unavailable", "Runtime control channel is closed.");
+      child.stdin.write(`${JSON.stringify({ kind: "steer", prompt })}\n`);
+    },
+  };
 }
 
 export function adoptNativeProcess(

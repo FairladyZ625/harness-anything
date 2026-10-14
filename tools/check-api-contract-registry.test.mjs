@@ -11,6 +11,27 @@ test("W3 API registry accepts the exact transport-bound daemon catalog", () =>
     assert.deepEqual(evaluateApiContractRegistry(root), []);
   }));
 
+test("W3 API registry contracts one owner-targeted steer method without GUI exposure", () =>
+  withFixture((root) => {
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
+    assert.deepEqual(evaluateApiContractRegistry(root), []);
+    writeFileSync(file, validRegistry().replace('dispatchId: "string?", ', ""));
+    assert.match(evaluateApiContractRegistry(root).join("\\n"), /runtime steer contract must bind one owner target/u);
+    writeFileSync(
+      file,
+      validRegistry().replace(
+        '  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },',
+        '  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },\\n  { method: "repo.agentRuntime.steer", requiresRepo: true },',
+      ),
+    );
+    assert.match(evaluateApiContractRegistry(root).join("\\n"), /exactly one registered method/u);
+    writeFileSync(
+      path.join(root, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts"),
+      '"repo.agentRuntime.steer"',
+    );
+    assert.match(evaluateApiContractRegistry(root).join("\\n"), /must not expand the GUI action/u);
+  }));
+
 test("W3 API registry rejects an unregistered compatibility method", () =>
   withFixture((root) => {
     const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
@@ -181,6 +202,7 @@ function withFixture(run) {
       }),
     );
     write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", validRegistry());
+    write(root, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts", "");
     write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
     write(root, "packages/daemon/src/daemon-host.ts", 'export { openDaemonHost } from "./transport-composition.ts";\n');
     write(root, "packages/daemon/src/transport-composition.ts", validHostComposition());
@@ -208,7 +230,7 @@ function write(root, relative, body) {
   writeFileSync(file, body);
 }
 function validRegistry() {
-  return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.stop", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.rbac.manage", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.update", requiresRepo: false },\n  { method: "daemon.repo.backup", requiresRepo: false },\n  { method: "daemon.repo.restoreDrill", requiresRepo: false },\n  { method: "daemon.repo.unbind", requiresRepo: false },\n  { method: "daemon.repo.purge", requiresRepo: false },\n  { method: "daemon.connection.register", requiresRepo: false },\n  { method: "daemon.connection.update", requiresRepo: false },\n  { method: "daemon.connection.unregister", requiresRepo: false },\n  { method: "daemon.connection.probe", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true },\n  { method: "repo.task.read", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },\n  { id: "daemon.fleet.edge.sync", phase: "Fleet-Wiring", method: "daemon.fleet.edge.sync", requiresRepo: false, params: shape({ payload: shape({ host: "string" }) }) },\n  { id: "daemon.fleet.task.run", phase: "Fleet-Wiring", method: "daemon.fleet.task.run", requiresRepo: false, params: shape({ payload: shape({ action: "json" }) }) },\n  { id: "daemon.fleet.doc.sync", phase: "Fleet-Wiring", method: "daemon.fleet.doc.sync", requiresRepo: false, params: shape({ payload: shape({ workspaceRoot: "string" }) }) },\n  { id: "daemon.fleet.conflict.exit", phase: "Fleet-Wiring", method: "daemon.fleet.conflict.exit", requiresRepo: false, params: shape({ payload: shape({ conflictId: "string" }) }) }\n]);\n`;
+  return `export const daemonProtocolMethods = Object.freeze([\n  { method: "protocol.hello", requiresRepo: false },\n  { method: "daemon.status", requiresRepo: false },\n  { method: "daemon.stop", requiresRepo: false },\n  { method: "daemon.repo.bootstrap", requiresRepo: false },\n  { method: "daemon.rbac.manage", requiresRepo: false },\n  { method: "daemon.repo.register", requiresRepo: false },\n  { method: "daemon.repo.update", requiresRepo: false },\n  { method: "daemon.repo.backup", requiresRepo: false },\n  { method: "daemon.repo.restoreDrill", requiresRepo: false },\n  { method: "daemon.repo.unbind", requiresRepo: false },\n  { method: "daemon.repo.purge", requiresRepo: false },\n  { method: "daemon.connection.register", requiresRepo: false },\n  { method: "daemon.connection.update", requiresRepo: false },\n  { method: "daemon.connection.unregister", requiresRepo: false },\n  { method: "daemon.connection.probe", requiresRepo: false },\n  { method: "repo.task.run", requiresRepo: true },\n  { method: "repo.agentRuntime.steer", requiresRepo: true, id: "repo.agentRuntime.steer", phase: "Runtime-B", params: shape({ repo: shape({ repoId: "string" }), payload: shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }) }) },\n  { method: "repo.task.read", requiresRepo: true }\n]);\nexport const fleetProtocolMethods = Object.freeze([\n  { id: "daemon.fleet.center.start", phase: "Fleet-Wiring", method: "daemon.fleet.center.start", requiresRepo: false, params: shape({ payload: shape({ port: "number" }) }) },\n  { id: "daemon.fleet.edge.sync", phase: "Fleet-Wiring", method: "daemon.fleet.edge.sync", requiresRepo: false, params: shape({ payload: shape({ host: "string" }) }) },\n  { id: "daemon.fleet.task.run", phase: "Fleet-Wiring", method: "daemon.fleet.task.run", requiresRepo: false, params: shape({ payload: shape({ action: "json" }) }) },\n  { id: "daemon.fleet.doc.sync", phase: "Fleet-Wiring", method: "daemon.fleet.doc.sync", requiresRepo: false, params: shape({ payload: shape({ workspaceRoot: "string" }) }) },\n  { id: "daemon.fleet.conflict.exit", phase: "Fleet-Wiring", method: "daemon.fleet.conflict.exit", requiresRepo: false, params: shape({ payload: shape({ conflictId: "string" }) }) }\n]);\n`;
 }
 function validServer() {
   return `jsonRpcMethodContracts.some(() => true); request.method === "protocol.hello"; if (!handshaken) fail(); request.method === "daemon.status"; request.method === "daemon.stop"; request.method === "daemon.repo.bootstrap"; request.method === "daemon.rbac.manage"; case "daemon.repo.register": case "daemon.repo.backup": case "daemon.repo.restoreDrill": case "daemon.repo.unbind": case "daemon.repo.purge": case "daemon.connection.probe": options.host.run(repo, action, options.authContext);\n`;

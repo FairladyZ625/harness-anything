@@ -64,6 +64,11 @@ export interface DaemonHost {
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
   ) => Promise<JsonObject>;
+  readonly steerRuntime: (
+    repoId: string,
+    payload: JsonObject,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<JsonObject>;
   readonly handoffRuntime: (
     repoId: string,
     payload: JsonObject,

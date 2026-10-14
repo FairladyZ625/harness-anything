@@ -208,6 +208,17 @@ export const runtimeFleetProtocolCommands = Object.freeze([
     method: "repo.agentRuntime.cancel",
     inputs: [],
   }),
+  defineRuntimeLocalWriteCommand({
+    id: "runtime-steer",
+    phase: "Runtime-B",
+    path: ["runtime", "steer", "<runtime-session|dispatch>"],
+    summary: "Interrupt at a safe point and continue the same provider session with additional instructions.",
+    method: "repo.agentRuntime.steer",
+    inputs: [
+      cliInput("--prompt", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt-file"] }),
+      cliInput("--prompt-file", "single", false, { code: "missing_field" }, { conflictsWith: ["--prompt"] }),
+    ],
+  }),
   defineHostAdminCommand({
     id: "daemon-stop",
     phase: "W3",

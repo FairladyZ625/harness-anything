@@ -78,7 +78,7 @@ export async function runRuntimeFacadeCommand(
         }
       : result;
   }
-  if (action.kind === "runtime-cancel") {
+  if (action.kind === "runtime-cancel" || action.kind === "runtime-steer") {
     const { noStream: _noStream, ...rpcAction } = action;
     const result = await runCommandThroughDaemon({
       ...command,
@@ -87,7 +87,10 @@ export async function runRuntimeFacadeCommand(
     return result.ok === true
       ? {
           ...result,
-          summary: `runtime-cancel: ${String(result.detail ?? "cancelled")}`,
+          summary:
+            action.kind === "runtime-cancel"
+              ? `runtime-cancel: ${String(result.detail ?? "cancelled")}`
+              : `runtime-steer: ${String(result.outcome ?? "applied")}`,
         }
       : result;
   }

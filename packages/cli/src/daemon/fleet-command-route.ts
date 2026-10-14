@@ -83,6 +83,7 @@ export async function fleetEdgeRegistration(
 const fleetRuntimeMethods = [
   "repo.agentRuntime.spawn",
   "repo.agentRuntime.cancel",
+  "repo.agentRuntime.steer",
   "repo.agentRuntime.handoff",
   "repo.agentRuntime.sessions.await",
 ] as const;

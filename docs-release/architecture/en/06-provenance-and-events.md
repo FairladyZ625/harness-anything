@@ -114,6 +114,10 @@ provider environment values never become stream content. `ha task dispatches
 the terminal dispatch artifact retains the stream reference plus provider
 session identifier. Thus `ha runtime run --resume-dispatch <dispatch-id>
 --prompt "…"` resumes without exposing or requiring a provider session id.
+For a live Codex or Claude dispatch, use `ha runtime steer <runtime-session|dispatch>
+--prompt "…"` to record a steering request and continue the same dispatch after a
+provider-safe interruption. Providers without a declared steer strategy return an
+explicit unsupported error. Use resume only after a dispatch has already ended.
 Resume inherits the recorded agent, working directory, permission mode, and
 model. Task workers can use `ha agent run <agent-id> --resume-dispatch
 <dispatch-id>`; a different agent and a second resume of the same source
