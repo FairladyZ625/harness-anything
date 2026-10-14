@@ -18,7 +18,7 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { consumeKnownError, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -51,7 +51,7 @@ import { startBaseBackup } from "./basebackup.ts";
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
 export const REPLICATION_KEEPALIVE_MS = 15_000;
-function pauseUntilAborted(ms: number, signal: AbortSignal): Promise<void> {
+function delay(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise<void>((resolve) => {
     const done = () => {
       clearTimeout(timer);
@@ -249,15 +249,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         projection.close();
         await events.drain();
       })();
-      const pending = ready;
-      // A failed catch-up is retried by the next replication session, not cached for the daemon's life.
-      pending.catch((error: unknown) => {
-        consumeKnownError(error);
-        if (projectionReady.get(frame.repoId) === pending) projectionReady.delete(frame.repoId);
-      });
       projectionReady.set(frame.repoId, ready);
     }
-    await ready;
+    try {
+      await ready;
+    } catch (error) {
+      // A failed catch-up fails this session; the next one tries again instead of reusing the rejection.
+      if (projectionReady.get(frame.repoId) === ready) projectionReady.delete(frame.repoId);
+      throw error;
+    }
     const slots = replicationSlots;
     const lease = slots.claim({ repoId: frame.repoId, nodeId }, store.replicationPosition().history);
     const retention = retentionFor(frame.repoId);
@@ -278,7 +278,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           AbortSignal.timeout(options.replicationKeepaliveMs ?? REPLICATION_KEEPALIVE_MS),
         ]);
         while (!until.aborted && store.replicationPosition().sequence <= after.sequence)
-          await pauseUntilAborted(REPLICATION_HEAD_POLL_MS, until);
+          await delay(REPLICATION_HEAD_POLL_MS, until);
       },
       backup: async (backupSignal: AbortSignal) => {
         const cached = backupCache.get(frame.repoId);
@@ -952,21 +952,22 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const replicationOwners = new Map<string, TLSSocket>();
   // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
   const replicaStatus = (): FleetReplicaStatus[] => {
-    const heads = new Map<string, import("@harness-anything/kernel").ReplicationPosition | null>(),
+    // A slot of a repository this center no longer serves has no head to lag behind.
+    const attached = new Set(
+        options.host
+          .status()
+          .repos.filter((repo) => repo.state === "attached")
+          .map((repo) => repo.repoId),
+      ),
+      heads = new Map<string, import("@harness-anything/kernel").ReplicationPosition>(),
       head = (repoId: string) => {
-        if (!heads.has(repoId))
-          try {
-            heads.set(repoId, readReplicationHead(repoId));
-          } catch (error) {
-            consumeKnownError(error);
-            heads.set(repoId, null);
-          }
+        if (!heads.has(repoId)) heads.set(repoId, readReplicationHead(repoId));
         return heads.get(repoId)!;
       },
       now = Date.now();
     return replicationSlots.list().flatMap((slot) => {
+      if (!attached.has(slot.repoId)) return [];
       const center = head(slot.repoId);
-      if (center === null) return [];
       const ack = slot.history === center.history ? slot.ack : null,
         ackSequence = ack?.durable.sequence ?? null,
         lagCommits = ackSequence === null ? null : Math.max(0, center.sequence - ackSequence),

@@ -3,8 +3,9 @@
 // the machine credential the center issued when the node was registered. The
 // repository selects the canonical center namespace. A successful
 // `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
+import { writeFileDurably } from "../durable-file.ts";
 export interface FleetEdgeConfig {
   readonly repoId: string;
   readonly host: string;
@@ -84,10 +85,9 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
 }
 /** Writes the config a successful edge sync admitted; the file carries the node's machine credential. */
 export function writeFleetEdgeConfig(rootDir: string, config: FleetEdgeConfig): void {
-  const file = fleetEdgeConfigPath(rootDir),
-    temporary = `${file}.${process.pid}.tmp`;
-  writeFileSync(temporary, `${JSON.stringify({ schema: "fleet-edge-config/v1", ...config }, null, 2)}\n`, {
-    mode: 0o600,
-  });
-  renameSync(temporary, file);
+  writeFileDurably(
+    fleetEdgeConfigPath(rootDir),
+    `${JSON.stringify({ schema: "fleet-edge-config/v1", ...config }, null, 2)}\n`,
+    0o600,
+  );
 }

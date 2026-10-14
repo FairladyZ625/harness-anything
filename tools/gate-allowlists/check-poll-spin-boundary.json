@@ -4,6 +4,12 @@
   "entries": {
     "exceptions": [
       {
+        "key": "packages/cli/src/cli-runtime-wait.ts#waitForTaskCi#await-in-loop",
+        "event": "GitHub exposes no completion signal a CLI can await; the CI verdict becomes observable only by re-reading the task-ci read",
+        "ref": "task_e0809bd58007723b64abb06c62",
+        "reason": "ha task ci --wait polls the same read on a 30s interval until a verdict, bounded by --timeout."
+      },
+      {
         "key": "packages/cli/src/daemon/client.ts#settleRepoWarming#clock-loop",
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
@@ -20,12 +26,6 @@
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
         "reason": "Existing polling or synchronous bridge at the CH3 baseline."
-      },
-      {
-        "key": "packages/cli/src/cli-runtime-wait.ts#waitForTaskCi#await-in-loop",
-        "event": "GitHub exposes no completion signal a CLI can await; the CI verdict becomes observable only by re-reading the task-ci read",
-        "ref": "task_e0809bd58007723b64abb06c62",
-        "reason": "ha task ci --wait polls the same read on a 30s interval until a verdict, bounded by --timeout."
       },
       {
         "key": "packages/daemon/src/client/daemon-autostart.ts#ensureLocalDaemonRunning#await-in-loop",
@@ -50,6 +50,12 @@
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
         "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/fleet/center-listener.ts#wait#await-in-loop",
+        "event": "A commit in the repository's writer process; that process exposes no commit notification to the fleet center's walsender.",
+        "ref": "dec_9284BD6119D453EEECEED62450",
+        "reason": "PR #3619 smoke scan S1: the walsender re-reads the indexed replication head every 50 ms until a new commit, its keepalive interval, or the session's abort, replacing a spin that burned a core per idle edge. Delete when the writer publishes commits to the center. Coordinator-authorized entry, 2026-10-14."
       },
       {
         "key": "packages/daemon/src/repo-writer-worker.ts#syncCapability#atomics-wait",

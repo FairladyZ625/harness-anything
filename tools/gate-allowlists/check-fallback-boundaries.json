@@ -3,6 +3,12 @@
  "gateId": "check-fallback-boundaries",
  "baseline": "Existing CH4 fallback exits are ratcheted here; remove a key when the corresponding production exit is deleted.",
  "rationales": {
+  "packages/daemon/src/fleet/replica-sync.ts#confirm": {
+   "task": "task_aceaabaedfedcf9cb062ccf883",
+   "decision": "dec_9284BD6119D453EEECEED62450",
+   "errors": "any onConfirmed failure (edge runtime reconcile)",
+   "reason": "PR #3619 smoke scan B3: post-ACK confirmation runs outside the walreceiver and must never fail or stall the replication stream (a reconcile that waits on a later replicated commit deadlocked it). The failure is not substituted: it is handed to onConfirmedFailure, which the daemon host records as the replica_confirm_failed lifecycle event, and the next confirmed position runs reconcile again. Coordinator-authorized entry, 2026-10-14."
+  },
   "packages/daemon/src/task-witness-runner.ts#runCompletionSources": {
    "task": "task_78620217fb13cc168530d09bb6",
    "decision": "dec_4190D5EA63D9DD208CE946F133",
@@ -94,6 +100,7 @@
    "packages/daemon/src/fleet/center-transport.ts#dispatch",
    "packages/daemon/src/fleet/center-transport.ts#pump",
    "packages/daemon/src/fleet/center-transport.ts#serve",
+   "packages/daemon/src/fleet/replica-sync.ts#confirm",
    "packages/daemon/src/lifecycle-log.ts#closeDaemonOutputFd",
    "packages/daemon/src/lifecycle-log.ts#readDaemonLifecycleRecords",
    "packages/daemon/src/lifecycle-log.ts#record",

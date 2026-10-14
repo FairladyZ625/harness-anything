@@ -12,8 +12,7 @@ import { failFleetReplicaSync, waitForFleetReplicaSequence } from "./fleet/repli
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
-import { consumeKnownError } from "@harness-anything/kernel";
-import { FleetEdgeConfigError, readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -218,15 +217,9 @@ export async function syncFleetEdgeMirror(
   });
 }
 
-/** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid file is replaced. */
+/** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid one fails the sync. */
 function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
-  let previous = null;
-  try {
-    previous = readFleetEdgeConfig(request.workspaceRoot);
-  } catch (error) {
-    if (!(error instanceof FleetEdgeConfigError)) throw error;
-    consumeKnownError(error);
-  }
+  const previous = readFleetEdgeConfig(request.workspaceRoot);
   writeFleetEdgeConfig(request.workspaceRoot, {
     repoId: request.repoId,
     host: request.host,
