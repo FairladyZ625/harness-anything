@@ -282,8 +282,7 @@ export async function openRepoCellProxy(
             get: (_target, property) => {
               if (property === "currentCut")
                 return () => ({ repoId: input.repoId, revision: edgeView.revision, headDigest: edgeView.headDigest });
-              if (property === "readContentBlob")
-                return (sha256: string) => readEdgeViewBlob(edgeConfig!.viewRoot, edgeView, sha256);
+              if (property === "readContentBlob") return (sha256: string) => readEdgeViewBlob(edgeView, sha256);
               throw cellCodedError(
                 "replica_unavailable",
                 `Replica query requires unmaterialized canonical store operation ${String(property)}.`,

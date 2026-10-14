@@ -1,8 +1,8 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { locateFleetMirrorView, type FleetMirrorView } from "./fleet-edge-mirror.ts";
-import { readReplicaGeneration } from "./fleet/replica-generation.ts";
-import { sha256Bytes, sha256Text, type CanonicalEventStore } from "@harness-anything/kernel";
+import { withReplicaGeneration } from "./fleet/replica-generation.ts";
+import { sha256Bytes, type CanonicalEventStore } from "@harness-anything/kernel";
 
 export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "readContentBlob">, ref: string): string {
   const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
@@ -16,54 +16,29 @@ export function readCanonicalRuntimeResult(store: Pick<CanonicalEventStore, "rea
   return decodeRuntimeResult(bytes);
 }
 
+/** The edge mirrors the center's ledger, so it answers exactly as the center does at its applied position. */
 export function readEdgeRuntimeResult(viewRoot: string, repoId: string, nodeId: string, ref: string): string {
-  const match = /^artifact:runtime-result\/sha256\/([a-f0-9]{64})$/u.exec(ref);
-  if (!match) {
-    const view = locateFleetMirrorView(viewRoot, repoId, nodeId);
-    if (view?.entries.has(`.read-model/runtime-results-unavailable/ref-${sha256Text(ref)}`))
-      throw Object.assign(new Error(`Historical runtime result ${ref} is unavailable and cannot be downloaded.`), {
-        code: "runtime_result_unavailable",
-      });
-    throw Object.assign(new Error("Invalid runtime result reference."), { code: "replica_unavailable" });
-  }
-  return decodeRuntimeResult(readEdgeRuntimeResultBytes(viewRoot, repoId, nodeId, match[1]!));
-}
-export function readEdgeRuntimeResultBytes(
-  viewRoot: string,
-  repoId: string,
-  nodeId: string,
-  sha256: string,
-): Uint8Array {
-  const view = locateFleetMirrorView(viewRoot, repoId, nodeId),
-    entry = view?.entries.get(`.read-model/runtime-results/${sha256}`);
-  if (view?.entries.has(`.read-model/runtime-results-unavailable/${sha256}`))
-    throw Object.assign(
-      new Error(
-        `Historical runtime result artifact:runtime-result/sha256/${sha256} is unavailable and cannot be downloaded.`,
-      ),
-      {
-        code: "runtime_result_unavailable",
-      },
-    );
-  if (!entry || entry.sha256 !== sha256)
-    throw Object.assign(new Error("Runtime result is not present in the current cut."), {
-      code: "replica_unavailable",
-    });
-  return readEdgeViewBlob(viewRoot, view!, sha256);
+  const view = locateFleetMirrorView(viewRoot, repoId, nodeId);
+  if (!view) throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
+  return readCanonicalRuntimeResult({ readContentBlob: (sha256) => edgeObject(view, sha256) }, ref);
 }
 
-/** Only objects in the already-authorized immutable view may be read; sharing the CAS grants no authority. */
-export function readEdgeViewBlob(viewRoot: string, view: FleetMirrorView, sha256: string): Uint8Array {
-  const entry = [...view.entries.values()].find((candidate) => candidate.sha256 === sha256);
-  if (!entry)
-    throw Object.assign(new Error("Content is not present in the authorized replica cut."), {
+/** A content object of the edge's replica ledger; the replica holds every object the center holds. */
+export function readEdgeViewBlob(view: FleetMirrorView, sha256: string): Uint8Array {
+  const bytes = edgeObject(view, sha256);
+  if (!bytes)
+    throw Object.assign(new Error("Content is not present in the replica."), {
       code: "replica_unavailable",
     });
-  const generation = readReplicaGeneration(view.viewDir);
-  if (!generation)
-    throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
-  const bytes = readFileSync(
-    path.join(
+  return bytes;
+}
+
+function edgeObject(view: FleetMirrorView, sha256: string): Uint8Array | null {
+  if (!/^[a-f0-9]{64}$/u.test(sha256)) return null;
+  return withReplicaGeneration(view.viewDir, (generation) => {
+    if (!generation)
+      throw Object.assign(new Error("Replica generation is unavailable."), { code: "replica_unavailable" });
+    const file = path.join(
       generation.rootDir,
       ".harness",
       "store",
@@ -73,13 +48,15 @@ export function readEdgeViewBlob(viewRoot: string, view: FleetMirrorView, sha256
       "sha256",
       sha256.slice(0, 2),
       sha256,
-    ),
-  );
-  if (bytes.byteLength !== entry.size || sha256Bytes(bytes) !== sha256)
-    throw Object.assign(new Error("Content does not match the authorized replica cut."), {
-      code: "replica_unavailable",
-    });
-  return bytes;
+    );
+    if (!existsSync(file)) return null;
+    const bytes = readFileSync(file);
+    if (sha256Bytes(bytes) !== sha256)
+      throw Object.assign(new Error("Content does not match its replica object digest."), {
+        code: "replica_unavailable",
+      });
+    return bytes;
+  });
 }
 
 function decodeRuntimeResult(bytes: Uint8Array): string {

@@ -18,7 +18,7 @@ export function edgeCiDetailDescriptors(
   return paths.map((logical) => {
     const blob = view.entries.get(logical);
     if (!blob) throw new Error(`CI observation ${logical} is not in the authorized cut`);
-    return JSON.parse(Buffer.from(readEdgeViewBlob(viewRoot, view, blob.sha256)).toString("utf8")) as Descriptor;
+    return JSON.parse(Buffer.from(readEdgeViewBlob(view, blob.sha256)).toString("utf8")) as Descriptor;
   });
 }
 function cachePath(view: FleetMirrorView, digest: string): string {

@@ -26,7 +26,7 @@ export function readEdgeRuntimeRepository(
       } as unknown as JsonObject;
     }
     const reads = repositoryRuntimeReads(source, {
-      readContentBlob: (sha256) => readEdgeViewBlob(input.viewRoot, view, sha256),
+      readContentBlob: (sha256) => readEdgeViewBlob(view, sha256),
     });
     return {
       ...(method === "repo.agentRuntime.overview" ? reads.overview(payload) : reads.session(payload)),
