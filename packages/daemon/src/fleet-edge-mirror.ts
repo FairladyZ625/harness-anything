@@ -2,6 +2,7 @@ import { existsSync, mkdirSync, readFileSync, readdirSync, statSync } from "node
 import path from "node:path";
 import {
   classifyRawArtifactPath,
+  classifyTextualArtifactPath,
   DOC_SYNC_INLINE_MAX_BYTES,
   documentPath,
   makeTaskProjectionReader,
@@ -209,7 +210,7 @@ export function scanFleetMirrorWorktree(
       continue;
     }
     const route = resolveDocRoute(documentPath(logical));
-    if (!route || !route.allowed) {
+    if ((!route || !route.allowed) && classifyTextualArtifactPath(logical)?.kind !== "opaque-textual") {
       blocked.push({ path: logical, reason: "path is not an allowed canonical document" });
       continue;
     }
@@ -254,7 +255,11 @@ export function cacheFleetMirrorDirtyBases(
     ? scanFleetMirrorWorktree(
         view,
         workspaceRoot,
-        packagePath ? [...view.entries.keys()].filter((p) => p.startsWith(`${packagePath}/`)) : undefined,
+        packagePath
+          ? [...new Set([...view.entries.keys(), ...materializedPaths(materializedRoot(workspaceRoot))])].filter((p) =>
+              p.startsWith(`${packagePath}/`),
+            )
+          : undefined,
       )
     : null;
 }

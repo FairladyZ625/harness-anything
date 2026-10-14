@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -83,6 +83,16 @@ test(
       const edge = await openDaemonHost({ daemonId, userRoot: edgeUser, oidc });
       t.after(() => edge.close());
       await edge.attachmentsSettled();
+      await catchUpReplica({
+        port: center.port,
+        ca: fixture.cert,
+        nodeId,
+        credential: "machine-secret",
+        repoId,
+        viewRoot: path.join(edgeUser, "view"),
+        diskQuotaBytes: 64 * 1024 * 1024,
+        readAccessToken: fixture.owners.readAccessToken(nodeId),
+      });
       const transport = createUnixSocketTransportServer({
         daemonId,
         socketPath: localUserDaemonEndpoint(edgeUser, daemonId),
@@ -99,18 +109,6 @@ test(
       t.after(() => transport.stop());
     };
     await openEdge("node-one", edgeRoot, edgeUser);
-    await catchUpReplica({
-      host: "127.0.0.1",
-      port: center.port,
-      ca: fixture.certFile,
-      servername: "localhost",
-      nodeId: "node-one",
-      credential: "machine-secret",
-      repoId,
-      viewRoot: path.join(edgeUser, "view"),
-      diskQuotaBytes: 64 * 1024 * 1024,
-      readAccessToken: fixture.owners.readAccessToken("node-one"),
-    });
     let activeRoot = edgeRoot,
       activeUser = edgeUser;
     const invoke = async (args: string[], expectedCode = 0) => {
@@ -155,7 +153,15 @@ test(
     git(edgeRoot, "worktree", "add", "-b", taskId, cwd, "HEAD");
     writeFileSync(path.join(cwd, "delivery.ts"), "export const complete = true;\n");
     git(cwd, "add", "delivery.ts");
-    git(cwd, "commit", "-qm", "feat: exercise fleet delivery");
+    execFileSync("git", ["-C", cwd, "commit", "-qm", "feat: exercise fleet delivery"], {
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "person-owner",
+        GIT_AUTHOR_EMAIL: "person-owner@users.noreply.github.com",
+        GIT_COMMITTER_NAME: "person-owner",
+        GIT_COMMITTER_EMAIL: "person-owner@users.noreply.github.com",
+      },
+    });
     const delivery = git(cwd, "rev-parse", "HEAD");
     await invoke([
       "fact",
