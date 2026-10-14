@@ -51,6 +51,7 @@ export interface RepoWriterRequestV1 {
     | "presetRun"
     | "spawnRuntime"
     | "cancelRuntime"
+    | "steerRuntime"
     | "handoffRuntime"
     | "runtimeIngress"
     | "settlePendingMaterialization"

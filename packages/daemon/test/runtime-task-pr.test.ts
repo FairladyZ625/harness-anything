@@ -173,7 +173,7 @@ test("task PR runs the repository lint script itself and rejects a placeholder-o
   const placeholderBody =
     "# English\n\n## Summary\n\nReal summary sentence for the latin word count threshold.\n\n## Residual Risk\n\nTBD\n\n---\n\n# 中文\n\n## 概要\n\n概要正文有足够的中文内容通过字数检查。\n\n## 残余风险\n\n待定\n";
   const filledBody =
-    "# English\n\n## Summary\n\nReal summary sentence for the latin word count threshold of this bilingual gate.\n\n## Residual Risk\n\nNo residual risk remains beyond the checked body itself.\n\n---\n\n# 中文\n\n## 概要\n\n概要正文有足够的中文内容通过字数检查。\n\n## 残余风险\n\n除已检查的正文外无残留风险。\n";
+    "# English\n\n## Summary\n\nReal summary sentence for the latin word count threshold of this bilingual gate.\n\n## Architectural Justification\n\nThe existing module boundaries require this control to cross the daemon, worker host, and CLI.\n\n## Residual Risk\n\nNo residual risk remains beyond the checked body itself.\n\n---\n\n# 中文\n\n## 概要\n\n概要正文有足够的中文内容通过字数检查。\n\n## 架构辩护\n\n现有模块边界要求控制能力经过 daemon、worker host 与 CLI。\n\n## 残余风险\n\n除已检查的正文外无残留风险。\n";
   const f = prFixture();
   const withBody = (body: string) => ({
     ...f.context,

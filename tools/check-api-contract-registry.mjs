@@ -48,10 +48,12 @@ const transportAuthorityMarker = "@daemon-transport-authority";
 export function evaluateApiContractRegistry(root = process.cwd()) {
   const violations = [];
   const registryPath = "packages/daemon/src/protocol/daemon-protocol.contract.ts";
+  const runtimeActionsPath = "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts";
   const serverPath = "packages/daemon/src/protocol/json-rpc-server.ts";
   const hostPath = "packages/daemon/src/daemon-host.ts";
   const authPath = "packages/daemon/src/transport/auth-context.ts";
   const registry = read(root, registryPath, violations),
+    runtimeActions = read(root, runtimeActionsPath, violations),
     server = read(root, serverPath, violations);
   const hostGraph = collectRuntimeAuthorityGraph(root, hostPath, violations),
     hostAuthorities = hostGraph.filter(({ source }) => source.includes(transportAuthorityMarker)),
@@ -72,6 +74,21 @@ export function evaluateApiContractRegistry(root = process.cwd()) {
     if (/apiRouteContracts|capabilit|notifications?|admin\.(?:people|rbac)/u.test(registry)) {
       violations.push(`${registryPath}: retired GUI/API capability authority must not feed the W3 daemon protocol`);
     }
+  }
+  if (runtimeActions) {
+    const steerCount = [...runtimeActions.matchAll(/"repo\.agentRuntime\.steer"/gu)].length;
+    if (steerCount !== 1)
+      violations.push(
+        `${runtimeActionsPath}: repo.agentRuntime.steer must have exactly one registered method; found ${steerCount}`,
+      );
+    if (
+      !/guiS3Action\(\s*"agentRuntime\.steer",\s*"repo\.agentRuntime\.steer",\s*"runtime-steer",\s*shape\(\{[^}]*runtimeSessionId:[^}]*dispatchId:[^}]*prompt:/su.test(
+        runtimeActions,
+      )
+    )
+      violations.push(
+        `${runtimeActionsPath}: runtime steer registration must bind the owner target and prompt payload`,
+      );
   }
   if (server) {
     for (const token of [

@@ -11,6 +11,23 @@ test("W3 API registry accepts the exact transport-bound daemon catalog", () =>
     assert.deepEqual(evaluateApiContractRegistry(root), []);
   }));
 
+test("W3 API registry requires exactly one steer method with owner target fields", () =>
+  withFixture((root) => {
+    const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts");
+    writeFileSync(
+      file,
+      'guiS3Action("agentRuntime.steer", "repo.agentRuntime.steer", "runtime-steer", shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }))',
+    );
+    assert.deepEqual(evaluateApiContractRegistry(root), []);
+    writeFileSync(
+      file,
+      'guiS3Action("agentRuntime.steer", "repo.agentRuntime.steer", "runtime-steer", shape({ runtimeSessionId: "string?", prompt: "string" }))',
+    );
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /owner target and prompt payload/u);
+    writeFileSync(file, '"repo.agentRuntime.steer"; "repo.agentRuntime.steer"');
+    assert.match(evaluateApiContractRegistry(root).join("\n"), /exactly one registered method/u);
+  }));
+
 test("W3 API registry rejects an unregistered compatibility method", () =>
   withFixture((root) => {
     const file = path.join(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts");
@@ -181,6 +198,11 @@ function withFixture(run) {
       }),
     );
     write(root, "packages/daemon/src/protocol/daemon-protocol.contract.ts", validRegistry());
+    write(
+      root,
+      "packages/daemon/src/protocol/daemon-protocol-gui-actions.ts",
+      'guiS3Action("agentRuntime.steer", "repo.agentRuntime.steer", "runtime-steer", shape({ runtimeSessionId: "string?", dispatchId: "string?", prompt: "string" }))',
+    );
     write(root, "packages/daemon/src/protocol/json-rpc-server.ts", validServer());
     write(root, "packages/daemon/src/daemon-host.ts", 'export { openDaemonHost } from "./transport-composition.ts";\n');
     write(root, "packages/daemon/src/transport-composition.ts", validHostComposition());

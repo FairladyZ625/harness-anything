@@ -23,7 +23,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // dec_4190D5EA63D9DD208CE946F133 / dec_5EC2631352B17EE2BF4979E37E: four Task GateRun actions.
   // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle adds three host actions.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
-  assert.equal(actionDeclarations.length, 152);
+  // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: runtime steering is a canonical action declaration.
+  assert.equal(actionDeclarations.length, 153);
   assert.equal(new Set(actionDeclarations.map((item) => item.policyAction)).size, actionDeclarations.length);
   for (const declaration of actionDeclarations) {
     assert.equal(declaration.policyAction, declaration.kind);

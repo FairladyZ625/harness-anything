@@ -259,6 +259,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.schedule.disable", { scheduleId: "schedule-a", idempotencyKey: "schedule-disable-once" }],
     ["repo.schedule.runNow", { scheduleId: "schedule-a", idempotencyKey: "schedule-run-once" }],
     ["repo.agentRuntime.cancel", { runtimeSessionId: "runtime-session-a" }],
+    ["repo.agentRuntime.steer", { dispatchId: "dispatch-a", prompt: "Change direction." }],
     ["repo.terminal.spawn", { idempotencyKey: "terminal-once", backend: "direct-pty", name: "Shell", cwd: { scope: "repo-root" }, shellProfileId: "default" }],
     ["repo.terminal.input", { sessionId: "terminal-a", clientSeq: 1, utf8: "pwd\n" }],
     ["repo.terminal.resize", { sessionId: "terminal-a", cols: 100, rows: 30 }],

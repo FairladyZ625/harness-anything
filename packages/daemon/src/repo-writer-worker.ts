@@ -271,6 +271,9 @@ async function startRepoWriterWorker(): Promise<void> {
         case "cancelRuntime":
           value = await cell.cancelRuntime(request.payload as never, binding!);
           break;
+        case "steerRuntime":
+          value = await cell.steerRuntime(request.payload as never, binding!);
+          break;
         case "runtimeIngress":
           value = await cell.runtimeIngress(
             (request.payload as { action: Parameters<typeof cell.runtimeIngress>[0] }).action,

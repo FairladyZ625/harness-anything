@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
+import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.ts";
+import { launchNative } from "../src/runtime-spawn-process.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
 
 test("provider environment excludes host Git and SSH credentials", () => {
@@ -116,3 +118,104 @@ test(
     }
   },
 );
+
+test(
+  "steer resumes a live Codex worker with the same provider session and final-only exit",
+  { timeout: 15_000 },
+  async (t) => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-runtime-worker-steer-")),
+      rootDir = path.join(parent, "repo"),
+      executablePath = path.join(parent, "provider.mjs"),
+      tracePath = path.join(parent, "provider-trace.jsonl"),
+      dispatchId = "dispatch_123456789012345678901234",
+      runtimeSessionId = "runtime_123456789012345678901234";
+    mkdirSync(rootDir);
+    writeFileSync(
+      executablePath,
+      `#!/usr/bin/env node\n` +
+        `import fs from "node:fs";\n` +
+        `let prompt = ""; for await (const chunk of process.stdin) prompt += chunk;\n` +
+        `fs.appendFileSync(process.env.STEER_TRACE, JSON.stringify({ args: process.argv.slice(2), prompt }) + "\\n");\n` +
+        `const emit = (value) => process.stdout.write(JSON.stringify(value) + "\\n");\n` +
+        `emit({ type: "thread.started", thread_id: "provider-thread-stable" });\n` +
+        `if (process.argv.includes("resume")) { process.exit(0); }\n` +
+        `process.on("SIGINT", () => process.exit(130));\n` +
+        `emit({ type: "item.started", item: { id: "tool-1", type: "command_execution" } });\n` +
+        `setTimeout(() => { emit({ type: "item.completed", item: { id: "tool-1", type: "command_execution" } }); setInterval(() => undefined, 1000); }, 100);\n`,
+    );
+    chmodSync(executablePath, 0o755);
+    const dispatchStream = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId,
+      instanceId: "codex-test",
+      startedAt: new Date().toISOString(),
+      dispatchOpId: "dispatch-op-steer-test",
+      kindId: "codex",
+      permissionMode: null,
+      binding: { actor: { principal: { personId: "operator" }, executor: null }, source: "local" },
+      cwd: rootDir,
+      prompt: "initial prompt",
+      model: "test-model",
+      reasoningEffort: null,
+      fast: false,
+    });
+    void dispatchStream;
+    const runtimeProcess = launchNative(
+      {
+        executablePath,
+        args: ["exec", "--json", "--model", "test-model", "-"],
+        env: { ...runtimeWorkerProviderEnvironment(process.env), STEER_TRACE: tracePath },
+        cwd: rootDir,
+        prompt: "initial prompt",
+        installation: { kindId: "codex" },
+        protocolFamily: "codex",
+      } as never,
+      { rootDir, dispatchId },
+    );
+    t.after(async () => {
+      await runtimeProcess.terminateTree?.();
+      rmSync(parent, { recursive: true, force: true });
+    });
+    await eventually(
+      () =>
+        readDispatchStream(rootDir, dispatchId)?.records.some(
+          (record) => record.kind === "provider_event" && (record.event as { type?: string }).type === "item.started",
+        ) === true,
+    );
+    runtimeProcess.steer!("follow-up prompt");
+    await new Promise<void>((resolve, reject) => {
+      runtimeProcess.onExit((code) => (code === 0 ? resolve() : reject(new Error(`worker exited ${code}`))));
+    });
+    const invocations = readFileSync(tracePath, "utf8")
+      .trim()
+      .split(/\r?\n/u)
+      .map(
+        (line) =>
+          JSON.parse(line) as {
+            args: string[];
+            prompt: string;
+          },
+      );
+    assert.equal(invocations.length, 2);
+    assert.equal(invocations[0]!.prompt, "initial prompt");
+    assert.equal(invocations[1]!.prompt, "follow-up prompt");
+    assert.deepEqual(invocations[1]!.args, [
+      "exec",
+      "resume",
+      "--json",
+      "--model",
+      "test-model",
+      "provider-thread-stable",
+      "-",
+    ]);
+    const records = readDispatchStream(rootDir, dispatchId)!.records;
+    assert.equal(records.filter((record) => record.kind === "steer_resumed").length, 1);
+    assert.equal(records.filter((record) => record.kind === "process_exit").length, 1);
+  },
+);
+
+async function eventually(check: () => boolean): Promise<void> {
+  while (!check()) await new Promise<void>((resolve) => setImmediate(resolve));
+}

@@ -26,7 +26,7 @@ import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
 import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
-import { cancelRuntime, closeRuntimes } from "./runtime-spawn-control.ts";
+import { cancelRuntime, closeRuntimes, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
@@ -995,6 +995,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     adopt: (onProgress?: (completed: number) => void) =>
       adoptRuntimes(extracted, onProgress, { sweepTempDirectories: true }),
     cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
+    steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {
       fallbackClosed = true;
       closeRuntimes(extracted);

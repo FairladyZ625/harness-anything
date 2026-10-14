@@ -505,6 +505,7 @@ type DaemonFleetTaskPayload = DaemonFleetChannelPayload & {
           | "repo.squad.control"
           | "repo.agentRuntime.spawn"
           | "repo.agentRuntime.cancel"
+          | "repo.agentRuntime.steer"
           | "repo.agentRuntime.handoff"
           | "repo.agentRuntime.overview"
           | "repo.agentRuntime.sessions.await"

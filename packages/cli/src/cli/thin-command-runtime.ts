@@ -50,8 +50,8 @@ export function parseRuntime(
   if (!f.ok) return rejected(f.code, f.nextAction, json);
   if (!nonEmpty(id))
     return rejected("missing_field", `Run ha runtime ${kind.slice(8)} <${runtimeTarget(kind)}>.`, json);
-  if (kind === "runtime-batch") return accepted(rootDir, repoId, json, { kind, batchFile: id }, route.method);
-  if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
+  if (["runtime-batch", "runtime-cancel", "runtime-steer"].includes(kind))
+    return parseRuntimeControl(route, rootDir, repoId, json, inputs, id, f);
   const prompt = promptInput(f.one),
     taskId = f.one.get("--task"),
     missionName = f.one.get("--mission"),
@@ -93,6 +93,33 @@ export function parseRuntime(
       ...(detach ? { detach: true } : {}),
       ...(onExitCommand ? { onExitCommand } : {}),
       ...(f.booleans.has("--no-stream") ? { noStream: true } : {}),
+    },
+    route.method,
+  );
+}
+
+function parseRuntimeControl(
+  route: ProtocolCommand,
+  rootDir: SafePath,
+  repoId: string | undefined,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+  id: string,
+  flags: ReturnType<typeof readFlags> & { readonly ok: true },
+): ThinParseResult {
+  const kind = route.id;
+  if (kind === "runtime-batch") return accepted(rootDir, repoId, json, { kind, batchFile: id }, route.method);
+  if (kind === "runtime-cancel") return accepted(rootDir, repoId, json, { kind, runtimeSessionId: id }, route.method);
+  const prompt = promptInput(flags.one);
+  if (!prompt) return rejectInput(inputs, kind, "--prompt", json);
+  return accepted(
+    rootDir,
+    repoId,
+    json,
+    {
+      kind,
+      ...(id.startsWith("dispatch_") ? { dispatchId: id } : { runtimeSessionId: id }),
+      ...prompt,
     },
     route.method,
   );
