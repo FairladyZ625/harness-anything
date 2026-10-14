@@ -1,8 +1,9 @@
 // harness-test-tier: integration
 // dec_9284BD6119D453EEECEED62450 real-machine hardening of the resident edge stream (runFleetReplicaSync):
-// edge-runtime confirmations never run inside the receiver's ACK path.
+// edge-runtime confirmations never run inside the receiver's ACK path; an edge upgraded in place over
+// the retired cut/pull layout starts a fresh replica instead of failing on the old pointer.
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -127,3 +128,49 @@ test("a failing confirmation is reported and never fails the replication stream"
   assert.ok(confirmFailures.length >= 1, "the confirmation failure was reported");
   assert.deepEqual(stream.failures, [], "confirmation failures are not stream failures");
 });
+
+test(
+  "an edge upgraded over the retired cut/pull layout discards it and installs a generation",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+      repoDir = path.join(viewRoot, "repos", replicationRepoId),
+      viewDir = path.join(repoDir, "views", "edge-one");
+    // The retired replica used viewId = nodeId, so its pointer sits exactly where a generation pointer goes.
+    mkdirSync(path.join(viewDir, "cuts", "7-g1"), { recursive: true });
+    writeFileSync(path.join(viewDir, "cuts", "7-g1", "manifest.json"), "{}");
+    mkdirSync(path.join(viewDir, ".staging", "transfer"), { recursive: true });
+    writeFileSync(path.join(viewDir, "read-model.sqlite"), "");
+    mkdirSync(path.join(repoDir, "cas", "sha256", "ab"), { recursive: true });
+    writeFileSync(path.join(repoDir, "manifests.sqlite"), "");
+    writeFileSync(
+      path.join(viewDir, "current.json"),
+      JSON.stringify({
+        cut: { revision: 7, headDigest: `sha256:${"0".repeat(64)}` },
+        schemaGeneration: 1,
+        manifestDigest: `sha256:${"1".repeat(64)}`,
+        readerProfile: { personId: "edge-operator", nodeId: "edge-one" },
+        authorizationShapeDigest: `sha256:${"2".repeat(64)}`,
+      }),
+    );
+    assert.equal(readReplicaGeneration(viewDir), null, "the retired pointer names no generation");
+    const stream = startHardeningStream(t, fixture, viewRoot);
+    await waitForState(
+      () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+      "a fresh generation over the retired layout",
+      60_000,
+    );
+    for (const retired of [
+      path.join(viewDir, "cuts"),
+      path.join(viewDir, ".staging"),
+      path.join(viewDir, "read-model.sqlite"),
+      path.join(repoDir, "cas"),
+      path.join(repoDir, "manifests.sqlite"),
+    ])
+      assert.equal(existsSync(retired), false, `${retired} was discarded`);
+    assert.deepEqual(stream.failures, []);
+  },
+);

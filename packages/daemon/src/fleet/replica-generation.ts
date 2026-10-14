@@ -7,6 +7,7 @@ import * as tar from "tar";
 import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
+import { isBaseBackupMetadata } from "./protocol.ts";
 
 export interface ReplicaGeneration {
   readonly id: string;
@@ -34,12 +35,37 @@ function generation(root: string, id: string, metadata: BaseBackupMetadata): Rep
   };
 }
 
+const isGenerationPointer = (value: unknown): value is { id: string; metadata: BaseBackupMetadata } =>
+  value !== null &&
+  typeof value === "object" &&
+  typeof (value as { id?: unknown }).id === "string" &&
+  /^[A-Za-z0-9-]+$/u.test((value as { id: string }).id) &&
+  isBaseBackupMetadata((value as { metadata?: unknown }).metadata);
+
+/** A pointer of any other shape (the retired cut/pull replica's current.json) names no generation. */
 export function readReplicaGeneration(root: string): ReplicaGeneration | null {
   const pointer = path.join(root, "current.json");
   if (!existsSync(pointer)) return null;
-  const current = JSON.parse(readFileSync(pointer, "utf8")) as { id: string; metadata: BaseBackupMetadata };
-  return generation(root, current.id, current.metadata);
+  const current: unknown = JSON.parse(readFileSync(pointer, "utf8"));
+  return isGenerationPointer(current) ? generation(root, current.id, current.metadata) : null;
 }
+
+// What the retired cut/pull replica kept in a view directory and in its repository directory.
+const RETIRED_VIEW_ENTRIES = [
+  "cuts",
+  ".staging",
+  "read-model.sqlite",
+  "read-model.sqlite-wal",
+  "read-model.sqlite-shm",
+  ".replica-pull.lock",
+];
+const RETIRED_REPOSITORY_ENTRIES = [
+  "cas",
+  "manifests.sqlite",
+  "manifests.sqlite-wal",
+  "manifests.sqlite-shm",
+  ".mirror-round.lock",
+];
 
 /** A denied view stops answering at once; its generation files go with the next collect. */
 export function revokeReplicaView(root: string): void {
@@ -194,8 +220,9 @@ function createGenerationReaders(root: string) {
     for (const entry of superseded) rmSync(path.join(directory, entry.name), { recursive: true, force: true });
   };
   /**
-   * Removes what a crashed install left behind: unpublished generation staging and received base
-   * backup archives. Only the single installer of this root calls it, before it can install again.
+   * Removes what a crashed install left behind (unpublished generation staging and received base
+   * backup archives) and what the retired cut/pull replica left at this view. Only the single
+   * installer of this root calls it, before it can install again.
    */
   const discardStaging = async (): Promise<void> => {
     const directory = path.join(root, "generations");
@@ -204,6 +231,13 @@ function createGenerationReaders(root: string) {
         if (entry.isDirectory() && entry.name.endsWith(".staging"))
           await rm(path.join(directory, entry.name), { recursive: true, force: true });
     await rm(path.join(root, "staging"), { recursive: true, force: true });
+    // An edge upgraded in place still holds the retired layout under the same view path.
+    const pointer = path.join(root, "current.json");
+    if (existsSync(pointer) && readReplicaGeneration(root) === null) await rm(pointer, { force: true });
+    for (const name of RETIRED_VIEW_ENTRIES) await rm(path.join(root, name), { recursive: true, force: true });
+    const repository = path.dirname(path.dirname(root));
+    for (const name of RETIRED_REPOSITORY_ENTRIES)
+      await rm(path.join(repository, name), { recursive: true, force: true });
   };
   return {
     acquire(): { readonly generation: ReplicaGeneration; readonly release: () => void } | null {
