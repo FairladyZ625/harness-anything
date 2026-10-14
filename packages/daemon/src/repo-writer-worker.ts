@@ -283,6 +283,9 @@ async function startRepoWriterWorker(): Promise<void> {
         case "backup":
           value = await cell.backup!(request.payload as Parameters<NonNullable<typeof cell.backup>>[0]);
           break;
+        case "pruneReplicationLog":
+          value = await cell.pruneReplicationLog!(Number(request.payload));
+          break;
         case "catalog": {
           const payload = request.payload as { method: keyof typeof cell.catalog; args: unknown[] };
           value = await (cell.catalog[payload.method] as (...args: unknown[]) => unknown)(...payload.args);

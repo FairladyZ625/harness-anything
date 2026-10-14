@@ -72,7 +72,10 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
 
 export function createDaemonHostRepositoryApi(
   context: DaemonHostApiContext,
-): Pick<DaemonHost, "bootstrap" | "admin" | "run" | "replica" | "settleMaterialization" | "presetRun" | "read"> {
+): Pick<
+  DaemonHost,
+  "bootstrap" | "admin" | "run" | "replica" | "pruneReplicationLog" | "settleMaterialization" | "presetRun" | "read"
+> {
   return {
     bootstrap: async (request, auth) => {
       const requestedRoot = canonicalRoot(request.rootDir, true),
@@ -712,6 +715,10 @@ export function createDaemonHostRepositoryApi(
       }
     },
     replica: (repoId) => context.requiredCell(context.cells, context.warming, context.unavailable, repoId).replica,
+    pruneReplicationLog: (repoId, beforeSequence) =>
+      context.requiredCell(context.cells, context.warming, context.unavailable, repoId).pruneReplicationLog!(
+        beforeSequence,
+      ),
     settleMaterialization: (repoId, settlementContext) =>
       context
         .requiredCell(context.cells, context.warming, context.unavailable, repoId)

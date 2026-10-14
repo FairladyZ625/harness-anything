@@ -370,10 +370,10 @@ export async function runFleetEdgeTask(
     // center bytes staged beside the local ones for the explicit exits.
     if (!readOnly && (applied || conflictCode !== null)) {
       try {
-        if (typeof result.revision === "number")
+        if (result.replicationSequence !== null)
           await waitForFleetReplicaSequence(
             { viewRoot: payload.viewRoot, repoId: payload.repoId, nodeId: payload.nodeId },
-            result.revision,
+            result.replicationSequence,
           );
         const settle =
           workspaceRoot === null

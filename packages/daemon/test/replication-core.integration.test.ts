@@ -173,21 +173,53 @@ test("slots persist ACKs and fence an older connection", (t) => {
   }
 });
 
-test("each active backup independently pins the retained prefix", () => {
-  const pruned: number[] = [],
-    retention = createReplicationRetention((before) => {
+test("retention keeps the slowest slot's suffix within the cap and each active backup pins its start", async () => {
+  const pruned: number[] = [];
+  let slowest: number | null = 90;
+  const retention = createReplicationRetention({
+    windowCommits: 63,
+    slotFloor: () => slowest,
+    prune: (before) => {
       pruned.push(before);
-    });
+    },
+  });
+  const head = { history: "history", sequence: 100, revision: 80 };
+  await retention.advance(head); // the slowest slot (90) is inside the cap: keep its suffix
+  slowest = 10;
+  await retention.advance(head); // a slot beyond the cap does not hold the log: prune to the cap
+  slowest = null;
+  await retention.advance(head); // no slot: only the head anchor stays
   const position = { history: "history", sequence: 1, revision: 1 };
   const releaseFirst = retention.pin(position),
-    releaseSecond = retention.pin(position);
-  const head = { history: "history", sequence: 100, revision: 80 };
-  retention.advance(head);
+    releaseSecond = retention.pin(position),
+    releaseOtherHistory = retention.pin({ history: "other", sequence: 0, revision: 0 });
+  await retention.advance(head);
   releaseFirst();
-  retention.advance(head);
+  await retention.advance(head);
   releaseSecond();
-  retention.advance(head);
-  assert.deepEqual(pruned, [1, 1, 37]);
+  await retention.advance(head);
+  releaseOtherHistory();
+  assert.deepEqual(pruned, [90, 37, 100, 1, 1, 100]);
+});
+
+test("the slot floor is the slowest durable ACK on the current history", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-slot-floor-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite"));
+  try {
+    assert.equal(slots.minimumAck("repo", "h1"), null);
+    const at = (history: string, sequence: number) => ({ history, sequence, revision: sequence });
+    const fast = slots.claim({ repoId: "repo", nodeId: "fast" }, "h1"),
+      slow = slots.claim({ repoId: "repo", nodeId: "slow" }, "h1"),
+      other = slots.claim({ repoId: "repo", nodeId: "other" }, "h0");
+    slots.acknowledge(fast, { durable: at("h1", 9), applied: at("h1", 9) }, at("h1", 9));
+    slots.acknowledge(slow, { durable: at("h1", 4), applied: at("h1", 4) }, at("h1", 4));
+    slots.acknowledge(other, { durable: at("h0", 1), applied: at("h0", 1) }, at("h0", 1));
+    assert.equal(slots.minimumAck("repo", "h1"), 4);
+    assert.equal(slots.minimumAck("another-repo", "h1"), null);
+  } finally {
+    slots.close();
+  }
 });
 
 test("decoder accepts many complete frames per chunk and rejects oversized remainder and inherited names", () => {
@@ -267,6 +299,7 @@ test("sender streams eventless commits to the real replica and records an applie
           abort.abort(stop);
           throw stop;
         },
+        acknowledged: async () => undefined,
         backup: async () => {
           throw new Error("unexpected backup");
         },

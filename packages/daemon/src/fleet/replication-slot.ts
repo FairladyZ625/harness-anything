@@ -79,6 +79,15 @@ export function openReplicationSlots(file: string) {
         );
       if (result.changes !== 1) throw new Error("replication session fenced");
     },
+    /** The slowest durable ACK on this history: the log must keep every commit after it. */
+    minimumAck(repoId: string, history: string): number | null {
+      const value = db
+        .prepare(
+          "SELECT MIN(json_extract(ack, '$.durable.sequence')) AS floor FROM replication_slot WHERE repo=? AND history=? AND ack IS NOT NULL",
+        )
+        .get(repoId, history);
+      return value?.floor == null ? null : Number(value.floor);
+    },
     invalidateOffline(repoId: string): void {
       db.prepare("UPDATE replication_slot SET fence=fence+1, ack=NULL WHERE repo=?").run(repoId);
     },
@@ -88,8 +97,16 @@ export function openReplicationSlots(file: string) {
 
 export type ReplicationSlots = ReturnType<typeof openReplicationSlots>;
 
-/** The retired cut store retained 64 positions. Keep that window; active backups pin their start until release. */
-export function createReplicationRetention(prune: (beforeSequence: number) => void) {
+/**
+ * Replication-log retention, after PostgreSQL slots: keep every commit after the slowest slot's ACK,
+ * but never more than `windowCommits` behind the head (max_slot_wal_keep_size); a slot beyond that cap
+ * is answered with resync. An active base backup pins its start until the replica acknowledges it.
+ */
+export function createReplicationRetention(input: {
+  readonly windowCommits: number;
+  readonly slotFloor: (head: ReplicationPosition) => number | null;
+  readonly prune: (beforeSequence: number) => void | Promise<void>;
+}) {
   const pins = new Set<{ readonly position: ReplicationPosition }>();
   return {
     pin(position: ReplicationPosition): () => void {
@@ -99,11 +116,11 @@ export function createReplicationRetention(prune: (beforeSequence: number) => vo
         pins.delete(pin);
       };
     },
-    advance(head: ReplicationPosition): void {
-      let before = Math.max(0, head.sequence - 63);
+    async advance(head: ReplicationPosition): Promise<void> {
+      let before = Math.max(head.sequence - input.windowCommits, input.slotFloor(head) ?? head.sequence, 0);
       for (const { position } of pins)
         if (position.history === head.history) before = Math.min(before, position.sequence);
-      prune(before);
+      await input.prune(before);
     },
   };
 }

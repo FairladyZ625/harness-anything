@@ -4,7 +4,7 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { pipeline } from "node:stream/promises";
 import * as tar from "tar";
-import { makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
+import { consumeKnownError, makeTaskProjectionReader, openSqliteEventStore } from "@harness-anything/kernel";
 import { syncDirectory, syncFile, writeFileDurably } from "../durable-file.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
 
@@ -148,32 +148,67 @@ export async function installReplicaGeneration(input: {
   }
 }
 
-/** Existing query sessions own their generation until release; replacing current never closes their files. */
-export function createReplicaGenerationReader(root: string) {
-  const readers = new Map<string, number>();
+/**
+ * One pin registry per replica root in this process: the receiver that installs and collects
+ * generations and the edge reads that open them share it. A pinned generation outlives a newer
+ * install; the last release of a superseded generation collects it.
+ */
+const generationReaders = new Map<string, ReturnType<typeof createGenerationReaders>>();
+export function replicaGenerationReaders(root: string) {
+  const key = path.resolve(root);
+  let readers = generationReaders.get(key);
+  if (!readers) generationReaders.set(key, (readers = createGenerationReaders(key)));
+  return readers;
+}
+
+/** Runs one synchronous read against the current generation (null before the first install) while it is pinned. */
+export function withReplicaGeneration<T>(root: string, read: (generation: ReplicaGeneration | null) => T): T {
+  const pin = replicaGenerationReaders(root).acquire();
+  try {
+    return read(pin?.generation ?? null);
+  } finally {
+    pin?.release();
+  }
+}
+
+function createGenerationReaders(root: string) {
+  const pins = new Map<string, number>();
+  const collect = async (): Promise<void> => {
+    const current = readReplicaGeneration(root),
+      directory = path.join(root, "generations");
+    if (current === null || !existsSync(directory)) return;
+    // Staging belongs to an install in flight; only published, superseded, unpinned generations go.
+    const superseded = readdirSync(directory, { withFileTypes: true }).filter(
+      (entry) =>
+        entry.isDirectory() && entry.name !== current.id && !entry.name.endsWith(".staging") && !pins.get(entry.name),
+    );
+    for (const entry of superseded) await rm(path.join(directory, entry.name), { recursive: true, force: true });
+  };
   return {
-    acquire() {
+    acquire(): { readonly generation: ReplicaGeneration; readonly release: () => void } | null {
       const current = readReplicaGeneration(root);
-      if (current === null) throw new Error("replica is not initialized");
-      readers.set(current.id, (readers.get(current.id) ?? 0) + 1);
+      if (current === null) return null;
+      pins.set(current.id, (pins.get(current.id) ?? 0) + 1);
+      let released = false;
       return {
         generation: current,
         release: () => {
-          readers.set(current.id, readers.get(current.id)! - 1);
+          if (released) return;
+          released = true;
+          const remaining = pins.get(current.id)! - 1;
+          if (remaining > 0) {
+            pins.set(current.id, remaining);
+            return;
+          }
+          pins.delete(current.id);
+          if (readReplicaGeneration(root)?.id !== current.id)
+            void collect().catch((error: unknown) => {
+              // The next install or release collects again; a failed removal only defers disk reuse.
+              consumeKnownError(error);
+            });
         },
       };
     },
-    async collect(): Promise<void> {
-      const current = readReplicaGeneration(root);
-      if (current === null) return;
-      for (const entry of readdirSync(path.join(root, "generations"), { withFileTypes: true }))
-        if (
-          entry.isDirectory() &&
-          entry.name !== current.id &&
-          !entry.name.endsWith(".staging") &&
-          !(readers.get(entry.name) ?? 0)
-        )
-          await rm(path.join(root, "generations", entry.name), { recursive: true, force: true });
-    },
+    collect,
   };
 }

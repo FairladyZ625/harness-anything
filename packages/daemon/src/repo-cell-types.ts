@@ -239,6 +239,8 @@ export interface RepoCell {
   }) => Promise<
     ReturnType<typeof createLedgerBackup> | ReturnType<typeof import("./repo-all-purge.ts").drillRepoBackup>
   >;
+  /** Replication-log retention, run on this repository's single write chain. */
+  readonly pruneReplicationLog?: (beforeSequence: number) => Promise<void>;
   readonly close: () => Promise<void>;
 }
 

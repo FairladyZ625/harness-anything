@@ -1,6 +1,7 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
+import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -14,8 +15,10 @@ import { openWalReceiverGeneration, runWalReceiver } from "./walreceiver.ts";
 import {
   installReplicaGeneration,
   readReplicaGeneration,
+  replicaGenerationReaders,
   updateReplicaGenerationPosition,
 } from "./replica-generation.ts";
+import type { BaseBackupMetadata } from "./basebackup.ts";
 import type { LedgerCutIdentity } from "@harness-anything/kernel";
 import {
   FleetUtf8LineDecoder,
@@ -73,23 +76,11 @@ export class FleetRemoteError extends Error {
 
 export type FleetPeer = Awaited<ReturnType<typeof openPeer>>;
 
-export interface FleetReplicaPullClientOptions extends FleetPeerOptions {
+export interface FleetReplicaStreamOptions extends FleetPeerOptions {
   readonly viewRoot: string;
   readonly diskQuotaBytes: number;
-  /** Internal single-round control used by the resident sync owner. */
-  readonly stopAfterAck?: boolean;
-}
-export interface FleetReplicaPullClientResult {
-  readonly replica: {
-    readonly schema: "fleet.replica.current/v1";
-    readonly viewId: string;
-    readonly knownHead: { readonly revision: number; readonly headDigest: string };
-  };
-  readonly current: {
-    readonly cut: { readonly revision: number; readonly headDigest: string };
-    readonly manifestDigest: string;
-    readonly viewId: string;
-  };
+  /** Called with each position the replica acknowledged as durably applied and queryable. */
+  readonly onApplied?: (position: import("@harness-anything/kernel").ReplicationPosition) => void;
 }
 export interface FleetEdgeView {
   readonly current: (repoId: string, viewId: string) => Readonly<Record<string, unknown>> | null;
@@ -125,103 +116,134 @@ export function fleetReplicaDiskUsage(root: string): number {
   };
   return visit(root);
 }
-export async function runFleetReplicaPullClient(
-  options: FleetReplicaPullClientOptions,
-): Promise<FleetReplicaPullClientResult> {
-  const viewRoot = path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId);
-  let opened = readReplicaGeneration(viewRoot) ? openWalReceiverGeneration(readReplicaGeneration(viewRoot)!) : null;
-  const target = {
-    position: () => opened?.position() ?? null,
-    install: async (archive: string, metadata: any, size: number, sha256: string) => {
-      const installed = await installReplicaGeneration({
-        root: viewRoot,
-        archive,
-        metadata,
-        size,
-        sha256,
-        quotaBytes: options.diskQuotaBytes,
-      });
-      const prior = opened;
-      opened = openWalReceiverGeneration(installed);
-      if (prior) await prior.close();
-    },
-    apply: (
-      commit: import("@harness-anything/kernel").ReplicationCommit,
-      blobs: readonly import("@harness-anything/kernel").CanonicalContentBlob[],
-    ) => {
-      if (!opened) throw new Error("replica generation is unavailable");
-      opened.apply(commit, blobs);
-    },
-    project: async (position: import("@harness-anything/kernel").ReplicationPosition) => {
-      if (!opened) throw new Error("replica generation is unavailable");
-      await opened.project(position);
-    },
-    updatePosition: (position: import("@harness-anything/kernel").ReplicationPosition) =>
-      updateReplicaGenerationPosition(viewRoot, position),
-    reset: async () => {
-      const prior = opened;
-      opened = null;
-      await prior?.close();
-    },
-    revoke: () => writeFileSync(path.join(viewRoot, "revoked"), "authorization_denied\n"),
-  };
+/**
+ * One resident replication stream for this node and repository: base backup when needed, then
+ * ordered commits until the connection fails or the signal aborts. It never returns normally;
+ * the caller owns reconnecting.
+ */
+export async function runFleetReplicaStream(options: FleetReplicaStreamOptions): Promise<never> {
+  const viewRoot = path.join(options.viewRoot, "repos", options.repoId, "views", options.nodeId),
+    generations = replicaGenerationReaders(viewRoot),
+    signal = options.signal ?? new AbortController().signal;
   const socket = await peerSocket(options),
     decoder = new ReplicationDecoder(),
     queue: ReplicationFrame[] = [],
-    waiters: ((f: ReplicationFrame) => void)[] = [];
-  let replicationReady = false;
-  const replicationPeer: ReplicationPeer = {
-    send: async (frame) => {
-      if (!socket.write(serializeReplicationFrame(frame)))
-        await new Promise<void>((resolve) => socket.once("drain", resolve));
-    },
-    receive: async (signal) => {
-      signal?.throwIfAborted();
-      const queued = queue.shift();
-      if (queued) return queued;
-      return new Promise<ReplicationFrame>((resolve, reject) => {
-        const abort = () => reject(signal?.reason ?? new Error("replication aborted"));
-        signal?.addEventListener("abort", abort, { once: true });
-        waiters.push((frame) => {
-          signal?.removeEventListener("abort", abort);
-          resolve(frame);
-        });
-      });
-    },
-  };
-  const ready = new Promise<void>((resolve, reject) => {
-    const commandDecoder = new FleetUtf8LineDecoder();
-    const onData = (chunk: Buffer) => {
-      for (const line of commandDecoder.push(chunk)) {
-        const frame = parseFleetFrame(line);
-        if (frame.schema === "fleet.session.ready/v1") {
-          replicationReady = true;
-          socket.off("data", onData);
-          resolve();
-        }
-      }
-    };
-    socket.on("data", onData);
-    socket.once("error", reject);
+    waiters: { readonly resolve: (frame: ReplicationFrame) => void; readonly reject: (error: Error) => void }[] = [];
+  let closed: Error | null = null;
+  socket.on("error", (error) => {
+    closed ??= error;
   });
-  const hello = {
-    schema: "fleet.session.hello/v1" as const,
-    messageId: "replication-hello",
-    protocolVersion: currentFleetProtocolVersion,
-    nodeId: options.nodeId,
-    credential: options.credential,
-  };
-  socket.write(serializeFleetFrame(hello));
-  await ready;
-  if (!replicationReady) throw new Error("replication session was not authenticated");
-  socket.on("data", (chunk) => {
-    for (const frame of decoder.push(chunk)) {
-      const waiter = waiters.shift();
-      if (waiter) waiter(frame);
-      else queue.push(frame);
-    }
+  socket.once("close", () => {
+    closed ??= new Error("replication connection closed");
+    for (const waiter of waiters.splice(0)) waiter.reject(closed);
   });
+  let opened: ReturnType<typeof openWalReceiverGeneration> | null = null;
   try {
+    // The center admits a replica on the node owner's signed-in session; the hello is the only
+    // frame of this conversation that can carry it.
+    const accessToken = await options.readAccessToken?.();
+    await new Promise<void>((resolve, reject) => {
+      const commandDecoder = new FleetUtf8LineDecoder();
+      const onData = (chunk: Buffer) => {
+        for (const line of commandDecoder.push(chunk)) {
+          const frame = parseFleetFrame(line);
+          if (frame.schema !== "fleet.session.ready/v1") continue;
+          socket.off("data", onData);
+          socket.off("close", onClose);
+          socket.on("data", (data: Buffer) => {
+            for (const replicated of decoder.push(data)) {
+              const waiter = waiters.shift();
+              if (waiter) waiter.resolve(replicated);
+              else queue.push(replicated);
+            }
+          });
+          resolve();
+          return;
+        }
+      };
+      const onClose = () => reject(closed ?? new Error("replication session was not authenticated"));
+      socket.on("data", onData);
+      socket.once("close", onClose);
+      socket.write(
+        serializeFleetFrame({
+          schema: "fleet.session.hello/v1",
+          messageId: "replication-hello",
+          protocolVersion: currentFleetProtocolVersion,
+          nodeId: options.nodeId,
+          credential: options.credential,
+          ...(accessToken ? { accessToken } : {}),
+        }),
+      );
+    });
+    // A crash between an install and its collection leaves superseded generations behind.
+    await generations.collect();
+    const current = readReplicaGeneration(viewRoot);
+    opened = current ? openWalReceiverGeneration(current) : null;
+    const target = {
+      position: () => opened?.position() ?? null,
+      install: async (archive: string, metadata: BaseBackupMetadata, size: number, sha256: string) => {
+        const installed = await installReplicaGeneration({
+          root: viewRoot,
+          archive,
+          metadata,
+          size,
+          sha256,
+          quotaBytes: options.diskQuotaBytes,
+        });
+        const prior = opened;
+        opened = openWalReceiverGeneration(installed);
+        if (prior) await prior.close();
+        // Superseded generations go now unless a read still pins one; its release collects it.
+        await generations.collect();
+      },
+      apply: (
+        commit: import("@harness-anything/kernel").ReplicationCommit,
+        blobs: readonly import("@harness-anything/kernel").CanonicalContentBlob[],
+      ) => {
+        if (!opened) throw new Error("replica generation is unavailable");
+        opened.apply(commit, blobs);
+      },
+      project: async (_position: import("@harness-anything/kernel").ReplicationPosition) => {
+        if (!opened) throw new Error("replica generation is unavailable");
+        await opened.project(_position);
+      },
+      updatePosition: (position: import("@harness-anything/kernel").ReplicationPosition) =>
+        updateReplicaGenerationPosition(viewRoot, position),
+      reset: async () => {
+        const prior = opened;
+        opened = null;
+        await prior?.close();
+      },
+      revoke: () => writeFileSync(path.join(viewRoot, "revoked"), "authorization_denied\n"),
+    };
+    const replicationPeer: ReplicationPeer = {
+      send: async (frame) => {
+        if (closed) throw closed;
+        const flushed = socket.write(serializeReplicationFrame(frame));
+        if (frame.type === "replica.ack") options.onApplied?.(frame.applied);
+        if (!flushed) await Promise.race([once(socket, "drain"), once(socket, "close")]);
+      },
+      receive: async (receiveSignal) => {
+        receiveSignal?.throwIfAborted();
+        const queued = queue.shift();
+        if (queued) return queued;
+        if (closed) throw closed;
+        return new Promise<ReplicationFrame>((resolve, reject) => {
+          const abort = () => reject(receiveSignal?.reason ?? new Error("replication aborted"));
+          receiveSignal?.addEventListener("abort", abort, { once: true });
+          waiters.push({
+            resolve: (frame) => {
+              receiveSignal?.removeEventListener("abort", abort);
+              resolve(frame);
+            },
+            reject: (error) => {
+              receiveSignal?.removeEventListener("abort", abort);
+              reject(error);
+            },
+          });
+        });
+      },
+    };
     await runWalReceiver({
       peer: replicationPeer,
       repoId: options.repoId,
@@ -229,29 +251,13 @@ export async function runFleetReplicaPullClient(
       directory: path.join(viewRoot, "staging"),
       quotaBytes: options.diskQuotaBytes,
       maxBufferedBytes: 16 * 1024 * 1024,
-      signal: options.signal ?? new AbortController().signal,
-      stopAfterAck: (_position: import("@harness-anything/kernel").ReplicationPosition) =>
-        Boolean(options.stopAfterAck),
-    } as never);
+      signal,
+    });
+    throw new Error("replication stream ended");
   } finally {
     await opened?.close();
     socket.destroy();
   }
-  const generation = readReplicaGeneration(viewRoot);
-  if (!generation) throw new Error("replica generation is unavailable after replication");
-  const digest = `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`;
-  return {
-    replica: {
-      schema: "fleet.replica.current/v1",
-      viewId: options.nodeId,
-      knownHead: { revision: generation.metadata.position.revision, headDigest: digest },
-    },
-    current: {
-      cut: { revision: generation.metadata.position.revision, headDigest: digest },
-      manifestDigest: digest,
-      viewId: options.nodeId,
-    },
-  };
 }
 export async function runFleetWriteClient(options: FleetWriteClientOptions): Promise<FleetWriteClientResult> {
   const session = await openPeer(options),
@@ -527,6 +533,7 @@ export async function runFleetTaskCommandClient(
           outcome: "op_rejected",
           opId: options.opId,
           revision: null,
+          replicationSequence: null,
           code: error.code,
           receipt: queried.receipt,
         };

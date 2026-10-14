@@ -12,6 +12,7 @@ export interface FleetCenterOptions {
   readonly host: Pick<
     DaemonHost,
     | "replica"
+    | "pruneReplicationLog"
     | "run"
     | "read"
     | "awaitRuntimeSessions"

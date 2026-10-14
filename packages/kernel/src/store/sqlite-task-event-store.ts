@@ -63,6 +63,8 @@ export interface SqliteCanonicalEventStore extends CanonicalEventStore {
   readonly readCommandOutcome: (opId: string) => SqliteCommandOutcome | null;
   readonly ledgerMetadata: () => { readonly repoId: string; readonly generation: number; readonly revision: number };
   readonly followerStatus: () => { readonly git: FollowerFacet; readonly worktree: FollowerFacet };
+  /** Drops replication-log rows below the sequence; the writer's retention call, never a reader's. */
+  readonly pruneReplicationLog: (beforeSequence: number) => void;
 }
 
 export interface SqliteTaskEventStoreOptions {
@@ -498,6 +500,10 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     readCommandOutcome: sqlite.readCommandOutcome,
     ledgerMetadata: sqlite.metadata,
     followerStatus: () => follower,
+    pruneReplicationLog: (beforeSequence) => {
+      if (options.mutable === false) throw new TaskEventStoreError("invalid_write_plan", "event reader is read-only");
+      sqlite.pruneReplicationLog(beforeSequence);
+    },
   };
 
   function health(state: "ok" | "retrying" | "failed", reason?: string): MaterializationHealth {
