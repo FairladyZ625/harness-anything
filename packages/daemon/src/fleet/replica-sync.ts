@@ -47,6 +47,7 @@ export function waitForFleetReplicaSequence(
   });
 }
 export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<void> {
+  let failures = 0;
   while (!options.signal?.aborted) {
     const attempt = await runFleetReplicaPullClient({ ...options, stopAfterAck: true }).then(
       (value) => ({ ok: true as const, value }),
@@ -55,22 +56,23 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     if (attempt.ok) {
       const result = attempt.value;
       const revision = result.current.cut.revision;
+      failures = 0;
       notify(syncKey(options), revision);
       await options.onConfirmed?.(revision);
       continue;
     }
     if (options.signal?.aborted) return;
     options.onFailure?.(attempt.error);
+    const ceiling = Math.min(30_000, 250 * 2 ** Math.min(failures++, 7));
+    const delay = Math.floor(Math.random() * (ceiling + 1));
     await new Promise<void>((resolve) => {
-      const onAbort = () => {
-        options.signal?.removeEventListener("abort", onAbort);
-        resolve();
-      };
+      const timer = setTimeout(resolve, delay),
+        onAbort = () => {
+          clearTimeout(timer);
+          options.signal?.removeEventListener("abort", onAbort);
+          resolve();
+        };
       options.signal?.addEventListener("abort", onAbort, { once: true });
-      setImmediate(() => {
-        options.signal?.removeEventListener("abort", onAbort);
-        resolve();
-      });
     });
   }
 }
