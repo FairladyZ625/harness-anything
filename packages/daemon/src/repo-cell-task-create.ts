@@ -106,14 +106,22 @@ export function createTask(
 ): WriteReceipt {
   const prepared = prepareTaskCreateAt(cell, action, binding);
   if (!("compiled" in prepared)) return prepared;
-  const appended = cell.store.append(prepared.compiled),
-    publication = cell.publicPublication(appended);
-  applyPreparedTaskCreate(cell, prepared);
-  cell.input.killpoint?.("after_sqlite_commit");
-  const receipt = preparedTaskCreateReceipt(cell, prepared, publication);
-  cell.input.killpoint?.("before_response_write");
-  cell.input.killpoint?.("after_response_write");
-  return receipt;
+  const appended = cell.store.append(prepared.compiled);
+  // Append has accepted this exact operation. Later publication/receipt failures cannot reject it.
+  try {
+    const publication = cell.publicPublication(appended);
+    applyPreparedTaskCreate(cell, prepared);
+    cell.input.killpoint?.("after_sqlite_commit");
+    const receipt = preparedTaskCreateReceipt(cell, prepared, publication);
+    cell.input.killpoint?.("before_response_write");
+    cell.input.killpoint?.("after_response_write");
+    return receipt;
+  } catch (error) {
+    throw Object.assign(
+      cell.cellCodedError("publication_indeterminate", error instanceof Error ? error.message : String(error)),
+      { opId: prepared.compiled.event.opId, cause: error },
+    );
+  }
 }
 
 type PreparedTaskCreateFields = Pick<

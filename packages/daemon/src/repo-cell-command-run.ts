@@ -7,7 +7,6 @@ import {
   durablePolicyActions,
   getExecutableEntityAction,
   parseEntityRef,
-  readAcceptedCommandOutcome,
   sha256Text,
   type AuthorizationDecision,
   type EntityActionUnmetCriterionV1,
@@ -232,7 +231,6 @@ export function makeRepoCellCommandRunner(
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
-        const revisionBeforeExecution = context.store.readHead()?.revision ?? 0;
         try {
           requireSquadBusinessAction(context.projection, action, binding);
           // Ingested reads are their own accepted commands, recorded before the execution interval
@@ -281,21 +279,6 @@ export function makeRepoCellCommandRunner(
           const code = cellErrorCode(error);
           if (code === "publication_indeterminate" || (code !== "service_rejected" && context.fatalCellError(error)))
             throw error;
-          // This queue owns the interval. A downstream failure cannot undo its committed acceptance.
-          const head = context.store.readHead(),
-            accepted = head ? readAcceptedCommandOutcome(context.store, head.opId) : null;
-          if (
-            accepted !== null &&
-            accepted.firstRevision > revisionBeforeExecution &&
-            accepted.opId === context.operationId(action, binding, context.input.repoId, revisionBeforeExecution)
-          )
-            throw Object.assign(
-              context.cellCodedError(
-                "publication_indeterminate",
-                error instanceof Error ? error.message : String(error),
-              ),
-              { opId: accepted.opId, cause: error },
-            );
           if (
             code === "service_rejected" &&
             !(typeof error === "object" && error !== null && "code" in error && typeof error.code === "string")
