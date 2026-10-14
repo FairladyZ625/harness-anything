@@ -144,7 +144,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       endpoint: input.endpoint ?? localUserDaemonEndpoint(input.userRoot, input.daemonId),
     },
     remoteProxy = openRemoteProxyManager(input.userRoot),
-    replicaSyncControllers = new Map<string, AbortController>();
+    replicaSyncControllers = new Map<string, { readonly controller: AbortController; readonly config: string }>();
   const unavailable = new Map<string, RepoCellStatus>(),
     unavailableProbes = new Map<string, ReturnType<typeof makeRecoveryProbe>>(),
     controls = new Map<string, DaemonControlReceipt>(),
@@ -683,6 +683,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       latestControl = value;
     },
     refreshRegistry,
+    // Declared below; resolved when an edge sync calls it.
+    startReplicaSyncs: () => startReplicaSyncs(),
     settleControl,
     buildObserver,
     startInitialAttachments,
@@ -822,7 +824,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     close: async () => {
       parkedWaitController.abort();
-      for (const controller of replicaSyncControllers.values()) controller.abort();
+      for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();
       await rbacResumed;
       await managedRbac.stop();
@@ -838,9 +840,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         config = readFleetEdgeConfig(rootDir);
       if (!config || config.repoId !== repo.repoId) continue;
       activeRemoteEdges.add(repo.repoId);
-      if (replicaSyncControllers.has(repo.repoId)) continue;
+      // A stream follows its fleet-edge.json: an edge sync that changed the connection restarts it.
+      const running = replicaSyncControllers.get(repo.repoId),
+        connection = JSON.stringify(config);
+      if (running?.config === connection) continue;
+      running?.controller.abort();
       const controller = new AbortController();
-      replicaSyncControllers.set(repo.repoId, controller);
+      replicaSyncControllers.set(repo.repoId, { controller, config: connection });
       const viewRoot = path.isAbsolute(config.viewRoot) ? config.viewRoot : path.resolve(rootDir, config.viewRoot);
       const caPath = path.isAbsolute(config.caPath) ? config.caPath : path.resolve(rootDir, config.caPath);
       void runFleetReplicaSync({
@@ -882,7 +888,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           }),
       });
     }
-    for (const [repoId, controller] of replicaSyncControllers) {
+    for (const [repoId, { controller }] of replicaSyncControllers) {
       if (activeRemoteEdges.has(repoId)) continue;
       controller.abort();
       replicaSyncControllers.delete(repoId);

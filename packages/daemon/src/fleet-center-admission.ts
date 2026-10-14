@@ -12,6 +12,8 @@ import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
+import { consumeKnownError } from "@harness-anything/kernel";
+import { FleetEdgeConfigError, readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -121,6 +123,7 @@ export interface FleetEdgeSyncRequest {
 export async function syncFleetEdgeMirror(
   input: FleetEdgeSyncRequest,
   readAccessToken?: () => Promise<string | undefined>,
+  onAdmitted?: () => void,
 ): Promise<Record<string, unknown>> {
   // Sync means "caught up with the center now": ask for its replication head and whether the node's
   // owner may read the repository (the replica's own admission), then let the resident stream reach
@@ -161,6 +164,10 @@ export async function syncFleetEdgeMirror(
     );
   if (head.actionAllowed !== true)
     advise("authorization_denied", "authorization_denied: The node owner may not read this repository.");
+  // The admitted connection becomes the workspace's fleet-edge.json, which the resident stream follows
+  // (started or restarted by onAdmitted); sync then waits on that stream.
+  persistEdgeConnection(request);
+  onAdmitted?.();
   await waitForFleetReplicaSequence(request, head.replicationSequence);
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const generation = readReplicaGeneration(
@@ -206,5 +213,30 @@ export async function syncFleetEdgeMirror(
       conflicts: materialized.conflicts,
       ...(worktrees ? { worktrees } : {}),
     };
+  });
+}
+
+/** Keeps the operator's freshness tuning from an existing fleet-edge.json; an invalid file is replaced. */
+function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
+  let previous = null;
+  try {
+    previous = readFleetEdgeConfig(request.workspaceRoot);
+  } catch (error) {
+    if (!(error instanceof FleetEdgeConfigError)) throw error;
+    consumeKnownError(error);
+  }
+  writeFleetEdgeConfig(request.workspaceRoot, {
+    repoId: request.repoId,
+    host: request.host,
+    port: request.port,
+    caPath: request.caPath,
+    ...(request.servername ? { servername: request.servername } : {}),
+    nodeId: request.nodeId,
+    credential: request.credential,
+    viewRoot: request.viewRoot,
+    quotaBytes: request.quotaBytes,
+    ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),
+    ...(previous?.maxAgeMs !== undefined ? { maxAgeMs: previous.maxAgeMs } : {}),
+    ...(previous?.maxLagRevisions !== undefined ? { maxLagRevisions: previous.maxLagRevisions } : {}),
   });
 }

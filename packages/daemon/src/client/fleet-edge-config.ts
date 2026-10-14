@@ -1,8 +1,9 @@
 // Marks a workspace root as a remote-edge mirror and names the fleet channel
 // its write commands must take. Present in `<root>/fleet-edge.json`; it carries
 // the machine credential the center issued when the node was registered. The
-// repository selects the canonical center namespace.
-import { existsSync, readFileSync } from "node:fs";
+// repository selects the canonical center namespace. A successful
+// `ha daemon fleet edge sync` writes it; the resident replica stream reads it.
+import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 export interface FleetEdgeConfig {
   readonly repoId: string;
@@ -80,4 +81,13 @@ export function readFleetEdgeConfig(rootDir: string): FleetEdgeConfig | null {
     ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
     ...(maxLagRevisions !== undefined ? { maxLagRevisions } : {}),
   };
+}
+/** Writes the config a successful edge sync admitted; the file carries the node's machine credential. */
+export function writeFleetEdgeConfig(rootDir: string, config: FleetEdgeConfig): void {
+  const file = fleetEdgeConfigPath(rootDir),
+    temporary = `${file}.${process.pid}.tmp`;
+  writeFileSync(temporary, `${JSON.stringify({ schema: "fleet-edge-config/v1", ...config }, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  renameSync(temporary, file);
 }

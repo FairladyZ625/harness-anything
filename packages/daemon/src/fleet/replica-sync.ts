@@ -151,8 +151,11 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       });
     }
   } finally {
-    if (streams.get(key) === stream) streams.delete(key);
-    settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
+    // A restarted stream for the same view already owns the key and its waiters.
+    if (streams.get(key) === stream) {
+      streams.delete(key);
+      settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
+    }
   }
 }
 

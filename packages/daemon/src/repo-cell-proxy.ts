@@ -91,7 +91,8 @@ export async function openRepoCellProxy(
       for (const waiter of waiters) waiter();
     };
   let wakeReplica = (): void => undefined;
-  const edgeConfig = input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null;
+  // Read per use: the first `ha daemon fleet edge sync` writes fleet-edge.json after this cell opened.
+  const edgeConfig = () => (input.mode === "remote-edge" ? readFleetEdgeConfig(input.rootDir) : null);
   let supervisor: Awaited<ReturnType<typeof openWriterSupervisor>>;
   try {
     supervisor = await openWriterSupervisor(
@@ -118,7 +119,7 @@ export async function openRepoCellProxy(
   } catch (error) {
     // An edge answers replica reads even when its own runtime ledger cannot attach; its writer
     // state reports that failure, and every write rejects with it.
-    if (edgeConfig === null) {
+    if (edgeConfig() === null) {
       await lock.close();
       throw error;
     }
@@ -206,15 +207,16 @@ export async function openRepoCellProxy(
     read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   ): T => {
     if (closed) throw cellCodedError("repo_unavailable", "RepoCell is closed.");
-    if (!edgeConfig) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
+    const config = edgeConfig();
+    if (!config) throw cellCodedError("replica_unavailable", "This edge has no Fleet replica configuration.");
     return withEdgeReadModel(
       {
-        viewRoot: edgeConfig.viewRoot,
+        viewRoot: config.viewRoot,
         repoId: input.repoId,
-        nodeId: edgeConfig.nodeId,
+        nodeId: config.nodeId,
         principalId: binding?.actor.principal.personId,
-        ...(edgeConfig.maxAgeMs === undefined ? {} : { maxAgeMs: edgeConfig.maxAgeMs }),
-        ...(edgeConfig.maxLagRevisions === undefined ? {} : { maxLagRevisions: edgeConfig.maxLagRevisions }),
+        ...(config.maxAgeMs === undefined ? {} : { maxAgeMs: config.maxAgeMs }),
+        ...(config.maxLagRevisions === undefined ? {} : { maxLagRevisions: config.maxLagRevisions }),
       },
       (projection, frame, view) => {
         edgeViews.set(projection, view);
@@ -554,7 +556,7 @@ export async function openRepoCellProxy(
           view: edgeViews.get(projection)!,
           answer: readAtCut(projection, method, payload, binding) as unknown as { missingDetails: readonly string[] },
         }));
-        const config = edgeConfig!;
+        const config = edgeConfig()!;
         await fetchEdgeCiDetails({
           peer: {
             hostname: config.host,

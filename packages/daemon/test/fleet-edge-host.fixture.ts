@@ -38,6 +38,8 @@ export async function fleetEdgeHostFixture(
     readonly registerBeforeOpen?: boolean;
     readonly credential?: string;
     readonly repoId?: string;
+    /** false leaves fleet-edge.json for the first `daemon.fleet.edge.sync` to write. */
+    readonly writeEdgeConfig?: boolean;
   } = {},
 ) {
   // The edge lives outside the center fixture's root: its daemon writes until it is closed.
@@ -101,7 +103,7 @@ export async function fleetEdgeHostFixture(
     quotaBytes: 64 * 1024 * 1024,
     waitTimeoutMs: 2000,
   };
-  writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
+  if (options.writeEdgeConfig !== false) writeFileSync(path.join(edgeRoot, "fleet-edge.json"), JSON.stringify(config));
   const host = await openDaemonHost({
     daemonId: `${name}-daemon`,
     ...(options.openCell ? { openCell: options.openCell } : {}),

@@ -165,6 +165,8 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly instances: ReturnType<typeof openRuntimeInstanceStore>;
   readonly requiredText: typeof import("./daemon-host-status.ts").requiredText;
   readonly refreshRegistry: () => Promise<void>;
+  /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */
+  readonly startReplicaSyncs: () => void;
   readonly settleControl: (pending: DaemonControlReceipt, ok: boolean, error?: unknown) => void;
   readonly buildObserver: DaemonBuildObserver;
   readonly startInitialAttachments: () => Promise<void>;
