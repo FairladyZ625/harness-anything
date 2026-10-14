@@ -19,6 +19,7 @@ import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 import { runFleetReplicaSync, waitForFleetReplicaSequence } from "../src/fleet/replica-sync.ts";
 import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/replica-generation.ts";
+import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import {
   fleetReplicationFixture,
   replicationRepoId,
@@ -63,7 +64,9 @@ const slotFence = (fixture: FleetReplicationFixture): number =>
 /** Starts the production resident stream for edge-one, optionally through a cuttable TCP relay. */
 function startStream(t: TestContext, fixture: FleetReplicationFixture, viewRoot: string, port: number) {
   const controller = new AbortController(),
-    failures: unknown[] = [];
+    failures: unknown[] = [],
+    // What `ha doctor` on the edge read when each failure was reported.
+    healthAtFailure: ReturnType<typeof readReplicaHealth>[] = [];
   const running = runFleetReplicaSync({
     hostname: "127.0.0.1",
     port,
@@ -76,14 +79,17 @@ function startStream(t: TestContext, fixture: FleetReplicationFixture, viewRoot:
     viewRoot,
     diskQuotaBytes: 64 * 1024 * 1024,
     signal: controller.signal,
-    onFailure: (error) => failures.push(error),
+    onFailure: (error) => {
+      failures.push(error);
+      healthAtFailure.push(readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")));
+    },
   });
   const stop = async () => {
     controller.abort();
     await running;
   };
   t.after(stop);
-  return { stop, failures };
+  return { stop, failures, healthAtFailure };
 }
 
 /**
@@ -203,6 +209,15 @@ test(
     assert.equal(slotFence(fixture), 2, "exactly one reconnect after the cut");
     assert.equal(readReplicaGeneration(viewDir)!.id, firstGeneration, "resumed in place, no base backup");
     assert.ok(stream.failures.length >= 1, "the cut surfaced as one stream failure");
+    assert.ok(
+      stream.healthAtFailure.every((health) => health.syncFailure !== null),
+      "edge doctor sees each stream failure",
+    );
+    assert.equal(
+      readReplicaHealth(viewDir).syncFailure,
+      null,
+      "the failure clears once the reconnected stream applies",
+    );
     // The reconnect's replication start displaced no command session of the node.
     const metadata = await Promise.race([
       command.request({ schema: "fleet.repo.metadata.get/v1", messageId: "still-open", repoId: replicationRepoId }),
