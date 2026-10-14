@@ -167,6 +167,8 @@ export type FleetFrameV1 =
         opId: string;
         outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         revision: number | null;
+        /** Center replication head after this command; applied edge writes wait until it is local. */
+        replicationSequence: number | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>>;
       }
@@ -705,6 +707,7 @@ const schemas: Readonly<Record<string, Check>> = {
     opId: id,
     outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
     revision: nullable(uint),
+    replicationSequence: nullable(uint),
     code: nullable(text),
     receipt: record,
   }),

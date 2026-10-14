@@ -49,6 +49,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
+import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import {
@@ -647,6 +648,11 @@ export function openFleetEdgeRuntime(input: {
         writerEpoch: assigned.writerEpoch,
         action: { ...action, kind: actionKind, scheduleId },
       });
+    if (command.outcome === "applied" && command.replicationSequence !== null)
+      await waitForFleetReplicaSequence(
+        { viewRoot: request.viewRoot, repoId: request.repoId, nodeId: request.nodeId },
+        command.replicationSequence,
+      );
     if (command.outcome !== "applied") return scheduleResult(actionKind, command);
     const receipt = command.receipt as JsonObject;
     if (actionKind !== "schedule-run-now") {

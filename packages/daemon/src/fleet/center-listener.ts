@@ -819,6 +819,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         opId: frame.opId,
         outcome: receipt.outcome,
         revision: receipt.revision ?? null,
+        replicationSequence: replicationHead(a.repoId),
         code: receipt.code ?? null,
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       });

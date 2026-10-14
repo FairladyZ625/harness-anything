@@ -205,6 +205,7 @@ const frames = [
     opId: "op-schedule-1",
     outcome: "applied",
     revision: 9,
+    replicationSequence: 9,
     code: null,
     receipt: { outcome: "applied", scheduleId: "probe" },
   },

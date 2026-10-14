@@ -638,6 +638,7 @@ export async function runFleetScheduleCommandClient(
         opId: options.opId,
         outcome: "op_rejected",
         revision: null,
+        replicationSequence: null,
         code: error.code,
         receipt: queried.receipt,
       };
