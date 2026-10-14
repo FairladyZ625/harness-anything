@@ -156,7 +156,6 @@ export async function runFleetReplicaPullClient(
     queue: ReplicationFrame[] = [],
     waiters: ((f: ReplicationFrame) => void)[] = [];
   let replicationReady = false;
-  let replicationError: Error | null = null;
   const replicationPeer: ReplicationPeer = {
     send: async (frame) => {
       if (!socket.write(serializeReplicationFrame(frame)))
@@ -179,20 +178,13 @@ export async function runFleetReplicaPullClient(
   const ready = new Promise<void>((resolve, reject) => {
     const commandDecoder = new FleetUtf8LineDecoder();
     const onData = (chunk: Buffer) => {
-      try {
-        for (const line of commandDecoder.push(chunk)) {
-          const frame = parseFleetFrame(line);
-          if (frame.schema === "fleet.session.ready/v1") {
-            replicationReady = true;
-            socket.off("data", onData);
-            resolve();
-          }
+      for (const line of commandDecoder.push(chunk)) {
+        const frame = parseFleetFrame(line);
+        if (frame.schema === "fleet.session.ready/v1") {
+          replicationReady = true;
+          socket.off("data", onData);
+          resolve();
         }
-      } catch (error) {
-        replicationError = error instanceof Error ? error : new Error(String(error));
-        consumeKnownError(error);
-        socket.off("data", onData);
-        reject(replicationError);
       }
     };
     socket.on("data", onData);
@@ -207,8 +199,7 @@ export async function runFleetReplicaPullClient(
   };
   socket.write(serializeFleetFrame(hello));
   await ready;
-  if (!replicationReady || replicationError)
-    throw replicationError ?? new Error("replication session was not authenticated");
+  if (!replicationReady) throw new Error("replication session was not authenticated");
   socket.on("data", (chunk) => {
     for (const frame of decoder.push(chunk)) {
       const waiter = waiters.shift();
