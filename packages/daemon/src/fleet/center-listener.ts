@@ -16,7 +16,7 @@ import {
 import path from "node:path";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { consumeKnownError, resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -150,6 +150,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       await admitReplica(nodeId, frame.repoId, accessToken);
     } catch (error) {
       if (error instanceof FleetFault && error.code === "authorization_denied") {
+        consumeKnownError(error);
         await peer.send({ type: "replica.resync", reason: "authorization_denied" });
         return;
       }
