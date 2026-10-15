@@ -89,7 +89,15 @@ function tailPage(kind: "lifecycle" | "daemon-log", event: string): ObserveTailR
     items: [
       kind === "lifecycle"
         ? { schema: "daemon-lifecycle/v1", at: AT, daemonId: "default", pid: 42, event }
-        : { schema: "daemon-conn-log/v1", at: AT, method: event, ok: false, code: "repo_unavailable", durationMs: 4 },
+        : {
+            schema: "daemon-conn-log/v1",
+            at: AT,
+            method: event,
+            command: event,
+            ok: false,
+            code: "repo_unavailable",
+            durationMs: 4,
+          },
     ],
     historyCursor: { kind, fileId: "file-sys", offset: 0 },
     liveCursor: { kind, fileId: "file-sys", offset: 96 },

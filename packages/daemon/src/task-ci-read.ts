@@ -183,47 +183,50 @@ export async function readTaskCi(
       const key = `${run.workflow_id}:${run.event}`;
       if (!latest.has(key)) latest.set(key, run);
     }
-    const runs = [];
-    for (const run of latest.values()) {
-      const pages = await api<readonly { readonly jobs: readonly Job[] }[]>(
-        `${prefix}actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
-        true,
-      );
-      const jobs = [];
-      for (const job of pages.flatMap((page) => page.jobs)) {
-        let failure = null;
-        if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
-          const log = await runCommand([
-            "run",
-            "view",
-            String(run.id),
-            "--repo",
-            repository,
-            "--job",
-            String(job.id),
-            "--log-failed",
-          ]);
-          failure = { ...failureExcerpt(log), logUrl: job.html_url };
+    // One jobs read per latest workflow/event run; they are independent, so they run together
+    // (measured: serial was the largest segment of a cold task-ci read).
+    const runs = await Promise.all(
+      [...latest.values()].map(async (run) => {
+        const pages = await api<readonly { readonly jobs: readonly Job[] }[]>(
+          `${prefix}actions/runs/${run.id}/attempts/${run.run_attempt}/jobs?per_page=100`,
+          true,
+        );
+        const jobs = [];
+        for (const job of pages.flatMap((page) => page.jobs)) {
+          let failure = null;
+          if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
+            const log = await runCommand([
+              "run",
+              "view",
+              String(run.id),
+              "--repo",
+              repository,
+              "--job",
+              String(job.id),
+              "--log-failed",
+            ]);
+            failure = { ...failureExcerpt(log), logUrl: job.html_url };
+          }
+          jobs.push({
+            id: job.id,
+            name: job.name,
+            status: job.status,
+            conclusion: job.conclusion,
+            url: job.html_url,
+            failure,
+          });
         }
-        jobs.push({
-          id: job.id,
-          name: job.name,
-          status: job.status,
-          conclusion: job.conclusion,
-          url: job.html_url,
-          failure,
-        });
-      }
-      runs.push({
-        id: run.id,
-        attempt: run.run_attempt,
-        event: run.event,
-        status: run.status,
-        conclusion: run.conclusion,
-        url: run.html_url,
-        jobs,
-      });
-    }
+        return {
+          id: run.id,
+          attempt: run.run_attempt,
+          event: run.event,
+          status: run.status,
+          conclusion: run.conclusion,
+          url: run.html_url,
+          jobs,
+        };
+      }),
+    );
     // Newest check run per name replaces a superseded one, so a re-run verdict matches the newest-run rule above.
     const latestChecks = new Map<string, Check>();
     for (const check of checkPages.flatMap((page) => page.check_runs).sort((a, b) => b.id - a.id)) {

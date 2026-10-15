@@ -373,3 +373,52 @@ test("GitLab task CI reports the newest self-hosted pipeline and its failed job 
     true,
   );
 });
+
+test("jobs for each latest workflow run are read concurrently and keep newest-first run order", async () => {
+  const f = fixture();
+  let inFlight = 0,
+    peak = 0;
+  const run = async (args: readonly string[]) => {
+    const endpoint = args.at(-1)!;
+    if (args[0] === "repo") return JSON.stringify({ nameWithOwner: "owner/repo" });
+    if (endpoint.includes("branches/task-ci")) return JSON.stringify({ commit: { sha } });
+    if (endpoint.includes("check-runs")) return JSON.stringify([{ check_runs: [] }]);
+    const runOf = (id: number, workflow_id: number) => ({
+      id,
+      workflow_id,
+      run_attempt: 1,
+      head_sha: sha,
+      head_branch: "task-ci",
+      event: "pull_request",
+      status: "completed",
+      conclusion: "success",
+      html_url: `https://runs/${id}`,
+    });
+    if (endpoint.includes("actions/runs?"))
+      return JSON.stringify([{ workflow_runs: [runOf(7, 1), runOf(9, 2), runOf(8, 3)] }]);
+    const match = /actions\/runs\/(\d+)\/attempts\/1\/jobs/u.exec(endpoint);
+    if (match) {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      // Yield across several turns so a serial reader would never observe two in flight.
+      for (let turn = 0; turn < 5; turn += 1) await new Promise((resolve) => setImmediate(resolve));
+      inFlight -= 1;
+      const id = Number(match[1]);
+      return JSON.stringify([
+        { jobs: [{ id: id * 10, name: `job ${id}`, status: "completed", conclusion: "success", html_url: "u" }] },
+      ]);
+    }
+    throw new Error(`Unexpected provider call ${endpoint}`);
+  };
+  const receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, run);
+  assert.equal(peak, 3);
+  assert.deepEqual(
+    receipt.ci.runs.map((entry) => [entry.id, entry.jobs[0]!.id]),
+    [
+      [9, 90],
+      [8, 80],
+      [7, 70],
+    ],
+  );
+  assert.equal(receipt.ci.conclusion, "success");
+});

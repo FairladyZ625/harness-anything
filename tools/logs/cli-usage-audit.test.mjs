@@ -45,8 +45,14 @@ test("audit keeps the descriptor denominator and refuses to call mixed request l
   assert.equal(report.denominator.find((item) => item.id === "write").status, "unobserved-needs-review");
   assert.equal(report.windows[0].requestCount, 1);
   assert.equal(report.windows[1].requestCount, 1);
-  assert.equal(report.windows[0].latency.durationMs.sampleCount, 1);
-  assert.equal(report.windows[0].latency.durationMs.p95Ms, 1);
+  assert.deepEqual(
+    report.windows[0].latency.byCommand.map((entry) => [
+      entry.command,
+      entry.durationMs.sampleCount,
+      entry.durationMs.p95Ms,
+    ]),
+    [["read", 1, 1]],
+  );
   assert.equal(report.windows[0].coverage.continuity, "unknown");
 });
 

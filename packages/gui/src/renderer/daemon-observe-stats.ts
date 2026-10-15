@@ -21,9 +21,11 @@ export const OBSERVE_BUCKET_MS = 10_000,
 /** HUD 可选的观察窗口跨度;窗口推导(嗅探/慢写/信噪/Top Talkers)共用同一口径。 */
 export type ObserveWindowSpan = "15m" | "1h";
 
-/** 慢写请求阈值:总耗时超过 800ms；不是持锁或队列等待测量。 */
+/**
+ * 慢写请求阈值:总耗时超过 800ms；不是持锁或队列等待测量。
+ */
 export const OBSERVE_SLOW_WRITE_MS = 800,
-  /** 频密轮询判据:单方法在单个 10s 桶内的请求数折算速率超过该值(req/s)。 */
+  /** 频密轮询判据:单命令在单个 10s 桶内的请求数折算速率超过该值(req/s)。 */
   OBSERVE_POLL_BURST_PER_SEC = 5,
   /** 失败毛刺判据:窗口期失败+缺口行占比超过该百分比。 */
   OBSERVE_FAILURE_SPIKE_PCT = 15;
@@ -40,9 +42,13 @@ export interface ObserveTimeSlice {
   readonly overhead: number;
 }
 
-/** 单个 RPC 方法的耗时聚合:次数、最大值与全量耗时序列(分位点在展示层按需排序)。 */
+/**
+ * 单个命令的耗时聚合:次数、最大值与全量耗时序列(分位点在展示层按需排序)。command 是
+ * 分组主键(同一 method 下的 task-show 与 task-ci 各自成行);method 只作次要标签展示。
+ */
 export interface ObserveOpStat {
-  readonly method: string;
+  readonly command: string;
+  readonly method: string | null;
   readonly count: number;
   readonly maxMs: number;
   readonly durations: readonly number[];
@@ -63,9 +69,9 @@ export interface ObserveAnomalyStat {
   readonly sample: string;
 }
 
-/** 透镜候选:活跃 task/session(事件栏)、method/node(日志栏),按出现频次排序。 */
+/** 透镜候选:活跃 task/session(事件栏)、command/node(日志栏),按出现频次排序。 */
 export interface ObserveLensValue {
-  readonly kind: "task" | "session" | "method" | "node";
+  readonly kind: "task" | "session" | "command" | "node";
   readonly value: string;
   readonly count: number;
 }
@@ -128,18 +134,18 @@ export interface ObserveStats {
   readonly p50Ms: number | null;
   readonly p95Ms: number | null;
   readonly maxMs: number | null;
-  /** 按 maxMs 降序的方法耗时聚合(慢操作排行)。 */
+  /** 按 maxMs 降序的命令耗时聚合(慢操作排行);method 是次要标签。 */
   readonly ops: readonly ObserveOpStat[];
   /** 长等待单独统计，不计入执行耗时排行和分位。 */
   readonly waits: readonly ObserveOpStat[];
-  /** 按次数降序的命令/方法/事件调用量分布(带占比)。 */
+  /** 按次数降序的命令/事件调用量分布(带占比)。 */
   readonly volumes: readonly ObserveVolumeStat[];
   /** 按次数降序的异常聚类。 */
   readonly clusters: readonly ObserveAnomalyStat[];
   readonly lens: {
     readonly tasks: readonly ObserveLensValue[];
     readonly sessions: readonly ObserveLensValue[];
-    readonly methods: readonly ObserveLensValue[];
+    readonly commands: readonly ObserveLensValue[];
     readonly nodes: readonly ObserveLensValue[];
   };
   /** 两个窗口跨度的深层分析快照(嗅探/慢写/信噪/Top Talkers),展示层按 HUD 选窗取用。 */
@@ -158,6 +164,7 @@ function percentileRank(size: number, q: number): number {
 }
 
 interface ObserveOpMutable {
+  method: string | null;
   count: number;
   maxMs: number;
   durations: number[];
@@ -177,14 +184,14 @@ interface ObserveAnomalyMutable {
 
 /** 慢写请求记录:日志时刻及请求总耗时，不推断区间或锁。 */
 interface ObserveSlowWrite {
-  readonly method: string;
+  readonly command: string;
   readonly atMs: number;
   readonly durationMs: number;
 }
 
-/** 窗口内失败行的方法归属记录(失败毛刺的下钻检索词来源)。 */
+/** 窗口内失败行的命令归属记录(失败毛刺的下钻检索词来源)。 */
 interface ObserveFailure {
-  readonly method: string;
+  readonly command: string;
   readonly atMs: number;
 }
 
@@ -250,8 +257,8 @@ export class ObserveStatsState {
   private readonly tasks = new Map<string, number>();
   private readonly sessions = new Map<string, number>();
   private readonly nodes = new Map<string, number>();
-  /** 方法/主体的稀疏桶计数(绝对桶下标→次数):频密轮询嗅探与 Top Talkers 的窗口来源。 */
-  private readonly methodBuckets = new Map<string, Map<number, number>>();
+  /** 命令/主体的稀疏桶计数(绝对桶下标→次数):频密轮询嗅探与 Top Talkers 的窗口来源。 */
+  private readonly commandBuckets = new Map<string, Map<number, number>>();
   private readonly subjectBuckets = new Map<string, Map<number, number>>();
   private slowWrites: ObserveSlowWrite[] = [];
   private failures: ObserveFailure[] = [];
@@ -266,7 +273,7 @@ export class ObserveStatsState {
       gapped = row.gapMarker !== null;
     if (failed || gapped) this.anomalies += 1;
     if (row.atMs !== null) this.bucketRow(row, failed || gapped);
-    if (row.durationMs !== null) this.ingestOp(row.type, row.durationMs, row.wait);
+    if (row.durationMs !== null) this.ingestOp(row.type, row.method, row.durationMs, row.wait);
     if (failed) this.ingestCluster(row);
     else if (gapped) this.ingestGapCluster(row);
     for (const chip of row.refs) {
@@ -275,7 +282,7 @@ export class ObserveStatsState {
     }
     if (row.nodeId !== null) bump(this.nodes, row.nodeId);
     if (failed && row.atMs !== null) {
-      this.failures.push({ method: row.type, atMs: row.atMs });
+      this.failures.push({ command: row.type, atMs: row.atMs });
       if (this.failures.length > FAILURE_CAP) this.failures.splice(0, this.failures.length - FAILURE_CAP);
     }
     if (
@@ -285,19 +292,19 @@ export class ObserveStatsState {
       row.durationMs > OBSERVE_SLOW_WRITE_MS &&
       row.atMs !== null
     ) {
-      this.slowWrites.push({ method: row.type, atMs: row.atMs, durationMs: row.durationMs });
+      this.slowWrites.push({ command: row.type, atMs: row.atMs, durationMs: row.durationMs });
       if (this.slowWrites.length > SLOW_WRITE_CAP) this.slowWrites.splice(0, this.slowWrites.length - SLOW_WRITE_CAP);
     }
   }
 
   snapshot(): ObserveStats {
     const buckets = this.buildBuckets();
-    this.pruneSparse(this.methodBuckets);
+    this.pruneSparse(this.commandBuckets);
     this.pruneSparse(this.subjectBuckets);
     this.pruneRecords();
     const ops: ObserveOpStat[] = [];
-    for (const [method, op] of this.ops)
-      ops.push({ method, count: op.count, maxMs: op.maxMs, durations: op.durations });
+    for (const [command, op] of this.ops)
+      ops.push({ command, method: op.method, count: op.count, maxMs: op.maxMs, durations: op.durations });
     ops.sort((left, right) => right.maxMs - left.maxMs || right.count - left.count);
     const volumes: ObserveVolumeStat[] = [...this.types.entries()]
       .map(([name, count]) => ({
@@ -325,13 +332,13 @@ export class ObserveStatsState {
       p95Ms,
       maxMs: this.overallMaxMs,
       ops,
-      waits: [...this.waits].map(([method, op]) => ({ method, ...op })),
+      waits: [...this.waits].map(([command, op]) => ({ command, ...op })),
       volumes,
       clusters,
       lens: {
         tasks: topLens(this.tasks, "task"),
         sessions: topLens(this.sessions, "session"),
-        methods: topLens(new Map([...this.ops, ...this.waits].map(([method, op]) => [method, op.count])), "method"),
+        commands: topLens(new Map([...this.ops, ...this.waits].map(([command, op]) => [command, op.count])), "command"),
         nodes: topLens(this.nodes, "node"),
       },
       windows: {
@@ -383,16 +390,17 @@ export class ObserveStatsState {
     const signal = observeSignalKind(row);
     if (signal === "progress") this.bucketSignal[slot]! += 1;
     else if (signal === "overhead") this.bucketOverhead[slot]! += 1;
-    bumpKeyBucket(this.methodBuckets, row.type, index);
+    bumpKeyBucket(this.commandBuckets, row.type, index);
     if (row.subject !== null) bumpKeyBucket(this.subjectBuckets, row.subject, index);
   }
 
-  private ingestOp(method: string, durationMs: number, waiting = false): void {
+  /** command 是分组主键;method 首见即定格(同命令的 method 事实上恒定,作次要标签展示)。 */
+  private ingestOp(command: string, method: string | null, durationMs: number, waiting = false): void {
     const target = waiting ? this.waits : this.ops;
-    let op = target.get(method);
+    let op = target.get(command);
     if (op === undefined) {
-      op = { count: 0, maxMs: 0, durations: [] };
-      target.set(method, op);
+      op = { method, count: 0, maxMs: 0, durations: [] };
+      target.set(command, op);
     }
     op.count += 1;
     op.durations.push(durationMs);
@@ -482,20 +490,20 @@ export class ObserveStatsState {
       (best, record) =>
         best === null ||
         record.durationMs > best.durationMs ||
-        (record.durationMs === best.durationMs && record.method < best.method)
+        (record.durationMs === best.durationMs && record.command < best.command)
           ? record
           : best,
       null,
     );
-    const burst = this.windowBurst(this.methodBuckets, fromMs),
+    const burst = this.windowBurst(this.commandBuckets, fromMs),
       failurePct = sums.count > 0 ? (sums.anomalies / sums.count) * 100 : 0;
     const smells: ObserveSmellStat[] = [];
     if (worstSlow !== null)
       smells.push({
         kind: "slow_write_request",
-        label: worstSlow.method,
+        label: worstSlow.command,
         value: worstSlow.durationMs,
-        matchText: worstSlow.method,
+        matchText: worstSlow.command,
       });
     if (burst !== null && burst.count > OBSERVE_POLL_BURST_PER_SEC * (OBSERVE_BUCKET_MS / 1_000))
       smells.push({
@@ -530,7 +538,7 @@ export class ObserveStatsState {
     };
   }
 
-  /** 窗口内单方法的最大桶计数(频密轮询嗅探):并列取字典序小者,保证快照确定性。 */
+  /** 窗口内单命令的最大桶计数(频密轮询嗅探):并列取字典序小者,保证快照确定性。 */
   private windowBurst(
     indexed: Map<string, Map<number, number>>,
     fromMs: number,
@@ -545,13 +553,13 @@ export class ObserveStatsState {
     return best;
   }
 
-  /** 窗口内失败行最多的方法(失败毛刺的下钻目标):并列取字典序小者。 */
+  /** 窗口内失败行最多的命令(失败毛刺的下钻目标):并列取字典序小者。 */
   private windowTopKey(
-    records: readonly { readonly method: string; readonly atMs: number }[],
+    records: readonly { readonly command: string; readonly atMs: number }[],
     fromMs: number,
   ): { readonly key: string; readonly count: number } | null {
     const counts = new Map<string, number>();
-    for (const record of records) if (record.atMs >= fromMs) bump(counts, record.method);
+    for (const record of records) if (record.atMs >= fromMs) bump(counts, record.command);
     let best: { key: string; count: number } | null = null;
     for (const [key, count] of counts)
       if (best === null || count > best.count || (count === best.count && key < best.key)) best = { key, count };

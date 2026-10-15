@@ -13,12 +13,12 @@ const toneFor = (value: number): string => (value > OBSERVE_SLOW_OP_MS ? "text-s
 export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
   testId,
   stats,
-  onFocusMethod,
+  onFocusCommand,
 }: {
-  /** data-testid 前缀(pane 传 observe-slowops-<kind>);方法行派生 `-method`。 */
+  /** data-testid 前缀(pane 传 observe-slowops-<kind>);命令行派生 `-command`。 */
   readonly testId: string;
   readonly stats: ObserveStats;
-  readonly onFocusMethod: (method: string) => void;
+  readonly onFocusCommand: (command: string) => void;
 }) {
   const cards: [label: string, value: number | null][] = [
     ["P50", stats.p50Ms],
@@ -44,13 +44,13 @@ export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
         {
           kind: "execution",
           label: null,
-          ops: stats.ops.filter((op) => !isAttach(op.method)).slice(0, OBSERVE_SLOW_TOP),
+          ops: stats.ops.filter((op) => !isAttach(op.command)).slice(0, OBSERVE_SLOW_TOP),
           waiting: false,
         },
         {
           kind: "attach",
           label: t("views.daemonObserve.attachDuration"),
-          ops: stats.ops.filter((op) => isAttach(op.method)),
+          ops: stats.ops.filter((op) => isAttach(op.command)),
           waiting: false,
         },
         { kind: "waits", label: t("views.daemonObserve.waitDuration"), ops: stats.waits, waiting: true },
@@ -63,16 +63,19 @@ export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
               {group.ops.map((op) => {
                 const p95 = observePercentile(op.durations, 0.95);
                 return (
-                  <li key={op.method} className="flex items-baseline gap-2 font-mono ui-micro">
+                  <li key={op.command} className="flex items-baseline gap-2 font-mono ui-micro">
                     <button
                       type="button"
-                      data-testid={`${testId}-method`}
+                      data-testid={`${testId}-command`}
                       title={t("views.daemonObserve.slowFocusTip")}
-                      onClick={() => onFocusMethod(op.method)}
+                      onClick={() => onFocusCommand(op.command)}
                       className="min-w-0 flex-1 truncate text-left text-accent hover:underline"
                     >
-                      {op.method}
+                      {op.command}
                     </button>
+                    {op.method === null || op.method === op.command ? null : (
+                      <span className="shrink-0 truncate text-text-faint">({op.method})</span>
+                    )}
                     <span className="shrink-0 text-text-faint">
                       {t("views.daemonObserve.slowCalls", { count: String(op.count) })}
                     </span>
@@ -94,5 +97,5 @@ export const ObserveSlowOpsBoard = memo(function ObserveSlowOpsBoard({
   );
 });
 
-const isAttach = (method: string): boolean =>
-  method === "repo.agentRuntime.attach" || method === "repo.terminal.attach";
+const isAttach = (command: string): boolean =>
+  command === "repo.agentRuntime.attach" || command === "repo.terminal.attach";
