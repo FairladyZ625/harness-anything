@@ -81,6 +81,7 @@ export async function commitRuntimeSessionAction(
     throw Object.assign(new Error(`${catalogAction.kind} is not a RuntimeSession catalog Action.`), {
       code: "invalid_store",
     });
+  // CH3: RuntimeSession state decides duplicate or stale transitions; request opIds are never replay keys.
   try {
     return await cell.entityActionExecutor.run(catalogAction, binding, action.opId, cell.entityActionRuntimes);
   } catch (error) {
