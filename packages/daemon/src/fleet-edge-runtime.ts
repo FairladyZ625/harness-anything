@@ -2,7 +2,7 @@ import { fleetMirrorTaskPaths } from "./fleet-edge-mirror.ts";
 import { cellCodedError } from "./repo-cell-errors.ts";
 import { requiredCellText } from "./repo-cell-settlement.ts";
 import { operationId } from "./repo-cell-proof.ts";
-import type { RepositorySettingsV1, TaskProjection } from "@harness-anything/kernel";
+import { canStartExecution, type RepositorySettingsV1, type TaskProjection } from "@harness-anything/kernel";
 import { readEdgeRuntimeRepository } from "./fleet-edge-runtime-read.ts";
 import { repositoryReadData } from "./protocol/repository-read-frame.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
@@ -290,7 +290,8 @@ export function openFleetEdgeRuntime(input: {
           : current.lease?.phase === "held"
             ? current.lease.executionId
             : undefined;
-        if (!executionId && !review) {
+        const taskStartExecutionId = "runtime-task-start-" + taskId;
+        if (!executionId && !review && canStartExecution(current, taskStartExecutionId)) {
           const started = await runFleetEdgeWrite({
             viewRoot: request.viewRoot,
             repoId: request.repoId,
@@ -301,7 +302,7 @@ export function openFleetEdgeRuntime(input: {
                 ...writePeer,
                 repoId: request.repoId,
                 taskId,
-                opId: `runtime-task-start-${taskId}`,
+                opId: taskStartExecutionId,
                 action: { kind: "task-start", taskId },
                 waitMs: centerWriteWaitMs,
                 timeoutMs: centerWriteWaitMs + 10_000,
