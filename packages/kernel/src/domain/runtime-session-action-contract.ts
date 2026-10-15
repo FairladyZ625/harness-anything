@@ -54,7 +54,6 @@ const field = (
 ): EntityActionInputField =>
   Object.freeze({ field: name, type, required, ...(values ? { enum: Object.freeze(values) } : {}) });
 const runtimeSessionId = field("runtimeSessionId");
-const idempotencyKey = field("idempotencyKey", "string", false);
 const noOccurrence = Object.freeze({ authority: "not-applicable" });
 
 const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActionInputField[]>> = Object.freeze({
@@ -67,29 +66,21 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("launchGeneration", "number"),
     field("attachable", "boolean"),
     field("taskBinding", "json-object", false),
-    idempotencyKey,
   ]),
-  runtime_session_provider_bound: Object.freeze([
-    runtimeSessionId,
-    field("providerSessionId"),
-    field("transcriptRef"),
-    idempotencyKey,
-  ]),
+  runtime_session_provider_bound: Object.freeze([runtimeSessionId, field("providerSessionId"), field("transcriptRef")]),
   runtime_session_task_bound: Object.freeze([
     runtimeSessionId,
     field("taskId"),
     field("executionId"),
     field("providerSessionId"),
     field("transcriptRef"),
-    idempotencyKey,
   ]),
   runtime_session_liveness_changed: Object.freeze([
     runtimeSessionId,
     field("liveness", "string", true, ["live", "stale", "unknown"]),
-    idempotencyKey,
   ]),
-  runtime_session_cancelled: Object.freeze([runtimeSessionId, idempotencyKey]),
-  runtime_session_exited: Object.freeze([runtimeSessionId, idempotencyKey]),
+  runtime_session_cancelled: Object.freeze([runtimeSessionId]),
+  runtime_session_exited: Object.freeze([runtimeSessionId]),
   runtime_session_outcome_observed: Object.freeze([
     runtimeSessionId,
     field("outcome", "string", true, ["succeeded", "failed", "unknown", "cancelled", "stopped"]),
@@ -102,7 +93,6 @@ const actionFields: Readonly<Record<RuntimeSessionActionId, readonly EntityActio
     field("runtimeMetrics", "json-object", false),
     field("attempt", "json-object", false),
     field("resultBody", "string", false),
-    idempotencyKey,
   ]),
 });
 
@@ -195,7 +185,7 @@ function runtimeSessionActionPayload(
 ): AgentRuntimeEventV1["payload"] {
   const payload = Object.fromEntries(
     actionFields[id]
-      .filter(({ field: name }) => name !== "idempotencyKey" && name !== "resultBody")
+      .filter(({ field: name }) => name !== "resultBody")
       .flatMap(({ field: name, required }) =>
         required || Object.hasOwn(action, name) ? ([[name, action[name]]] as const) : [],
       ),

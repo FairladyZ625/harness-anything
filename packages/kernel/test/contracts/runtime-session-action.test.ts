@@ -31,7 +31,6 @@ test("RuntimeSession start compiles the canonical event and accepts an equal rep
       definitionSnapshotRef: "artifact:runtime-definition/action-a",
       launchGeneration: 2,
       attachable: true,
-      idempotencyKey: "start-a",
     };
   assert.ok(action?.execution?.compile);
   const draft = action.execution.compile({ ...compileInput, action: command });
@@ -116,7 +115,6 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
         fallbackState: "exhausted",
       },
       resultBody: body,
-      idempotencyKey: "outcome-a",
     };
   Object.assign(command, { resultRef: `artifact:runtime-result/sha256/${command.result.sha256}` });
   const draft = action?.execution?.compile?.({ ...compileInput, action: command, currentEntity: current });
