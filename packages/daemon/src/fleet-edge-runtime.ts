@@ -320,7 +320,9 @@ export function openFleetEdgeRuntime(input: {
           executionId = current.lease?.phase === "held" ? current.lease.executionId : undefined;
         }
         if (!executionId) throw edgeRuntimeError("execution_missing", "The task has no current execution.");
-        const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId);
+        const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
+          entriesPrefix: `tasks/${taskId}`,
+        });
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
         const packagePathsFor = (logical: string): string[] => {
           const packagePath = logical.slice(0, -"/INDEX.md".length);

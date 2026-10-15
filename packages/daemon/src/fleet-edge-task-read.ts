@@ -25,13 +25,16 @@ export function withEdgeReadModel<T>(
     readonly repoId: string;
     readonly nodeId: string;
     readonly principalId: string | undefined;
+    readonly includeEntries?: boolean;
     readonly maxAgeMs?: number;
     readonly maxLagRevisions?: number;
   },
   read: (projection: TaskProjectionQueries, frame: RepositoryReadFrame, view: FleetMirrorView) => T,
   now: () => number = Date.now,
 ): T {
-  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId);
+  const view = locateFleetMirrorView(input.viewRoot, input.repoId, input.nodeId, {
+    includeEntries: input.includeEntries ?? true,
+  });
   if (!view) throw new EdgeReadError("replica_unavailable", "The edge replica generation is unavailable.");
   // The read pins its generation, so an install landing mid-read cannot collect the files under it.
   return withReplicaGeneration(view.viewDir, (generation) => {
