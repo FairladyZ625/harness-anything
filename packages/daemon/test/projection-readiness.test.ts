@@ -90,7 +90,7 @@ test("runtime.run rejects a lagging task projection from a single read", async (
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: "task_ready",
-        idempotencyKey: "lagging-projection",
+        dispatchKey: "lagging-projection",
       },
       binding,
     ),
@@ -118,7 +118,7 @@ test("task-bound runtime dispatch requires an authorization decision", async () 
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: "task_ready",
-        idempotencyKey: "missing-authorization",
+        dispatchKey: "missing-authorization",
       },
       binding,
     ),
@@ -130,8 +130,8 @@ test("task-bound runtime dispatch requires an authorization decision", async () 
 
 test("runtime dispatch rejects an opId occupied by another canonical event", async () => {
   const repoId = "repository",
-    idempotencyKey = "occupied-dispatch-op",
-    hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
+    dispatchKey = "occupied-dispatch-op",
+    hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex"),
     dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
     spawner = makeRuntimeSpawner({
       repoId,
@@ -147,7 +147,7 @@ test("runtime dispatch rejects an opId occupied by another canonical event", asy
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: null,
-        idempotencyKey,
+        dispatchKey,
       },
       binding,
     ),
