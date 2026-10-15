@@ -241,6 +241,51 @@ test("worker push still refuses a personal-identity commit above the published r
   );
 });
 
+test("worker push after a rebase checks only the worker's commits, not the default branch's new merges", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-rebased-")),
+    bare = path.join(root, "remote.git"),
+    worker = path.join(root, "worker");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_rebased_branch");
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  git(worker, "add", "change.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  const first = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_rebased_branch" });
+  assert.equal(first.ok, true, JSON.stringify(first));
+
+  // The default branch gains a merge the hosting service authored, the way a merged pull request
+  // lands; the worker then rebases its published branch onto it.
+  git(
+    canonical,
+    "-c",
+    "user.name=Hosting Service",
+    "-c",
+    "user.email=noreply@hosting.invalid",
+    "commit",
+    "--allow-empty",
+    "--quiet",
+    "-m",
+    "Merge pull request #1",
+  );
+  const merge = git(canonical, "rev-parse", "HEAD").trim();
+  git(worker, "rebase", "--quiet", merge);
+
+  const rebased = await pushTaskWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_rebased_branch" });
+  assert.equal(rebased.ok, true, JSON.stringify(rebased));
+  const head = git(worker, "rev-parse", "HEAD").trim();
+  assert.equal(git(bare, "rev-parse", "refs/heads/task_rebased_branch").trim(), head);
+});
+
 test("worker push refuses when the canonical repository resolves no git identity", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-no-identity-")),
     bare = path.join(root, "remote.git"),
