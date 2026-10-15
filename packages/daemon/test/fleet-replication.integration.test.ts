@@ -36,6 +36,7 @@ const mirrorHead = (ledgerPath: string): number => {
   mirrorEventRows = (ledgerPath: string, where: string, params: readonly unknown[] = []): unknown[] => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return db.prepare(`SELECT * FROM event WHERE ${where}`).all(...params);
     } finally {
       db.close();
@@ -48,6 +49,7 @@ const mirrorHead = (ledgerPath: string): number => {
   ): unknown[] => {
     const db = new DatabaseSync(fixture.ledgerPath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       return db.prepare(`SELECT * FROM event WHERE ${where}`).all(...params);
     } finally {
       db.close();
@@ -56,6 +58,7 @@ const mirrorHead = (ledgerPath: string): number => {
   tableRows = (databasePath: string): Record<string, unknown[][]> => {
     const db = new DatabaseSync(databasePath, { readOnly: true });
     try {
+      db.exec("PRAGMA busy_timeout=5000");
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .all() as { name: string }[];
