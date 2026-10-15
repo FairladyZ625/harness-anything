@@ -183,13 +183,6 @@ export async function completeTask(
 ): Promise<WriteReceipt> {
   const taskId = cell.requiredCellText(action.taskId, "taskId"),
     initial = await cell.service.read(taskId),
-    initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status),
-    decision = taskCompletionNext(
-      initial.snapshot,
-      { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
-      typeof action.executionId === "string" ? action.executionId : undefined,
-    ),
-    executionId = decision.executionId ?? "",
     allowed = [
       "kind",
       "taskId",
@@ -201,11 +194,7 @@ export async function completeTask(
       "resolutionRationale",
       "resolutionFact",
     ],
-    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
-    submittedExecution = initial.snapshot.executions.find(
-      (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
-    ),
-    paths = submittedExecution?.submission?.deliverables ?? [];
+    initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
   if (Object.keys(action).some((field) => !allowed.includes(field)))
     throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
   if (
@@ -218,7 +207,6 @@ export async function completeTask(
       "invalid_command",
       "Sibling resolution cannot select an execution or attest its Fact retirement.",
     );
-  const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
   if (action.resolvedBy !== undefined) {
     const sourceTaskId = String(action.resolvedBy),
       rationale = String(action.resolutionRationale ?? "").trim(),
@@ -278,6 +266,18 @@ export async function completeTask(
       applied = cell.completionApplied(completed, settled, "", archive.receipt ? [archive.receipt] : []);
     return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
   }
+  const initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status),
+    decision = taskCompletionNext(
+      initial.snapshot,
+      { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
+      typeof action.executionId === "string" ? action.executionId : undefined,
+    ),
+    executionId = decision.executionId ?? "",
+    factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
+    submittedExecution = initial.snapshot.executions.find(
+      (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
+    ),
+    paths = submittedExecution?.submission?.deliverables ?? [];
   if (
     !decision.executionId ||
     decision.blocker?.code === "projection_unknown" ||
