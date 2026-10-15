@@ -27,8 +27,16 @@ const seededTask = { taskId: "task_e2e0000000000000000000001", executionId: "exe
 const mirrorHead = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
-      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
+    } finally {
+      db.close();
+    }
+  },
+  mirrorSequence = (ledgerPath: string): number => {
+    const db = new DatabaseSync(ledgerPath, { readOnly: true });
+    try {
+      return (db.prepare("SELECT sequence FROM replication_state WHERE singleton = 1").get() as { sequence: number })
+        .sequence;
     } finally {
       db.close();
     }
@@ -368,7 +376,7 @@ test("full mirror comparison covers retention-window base-backup resync", { time
   );
   const reinstalled = lagging.lastEvent("installed")!;
   await lagging.waitForWhere(
-    () => mirrorHead(String(reinstalled.ledgerPath)) === fixture.eventCount(),
+    () => mirrorSequence(String(reinstalled.ledgerPath)) === mirrorSequence(fixture.ledgerPath),
     "re-backup convergence to the center head",
     120_000,
   );
