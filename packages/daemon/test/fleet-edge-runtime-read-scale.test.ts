@@ -16,6 +16,7 @@ import { installCostProbe, resetCostProbe, snapshotCostProbe } from "./fixtures/
 import { startBaseBackup } from "../src/fleet/basebackup.ts";
 import { installReplicaGeneration, readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { readEdgeRuntimeRepository } from "../src/fleet-edge-runtime-read.ts";
+import { fleetMirrorTaskPaths, locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
 
 interface Fixture {
   readonly root: string;
@@ -25,7 +26,7 @@ interface Fixture {
   readonly workspaceRoot: string;
 }
 
-async function makeFixture(documentCount: number): Promise<Fixture> {
+async function makeFixture(documentCount: number, packageLookup = false): Promise<Fixture> {
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-runtime-scale-")),
     repo = path.join(root, "repo"),
     repoId = "scale-repo",
@@ -89,10 +90,19 @@ async function makeFixture(documentCount: number): Promise<Fixture> {
       );
       mkdirSync(objectDir, { recursive: true });
       writeFileSync(path.join(objectDir, digest.slice(2)), body);
+      const logicalPath = packageLookup
+        ? index === 0
+          ? "tasks/task-scale/INDEX.md"
+          : `tasks/unrelated/artifacts/doc-${index}.md`
+        : `tasks/task-scale/artifacts/doc-${index}.md`;
       db.prepare("INSERT INTO document (path, workspace_revision, value_json) VALUES (?, ?, ?)").run(
-        `tasks/task-scale/artifacts/doc-${index}.md`,
+        logicalPath,
         0,
-        JSON.stringify({ blobSha256: digest, size: body.length, mediaType: "text/markdown" }),
+        JSON.stringify({
+          blobSha256: digest,
+          size: body.length,
+          mediaType: "text/markdown",
+        }),
       );
     }
   } finally {
@@ -109,6 +119,15 @@ async function makeFixture(documentCount: number): Promise<Fixture> {
     }),
   );
   return { root, viewRoot, repoId, nodeId, workspaceRoot: repo };
+}
+
+function readPackageRows(fixture: Fixture): { readonly rows: number; readonly paths: readonly string[] } {
+  resetCostProbe();
+  const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId, fixture.nodeId, {
+    entriesPrefix: "tasks/task-scale",
+  });
+  assert.ok(view);
+  return { rows: snapshotCostProbe().sqlRowsRead, paths: fleetMirrorTaskPaths(view, "task-scale") };
 }
 
 function readRows(fixture: Fixture): number {
@@ -139,4 +158,32 @@ test("edge runtime task reads keep SQL row access independent of mirror document
   const largeRows = readRows(large);
   t.diagnostic(JSON.stringify({ smallDocuments: 2, largeDocuments: 20, smallRows, largeRows }));
   assert.ok(largeRows - smallRows <= 2, `row access grew with mirror size: ${smallRows} -> ${largeRows}`);
+});
+
+test("dispatched task-package lookup keeps SQL row access independent of unrelated documents", async (t) => {
+  installCostProbe();
+  const small = await makeFixture(2, true);
+  const large = await makeFixture(20, true);
+  t.after(() => {
+    rmSync(small.root, { recursive: true, force: true });
+    rmSync(large.root, { recursive: true, force: true });
+  });
+  const smallRead = readPackageRows(small);
+  const largeRead = readPackageRows(large);
+  t.diagnostic(
+    JSON.stringify({
+      smallDocuments: 2,
+      largeDocuments: 20,
+      smallRows: smallRead.rows,
+      largeRows: largeRead.rows,
+      smallPaths: smallRead.paths,
+      largePaths: largeRead.paths,
+    }),
+  );
+  assert.deepEqual(smallRead.paths, ["tasks/task-scale/INDEX.md"]);
+  assert.deepEqual(largeRead.paths, smallRead.paths);
+  assert.ok(
+    largeRead.rows - smallRead.rows <= 2,
+    `package lookup grew with unrelated documents: ${smallRead.rows} -> ${largeRead.rows}`,
+  );
 });
