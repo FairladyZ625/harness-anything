@@ -228,7 +228,7 @@ test("concurrent owner rulings and completions have one state-transition winner"
 });
 
 test("sibling complete refuses unfinished sources and missing facts, then closes B without execution or duplicate review", async () => {
-  const f = await fixture(false, true, false, false, true, undefined, { autoForward: false });
+  const f = await fixture(false, true, false, false, true, undefined, { autoForward: false, submitCommit: true });
   try {
     const target = "task-resolved-target";
     await f.createPlannedTask(target);
@@ -252,6 +252,9 @@ test("sibling complete refuses unfinished sources and missing facts, then closes
     assert.equal((await f.review(runtimeSessionId(forwarded), "review-sibling")).outcome, "applied");
     assert.equal((await f.consent("review-sibling")).outcome, "applied");
     assert.equal((await f.complete()).outcome, "applied");
+    const sourceSubmission = f.events().find((event) => event.type === "execution_submitted");
+    assert.ok(sourceSubmission?.type === "execution_submitted");
+    assert.ok(sourceSubmission.payload.execution.submission?.commitSha, JSON.stringify(sourceSubmission));
     const unmerged = await f.run(action);
     assert.equal(unmerged.outcome, "op_rejected", JSON.stringify(unmerged));
     assert.match(JSON.stringify(unmerged), /Merge the source delivery/u);

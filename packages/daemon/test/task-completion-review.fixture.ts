@@ -118,6 +118,7 @@ export async function fixture(
   reviewReturnBudget?: number,
   options: {
     readonly autoSubmit?: boolean;
+    readonly submitCommit?: boolean;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
     /** False stops after submit: the cut awaits the owner's triage. */
@@ -302,7 +303,12 @@ export async function fixture(
       `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
     );
-    const receipt = await run({ kind: "task-submit", taskId, executionId });
+    const receipt = await run({
+      kind: "task-submit",
+      taskId,
+      executionId,
+      ...(options.submitCommit ? { commitSha: git(root, "rev-parse", "HEAD") } : {}),
+    });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
   };
