@@ -38,6 +38,7 @@ export interface TaskLifecycleSnapshot {
   readonly lease: LeaseV1 | null;
   readonly forwardedCuts?: readonly ForwardedCutRecord[];
   readonly decisionRelations?: readonly CoverageRelation[];
+  readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
 }
 export const TASK_LIFECYCLE_SCHEMA = Object.freeze({
   id: "task-lifecycle/v1",
@@ -131,6 +132,7 @@ export interface RepointCodeDocIntent extends Intent<"RepointCodeDoc"> {
 }
 export interface CompleteTaskIntent extends Intent<"CompleteTask"> {
   readonly executionId: string;
+  readonly resolution?: { readonly resolvedByTaskId: string; readonly rationale: string; readonly factRef: string };
   readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
 }
 export type TaskLifecycleCommandIntent =
@@ -246,6 +248,7 @@ export interface CompleteTaskProof {
     readonly commitSha: string | null;
     readonly iteration: number;
   }[];
+  readonly siblingResolution?: { readonly sourceTaskId: string; readonly sourceDone: true; readonly factRef: string };
 }
 export type ProofFor<C extends TaskLifecycleCommand> = C extends CreateReplayTaskCommand
   ? CreateReplayTaskProof

@@ -19,8 +19,13 @@ export function completionDocumentConverter(readContent: (sha256: string) => Uin
     const snapshot: TaskLifecycleSnapshot = {
       ...previous,
       revision: event.workspaceRevision,
+      ...(event.type === "task_completed" && event.payload.siblingResolution
+        ? { siblingResolution: event.payload.siblingResolution }
+        : {}),
       ...("task" in payload ? { task: payload.task } : {}),
-      ...("execution" in payload ? { executions: upsert(previous.executions, payload.execution, "executionId") } : {}),
+      ...("execution" in payload && payload.execution
+        ? { executions: upsert(previous.executions, payload.execution, "executionId") }
+        : {}),
       ...("review" in payload ? { reviews: upsert(previous.reviews, payload.review, "reviewId") } : {}),
       ...("consent" in payload ? { consents: upsert(previous.consents, payload.consent, "consentId") } : {}),
       ...("disposition" in payload

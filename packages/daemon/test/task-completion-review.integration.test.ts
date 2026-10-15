@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -221,6 +222,79 @@ test("concurrent owner rulings and completions have one state-transition winner"
     );
     assert.equal(completions[0]!.opId, completions[1]!.opId, "duplicate completion replays one durable receipt");
     assert.equal(f.events().filter((event) => event.type === "task_completed").length, 1);
+  } finally {
+    await f.close();
+  }
+});
+
+test("sibling complete refuses unfinished sources and missing facts, then closes B without execution or duplicate review", async () => {
+  const f = await fixture(false, true, false, false, true, undefined, { autoForward: false });
+  try {
+    const target = "task-resolved-target";
+    await f.createPlannedTask(target);
+    const fact = f.events().find((event) => event.type === "fact_recorded");
+    assert.ok(fact?.type === "fact_recorded");
+    const action = {
+      kind: "task-complete",
+      taskId: target,
+      resolvedBy: taskId,
+      resolutionRationale: "The reviewed README delivery resolves the duplicate report on main",
+      resolutionFact: `fact/${fact.factId}`,
+    };
+    const missing = await f.run({ ...action, resolutionFact: undefined });
+    assert.equal(missing.outcome, "op_rejected", JSON.stringify(missing));
+    const unfinished = await f.run(action);
+    assert.equal(unfinished.outcome, "op_rejected", JSON.stringify(unfinished));
+    assert.match(JSON.stringify(unfinished), /Complete|Wait|complete/u);
+    await f.install();
+    const forwarded = await f.forward();
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+    assert.equal((await f.review(runtimeSessionId(forwarded), "review-sibling")).outcome, "applied");
+    assert.equal((await f.consent("review-sibling")).outcome, "applied");
+    assert.equal((await f.complete()).outcome, "applied");
+    const unmerged = await f.run(action);
+    assert.equal(unmerged.outcome, "op_rejected", JSON.stringify(unmerged));
+    assert.match(JSON.stringify(unmerged), /Merge the source delivery/u);
+    execFileSync("git", ["-C", f.root, "update-ref", "refs/remotes/origin/main", "HEAD"]);
+    const completed = await f.run(action);
+    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    const replay = await f.run(action);
+    assert.equal(replay.outcome, "applied", JSON.stringify(replay));
+    assert.equal(replay.opId, completed.opId);
+    const targetEvents = f.events().filter((event) => event.taskId === target);
+    assert.equal(targetEvents.filter((event) => event.type === "task_completed").length, 1);
+    assert.equal(
+      targetEvents.filter((event) => event.type === "execution_started" || event.type === "review_recorded").length,
+      0,
+    );
+    await f.reopen();
+    const shown = await f.run({ kind: "task-show", taskId: target });
+    assert.match(JSON.stringify(shown), /siblingResolution/u);
+    assert.match(JSON.stringify(shown), /task-completion-review/u);
+  } finally {
+    await f.close();
+  }
+});
+
+test("a done lightweight source without independent review cannot resolve a sibling", async () => {
+  const f = await fixture(false, true, true, false, false, undefined, {
+    autoForward: false,
+    create: { profileId: "lightweight" },
+  });
+  try {
+    await f.createPlannedTask("task-unreviewed-target");
+    assert.equal((await f.complete()).outcome, "applied");
+    const fact = f.events().find((event) => event.type === "fact_recorded");
+    assert.ok(fact?.type === "fact_recorded");
+    const result = await f.run({
+      kind: "task-complete",
+      taskId: "task-unreviewed-target",
+      resolvedBy: taskId,
+      resolutionRationale: "A claims to fix B",
+      resolutionFact: `fact/${fact.factId}`,
+    });
+    assert.equal(result.outcome, "op_rejected", JSON.stringify(result));
+    assert.match(JSON.stringify(result), /approved review, consent/u);
   } finally {
     await f.close();
   }

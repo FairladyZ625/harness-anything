@@ -15,6 +15,7 @@ import { t } from "../../i18n/index.tsx";
 import { CloseoutBadge } from "../badges.tsx";
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { IdText } from "../IdText.tsx";
+import { EntityRefLink } from "../EntityRefLink.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
 import { Section } from "../primitives/Section";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
@@ -60,7 +61,12 @@ export function TaskCloseoutTab({
   onAdjudicate,
   onConsentReview,
   onAttest,
-}: { readonly task: TaskRow; readonly focusedRecordRef?: string | null } & TaskActionProps) {
+  onNavigateEntity,
+}: {
+  readonly task: TaskRow;
+  readonly focusedRecordRef?: string | null;
+  readonly onNavigateEntity: (ref: string) => void;
+} & TaskActionProps) {
   const completion = useTaskCompletionQuery(task.projectId, task.taskId),
     completionNext = completion.data?.completionNext,
     reviews = task.reviews ?? [],
@@ -106,6 +112,24 @@ export function TaskCloseoutTab({
           <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-8">
             <div className="flex flex-wrap items-center gap-3 border-y border-border py-4">
               <CloseoutBadge value={task.closeoutReadiness} />
+              {task.siblingResolution ? (
+                <div data-testid="task-sibling-resolution" className="text-sm">
+                  <strong>
+                    由{" "}
+                    <EntityRefLink
+                      entityRef={`task/${task.siblingResolution.sourceTaskId}`}
+                      onNavigate={onNavigateEntity}
+                    />{" "}
+                    解决
+                  </strong>
+                  <span className="ml-2">{task.siblingResolution.rationale}</span>
+                  <EntityRefLink
+                    entityRef={task.siblingResolution.factRef}
+                    onNavigate={onNavigateEntity}
+                    className="ml-2 text-accent"
+                  />
+                </div>
+              ) : null}
               {completion.isError ? <ReadError text={String(completion.error)} /> : null}
               {completionNext ? (
                 <div data-testid="task-completion-next">

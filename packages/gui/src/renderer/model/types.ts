@@ -105,6 +105,7 @@ interface TaskRowFields {
   freshness: Freshness;
   packageDisposition: PackageDisposition;
   closeoutReadiness: CloseoutReadiness;
+  siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
   engine: EngineId;
   origin?: "native" | "archival" | "external";
   source: "local-document" | "external-engine" | "snapshot-cache";

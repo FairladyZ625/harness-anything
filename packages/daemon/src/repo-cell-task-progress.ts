@@ -16,6 +16,7 @@ import {
   resolveTaskBoundRuntimeBinding,
   runtimeSessionIdFromActor,
   stableStringify,
+  closeoutReadiness,
   taskProgressWritePlan,
   validFactStillHoldsAttestation,
   type CompletionReadinessContext,
@@ -189,7 +190,17 @@ export async function completeTask(
       typeof action.executionId === "string" ? action.executionId : undefined,
     ),
     executionId = decision.executionId ?? "",
-    allowed = ["kind", "taskId", "executionId", "verb", "commandType", "factHolds"],
+    allowed = [
+      "kind",
+      "taskId",
+      "executionId",
+      "verb",
+      "commandType",
+      "factHolds",
+      "resolvedBy",
+      "resolutionRationale",
+      "resolutionFact",
+    ],
     factRetirementAttestations = stillHoldsAttestations(cell, action.factHolds),
     submittedExecution = initial.snapshot.executions.find(
       (value) => value.executionId === executionId && value.iteration === initial.snapshot.task?.iteration,
@@ -197,7 +208,76 @@ export async function completeTask(
     paths = submittedExecution?.submission?.deliverables ?? [];
   if (Object.keys(action).some((field) => !allowed.includes(field)))
     throw cell.cellCodedError("invalid_command", "Complete derives CI evidence and paths from the submitted cut.");
+  if (
+    action.resolvedBy === undefined &&
+    (action.resolutionRationale !== undefined || action.resolutionFact !== undefined)
+  )
+    throw cell.cellCodedError("invalid_command", "Resolution rationale and Fact require --resolved-by.");
+  if (action.resolvedBy !== undefined && (action.executionId !== undefined || action.factHolds !== undefined))
+    throw cell.cellCodedError(
+      "invalid_command",
+      "Sibling resolution cannot select an execution or attest its Fact retirement.",
+    );
   const initialOpId = cell.operationId(action, binding, cell.input.repoId, initial.snapshot.revision);
+  if (action.resolvedBy !== undefined) {
+    const sourceTaskId = String(action.resolvedBy),
+      rationale = String(action.resolutionRationale ?? "").trim(),
+      factRef = String(action.resolutionFact ?? "").trim();
+    if (!rationale || !factRef || !factRef.startsWith("fact/"))
+      throw cell.cellCodedError(
+        "invalid_command",
+        "Sibling resolution requires --resolution-rationale and a canonical --resolution-fact fact/<id>.",
+      );
+    const previous = cell.projection.readTaskCompletion(taskId, null);
+    if (previous?.type === "task_completed") {
+      if (stableStringify(previous.payload.siblingResolution) !== stableStringify({ sourceTaskId, rationale, factRef }))
+        throw cell.cellCodedError("invalid_command", "Task already completed with a different sibling resolution.");
+      const publication = cell.publicPublication(cell.store.publication(previous));
+      return cell.completionApplied(
+        cell.lifecycleReceipt(previous, initial.snapshot, publication, cell.receiptProof(previous, publication)),
+        initial.snapshot,
+        "",
+        [],
+      );
+    }
+    const fact = cell.projection.readFact(factRef.slice("fact/".length));
+    if (!fact.fact)
+      throw cell.cellCodedError("invalid_command", `Resolution Fact ${factRef} does not exist in the projection.`);
+    const source = await cell.service.read(sourceTaskId),
+      sourceReadiness = closeoutReadiness(source.snapshot);
+    if (source.snapshot.task?.status !== "done" || sourceReadiness.readiness !== "passed")
+      return cell.completionStopped(
+        initialOpId,
+        initial.snapshot,
+        "",
+        {
+          code: "not_in_review",
+          gate: "sibling-resolution",
+          next: {
+            action: `Wait for ${sourceTaskId} to complete review, consent, CI, and merge, then retry ha task complete ${taskId} --resolved-by ${sourceTaskId}.`,
+            reason: `Sibling task ${sourceTaskId} is not fully accepted (readiness: ${sourceReadiness.readiness}).`,
+            authority: "task owner",
+            readCut: { revision: initial.snapshot.revision, iteration: null, executionId: null },
+          },
+        },
+        [],
+      );
+    const completed = await cell.lifecycleAction(
+      {
+        kind: "task-complete",
+        taskId,
+        resolvedBy: sourceTaskId,
+        resolutionRationale: rationale,
+        resolutionFact: factRef,
+      },
+      binding,
+    );
+    if (completed.outcome !== "applied") return completed;
+    const settled = cell.projection.read(taskId).snapshot,
+      archive = archiveTaskOnComplete(cell, taskId, settled, binding),
+      applied = cell.completionApplied(completed, settled, "", archive.receipt ? [archive.receipt] : []);
+    return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
+  }
   if (
     !decision.executionId ||
     decision.blocker?.code === "projection_unknown" ||

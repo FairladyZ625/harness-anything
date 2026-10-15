@@ -378,7 +378,16 @@ export function buildCommand(
     return normalizeTaskLifecycleCommand(bound, {
       type: "CompleteTask",
       taskId,
-      executionId: requiredCellText(action.executionId, "executionId"),
+      executionId: typeof action.executionId === "string" ? action.executionId : "",
+      ...(typeof action.resolvedBy === "string"
+        ? {
+            resolution: {
+              resolvedByTaskId: action.resolvedBy,
+              rationale: requiredCellText(action.resolutionRationale, "resolution-rationale"),
+              factRef: requiredCellText(action.resolutionFact, "resolution-fact"),
+            },
+          }
+        : {}),
       ...(Array.isArray(action.factRetirementAttestations) && action.factRetirementAttestations.length
         ? {
             factRetirementAttestations: action.factRetirementAttestations as unknown as Extract<

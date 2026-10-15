@@ -198,7 +198,7 @@ export function lifecycleReceipt(
   proof: NonNullable<WriteReceipt["proof"]>,
   authorizationDecision: WriteReceipt["authorizationDecision"] = undefined,
 ): WriteReceipt {
-  const executionId = "execution" in event.payload ? event.payload.execution.executionId : null,
+  const executionId = "execution" in event.payload ? (event.payload.execution?.executionId ?? null) : null,
     execution = snapshot.executions.find((value) => value.executionId === executionId),
     reviews = execution?.submission ? approvedReviewHistoryForExecution(snapshot.reviews, execution) : [],
     selected = execution?.submission

@@ -647,7 +647,16 @@ function operationIdentityFromEvent(event: TaskEventV1): unknown {
   if (event.type === "task_completed")
     return {
       ...common,
-      executionId: event.payload.execution.executionId,
+      executionId: event.payload.execution?.executionId ?? "",
+      ...(event.payload.siblingResolution
+        ? {
+            resolution: {
+              resolvedByTaskId: event.payload.siblingResolution.sourceTaskId,
+              rationale: event.payload.siblingResolution.rationale,
+              factRef: event.payload.siblingResolution.factRef,
+            },
+          }
+        : {}),
       factRetirementAttestations: event.payload.factRetirementAttestations ?? [],
     };
   if (event.type === "lease_renewed")

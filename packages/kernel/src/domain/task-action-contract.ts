@@ -684,6 +684,9 @@ export const declarations: readonly Declaration[] = Object.freeze([
       wire(cli("executionId", "string", false, "--execution-id"), { pattern: "^[A-Za-z0-9_-]{1,96}$" }),
       field("ci"),
       field("paths", "string-array"),
+      cli("resolvedBy", "string", false, "--resolved-by"),
+      cli("resolutionRationale", "string", false, "--resolution-rationale"),
+      cli("resolutionFact", "string", false, "--resolution-fact"),
       {
         ...cli("factHolds", "fact-hold-array", false, "--fact-holds", "repeated", {
           format: "<fact-id>:<rationale>",
@@ -709,7 +712,8 @@ export const declarations: readonly Declaration[] = Object.freeze([
       { authority: "task-lease/v1", mode: "must-be-released" },
       { authority: "operation-id", retry: "closeout-stage-resume" },
     ),
-    explain: "Complete after readiness checks; --execution-id only repairs ambiguous current executions.",
+    explain:
+      "Complete; use --resolved-by plus rationale and Fact when a sibling resolves the task (replaces cancel + relate).",
   }),
   mutation(
     "release",

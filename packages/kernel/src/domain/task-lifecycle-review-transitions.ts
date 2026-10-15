@@ -399,6 +399,44 @@ export const complete: Transition = {
             currentSubmissionDigest: currentDigest,
           })
         : [];
+    if (command.resolution) {
+      if (
+        !isNonEmptyString(command.resolution.resolvedByTaskId) ||
+        !isNonEmptyString(command.resolution.rationale) ||
+        !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef)
+      )
+        issues.push(
+          lifecycleContractIssue("invalid_schema", "Sibling resolution requires source task, rationale, and Fact"),
+        );
+      if (
+        !proof.siblingResolution?.sourceDone ||
+        proof.siblingResolution.sourceTaskId !== command.resolution.resolvedByTaskId ||
+        proof.siblingResolution.factRef !== command.resolution.factRef
+      )
+        issues.push(
+          lifecycleContractIssue("invalid_transition", "Sibling task must be durably done before resolution"),
+        );
+      if (
+        !task ||
+        ["done", "cancelled"].includes(task.status) ||
+        command.resolution.resolvedByTaskId === command.taskId
+      )
+        issues.push(
+          lifecycleContractIssue(
+            "invalid_transition",
+            "Sibling resolution requires an open task and a different source task",
+          ),
+        );
+      if (
+        snapshot.lease ||
+        proof.noActiveLease !== true ||
+        proof.capability !== "task-complete@v1" ||
+        !isNonEmptyString(proof.capabilityRef) ||
+        !["owner", "commander"].includes(String(proof.actorRole))
+      )
+        issues.push(lifecycleContractIssue("invalid_proof", "completion authority and released lease are required"));
+      return issues;
+    }
     if (!gatesValid)
       issues.push(lifecycleContractIssue("invalid_proof", "CompleteTask requires the effective closeout gate set"));
     if (
@@ -464,21 +502,33 @@ export const complete: Transition = {
         status: "done",
         pinned: false,
       };
+    const siblingResolution = command.resolution
+      ? {
+          sourceTaskId: command.resolution.resolvedByTaskId,
+          rationale: command.resolution.rationale,
+          factRef: command.resolution.factRef,
+        }
+      : undefined;
+    const payload: Omit<TaskCompletedEvent["payload"], "documentClaims"> = siblingResolution
+      ? { task, siblingResolution }
+      : {
+          task,
+          execution: nextExecution,
+          closeoutGates: proof.closeoutGates,
+          ...(command.factRetirementAttestations?.length
+            ? { factRetirementAttestations: command.factRetirementAttestations }
+            : {}),
+        };
     return {
       snapshot: {
         ...snapshot,
         revision: command.workspaceRevision,
         task,
-        executions: replaceExecution(snapshot.executions, nextExecution),
+        ...(siblingResolution
+          ? { siblingResolution }
+          : { executions: replaceExecution(snapshot.executions, nextExecution) }),
       },
-      event: envelope<TaskCompletedEvent>(command, "task_completed", {
-        task,
-        execution: nextExecution,
-        closeoutGates: proof.closeoutGates,
-        ...(command.factRetirementAttestations?.length
-          ? { factRetirementAttestations: command.factRetirementAttestations }
-          : {}),
-      }),
+      event: envelope<TaskCompletedEvent>(command, "task_completed", payload),
     };
   },
 };

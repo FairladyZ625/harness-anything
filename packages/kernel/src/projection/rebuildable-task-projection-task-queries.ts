@@ -55,7 +55,7 @@ const TASK_COMPLETION_SQL = [
   "SELECT event_json FROM event_index WHERE task_id = ?",
   "AND json_extract(event_json, '$.schema') = 'task-event/v1'",
   "AND json_extract(event_json, '$.type') = 'task_completed'",
-  "AND json_extract(event_json, '$.payload.execution.executionId') = ?",
+  "AND json_extract(event_json, '$.payload.execution.executionId') IS ?",
   "ORDER BY workspace_revision DESC LIMIT 1",
 ].join(" ");
 const CANONICAL_EVENTS_SQL = [

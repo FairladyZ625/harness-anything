@@ -117,3 +117,46 @@ test("read-side complete capability follows the effective closeout gate set", ()
   assert.equal(readiness(strictGates), "unmet");
   assert.equal(readiness(undefined), "unmet", "a caller that passes no gate set keeps the strict read");
 });
+
+test("sibling completion persists and replays without inventing a target execution", () => {
+  const created = lifecycleFixture().events[0]!;
+  const snapshot = reduceTaskEvent(emptyTaskLifecycleSnapshot(), created);
+  const resolution = {
+    resolvedByTaskId: "task-source",
+    rationale: "Delivery abc fixes the reported failure on main",
+    factRef: "fact/F-1234ABCD",
+  };
+  const commandFor = (value = resolution) => ({
+    ...normalizeTaskLifecycleCommand(
+      { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+      { type: "CompleteTask", taskId: snapshot.task!.taskId, executionId: "", resolution: value },
+    ),
+    eventId: "event-sibling-complete",
+    workspaceRevision: snapshot.revision + 1,
+    occurredAt: "2026-08-11T00:06:00.000Z",
+  });
+  const command = commandFor();
+  const proof = {
+    ...completeProof(standardGates),
+    siblingResolution: { sourceTaskId: "task-source", sourceDone: true, factRef: resolution.factRef },
+  };
+  const result = applyTransition(snapshot, command, proof);
+  assert.equal(result.snapshot.task?.status, "done");
+  assert.deepEqual(result.snapshot.executions, []);
+  assert.equal(result.event.type, "task_completed");
+  assert.equal(result.event.payload.execution, undefined);
+  assert.deepEqual(reduceTaskEvent(snapshot, result.event).siblingResolution, result.snapshot.siblingResolution);
+  assert.throws(() => applyTransition(snapshot, command, { ...proof, siblingResolution: undefined }), /durably done/u);
+  assert.throws(
+    () => applyTransition(snapshot, commandFor({ ...resolution, factRef: "" }), proof),
+    /requires source task/u,
+  );
+  assert.throws(
+    () => applyTransition(snapshot, commandFor({ ...resolution, resolvedByTaskId: snapshot.task!.taskId }), proof),
+    /different source task/u,
+  );
+  assert.throws(
+    () => reduceTaskEvent({ ...snapshot, task: { ...snapshot.task!, status: "cancelled" } }, result.event),
+    /open task/u,
+  );
+});

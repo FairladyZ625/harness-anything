@@ -67,3 +67,25 @@ test("start exposes and parses an explicit stack anchor through its canonical CL
   assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (parsed.ok) assert.equal(parsed.command.action.stackOn, "task_base");
 });
+
+test("complete parses sibling resolution evidence on the existing command", () => {
+  const argv = [
+    "task",
+    "complete",
+    "task-target",
+    "--resolved-by",
+    "task-source",
+    "--resolution-rationale",
+    "Delivery abc fixes B",
+    "--resolution-fact",
+    "fact/F-1234ABCD",
+  ];
+  const parsed = parseThinCommand(argv);
+  assert.equal(parsed.ok, true, JSON.stringify(parsed));
+  if (parsed.ok) {
+    assert.equal(parsed.command.action.resolvedBy, "task-source");
+    assert.equal(parsed.command.action.resolutionRationale, "Delivery abc fixes B");
+    assert.equal(parsed.command.action.resolutionFact, "fact/F-1234ABCD");
+  }
+  assert.match(renderThinHelp([], "task"), /--resolved-by/u);
+});

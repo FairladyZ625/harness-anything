@@ -575,6 +575,24 @@ export const taskActionDescriptorProjection = {
           { field: "ci", type: "string", required: false },
           { field: "paths", type: "string-array", required: false },
           {
+            field: "resolvedBy",
+            type: "string",
+            required: false,
+            cli: { name: "--resolved-by", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "resolutionRationale",
+            type: "string",
+            required: false,
+            cli: { name: "--resolution-rationale", kind: "single", error: "invalid_field" },
+          },
+          {
+            field: "resolutionFact",
+            type: "string",
+            required: false,
+            cli: { name: "--resolution-fact", kind: "single", error: "invalid_field" },
+          },
+          {
             field: "factHolds",
             type: "fact-hold-array",
             required: false,
@@ -592,7 +610,8 @@ export const taskActionDescriptorProjection = {
         ],
         exactlyOneOf: [],
       },
-      explain: "Complete after readiness checks; --execution-id only repairs ambiguous current executions.",
+      explain:
+        "Complete; use --resolved-by plus rationale and Fact when a sibling resolves the task (replaces cancel + relate).",
       execution: {
         ingress: "task-complete",
         topology: "ledger-write",

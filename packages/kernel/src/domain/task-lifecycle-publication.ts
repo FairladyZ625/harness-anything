@@ -44,6 +44,7 @@ export function lifecycleDocumentPaths(event: TaskEventV1, packagePath: string):
   // annotations, and re-rendering it here would pin a possibly historical Execution as current.
   if (event.type === "execution_annotated")
     return [`${packagePath}/executions/${event.payload.execution.executionId}.md`];
+  if (event.payload.execution === undefined) return base;
   const paths = [`${packagePath}/INDEX.md`, `${packagePath}/executions/${event.payload.execution.executionId}.md`];
   if (
     event.type === "review_recorded" ||
@@ -379,7 +380,14 @@ function renderIndex(
       },
       current?.executionId,
     )?.action,
-    next = task.status === "done" ? "Task complete." : nextAction ? `Run \`${nextAction}\`.` : "Task complete.",
+    next =
+      task.status === "done"
+        ? snapshot.siblingResolution
+          ? `Resolved by task/${snapshot.siblingResolution.sourceTaskId}: ${snapshot.siblingResolution.rationale}\n\nEvidence: ${snapshot.siblingResolution.factRef}.`
+          : "Task complete."
+        : nextAction
+          ? `Run \`${nextAction}\`.`
+          : "Task complete.",
     gates = gatesForCut.length
       ? gatesForCut.map((gateId) => `- ${gateId}: ${gateStatus(gateId) ? "pass" : "blocked"}`).join("\n")
       : "- none",

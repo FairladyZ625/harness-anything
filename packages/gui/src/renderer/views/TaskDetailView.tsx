@@ -530,6 +530,7 @@ export function TaskDetailView({
                     ) : activeTab === "closeout" ? (
                       <TaskCloseoutTab
                         task={task}
+                        onNavigateEntity={onNavigateEntity}
                         focusedRecordRef={focusedRecordRef}
                         mutationFeedback={mutationFeedback}
                         onProgress={onProgress}
