@@ -289,6 +289,7 @@ export function taskMutation(
         /^sha256:[0-9a-f]{64}$/u.test(action.repairPresetSnapshotDigest)
           ? (action.repairPresetSnapshotDigest as `sha256:${string}`)
           : null,
+      repairedBody = typeof action.repairTaskContractBody === "string" ? action.repairTaskContractBody : null,
       repairedTaskClass = (taskClasses as readonly unknown[]).includes(action.repairTaskClass)
         ? (action.repairTaskClass as TaskV2["taskClass"])
         : null,
@@ -305,6 +306,7 @@ export function taskMutation(
     if (
       (task.contractVersion ?? 0) >= 1 &&
       repairedDigest === null &&
+      repairedBody === null &&
       (repairedTaskClass === null || repairedTaskClass === task.taskClass)
     )
       throw cell.cellCodedError(
@@ -325,9 +327,11 @@ export function taskMutation(
         reason:
           repairedDigest !== null
             ? "Repaired migrated task preset digest and canonical task-contract package path"
-            : (task.contractVersion ?? 0) >= 1
-              ? "Restated a retired task class onto its dec_5F7E74F1 successor"
-              : "Backfilled immutable task-contract/v1 from unambiguous L1 task truth",
+            : repairedBody !== null && (repairedTaskClass === null || repairedTaskClass === task.taskClass)
+              ? "Backfilled document slots the package compiler adds that this contract predates"
+              : (task.contractVersion ?? 0) >= 1
+                ? "Restated a retired task class onto its dec_5F7E74F1 successor"
+                : "Backfilled immutable task-contract/v1 from unambiguous L1 task truth",
         fields,
       },
     };

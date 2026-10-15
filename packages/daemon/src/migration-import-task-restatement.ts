@@ -121,6 +121,47 @@ export function compileRestatedTaskContract(input: {
   };
 }
 
+/**
+ * Appends the document descriptors a fresh compile of the task's own preset declares that this
+ * contract predates. Slots like task.explainer and task.pr-body are added by the package compiler,
+ * not by the preset definition, so a contract frozen before such a slot existed still carries a
+ * current preset snapshot digest; the backfill restates only the documents array and leaves every
+ * descriptor the contract already declares byte-for-byte untouched.
+ */
+export function backfillRestatedContractDocuments(
+  contractBody: string,
+  compiledContractBody: string,
+): { readonly body: string; readonly addedSlots: readonly string[] } | null {
+  const contract = parsedContractRecord(contractBody, "task contract"),
+    compiled = parsedContractRecord(compiledContractBody, "compiled task contract");
+  if (!Array.isArray(contract.documents) || !Array.isArray(compiled.documents)) return null;
+  const declared = new Set(
+    contract.documents
+      .filter(migrationImportRecord)
+      .map(({ slot }) => slot)
+      .filter((slot): slot is string => typeof slot === "string"),
+  );
+  const added = compiled.documents.filter(
+    (document): document is Readonly<Record<string, unknown>> =>
+      migrationImportRecord(document) && typeof document.slot === "string" && !declared.has(document.slot),
+  );
+  if (added.length === 0) return null;
+  return {
+    body: `${JSON.stringify({ ...contract, documents: [...contract.documents, ...added] }, null, 2)}\n`,
+    addedSlots: added.map(({ slot }) => slot as string),
+  };
+}
+
+function parsedContractRecord(body: string, label: string): Record<string, unknown> {
+  try {
+    const value = JSON.parse(body) as unknown;
+    if (!migrationImportRecord(value)) throw new Error("root must be an object");
+    return value;
+  } catch (error) {
+    throw new Error(`${label}: invalid task-contract.json`, { cause: error });
+  }
+}
+
 export function restateTaskContractBody(input: {
   readonly sourceRoot: string;
   readonly sourcePath: string;
@@ -129,14 +170,7 @@ export function restateTaskContractBody(input: {
   readonly targetPackagePath: string;
   readonly fallback?: TaskContractCompileFallback;
 }): RestatedTaskContract {
-  let contract: Record<string, unknown>;
-  try {
-    const value = JSON.parse(input.body) as unknown;
-    if (!migrationImportRecord(value)) throw new Error("root must be an object");
-    contract = value;
-  } catch (error) {
-    throw new Error(`${input.sourcePath}: invalid task-contract.json`, { cause: error });
-  }
+  let contract = parsedContractRecord(input.body, input.sourcePath);
   const legacyPreset =
       contract.schema === "task-contract-snapshot/v1" && migrationImportRecord(contract.preset)
         ? contract.preset
