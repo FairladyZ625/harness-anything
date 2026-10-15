@@ -57,6 +57,7 @@ export async function fleetFixture(
   mode: "local" | "remote-center" = "local",
   prTemplate?: string,
   repositoryInstances?: Parameters<typeof scheduleRepositoryDocument>[1],
+  startTask = true,
 ) {
   // The product names a checkout by its resolved path; the fixture root is resolved once so every path derived
   // from it compares equal where the temporary directory is itself a symbolic link.
@@ -154,13 +155,15 @@ export async function fleetFixture(
     (planPath) => host.run(subject.repoId, { kind: "doc-submit", paths: [planPath] }, localAuthFixture()),
     "Fleet",
   );
-  const started = await host.run(
-    subject.repoId,
-    { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
-    auth,
-  );
-  assert.equal(started.outcome, "applied", JSON.stringify(started));
-  await waitForReceiptCommit(host, subject.repoId, started.opId, auth);
+  if (startTask) {
+    const started = await host.run(
+      subject.repoId,
+      { kind: "task-start", taskId: subject.taskId, executionId: subject.executionId },
+      auth,
+    );
+    assert.equal(started.outcome, "applied", JSON.stringify(started));
+    await waitForReceiptCommit(host, subject.repoId, started.opId, auth);
+  }
   return {
     root,
     repo,

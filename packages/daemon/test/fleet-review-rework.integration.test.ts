@@ -9,6 +9,27 @@ import { dualSyncFixture, ledgerRevision } from "./fleet-dual-sync.fixture.ts";
 import { scheduleRuntimePorts, definition } from "./schedule-actions.fixtures.ts";
 
 test(
+  "concurrent edge task starts use distinct operation keys and preserve the center rejection",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await dualSyncFixture(scheduleRuntimePorts().runtimeInstances());
+    t.after(() => fixture.close());
+    const created = await fixture.createTask("node-one", "task-start-race", "Start race", "docs-task");
+    const results = await Promise.all([
+      fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId }),
+      fixture.edgeTask("node-one", { kind: "task-start", taskId: created.taskId }),
+    ]);
+    assert.equal(results.filter((result) => result.outcome === "applied").length, 1, JSON.stringify(results));
+    assert.equal(
+      results.filter((result) => result.outcome === "no_changes" && result.code === "no_changes").length,
+      1,
+      JSON.stringify(results),
+    );
+    assert.notEqual(results[0]!.opId, results[1]!.opId, "each edge request must have its own operation key");
+  },
+);
+
+test(
   "edge reviewer binds each resubmitted canonical iteration and rejects historical explicit ids",
   { timeout: 90_000 },
   async (t) => {
