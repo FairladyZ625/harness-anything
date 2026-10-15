@@ -8,6 +8,11 @@ import { createInterface } from "node:readline";
 import test from "node:test";
 import { localUserDaemonEndpoint } from "@harness-anything/daemon/client";
 import { createLocalGuiServiceBridge } from "../src/main/local-composition-root.ts";
+import {
+  DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+  DEFAULT_GUI_REQUEST_TIMEOUT_MS,
+  guiRequestTimeouts,
+} from "../src/main/gui-local-settings.ts";
 
 const cases = [
   {
@@ -154,4 +159,33 @@ test("a raised local gui.requestTimeoutMs governs the default read deadline, not
   const receipt = (await pending) as { ok: boolean; error?: { code: string } };
   assert.equal(receipt.ok, false);
   assert.equal(receipt.error?.code, "daemon_response_timeout");
+});
+
+test("guiRequestTimeouts: a root without settings.local.json reads the declared defaults", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-gui-timeouts-absent-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.deepEqual(guiRequestTimeouts(root), {
+    connectTimeoutMs: DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+    requestTimeoutMs: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
+  });
+});
+
+test("guiRequestTimeouts: a corrupt settings.local.json fails naming the file instead of falling back", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-gui-timeouts-corrupt-")),
+    file = path.join(root, ".harness/settings.local.json");
+  mkdirSync(path.join(root, ".harness"), { recursive: true });
+  writeFileSync(file, "{ not json\n");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.throws(() => guiRequestTimeouts(root), /settings\.local\.json is not valid JSON/u);
+  assert.throws(() => guiRequestTimeouts(root), new RegExp(file.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+});
+
+test("guiRequestTimeouts: valid JSON that is not a local settings document fails naming the file", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-gui-timeouts-wrongshape-")),
+    file = path.join(root, ".harness/settings.local.json");
+  mkdirSync(path.join(root, ".harness"), { recursive: true });
+  writeFileSync(file, `${JSON.stringify({ schema: "settings-local/v2", gui: { connectTimeoutMs: 1 } })}\n`);
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  assert.throws(() => guiRequestTimeouts(root), /settings\.local\.json/u);
+  assert.throws(() => guiRequestTimeouts(root), new RegExp(file.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
 });
