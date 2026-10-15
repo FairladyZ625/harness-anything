@@ -109,6 +109,15 @@ function instance(instanceId: string): RuntimeInstanceSummary {
 function git(root: string, ...args: string[]): string {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
 }
+
+function boundWorktree(root: string): string {
+  const entries = git(root, "worktree", "list", "--porcelain").split("\n\n");
+  const pathLine = entries
+    .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
+    .find((line) => line !== undefined && path.resolve(line.slice("worktree ".length)) !== path.resolve(root));
+  assert.ok(pathLine, `expected a task worktree for ${root}`);
+  return path.resolve(pathLine.slice("worktree ".length));
+}
 export async function fixture(
   failProvider: boolean | number = false,
   available = true,
@@ -303,11 +312,18 @@ export async function fixture(
       `# Closeout\n\n## Summary\n\nReviewed delivery ${delivery}\n\n## Verification\n\nREADME bytes checked.\n\n` +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nReview dispatch retry.\n",
     );
+    const commitSha = options.submitCommit
+      ? (() => {
+          const checkout = boundWorktree(root);
+          execFileSync("git", ["-C", checkout, "commit", "--allow-empty", "-qm", "test: bound delivery"]);
+          return git(checkout, "rev-parse", "HEAD");
+        })()
+      : undefined;
     const receipt = await run({
       kind: "task-submit",
       taskId,
       executionId,
-      ...(options.submitCommit ? { commitSha: git(root, "rev-parse", "HEAD") } : {}),
+      ...(commitSha ? { commitSha } : {}),
     });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     return receipt;
