@@ -16,7 +16,7 @@ export function readEdgeRuntimeRepository(
   method: "repo.tasks.runtimeContext.read" | "repo.agentRuntime.overview" | "repo.agentRuntime.sessions.read",
   payload: JsonObject,
 ): JsonObject {
-  return withEdgeReadModel(input, (projection, frame, view) => {
+  return withEdgeReadModel({ ...input, includeEntries: false }, (projection, frame, view) => {
     const source = projection as TaskProjection;
     if (method === "repo.tasks.runtimeContext.read") {
       if (typeof payload.taskId !== "string" || !payload.taskId) throw new Error("Task context requires a task id");
