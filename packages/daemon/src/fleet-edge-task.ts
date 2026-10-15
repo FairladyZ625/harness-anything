@@ -373,7 +373,25 @@ export async function runFleetEdgeTask(
         }
         result = next;
       } catch (error) {
-        if (Date.now() >= deadline || !retryable(error)) throw error;
+        if (Date.now() >= deadline) throw error;
+        if (!retryable(error)) {
+          const code =
+            error instanceof FleetRemoteError
+              ? error.code
+              : error instanceof FleetEdgeTaskError
+                ? error.code
+                : "fleet_task_rejected";
+          return {
+            schema: "command-receipt/v2",
+            ok: false,
+            command: action.kind,
+            outcome: "op_rejected",
+            opId: `fleet:${opId}`,
+            canonicalOutcome: "op_rejected",
+            code,
+            error: { code, message: error instanceof Error ? error.message : String(error) },
+          } as Record<string, unknown>;
+        }
         consumeKnownError(error);
         await sleep(fleetEdgeBackoffMs(attempt++));
       }
