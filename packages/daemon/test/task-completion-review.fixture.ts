@@ -404,12 +404,12 @@ export async function fixture(
       await cell.close();
       cell = await open();
     },
-    createPlannedTask: async (extraTaskId: string) => {
+    createPlannedTask: async (extraTaskId: string, presetId = "docs-task") => {
       const created = await run({
         kind: "task-create",
         taskId: extraTaskId,
         title: `Completion Review ${extraTaskId}`,
-        presetId: "docs-task",
+        presetId,
       });
       assert.equal(created.outcome, "applied", JSON.stringify(created));
       await waitForFixturePublication(cell, created.opId, owner);
