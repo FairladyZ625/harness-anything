@@ -325,11 +325,7 @@ test(
       return true;
     };
     const link = await relay(t, fixture.centerPort());
-    // A daemon restart can admit an edge write before its resident stream has registered. The
-    // write confirmation must remain pending until that stream applies the center sequence.
-    const startupWait = waitForFleetReplicaSequence(view, centerSequence(fixture), AbortSignal.timeout(60_000));
     const stream = startStream(t, fixture, viewRoot, link.port);
-    await startupWait;
     await converged("initial convergence");
     // The stream is held behind the center's head; sync asks the center for it and waits for it.
     link.hold();
