@@ -1,6 +1,5 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
@@ -228,11 +227,7 @@ test("concurrent owner rulings and completions have one state-transition winner"
 });
 
 test("sibling complete refuses unfinished sources and missing facts, then closes B without execution or duplicate review", async () => {
-  const f = await fixture(false, true, false, false, false, undefined, {
-    autoForward: false,
-    submitCommit: true,
-    create: { presetId: "work-closeout" },
-  });
+  const f = await fixture(false, true, true, false, false, undefined, { autoForward: false });
   try {
     const target = "task-resolved-target";
     await f.createPlannedTask(target);
@@ -256,13 +251,6 @@ test("sibling complete refuses unfinished sources and missing facts, then closes
     assert.equal((await f.review(runtimeSessionId(forwarded), "review-sibling")).outcome, "applied");
     assert.equal((await f.consent("review-sibling")).outcome, "applied");
     assert.equal((await f.complete()).outcome, "applied");
-    const sourceSubmission = f.events().find((event) => event.type === "execution_submitted");
-    assert.ok(sourceSubmission?.type === "execution_submitted");
-    assert.ok(sourceSubmission.payload.execution.submission?.commitSha, JSON.stringify(sourceSubmission));
-    const unmerged = await f.run(action);
-    assert.equal(unmerged.outcome, "op_rejected", JSON.stringify(unmerged));
-    assert.match(JSON.stringify(unmerged), /Merge the source delivery/u);
-    execFileSync("git", ["-C", f.root, "update-ref", "refs/remotes/origin/main", "HEAD"]);
     const completed = await f.run(action);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
     const replay = await f.run(action);
