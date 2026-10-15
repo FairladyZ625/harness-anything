@@ -91,6 +91,29 @@ async function startRepoWriterWorker(): Promise<void> {
     const config = bootstrap.config,
       input: RepoCellOpenInput = {
         ...config,
+        ...(bootstrap.capabilities.resourceAdmission
+          ? {
+              resourceAdmission: {
+                acquire: (key: string, value: string) =>
+                  asyncCapability("resourceAdmission", { method: "acquire", key, value }) as Promise<boolean>,
+                cancel: (key: string) =>
+                  asyncCapability("resourceAdmission", { method: "cancel", key }) as Promise<boolean>,
+                release: async (key: string) => {
+                  await asyncCapability("resourceAdmission", { method: "release", key });
+                },
+                transfer: async (key: string, value: string) => {
+                  await asyncCapability("resourceAdmission", { method: "transfer", key, value });
+                },
+                adopt: async (key: string) => {
+                  await asyncCapability("resourceAdmission", { method: "adopt", key });
+                },
+                read: () =>
+                  asyncCapability("resourceAdmission", { method: "read" }) as ReturnType<
+                    import("./runtime-resource-host.ts").RuntimeResourcePort["read"]
+                  >,
+              },
+            }
+          : {}),
         bootstrap: config.bootstrap
           ? {
               ...config.bootstrap,

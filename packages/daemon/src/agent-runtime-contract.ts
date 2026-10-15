@@ -1,3 +1,4 @@
+import { validRuntimeQueueEntry } from "./runtime-resource-read.ts";
 import {
   type ActorIdentity,
   type AgentDefinitionSnapshot,
@@ -128,6 +129,7 @@ export interface AgentRuntimeLifecycleDto {
   readonly occurredAt: string;
 }
 export type AgentRuntimeOverviewResult = {
+  readonly queued?: readonly import("./runtime-resource-read.ts").RuntimeQueueEntry[];
   readonly ok: true;
   readonly status: "ready" | "pending";
   readonly installations: readonly AgentRuntimeInstallationDto[];
@@ -153,7 +155,8 @@ export interface AgentRuntimeSettlement {
 export type AgentRuntimeSessionResult = {
   readonly ok: true;
   readonly status: "ready" | "pending";
-  readonly session: AgentRuntimeSessionDto;
+  readonly session: AgentRuntimeSessionDto | null;
+  readonly queue?: import("./runtime-resource-read.ts").RuntimeQueueEntry;
   readonly result: { readonly ref: string; readonly text: string } | null;
   readonly settlement: AgentRuntimeSettlement | null;
   readonly watermark: number;
@@ -171,13 +174,20 @@ export type AgentRuntimeEventsResult = {
 };
 export type AgentRuntimeSessionGroupBy = "task" | "squad" | "agent" | "day";
 export type AgentRuntimeSessionGroupKind = AgentRuntimeSessionGroupBy | "decision" | "unattributed";
-export type AgentRuntimeSessionGroupStatus = RuntimeSessionSemanticState | "unknown" | "blocked" | "lost";
+export type AgentRuntimeSessionGroupStatus =
+  | RuntimeSessionSemanticState
+  | "unknown"
+  | "blocked"
+  | "stopped"
+  | "lost"
+  | "queued";
 /**
  * The runtime value half of `AgentRuntimeSessionGroupStatus`, so the status filter admits exactly
  * the words the group DTO can report. The kernel keeps its semantic-state list private, so the
  * two halves are pinned together here rather than restated per caller.
  */
 export const agentRuntimeSessionGroupStatusWords = Object.freeze([
+  "queued",
   "running",
   "succeeded",
   "failed",
@@ -249,7 +259,7 @@ export type AgentRuntimeSessionGroupsResult = {
   readonly sourceRevision: number;
 };
 export function successfulAgentRuntimeResult(value: AgentRuntimeSessionResult): string | null {
-  return value.session.activity.outcome === "succeeded" && value.result?.text ? value.result.text : null;
+  return value.session?.activity.outcome === "succeeded" && value.result?.text ? value.result.text : null;
 }
 export function coded(code: string, message: string): Error {
   const error = new Error(message) as Error & { code: string };
@@ -264,7 +274,7 @@ export function validateAgentRuntimeOverview(value: unknown): readonly string[] 
     hasAgentRuntimeContractFields(
       value,
       ["ok", "status", "installations", "instances", "sessions", "watermark", "sourceRevision"],
-      ["page"],
+      ["page", "queued"],
     ) &&
     value.ok === true &&
     ["ready", "pending"].includes(String(value.status)) &&
@@ -274,6 +284,7 @@ export function validateAgentRuntimeOverview(value: unknown): readonly string[] 
     value.instances.every(validInstance) &&
     Array.isArray(value.sessions) &&
     value.sessions.every(validSession) &&
+    (value.queued === undefined || (Array.isArray(value.queued) && value.queued.every(validRuntimeQueueEntry))) &&
     (value.page === undefined || validPage(value.page)) &&
     Number.isInteger(value.watermark) &&
     Number.isInteger(value.sourceRevision) &&
@@ -283,18 +294,16 @@ export function validateAgentRuntimeOverview(value: unknown): readonly string[] 
 }
 export function validateAgentRuntimeSession(value: unknown): readonly string[] {
   return isAgentRuntimeContractRecord(value) &&
-    hasExactAgentRuntimeContractFields(value, [
-      "ok",
-      "status",
-      "session",
-      "result",
-      "settlement",
-      "watermark",
-      "sourceRevision",
-    ]) &&
+    hasAgentRuntimeContractFields(
+      value,
+      ["ok", "status", "session", "result", "settlement", "watermark", "sourceRevision"],
+      ["queue"],
+    ) &&
     value.ok === true &&
     ["ready", "pending"].includes(String(value.status)) &&
-    validSession(value.session) &&
+    (value.queue === undefined
+      ? validSession(value.session)
+      : value.session === null && validRuntimeQueueEntry(value.queue)) &&
     (value.result === null ||
       (isAgentRuntimeContractRecord(value.result) &&
         hasExactAgentRuntimeContractFields(value.result, ["ref", "text"]) &&

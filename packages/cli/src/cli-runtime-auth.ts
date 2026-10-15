@@ -42,6 +42,8 @@ export async function runRuntimeAuthCommand(
 }
 
 export function renderRuntimeStatus(value: JsonObject): string {
+  const queueLines = renderQueuedRuntimes(value);
+  if (value.queue) return queueLines.join("\n");
   if (value.session && typeof value.session === "object") {
     const session = value.session as Record<string, unknown>,
       activity = session.activity as Record<string, unknown>,
@@ -85,25 +87,44 @@ export function renderRuntimeStatus(value: JsonObject): string {
     ].join("\n");
   }
   const sessions = Array.isArray(value.sessions) ? (value.sessions as Record<string, unknown>[]) : [];
-  return sessions.length
-    ? [
-        "SESSION\tINSTANCE\tLIVENESS\tOUTCOME\tRESULT",
-        ...sessions.map((session) => {
-          const activity = session.activity as Record<string, unknown>;
-          return [
-            session.runtimeSessionId,
-            session.instanceId,
-            session.liveness,
-            activity.outcome ?? "-",
-            activity.resultRef ?? "-",
+  return (
+    [
+      ...queueLines,
+      ...(sessions.length
+        ? [
+            "SESSION\tINSTANCE\tLIVENESS\tOUTCOME\tRESULT",
+            ...sessions.map((session) => {
+              const activity = session.activity as Record<string, unknown>;
+              return [
+                session.runtimeSessionId,
+                session.instanceId,
+                session.liveness,
+                activity.outcome ?? "-",
+                activity.resultRef ?? "-",
+              ]
+                .map(String)
+                .join("\t");
+            }),
           ]
-            .map(String)
-            .join("\t");
-        }),
-      ].join("\n")
-    : "No runtime sessions.";
+        : []),
+    ].join("\n") || "No runtime sessions."
+  );
 }
 
 export function runtimeRejected(command: string, code: string, hint: string): JsonObject {
   return cliFailure(command, code, hint);
+}
+
+function renderQueuedRuntimes(value: JsonObject): string[] {
+  const queued = value.queue ? [value.queue] : Array.isArray(value.queued) ? value.queued : [];
+  return queued.map((item) => {
+    const queue = item as JsonObject,
+      blocks = queue.blocks as JsonObject[];
+    const reason =
+      queue.detail ??
+      blocks
+        .map((block) => `${block.metric}=${block.observed ?? "unavailable"} threshold=${block.threshold}`)
+        .join(", ");
+    return `${queue.runtimeSessionId}\t${queue.terminal ?? "queued"}\tnode:${queue.nodeId}\t${reason}\tsince:${queue.queuedSince}\tnext:${queue.nextCheckAt}${queue.overdue ? " overdue" : ""}`;
+  });
 }

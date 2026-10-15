@@ -199,6 +199,7 @@ export interface DaemonHost {
     readonly edgeRuntime: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<Record<string, unknown>>;
   };
   readonly status: () => {
+    readonly resources?: ReturnType<import("./runtime-resource-host.ts").RuntimeResourceHost["snapshot"]>;
     readonly daemonId: string;
     readonly pid: number;
     readonly startedAt: string;

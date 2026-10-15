@@ -369,7 +369,7 @@ export function SessionsView({
   }, [focusedSessionId, groups, selectedSession.data, workspace.groups.data]);
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
-  const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;
+  const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session?.associations[0]?.taskId ?? null;
   const siblings =
     selectedRow === null
       ? []

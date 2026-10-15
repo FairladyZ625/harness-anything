@@ -27,6 +27,7 @@ export interface DaemonPoint extends JsonObject {
 }
 
 export interface DaemonRuntimePorts {
+  readonly resourceAdmission?: import("./runtime-resource-host.ts").RuntimeResourceHost;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth: RuntimeProviderHealthStore;
   readonly prepareRuntimeLaunch: ReturnType<typeof openRuntimeInstanceStore>["prepareLaunch"];

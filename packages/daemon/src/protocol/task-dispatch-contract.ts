@@ -4,6 +4,7 @@ export type TaskDispatchResume = {
 };
 
 export interface TaskDispatchRow {
+  readonly queue?: import("../runtime-resource-read.ts").RuntimeQueueEntry;
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
     | { readonly kind: "decision"; readonly decisionId: string; readonly digest: string };
@@ -42,7 +43,16 @@ export interface TaskDispatchRow {
   readonly startedAt: string;
   readonly endedAt: string | null;
   readonly outcome: "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | null;
-  readonly status: "running" | "succeeded" | "failed" | "unknown" | "cancelled" | "stopped" | "blocked" | "lost";
+  readonly status:
+    | "queued"
+    | "running"
+    | "succeeded"
+    | "failed"
+    | "unknown"
+    | "cancelled"
+    | "stopped"
+    | "blocked"
+    | "lost";
   readonly resultRef?: string | null;
   readonly exitCode?: number | null;
   readonly dispatchPath?: string | null;

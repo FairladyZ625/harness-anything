@@ -20,6 +20,7 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_dispatch_queued",
   "runtime_squad_run_observed",
   "runtime_dispatch_outcome_unknown",
   "runtime_handoff_exported",
@@ -53,6 +54,31 @@ export function appendAuxiliaryRuntimeIngress(
     );
   if (action.resultBody !== undefined && action.type !== "runtime_dispatch_requested")
     throw cell.cellCodedError("invalid_runtime_event", "Only a runtime dispatch can carry auxiliary content bytes.");
+  if (action.type === "runtime_dispatch_queued" || action.type === "runtime_dispatch_requested") {
+    const queued = (cell.projection.readRuntimeQueue?.() ?? []).find(
+      (event) => event.payload.runtimeSessionId === action.payload.runtimeSessionId,
+    );
+    if (
+      queued &&
+      (stableStringify(queued.source) !== stableStringify(binding.source) ||
+        queued.actor.principal.personId !== binding.actor.principal.personId)
+    )
+      throw cell.cellCodedError("execution_scope_mismatch", "Queued runtime belongs to another node or owner.");
+    if (action.type === "runtime_dispatch_queued") {
+      if (remote && action.payload.nodeId !== (binding.source as { readonly nodeId: string }).nodeId)
+        throw cell.cellCodedError("execution_scope_mismatch", "Queue observation must name its authenticated node.");
+      const key = cell.requiredCellText(action.payload.idempotencyKey, "idempotencyKey"),
+        hash = createHash("sha256").update(`${cell.input.repoId}\0${key}`).digest("hex");
+      if (
+        action.payload.dispatchId !== `dispatch_${hash.slice(0, 24)}` ||
+        action.payload.runtimeSessionId !== `runtime_${hash.slice(24, 48)}`
+      )
+        throw cell.cellCodedError(
+          "invalid_runtime_event",
+          "Queued identity must match its repository idempotency key.",
+        );
+    }
+  }
   requireSquadRuntimeOwner(cell, action, binding);
   const existing = cell.store.readEvent(action.opId);
   if (existing) {

@@ -208,6 +208,7 @@
   "agentRuntime.livenessFromChild": "存活与退出码来自子进程事件。",
   "agentRuntime.inspectorRuntime": "Runtime Inspector",
   "agentRuntime.inspectorHealth": "健康状态",
+  "agentRuntime.sessionStatusQueued": "排队中",
   "agentRuntime.sessionStatusRunning": "运行中",
   "agentRuntime.sessionStatusSucceeded": "已成功",
   "agentRuntime.sessionStatusFailed": "已失败",

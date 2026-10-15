@@ -637,6 +637,7 @@ function MetaLine({
 // Total over the dispatch wire vocabulary, so a newly added status has to declare its colour
 // here rather than falling through to the faint default.
 const dispatchStatusColor: Readonly<Record<TaskDispatchProjectionRow["status"], string>> = {
+  queued: "bg-text-faint",
   running: "bg-status-active",
   succeeded: "bg-status-done",
   failed: "bg-danger",

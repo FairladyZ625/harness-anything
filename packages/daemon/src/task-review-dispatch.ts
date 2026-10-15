@@ -114,7 +114,6 @@ export async function dispatchDecisionReview(
     ids = reviewDispatchIds(cell.input.repoId, key),
     existing = cell.store.readEvent(ids.dispatchOpId);
   while (
-    existing !== null &&
     reviewAttemptEnded(cell, ids.runtimeSessionId) &&
     !current.reviews.some(
       (review) =>
@@ -168,13 +167,15 @@ export async function dispatchDecisionReview(
     });
   if (authorizationDecision.outcome !== "allowed")
     throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-  await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
   return {
     outcome: "applied",
-    opId: ids.dispatchOpId,
+    opId: String(spawned.opId),
     revision,
-    summary: `Dispatched Decision ${decisionId} review ${ids.dispatchId} for ${digest}.`,
-    dispatches: [{ decisionId, digest, ...ids, outcome: "dispatched" }],
+    summary: `Queued Decision ${decisionId} review ${ids.dispatchId} for ${digest}.`,
+    dispatches: [
+      { decisionId, digest, ...ids, outcome: spawned.dispatchStatus === "queued" ? "queued" : "dispatched" },
+    ],
   } as WriteReceiptDraft;
 }
 
@@ -183,6 +184,12 @@ function reviewAttemptKey(base: string, attempt: number): string {
 }
 
 function reviewAttemptEnded(cell: RepoCellOperationalContext, runtimeSessionId: string): boolean {
+  if (
+    (cell.projection.readRuntimeQueue?.() ?? []).some(
+      ({ payload }) => payload.runtimeSessionId === runtimeSessionId && payload.terminal !== null,
+    )
+  )
+    return true;
   return cell.projection
     .readRuntimeSessionEvents(runtimeSessionId, 0, 10_000)
     .some((event) =>
@@ -293,7 +300,7 @@ type DispatchStep = {
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
   readonly dispatchOpId?: string;
-  readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
+  readonly outcome: "queued" | "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
   readonly error?: string;
 };
 
@@ -317,7 +324,10 @@ export async function spawnCutReviewDispatch(
     readonly extras?: Readonly<Record<string, unknown>>;
   },
 ): Promise<
-  | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
+  | {
+      readonly outcome: "queued" | "dispatched" | "already_dispatched";
+      readonly ids: ReturnType<typeof reviewDispatchIds>;
+    }
   | { readonly outcome: "failed"; readonly error: string }
 > {
   const key = reviewDispatchKey(input.taskId, input.execution),
@@ -386,12 +396,12 @@ export async function spawnCutReviewDispatch(
     return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
   try {
     // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
+    const spawned = await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
+    return { outcome: spawned.dispatchStatus === "queued" ? "queued" : "dispatched", ids };
   } catch (error) {
     consumeKnownError(error);
     return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
   }
-  return { outcome: "dispatched", ids };
 }
 
 /**
@@ -557,7 +567,7 @@ export async function dispatchTaskReview(
       key = reviewAttemptKey(baseKey, attempt),
       ids = reviewDispatchIds(cell.input.repoId, key),
       existing = cell.store.readEvent(ids.dispatchOpId);
-    while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
+    while (reviewAttemptEnded(cell, ids.runtimeSessionId)) {
       attempt += 1;
       key = reviewAttemptKey(baseKey, attempt);
       ids = reviewDispatchIds(cell.input.repoId, key);
@@ -608,14 +618,14 @@ export async function dispatchTaskReview(
     }
     try {
       // Already inside the center queue. Only launch admission is awaited; provider completion is not.
-      await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+      const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
       steps.push({
         taskId,
         executionId: execution.executionId,
         dispatchId: ids.dispatchId,
         runtimeSessionId: ids.runtimeSessionId,
         dispatchOpId: ids.dispatchOpId,
-        outcome: "dispatched",
+        outcome: spawned.dispatchStatus === "queued" ? "queued" : "dispatched",
       });
     } catch (error) {
       // One task's launch failure is reported on its own step; the batch continues for the rest.

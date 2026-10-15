@@ -105,6 +105,7 @@ import { OidcSessionService } from "./oidc-session-service.ts";
 import { runFleetReplicaSync } from "./fleet/replica-sync.ts";
 
 export interface DaemonHostOpenInput {
+  readonly resourceAdmission?: import("./runtime-resource-host.ts").RuntimeResourceHost;
   readonly daemonId: string;
   readonly userRoot: string;
   readonly endpoint?: string;
@@ -132,6 +133,7 @@ export interface DaemonHostOpenInput {
 }
 
 export async function openDaemonHost(input: DaemonHostOpenInput): Promise<DaemonHost> {
+  const resourceAdmission = input.resourceAdmission;
   const cells = new Map<string, RepoCell>(),
     warming = new Map<string, RepoCellStatus>(),
     warmingSettlements = new Map<string, ReturnType<typeof makeWarmingSettlement>>(),
@@ -179,6 +181,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     }),
     instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
     runtimePorts = {
+      resourceAdmission,
       runtimeInstances: instances.listPublic,
       runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
       prepareRuntimeLaunch: instances.prepareLaunch,
@@ -823,6 +826,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       })();
     },
     close: async () => {
+      resourceAdmission?.close();
       parkedWaitController.abort();
       for (const { controller } of replicaSyncControllers.values()) controller.abort();
       replicaSyncControllers.clear();

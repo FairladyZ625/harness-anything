@@ -155,6 +155,10 @@ export interface TaskProjection {
     runtimeSessionIdValue: string,
     definitionSnapshotRef?: string,
   ) => Extract<AgentRuntimeEventV1, { readonly type: "runtime_dispatch_requested" }> | null;
+  readonly readRuntimeQueue?: () => readonly Extract<
+    AgentRuntimeEventV1,
+    { readonly type: "runtime_dispatch_queued" }
+  >[];
   readonly readRuntimeDispatches: () => readonly Extract<
     AgentRuntimeEventV1,
     { readonly type: "runtime_dispatch_requested" }

@@ -8,6 +8,7 @@ export function createDaemonHostLifecycleApi(
 ): Pick<DaemonHost, "status" | "pendingFleetDeliveries" | "startAttachments" | "attachmentsSettled" | "close"> {
   return {
     status: () => {
+      const resources = context.runtimePorts.resourceAdmission?.snapshot();
       const { entry, ...observedBuild } = context.buildObserver.status(),
         build = {
           ...observedBuild,
@@ -57,6 +58,8 @@ export function createDaemonHostLifecycleApi(
           " commit=",
           build.commit ?? "unknown",
           attachProgress,
+          ...(resources ? [` resources=${resources.scope} active=${resources.active} queued=${resources.queued}`] : []),
+          ...(resources?.alert ? [` RESOURCE PRESSURE since=${resources.alert.since}`] : []),
         ].join(""),
         summary = observedBuild.drifted
           ? [
@@ -73,6 +76,7 @@ export function createDaemonHostLifecycleApi(
             ].join("")
           : base;
       return {
+        ...(resources ? { resources } : {}),
         daemonId: context.input.daemonId,
         pid: process.pid,
         startedAt: context.startedAt,

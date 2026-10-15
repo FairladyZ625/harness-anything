@@ -366,7 +366,11 @@ export function useAgentSquadWorkspace(repoId: string) {
           try {
             // 绑定等待只读这一个 session 的 associations,不随全仓 session-group 历史增长。
             const session = await agentRuntimeClient.session(repoId, settled.runtimeSessionId);
-            if (session.session.associations.some((association) => association.taskId === request.taskId)) break;
+            if (
+              session.queue ||
+              session.session?.associations.some((association) => association.taskId === request.taskId)
+            )
+              break;
           } catch (error) {
             consumeKnownError(error);
           }
@@ -540,8 +544,8 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
         const snapshot = await agentRuntimeClient.session(repoId, result.runtimeSessionId);
         const successfulResult = successfulAgentRuntimeResult(snapshot);
         if (successfulResult) return successfulResult;
-        if (snapshot.session.activity.outcome !== null)
-          throw new Error(t("agentRuntime.selfTestFailed", { outcome: snapshot.session.activity.outcome }));
+        if (snapshot.settlement !== null)
+          throw new Error(t("agentRuntime.selfTestFailed", { outcome: snapshot.settlement.outcome }));
         await new Promise((resolve) => window.setTimeout(resolve, 250));
       }
       throw new Error(t("agentRuntime.selfTestTimeout"));

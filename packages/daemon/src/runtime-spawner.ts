@@ -1,3 +1,4 @@
+import { makeRuntimeResourceRequests, withRuntimeResourceLifetime } from "./runtime-resource-request.ts";
 import type { SquadDispatchContext } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import { createHash } from "node:crypto";
@@ -28,7 +29,7 @@ import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.t
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
-import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
+import { reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
   isRuntimeEvent,
   requiredRuntimeSpawnText,
@@ -117,7 +118,8 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   exitNotificationTimeoutMs = 30_000;
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
-export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
+export function makeRuntimeSpawner(originalInput: RuntimeSpawnerInput) {
+  const input = withRuntimeResourceLifetime(originalInput);
   const processes = new Map<string, ActiveRuntime>(),
     exiting = new Set<string>(),
     launch = input.launch ?? launchNative,
@@ -150,6 +152,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     settleFallback,
     reconcileFallback,
   };
+  const resourceRequests = makeRuntimeResourceRequests(extracted);
   const spawnAttempt = async (
     payload: JsonObject,
     binding: RuntimeBinding,
@@ -949,8 +952,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       worktree: TaskWorktreeCheckout | null = null,
       rollout?: Uint8Array,
     ) => spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree, checkpoint, rollout),
-    spawn: (payload: JsonObject, binding: RuntimeBinding, worktree: TaskWorktreeCheckout | null = null) =>
+    spawn: resourceRequests.bindSpawn((payload, binding, worktree) =>
       spawnAttempt(payload, binding, undefined, undefined, undefined, "runtime", worktree),
+    ),
     spawnCoordinated: (
       payload: JsonObject,
       binding: RuntimeBinding,
@@ -989,14 +993,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         scheduled,
         undefined,
       ),
-    // Startup adoption only: cancel's mid-operation adoption call passes no sweep flag,
-    // because a just-minted temp directory whose dispatch event has not committed yet must
-    // not be reclaimed out from under an in-flight launch.
-    adopt: (onProgress?: (completed: number) => void) =>
-      adoptRuntimes(extracted, onProgress, { sweepTempDirectories: true }),
-    cancel: (payload: JsonObject, binding: RuntimeBinding) => cancelRuntime(extracted, payload, binding),
+    adopt: resourceRequests.adopt,
+    cancel: async (payload: JsonObject, binding: RuntimeBinding) =>
+      (await resourceRequests.cancel(String(payload.runtimeSessionId), binding)) ??
+      cancelRuntime(extracted, payload, binding),
     steer: (payload: JsonObject, binding: RuntimeBinding) => steerRuntime(extracted, payload, binding),
     close: () => {
+      resourceRequests.close();
       fallbackClosed = true;
       closeRuntimes(extracted);
     },

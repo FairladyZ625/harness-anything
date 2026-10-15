@@ -85,6 +85,7 @@ export interface FleetEdgeRuntimeRequest {
   };
 }
 type RuntimePorts = {
+  readonly resourceAdmission?: import("./runtime-resource-host.ts").RuntimeResourcePort;
   readonly runtimeInstances: () => readonly RuntimeInstanceSummary[];
   readonly prepareRuntimeLaunch: (
     instanceId: string,
@@ -247,6 +248,7 @@ export function openFleetEdgeRuntime(input: {
     });
   };
   const spawner = makeRuntimeSpawner({
+    resourceAdmission: input.ports.resourceAdmission,
     repoId: request.repoId,
     rootDir: request.workspaceRoot,
     daemonGeneration: input.daemonGeneration,

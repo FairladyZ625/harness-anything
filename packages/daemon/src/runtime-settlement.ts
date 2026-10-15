@@ -30,6 +30,7 @@ export function runtimeOutcomeSettled(
 export function createRuntimeOutcomeWaiters(input: {
   readonly readSession: (runtimeSessionId: string) => Parameters<typeof runtimeOutcomeSettled>[0];
   readonly now: () => string;
+  readonly queueSettled?: (runtimeSessionId: string) => boolean;
 }): {
   readonly notify: () => void;
   readonly awaitOutcome: (runtimeSessionId: string) => Promise<void>;
@@ -59,7 +60,10 @@ export function createRuntimeOutcomeWaiters(input: {
       for (const waiter of pending) waiter();
     },
     awaitOutcome: async (runtimeSessionId) => {
-      while (!runtimeOutcomeSettled(input.readSession(runtimeSessionId), input.now())) {
+      while (
+        !runtimeOutcomeSettled(input.readSession(runtimeSessionId), input.now()) &&
+        !input.queueSettled?.(runtimeSessionId)
+      ) {
         await park();
       }
     },

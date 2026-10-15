@@ -1,3 +1,5 @@
+import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { validSquadDispatchContext } from "@harness-anything/kernel";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
@@ -8,8 +10,6 @@ import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import { resolveRuntimeCwd } from "./runtime-spawn-mission.ts";
 import { requiredRuntimeProjection } from "./runtime-spawn-process.ts";
-import type { JsonObject } from "./protocol/json-rpc-types.ts";
-import type { RuntimeSpawnerInput } from "./runtime-spawn-types.ts";
 import {
   checkoutTaskWorktree,
   openTaskWorktreeBinding,

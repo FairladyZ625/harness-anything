@@ -142,39 +142,6 @@ ha daemon start --service
 ha gui
 ```
 
-## 任务分支发布与 direct-push 保护
-
-产出为仓库变更的任务在 Harness 管理的工作树中运行，分支以任务标识命名。被派工的
-worker 在其中提交，并经 daemon 代办的命令发布，绝不使用本人 GitHub 登录：
-
-```bash
-ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
-ha task pr <task-id>          # 创建 pull request（--update 更新已有）
-ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
-```
-
-每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
-派工仓库 root 与 daemon 路由。中心与边缘 daemon 使用同一路径，不使用固定 canonical
-root 的 edge 专用包装器。worker 的 Git 作者和提交者身份由派工发起人生成，只写入该
-checkout 的 worktree config；结算和 edge delivery 均按 execution lease 记录的同一 person 身份检查提交。
-
-`ha task push` 只推送名字等于任务标识的分支，并带 `--force-with-lease`，因此不会
-静默覆盖更新的远端切点。检出不在该分支，或默认分支之上存在作者/提交者与派工 person
-身份不符的 commit 时，推送被拒绝，并以 `delivery_publish_failed` 带回原因。结算成功的
-任务绑定运行也会经同一路径发布分支；
-`ha task push` 是 worker 在 submit 之前发布的方式。合入仍归 maintainer——见
-[PR、审查与合入](contributing/zh/04-pr-review-and-merge.md)。
-
-这些命令使用的凭据由操作者绑定，而不是由 worker 配置：
-[托管 Git 凭据](hosted-credentials.zh-CN.md)。
-
-direct-push 保护不只在 daemon 一侧，还落在 worker 自己的环境里：任务绑定 worker
-的 git 凭据只能经一个只应答 `github.com` 提示的 askpass 助手取得，`PATH` 上排在
-真实 git 前面的包装器会拒绝任何会更新 `task_*` 以外目标的 `git push`（包括
-`--all`、`--mirror`、`--delete`）。同一包装器还拒绝 worker 在 canonical 仓库根内
-commit 或检出新分支。因此即使 worker 手动推送，也发布不了自己任务分支以外的
-任何东西。
-
 ## 常驻服务（macOS 与 Linux）
 
 需要 daemon 在崩溃和重启后自己回来的机器，把 daemon 交给操作系统的服务管理器：
@@ -221,20 +188,15 @@ NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
 
 回执的 validation diagnostic 会指出被拒字段、当前值与重试命令。恢复时按以下状态规则处理：
 
-| 错误码                                | 条件                                                   | 恢复方式                                                                                                                                                |
-| ------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_submission`                  | closeout 文档无法生成有效 submission                   | 修正回执点名的 `closeout.md` 小节，再运行 `ha task submit <task-id>`。                                                                       |
+| 错误码                                | 条件                                                   | 恢复方式                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_submission`                  | closeout 文档无法生成有效 submission                   | 修正回执点名的 `closeout.md` 小节，再运行 `ha task submit <task-id>`。                                                                              |
 | `invalid_runtime_mission`             | `--mission` 收到路径或非法 id                          | 使用小写裸 id；daemon 读取 `harness/<task-package>/artifacts/missions/<name>.md`，再运行 `ha agent run <agent> --task <task-id> --mission <name>`。 |
-| `declare-executor` 的 `invalid_proof` | execution 不满足 `submitted/review` 且 `executor=none` | 已分配的 submitted execution 运行 `ha task review-execution`；仅未分配的 execution 使用 `ha task declare-executor`。                                    |
-| `executor_binding_invalid`            | 声明的 executor 与 task binding 或 held lease 不同     | 从 diagnostic 点名的 expected executor 执行回执里的重试命令。                                                                                           |
-| `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                          |
-| `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                               |
-| `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                                   |
-| `ha task pr` / `ha task ci` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定 GitHub 凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）；worker 记下报错原文，把 CI 标为 unverified 并上报。 |
-| provider key 命令的 `runtime_credential_unavailable` | 原生凭据库不可用（例如 Linux keyring 未解锁） | 按 [Provider API keys](provider-credentials.md#linux-without-a-desktop) 的无桌面 keyring 设置处理。 |
-| `ha task push` 的 `delivery_publish_failed` | 任务分支推送被拒绝或被远端拒绝（检出在别的分支、git 身份缺失或非本仓身份、CAS 切点丢失、网络） | 读回执里的原因，在本地修正点名的问题后重试 `ha task push <task-id>`。 |
-| `task_ci_read_failed`                 | 经 GitHub CLI 的 CI 读取失败                          | 重试 `ha task ci <task-id>`；仍失败则检查凭据的仓库访问与权限（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
-| 点名 `task push` / `task pr` / `task ci` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试；在此之前在 closeout 里把 CI 记为 unverified 并附报错原文。 |
+| `declare-executor` 的 `invalid_proof` | execution 不满足 `submitted/review` 且 `executor=none` | 已分配的 submitted execution 运行 `ha task review-execution`；仅未分配的 execution 使用 `ha task declare-executor`。                                |
+| `executor_binding_invalid`            | 声明的 executor 与 task binding 或 held lease 不同     | 从 diagnostic 点名的 expected executor 执行回执里的重试命令。                                                                                       |
+| `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                      |
+| `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                           |
+| `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                               |
 
 ## registry v2 硬切
 
@@ -269,3 +231,43 @@ ha doc sync --submit --path governance/standards/README.md --path context/README
 本地 daemon socket 是访问边界。其目录以 `0700`、socket 文件以 `0600` 创建；不要扩大
 任一权限。纯展示流程中的 endpoint tunnel 由用户管理，且不应把 daemon socket 暴露为公网
 listener。
+
+## 节点资源准入（第一切片）
+
+本地普通与评审派工在工作区 checkout/setup 和 provider 准备之前申请名额。
+一个 daemon 的仓库 writer 共享节点 FIFO；每次采样最多放行一个请求，名额覆盖
+准备到 provider 结束。取消等待者不启动准备；准备中取消会阻止启动，并在准备
+结束后释放。准备或启动失败、进程结算同样释放。超限不会终止已运行的进程。
+
+准入仅用于提供节点 host 的 spawner；未提供 host 的直接构造保持原启动行为。默认值取自节点设置字段声明：CPU 空闲率至少 30%、可用内存至少 25%、
+并发上限为逻辑核数的一半（向下取整，至少一个），每五秒采样。macOS/Linux
+各平台 CPU 均使用相邻操作系统 CPU 计数采样的空闲比例。macOS
+内存取 `memory_pressure` 的系统 free percentage，Linux 取 `/proc/meminfo`
+的 `MemAvailable`，Windows 取系统可用内存。采样失败保留排队并记录错误。
+设置编辑界面留待后续切片。
+
+`ha runtime status <id>` 与 `ha task dispatches <task-id>` 显示 queued、节点、
+指标与阈值、开始排队及下次检查时间；没有 provider session，不冒充 running。
+余量恢复自动启动；等待十分钟标为 overdue，不绕过准入。`ha daemon status --json`
+的 resources 包含明确范围 ordinary-and-review-dispatch 及报警记录。
+CPU/内存持续超限六十秒后，macOS 发一次系统通知；恢复清除状态报警，下一轮
+持续超限才再次通知。Linux/Windows 有状态记录，本切片未交付原生通知、GUI
+顶部报警条和完整排队视图；GUI 读侧只补齐了 session 为空的契约适配。
+
+重启后未启动的本地队列结算为 interrupted，需用新幂等键重派；观测到的存活
+进程纳入名额计数。排队沿用权威事件、投影和复制链，容量归启动节点所有。
+**边缘准入尚未接入**，中心不得把边缘运行解释为已受资源保护。
+
+| 入口                           | 本切片覆盖情况                                    |
+| ------------------------------ | ------------------------------------------------- |
+| 本地普通 run / agent run       | provider 启动已准入；先前工作区准备保持既有行为                                  |
+| 本地任务／决策评审派工         | provider 启动已准入；先前工作区准备保持既有行为                                  |
+| `--claim-next`                 | 后续 runtime 已准入，先前 task-start setup 未保护 |
+| Squad worker/leader 准备       | 未保护；协同启动绕过此队列                        |
+| Schedule 工作区准备／定时启动  | 未保护                                            |
+| resume / handoff               | 未保护，保持原行为                                |
+| provider fallback continuation | 有旧名额时继承，不做新的压力准入                  |
+| 边缘派工                       | 未保护；中心不替边缘判断容量                      |
+
+本地实测过 macOS 采样与通知命令；Linux/Windows 的假系统读数测试已覆盖，
+三平台现场验收及通知肉眼可见性仍为 unverified。

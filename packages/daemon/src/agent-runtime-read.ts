@@ -1,3 +1,4 @@
+import { runtimeQueueSettlement } from "./runtime-resource-read.ts";
 import {
   latestRuntimeActivityAt,
   publicRuntimeSession,
@@ -184,6 +185,9 @@ export function makeAgentRuntimeReadModel(input: {
           .filter((installation) => !query.taskId || installationIds.has(installation.installationId))
           .map(installationDto),
         instances: [],
+        queued: (input.projection.readRuntimeQueue?.() ?? [])
+          .filter(({ payload }) => payload.terminal === null && (!query.taskId || payload.taskId === query.taskId))
+          .map(({ payload }) => payload),
         sessions: sessions.map((session) =>
           sessionDto(
             session,
@@ -254,6 +258,22 @@ export function makeAgentRuntimeReadModel(input: {
         target = runtimeSessionTarget(payload),
         runtimeSessionIdValue =
           target.runtimeSessionId ?? input.readDispatch?.(target.taskId!, target.dispatchId!)?.runtimeSessionId ?? null;
+      const queued = (input.projection.readRuntimeQueue?.() ?? []).find(({ payload }) =>
+        target.runtimeSessionId
+          ? payload.runtimeSessionId === target.runtimeSessionId
+          : payload.taskId === target.taskId && payload.dispatchId === target.dispatchId,
+      );
+      if (queued)
+        return {
+          ok: true,
+          status: cut.status,
+          session: null,
+          queue: queued.payload,
+          result: null,
+          settlement: runtimeQueueSettlement(queued.payload),
+          watermark: cut.watermark,
+          sourceRevision: cut.sourceRevision,
+        };
       const session = readRuntimeSessionById(runtimeSessionIdValue);
       if (!session)
         throw coded(

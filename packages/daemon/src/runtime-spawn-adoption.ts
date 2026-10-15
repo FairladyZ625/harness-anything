@@ -118,6 +118,7 @@ export async function adoptRuntimes(
       resumeProviderSessionId: stream.header.resumeProviderSessionId ?? null,
       providerSessionId: stream.providerSessionId,
     });
+    await context.input.resourceAdmission?.adopt(active.runtimeSessionId);
     context.processes.set(active.runtimeSessionId, active);
     const processAlive = !!processState && !processState.exited && runtimePidIsAlive(processState.pid);
     if (processAlive && fullStream) attachActiveRuntime(context, active);

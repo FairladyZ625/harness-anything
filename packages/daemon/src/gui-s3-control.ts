@@ -277,6 +277,8 @@ export function validateRuntimeSpawnReceipt(value: unknown): readonly string[] {
       git: "object",
       worktree: "object",
       replica: "object",
+      queue: "optional-object",
+      dispatchStatus: "optional-string",
       ledgerAccess: "optional-string",
       reportDelivery: "optional-string",
       // Operator notices appended by the host layer (e.g. the missing hosting-credential

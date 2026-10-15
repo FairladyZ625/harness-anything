@@ -404,7 +404,7 @@ async function awaitSessionSet(
         settlement = result.settlement;
       lastRead = result;
       if (settlement === null) {
-        inFlightNext.push({ runtimeSessionId, liveness: result.session.liveness });
+        inFlightNext.push({ runtimeSessionId, liveness: result.session?.liveness ?? "queued" });
         return;
       }
       settledNext.push({

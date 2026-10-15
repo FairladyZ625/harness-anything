@@ -20,6 +20,7 @@ export type SessionGroup = AgentRuntimeSessionGroupDto;
 /** 单会话段的状态词表:daemon 语义状态 + 台账侧 unknown/lost,一个总映射,新词表必须落位。 */
 export type SessionStatus = AgentRuntimeSessionGroupStatus;
 export const sessionStatusDot: Readonly<Record<SessionStatus, "live" | "failed" | "idle">> = {
+  queued: "idle",
   running: "live",
   failed: "failed",
   lost: "failed",
@@ -32,6 +33,7 @@ export const sessionStatusDot: Readonly<Record<SessionStatus, "live" | "failed" 
   unavailable: "idle",
 };
 export const sessionStatusTone: Readonly<Record<SessionStatus, string>> = {
+  queued: "text-status-unknown",
   succeeded: "text-status-done",
   failed: "text-status-blocked",
   cancelled: "text-status-cancelled",
@@ -44,6 +46,7 @@ export const sessionStatusTone: Readonly<Record<SessionStatus, string>> = {
   unavailable: "text-text-faint",
 };
 export const sessionStatusKey: Readonly<Record<SessionStatus, string>> = {
+  queued: "agentRuntime.sessionStatusQueued",
   running: "agentRuntime.sessionStatusRunning",
   succeeded: "agentRuntime.sessionStatusSucceeded",
   failed: "agentRuntime.sessionStatusFailed",

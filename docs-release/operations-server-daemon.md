@@ -157,48 +157,6 @@ ha daemon start --service
 ha gui
 ```
 
-## Task branch publishing and direct-push protection
-
-A task whose output is a repository change runs in a Harness-managed worktree
-on the branch named after the task. The dispatched worker commits there and
-publishes through daemon-mediated commands, never with a personal GitHub
-login:
-
-```bash
-ha task push <task-id>        # publish the task branch through the daemon-held credential
-ha task pr <task-id>          # create the pull request (--update edits the existing one)
-ha task ci <task-id> --wait   # read the branch's CI; blocks until a verdict
-```
-
-Every bound worker gets `ha` from the CLI bin directory belonging to the
-running daemon's installation, with its dispatched repository root and daemon
-route in the worker environment. This is shared by center and edge daemons;
-the edge-only wrapper that pins a canonical root is not used. The worker's Git
-author and committer identity is derived from the dispatching person and stored
-in that checkout's worktree config. Settlement and edge delivery check commits against the
-same person identity recorded by the execution lease.
-
-`ha task push` pushes only the branch whose name equals the task id, with
-`--force-with-lease`, so a newer remote tip is never silently replaced. It
-refuses the push when the checkout is on another branch or when a commit above
-the default branch carries a different author or committer than the dispatch
-person's identity; refusals surface as `delivery_publish_failed` with the
-reason. A settled task-bound run publishes its branch through the same path;
-`ha task push` is how the worker publishes before submit. Merge stays with the
-maintainer — see [PR, review, and merge](contributing/en/04-pr-review-and-merge.md).
-
-The credential these commands use is bound by the operator, not by the worker:
-[Hosted Git credentials](hosted-credentials.md).
-
-Direct-push protection is enforced in the worker's own environment, not only
-at the daemon. A task-bound worker receives its git credential through an
-askpass helper that answers `github.com` prompts only, and a git wrapper ahead
-of the real git on `PATH` refuses any `git push` that would update anything
-other than the `task_*` branch (including `--all`, `--mirror`, and `--delete`).
-The same wrapper refuses worker commits and new branch checkouts in the
-canonical repository root. A worker that pushes by hand therefore cannot
-publish anything other than its own task branch.
-
 ## Resident service (macOS and Linux)
 
 A machine that should keep its daemon running across crashes and reboots hands
@@ -258,20 +216,15 @@ automatic login for the user on macOS.
 Receipts include a validation diagnostic with the rejected field, its current
 value, and a retry command. Use these state rules when recovering:
 
-| Code                                    | Condition                                                        | Recovery                                                                                                                                                             |
-| --------------------------------------- | ---------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `invalid_submission`                    | The closeout document cannot produce a valid submission          | Fix the named `closeout.md` section, then retry `ha task submit <task-id>`.                                                                                          |
+| Code                                    | Condition                                                        | Recovery                                                                                                                                                         |
+| --------------------------------------- | ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `invalid_submission`                    | The closeout document cannot produce a valid submission          | Fix the named `closeout.md` section, then retry `ha task submit <task-id>`.                                                                                      |
 | `invalid_runtime_mission`               | `--mission` was given a path or invalid id                       | Use a bare lowercase id. The daemon reads `harness/<task-package>/artifacts/missions/<name>.md`; retry `ha agent run <agent> --task <task-id> --mission <name>`. |
-| `invalid_proof` from `declare-executor` | The execution is not `submitted/review` with `executor=none`     | An assigned submitted execution proceeds with `ha task review-execution`; only an unassigned one uses `ha task declare-executor`.                                    |
-| `executor_binding_invalid`              | The claimed executor differs from the task binding or held lease | Run the receipt's retry command from the expected executor named in its diagnostic.                                                                                  |
-| `invalid_transition` from `task start`  | The current round already has an active execution                | Run `ha task start <task-id>` without `--execution-id` to reuse it.                                                                                                  |
-| `lease_required`                        | Submitter does not hold the execution lease                      | Run `ha task start <task-id>`, then retry submit as the holder.                                                                                                      |
-| `lease_not_found`                       | Runtime settlement already released the lease                    | Run `ha task start <task-id>` without a new execution id, then retry submit.                                                                                         |
-| `runtime_credential_unavailable` from `ha task pr` / `ha task ci` | The dispatch's runtime instance has no configured GitHub credential, or the native vault cannot resolve it | The operator binds the credential ([Hosted Git credentials](hosted-credentials.md)); the worker records the error text, marks CI unverified, and reports. |
-| `runtime_credential_unavailable` from provider key commands | The native credential vault is unavailable (for example a locked Linux keyring) | Follow the headless keyring setup in [Provider API keys](provider-credentials.md#linux-without-a-desktop). |
-| `delivery_publish_failed` from `ha task push` | The task branch push was refused or rejected (another branch checked out, missing or foreign git identity, lost compare-and-swap cut, network) | Read the reason in the receipt, fix the named cause locally, then retry `ha task push <task-id>`. |
-| `task_ci_read_failed`                   | The CI read through the GitHub CLI failed                        | Retry `ha task ci <task-id>`; if it persists, check the credential's repository access and permissions ([Hosted Git credentials](hosted-credentials.md)). |
-| `unsupported_command` naming `task push` / `task pr` / `task ci` | The CLI or daemon on that machine predates these commands | Upgrade the CLI and daemon, then retry; until then record CI as unverified in the closeout with the error text. |
+| `invalid_proof` from `declare-executor` | The execution is not `submitted/review` with `executor=none`     | An assigned submitted execution proceeds with `ha task review-execution`; only an unassigned one uses `ha task declare-executor`.                                |
+| `executor_binding_invalid`              | The claimed executor differs from the task binding or held lease | Run the receipt's retry command from the expected executor named in its diagnostic.                                                                              |
+| `invalid_transition` from `task start`  | The current round already has an active execution                | Run `ha task start <task-id>` without `--execution-id` to reuse it.                                                                                              |
+| `lease_required`                        | Submitter does not hold the execution lease                      | Run `ha task start <task-id>`, then retry submit as the holder.                                                                                                  |
+| `lease_not_found`                       | Runtime settlement already released the lease                    | Run `ha task start <task-id>` without a new execution id, then retry submit.                                                                                     |
 
 ## Registry v2 hard cut
 
@@ -322,3 +275,54 @@ The local daemon socket is the access boundary. Its directory is created with
 mode `0700` and the socket file with mode `0600`; do not widen either
 permission. The endpoint tunnel in the view-only flow remains user-managed and
 should not expose a daemon socket as a public listener.
+
+## Node resource admission (first slice)
+
+Local ordinary and review dispatches reserve node capacity **before worktree
+checkout/setup and provider preparation**. The daemon owns one FIFO across its
+repository writers; it admits at most one request per sample. A reservation lasts
+through preparation and the provider lifetime. Cancelling a waiter prevents
+preparation; cancelling during preparation prevents launch and releases capacity
+when preparation finishes. Preparation/launch failure or process settlement also
+releases it. Pressure never terminates an already-running process.
+
+Resource admission applies only to spawners with a node host; direct constructions without one keep their existing launch behavior. Defaults come from the node resource settings field declarations: CPU idle at least 30%
+of node capacity, available memory at least 25%, and concurrent runs limited to
+half the logical cores (rounded down, minimum one). Sampling is every five seconds.
+CPU idle is the idle fraction between OS CPU counter samples on all platforms. macOS memory comes from `memory_pressure`
+system-wide free percentage; Linux uses `/proc/meminfo` `MemAvailable`; Windows
+uses OS available memory. An unavailable reading leaves requests queued and
+records the sample error. Editable settings are a later slice.
+
+`ha runtime status <id>` and `ha task dispatches <task-id>` expose `queued`, node,
+metric/threshold, queued-since and next-check times. A queued request has no
+provider session and is never reported as running. Requests resume automatically
+when capacity returns; ten minutes in the queue adds `overdue` without overriding
+admission. `ha daemon status --json` exposes `resources`, including the explicit
+`ordinary-and-review-dispatch` scope and current alert. After sixty seconds of
+continuous CPU/memory pressure, macOS receives one system notification; recovery
+clears the status alert and rearms notification for the next pressure episode.
+Linux/Windows have the queryable alert; native notifications and a GUI banner are
+not delivered in this slice. Queue DTO consumers tolerate a null session, but a
+full GUI queue view is also deferred.
+
+On restart, unstarted local queues settle as interrupted; redispatch with a new
+idempotency key. Observed running processes are adopted into node capacity.
+Queued events use the existing canonical event/projection and replication paths;
+capacity itself stays on the launching node. **Edge admission is not connected
+in this slice**, so the center must not interpret edge work as resource protected.
+
+| Entry                                             | Coverage in this slice                                                     |
+| ------------------------------------------------- | -------------------------------------------------------------------------- |
+| Ordinary local run / agent run                    | Provider launch admitted; prior workspace preparation keeps its existing behavior                                            |
+| Local task / decision review dispatch             | Provider launch admitted; prior workspace preparation keeps its existing behavior                                            |
+| `--claim-next`                                    | Later runtime admitted; earlier task-start setup is unprotected            |
+| Squad worker / leader preparation                 | Unprotected; coordinated launch bypasses this queue                        |
+| Schedule workspace preparation / scheduled launch | Unprotected                                                                |
+| Resume / handoff                                  | Unprotected; keep existing behavior                                        |
+| Provider fallback continuation                    | Inherits an existing reservation when present; no fresh pressure admission |
+| Edge node dispatch                                | Unprotected; center does not decide edge capacity                          |
+
+macOS sampling and the system notification command have been exercised locally.
+Linux/Windows formulas have tests with OS readings; actual node acceptance and
+human confirmation of the notification remain unverified.

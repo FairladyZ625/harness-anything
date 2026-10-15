@@ -89,6 +89,7 @@ export function repositoryEventQueries(
 ): Pick<
   TaskProjectionQueries,
   | "readRuntimeDispatch"
+  | "readRuntimeQueue"
   | "readRuntimeDispatches"
   | "readRuntimeDispatchById"
   | "readRuntimeDispatchByResumeSource"
@@ -176,6 +177,22 @@ export function repositoryEventQueries(
           ? publicRuntimeDispatch(event)
           : null;
       }),
+    readRuntimeQueue: () =>
+      withRead((db) =>
+        queryRows(
+          db,
+          `WITH latest_queue AS (
+          SELECT MAX(workspace_revision) AS revision FROM event_index
+          WHERE json_extract(event_json, '$.type') = 'runtime_dispatch_queued'
+          GROUP BY json_extract(event_json, '$.payload.runtimeSessionId'))
+        SELECT e.event_json FROM latest_queue q JOIN event_index e ON e.workspace_revision = q.revision
+        WHERE json_extract(e.event_json, '$.payload.terminal') IS NOT NULL OR NOT EXISTS (
+          SELECT 1 FROM runtime_session s
+          WHERE s.runtime_session_id = json_extract(e.event_json, '$.payload.runtimeSessionId')
+          AND (json_extract(s.value_json, '$.liveness') <> 'unknown' OR json_extract(s.value_json, '$.outcome') IS NOT NULL))
+        ORDER BY e.workspace_revision`,
+        ).map((row) => JSON.parse(String(row.event_json))),
+      ),
     readRuntimeDispatches: () =>
       withRead((db) =>
         queryRows(db, RUNTIME_DISPATCHES_SQL)

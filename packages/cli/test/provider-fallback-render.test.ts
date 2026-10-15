@@ -161,3 +161,32 @@ test("a dispatch-review receipt names the reviewed task on every row", () => {
   assert.match(text, /^task_two\tfailed\tno submitted execution$/mu);
   assert.doesNotMatch(text, /undefined/u);
 });
+
+// dec_9DBB2EB382B968853BF6852C5B/CH2: no provider session exists before admission.
+test("queued runtime and task dispatch render node pressure without a running session", () => {
+  const queue = {
+    nodeId: "mac-node",
+    queuedSince: "2026-10-11T00:00:00Z",
+    nextCheckAt: "2026-10-11T00:00:05Z",
+    overdue: true,
+    terminal: null,
+    runtimeSessionId: "runtime-queued",
+    blocks: [{ metric: "cpu", observed: 0.9, threshold: 0.75 }],
+  };
+  const status = renderRuntimeStatus({ session: null, queue });
+  assert.match(status, /queued/u);
+  assert.match(status, /mac-node/u);
+  assert.match(status, /0.9/u);
+  assert.match(status, /0.75/u);
+  assert.match(status, /overdue/u);
+  assert.doesNotMatch(status, /liveness: live/u);
+  const row = renderDispatchRow({
+    dispatchId: "dispatch-queued",
+    status: "queued",
+    runtimeSessionId: "runtime-queued",
+    provider: { instance: "", model: null },
+    reason: "mac-node: cpu=0.9 threshold=0.75 since=2026-10-11T00:00:00Z",
+  });
+  console.log(status + "\n" + row);
+  assert.match(row, /queued.*mac-node: cpu=0.9 threshold=0.75/u);
+});

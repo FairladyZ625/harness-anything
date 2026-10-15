@@ -107,6 +107,7 @@ export function publicPublication(value: Pick<CanonicalEventAppendReceipt, "comm
 }
 
 export interface RepoCellOpenInput {
+  readonly resourceAdmission?: import("./runtime-resource-host.ts").RuntimeResourcePort;
   readonly repoId: WorkspaceId;
   readonly rootDir: CanonicalRoot;
   readonly ownerId: string;
@@ -222,11 +223,13 @@ export async function openRepoWriterCell(
       },
     };
   const outcomeWaiters = createRuntimeOutcomeWaiters({
+    queueSettled: (id) =>
+      (projection.readRuntimeQueue?.() ?? []).some(
+        ({ payload }) => payload.runtimeSessionId === id && payload.terminal !== null,
+      ),
     readSession,
     now,
   });
-  // The ledger core is rebuildable in place: the variables below are rebound wholesale by
-  // attemptRecovery, so a latched cell re-attaches to repaired data without reopening.
   const cellWriterEpochFence = input.defaultWriterEpochFence,
     defaultWriterEpochFence = cellWriterEpochFence
       ? <T>(operation: () => T) => withWriterEpochFenceDescriptor(cellWriterEpochFence, operation)
@@ -470,6 +473,7 @@ export async function openRepoWriterCell(
       projection,
     });
   const runtimeSpawner = makeRuntimeSpawner({
+    resourceAdmission: input.resourceAdmission,
     repoId: input.repoId,
     rootDir,
     daemonGeneration: generation,

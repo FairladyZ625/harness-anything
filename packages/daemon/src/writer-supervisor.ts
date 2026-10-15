@@ -336,6 +336,18 @@ export async function openWriterSupervisor(
 
   async function capabilityValue(call: RepoWriterCapabilityCallV1): Promise<unknown> {
     switch (call.capability) {
+      case "resourceAdmission": {
+        const payload = call.payload as {
+          method: "acquire" | "cancel" | "release" | "adopt" | "transfer" | "read";
+          key: string;
+          value: string;
+        };
+        const admission = input.resourceAdmission!;
+        if (payload.method === "read") return admission.read();
+        if (payload.method === "transfer") return admission.transfer(payload.key, payload.value);
+        if (payload.method === "acquire") return admission.acquire(payload.key, payload.value);
+        return admission[payload.method](payload.key);
+      }
       case "now":
         return input.now!();
       case "killpoint":
@@ -476,6 +488,7 @@ function bootstrapMessage(input: RepoCellOpenInput): RepoWriterBootstrapV1 {
       ...(input.defaultWriterEpochFence ? { defaultWriterEpochFence: input.defaultWriterEpochFence } : {}),
     },
     capabilities: {
+      resourceAdmission: input.resourceAdmission !== undefined,
       now: input.now !== undefined,
       killpoint: input.killpoint !== undefined,
       shouldStop: input.shouldStop !== undefined,

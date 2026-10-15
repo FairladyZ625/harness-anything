@@ -435,6 +435,7 @@ function CompletedCount({ count }: { readonly count: number }) {
 
 const isCompleted = (status: SessionStatus) => status === "succeeded" || status === "cancelled";
 const statusTones: Record<SessionStatus, StatusTone> = {
+  queued: "wait",
   running: "active",
   succeeded: "done",
   cancelled: "cancel",

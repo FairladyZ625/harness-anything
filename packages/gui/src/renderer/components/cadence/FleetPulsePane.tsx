@@ -27,6 +27,7 @@ import {
 
 /** 会话状态词 → 标签色:与会话页同一份状态词表(sessionStatusKey),失败红、结果不明琥珀。 */
 const STATUS_TONE: Readonly<Record<SessionStatus, StatusTone>> = {
+  queued: "wait",
   running: "active",
   succeeded: "done",
   failed: "bad",

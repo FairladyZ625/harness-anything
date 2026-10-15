@@ -651,7 +651,14 @@ export async function openRepoCellProxy(
     },
     awaitRuntimeOutcome: async (runtimeSessionId) => {
       const now = input.now ?? (() => new Date().toISOString());
-      while (!runtimeOutcomeSettled(readSession(runtimeSessionId), now())) {
+      while (
+        !runtimeOutcomeSettled(readSession(runtimeSessionId), now()) &&
+        !query((projection) =>
+          (projection.readRuntimeQueue?.() ?? []).some(
+            ({ payload }) => payload.runtimeSessionId === runtimeSessionId && payload.terminal !== null,
+          ),
+        )
+      ) {
         await new Promise<void>((resolve) => {
           const waiter = () => {
             waiters.delete(waiter);

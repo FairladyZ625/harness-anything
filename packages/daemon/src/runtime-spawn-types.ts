@@ -285,6 +285,7 @@ export interface RemoteRuntimePersistence {
 }
 
 export interface RuntimeSpawnerInput {
+  readonly resourceAdmission?: import("./runtime-resource-host.ts").RuntimeResourcePort;
   readonly repoId: string;
   readonly rootDir: string;
   readonly daemonGeneration: number;

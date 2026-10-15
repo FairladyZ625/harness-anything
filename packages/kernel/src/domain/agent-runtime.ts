@@ -26,6 +26,7 @@ export const transcriptReachabilityStates = ["by_session_id", "dispatch_stream_o
 export const agentRuntimeEventTypes = [
   "runtime_installation_observed",
   "runtime_dispatch_requested",
+  "runtime_dispatch_queued",
   "runtime_squad_run_observed",
   "runtime_session_started",
   "runtime_session_provider_bound",
@@ -345,6 +346,27 @@ interface RuntimePayloads {
     readonly discoverySource: "wrapper" | "hook";
     readonly capabilities: readonly RuntimeCapability[];
   };
+  /** dec_9DBB2EB382B968853BF6852C5B: a queued request has no provider definition or live session. */
+  readonly runtime_dispatch_queued: {
+    readonly dispatchId: string;
+    readonly runtimeSessionId: string;
+    readonly idempotencyKey: string;
+    readonly taskId: string | null;
+    readonly executionId: string | null;
+    readonly agentId: string | null;
+    readonly nodeId: string;
+    readonly queuedSince: string;
+    readonly nextCheckAt: string;
+    readonly overdue: boolean;
+    readonly blocks: readonly {
+      readonly metric: string;
+      readonly observed: number | null;
+      readonly threshold: number;
+    }[];
+    readonly terminal: "cancelled" | "failed" | "interrupted" | null;
+    readonly detail: string | null;
+    readonly failureCode: string | null;
+  };
   readonly runtime_dispatch_requested: {
     readonly dispatchId: string;
     readonly runtimeSessionId: string;
@@ -468,6 +490,22 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
     "discoverySource",
     "capabilities",
   ],
+  runtime_dispatch_queued: [
+    "dispatchId",
+    "runtimeSessionId",
+    "idempotencyKey",
+    "taskId",
+    "executionId",
+    "agentId",
+    "nodeId",
+    "queuedSince",
+    "nextCheckAt",
+    "overdue",
+    "blocks",
+    "terminal",
+    "detail",
+    "failureCode",
+  ],
   runtime_dispatch_requested: [
     "dispatchId",
     "runtimeSessionId",
@@ -552,6 +590,30 @@ function validateAgentRuntimePayloadFields(
     (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
   )
     return ["runtime handoff audit binding is invalid"];
+  if (type === "runtime_dispatch_queued") {
+    return ["dispatchId", "runtimeSessionId", "idempotencyKey", "nodeId"].every((field) =>
+      isNonEmptyString(value[field]),
+    ) &&
+      ["taskId", "executionId", "agentId"].every((field) => value[field] === null || isNonEmptyString(value[field])) &&
+      timestamp(String(value.queuedSince)) &&
+      timestamp(String(value.nextCheckAt)) &&
+      typeof value.overdue === "boolean" &&
+      (value.terminal === null || ["cancelled", "failed", "interrupted"].includes(String(value.terminal))) &&
+      (value.detail === null || typeof value.detail === "string") &&
+      (value.failureCode === null || typeof value.failureCode === "string") &&
+      Array.isArray(value.blocks) &&
+      value.blocks.every(
+        (block: unknown) =>
+          isRecord(block) &&
+          hasOnlyFields(block, ["metric", "observed", "threshold"]) &&
+          ["sampling", "cpu", "memory", "concurrency"].includes(String(block.metric)) &&
+          (block.observed === null || (typeof block.observed === "number" && Number.isFinite(block.observed))) &&
+          typeof block.threshold === "number" &&
+          Number.isFinite(block.threshold),
+      )
+      ? []
+      : ["runtime queue observation is invalid"];
+  }
   const ids = payloadFields[type].filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
@@ -785,6 +847,7 @@ export function reduceRuntimeSession(
   if (
     event.type === "runtime_squad_run_observed" ||
     event.type === "runtime_dispatch_requested" ||
+    event.type === "runtime_dispatch_queued" ||
     event.type === "runtime_dispatch_outcome_unknown" ||
     event.type === "runtime_handoff_exported" ||
     event.type === "runtime_handoff_revoked" ||

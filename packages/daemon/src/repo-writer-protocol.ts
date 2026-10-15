@@ -25,6 +25,7 @@ export interface RepoWriterBootstrapV1 {
     readonly defaultWriterEpochFence?: NonNullable<RepoCellBinding["writerEpochFence"]>;
   };
   readonly capabilities: {
+    readonly resourceAdmission: boolean;
     /** Only an injected (test) clock crosses threads; a production writer reads its own clock. */
     readonly now: boolean;
     readonly killpoint: boolean;
@@ -143,6 +144,7 @@ export interface SerializedWriterErrorV1 {
 }
 
 export type RepoWriterCapabilityName =
+  | "resourceAdmission"
   | "now"
   | "killpoint"
   | "shouldStop"

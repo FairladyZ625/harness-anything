@@ -1,3 +1,4 @@
+import { runtimeQueueDispatchRow } from "./runtime-resource-read.ts";
 import {
   consumeKnownError,
   runtimeSessionOutcomeFromEvidence,
@@ -96,6 +97,9 @@ export function readTaskDispatches(
         event.payload.dispatchId,
         canonicalDispatchRow(projection, event, sessions.get(event.payload.runtimeSessionId)),
       );
+  for (const event of projection.readRuntimeQueue?.() ?? [])
+    if (event.payload.taskId && tasks.has(event.payload.taskId))
+      rows.set(event.payload.dispatchId, runtimeQueueDispatchRow(event.payload));
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
     resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
     terminal = taskDispatchesOutcome(dispatches, resumed);

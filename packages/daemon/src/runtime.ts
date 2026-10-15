@@ -1,3 +1,5 @@
+import { hostname } from "node:os";
+import { openRuntimeResourceHost } from "./runtime-resource-host.ts";
 import { requireExecutionRequestScope } from "./runtime-execution-scope.ts";
 import { authenticateRuntimeExecutionCredential } from "./runtime-execution-credential.ts";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -170,6 +172,7 @@ export async function startDaemon(input: {
     host = await openDaemonHost({
       ...input,
       endpoint,
+      resourceAdmission: openRuntimeResourceHost(`${hostname()}:${input.daemonId}`),
       recordLifecycle,
       oidc,
       onRepoStatusChange: requestDrainCheck,

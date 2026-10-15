@@ -117,9 +117,9 @@ export async function runRuntimeFacadeCommand(
     return {
       ...spawned,
       command: "runtime-run",
-      outcome: "running",
+      outcome: spawned.dispatchStatus === "queued" ? "queued" : "running",
       nextAction,
-      summary: `runtime-run: detached ${String(spawned.dispatchId)}\n${detachedWaitGuidance(
+      summary: `runtime-run: ${spawned.dispatchStatus === "queued" ? "queued" : "detached"} ${String(spawned.dispatchId)}\n${detachedWaitGuidance(
         nextAction,
         typeof action.taskId === "string" ? action.taskId : undefined,
       )}`,

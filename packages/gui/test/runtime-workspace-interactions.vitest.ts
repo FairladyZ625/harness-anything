@@ -579,8 +579,9 @@ describe("runtime entry split (W6 IA)", () => {
       [...byTestId("sessions-status-filter").querySelectorAll("button")].find(
         (button) => button.textContent === label,
       ) as HTMLButtonElement;
-    // 词表就是 daemon 的十个状态,前端不另立分类。
-    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(10);
+    // 词表就是 daemon 的十一个状态（含 queued，dec_9DBB2EB3/CH2）,前端不另立分类。
+    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(11);
+    expect(statusChip("Queued")).toBeDefined();
     const firstCallCount = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.length;
     expect(vi.mocked(agentRuntimeClient.sessionGroups).mock.calls.at(-1)?.[1]).not.toHaveProperty("status");
 
@@ -704,11 +705,11 @@ describe("runtime entry split (W6 IA)", () => {
     expect(toolbar.className).toContain("flex-wrap");
     // Real wrapping and control containment: sessions-grouping Electron scenario.
     expect(toolbar.className).not.toMatch(/overflow-x-(?:auto|scroll|overlay)/u);
-    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(10);
+    expect(byTestId("sessions-status-filter").querySelectorAll("button")).toHaveLength(11);
 
     await click("sessions-status-filter-menu");
     const menuButtons = byTestId("sessions-status-filter-menu-panel").querySelectorAll("button");
-    expect(menuButtons).toHaveLength(10);
+    expect(menuButtons).toHaveLength(11);
     const menuFailed = [...menuButtons].find((button) => button.textContent === "Failed");
     expect(menuFailed).toBeInstanceOf(HTMLButtonElement);
     await act(async () => {

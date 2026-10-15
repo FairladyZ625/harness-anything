@@ -208,6 +208,7 @@
   "agentRuntime.livenessFromChild": "Liveness and exit code come from the child-process events.",
   "agentRuntime.inspectorRuntime": "Runtime inspector",
   "agentRuntime.inspectorHealth": "Health",
+  "agentRuntime.sessionStatusQueued": "Queued",
   "agentRuntime.sessionStatusRunning": "Running",
   "agentRuntime.sessionStatusSucceeded": "Succeeded",
   "agentRuntime.sessionStatusFailed": "Failed",
