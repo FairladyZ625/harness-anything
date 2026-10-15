@@ -32,6 +32,15 @@ const mirrorHead = (ledgerPath: string): number => {
       db.close();
     }
   },
+  mirrorSequence = (ledgerPath: string): number => {
+    const db = new DatabaseSync(ledgerPath, { readOnly: true });
+    try {
+      return (db.prepare("SELECT sequence FROM replication_state WHERE singleton = 1").get() as { sequence: number })
+        .sequence;
+    } finally {
+      db.close();
+    }
+  },
   mirrorEventRows = (ledgerPath: string, where: string, params: readonly unknown[] = []): unknown[] => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
@@ -55,7 +64,6 @@ const mirrorHead = (ledgerPath: string): number => {
   tableRows = (databasePath: string): Record<string, unknown[][]> => {
     const db = new DatabaseSync(databasePath, { readOnly: true });
     try {
-      db.exec("PRAGMA busy_timeout=5000");
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
         .all() as { name: string }[];
@@ -368,7 +376,7 @@ test("full mirror comparison covers retention-window base-backup resync", { time
   );
   const reinstalled = lagging.lastEvent("installed")!;
   await lagging.waitForWhere(
-    () => mirrorHead(String(reinstalled.ledgerPath)) === fixture.eventCount(),
+    () => mirrorSequence(String(reinstalled.ledgerPath)) === mirrorSequence(fixture.ledgerPath),
     "re-backup convergence to the center head",
     120_000,
   );
