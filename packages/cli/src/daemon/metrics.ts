@@ -106,17 +106,20 @@ export async function readMetricsHistory(read: (cursor?: ObserveTailCursor) => P
 }
 
 export function renderDaemonMetrics(receipt: Awaited<ReturnType<typeof runDaemonMetrics>>): string {
-  const { durationMs, serviceMs, dispatchDelayMs, note } = receipt.latency;
-  const format = (label: string, timing: typeof durationMs) =>
-    `${label}: n=${timing.sampleCount}, missing=${timing.missingCount}, P50=${timing.p50Ms ?? "unknown"}ms, P95=${timing.p95Ms ?? "unknown"}ms, max=${timing.maxMs ?? "unknown"}ms${timing.lowSample ? " (low sample)" : ""}`;
+  const { byCommand, note } = receipt.latency;
+  const format = (label: string, timing: (typeof byCommand)[number]["durationMs"]) =>
+    `  ${label}: n=${timing.sampleCount}, missing=${timing.missingCount}, P50=${timing.p50Ms ?? "unknown"}ms, P95=${timing.p95Ms ?? "unknown"}ms, max=${timing.maxMs ?? "unknown"}ms${timing.lowSample ? " (low sample)" : ""}`;
   return [
     `daemon metrics: ${receipt.repoId} ${receipt.window} [${receipt.since}, ${receipt.until}]`,
     `Completed requests=${receipt.requestCount}; await excluded from latency=${receipt.excludedAwaitRequests}`,
     `Observed ${receipt.coverage.firstObservedAt ?? "unknown"} to ${receipt.coverage.lastObservedAt ?? "unknown"}; span=${receipt.coverage.observedSpanMs}ms; continuity=unknown`,
     `Unobserved leading=${receipt.coverage.leadingUnobservedMs}ms, trailing=${receipt.coverage.trailingUnobservedMs}ms; silent intervals >1h=${receipt.coverage.silentIntervals.length}`,
-    format("Duration", durationMs),
-    format("Service", serviceMs),
-    format("Dispatch delay", dispatchDelayMs),
+    ...byCommand.flatMap((entry) => [
+      `${entry.command} (${entry.method ?? "unknown method"})`,
+      format("Duration", entry.durationMs),
+      format("Service", entry.serviceMs),
+      format("Dispatch delay", entry.dispatchDelayMs),
+    ]),
     receipt.coverage.note,
     note,
   ].join("\n");

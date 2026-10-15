@@ -79,9 +79,11 @@ test("real runtime metrics twice preserves request retention, denominator and P9
         daemonId,
       );
       assert.equal(metrics.requestCount, 79, `metrics run ${run + 1}`);
-      assert.equal(metrics.latency.durationMs.sampleCount, 79);
-      assert.equal(metrics.latency.durationMs.p95Ms, 75_000);
-      assert.equal(metrics.latency.serviceMs.p95Ms, 75_000);
+      const taskList = metrics.latency.byCommand.find((entry) => entry.command === "task-list")!;
+      assert.equal(taskList.durationMs.sampleCount, 78);
+      assert.equal(taskList.durationMs.p95Ms, 75_000);
+      assert.equal(taskList.serviceMs.p95Ms, 75_000);
+      assert.equal(metrics.latency.byCommand.find((entry) => entry.command === "observe.tail")!.serviceMs.maxMs, 0);
       assert.equal(metrics.history.pages, 2);
     }
     signOutAt(userRoot);
@@ -183,8 +185,10 @@ test("native metrics reads real rotated logs over one socket and rejects an actu
     assert.equal(metrics.history.pages, 3);
     assert.equal(metrics.requestCount, 131);
     assert.equal(metrics.excludedAwaitRequests, 1);
-    assert.equal(metrics.latency.durationMs.sampleCount, 130);
-    assert.equal(metrics.latency.durationMs.p95Ms, 124);
+    assert.equal(metrics.latency.byCommand.length, 1);
+    assert.equal(metrics.latency.byCommand[0]!.command, "task-list");
+    assert.equal(metrics.latency.byCommand[0]!.durationMs.sampleCount, 130);
+    assert.equal(metrics.latency.byCommand[0]!.durationMs.p95Ms, 124);
     assert.equal(metrics.coverage.observedSpanMs, 129);
     assert.equal(metrics.coverage.continuity, "unknown");
 

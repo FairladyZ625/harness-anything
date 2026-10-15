@@ -7,10 +7,16 @@ import { runDaemonControl } from "../src/daemon/control.ts";
 import type { ObserveTailResult } from "@harness-anything/daemon/internal/protocol/daemon-protocol-gui-types";
 
 const until = Date.parse("2026-10-03T12:00:00Z");
+const list = (stats: ReturnType<typeof requestWindowMetrics>) => {
+  const entry = stats.latency.byCommand.find((candidate) => candidate.command === "task-list");
+  assert.ok(entry, "task-list latency entry");
+  return entry;
+};
 const row = (durationMs: unknown, overrides = {}) => ({
   schema: "daemon-request-log/v1",
   at: "2026-10-03T11:59:00Z",
   method: "repo.tasks.list",
+  command: "task-list",
   durationMs,
   serviceMs: durationMs,
   dispatchDelayMs: 2,
@@ -32,13 +38,35 @@ test("window latency uses every eligible sample and nearest-rank P95, excluding 
   );
   assert.equal(stats.requestCount, 22);
   assert.equal(stats.excludedAwaitRequests, 2);
-  assert.equal(stats.latency.durationMs.sampleCount, 20);
-  assert.equal(stats.latency.durationMs.p95Ms, 19);
-  assert.equal(stats.latency.durationMs.p50Ms, 10);
-  assert.equal(stats.latency.durationMs.maxMs, 20);
-  assert.equal(stats.latency.durationMs.lowSample, false);
+  assert.equal(list(stats).durationMs.sampleCount, 20);
+  assert.equal(list(stats).durationMs.p95Ms, 19);
+  assert.equal(list(stats).durationMs.p50Ms, 10);
+  assert.equal(list(stats).durationMs.maxMs, 20);
+  assert.equal(list(stats).durationMs.lowSample, false);
   assert.equal(stats.coverage.leadingUnobservedMs, 3_540_000);
   assert.equal(stats.coverage.continuity, "unknown");
+});
+
+test("commands sharing one RPC method keep separate latency; provider-backed task-ci never pools with local reads", () => {
+  const stats = requestWindowMetrics(
+    [
+      ...Array.from({ length: 20 }, (_, i) => row(20 + i, { method: "repo.task.read", command: "task-show" })),
+      ...Array.from({ length: 5 }, (_, i) => row(4_000 + i * 1_000, { method: "repo.task.read", command: "task-ci" })),
+      row(30, { command: undefined }),
+    ],
+    until - 3_600_000,
+    until,
+  );
+  const byCommand = new Map(stats.latency.byCommand.map((entry) => [entry.command, entry]));
+  assert.deepEqual([...byCommand.keys()], ["task-show", "task-ci", "<no command>"]);
+  assert.equal(byCommand.get("task-show")!.method, "repo.task.read");
+  assert.equal(byCommand.get("task-show")!.serviceMs.sampleCount, 20);
+  assert.equal(byCommand.get("task-show")!.serviceMs.p95Ms, 38);
+  assert.equal(byCommand.get("task-show")!.serviceMs.maxMs, 39);
+  assert.equal(byCommand.get("task-ci")!.method, "repo.task.read");
+  assert.equal(byCommand.get("task-ci")!.serviceMs.p50Ms, 6_000);
+  assert.equal(byCommand.get("<no command>")!.serviceMs.sampleCount, 1);
+  assert.equal("durationMs" in stats.latency, false, "no method-pooled aggregate remains beside byCommand");
 });
 
 test("missing timings are unknown with a separate denominator; zero is a valid sample", () => {
@@ -52,15 +80,15 @@ test("missing timings are unknown with a separate denominator; zero is a valid s
     until,
   );
   assert.equal(stats.requestCount, 3);
-  assert.equal(stats.latency.durationMs.sampleCount, 1);
-  assert.equal(stats.latency.durationMs.missingCount, 2);
-  assert.equal(stats.latency.durationMs.p95Ms, 0);
-  assert.equal(stats.latency.durationMs.lowSample, true);
-  assert.equal(stats.latency.serviceMs.p95Ms, null);
-  assert.equal(stats.latency.dispatchDelayMs.sampleCount, 1);
+  assert.equal(list(stats).durationMs.sampleCount, 1);
+  assert.equal(list(stats).durationMs.missingCount, 2);
+  assert.equal(list(stats).durationMs.p95Ms, 0);
+  assert.equal(list(stats).durationMs.lowSample, true);
+  assert.equal(list(stats).serviceMs.p95Ms, null);
+  assert.equal(list(stats).dispatchDelayMs.sampleCount, 1);
   const empty = requestWindowMetrics([], until - 3_600_000, until);
   assert.equal(empty.coverage.firstObservedAt, null);
-  assert.equal(empty.latency.durationMs.p95Ms, null);
+  assert.deepEqual(empty.latency.byCommand, []);
 });
 
 test("rotation timestamps and silent intervals describe observed coverage without proving retention", () => {
@@ -159,6 +187,7 @@ test("text metrics exposes the window, unknown coverage, latency denominator and
     ...requestWindowMetrics([row(0)], until - 3_600_000, until),
   });
   assert.match(text, /fixture 1h/);
+  assert.match(text, /task-list \(repo\.tasks\.list\)/);
   assert.match(text, /continuity=unknown/);
   assert.match(text, /n=1, missing=0, P50=0ms, P95=0ms/);
   assert.match(text, /low sample/);

@@ -37,12 +37,34 @@ export function requestWindowMetrics(
       note: "Retained completed requests only. Silent intervals may be inactivity or lost retention; no full-window traffic estimate. CLI/GUI source and in-flight requests are unmeasured.",
     },
     latency: {
-      durationMs: timing(eligible.map(({ record }) => record.durationMs)),
-      serviceMs: timing(eligible.map(({ record }) => record.serviceMs)),
-      dispatchDelayMs: timing(eligible.map(({ record }) => record.dispatchDelayMs)),
-      note: "Daemon timings, not CLI end-to-end latency. Service includes handler-internal waiting; queue wait inside the handler is not separately measured. P95 uses nearest-rank; fewer than 20 samples is low sample.",
+      byCommand: commandLatency(eligible.map(({ record }) => record)),
+      note: "Daemon timings per command, not CLI end-to-end latency. Commands sharing one RPC method (for example task-show and the provider-backed task-ci on repo.task.read) are never pooled. Service includes handler-internal waiting; queue wait inside the handler is not separately measured. P95 uses nearest-rank; fewer than 20 samples is low sample.",
     },
   };
+}
+
+// The request log writer records the resolved command on every entry, so command is the latency key.
+// A retained record without one is reported under its own key instead of being pooled into its method.
+function commandLatency(records: readonly Readonly<Record<string, unknown>>[]) {
+  const groups = new Map<string, Readonly<Record<string, unknown>>[]>();
+  for (const record of records) {
+    const command = typeof record.command === "string" ? record.command : "<no command>";
+    const rows = groups.get(command);
+    if (rows) rows.push(record);
+    else groups.set(command, [record]);
+  }
+  return [...groups]
+    .map(([command, rows]) => ({
+      command,
+      method: typeof rows[0]!.method === "string" ? rows[0]!.method : null,
+      durationMs: timing(rows.map((record) => record.durationMs)),
+      serviceMs: timing(rows.map((record) => record.serviceMs)),
+      dispatchDelayMs: timing(rows.map((record) => record.dispatchDelayMs)),
+    }))
+    .sort(
+      (left, right) =>
+        right.durationMs.sampleCount - left.durationMs.sampleCount || (left.command < right.command ? -1 : 1),
+    );
 }
 
 function timing(values: readonly unknown[]) {
