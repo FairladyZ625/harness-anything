@@ -191,7 +191,7 @@ export type FleetFrameV1 =
       {
         inReplyTo: string;
         replicationSequence: number;
-        event: Readonly<Record<string, unknown>>;
+        event: Readonly<Record<string, unknown>> | null;
         receipt: Readonly<Record<string, unknown>>;
       }
     >
@@ -731,7 +731,12 @@ const schemas: Readonly<Record<string, Check>> = {
     result: nullable(descriptor),
     dispatchContext: nullable(runtimeDispatchContext),
   }),
-  "fleet.runtime.event.result/v1": shape({ ...reply, replicationSequence: uint, event: record, receipt: record }),
+  "fleet.runtime.event.result/v1": shape({
+    ...reply,
+    replicationSequence: uint,
+    event: nullable(record),
+    receipt: record,
+  }),
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, replicationSequence: uint, receipt: record }),
   "fleet.runtime.await/v1": shape({

@@ -6,6 +6,8 @@ import {
   compileAgentRetired,
   compileDecisionWrite,
   compileFactWrite,
+  decisionWritePlan,
+  decisionReviewContentDigest,
   getExecutableEntityAction,
   isSamePerson,
   parseEntityRef,
@@ -13,7 +15,9 @@ import {
   readAcceptedCommandOutcome,
   timestamp,
   type AuthorizationDecision,
+  type CanonicalEventCut,
   type CanonicalEventStore,
+  type DecisionEventV1,
   type RepositorySettingsV1,
   type EntityActionContract,
   type EntityActionDraft,
@@ -23,22 +27,12 @@ import {
   type EntityDeletedBundle,
   type AgentRetiredBundle,
   type EventPublicationKillpoint,
+  type FactEventV1,
   type SessionIdentity,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { prepareDecisionAmend, validateDecisionPackages } from "./decision-surface-actions.ts";
-import {
-  decisionFilters,
-  decisionPreview,
-  decisionReceipt,
-  decisionSummary,
-  factPreview,
-  factReceipt,
-  preparedEntityReport,
-  previewReceipt,
-  readReceipt,
-} from "./entity-action-catalog-receipts.ts";
 import { supersededFactDocumentSource } from "./fact-supersede-document.ts";
 import {
   archiveAllFacts,
@@ -52,7 +46,9 @@ import {
   compileRuntimeSessionDraft,
   isRuntimeSessionBundle,
   type RuntimeSessionBundle,
+  type RuntimeSessionNoChanges,
 } from "./entity-action-runtime-session.ts";
+import { noChanges } from "./entity-action-write-helpers.ts";
 import { matchingReplayBundle } from "./entity-action-replay.ts";
 import {
   executeArtifactEntityImport,
@@ -67,12 +63,11 @@ import { decisionReviewState } from "./decision-review-read.ts";
 import { assertDecisionReviewerIndependent } from "./decision-review-authorization.ts";
 import { reconcileDecisionReviewAwaitAfterWrite } from "./decision-review-awaits.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
-
 type ExecutableAction = EntityActionContract & { readonly execution: EntityActionExecutionContract };
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
 type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle | AgentRetiredBundle;
-type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle;
+type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle | RuntimeSessionNoChanges;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
@@ -90,7 +85,6 @@ export interface EntityActionCatalogRuntimes {
   readonly task?: (...args: Parameters<EntityActionCatalogRunner>) => Promise<WriteReceipt>;
   readonly prepare?: Readonly<Record<string, EntityActionCatalogPreparer>>;
 }
-
 export function makeEntityActionCatalogExecutor(input: {
   readonly rootDir?: string;
   readonly repositoryId?: string;
@@ -103,7 +97,6 @@ export function makeEntityActionCatalogExecutor(input: {
 }) {
   const decisions = makeDecisionService({ eventStore: input.store, projection: input.projection }),
     facts = makeFactService({ eventStore: input.store, projection: input.projection });
-
   const runCompiled = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const contract = executableAction(action.kind);
     if (contract.execution.read) {
@@ -151,7 +144,6 @@ export function makeEntityActionCatalogExecutor(input: {
     reconcileDecisionReviewAwaitAfterWrite(action, binding, opId, input);
     return receipt;
   };
-
   const run = (
     action: RepoTaskAction,
     binding: RepoCellBinding,
@@ -217,7 +209,6 @@ export function makeEntityActionCatalogExecutor(input: {
       .task(contract, action, binding, opId)
       .then((receipt) => deriveActionResult(contract, action, receipt));
   };
-
   const repinAll = (action: RepoTaskAction, binding: RepoCellBinding, opId: string): WriteReceipt => {
     const ids = decisions.list({}).decisions.map(({ decisionId }) => decisionId),
       initialRevision = input.store.readHead()?.revision ?? 0,
@@ -283,7 +274,6 @@ export function makeEntityActionCatalogExecutor(input: {
       },
     };
   };
-
   const runWrite = (
     contract: ExecutableAction,
     rawAction: RepoTaskAction,
@@ -305,7 +295,7 @@ export function makeEntityActionCatalogExecutor(input: {
               : rawAction
       ) as RepoTaskAction,
       dryRun = action.dryRun === true,
-      existing = dryRun ? null : input.store.readEvent(opId),
+      existing = dryRun || contract.target.kind === "runtime-session" ? null : input.store.readEvent(opId),
       requestedTime = typeof action.decidedAt === "string" ? action.decidedAt : undefined,
       occurredAt = existing?.occurredAt ?? requestedTime ?? input.now();
     if (contract.target.kind === "relation" && dryRun)
@@ -344,21 +334,31 @@ export function makeEntityActionCatalogExecutor(input: {
         binding,
       });
     }
+    if ("noChanges" in bundle)
+      return deriveActionResult(
+        contract,
+        action,
+        noChanges({
+          opId,
+          revision: input.store.readHead()?.revision ?? 0,
+          headRevision: input.projection.readCut().watermark,
+          evidence: JSON.stringify({
+            schema: "runtime-session-no-changes/v1",
+            runtimeSessionId: bundle.runtimeSessionId,
+            action: contract.id,
+          }),
+          authorizationDecision,
+          origin: `runtime-session/${contract.id}`,
+        }),
+      );
     if (isRuntimeSessionBundle(bundle)) {
       if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       return deriveActionResult(
         contract,
         action,
-        commitRuntimeSessionBundle(
-          input.store,
-          input.projection,
-          bundle,
-          existing !== null,
-          authorizationDecision,
-          () => {
-            if (existing === null) publicationKillpoints(input.killpoint);
-          },
-        ),
+        commitRuntimeSessionBundle(input.store, input.projection, bundle, authorizationDecision, () => {
+          if (existing === null) publicationKillpoints(input.killpoint);
+        }),
       );
     }
     if (isEntityBundle(bundle)) {
@@ -373,19 +373,16 @@ export function makeEntityActionCatalogExecutor(input: {
         runEntityWrite(bundle, action, existing !== null, authorizationDecision),
       );
     }
-    // Fact writes preview like their batch sibling (ha fact archive --ids-file) and like Decision
-    // writes: the compiled event is named, nothing is appended, and the receipt stays pending.
-    if (isFactBundle(bundle)) {
-      if (dryRun) return factPreview(bundle.event, input.store.readHead()?.revision ?? 0, authorizationDecision);
-      const result = facts.record(bundle);
-      publicationKillpoints(input.killpoint);
-      return factReceipt(result, bundle.event);
-    }
     if (dryRun) {
       if (bundle.event.schema !== "decision-event/v1")
         reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       input.projection.admitDecision(bundle.event);
       return { ...decisionPreview(bundle.event, input.store.readHead()?.revision ?? 0), authorizationDecision };
+    }
+    if (isFactBundle(bundle)) {
+      const result = facts.record(bundle);
+      publicationKillpoints(input.killpoint);
+      return factReceipt(result, bundle.event);
     }
     const result = decisions.record(bundle);
     publicationKillpoints(input.killpoint);
@@ -403,7 +400,6 @@ export function makeEntityActionCatalogExecutor(input: {
       ),
     );
   };
-
   const runEntityWrite = (
     bundle: EntityCatalogBundle,
     action: RepoTaskAction,
@@ -465,7 +461,6 @@ export function makeEntityActionCatalogExecutor(input: {
           ...receipt,
         };
   };
-
   const compileAction = (
     contract: ExecutableAction,
     action: Readonly<Record<string, unknown>>,
@@ -530,10 +525,8 @@ export function makeEntityActionCatalogExecutor(input: {
       readDecisionReviewRequirement,
     );
   };
-
   return Object.freeze({ run });
 }
-
 export function deriveActionResult(
   contract: EntityActionContract,
   action: RepoTaskAction,
@@ -579,7 +572,6 @@ export function deriveActionResult(
     nextActions: Object.freeze([...(receipt.nextActions ?? [])]),
   };
 }
-
 function resolveActionCriterion(contract: EntityActionContract, criterionRef: string): EntityActionUnmetCriterionV1 {
   const criterion = contract.criteria.find(({ ref }) => ref === criterionRef);
   if (!criterion)
@@ -589,7 +581,6 @@ function resolveActionCriterion(contract: EntityActionContract, criterionRef: st
     );
   return { ref: criterion.ref, failureCode: criterion.failureCode, explain: criterion.explain };
 }
-
 function reclassificationAction(
   action: Readonly<Record<string, unknown>>,
   projection: TaskProjection,
@@ -609,7 +600,6 @@ function reclassificationAction(
     memoryTags: fact.memoryTags,
   };
 }
-
 function executableAction(ingress: string): ExecutableAction {
   const action = getExecutableEntityAction(ingress);
   if (!action?.execution)
@@ -618,23 +608,18 @@ function executableAction(ingress: string): ExecutableAction {
     });
   return action as ExecutableAction;
 }
-
 function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
-  return bundle.event.schema === "fact-event/v1";
+  return "event" in bundle && bundle.event.schema === "fact-event/v1";
 }
-
 function isDecisionBundle(bundle: CatalogBundle): bundle is DecisionBundle {
-  return bundle.event.schema === "decision-event/v1";
+  return "event" in bundle && bundle.event.schema === "decision-event/v1";
 }
-
 function isEntityBundle(bundle: CatalogBundle): bundle is EntityCatalogBundle {
-  return bundle.event.schema === "entity-event/v1";
+  return "event" in bundle && bundle.event.schema === "entity-event/v1";
 }
-
 function isEntityUpsertBundle(bundle: EntityCatalogBundle): bundle is EntityUpsertBundle {
   return bundle.event.type === "entity_upserted";
 }
-
 function compileDraft(
   projection: TaskProjection,
   draft: EntityActionDraft,
@@ -710,7 +695,6 @@ function compileDraft(
     decisionReviewRequirement: readDecisionReviewRequirement(),
   });
 }
-
 function decisionCoverage(action: Readonly<Record<string, unknown>>, service: ReturnType<typeof makeDecisionService>) {
   const decisionId = requiredCommandText(action.decisionId, "decisionId"),
     taskId = requiredCommandText(action.taskId, "taskId");
@@ -718,7 +702,6 @@ function decisionCoverage(action: Readonly<Record<string, unknown>>, service: Re
   const coverage = service.coverage(decisionId);
   return { decisionId, taskId, basisRevision: coverage.watermark, rows: coverage.coverageRows };
 }
-
 function decisionAuthorization(
   action: RepoTaskAction,
   binding: RepoCellBinding,
@@ -768,7 +751,6 @@ function decisionAuthorization(
     );
   return authorizationDecision;
 }
-
 function decisionApproval(
   action: Readonly<Record<string, unknown>>,
   binding: RepoCellBinding,
@@ -800,7 +782,163 @@ function decisionApproval(
     channel: action.consentChannel as "chat" | "cli" | "gui",
   };
 }
-
+function factReceipt(
+  result: {
+    readonly revision: number;
+    readonly watermark: number;
+    readonly commitSha: string | null;
+    readonly cut: CanonicalEventCut;
+    readonly path: string;
+    readonly fact: { readonly factId: string; readonly evidenceSource: string };
+  },
+  event: FactEventV1,
+): WriteReceipt & {
+  readonly path: string;
+  readonly commitSha: string | null;
+  readonly cut: CanonicalEventCut;
+  readonly worktreeVisible: true;
+  readonly factId: string;
+} {
+  const canonicalVisible =
+      result.cut.opId === event.opId &&
+      result.cut.revision === result.revision &&
+      result.revision === event.workspaceRevision,
+    base = {
+      opId: event.opId,
+      revision: result.revision,
+      evidence: JSON.stringify({
+        ...result.fact,
+        path: result.path,
+        eventId: event.eventId,
+        commitSha: result.commitSha,
+      }),
+      visibility: "center" as const,
+      proof: {
+        committedRevision: result.revision,
+        appliedCut: result.watermark,
+        durable: canonicalVisible,
+        canonicalVisible,
+        worktreeVisible: true as const,
+      },
+      path: result.path,
+      commitSha: result.commitSha,
+      cut: result.cut,
+      worktreeVisible: true as const,
+      factId: result.fact.factId,
+    };
+  return canonicalVisible
+    ? { outcome: "applied", ...base }
+    : {
+        outcome: "pending",
+        ...base,
+      };
+}
+function decisionReceipt(
+  result: {
+    readonly revision: number;
+    readonly watermark: number;
+    readonly commitSha: string | null;
+    readonly cut: CanonicalEventCut;
+    readonly path: string;
+    readonly documentSha256: string;
+    readonly decision: unknown;
+  },
+  event: DecisionEventV1,
+  authorizationDecision: AuthorizationDecision,
+  defaultedFields: readonly string[] = [],
+  reviewRequirement: RepositorySettingsV1["decisionReviewRequirement"],
+): WriteReceipt {
+  const consentId = "judgmentConsent" in event.payload ? event.payload.judgmentConsent.consentId : null,
+    relationReplacement =
+      event.type === "decision_relation_replaced"
+        ? { retiredRelationId: event.payload.relationId, replacementRelationId: event.payload.replacement.relation_id }
+        : null,
+    canonicalVisible =
+      result.cut.opId === event.opId &&
+      result.cut.revision === result.revision &&
+      result.revision === event.workspaceRevision,
+    base = {
+      opId: event.opId,
+      decisionId: event.decisionId,
+      revision: result.revision,
+      evidence: JSON.stringify({
+        ...(result.decision as object),
+        path: result.path,
+        eventId: event.eventId,
+        commitSha: result.commitSha,
+        cut: result.cut,
+        documentSha256: result.documentSha256,
+        consentId,
+        ...(defaultedFields.length ? { defaultedFields } : {}),
+        ...(relationReplacement ? { relationReplacement } : {}),
+      }),
+      visibility: "center" as const,
+      proof: {
+        committedRevision: result.revision,
+        appliedCut: result.watermark,
+        durable: canonicalVisible,
+        canonicalVisible,
+        worktreeVisible: true as const,
+      },
+      path: result.path,
+      commitSha: result.commitSha,
+      cut: result.cut,
+      documentSha256: result.documentSha256,
+      worktreeVisible: true as const,
+      consentId,
+      authorizationDecision,
+    },
+    nextActions = decisionReceiptNextActions(event, result.decision, reviewRequirement),
+    receipt = { ...base, ...(nextActions.length ? { nextActions } : {}) };
+  return canonicalVisible ? { outcome: "applied", ...receipt } : { outcome: "pending", ...receipt };
+}
+function decisionReceiptNextActions(
+  event: DecisionEventV1,
+  value: unknown,
+  requirement: RepositorySettingsV1["decisionReviewRequirement"],
+): readonly string[] {
+  if (
+    !["decision_proposed", "decision_amended", "decision_review_responded"].includes(event.type) ||
+    !value ||
+    typeof value !== "object" ||
+    !("body" in value)
+  )
+    return [];
+  const decision = value as Parameters<typeof decisionReviewContentDigest>[0] & {
+      readonly body: { readonly body: string } | null;
+    },
+    required =
+      requirement === "all" ||
+      (requirement === "high" && decision.riskTier === "high") ||
+      (requirement === "medium_and_high" && decision.riskTier !== "low");
+  if (!required || !decision.body) return [];
+  const digest = decisionReviewContentDigest(decision, decision.body.body);
+  return [`ha decision dispatch-review ${decision.decisionId} --expected-digest ${digest}`];
+}
+function decisionPreview(event: DecisionEventV1, revision: number): WriteReceipt {
+  return {
+    outcome: "pending",
+    opId: "preview:" + createHash("sha256").update(event.opId).digest("hex"),
+    revision,
+    evidence: JSON.stringify({
+      schema: "decision-write-preview/v1",
+      decisionId: event.decisionId,
+      eventType: event.type,
+      targetRevision: event.workspaceRevision,
+      document: event.payload.decisionDocumentClaim,
+      writePlan: decisionWritePlan(event),
+      dryRun: true,
+    }),
+    visibility: "center",
+    proof: {
+      committedRevision: revision,
+      appliedCut: revision,
+      durable: false,
+      canonicalVisible: false,
+      worktreeVisible: false,
+    },
+  };
+}
 function entityPreview(
   contract: ExecutableAction,
   action: RepoTaskAction,
@@ -810,19 +948,26 @@ function entityPreview(
 ): WriteReceipt {
   const claim = bundle.event.payload.declarationDocumentClaim;
   return {
-    ...previewReceipt(
-      bundle.event.opId,
-      revision,
-      JSON.stringify({
-        report: preparedEntityReport(action),
-        eventType: bundle.event.type,
-        targetRevision: bundle.event.workspaceRevision,
-        declaration: claim,
-        writePlan: bundle.plan,
-        dryRun: true,
-      }),
-      authorizationDecision,
-    ),
+    outcome: "pending",
+    opId: `preview:${createHash("sha256").update(bundle.event.opId).digest("hex")}`,
+    revision,
+    evidence: JSON.stringify({
+      report: preparedEntityReport(action),
+      eventType: bundle.event.type,
+      targetRevision: bundle.event.workspaceRevision,
+      declaration: claim,
+      writePlan: bundle.plan,
+      dryRun: true,
+    }),
+    visibility: "center",
+    proof: {
+      committedRevision: revision,
+      appliedCut: revision,
+      durable: false,
+      canonicalVisible: false,
+      worktreeVisible: false,
+    },
+    authorizationDecision,
     unmetCriteria: [],
     effects: [],
     updatedProjection: null,
@@ -830,8 +975,99 @@ function entityPreview(
     nextActions: ["Remove --dry-run to publish this Agent declaration through the canonical event stream."],
   };
 }
-
+function preparedEntityReport(action: RepoTaskAction): Readonly<Record<string, unknown>> {
+  const prepared = action.preparedEntityAction;
+  if (!prepared || typeof prepared !== "object" || Array.isArray(prepared)) return {};
+  const report = (prepared as Readonly<Record<string, unknown>>).report;
+  return report && typeof report === "object" && !Array.isArray(report)
+    ? (report as Readonly<Record<string, unknown>>)
+    : {};
+}
+function readReceipt<
+  T extends { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number },
+>(command: string, read: T): WriteReceipt {
+  const base = {
+    opId: `read:${command}`,
+    revision: read.sourceRevision,
+    evidence: JSON.stringify(read),
+    visibility: "center" as const,
+    proof: {
+      committedRevision: read.sourceRevision,
+      appliedCut: read.watermark,
+      durable: true,
+      canonicalVisible: read.status === "ready",
+      worktreeVisible: null,
+    },
+  };
+  return read.status === "ready" ? { outcome: "applied", ...base } : { outcome: "pending", ...base };
+}
+function decisionFilters(action: Readonly<Record<string, unknown>>) {
+  const allowed = ["kind", "search", "legacyId", "legacyRange", "state", "module", "productLine", "limit", "cursor"],
+    range = action.legacyRange === undefined ? null : object(action.legacyRange, "legacyRange");
+  if (
+    Object.keys(action).some((field) => !allowed.includes(field)) ||
+    (action.limit !== undefined &&
+      (typeof action.limit !== "number" ||
+        !Number.isSafeInteger(action.limit) ||
+        action.limit < 1 ||
+        action.limit > 500)) ||
+    (action.cursor !== undefined && (typeof action.cursor !== "string" || !action.cursor.trim())) ||
+    ["search", "module", "productLine"].some(
+      (field) => action[field] !== undefined && (typeof action[field] !== "string" || !String(action[field]).trim()),
+    ) ||
+    (action.legacyId !== undefined &&
+      (typeof action.legacyId !== "string" || !/^E[1-9][0-9]*$/u.test(action.legacyId))) ||
+    (action.state !== undefined &&
+      !["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"].includes(
+        String(action.state),
+      )) ||
+    (range &&
+      (Object.keys(range).length !== 2 ||
+        !Number.isInteger(range.start) ||
+        !Number.isInteger(range.end) ||
+        Number(range.start) < 1 ||
+        Number(range.end) < Number(range.start)))
+  )
+    reject("invalid_command", "Decision list filters are invalid or unknown.");
+  return {
+    ...(typeof action.search === "string" ? { search: action.search } : {}),
+    ...(typeof action.legacyId === "string" ? { legacyId: action.legacyId } : {}),
+    ...(range ? { legacyRange: range as { readonly start: number; readonly end: number } } : {}),
+    ...(typeof action.state === "string" ? { state: action.state as never } : {}),
+    ...(typeof action.module === "string" ? { module: action.module } : {}),
+    ...(typeof action.productLine === "string" ? { productLine: action.productLine } : {}),
+    ...(typeof action.limit === "number" ? { limit: action.limit } : {}),
+    ...(typeof action.cursor === "string" ? { cursor: action.cursor } : {}),
+  };
+}
+function decisionSummary(row: {
+  readonly decisionId: string;
+  readonly legacyId?: string;
+  readonly state: string;
+  readonly title: string;
+  readonly question: string;
+  readonly chosen: readonly unknown[];
+  readonly rejected: readonly unknown[];
+  readonly path: string;
+  readonly workspaceRevision: number;
+}) {
+  return {
+    decisionId: row.decisionId,
+    ...(row.legacyId ? { legacyId: row.legacyId } : {}),
+    state: row.state,
+    title: row.title,
+    question: row.question,
+    chosen: row.chosen,
+    rejected: row.rejected,
+    path: row.path,
+    workspaceRevision: row.workspaceRevision,
+  };
+}
 function requiredCommandText(value: unknown, field: string): string {
   if (typeof value === "string" && value.trim()) return value;
   reject("invalid_command", `${field} is required.`);
+}
+function object(value: unknown, field: string): Readonly<Record<string, unknown>> {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value as Readonly<Record<string, unknown>>;
+  reject("invalid_command", `${field} must be an object.`);
 }

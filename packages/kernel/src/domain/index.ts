@@ -206,7 +206,7 @@ export type {
   EntityActionExecutionContract,
 } from "./entity-action-execution.ts";
 export { attributeEntityActionCriterion, entityActionCriterionFailure } from "./entity-action-execution.ts";
-export { runtimeSessionActionIds, runtimeSessionActionPayload } from "./runtime-session-action-contract.ts";
+export { runtimeSessionActionIds } from "./runtime-session-action-contract.ts";
 export type { RuntimeSessionActionDraft } from "./runtime-session-action-contract.ts";
 export { squadActionUsage } from "./squad-action-contract.ts";
 

@@ -5,6 +5,7 @@ import {
   type AgentRuntimeEventV1,
   type RuntimeSession,
   RuntimeSessionAdoptionStaleError,
+  RuntimeSessionFieldConflictError,
 } from "./agent-runtime.ts";
 import type {
   EntityActionContract,
@@ -36,6 +37,7 @@ export interface RuntimeSessionActionDraft {
   readonly kind: "runtime-session";
   readonly event: RuntimeSessionActionEvent;
   readonly resultBody?: string;
+  readonly noChanges?: true;
 }
 
 const input = (fields: readonly EntityActionInputField[]): EntityActionInputContract =>
@@ -142,10 +144,10 @@ const concurrency = Object.freeze({
   }),
   occurrenceClaim: noOccurrence,
   idempotency: Object.freeze({
-    authority: "operation-id",
-    input: "idempotencyKey",
+    authority: "runtime-session state",
+    input: "runtimeSessionId",
     scope: "runtime-session/{runtimeSessionId}/event",
-    retry: "canonical-event-replay",
+    retry: "state-transition",
   }),
   artifactOwnership: Object.freeze({
     owner: "dispatch/{dispatchId}",
@@ -187,7 +189,7 @@ export function createRuntimeSessionActionCatalog(
   });
 }
 
-export function runtimeSessionActionPayload(
+function runtimeSessionActionPayload(
   id: RuntimeSessionActionId,
   action: Readonly<Record<string, unknown>>,
 ): AgentRuntimeEventV1["payload"] {
@@ -223,14 +225,21 @@ function compileRuntimeSessionAction(
     } as RuntimeSessionActionEvent,
     errors = validateCurrentAgentRuntimeEvent(event);
   if (errors.length) invalidRuntimeSessionAction("invalid_runtime_event", errors.join("; "));
+  let noChanges = false;
   try {
-    reduceRuntimeSession((input.currentEntity as RuntimeSession | null | undefined) ?? null, event);
+    const current = (input.currentEntity as RuntimeSession | null | undefined) ?? null;
+    noChanges = reduceRuntimeSession(current, event) === current;
   } catch (error) {
     consumeKnownError(error);
     const message = error instanceof Error ? error.message : String(error);
-    const adoptionFailure = error instanceof RuntimeSessionAdoptionStaleError;
+    const adoptionFailure = error instanceof RuntimeSessionAdoptionStaleError,
+      fieldConflict = error instanceof RuntimeSessionFieldConflictError;
     invalidRuntimeSessionAction(
-      adoptionFailure ? "runtime_session_adoption_stale" : "runtime_session_transition_invalid",
+      adoptionFailure
+        ? "runtime_session_adoption_stale"
+        : fieldConflict
+          ? "runtime_session_field_conflict"
+          : "runtime_session_transition_invalid",
       message,
       id,
       adoptionFailure ? "runtime-session/adoption-fence" : "runtime-session/current-state",
@@ -254,6 +263,7 @@ function compileRuntimeSessionAction(
   return {
     kind: "runtime-session",
     event,
+    ...(noChanges ? { noChanges: true as const } : {}),
     ...(typeof resultBody === "string" ? { resultBody } : {}),
   };
 }

@@ -246,7 +246,6 @@ export interface RemoteRuntimePersistence {
     readonly credential: string;
     readonly expiresAt: string;
   };
-  readonly existing: (opId: string) => Promise<JsonObject | null>;
   readonly taskContext: (
     taskId: string,
     missionName?: string,
@@ -279,7 +278,7 @@ export interface RemoteRuntimePersistence {
     readonly resultBody?: string;
     readonly dispatchContext?: FleetRuntimeDispatchContext;
   }) => Promise<{
-    readonly event: AgentRuntimeEventV1;
+    readonly event: AgentRuntimeEventV1 | null;
     readonly receipt: JsonObject;
   }>;
   readonly archive: (archive: RuntimeDispatchArchive) => Promise<{ readonly outcome: string }>;

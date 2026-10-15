@@ -117,7 +117,7 @@ test("runtime spawn maps the GUI Claude kind to a canonical claude-compatible in
           cwd: { scope: "repo-root" },
           prompt: "Inspect the repository",
           taskId: null,
-          idempotencyKey: "spawn-claude-once",
+          dispatchKey: "spawn-claude-once",
         },
         withPolicyGroup(
           {
@@ -222,7 +222,7 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
             prompt: "Review the repository",
             permissionMode: "workspace-write",
             taskId: null,
-            idempotencyKey: "spawn-zcode-edit",
+            dispatchKey: "spawn-zcode-edit",
           },
           binding,
         ),
@@ -240,7 +240,7 @@ test("runtime spawn rejects unattended zcode modes that require a permission cli
           prompt: "Review the repository",
           permissionMode: "bypass",
           taskId: null,
-          idempotencyKey: "spawn-zcode-yolo",
+          dispatchKey: "spawn-zcode-yolo",
         },
         binding,
       );
@@ -478,7 +478,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         cwd: { scope: "repo-root" },
         prompt: "Auto route one.",
         taskId: null,
-        idempotencyKey: "auto-route-one",
+        dispatchKey: "auto-route-one",
       },
       binding,
     );
@@ -491,7 +491,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         cwd: { scope: "repo-root" },
         prompt: "Auto route two.",
         taskId: null,
-        idempotencyKey: "auto-route-two",
+        dispatchKey: "auto-route-two",
       },
       binding,
     );
@@ -505,7 +505,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
           cwd: { scope: "repo-root" },
           prompt: "Missing model.",
           taskId: null,
-          idempotencyKey: "auto-route-missing",
+          dispatchKey: "auto-route-missing",
         },
         binding,
       ),
@@ -524,7 +524,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
           cwd: { scope: "repo-root" },
           prompt: "Not ready model.",
           taskId: null,
-          idempotencyKey: "auto-route-not-ready",
+          dispatchKey: "auto-route-not-ready",
         },
         binding,
       ),
@@ -545,7 +545,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
           cwd: { scope: "repo-root" },
           prompt: "Unchecked unavailable model.",
           taskId: null,
-          idempotencyKey: "auto-route-unchecked-not-ready",
+          dispatchKey: "auto-route-unchecked-not-ready",
         },
         binding,
       ),
@@ -563,7 +563,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         cwd: { scope: "repo-root" },
         prompt: "Do the work.",
         taskId: null,
-        idempotencyKey: "agent-model",
+        dispatchKey: "agent-model",
       },
       binding,
     );
@@ -590,7 +590,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         prompt: "Review without writes.",
         permissionMode: "read-only",
         taskId: null,
-        idempotencyKey: "agent-model-read-only",
+        dispatchKey: "agent-model-read-only",
       },
       binding,
     );
@@ -612,7 +612,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         cwd: { scope: "repo-root" },
         prompt: "Squad member keeps its persona.",
         taskId: null,
-        idempotencyKey: "squad-persona",
+        dispatchKey: "squad-persona",
       },
       binding,
     );
@@ -632,7 +632,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         cwd: { scope: "repo-root" },
         prompt: "Override the work.",
         taskId: null,
-        idempotencyKey: "command-model",
+        dispatchKey: "command-model",
       },
       binding,
     );
@@ -644,7 +644,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
         cwd: { scope: "repo-root" },
         prompt: "Default the work.",
         taskId: null,
-        idempotencyKey: "default-model",
+        dispatchKey: "default-model",
       },
       binding,
     );
@@ -661,7 +661,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
           cwd: { scope: "repo-root" },
           prompt: `Wildcard ${kindId}.`,
           taskId: null,
-          idempotencyKey: `any-model-${kindId}`,
+          dispatchKey: `any-model-${kindId}`,
         },
         binding,
       );
@@ -691,7 +691,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
           cwd: { scope: "repo-root" },
           prompt: "Reject missing preset.",
           taskId: null,
-          idempotencyKey: "missing-preset",
+          dispatchKey: "missing-preset",
         },
         binding,
       ),
@@ -839,7 +839,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
           cwd: { scope: "repo-root" },
           prompt: `Delegate to ${kindId}.`,
           taskId: null,
-          idempotencyKey: `squad-worker-${kindId}`,
+          dispatchKey: `squad-worker-${kindId}`,
         },
         binding,
       );
@@ -862,7 +862,7 @@ test("a squad-delegated worker injects selected absolute skill paths into every 
         cwd: { scope: "repo-root" },
         prompt: "Run as the attributed squad leader.",
         taskId: null,
-        idempotencyKey: "squad-leader-codex",
+        dispatchKey: "squad-leader-codex",
       },
       binding,
     );
@@ -967,7 +967,7 @@ test("Agent skill is really read by the provider from the absolute path in its f
         cwd: { scope: "repo-root" },
         prompt: "Use the skill.",
         taskId: null,
-        idempotencyKey: "agent-skill-provider-witness",
+        dispatchKey: "agent-skill-provider-witness",
       },
     });
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -1083,7 +1083,7 @@ test("Codex API-key bearer remains confined to the private provider config", asy
             cwd: { scope: "repo-root" },
             prompt: "Inspect",
             taskId: null,
-            idempotencyKey: "private-bearer",
+            dispatchKey: "private-bearer",
           },
           withPolicyGroup(
             {

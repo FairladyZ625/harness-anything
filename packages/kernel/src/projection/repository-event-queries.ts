@@ -33,6 +33,7 @@ const RUNTIME_DISPATCHES_SQL = [
   "ORDER BY workspace_revision",
 ].join(" ");
 const RUNTIME_DISPATCH_BY_ID_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.dispatchId') = ? ORDER BY workspace_revision")} LIMIT 1`;
+const RUNTIME_DISPATCH_BY_KEY_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.dispatchKey') = ? ORDER BY workspace_revision")} LIMIT 1`;
 const RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL = `${RUNTIME_DISPATCHES_SQL.replace("ORDER BY workspace_revision", "AND json_extract(event_json, '$.payload.resumedFromDispatchId') = ? ORDER BY workspace_revision")} LIMIT 1`;
 const RUNTIME_DISPATCHES_BY_FIELD_SQL = (field: string) =>
   RUNTIME_DISPATCHES_SQL.replace(
@@ -91,6 +92,7 @@ export function repositoryEventQueries(
   | "readRuntimeDispatch"
   | "readRuntimeDispatches"
   | "readRuntimeDispatchById"
+  | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesBySession"
   | "readRuntimeDispatchesByTaskExecution"
@@ -188,6 +190,8 @@ export function repositoryEventQueries(
       ),
     readRuntimeDispatchById: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_ID_SQL, dispatchId))),
+    readRuntimeDispatchByDispatchKey: (dispatchKey) =>
+      withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_KEY_SQL, dispatchKey))),
     readRuntimeDispatchByResumeSource: (dispatchId) =>
       withRead((db) => projectedDispatch(db, queryRow(db, RUNTIME_DISPATCH_BY_RESUME_SOURCE_SQL, dispatchId))),
     readRuntimeDispatchesBySession: (runtimeSessionIdValue) =>

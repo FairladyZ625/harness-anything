@@ -54,16 +54,6 @@ export function appendAuxiliaryRuntimeIngress(
   if (action.resultBody !== undefined && action.type !== "runtime_dispatch_requested")
     throw cell.cellCodedError("invalid_runtime_event", "Only a runtime dispatch can carry auxiliary content bytes.");
   requireSquadRuntimeOwner(cell, action, binding);
-  const existing = cell.store.readEvent(action.opId);
-  if (existing) {
-    if (
-      existing.schema !== "agent-runtime-event/v1" ||
-      existing.type !== action.type ||
-      stableStringify(existing.payload) !== stableStringify(action.payload)
-    )
-      throw cell.cellCodedError("op_conflict", `Runtime opId ${action.opId} belongs to another canonical event.`);
-    return { ...runtimeIngressReceipt(cell, existing as AgentRuntimeEventV1), replayed: true };
-  }
   if (action.dispatchContext !== undefined && action.type !== "runtime_dispatch_requested")
     throw cell.cellCodedError(
       "invalid_runtime_event",
@@ -164,17 +154,30 @@ export function appendAuxiliaryRuntimeIngress(
           `Dispatch ${sourceId} was already resumed as ${successor.event.payload.dispatchId}.`,
         );
     }
-    const key = cell.requiredCellText(action.payload.idempotencyKey, "idempotencyKey"),
+    const key = cell.requiredCellText(action.payload.dispatchKey, "dispatchKey"),
       hash = createHash("sha256").update(`${cell.input.repoId}\0${key}`).digest("hex");
     if (
       action.payload.dispatchId !== `dispatch_${hash.slice(0, 24)}` ||
-      action.payload.runtimeSessionId !== `runtime_${hash.slice(24, 48)}` ||
-      action.opId !== `runtime-spawn-${hash.slice(0, 32)}`
+      action.payload.runtimeSessionId !== `runtime_${hash.slice(24, 48)}`
     )
       throw cell.cellCodedError(
         "invalid_runtime_event",
-        "Runtime dispatch identity is not derived from its repository idempotency key.",
+        "Runtime dispatch identity is not derived from its repository dispatch key.",
       );
+    const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
+    if (existing) {
+      const existingPayload = { ...existing.payload },
+        incomingPayload = { ...action.payload };
+      delete existingPayload.startedAt;
+      delete incomingPayload.startedAt;
+      if (
+        stableStringify(existingPayload) !== stableStringify(incomingPayload) ||
+        stableStringify(existing.actor) !== stableStringify(binding.actor) ||
+        stableStringify(existing.source) !== stableStringify(binding.source)
+      )
+        throw cell.cellCodedError("dispatch_key_conflict", `Dispatch key ${key} already names different content.`);
+      return { ...runtimeIngressReceipt(cell, existing), reused: true };
+    }
   }
   requireSquadRuntimeAdmission(cell, action, binding);
   const value = {

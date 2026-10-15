@@ -160,6 +160,7 @@ export interface TaskProjection {
     { readonly type: "runtime_dispatch_requested" }
   >[];
   readonly readRuntimeDispatchById: (dispatchId: string) => RuntimeDispatchProjectionRow | null;
+  readonly readRuntimeDispatchByDispatchKey: (dispatchKey: string) => RuntimeDispatchProjectionRow | null;
   readonly readRuntimeDispatchByResumeSource: (dispatchId: string) => RuntimeDispatchProjectionRow | null;
   readonly readRuntimeDispatchesBySession: (runtimeSessionId: string) => readonly RuntimeDispatchProjectionRow[];
   readonly readRuntimeDispatchesByTaskExecution: (

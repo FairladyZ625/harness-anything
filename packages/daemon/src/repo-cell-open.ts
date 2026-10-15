@@ -660,7 +660,7 @@ export async function openRepoWriterCell(
             repoId: input.repoId,
             action,
             binding: await onlineBinding(binding),
-            actionId: `squad-runtime-spawn:${String(payload.idempotencyKey ?? "current")}:${revision}`,
+            actionId: `squad-runtime-spawn:${String(payload.dispatchKey ?? "current")}:${revision}`,
             revision,
             now: now(),
           });

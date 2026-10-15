@@ -277,7 +277,7 @@ export async function proofFor(
     const dispatch = runtimeSession
         ? projection.readRuntimeDispatch(runtimeSession.runtimeSessionId, runtimeSession.definitionSnapshotRef)
         : null,
-      key = dispatch?.payload.idempotencyKey;
+      key = dispatch?.payload.dispatchKey;
     // A runtime session bound to the submitted cut may register a verdict only when it was
     // dispatched as a reviewer. A read-only attach binds to the cut to observe it, and an
     // implementation sibling binds to it to build it; for either, binding is observation

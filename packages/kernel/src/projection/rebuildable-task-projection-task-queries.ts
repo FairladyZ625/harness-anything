@@ -97,6 +97,7 @@ export function taskQueryApi(
   | "readRuntimeDispatch"
   | "readRuntimeDispatches"
   | "readRuntimeDispatchById"
+  | "readRuntimeDispatchByDispatchKey"
   | "readRuntimeDispatchByResumeSource"
   | "readRuntimeDispatchesBySession"
   | "readRuntimeDispatchesByTaskExecution"

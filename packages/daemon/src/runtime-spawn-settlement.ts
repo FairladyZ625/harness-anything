@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
@@ -31,11 +31,7 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
-  if (
-    context.exiting.has(active.runtimeSessionId) ||
-    (!context.input.remote && context.requiredRuntimeStore(context.input).readEvent(`${active.dispatchOpId}-outcome`))
-  )
-    return;
+  if (context.exiting.has(active.runtimeSessionId)) return;
   context.exiting.add(active.runtimeSessionId);
   // Every terminal path — success, failure, cancellation, and the daemon-restart loss
   // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -287,7 +283,7 @@ export async function publishExit(
       await context.publishRuntimeEvent(
         "runtime_session_cancelled",
         { runtimeSessionId: active.runtimeSessionId },
-        active.cancelOpId ?? `${active.dispatchOpId}-cancelled`,
+        active.cancelOpId ?? randomUUID(),
         cancelBinding,
       );
     }
@@ -375,17 +371,17 @@ async function publishTerminalOutcome(
   await context.publishRuntimeEvent(
     "runtime_session_exited",
     { runtimeSessionId: active.runtimeSessionId },
-    `${active.dispatchOpId}-exited`,
+    randomUUID(),
     terminalBinding,
   );
   const outcomeEvent = await context.publishRuntimeEvent(
     "runtime_session_outcome_observed",
     payload,
-    `${active.dispatchOpId}-outcome`,
+    randomUUID(),
     terminalBinding,
     body,
   );
-  context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
+  if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
   context.input.recordLifecycle?.({
     event: "runtime_exit",
     runtimeSessionId: active.runtimeSessionId,

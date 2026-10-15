@@ -99,7 +99,7 @@ export async function runRuntimeFacadeCommand(
       ...command,
       action: {
         ...spawnAction,
-        idempotencyKey: action.idempotencyKey ?? `runtime-cli-${randomUUID()}`,
+        dispatchKey: `runtime-cli-${randomUUID()}`,
       },
     });
   // --dry-run: the daemon returned the assembled dispatch preview; print the

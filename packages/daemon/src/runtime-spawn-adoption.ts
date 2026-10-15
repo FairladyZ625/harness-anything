@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -136,7 +137,7 @@ export async function adoptRuntimes(
           await context.publishRuntimeEvent(
             "runtime_session_liveness_changed",
             { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
-            `${active.dispatchOpId}-adopt-${String(context.input.daemonGeneration)}`,
+            randomUUID(),
             active.binding,
           );
         }

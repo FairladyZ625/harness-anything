@@ -84,6 +84,8 @@ test("runtime event receipts require the center replication position", () => {
       receipt: { outcome: "applied" },
     };
   assert.deepEqual(parseFleetFrame(event), event);
+  const noChanges = { ...event, event: null, receipt: { outcome: "no_changes", code: "no_changes" } };
+  assert.deepEqual(parseFleetFrame(noChanges), noChanges);
   assert.deepEqual(parseFleetFrame(archive), archive);
   const { replicationSequence: _sequence, ...missingEventSequence } = event;
   assert.throws(() => parseFleetFrame(missingEventSequence), FleetContractError);

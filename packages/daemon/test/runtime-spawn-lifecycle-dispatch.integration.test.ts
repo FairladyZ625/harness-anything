@@ -159,7 +159,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             cwd: { scope: "repo-root" },
             prompt: "Reject the misspelled field",
             taskId: null,
-            idempotencyKey: "spawn-unknown-field",
+            dispatchKey: "spawn-unknown-field",
           },
           binding,
         ),
@@ -170,7 +170,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           error.message ===
             'Runtime spawn payload contains an unknown field "permission_mode"; allowed fields: "handoffEnabled", "runtimeInstanceId", ' +
               '"dispatchId", "agentId", "targetAgentId", "squadId", "squadRun", "role", "model", "effort", "fast", "permissionMode", "cwd", ' +
-              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "executionId", "reviewTarget", "idempotencyKey", ' +
+              '"prompt", "promptSource", "missionName", "onExitCommand", "taskId", "executionId", "reviewTarget", "dispatchKey", ' +
               '"providerSessionId", "dryRun".',
       );
       await assert.rejects(
@@ -188,7 +188,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           cwd: { scope: "repo-root" },
           prompt: "Inspect the repository",
           taskId: null,
-          idempotencyKey: "spawn-once",
+          dispatchKey: "spawn-once",
         },
         withPolicyGroup(
           {
@@ -213,24 +213,15 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         cwd: canonicalRoot(root),
         prompt: "Inspect the repository",
       });
-      await eventually(() =>
-        makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root })
-          .read()
-          .events.some(
-            (candidate) =>
-              candidate.type === "runtime_session_liveness_changed" &&
-              candidate.payload.runtimeSessionId === receipt.runtimeSessionId &&
-              candidate.payload.liveness === "live",
-          ),
-      );
       const events = makeTaskEventReader({ repoId: "runtime-spawn", rootDir: root }).read().events,
         observed = events.find((candidate) => candidate.type === "runtime_installation_observed"),
         dispatch = events.find((candidate) => candidate.type === "runtime_dispatch_requested"),
         started = events.find((candidate) => candidate.type === "runtime_session_started"),
-        live = events.find(
+        redundantLive = events.find(
           (candidate) =>
             candidate.type === "runtime_session_liveness_changed" &&
-            candidate.payload.runtimeSessionId === receipt.runtimeSessionId,
+            candidate.payload.runtimeSessionId === receipt.runtimeSessionId &&
+            candidate.payload.liveness === "live",
         );
       assert.equal(
         observed?.type === "runtime_installation_observed" && observed.payload.installationId,
@@ -242,7 +233,8 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
       );
       assert.ok(events.indexOf(observed!) < events.indexOf(dispatch!));
       assert.ok(events.indexOf(dispatch!) < events.indexOf(started!));
-      assert.ok(events.indexOf(started!) < events.indexOf(live!));
+      // dec_3E49EDAB95D138B044C8C40169: started already projects live; its equal liveness write is no_changes.
+      assert.equal(redundantLive, undefined);
       assert.equal(
         dispatch?.type === "runtime_dispatch_requested" && dispatch.payload.instanceId,
         definition.instanceId,
@@ -329,7 +321,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           cwd: { scope: "repo-root" },
           prompt: "Inspect with alternate model",
           taskId: null,
-          idempotencyKey: "spawn-terra",
+          dispatchKey: "spawn-terra",
         },
         withPolicyGroup(
           {
@@ -359,7 +351,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           cwd: { scope: "repo-root" },
           prompt: "Mechanical task",
           taskId: null,
-          idempotencyKey: "spawn-low",
+          dispatchKey: "spawn-low",
         },
         withPolicyGroup(
           {
@@ -389,7 +381,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           cwd: { scope: "repo-root" },
           prompt: "Locked task",
           taskId: null,
-          idempotencyKey: "spawn-locked",
+          dispatchKey: "spawn-locked",
         },
         withPolicyGroup(
           {
@@ -416,7 +408,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
           cwd: { scope: "repo-root" },
           prompt: "Hard task",
           taskId: null,
-          idempotencyKey: "spawn-xhigh",
+          dispatchKey: "spawn-xhigh",
         },
         withPolicyGroup(
           {
@@ -459,7 +451,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
             cwd: { scope: "repo-root" },
             prompt: "Legacy",
             taskId: null,
-            idempotencyKey: "legacy",
+            dispatchKey: "legacy",
           },
           withPolicyGroup(
             {
@@ -543,7 +535,7 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
           instructions: "Run the retired runtime claim probe.",
           runtimes: [{ type: "codex" }],
         },
-        idempotencyKey: "retired-runtime-install",
+        dispatchKey: "retired-runtime-install",
       },
       binding,
     );
@@ -555,7 +547,7 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
         cwd: { scope: "repo-root" },
         prompt: "This claim completes before retirement.",
         taskId: null,
-        idempotencyKey: "claim-before-retire",
+        dispatchKey: "claim-before-retire",
       },
       binding,
     );
@@ -565,7 +557,7 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
         kind: "agent-retire",
         agentId: "retired-runtime-agent",
         reason: "stop accepting claims",
-        idempotencyKey: "retired-runtime-retire",
+        dispatchKey: "retired-runtime-retire",
       },
       binding,
     );
@@ -588,7 +580,7 @@ test("runtime claim rejects a retired Agent through the spawn entry", async () =
           cwd: { scope: "repo-root" },
           prompt: "This claim must be rejected.",
           taskId: null,
-          idempotencyKey: "retired-runtime-claim",
+          dispatchKey: "retired-runtime-claim",
         },
         binding,
       ),
@@ -669,7 +661,7 @@ test(
           cwd: { scope: "repo-root" },
           prompt: "Wait for cancellation",
           taskId: null,
-          idempotencyKey: "cancel-tree",
+          dispatchKey: "cancel-tree",
         },
         withPolicyGroup(
           {
@@ -872,7 +864,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
           cwd: { scope: "repo-root" },
           prompt: "Hold the task before the lease expires.",
           taskId,
-          idempotencyKey: "orphan-lease-initial",
+          dispatchKey: "orphan-lease-initial",
         },
         binding,
       );
@@ -910,7 +902,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
             cwd: { scope: "repo-root" },
             prompt: "Reclaim another person's orphaned lease.",
             taskId,
-            idempotencyKey: "orphan-lease-stranger",
+            dispatchKey: "orphan-lease-stranger",
           },
           withPolicyGroup(
             {
@@ -928,7 +920,7 @@ test("dispatch reclaims an orphaned task lease instead of requiring a manual rel
           cwd: { scope: "repo-root" },
           prompt: "Reclaim the orphaned lease and continue the task.",
           taskId,
-          idempotencyKey: "orphan-lease-reclaim",
+          dispatchKey: "orphan-lease-reclaim",
         },
         binding,
       );
@@ -1060,7 +1052,7 @@ test("runtime dispatch of a planned task is rejected at a full worktable", async
             cwd: { scope: "repo-root" },
             prompt: "Dispatch a planned task while the worktable is full",
             taskId: "task-wip-full-planned",
-            idempotencyKey: "wip-full-dispatch",
+            dispatchKey: "wip-full-dispatch",
           },
           binding,
         ),
@@ -1094,9 +1086,6 @@ function initIngressRepo(root: string, uid: number): void {
   git(root, "commit", "-qm", "fixture");
 }
 
-async function eventually(check: () => boolean | Promise<boolean>): Promise<void> {
-  await eventuallyValue(async () => ((await check()) ? true : null));
-}
 async function eventuallyValue<T>(read: () => T | null | Promise<T | null>): Promise<T> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
     const value = await read();

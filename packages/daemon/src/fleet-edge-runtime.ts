@@ -33,7 +33,6 @@ import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
-  readFleetReceiptClient,
   runFleetRuntimeArchiveClient,
   runFleetRuntimeEventClient,
   awaitFleetRuntimeSessionsClient,
@@ -257,14 +256,6 @@ export function openFleetEdgeRuntime(input: {
         );
         return { credential: execution.credential, expiresAt: execution.expiresAt };
       },
-      existing: async (opId) => {
-        // Idempotent-replay lookup rides the write preparation: a center busy applying the
-        // original operation must not fail the retrying dispatch's read of its receipt.
-        const receipt = await readFleetReceiptClient({ ...writePeer, opId });
-        return receipt.opId === opId && ["applied", "pending"].includes(String(receipt.outcome))
-          ? (receipt as JsonObject)
-          : null;
-      },
       taskContext: async (taskId, missionName, review) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
@@ -411,22 +402,36 @@ export function openFleetEdgeRuntime(input: {
       readRuntimeSessions: () =>
         readFleetRuntimeSessionsPaged(async (payload) => readReplica("repo.agentRuntime.overview", payload)),
       publish: async (draft) => {
-        const response = await runFleetEdgeWrite({
-          viewRoot: request.viewRoot,
-          repoId: request.repoId,
-          nodeId: request.nodeId,
-          timeoutMs: centerWriteWaitMs,
-          write: () =>
-            runFleetRuntimeEventClient({
-              ...writePeer,
-              repoId: request.repoId,
-              opId: draft.opId,
-              eventType: draft.type,
-              payload: draft.payload,
-              ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
-              ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
-            }),
-        });
+        let response: Awaited<ReturnType<typeof runFleetRuntimeEventClient>>;
+        try {
+          response = await runFleetEdgeWrite({
+            viewRoot: request.viewRoot,
+            repoId: request.repoId,
+            nodeId: request.nodeId,
+            timeoutMs: centerWriteWaitMs,
+            write: () =>
+              runFleetRuntimeEventClient({
+                ...writePeer,
+                repoId: request.repoId,
+                opId: draft.opId,
+                eventType: draft.type,
+                payload: draft.payload,
+                ...(draft.resultBody === undefined ? {} : { resultBody: draft.resultBody }),
+                ...(draft.dispatchContext === undefined ? {} : { dispatchContext: draft.dispatchContext }),
+              }),
+          });
+        } catch (error) {
+          if (
+            draft.type !== "runtime_session_started" &&
+            error instanceof Error &&
+            "code" in error &&
+            error.code === "runtime_session_transition_invalid"
+          ) {
+            console.warn("[fleet-edge-runtime] Discarded stale RuntimeSession transition:", error.message);
+            return { event: null, receipt: { outcome: "no_changes", code: "no_changes" } };
+          }
+          throw error;
+        }
         // A returned dispatch is immediately usable by local status/foreground wait. This
         // acknowledgement belongs to write preparation; subsequent reads remain offline.
         if (draft.type === "runtime_session_started") await pullRuntimeReplica();
@@ -443,7 +448,7 @@ export function openFleetEdgeRuntime(input: {
             personId: executionPrincipalId,
           });
         return {
-          event: response.event as unknown as AgentRuntimeEventV1,
+          event: response.event as unknown as AgentRuntimeEventV1 | null,
           receipt: {
             ...receipt,
             ...(typeof executionPrincipalId === "string" ? { executionPrincipalId } : {}),

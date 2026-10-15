@@ -38,7 +38,7 @@ export interface DispatchRequest {
   readonly taskId: string | null;
   readonly model?: string;
   readonly effort?: string;
-  readonly idempotencyKey: string;
+  readonly dispatchKey: string;
 }
 export const dispatchExecutorRef = (request: Pick<DispatchRequest, "subject">): DispatchAgentRef | undefined =>
   request.subject.kind === "agent" ? request.subject.agent : request.subject.leader;
@@ -82,6 +82,6 @@ export function buildDispatchSpawnInput(
     ...(request.handoffEnabled ? {} : { cwd: request.cwd }),
     prompt: request.mission,
     taskId: request.taskId,
-    idempotencyKey: request.idempotencyKey,
+    dispatchKey: request.dispatchKey,
   };
 }

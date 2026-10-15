@@ -1,25 +1,28 @@
 import {
   canonicalEventWritePlan,
-  runtimeSessionActionPayload,
-  stableStringify,
   type AuthorizationDecision,
   type CanonicalEventStore,
   type CanonicalWriteBundle,
-  type EntityActionContract,
   type RuntimeSessionActionDraft,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
-import type { RepoTaskAction } from "./repo-cell-types.ts";
 
 export type RuntimeSessionEvent = RuntimeSessionActionDraft["event"];
 export type RuntimeSessionBundle = CanonicalWriteBundle & { readonly event: RuntimeSessionEvent };
-
-export function isRuntimeSessionBundle(bundle: CanonicalWriteBundle): bundle is RuntimeSessionBundle {
-  return bundle.event.schema === "agent-runtime-event/v1";
+export interface RuntimeSessionNoChanges {
+  readonly noChanges: true;
+  readonly runtimeSessionId: string;
 }
 
-export function compileRuntimeSessionDraft(draft: RuntimeSessionActionDraft): RuntimeSessionBundle {
+export function isRuntimeSessionBundle(bundle: CanonicalWriteBundle): bundle is RuntimeSessionBundle {
+  return "event" in bundle && bundle.event.schema === "agent-runtime-event/v1";
+}
+
+export function compileRuntimeSessionDraft(
+  draft: RuntimeSessionActionDraft,
+): RuntimeSessionBundle | RuntimeSessionNoChanges {
+  if (draft.noChanges) return { noChanges: true, runtimeSessionId: draft.event.payload.runtimeSessionId };
   const claim = draft.event.type === "runtime_session_outcome_observed" ? draft.event.payload.result : null;
   if (draft.event.type === "runtime_session_outcome_observed" && (!claim || draft.resultBody === undefined))
     rejectRuntimeSessionAction(
@@ -36,54 +39,15 @@ export function compileRuntimeSessionDraft(draft: RuntimeSessionActionDraft): Ru
   };
 }
 
-export function matchingRuntimeSessionReplayBundle(
-  store: CanonicalEventStore,
-  contract: EntityActionContract,
-  action: RepoTaskAction,
-  existing: NonNullable<ReturnType<CanonicalEventStore["readEvent"]>>,
-): RuntimeSessionBundle {
-  if (
-    existing.schema !== "agent-runtime-event/v1" ||
-    existing.type !== contract.id ||
-    stableStringify(existing.payload) !==
-      stableStringify(runtimeSessionActionPayload(contract.id as RuntimeSessionEvent["type"], action))
-  )
-    rejectRuntimeSessionAction(
-      "op_conflict",
-      `RuntimeSession opId ${existing.opId} belongs to another canonical event.`,
-    );
-  const event = existing as RuntimeSessionEvent,
-    claim = event.type === "runtime_session_outcome_observed" ? event.payload.result : null,
-    bytes = claim ? store.readContentBlob(claim.sha256) : null;
-  if (claim && !bytes)
-    rejectRuntimeSessionAction("content_not_ready", `Runtime result content ${claim.sha256} is unavailable.`);
-  return {
-    event,
-    plan: canonicalEventWritePlan(event, "agent-runtime/v1", event.opId),
-    blobs:
-      claim && bytes
-        ? [
-            {
-              sha256: claim.sha256,
-              size: claim.size,
-              mediaType: claim.mediaType,
-              body: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-            },
-          ]
-        : [],
-  };
-}
-
 export function commitRuntimeSessionBundle(
   store: CanonicalEventStore,
   projection: TaskProjection,
   bundle: RuntimeSessionBundle,
-  replay: boolean,
   authorizationDecision: AuthorizationDecision,
   afterAppend: () => void,
 ): WriteReceipt {
   const appended = store.append(bundle);
-  if (!replay) projection.apply(bundle.event);
+  projection.apply(bundle.event);
   afterAppend();
   const publication = store.publication(bundle.event),
     projected = projection.readRuntimeSession(bundle.event.payload.runtimeSessionId),

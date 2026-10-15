@@ -426,7 +426,7 @@ const boundCuts = (f: Awaited<ReturnType<typeof fixture>>, runtimeSessionId: str
       return [String(taskBinding.taskId), String(taskBinding.executionId)];
     });
 
-async function spawnReviewerForKey(f: Awaited<ReturnType<typeof fixture>>, idempotencyKey: string): Promise<string> {
+async function spawnReviewerForKey(f: Awaited<ReturnType<typeof fixture>>, dispatchKey: string): Promise<string> {
   const receipt = await f.cell().spawnRuntime(
     {
       agentId: "closeout-reviewer",
@@ -434,7 +434,7 @@ async function spawnReviewerForKey(f: Awaited<ReturnType<typeof fixture>>, idemp
       taskId,
       executionId,
       cwd: { scope: "repo-root" },
-      idempotencyKey,
+      dispatchKey,
       prompt: "Review the bound submission cut.",
     },
     owner,
@@ -465,7 +465,7 @@ test(
             taskId,
             executionId,
             cwd: { scope: "repo-root" },
-            idempotencyKey: "review-before-forward",
+            dispatchKey: "review-before-forward",
             prompt: "review",
           },
           owner,
@@ -529,7 +529,7 @@ test(
       await f.install();
       const initialDispatch = f.events().find((event) => event.type === "runtime_dispatch_requested");
       assert.ok(initialDispatch?.type === "runtime_dispatch_requested");
-      const currentKey = initialDispatch.payload.idempotencyKey,
+      const currentKey = initialDispatch.payload.dispatchKey,
         currentSession = initialDispatch.payload.runtimeSessionId,
         attemptSession = await spawnReviewerForKey(f, `${currentKey}:attempt1`),
         legacyKey = currentKey.replace(/^task-review:/u, "complete-review:"),
@@ -546,8 +546,8 @@ test(
         assert.equal(reviewed.outcome, "applied", `${reviewId}: ${JSON.stringify(reviewed)}`);
       }
 
-      const staleCurrentSession = await spawnReviewerForKey(f, currentKey),
-        staleLegacySession = await spawnReviewerForKey(f, legacyKey),
+      const staleCurrentSession = await spawnReviewerForKey(f, `${currentKey}:stale`),
+        staleLegacySession = await spawnReviewerForKey(f, `${legacyKey}:stale`),
         closeoutPath = path.join(f.root, "harness", f.packagePath, "closeout.md");
       writeFileSync(closeoutPath, `${readFileSync(closeoutPath, "utf8")}\nAmended verification evidence.\n`);
       const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
@@ -780,7 +780,7 @@ test(
             role: "reviewer",
             taskId: planned,
             cwd: { scope: "repo-root" },
-            idempotencyKey: "review-planned-target",
+            dispatchKey: "review-planned-target",
             prompt: "review",
           },
           owner,

@@ -255,6 +255,7 @@ export function makeTaskProjectionReader(options: {
       readRuntimeDispatch: taskQueries.readRuntimeDispatch,
       readRuntimeDispatches: taskQueries.readRuntimeDispatches,
       readRuntimeDispatchById: taskQueries.readRuntimeDispatchById,
+      readRuntimeDispatchByDispatchKey: taskQueries.readRuntimeDispatchByDispatchKey,
       readRuntimeDispatchByResumeSource: taskQueries.readRuntimeDispatchByResumeSource,
       readRuntimeDispatchesBySession: taskQueries.readRuntimeDispatchesBySession,
       readRuntimeDispatchesByTaskExecution: taskQueries.readRuntimeDispatchesByTaskExecution,

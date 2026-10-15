@@ -362,7 +362,8 @@ export function validateGuiActionPayload(method: DaemonGuiActionMethod, value: u
       (value.cwd === undefined ? value.dispatchId === undefined && !nonEmpty(value.taskId) : !exactCwd(value.cwd)) ||
       (value.taskId !== undefined && value.taskId !== null && !nonEmpty(value.taskId)) ||
       (value.providerSessionId !== undefined && !nonEmpty(value.providerSessionId)) ||
-      (value.dryRun !== undefined && typeof value.dryRun !== "boolean"))
+      (value.dryRun !== undefined && typeof value.dryRun !== "boolean") ||
+      !nonEmpty(value.dispatchKey))
   )
     errors.push("runtime spawn request is invalid");
   if (method === "repo.agentRuntime.cancel" && !nonEmpty(value.runtimeSessionId))

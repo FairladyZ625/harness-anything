@@ -628,7 +628,7 @@ export function makeSquadCoordinator(input: {
             taskId,
             ...(state.effort ? { effort: state.effort } : {}),
             ...(state.permissionMode ? { permissionMode: state.permissionMode } : {}),
-            idempotencyKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
+            dispatchKey: `${state.squadRunId}:${leaderTurnId}:${attemptId}`,
           },
           state.binding,
         ),
@@ -746,7 +746,7 @@ export function makeSquadCoordinator(input: {
           ...(trigger.kind !== "initial" && state.leaderProviderSessionId
             ? { providerSessionId: state.leaderProviderSessionId }
             : {}),
-          idempotencyKey:
+          dispatchKey:
             trigger.kind === "initial"
               ? `${state.squadRunId}:leader:initial`
               : `${state.squadRunId}:leader:${triggerKey(trigger)}`,

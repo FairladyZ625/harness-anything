@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   completionGateIds,
   consumeKnownError,
@@ -112,7 +112,7 @@ export async function dispatchDecisionReview(
   let attempt = 0,
     key = reviewAttemptKey(baseKey, attempt),
     ids = reviewDispatchIds(cell.input.repoId, key),
-    existing = cell.store.readEvent(ids.dispatchOpId);
+    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   while (
     existing !== null &&
     reviewAttemptEnded(cell, ids.runtimeSessionId) &&
@@ -125,15 +125,15 @@ export async function dispatchDecisionReview(
     attempt += 1;
     key = reviewAttemptKey(baseKey, attempt);
     ids = reviewDispatchIds(cell.input.repoId, key);
-    existing = cell.store.readEvent(ids.dispatchOpId);
+    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
   }
   if (existing !== null)
     return {
       outcome: "applied",
-      opId: ids.dispatchOpId,
+      opId: existing.opId,
       revision,
       summary: `Decision ${decisionId} already has review dispatch ${ids.dispatchId} for ${digest}.`,
-      dispatches: [{ decisionId, digest, ...ids, outcome: "already_dispatched" }],
+      dispatches: [{ decisionId, digest, ...ids, dispatchOpId: existing.opId, outcome: "already_dispatched" }],
     } as WriteReceiptDraft;
   const reviewerId =
       typeof action.agentId === "string" && action.agentId.length > 0
@@ -151,7 +151,7 @@ export async function dispatchDecisionReview(
       role: "reviewer",
       reviewTarget: { kind: "decision", decisionId, digest },
       cwd: { scope: "repo-relative", path: `harness/decisions/decision-${decisionId}` },
-      idempotencyKey: key,
+      dispatchKey: key,
       ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
       ...(typeof action.model === "string" ? { model: action.model } : {}),
       ...(typeof action.effort === "string" ? { effort: action.effort } : {}),
@@ -168,13 +168,14 @@ export async function dispatchDecisionReview(
     });
   if (authorizationDecision.outcome !== "allowed")
     throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
-  await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision });
+  const spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }),
+    dispatchOpId = typeof spawned.opId === "string" ? spawned.opId : ids.dispatchOpId;
   return {
     outcome: "applied",
-    opId: ids.dispatchOpId,
+    opId: dispatchOpId,
     revision,
     summary: `Dispatched Decision ${decisionId} review ${ids.dispatchId} for ${digest}.`,
-    dispatches: [{ decisionId, digest, ...ids, outcome: "dispatched" }],
+    dispatches: [{ decisionId, digest, ...ids, dispatchOpId, outcome: "dispatched" }],
   } as WriteReceiptDraft;
 }
 
@@ -194,13 +195,13 @@ function reviewAttemptEnded(cell: RepoCellOperationalContext, runtimeSessionId: 
 
 export function reviewDispatchIds(
   repoId: string,
-  idempotencyKey: string,
+  dispatchKey: string,
 ): { readonly dispatchId: string; readonly runtimeSessionId: string; readonly dispatchOpId: string } {
-  const hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex");
+  const hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex");
   return {
     dispatchId: `dispatch_${hash.slice(0, 24)}`,
     runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
-    dispatchOpId: `runtime-spawn-${hash.slice(0, 32)}`,
+    dispatchOpId: randomUUID(),
   };
 }
 
@@ -322,7 +323,8 @@ export async function spawnCutReviewDispatch(
 > {
   const key = reviewDispatchKey(input.taskId, input.execution),
     ids = reviewDispatchIds(cell.input.repoId, key);
-  if (cell.store.readEvent(ids.dispatchOpId) !== null) return { outcome: "already_dispatched", ids };
+  const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+  if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
   let resolved;
   try {
     resolved = readAgentDeclarationResolution({
@@ -356,7 +358,7 @@ export async function spawnCutReviewDispatch(
       taskId: input.taskId,
       executionId: input.execution.executionId,
       cwd: { scope: "repo-root" },
-      idempotencyKey: key,
+      dispatchKey: key,
       ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
       ...(typeof extras.model === "string" ? { model: extras.model } : {}),
       ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
@@ -556,12 +558,12 @@ export async function dispatchTaskReview(
     let attempt = 0,
       key = reviewAttemptKey(baseKey, attempt),
       ids = reviewDispatchIds(cell.input.repoId, key),
-      existing = cell.store.readEvent(ids.dispatchOpId);
+      existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
     while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
       attempt += 1;
       key = reviewAttemptKey(baseKey, attempt);
       ids = reviewDispatchIds(cell.input.repoId, key);
-      existing = cell.store.readEvent(ids.dispatchOpId);
+      existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
     }
     if (existing !== null) {
       steps.push({
@@ -569,7 +571,7 @@ export async function dispatchTaskReview(
         executionId: execution.executionId,
         dispatchId: ids.dispatchId,
         runtimeSessionId: ids.runtimeSessionId,
-        dispatchOpId: ids.dispatchOpId,
+        dispatchOpId: existing.opId,
         outcome: "already_dispatched",
       });
       continue;
@@ -580,7 +582,7 @@ export async function dispatchTaskReview(
         taskId,
         executionId: execution.executionId,
         cwd: { scope: "repo-root" },
-        idempotencyKey: key,
+        dispatchKey: key,
         ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
         ...(typeof action.model === "string" ? { model: action.model } : {}),
         ...(typeof action.effort === "string" ? { effort: action.effort } : {}),

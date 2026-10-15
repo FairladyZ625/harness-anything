@@ -15,7 +15,7 @@ import {
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import { reject } from "./entity-action-relation.ts";
 import { factReplayBundle } from "./fact-supersede-document.ts";
-import { matchingRuntimeSessionReplayBundle, type RuntimeSessionBundle } from "./entity-action-runtime-session.ts";
+import type { RuntimeSessionBundle } from "./entity-action-runtime-session.ts";
 
 type ExecutableAction = EntityActionContract & { readonly execution: NonNullable<EntityActionContract["execution"]> };
 type ReplayBundle =
@@ -44,8 +44,6 @@ export function matchingReplayBundle(
   existing: ReturnType<CanonicalEventStore["readEvent"]>,
 ): ReplayBundle | null {
   const writesFact = contract.target.kind === "fact" || contract.id === "reckon";
-  if (contract.target.kind === "runtime-session" && existing !== null)
-    return matchingRuntimeSessionReplayBundle(store, contract, action, existing) as unknown as ReplayBundle;
   if (
     existing?.schema === "entity-event/v1" &&
     existing.type === "entity_upserted" &&

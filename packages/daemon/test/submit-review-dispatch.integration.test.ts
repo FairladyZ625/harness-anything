@@ -166,8 +166,7 @@ test(
       const dispatches = f
         .events()
         .filter(
-          (event) =>
-            event.type === "runtime_dispatch_requested" && !event.payload.idempotencyKey.includes(":fallback:"),
+          (event) => event.type === "runtime_dispatch_requested" && !event.payload.dispatchKey.includes(":fallback:"),
         );
       assert.equal(dispatches.length, 1);
       const dispatch = dispatches[0]!;
@@ -395,7 +394,7 @@ test(
       const settings = await f.runPrincipal({
         kind: "settings-update",
         roles: { defaultReviewer: "missing-reviewer" },
-        idempotencyKey: "freeze-missing",
+        dispatchKey: "freeze-missing",
       });
       assert.equal(settings.outcome, "applied", JSON.stringify(settings));
       assert.equal((await f.submit()).outcome, "applied");
@@ -430,7 +429,7 @@ test(
       const settings = await f.runPrincipal({
         kind: "settings-update",
         roles: { defaultReviewer: "missing-reviewer" },
-        idempotencyKey: "freeze-missing",
+        dispatchKey: "freeze-missing",
       });
       assert.equal(settings.outcome, "applied", JSON.stringify(settings));
       assert.equal((await f.submit()).outcome, "applied");
@@ -439,7 +438,7 @@ test(
           await f.runPrincipal({
             kind: "settings-update",
             roles: { defaultReviewer: "closeout-reviewer" },
-            idempotencyKey: "change-default",
+            dispatchKey: "change-default",
           })
         ).outcome,
         "applied",
@@ -501,7 +500,7 @@ test(
             .events()
             .filter(
               (event) =>
-                event.type === "runtime_dispatch_requested" && event.payload.idempotencyKey.startsWith("task-review:"),
+                event.type === "runtime_dispatch_requested" && event.payload.dispatchKey.startsWith("task-review:"),
             );
       assert.equal(f.launches.length, 2, "the amended in-review cut gets its own reviewer dispatch");
       assert.equal(reviewDispatches().length, 2);

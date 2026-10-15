@@ -80,7 +80,7 @@ function prepareWorkerContinuation(
         "# Owner feedback",
         message,
       ].join("\n"),
-      idempotencyKey: `task-return:${taskId}:${execution.executionId}:${mode}`,
+      dispatchKey: `task-return:${taskId}:${execution.executionId}:${mode}`,
     },
   };
 }
@@ -97,7 +97,7 @@ export async function dispatchReturnedWorker(
       action: { kind: "runtime-spawn", ...payload },
       repoId: cell.input.repoId,
       binding,
-      actionId: payload.idempotencyKey,
+      actionId: payload.dispatchKey,
       revision: cell.store.readHead()?.revision ?? 0,
       now: cell.now(),
       readTask: (id) => cell.projection.read(id).snapshot.task,

@@ -197,8 +197,9 @@ test("RuntimeSession explains adoption, operation replay, center arbitration, an
   assert.equal(started?.concurrency.expectedVersion.startFence, "launchGeneration");
   assert.equal(started?.concurrency.expectedVersion.writerFence, "center-issued writerEpoch");
   assert.equal(started?.concurrency.leasePolicy.arbitration, "center-single-write-queue");
-  assert.equal(started?.concurrency.idempotency.input, "idempotencyKey");
-  assert.equal(started?.concurrency.idempotency.retry, "canonical-event-replay");
+  // dec_3E49EDAB95D138B044C8C40169 CH3 makes RuntimeSession events state transitions.
+  assert.equal(started?.concurrency.idempotency.input, "runtimeSessionId");
+  assert.equal(started?.concurrency.idempotency.retry, "state-transition");
   assert.equal(started?.concurrency.artifactOwnership.owner, "dispatch/{dispatchId}");
   assert.equal(started?.policy.action, "runtime-run");
   assert.equal(

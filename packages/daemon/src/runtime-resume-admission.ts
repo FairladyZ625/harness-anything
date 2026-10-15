@@ -243,7 +243,7 @@ export function resolveRuntimeResume(
       "taskId",
       "executionId",
       "reviewTarget",
-      "idempotencyKey",
+      "dispatchKey",
       "providerSessionId",
       "dryRun",
     ],

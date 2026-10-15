@@ -1,6 +1,6 @@
 import type { SquadDispatchContext } from "@harness-anything/kernel";
 import type { RuntimeHandoffCheckpoint } from "./runtime-handoff-store.ts";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import path from "node:path";
 import { type AgentRuntimeEventV1, type CanonicalEventStore, type SessionIdentity } from "@harness-anything/kernel";
 import {
@@ -30,7 +30,6 @@ import { cancelRuntime, closeRuntimes, steerRuntime } from "./runtime-spawn-cont
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
 import { adoptRuntimes, reclaimFailedLaunchTempDirectory } from "./runtime-spawn-adoption.ts";
 import {
-  isRuntimeEvent,
   requiredRuntimeSpawnText,
   runtimeErrorMessage,
   runtimeSpawnError,
@@ -194,7 +193,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         payload.onExitCommand === undefined
           ? undefined
           : requiredRuntimeSpawnText(payload.onExitCommand, "onExitCommand"),
-      idempotencyKey = requiredRuntimeSpawnText(payload.idempotencyKey, "idempotencyKey"),
+      dispatchKey = requiredRuntimeSpawnText(payload.dispatchKey, "dispatchKey"),
       taskId =
         payload.taskId === null || payload.taskId === undefined
           ? (inherited?.taskId ?? null)
@@ -237,7 +236,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             )
           : preparedWorktree,
       ),
-      store = input.remote ? null : requiredRuntimeStore(input),
       projection = input.remote ? null : requiredRuntimeProjection(input);
     const reviewerBinding = role === "reviewer";
     assertReviewerTarget({
@@ -260,10 +258,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         reviewerBinding && taskId !== null
           ? selectReviewTarget(taskId, requestedExecutionId, taskSnapshot, input.remote != null)
           : null,
-      hash = createHash("sha256").update(`${input.repoId}\0${idempotencyKey}`).digest("hex"),
+      hash = createHash("sha256").update(`${input.repoId}\0${dispatchKey}`).digest("hex"),
       newDispatchId = `dispatch_${hash.slice(0, 24)}`,
       runtimeSessionId = `runtime_${hash.slice(24, 48)}`,
-      dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
+      dispatchOpId = randomUUID(),
+      installationOpId = randomUUID(),
       trustedHandoffSource = handoffFromRuntimeSessionId ?? resumed?.header.runtimeSessionId ?? null;
     const authorizationDecision: AuthorizationDecision | null = binding.authorizationDecision ?? null;
     const frozenStatus = taskSnapshot?.task?.status,
@@ -336,31 +335,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection!, taskId) : null,
               remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             );
-    const remoteExisting = input.remote ? await input.remote.existing(dispatchOpId) : null,
-      existing = input.remote ? null : store!.readEvent(dispatchOpId);
-    if (!dryRun && remoteExisting) {
-      onDispatched?.(newDispatchId, runtimeSessionId);
-      return {
-        ...remoteExisting,
-        ...(handoff ? { replayed: true } : {}),
-        runtimeSessionId,
-        dispatchId: newDispatchId,
-        authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-      };
-    }
-    if (!dryRun && existing) {
-      if (!isRuntimeEvent(existing) || existing.type !== "runtime_dispatch_requested")
-        throw runtimeSpawnError(
-          "runtime_dispatch_conflict",
-          `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
-        );
-      onDispatched?.(newDispatchId, runtimeSessionId);
-      return {
-        ...applied(existing, store!.publication(existing), runtimeSessionId, newDispatchId),
-        ...(handoff ? { replayed: true } : {}),
-        authorizationDecision: authorizationDecision as unknown as JsonObject | null,
-      };
-    }
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
@@ -397,7 +371,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 explicitRuntimeInstanceId,
                 model,
                 providerSessionId,
-                idempotencyKey,
+                dispatchKey,
                 mission,
                 runtimeInstances,
                 localRuntimeSessions,
@@ -414,7 +388,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     runtimeInstanceId,
                     model,
                     providerSessionId,
-                    idempotencyKey,
+                    dispatchKey,
                     mission,
                     runtimeInstances,
                     localRuntimeSessions,
@@ -765,7 +739,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           discoverySource: "wrapper",
           capabilities: runtimeKind.declaredCapabilities,
         },
-        `${dispatchOpId}-installation`,
+        installationOpId,
         binding,
       );
       requested = await publishRuntimeEvent(
@@ -777,7 +751,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             instanceId: definition.instanceId,
             installationId: definition.installationId,
             kindId: definition.kindId,
-            idempotencyKey,
+            dispatchKey,
             definitionSnapshotRef,
             definitionSnapshot: definition,
             startedAt: streamStartedAt,
@@ -820,8 +794,9 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       throw error;
     }
     // The center queue owns the claim: another edge can win after our initial receipt read.
-    if (input.remote && requested.receipt?.replayed === true) {
+    if (requested.receipt?.reused === true) {
       cleanupCallbackRelay();
+      if (stream) removeDispatchStream(input.rootDir, newDispatchId);
       return {
         ...requested.receipt,
         runtimeSessionId,
@@ -845,7 +820,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           attachable: true,
           ...(taskBinding ? { taskBinding: { taskId: taskBinding.taskId, executionId: taskBinding.executionId } } : {}),
         },
-        `${dispatchOpId}-started`,
+        randomUUID(),
         binding,
       );
     } catch (error) {
@@ -861,7 +836,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         await publishRuntimeEvent(
           "runtime_dispatch_outcome_unknown",
           { dispatchId: newDispatchId, runtimeSessionId },
-          `${dispatchOpId}-outcome-unknown`,
+          randomUUID(),
           binding,
         );
         throw error;
@@ -916,11 +891,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       await publishRuntimeEvent(
         "runtime_session_liveness_changed",
         { runtimeSessionId, liveness: "live" },
-        `${dispatchOpId}-live`,
+        randomUUID(),
         binding,
       );
     }, activeBinding);
     attachActiveRuntime(extracted, active, resumeObservation);
+    if (!requested.event || (!requested.receipt && !requested.publication))
+      throw runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
     return requested.receipt
       ? {
           ...requested.receipt,
@@ -975,7 +952,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         {
           agentId: scheduled.agentId,
           prompt: scheduled.mission,
-          idempotencyKey: `${scheduled.scheduleId}:${scheduled.claimFence}`,
+          dispatchKey: `${scheduled.scheduleId}:${scheduled.occurrenceId}:${scheduled.claimFence}`,
           cwd:
             scheduled.cwd === input.rootDir
               ? { scope: "repo-root" }
@@ -1010,7 +987,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
     resultBody?: string,
     dispatchContext?: import("./fleet/command-protocol.ts").FleetRuntimeDispatchContext,
   ): Promise<{
-    readonly event: RuntimeEventOf<T>;
+    readonly event?: RuntimeEventOf<T>;
     readonly publication?: ReturnType<CanonicalEventStore["append"]>;
     readonly receipt?: JsonObject;
   }> {
