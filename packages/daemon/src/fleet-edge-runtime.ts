@@ -11,7 +11,7 @@ import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
 import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.ts";
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -276,7 +276,7 @@ export function openFleetEdgeRuntime(input: {
           ? (receipt as JsonObject)
           : null;
       },
-      taskContext: async (taskId, attemptId, missionName, review) => {
+      taskContext: async (taskId, missionName, review) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
         let runtimeContext = taskRuntimeContext(
@@ -291,8 +291,8 @@ export function openFleetEdgeRuntime(input: {
             ? current.lease.executionId
             : undefined;
         const taskStartExecutionId = "runtime-task-start-" + taskId;
-        const taskStartOpId = `runtime-task-start-${taskId}-${attemptId}`;
         if (!executionId && !review && canStartExecution(current, taskStartExecutionId)) {
+          const taskStartOpId = randomUUID();
           const started = await runFleetEdgeWrite({
             viewRoot: request.viewRoot,
             repoId: request.repoId,

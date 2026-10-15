@@ -221,7 +221,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         taskId && input.remote
           ? await input.remote.taskContext(
               taskId,
-              idempotencyKey,
               missionName,
               role === "reviewer" ? { executionId: requestedExecutionId } : undefined,
             )

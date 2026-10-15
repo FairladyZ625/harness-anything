@@ -248,7 +248,6 @@ export interface RemoteRuntimePersistence {
   readonly existing: (opId: string) => Promise<JsonObject | null>;
   readonly taskContext: (
     taskId: string,
-    attemptId: string,
     missionName?: string,
     review?: { readonly executionId: string | undefined },
   ) => Promise<{
