@@ -157,12 +157,13 @@ export async function pushWorkerBranch(input: {
         `canonical repository ${input.canonicalRoot} resolves no git user.name/user.email, ` +
         "so the conventional worker identity cannot be verified",
     };
-  // An empty expected cut means the remote branch is absent, so everything above the default
-  // branch is new; a published cut already carried its own admission, and rewriting those
-  // ancestors is the forced history update this CAS-protected push must not attempt.
+  // The worker's own commits are those reachable from the pushed commit but from neither the
+  // published remote cut nor the default branch: a published cut already carried its own
+  // admission, and after a rebase the default branch's merges are ancestors the worker did not
+  // write. An empty expected cut means the remote branch is absent.
   const mismatch = await firstCommitOutsideConventionalIdentity(
     input.cwd,
-    input.expectedRemoteCommit || repositoryBaseRef(input.canonicalRoot),
+    [input.expectedRemoteCommit, repositoryBaseRef(input.canonicalRoot)].filter((ref): ref is string => !!ref),
     pushedCommit,
     identity,
     env,
@@ -235,31 +236,30 @@ export async function pushTaskWorkerBranch(input: {
   return pushWorkerBranch({ ...input, expectedRemoteCommit });
 }
 
-// The first commit in `<bound>..<pushedCommit>` whose author or committer email is not the
-// conventional identity, named with both of its emails; null when the whole range matches. The
-// caller bounds the range: the published remote cut for an increment push, the default branch for
-// a branch's first publication. Without a bound the worker's own commits cannot be delimited, so
-// that also refuses.
+// The first commit reachable from `pushedCommit` but from none of `bounds` whose author or
+// committer email is not the conventional identity, named with both of its emails; null when the
+// whole range matches. Without a bound the worker's own commits cannot be delimited, so that also
+// refuses.
 async function firstCommitOutsideConventionalIdentity(
   cwd: string,
-  baseRef: string | null,
+  bounds: readonly string[],
   pushedCommit: string,
   identity: WorkerGitIdentity,
   env: NodeJS.ProcessEnv,
 ): Promise<string | null> {
-  if (!baseRef) return "worker commits cannot be bounded: the repository has no default branch";
+  if (bounds.length === 0) return "worker commits cannot be bounded: the repository has no default branch";
   let log: string;
   try {
     // Newline-separated fields: git itself refuses newline characters inside an ident, so the
     // three-line records cannot fold into each other.
     log = await readGitText(
       cwd,
-      ["log", "--format=%H%n%ae%n%ce", `${baseRef}..${pushedCommit}`],
+      ["log", "--format=%H%n%ae%n%ce", pushedCommit, "--not", ...bounds],
       env,
       workerHistoryLimit,
     );
   } catch (error) {
-    return `worker commits cannot be bounded against ${baseRef}: ${errorDetail(error)}`;
+    return `worker commits cannot be bounded against ${bounds.join(", ")}: ${errorDetail(error)}`;
   }
   const fields = log.split("\n");
   for (let index = 0; index + 2 < fields.length; index += 3) {
@@ -375,9 +375,10 @@ export async function fetchWorkerDelivery(
       throw new Error(`Requested delivery commit ${requestedCommit} does not match published task branch ${commit}.`);
     const identity = expectedIdentity ?? (await readWorkerGitIdentity({ cwd: rootDir, env }));
     if (!identity) throw new Error("The center repository resolves no conventional Git identity.");
+    const baseRef = repositoryBaseRef(rootDir);
     const mismatch = await firstCommitOutsideConventionalIdentity(
       rootDir,
-      repositoryBaseRef(rootDir),
+      baseRef ? [baseRef] : [],
       commit,
       identity,
       env,
