@@ -238,7 +238,7 @@ for (const mode of ["resume", "fresh"] as const)
           cwd: { scope: "repo-root" },
           runtimeInstanceId: "worker-instance",
           prompt: "Implement the delivery.",
-          idempotencyKey: "original-worker",
+          dispatchKey: "original-worker",
         },
         binding,
       );
@@ -288,7 +288,7 @@ for (const mode of ["resume", "fresh"] as const)
           taskId,
           agentId: "return-observer",
           prompt: "Observe the frozen cut without changing it.",
-          idempotencyKey: "read-only-observer",
+          dispatchKey: "read-only-observer",
           runtimeInstanceId: "worker-instance",
         },
         binding,

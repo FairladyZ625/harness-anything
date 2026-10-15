@@ -246,7 +246,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       taskId: "task_one",
       cwd: { scope: "repo-root" },
       prompt: "work",
-      idempotencyKey: "runtime-route",
+      dispatchKey: "runtime-route",
       detach: false,
     }),
     env,
@@ -261,7 +261,7 @@ test("fleet task routing requires both edge config and remote-edge registry mode
       taskId: "task_one",
       cwd: { scope: "repo-root" },
       prompt: "work",
-      idempotencyKey: "runtime-route",
+      dispatchKey: "runtime-route",
     },
   });
   const steerCommand = parseThinCommand(["runtime", "steer", "dispatch_123", "--prompt", "change direction"], root);

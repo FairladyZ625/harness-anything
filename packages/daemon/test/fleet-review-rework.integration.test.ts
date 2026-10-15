@@ -67,7 +67,7 @@ test(
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         prompt: "Review this submitted cut.",
-        idempotencyKey: key,
+        dispatchKey: key,
         ...(executionId === undefined ? {} : { executionId }),
       });
     const boundExecution = (dispatchId: unknown) => {
