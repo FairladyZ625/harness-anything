@@ -63,7 +63,7 @@ export async function adoptRuntimes(
     // A terminal outcome is appended before publication. If a second node opens while the
     // center projection is still catching up, the local stream is the authoritative owner
     // record and must not publish the same terminal transition a second time.
-    if (fullStream?.terminalOutcome) {
+    if (stream.terminalOutcome && processState?.exited && session?.outcome !== null && session?.outcome !== undefined) {
       removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
       continue;
     }
