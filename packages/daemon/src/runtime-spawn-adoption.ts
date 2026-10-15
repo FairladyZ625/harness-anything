@@ -60,6 +60,13 @@ export async function adoptRuntimes(
     if (!stream) continue;
     const processState = stream.process,
       processPid = processState?.pid ?? 0;
+    // A terminal outcome is appended before publication. If a second node opens while the
+    // center projection is still catching up, the local stream is the authoritative owner
+    // record and must not publish the same terminal transition a second time.
+    if (fullStream?.terminalOutcome) {
+      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
+      continue;
+    }
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
