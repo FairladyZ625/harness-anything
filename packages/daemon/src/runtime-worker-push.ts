@@ -375,9 +375,10 @@ export async function fetchWorkerDelivery(
       throw new Error(`Requested delivery commit ${requestedCommit} does not match published task branch ${commit}.`);
     const identity = expectedIdentity ?? (await readWorkerGitIdentity({ cwd: rootDir, env }));
     if (!identity) throw new Error("The center repository resolves no conventional Git identity.");
+    const baseRef = repositoryBaseRef(rootDir);
     const mismatch = await firstCommitOutsideConventionalIdentity(
       rootDir,
-      repositoryBaseRef(rootDir),
+      baseRef ? [baseRef] : [],
       commit,
       identity,
       env,
