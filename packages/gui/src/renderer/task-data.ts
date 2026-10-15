@@ -123,8 +123,13 @@ async function readTaskPage(repoId: string, facets: LedgerReadFacets): Promise<T
  * 后续 `changedAfterRevision` 增量读正确的前提。原实现靠"整段读必须落在同一个 cut,
  * 否则抛错重来"保证它;跨刷新续读不可能落在同一个 cut,所以改成:
  *
- *   - 未读完(`resume`)或增量本身被截断时,watermark/sourceRevision 取 min,只担保
- *     最老的那个水位;只有"锚在 previous.watermark 上、且一页读完的增量"才推进水位。
+ *   - 增量(`delta`)把水位锚定在**它自己那页的 cut**上,被截断也推进:截断的只是行
+ *     集分页,(W_old, C1] 的变更行会在整条续读序列里到齐(首页截断的部分由后续页按
+ *     id 覆盖),C1 之后落笔、游标已越过的行由下一轮增量补齐。旧口径要求增量"一页读完"
+ *     才推进,投影重定基(explicit rebuild 把全部行 revision 重排)后 changed-since-旧锚点
+ *     的行集永久超过一页,水位被钉死在重建中途的锚点,侧栏事件数与 cut 扇出一起冻结
+ *     (2026-10-15 现场:侧栏 13,824,台账 175,911,不重启不恢复)。
+ *   - 未读完(`resume`)只担保最老的那个水位:取 min。
  *   - 游标是不可变主键 task_id,续读期间任何已存在 task 的改动都不会被跳过;续读期间
  *     新建的 task 其 revision 必然大于所报水位,由随后的增量读补齐。
  */
@@ -137,7 +142,7 @@ export function joinLedgerCut(
   const base = mode === "restart" ? undefined : previous;
   const rows = new Map((base?.rows ?? []).map((row) => [row.taskId, row]));
   for (const row of read.rows) rows.set(row.taskId, row);
-  const advanced = base === undefined || (mode === "delta" && complete);
+  const advanced = base === undefined || mode === "delta";
   const watermark = advanced ? read.watermark : Math.min(base.watermark, read.watermark);
   const sourceRevision = advanced ? read.sourceRevision : Math.min(base.sourceRevision, read.sourceRevision);
   return {
