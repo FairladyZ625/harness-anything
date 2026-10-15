@@ -656,6 +656,7 @@ export function openFleetEdgeRuntime(input: {
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
       if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await input.readBinding());
       if (method === "repo.agentRuntime.steer") return spawner.steer(action, await input.readBinding());
+      if (method === "repo.agentRuntime.spawn") await prepareRuntimeWorkspace();
       await ensureReady();
       await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);

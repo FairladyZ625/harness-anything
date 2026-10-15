@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { runProcessTextAsync } from "./process-port.ts";
 
@@ -46,6 +46,10 @@ function mirrorStore(rootDir: string, worktreeDir: string, relative: string): vo
         !path.isAbsolute(link) &&
         !path.relative(rootDir, path.resolve(path.dirname(source), link)).startsWith(".."),
       type = statSync(source, { throwIfNoEntry: false })?.isDirectory() ? "junction" : "file";
-    symlinkSync(inRepository ? link : source, path.join(worktreeDir, name), type);
+    if (type === "file" && process.platform === "win32") {
+      // Ordinary Windows users cannot create file symlinks. The package store is immutable
+      // for the worktree lifetime, so a byte copy is the usable equivalent for .bin entries.
+      copyFileSync(inRepository ? path.resolve(path.dirname(source), link!) : source, path.join(worktreeDir, name));
+    } else symlinkSync(inRepository ? link! : source, path.join(worktreeDir, name), type);
   }
 }
