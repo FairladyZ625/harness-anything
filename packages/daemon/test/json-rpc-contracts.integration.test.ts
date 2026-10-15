@@ -587,3 +587,66 @@ test("invalid GUI write receipts retain their request id and leave the connectio
     await connection.close();
   }
 });
+
+test("a squad-control receipt naming another command answers on its own request id", async (t) => {
+  const input = new PassThrough(),
+    output = new PassThrough(),
+    frames: Record<string, unknown>[] = [];
+  output.on("data", (chunk: Buffer) => {
+    frames.push(JSON.parse(chunk.toString("utf8")) as Record<string, unknown>);
+  });
+  let runs = 0;
+  // Receipt assembly rejects this result (a squad-cancel receipt for a squad-run request);
+  // before the guard covered assembly, this throw escaped the handler and the stream
+  // answered with an id:null teardown frame instead of this request's protocol error.
+  const host = {
+    run: async () => {
+      runs += 1;
+      return {
+        schema: "squad-control-result/v1",
+        command: "squad-cancel",
+        outcome: "completed",
+        squadRunId: "squad_0123456789abcdef01234567",
+        leaderRuntimeSessionId: "session-mismatched",
+        phase: "leading",
+        summary: "Mismatched control receipt for the contract test.",
+      };
+    },
+    status: () => ({ daemonId: "receipt-test", pid: process.pid, repos: [] }),
+  } as never;
+  const connection = serveJsonRpcStream({
+    input,
+    output,
+    transportKind: "unix-socket",
+    authContext: { transportKind: "unix-socket" },
+    createProtocolServer: (authContext, emit) =>
+      createJsonRpcProtocolServer({ host, build: { commit: null }, authContext, emit }),
+  });
+  const client = new JsonRpcLineClient(output, input);
+  try {
+    await client.request("protocol.hello", { protocolVersion: currentDaemonProtocolVersion }, 2_000);
+    const result = (await client.request(
+      "repo.task.run",
+      {
+        repo: { repoId: "receipt-test" },
+        payload: {
+          action: { kind: "squad-run", squadId: "mismatched-squad", instance: "cli-worker", taskId: "task_receipt" },
+        },
+      },
+      2_000,
+    )) as Record<string, unknown>;
+    t.diagnostic(`squad control response: ${JSON.stringify(frames[1])}`);
+    assert.equal(runs, 1);
+    assert.equal(frames[1]?.id, 2);
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "invalid_result");
+    assert.match(String(result.rejectionExplanation), /contract validation/u);
+    assert.match(String(result.rejectionExplanation), /may already have taken effect.*refresh/u);
+    const next = await client.request("daemon.status", {}, 2_000);
+    assert.equal(frames[2]?.id, 3);
+    assert.deepEqual(next, { ok: true, daemonId: "receipt-test", pid: process.pid, repos: [] });
+  } finally {
+    client.close();
+    await connection.close();
+  }
+});

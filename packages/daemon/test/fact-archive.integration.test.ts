@@ -81,6 +81,24 @@ test("fact archive retires the managed document, leaves the projection row, and 
     const premature = await cell.run({ kind: "fact-unarchive", factId, reason: "not archived yet" }, binding);
     assert.equal(premature.outcome, "op_rejected", JSON.stringify(premature));
 
+    // The single-fact form previews exactly like the --ids-file batch: pending, nothing appended,
+    // and the managed document survives, so the later real archive stays a first write.
+    const previewed = await cell.run(
+      { kind: "fact-archive", factId, reason: "closeout bookkeeping", dryRun: true } as never,
+      binding,
+    );
+    assert.equal(previewed.outcome, "pending", JSON.stringify(previewed));
+    assert.match(String(previewed.opId), /^preview:/u);
+    const previewEvidence = evidence(previewed) as { schema: string; factId: string; eventType: string };
+    assert.match(previewEvidence.schema, /fact-write-preview\/v1/u);
+    assert.equal(previewEvidence.factId, factId);
+    assert.equal(previewEvidence.eventType, "fact_archived");
+    assert.equal(
+      existsSync(path.join(canonical, "harness", factPath)),
+      true,
+      "dry run must not retire the managed document",
+    );
+
     const archived = await cell.run({ kind: "fact-archive", factId, reason: "closeout bookkeeping" }, binding);
     assert.equal(archived.outcome, "applied", JSON.stringify(archived));
     await waitForFixturePublication(cell, archived.opId, binding);

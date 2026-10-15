@@ -216,6 +216,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     });
     assert.deepEqual(JSON.parse(String(inspectedAgent.evidence)), {
       schema: "agent-inspection/v1",
+      workspaceRevision: updated.revision,
       agent: { ...declaration, name: "Unified Agent Updated" },
       status: "ready",
       watermark: updated.revision,

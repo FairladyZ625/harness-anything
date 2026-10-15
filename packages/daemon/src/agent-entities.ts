@@ -1,4 +1,5 @@
 import { readProjectedAgentDeclaration } from "./agent-declaration-resolution.ts";
+import { resolveAgentSkills } from "./agent-skills.ts";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
@@ -148,6 +149,7 @@ export function validateAgentEntityAction(input: {
   if (!action.kind.endsWith("-validate"))
     throw entityError("invalid_command", "Only an Agent or Squad validate action can use this reader.");
   return validateEntityDeclarationSource({
+    rootDir: input.rootDir,
     source: declarationSource(action),
     kind,
     runtimeInstances: input.runtimeInstances,
@@ -446,6 +448,7 @@ export function resolveSquadDispatch(input: {
   return matches[0]!;
 }
 function validateEntityDeclarationSource(input: {
+  readonly rootDir: string;
   readonly source:
     | { readonly declaration: AgentDeclarationV1 & SquadDeclarationV1 }
     | { readonly issues: readonly { readonly code: string; readonly message: string }[]; readonly source?: string };
@@ -461,7 +464,10 @@ function validateEntityDeclarationSource(input: {
     decoded = input.source;
   if ("issues" in decoded) return { schema: "entity-validate-report/v1", valid: false, source, issues: decoded.issues };
   if (input.kind === "agent") {
-    const issue = agentRuntimeSelectionIssue(decoded.declaration, input.runtimeInstances);
+    const issue =
+      agentRuntimeSelectionIssue(decoded.declaration, input.runtimeInstances) ??
+      // Dispatch resolves the same paths at spawn time; validate answers before install instead.
+      agentSkillResolutionIssue(input.rootDir, decoded.declaration);
     if (issue) return { schema: "entity-validate-report/v1", valid: false, source, issues: [issue] };
   }
   return {
@@ -472,6 +478,21 @@ function validateEntityDeclarationSource(input: {
     entity: { id: decoded.declaration.id },
     issues: [],
   };
+}
+function agentSkillResolutionIssue(
+  rootDir: string,
+  declaration: AgentDeclarationV1,
+): { readonly code: string; readonly message: string } | null {
+  try {
+    resolveAgentSkills({ rootDir, skills: declaration.skills });
+    return null;
+  } catch (error) {
+    const code = (error as { readonly code?: unknown }).code;
+    return {
+      code: typeof code === "string" && code ? code : "agent_skill_invalid",
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 export function prepareAgentEntityInstall(input: {
   readonly action: Readonly<Record<string, unknown>> & { readonly kind: string };

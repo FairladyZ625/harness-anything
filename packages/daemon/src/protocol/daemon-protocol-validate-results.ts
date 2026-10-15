@@ -78,7 +78,11 @@ export function parseScheduleListReceipt(
 
 export function makeDaemonCommandReceipt(command: string, receipt: object): JsonObject {
   if (isSquadControlResult(receipt)) {
-    if (receipt.command !== command) throw new Error("Squad control command mismatch");
+    if (receipt.command !== command)
+      throw new DaemonProtocolContractError(
+        "invalid_result",
+        `Squad control result names command ${JSON.stringify(receipt.command)} while ${command} was requested.`,
+      );
     const result = Object.fromEntries(
       Object.entries({
         ...receipt,
@@ -86,7 +90,8 @@ export function makeDaemonCommandReceipt(command: string, receipt: object): Json
         ...(receipt.outcome === "op_rejected" ? { error: { code: receipt.code ?? "squad_control_failed" } } : {}),
       }).filter(([, value]) => value !== undefined),
     );
-    if (!isJsonObject(result)) throw new Error("Squad control result must contain JSON values");
+    if (!isJsonObject(result))
+      throw new DaemonProtocolContractError("invalid_result", "Squad control result must contain JSON values.");
     return result;
   }
   const {

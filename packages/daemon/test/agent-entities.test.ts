@@ -157,6 +157,32 @@ test("runtime kind is an open identifier: third-party runtimes validate while tr
   }
 });
 
+test("agent validate reports skill paths dispatch cannot resolve", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-skill-validate-")),
+    source = path.join(rootDir, "source");
+  try {
+    // The fixture repo owns harness/skills/review (see initRepo); a dangling reference must
+    // fail validate here instead of surfacing agent_skill_not_found at the first dispatch.
+    writeEntity(source, "dangling-skill", "agent", {
+      ...agent,
+      id: "dangling-skill",
+      skills: [{ id: "review", path: "skills/not-there" }],
+    });
+    const report = run({ rootDir, kind: "agent-validate", packageSource: path.join(source, "dangling-skill") }) as {
+      valid: boolean;
+      issues: Array<{ readonly code: string; readonly message: string }>;
+    };
+    assert.equal(report.valid, false);
+    assert.deepEqual(
+      report.issues.map(({ code }) => code),
+      ["agent_skill_not_found"],
+    );
+    assert.match(report.issues.map(({ message }) => message).join("\n"), /skills\/not-there/u);
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("direct authored-file writes never enter the canonical Agent read surface", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-bypass-"));
   try {
