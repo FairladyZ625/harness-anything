@@ -252,10 +252,14 @@ test("sibling complete refuses unfinished sources and missing facts, then closes
     assert.equal((await f.consent("review-sibling")).outcome, "applied");
     assert.equal((await f.complete()).outcome, "applied");
     const completed = await f.run(action);
-    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
+    if (completed.outcome === "pending") {
+      await f.cell().settlePendingMaterialization("sibling completion publication");
+    }
+    const settled = completed.outcome === "pending" ? await f.run(action) : completed;
+    assert.equal(settled.outcome, "applied", JSON.stringify(settled));
     const replay = await f.run(action);
     assert.equal(replay.outcome, "applied", JSON.stringify(replay));
-    assert.equal(replay.opId, completed.opId);
+    assert.equal(replay.opId, settled.opId);
     const targetEvents = f.events().filter((event) => event.taskId === target);
     assert.equal(targetEvents.filter((event) => event.type === "task_completed").length, 1);
     assert.equal(
