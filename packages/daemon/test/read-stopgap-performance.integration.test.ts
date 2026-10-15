@@ -104,7 +104,7 @@ test("runtime discovery write load keeps independent read clients within the sto
           cwd: { scope: "repo-root" },
           prompt: "Measure the async discovery boundary.",
           taskId: null,
-          idempotencyKey: "read-stopgap-load",
+          dispatchKey: "read-stopgap-load",
         },
       });
     await eventually(() => discoveryCalls > callsBeforeSpawn);

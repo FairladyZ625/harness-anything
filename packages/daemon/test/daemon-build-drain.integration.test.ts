@@ -798,7 +798,7 @@ test("a superseded exit restarts the disk build, which re-adopts the live runtim
         cwd: { scope: "repo-root" },
         prompt: "Stay alive across the supersession exit",
         taskId: null,
-        idempotencyKey: "superseded-readopt",
+        dispatchKey: "superseded-readopt",
       },
       withPolicyGroup(
         { actor: { principal: { personId: "person-superseded-readopt" }, executor: null }, source: "local" },
@@ -1051,7 +1051,7 @@ test("a superseded exit hands the slot over while a --wait client's parked await
         cwd: { scope: "repo-root" },
         prompt: "Stay alive across the supersession exit with a parked wait",
         taskId: null,
-        idempotencyKey: "superseded-await",
+        dispatchKey: "superseded-await",
       },
       withPolicyGroup(
         { actor: { principal: { personId: "person-superseded-await" }, executor: null }, source: "local" },
@@ -1283,7 +1283,7 @@ test("a parked --wait survives a drain that outlasts its settle re-read and stil
         cwd: { scope: "repo-root" },
         prompt: "Stay alive while the drain outlasts the parked wait's settle re-read",
         taskId: null,
-        idempotencyKey: "drain-outlasts-await",
+        dispatchKey: "drain-outlasts-await",
       },
       withPolicyGroup(
         { actor: { principal: { personId: "person-drain-outlasts-await" }, executor: null }, source: "local" },

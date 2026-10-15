@@ -205,7 +205,7 @@ test("runtime CLI requires device login and bounded execution", { timeout: 120_0
           ? { reviewTarget: { kind: "task", taskId, executionId, digest: reviewerSubmissionDigest } }
           : {}),
         prompt: "Exercise logout boundaries.",
-        idempotencyKey: `logout-${role}`,
+        dispatchKey: `logout-${role}`,
       },
     });
     assert.equal(result.outcome, "applied", JSON.stringify(result));

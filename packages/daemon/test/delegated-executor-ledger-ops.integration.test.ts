@@ -178,7 +178,7 @@ async function seedRuntimeSession(rootDir: string): Promise<void> {
           instanceId: "delegated-instance",
           installationId: "installation-codex",
           kindId: "codex",
-          idempotencyKey: "delegated-ledger-ops-once",
+          dispatchKey: "delegated-ledger-ops-once",
           definitionSnapshotRef: "artifact:runtime-definition/delegated",
           definitionSnapshot: {
             schema: "agent-definition-snapshot/v1",

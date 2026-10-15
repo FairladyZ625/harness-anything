@@ -259,7 +259,7 @@ for (const restart of [false, true])
           taskId,
           cwd: { scope: "repo-relative", path: ".worktrees/direct-targeted" },
           prompt: "Deliver the directly targeted task.",
-          idempotencyKey: "direct-targeted",
+          dispatchKey: "direct-targeted",
         },
         binding,
       );
@@ -606,7 +606,7 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
         taskId,
         cwd: { scope: "repo-root" },
         prompt: "Coordinate the mission through squad-run.",
-        idempotencyKey: "parent-caller",
+        dispatchKey: "parent-caller",
       },
       binding,
     );

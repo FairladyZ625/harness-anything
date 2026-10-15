@@ -228,7 +228,7 @@ test(
             runtimeInstanceId: "edge-worker",
             taskId,
             prompt: "Verify edge credential",
-            idempotencyKey: "edge-credential",
+            dispatchKey: "edge-credential",
           },
         },
       },
@@ -538,7 +538,7 @@ test(
       ).ok,
       true,
     );
-    const spawnReviewer = (idempotencyKey: string) =>
+    const spawnReviewer = (dispatchKey: string) =>
       reviewRpc("daemon.fleet.task.run", {
         payload: {
           ...reviewRoute,
@@ -552,7 +552,7 @@ test(
               role: "reviewer",
               cwd: { scope: "repo-root" },
               prompt: "Review the submitted cut.",
-              idempotencyKey,
+              dispatchKey,
             },
           },
         },

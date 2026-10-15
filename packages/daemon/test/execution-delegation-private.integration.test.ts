@@ -91,7 +91,7 @@ test("center private delegation survives restart and narrows online Keycloak per
       runtimeSessionId,
       action: ["task-amend"],
       expiresAt: "2026-09-19T12:00:00.000Z",
-      idempotencyKey: "private-once",
+      dispatchKey: "private-once",
     };
   assert.equal(
     (await cell.run({ kind: "task-create", taskId: "task-private-target", title: "Target" }, binding)).outcome,

@@ -466,7 +466,7 @@ test("runtime.run verifies its executor claim and spawns in one publication turn
       cwd: { scope: "repo-root" },
       prompt: "Continue the held execution",
       taskId,
-      idempotencyKey: "claimed-runtime-run",
+      dispatchKey: "claimed-runtime-run",
     },
     context = contextFor(
       Promise.resolve(),
