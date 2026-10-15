@@ -106,7 +106,12 @@ export function withFleetReplicaPullLock<T>(_viewDir: string, operation: () => P
   return operation();
 }
 
-export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?: string): FleetMirrorView | null {
+export function locateFleetMirrorView(
+  viewRoot: string,
+  repoId: string,
+  viewId?: string,
+  options: { readonly includeEntries?: boolean; readonly entriesPrefix?: string } = {},
+): FleetMirrorView | null {
   const viewsRoot = path.join(viewRoot, "repos", repoId, "views");
   if (!existsSync(viewsRoot)) return null;
   const names = readdirSync(viewsRoot, { withFileTypes: true }).filter(
@@ -122,10 +127,17 @@ export function locateFleetMirrorView(viewRoot: string, repoId: string, viewId?:
         projectionPath: generation.projectionPath,
       });
       try {
-        const docs = reader.withSession((queries) => queries.readDocuments(""));
-        const entries = new Map<string, FleetMirrorBlob>(
-          docs.documents.map((doc) => [doc.path, { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType }]),
-        );
+        const entries =
+          options.includeEntries === false
+            ? new Map<string, FleetMirrorBlob>()
+            : new Map<string, FleetMirrorBlob>(
+                reader
+                  .withSession((queries) => queries.readDocuments(options.entriesPrefix ?? ""))
+                  .documents.map((doc) => [
+                    doc.path,
+                    { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType },
+                  ]),
+              );
         // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
         // same revision: a mirrorBaseCut the edge sends is checked against exactly this digest.
         const ledger = openSqliteEventStore({
