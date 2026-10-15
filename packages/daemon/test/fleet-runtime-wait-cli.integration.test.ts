@@ -21,7 +21,7 @@ import { registerBootstrappedDaemonRepo as registerDaemonRepo } from "./repo-set
 import { eventually } from "./schedule-actions.fixtures.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 const replicaQuota = 64 * 1024 * 1024;
-for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect"] as const)
+for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnect", "planned"] as const)
   test(`edge CLI wait: ${scenario}`, { timeout: 60_000 }, async (t) => {
     const foreground = scenario !== "status" && scenario !== "reconnect";
     const expectedOutcome = scenario === "failed" ? "failed" : scenario === "cancelled" ? "cancelled" : "succeeded";
@@ -42,7 +42,15 @@ for (const scenario of ["status", "foreground", "failed", "cancelled", "reconnec
         codex: { reasoningEffort: "high" },
         authMode: "subscription",
       },
-      fixture = await fleetFixture(t, ["tasks/task-fleet-fleet", "agents"], [installation]);
+      fixture = await fleetFixture(
+        t,
+        ["tasks/task-fleet-fleet", "agents"],
+        [installation],
+        "local",
+        undefined,
+        undefined,
+        scenario !== "planned",
+      );
     t.after(() => fixture.close());
     await registerFixtureRuntimeInstance(fixture.host, fixture.subject.repoId, localAuthFixture(), codexInstance);
     const { repoId, taskId } = fixture.subject,

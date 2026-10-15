@@ -279,17 +279,44 @@ export function openFleetEdgeRuntime(input: {
       taskContext: async (taskId, missionName, review) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
-        const runtimeContext = taskRuntimeContext(
+        let runtimeContext = taskRuntimeContext(
           await readReplica("repo.tasks.runtimeContext.read", { taskId }),
           taskId,
         );
-        const current = runtimeContext.snapshot;
+        let current = runtimeContext.snapshot;
         if (!current.task) throw edgeRuntimeError("task_read_failed", "Task context is unavailable.");
-        const executionId = review
+        let executionId = review
           ? selectReviewTarget(taskId, review.executionId, current, false)?.executionId
           : current.lease?.phase === "held"
             ? current.lease.executionId
             : undefined;
+        if (!executionId && !review) {
+          const started = await runFleetEdgeWrite({
+            viewRoot: request.viewRoot,
+            repoId: request.repoId,
+            nodeId: request.nodeId,
+            timeoutMs: centerWriteWaitMs,
+            write: () =>
+              runFleetTaskCommandClient({
+                ...writePeer,
+                repoId: request.repoId,
+                taskId,
+                opId: `runtime-task-start-${taskId}`,
+                action: { kind: "task-start", taskId },
+                waitMs: centerWriteWaitMs,
+                timeoutMs: centerWriteWaitMs + 10_000,
+              }),
+          });
+          if (started.outcome !== "applied")
+            throw edgeRuntimeError(
+              started.code ?? "task_start_rejected",
+              `The center could not start task ${taskId}: ${String(started.code ?? started.outcome)}.`,
+            );
+          await pullRuntimeReplica();
+          runtimeContext = taskRuntimeContext(await readReplica("repo.tasks.runtimeContext.read", { taskId }), taskId);
+          current = runtimeContext.snapshot;
+          executionId = current.lease?.phase === "held" ? current.lease.executionId : undefined;
+        }
         if (!executionId) throw edgeRuntimeError("execution_missing", "The task has no current execution.");
         const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId);
         const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
