@@ -457,7 +457,10 @@ export function reduceTaskEvent(snapshot: TaskLifecycleSnapshot, event: TaskEven
       ...snapshot,
       revision: event.workspaceRevision,
       task: event.payload.task,
-      executions: replaceExecution(snapshot.executions, event.payload.execution),
+      ...(event.payload.execution
+        ? { executions: replaceExecution(snapshot.executions, event.payload.execution) }
+        : {}),
+      ...(event.payload.siblingResolution ? { siblingResolution: event.payload.siblingResolution } : {}),
       lease: null,
     };
   assertReplay(snapshot, event, next);
@@ -780,6 +783,19 @@ function assertReplay(snapshot: TaskLifecycleSnapshot, event: TaskEventV1, next:
     ]);
   if (
     event.type === "task_completed" &&
+    event.payload.siblingResolution &&
+    (!snapshot.task ||
+      ["done", "cancelled"].includes(snapshot.task.status) ||
+      snapshot.lease ||
+      event.payload.task.taskId !== event.taskId ||
+      event.payload.task.status !== "done")
+  )
+    throw new TaskLifecycleContractError("invalid_transition", [
+      lifecycleContractIssue("invalid_transition", "replayed sibling completion requires an open task without a lease"),
+    ]);
+  if (
+    event.type === "task_completed" &&
+    event.payload.execution !== undefined &&
     ((!event.payload.historicalAcceptance &&
       !acceptedCompletionWitnesses(snapshot, event.payload.execution.executionId, event.payload.closeoutGates)) ||
       event.payload.task.taskId !== event.taskId ||

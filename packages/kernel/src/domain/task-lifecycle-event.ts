@@ -239,7 +239,12 @@ export type TaskCompletedEvent = TaskEventEnvelope<
   {
     readonly historicalAcceptance?: { readonly sourceGeneration: 1 | 2; readonly sourceRevision: number };
     readonly task: TaskV2;
-    readonly execution: ExecutionV1;
+    readonly execution?: ExecutionV1;
+    readonly siblingResolution?: {
+      readonly sourceTaskId: string;
+      readonly rationale: string;
+      readonly factRef: string;
+    };
     readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
     readonly factRetirementAttestations?: readonly FactStillHoldsAttestation[];
   }
@@ -396,6 +401,7 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "dispatchTaskId"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "supersedesSubmissionId"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "closeoutGates"),
+      Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "siblingResolution"),
       Object.hasOwn(payloadWithoutCarried as Record<string, unknown>, "reviewId"),
     ),
     claims = payload.documentClaims;
@@ -425,6 +431,22 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
   )
     return [...issues, invalidEventPayloadIssue(`${String(value.type)} payload fields or document claims are invalid`)];
   issues.push(...validateTaskV2(payload.task, allowUnknownFields));
+  if (payload.siblingResolution !== undefined) {
+    const resolution = payload.siblingResolution;
+    if (
+      value.type !== "task_completed" ||
+      payload.execution !== undefined ||
+      !isRecord(resolution) ||
+      !hasOnlyFields(resolution, ["sourceTaskId", "rationale", "factRef"]) ||
+      !isNonEmptyString(resolution.sourceTaskId) ||
+      resolution.sourceTaskId === value.taskId ||
+      !isNonEmptyString(resolution.rationale) ||
+      !/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(String(resolution.factRef))
+    )
+      issues.push(
+        invalidEventPayloadIssue("sibling resolution must name another task, a rationale, and a canonical Fact"),
+      );
+  }
   if (payload.historicalAcceptance !== undefined) {
     const accepted = payload.historicalAcceptance;
     if (
@@ -454,7 +476,9 @@ function validateTaskEventFields(value: unknown, allowUnknownFields: boolean): r
       "completion_gate_verified",
       "gate_run_changed",
       "task_completion_generation_retired",
-      "task_completed",
+      ...(value.type === "task_completed" && isRecord(payload) && payload.siblingResolution !== undefined
+        ? []
+        : ["task_completed"]),
       "lease_released",
     ].includes(String(value.type))
   )
@@ -622,9 +646,10 @@ function lifecyclePayloadFields(
   dispatchTaskId = false,
   supersedesSubmissionId = false,
   closeoutGates = false,
+  siblingResolution = false,
   reviewId = false,
 ): readonly string[] {
-  const common = ["task", "execution", "documentClaims"];
+  const common = ["task", ...(type === "task_completed" && siblingResolution ? [] : ["execution"]), "documentClaims"];
   if (type === "task_created") return ["task", "documentClaims"];
   if (type === "execution_started" || type === "lease_renewed")
     return [...common, "lease", "previousHolder", "leaseExpiresAt", "reason"];
@@ -645,6 +670,7 @@ function lifecyclePayloadFields(
   if (type === "task_completed")
     return [
       ...common,
+      ...(siblingResolution ? ["siblingResolution"] : []),
       ...(closeoutGates ? ["closeoutGates"] : []),
       ...(factRetirementAttestations ? ["factRetirementAttestations"] : []),
     ];

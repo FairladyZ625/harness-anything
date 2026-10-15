@@ -21,7 +21,7 @@ beforeAll(() => {
 
 const mounted: { readonly root: Root; readonly container: HTMLElement }[] = [];
 
-async function mountCloseout(task: unknown): Promise<HTMLElement> {
+async function mountCloseout(task: unknown, onNavigateEntity: (ref: string) => void = () => {}): Promise<HTMLElement> {
   // i18n/index.tsx 首次被动态 import 时有模块级副作用(按系统 locale 重置 activeLocale),
   // 在 import 之后重放测试想要的 locale,避免 happy-dom 的 en-US 盖掉设置。
   const locale = currentLocale();
@@ -35,7 +35,11 @@ async function mountCloseout(task: unknown): Promise<HTMLElement> {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   await act(async () => {
     root.render(
-      createElement(QueryClientProvider, { client }, createElement(TaskCloseoutTab, { task: task as never })),
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(TaskCloseoutTab, { task: task as never, onNavigateEntity }),
+      ),
     );
   });
   return container;
@@ -399,4 +403,26 @@ describe("收口页 Execution 输出回执(en-US)", () => {
       setActiveLocale("zh-CN");
     }
   });
+});
+
+it("shows sibling resolution with working source and fact navigation without a target execution", async () => {
+  const navigated: string[] = [];
+  const container = await mountCloseout(
+    {
+      ...fixtureTask([], []),
+      coordinationStatus: "done",
+      closeoutReadiness: "passed",
+      siblingResolution: {
+        sourceTaskId: "task-source",
+        rationale: "Delivery abc fixes B on main",
+        factRef: "fact/F-1234ABCD",
+      },
+    },
+    (ref) => navigated.push(ref),
+  );
+  const resolution = container.querySelector('[data-testid="task-sibling-resolution"]')!;
+  expect(resolution.textContent).toContain("Delivery abc fixes B on main");
+  expect(resolution.textContent).toContain("解决");
+  for (const button of resolution.querySelectorAll("button")) act(() => button.click());
+  expect(navigated).toEqual(["task/task-source", "fact/F-1234ABCD"]);
 });

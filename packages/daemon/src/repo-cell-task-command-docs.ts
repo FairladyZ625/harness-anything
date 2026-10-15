@@ -70,7 +70,7 @@ export async function runTaskCommandWithDocs(
   const head = cell.store.readHead(),
     headRevision = head?.revision ?? 0,
     opId = cell.operationId(action, binding, cell.input.repoId, headRevision);
-  if (taskAction.kind === "task-complete") {
+  if (taskAction.kind === "task-complete" && taskAction.resolvedBy === undefined) {
     const current = await cell.service.read(taskId),
       decision = taskCompletionNext(
         current.snapshot,
@@ -246,7 +246,7 @@ export async function runTaskCommandWithDocs(
     }
   const current = await cell.service.read(taskId);
   let completionExecutionId: string | null = null;
-  if (taskAction.kind === "task-complete") {
+  if (taskAction.kind === "task-complete" && taskAction.resolvedBy === undefined) {
     const context = readCompletionContext(cell.projection, taskId, current.snapshot, current.status),
       body = bodyOverrides.get(context.closeoutPath),
       assessment =

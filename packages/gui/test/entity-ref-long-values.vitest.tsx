@@ -268,7 +268,11 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
     const task = closeoutFixtureTask([]);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const container = mount(
-      createElement(QueryClientProvider, { client }, createElement(TaskCloseoutTab, { task: task as never })),
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(TaskCloseoutTab, { task: task as never, onNavigateEntity: () => {} }),
+      ),
     );
     await act(async () => {
       await Promise.resolve();
@@ -316,7 +320,11 @@ describe("收口页两消费者共用 RecordRow:记录行与 execution 输出行
     ]);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     const container = mount(
-      createElement(QueryClientProvider, { client }, createElement(TaskCloseoutTab, { task: task as never })),
+      createElement(
+        QueryClientProvider,
+        { client },
+        createElement(TaskCloseoutTab, { task: task as never, onNavigateEntity: () => {} }),
+      ),
     );
     await act(async () => {
       await Promise.resolve();

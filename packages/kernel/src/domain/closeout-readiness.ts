@@ -59,6 +59,7 @@ export interface CloseoutSnapshot {
   readonly codeDocWitnesses: readonly CodeDocWitnessRecord[];
   readonly gateWitnesses: readonly CompletionGateWitnessV1[];
   readonly decisionRelations?: readonly CoverageRelation[];
+  readonly siblingResolution?: { readonly sourceTaskId: string; readonly rationale: string; readonly factRef: string };
 }
 
 /** The one cross-aggregate closeout judgment used by transitions and read models. */
@@ -69,6 +70,7 @@ export function closeoutReadiness(
 ): CloseoutAssessment {
   const task = snapshot.task;
   if (!task) return { readiness: "missing", blocker: "execution", gates: [] };
+  if (task.status === "done" && snapshot.siblingResolution) return { readiness: "passed", gates: [] };
   const cuts = currentExecutionCuts(snapshot),
     cut = cuts.length === 1 ? cuts[0] : undefined;
   if (task.status === "done") {

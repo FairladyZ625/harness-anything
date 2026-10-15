@@ -298,7 +298,7 @@ describe("renderer app model", () => {
       createElement(
         QueryClientProvider,
         { client: new QueryClient() },
-        createElement(TaskCloseoutTab, { task: active }),
+        createElement(TaskCloseoutTab, { task: active, onNavigateEntity: () => {} }),
       ),
     );
     expect(activeMarkup).toContain("追加 progress");
@@ -310,6 +310,7 @@ describe("renderer app model", () => {
         QueryClientProvider,
         { client: new QueryClient() },
         createElement(TaskCloseoutTab, {
+          onNavigateEntity: () => {},
           task: {
             ...active,
             canonicalStatus: "planned",

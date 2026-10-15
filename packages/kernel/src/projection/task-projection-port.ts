@@ -150,7 +150,7 @@ export interface TaskProjection {
   readonly readReplicaBasis: (afterRevision: number | null) => ReplicaProjectionBasis;
   readonly taskIdForDocumentPath: (path: string) => string | null;
   readonly readTaskSubmissionOperation: (taskId: string, executionId: string) => string | null;
-  readonly readTaskCompletion: (taskId: string, executionId: string) => TaskEventV1 | null;
+  readonly readTaskCompletion: (taskId: string, executionId: string | null) => TaskEventV1 | null;
   readonly readRuntimeDispatch: (
     runtimeSessionIdValue: string,
     definitionSnapshotRef?: string,

@@ -1,6 +1,7 @@
 import { type TaskLifecycleServiceProof } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   canonicalGateReceipts,
+  closeoutReadiness,
   codeDocRecordId,
   consumeKnownError,
   consentedApprovedReviewForExecution,
@@ -457,7 +458,7 @@ export async function proofFor(
   }
   if (command.type !== "CompleteTask")
     throw cellCodedError("invalid_command", `No authority proof plan exists for ${command.type}.`);
-  return completeProof(command, snapshot, binding) as TaskLifecycleServiceProof<typeof command>;
+  return completeProof(command, snapshot, binding, projection, rootDir) as TaskLifecycleServiceProof<typeof command>;
 }
 
 function codeDocVerificationDiagnostic(
@@ -533,6 +534,8 @@ export function completeProof(
   command: CompleteTaskCommand,
   snapshot: Snapshot,
   binding: RepoCellBinding,
+  projection?: TaskProjection,
+  rootDir?: string,
 ): ProofFor<CompleteTaskCommand> & { readonly authorizationDecision: AuthorizationDecision } {
   if (snapshot.lease !== null)
     throw cellCriterionError(
@@ -549,6 +552,63 @@ export function completeProof(
       "complete",
       COMPLETE_VALIDATION_CRITERION,
     );
+  if (command.resolution) {
+    const source = projection?.read(command.resolution.resolvedByTaskId),
+      sourceSnapshot = source?.snapshot,
+      accepted = sourceSnapshot?.executions.find(
+        (candidate) =>
+          isNativeExecution(candidate) &&
+          candidate.state === "accepted" &&
+          candidate.iteration === sourceSnapshot.task?.iteration,
+      ),
+      fact = projection?.readFact(command.resolution.factRef.slice("fact/".length));
+    if (
+      !sourceSnapshot ||
+      source?.status !== "ready" ||
+      sourceSnapshot.task?.status !== "done" ||
+      !accepted ||
+      !isNativeExecution(accepted) ||
+      !consentedApprovedReviewForExecution(
+        sourceSnapshot.reviews,
+        sourceSnapshot.consents,
+        accepted,
+        sourceSnapshot.reviewDispositions,
+      ) ||
+      closeoutReadiness(sourceSnapshot).readiness !== "passed"
+    )
+      throw cellCodedError(
+        "invalid_proof",
+        "Sibling resolution requires a done source with an accepted execution, approved review, consent, and passed completion gates. Complete the source task first.",
+      );
+    if (!/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef) || !fact?.fact || fact.status !== "ready")
+      throw cellCodedError("invalid_proof", "Sibling resolution requires an existing, projected canonical Fact.");
+    if (accepted.submission?.commitSha) {
+      const base = rootDir ? repositoryBaseRef(rootDir) : null;
+      if (
+        !rootDir ||
+        !base ||
+        !makeGitReadinessSource().run(rootDir, ["merge-base", "--is-ancestor", accepted.submission.commitSha, base]).ok
+      )
+        throw cellCodedError(
+          "invalid_proof",
+          "Sibling delivery is not on the repository default branch. Merge the source delivery before resolving this task.",
+        );
+    }
+    return {
+      capability: "task-complete@v1",
+      capabilityRef: authorizationDecision.policyRef,
+      actorRole: "owner",
+      noActiveLease: true,
+      closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
+      gateReceipts: [],
+      siblingResolution: {
+        sourceTaskId: command.resolution.resolvedByTaskId,
+        sourceDone: true,
+        factRef: command.resolution.factRef,
+      },
+      authorizationDecision,
+    };
+  }
   const execution = snapshot.executions.find(
     (candidate) => candidate.executionId === command.executionId && candidate.submission !== null,
   );
