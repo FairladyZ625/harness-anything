@@ -225,6 +225,7 @@ export async function runCommandThroughDaemon(
           "daemon.fleet.task.run",
           { payload: fleetTask as JsonObject },
           75,
+          readResponseDeadlineMs(command.action.kind),
         ),
       () => cliDaemonServeLaunch(userRoot, daemonId),
       socketPath,
