@@ -230,7 +230,7 @@ test("sibling complete refuses unfinished sources and missing facts, then closes
   const f = await fixture(false, true, true, false, false, undefined, { autoForward: false });
   try {
     const target = "task-resolved-target";
-    await f.createPlannedTask(target, "standard-task", { profileId: "lightweight" });
+    await f.createPlannedTask(target, "docs-task", { profileId: "lightweight" });
     const fact = f.events().find((event) => event.type === "fact_recorded");
     assert.ok(fact?.type === "fact_recorded");
     const action = {
