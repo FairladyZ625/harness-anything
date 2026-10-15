@@ -13,7 +13,12 @@ import { makeTaskEventReader, sha256Text } from "@harness-anything/kernel";
 import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
-import { runFleetRuntimeEventClient, readFleetRepositoryMetadataClient, runFleetUploadClient, runFleetTaskCommandClient } from "../src/fleet/peer.ts";
+import {
+  runFleetRuntimeEventClient,
+  readFleetRepositoryMetadataClient,
+  runFleetUploadClient,
+  runFleetTaskCommandClient,
+} from "../src/fleet/peer.ts";
 
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { latestSquadStates } from "../src/squad-run-state.ts";
@@ -384,7 +389,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
         ...initialDispatch.payload,
         dispatchId: "dispatch_eeeeeeeeeeeeeeeeeeeeeeee",
         runtimeSessionId: "runtime-obsolete-continuation",
-        idempotencyKey: "obsolete-leader-continuation",
+        dispatchKey: "obsolete-leader-continuation",
         squadRun: { squadRunId: runId, ownerDispatchId: observed.payload.ownerDispatchId, turnId: "leader-2" },
       },
     }),

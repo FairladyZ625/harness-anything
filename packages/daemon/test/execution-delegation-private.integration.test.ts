@@ -91,7 +91,7 @@ test("center private delegation survives restart and narrows online Keycloak per
       runtimeSessionId,
       action: ["task-amend"],
       expiresAt: "2026-09-19T12:00:00.000Z",
-      dispatchKey: "private-once",
+      idempotencyKey: "private-once",
     };
   assert.equal(
     (await cell.run({ kind: "task-create", taskId: "task-private-target", title: "Target" }, binding)).outcome,
@@ -215,7 +215,7 @@ async function seedRuntimeSession(rootDir: string): Promise<void> {
           instanceId: "delegated-instance",
           installationId: "installation-codex",
           kindId: "codex",
-          idempotencyKey: "delegated-ledger-ops-once",
+          dispatchKey: "delegated-ledger-ops-once",
           definitionSnapshotRef: "artifact:runtime-definition/delegated",
           definitionSnapshot: {
             schema: "agent-definition-snapshot/v1",

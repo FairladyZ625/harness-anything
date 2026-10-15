@@ -128,7 +128,7 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
       instanceId: "instance-e2e-notask",
       installationId: "installation-e2e-notask",
       kindId: "codex",
-      idempotencyKey: "gui-e2e-notask",
+      dispatchKey: "gui-e2e-notask",
       definitionSnapshotRef: "provider:definition/e2e-notask",
       definitionSnapshot: definitionSnapshot("instance-e2e-notask", "installation-e2e-notask"),
     });
@@ -242,7 +242,7 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
           instanceId,
           installationId,
           kindId: "codex",
-          idempotencyKey: `gui-e2e-${row.key}`,
+          dispatchKey: `gui-e2e-${row.key}`,
           definitionSnapshotRef: snapshotRef,
           definitionSnapshot: definitionSnapshot(instanceId, installationId),
         });

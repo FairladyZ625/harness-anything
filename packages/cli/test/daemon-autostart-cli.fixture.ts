@@ -355,7 +355,7 @@ async function seedAttachableRuntime(
         instanceId: definition.instanceId,
         installationId: definition.installationId,
         kindId: definition.kindId,
-        idempotencyKey: "runtime-attach-live",
+        dispatchKey: "runtime-attach-live",
         definitionSnapshotRef: "artifact:runtime-definition/attach-live",
         definitionSnapshot: definition,
       },

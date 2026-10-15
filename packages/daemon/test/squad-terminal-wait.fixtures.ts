@@ -31,7 +31,7 @@ export async function seedSquadWaitState(
           instanceId: "fixture-runtime",
           installationId: "fixture-installation",
           kindId: "codex",
-          idempotencyKey: key,
+          dispatchKey: key,
           definitionSnapshotRef: "artifact:runtime-definition/squad-wait",
           definitionSnapshot: {
             schema: "agent-definition-snapshot/v1",
