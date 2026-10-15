@@ -27,7 +27,6 @@ const seededTask = { taskId: "task_e2e0000000000000000000001", executionId: "exe
 const mirrorHead = (ledgerPath: string): number => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
-      db.exec("PRAGMA busy_timeout=5000");
       return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
     } finally {
       db.close();
@@ -36,7 +35,6 @@ const mirrorHead = (ledgerPath: string): number => {
   mirrorEventRows = (ledgerPath: string, where: string, params: readonly unknown[] = []): unknown[] => {
     const db = new DatabaseSync(ledgerPath, { readOnly: true });
     try {
-      db.exec("PRAGMA busy_timeout=5000");
       return db.prepare(`SELECT * FROM event WHERE ${where}`).all(...params);
     } finally {
       db.close();
@@ -49,7 +47,6 @@ const mirrorHead = (ledgerPath: string): number => {
   ): unknown[] => {
     const db = new DatabaseSync(fixture.ledgerPath, { readOnly: true });
     try {
-      db.exec("PRAGMA busy_timeout=5000");
       return db.prepare(`SELECT * FROM event WHERE ${where}`).all(...params);
     } finally {
       db.close();
