@@ -137,7 +137,7 @@ test("runtime dispatch rejects an opId occupied by another canonical event", asy
       repoId,
       rootDir: tmpdir(),
       store: () => ({ readEvent: (opId: string) => (opId === dispatchOpId ? { type: "task_created", opId } : null) }),
-      projection: () => ({ readRuntimeSessions: () => [] }),
+      projection: () => ({ readRuntimeSessions: () => [], getEntity: () => undefined }),
       now: () => "2026-09-10T00:00:00.000Z",
     } as unknown as RuntimeSpawnerInput);
   await assert.rejects(
