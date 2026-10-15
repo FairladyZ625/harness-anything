@@ -16,7 +16,7 @@ import {
   presetSnapshotReader,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
-import { worktreeSetupFailure } from "./worktree-setup.ts";
+import { noWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
 
 export function admitRuntimeResume(
   rootDir: string,
@@ -156,7 +156,7 @@ export async function prepareDispatchWorktree(
     input.rootDir,
     taskId,
     binding,
-    input.readSettings?.().worktree.setup ?? [],
+    input.readSettings?.().worktree ?? noWorktreeSetup(),
     payload.acceptedCommit,
   );
   if (checkout && !checkout.setup.ok)

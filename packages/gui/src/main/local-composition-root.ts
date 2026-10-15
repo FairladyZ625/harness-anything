@@ -12,6 +12,7 @@ import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGui
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
 import type { FirstRunBootstrapInput } from "../api/first-run-contract.ts";
 import { defaultRegistryReader, resolveRepoScopedTarget } from "./repo-scoped-target.ts";
+import { DEFAULT_GUI_CONNECT_TIMEOUT_MS, guiRequestTimeouts, type GuiRequestTimeouts } from "./gui-local-settings.ts";
 type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 interface DaemonClient {
@@ -73,8 +74,8 @@ export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): P
         target,
         "daemon.repo.bootstrap",
         input as unknown as JsonObject,
-        CONNECT_TIMEOUT_MS,
-        75_000,
+        guiRequestTimeouts(input.rootDir).connectTimeoutMs,
+        BOOTSTRAP_TIMEOUT_MS,
       );
     return await invoke();
   } catch (error) {
@@ -108,14 +109,15 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
         reportInvalidTaskSnapshotRows(parsed as unknown as DaemonTaskSnapshotListResult);
       return parsed;
     };
-    const invoke = () =>
-      daemon.requestLocalDaemonJsonRpcForTarget(
-        target,
-        route.rpcMethod,
-        params,
-        CONNECT_TIMEOUT_MS,
-        requestTimeoutMs(route, daemonPayload),
-      );
+    const timeouts = guiRequestTimeouts(rootDir),
+      invoke = () =>
+        daemon.requestLocalDaemonJsonRpcForTarget(
+          target,
+          route.rpcMethod,
+          params,
+          timeouts.connectTimeoutMs,
+          requestTimeoutMs(route, daemonPayload, timeouts),
+        );
     return parse(await invoke());
   } catch (error) {
     return failure(route.rpcMethod, "Local daemon request failed", error);
@@ -123,8 +125,9 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
 }
 // The transport's own connect deadline is 75ms, tuned for the CLI which retries around it. The GUI
 // never retries, and a daemon mid-write on its single event loop easily misses 75ms, so every
-// contention blip used to read as "daemon unreachable". Match the CLI streaming path's 2s.
-const CONNECT_TIMEOUT_MS = 2_000;
+// contention blip used to read as "daemon unreachable" — raised to 2s (泽宇 2026-09-01/02) and now the
+// local setting gui.connectTimeoutMs. The admin channel has no repository root to read settings
+// from, so it keeps the declared default.
 // Socket errors that mean no daemon is listening (missing socket file, nobody accepting).
 const SOCKET_ABSENT_CODES = new Set(["ENOENT", "ECONNREFUSED", "ENOTSOCK", "EACCES"]);
 // Only a socket-level miss means the daemon is absent; a slow or rejected answer came from a live
@@ -170,16 +173,26 @@ export function reportInvalidTaskSnapshotRows(
       ].join(" "),
     );
 }
-// The registry has no transport timeouts; keep the existing provider-tooling deadlines here.
-function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
+// The registry has no transport timeouts; the specialized deadlines below have never been tuned and
+// stay named constants with their reasons. The default read deadline is the local setting.
+// First-run repository setup runs package installs.
+const BOOTSTRAP_TIMEOUT_MS = 75_000;
+// Instance create/update with an API key dials the provider before answering.
+const INSTANCE_KEY_TIMEOUT_MS = 75_000;
+// Repository writes publish through the coordinator and may include SQLite/WAL plus authored-file
+// materialization. Timing them out at the short read deadline leaves an ambiguous durable write.
+const REPO_WRITE_TIMEOUT_MS = 20_000;
+const INSTANCE_OP_TIMEOUT_MS = 20_000;
+const INSTANCE_SHOW_TIMEOUT_MS = 2_000;
+const SESSION_AUTH_TIMEOUT_MS = 1_000;
+
+function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
   if (
     ["createRuntimeInstance", "updateRuntimeInstance"].includes(route.guiBridgeMethod) &&
     payload.apiKey !== undefined
   )
-    return 75_000;
-  // Repository writes publish through the coordinator and may include SQLite/WAL plus authored-file
-  // materialization. Timing them out at the short read deadline leaves an ambiguous durable write.
-  if (route.commandClass === "repo-write") return 20_000;
+    return INSTANCE_KEY_TIMEOUT_MS;
+  if (route.commandClass === "repo-write") return REPO_WRITE_TIMEOUT_MS;
   if (
     route.guiBridgeMethod === "createRuntimeInstance" ||
     route.guiBridgeMethod === "updateRuntimeInstance" ||
@@ -187,15 +200,16 @@ function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject): number {
     route.guiBridgeMethod === "listRuntimeInstances" ||
     (route.guiBridgeMethod === "showRuntimeInstance" && payload.probe === true)
   )
-    return 20_000;
-  if (route.guiBridgeMethod === "showRuntimeInstance") return 2_000;
-  if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod)) return 1_000;
+    return INSTANCE_OP_TIMEOUT_MS;
+  if (route.guiBridgeMethod === "showRuntimeInstance") return INSTANCE_SHOW_TIMEOUT_MS;
+  if (["signInRuntimeInstance", "signOutRuntimeInstance"].includes(route.guiBridgeMethod))
+    return SESSION_AUTH_TIMEOUT_MS;
   // Reads share the daemon with the single-writer queue; sustained ledger writes hold the
   // workspace for seconds at a time, so any deadline that undercuts a normal write window
   // turns ordinary contention into a visible GUI error (200ms, 2s and 10s all did, live;
   // 泽宇 2026-09-01/02 三次亲裁调高). Connection-level failures still surface within
-  // CONNECT_TIMEOUT_MS through the socket connect path.
-  return 30_000;
+  // the connect deadline through the socket connect path.
+  return timeouts.requestTimeoutMs;
 }
 function repoPayload(value: unknown): { readonly repoId: string; readonly payload: JsonObject } {
   if (!value || typeof value !== "object" || Array.isArray(value))
@@ -248,7 +262,13 @@ async function daemonRpc(
 ): Promise<JsonObject> {
   const daemon = await loadClient();
   try {
-    return await daemon.requestLocalDaemonJsonRpcForTarget(target, method, params, CONNECT_TIMEOUT_MS, 20_000);
+    return await daemon.requestLocalDaemonJsonRpcForTarget(
+      target,
+      method,
+      params,
+      DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+      20_000,
+    );
   } catch (error) {
     return failure(method, "Local daemon request failed", error);
   }

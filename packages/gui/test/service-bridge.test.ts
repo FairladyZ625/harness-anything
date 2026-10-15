@@ -324,6 +324,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
         providerFreezeAfter: 5,
         providerFreezeDurationSeconds: 1800,
         providerMaxWaitSeconds: 300,
+        providerHandshakeTimeoutMs: 30_000,
       },
       schema: "settings/v1",
       settingsId: "repository",
@@ -343,8 +344,10 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       // S8 CH4 and dec_199D1CA39C6AD06504D66A95E9 CH1 freeze these defaults.
       tasks: { wipLimit: 30, rootThreshold: 3, assignmentTtlMs: 86_400_000 },
       fleet: { claim: { scope: "node" } },
-      worktree: { setup: [] },
+      worktree: { setup: [], setupStepTimeoutMs: 20 * 60 * 1000 },
       schedule: { admissionWindowMs: 60_000 },
+      storage: { backupExecutionLimitMs: 30 * 60_000 },
+      gui: { connectTimeoutMs: 2_000, requestTimeoutMs: 30_000 },
     });
     const settingsUpdated = parseDaemonGuiActionResponse(
       "repo.settings.update",
@@ -403,6 +406,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
     assert.deepEqual(JSON.parse(readFileSync(path.join(fixture.rootDir, ".harness/settings.local.json"), "utf8")), {
       schema: "settings-local/v1",
       locale: "zh-CN",
+      gui: { connectTimeoutMs: 2000, requestTimeoutMs: 30000 },
     });
     assert.match(harnessYaml, /wipLimit: 30/u);
     const observability = parseDaemonGuiReadResult("observe.tail", results.get("observe.tail"));

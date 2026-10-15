@@ -27,6 +27,7 @@ import {
   resolveSquadCwd,
   workerPrompt,
 } from "./squad-worker-checkout.ts";
+import type { WorktreeSetupSettings } from "./worktree-setup.ts";
 import {
   callbackLeaderPrompt,
   initialLeaderPrompt,
@@ -54,7 +55,7 @@ export function makeSquadCoordinator(input: {
   readonly rootDir: string;
   readonly publishObservation: (observation: SquadRunObservation, binding: RuntimeBinding) => Promise<void>;
   /** Settings `worktree.setup`: what the Squad's task worktree and each worker worktree run once. */
-  readonly readWorktreeSetup: () => readonly string[];
+  readonly readWorktreeSetup: () => WorktreeSetupSettings;
   readonly query: <T>(read: (projection: TaskProjection) => T) => T;
   readonly readResult: (ref: string) => string;
   readonly reacquireTaskLease: (
@@ -603,7 +604,7 @@ export function makeSquadCoordinator(input: {
               attempt.worktree?.baseSha ?? localGitObjectRefStore.headCommit(state.cwd),
               plan.workerId,
               attemptId,
-              { rootDir: input.rootDir, taskId, steps: input.readWorktreeSetup() },
+              { rootDir: input.rootDir, taskId, ...input.readWorktreeSetup() },
             );
       attempt = { ...attempt, worktree, executionId };
       state = await save(state);

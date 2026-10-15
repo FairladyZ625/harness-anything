@@ -362,7 +362,7 @@ export async function openRepoCellProxy(
     actionRuntimes = Object.freeze({
       entity: Object.freeze({
         agent: makeAgentActionRuntime(runtimeContext),
-        schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree.setup),
+        schedule: makeScheduleActionRuntime(runtimeContext, () => settings.read().worktree),
         settings: makeSettingsActionRuntime(runtimeContext, settings),
         person: makePersonActionRuntime(runtimeContext),
         squad: makeSquadActionRuntime(runtimeContext),

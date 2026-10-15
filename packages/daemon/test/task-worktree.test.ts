@@ -19,7 +19,12 @@ import {
 } from "../src/task-worktree.ts";
 import { prepareWorkerWorktree, reclaimWorkerWorktree } from "../src/squad-worker-checkout.ts";
 import { remoteDefaultBranch, repositoryBaseRef } from "../src/schedule-occurrence-workspace.ts";
-import { readWorktreeSetupSucceeded, runWorktreeSetup, worktreeSetupFailure } from "../src/worktree-setup.ts";
+import {
+  noWorktreeSetup,
+  readWorktreeSetupSucceeded,
+  runWorktreeSetup,
+  worktreeSetupFailure,
+} from "../src/worktree-setup.ts";
 import { seedSquadWaitState } from "./squad-terminal-wait.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -193,7 +198,7 @@ async function lifecycle(
       rootDir: root,
       readTask: task,
       readPresetSnapshot: repositoryDiff,
-      readSetup: () => options.setup ?? [],
+      readWorktree: () => ({ ...noWorktreeSetup(), setup: options.setup ?? [] }),
     },
     source = options.source ?? "local",
     annotate = (await prepareTaskStartWorktree(input, action, source)) ?? ((receipt: WriteReceiptDraft) => receipt);
@@ -218,7 +223,7 @@ test("the first start checks the bound worktree out once, from the default branc
       state: "materialized",
     });
     // A later start or dispatch finds the checkout in place instead of cutting a second one.
-    assert.deepEqual(await checkoutTaskWorktree(fixture.root, taskId, binding, []), {
+    assert.deepEqual(await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()), {
       cwd,
       branch: taskId,
       baseRef: null,
@@ -237,7 +242,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     // A remote without origin/HEAD: the main checkout's branch, as its origin copy.
     assert.equal(repositoryBaseRef(fixture.root), "origin/main");
     // From a linked worktree the fallback is still the main checkout's branch, not the worktree's own.
-    const linked = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
+    const linked = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd;
     assert.equal(remoteDefaultBranch(linked), "origin/main");
     // A remote whose default branch is not main.
     git(fixture.root, "push", "-q", "origin", "main:trunk");
@@ -258,7 +263,7 @@ test("the base is the repository's own default branch: origin/HEAD, else the mai
     git(local, "add", ".gitignore");
     git(local, "commit", "-qm", "base");
     assert.equal(repositoryBaseRef(local), "master");
-    const checkout = await checkoutTaskWorktree(local, taskId, binding, []);
+    const checkout = await checkoutTaskWorktree(local, taskId, binding, noWorktreeSetup());
     assert.equal(checkout?.baseRef, "master");
     assert.equal(git(checkout!.cwd, "rev-parse", "HEAD"), git(local, "rev-parse", "master"));
   } finally {
@@ -330,7 +335,7 @@ test("a failing setup step refuses the start, keeps the worktree, and a retry re
 test("a task read sees only the setup steps that succeeded in this worktree, not the ones Settings declares", async (t) => {
   const fixture = repositoryFixture(t);
   try {
-    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []);
+    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup());
     // Checked out before Settings declared anything: nothing has run here yet.
     assert.deepEqual(readWorktreeSetupSucceeded(checkout!.cwd), []);
     await runWorktreeSetup({ rootDir: fixture.root, cwd: checkout!.cwd, taskId, steps: ["run: true", "run: false"] });
@@ -343,7 +348,7 @@ test("a task read sees only the setup steps that succeeded in this worktree, not
 test("a run step still going at the timeout fails like any other step and names the timeout and its log", async (t) => {
   const fixture = repositoryFixture(t);
   try {
-    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []),
+    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()),
       startedAt = Date.now(),
       result = await runWorktreeSetup({
         rootDir: fixture.root,
@@ -366,13 +371,35 @@ test("a run step still going at the timeout fails like any other step and names 
   }
 });
 
+test("the Settings step timeout reaches the checkout: a raised section value outlives a step the default kills", async (t) => {
+  const fixture = repositoryFixture(t);
+  try {
+    // The section a checkout receives is the Settings `worktree` section whole; its timeout governs the steps.
+    const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, {
+      setup: ["run: echo outlived > slow-step.out; sleep 1"],
+      setupStepTimeoutMs: 20 * 60 * 1000,
+    });
+    assert.equal(readFileSync(path.join(checkout!.cwd, "slow-step.out"), "utf8"), "outlived\n");
+    // The same section with a 300ms timeout stops that step instead: the value, not the wiring, decides.
+    const stopped = await checkoutTaskWorktree(fixture.root, taskId, binding, {
+      setup: ["run: sleep 5"],
+      setupStepTimeoutMs: 300,
+    });
+    assert.equal(stopped!.setup.ok, false);
+    if (stopped.setup.ok) return;
+    assert.equal(stopped.setup.detail, "timed out after 0.3s");
+  } finally {
+    rmSync(fixture.base, { recursive: true, force: true });
+  }
+});
+
 test(
   "a run step stopped at the timeout takes the processes it started with it",
   { skip: process.platform === "win32" ? "POSIX process groups" : false },
   async (t) => {
     const fixture = repositoryFixture(t);
     try {
-      const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, []),
+      const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()),
         pidFile = path.join(fixture.base, "install.pid"),
         result = await runWorktreeSetup({
           rootDir: fixture.root,
@@ -463,13 +490,13 @@ test("the node-modules adapter installs the root store when it is missing", asyn
 test("a checkout whose directory was removed is restored onto its surviving branch", async (t) => {
   const fixture = repositoryFixture(t);
   try {
-    const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
+    const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd;
     writeFileSync(path.join(cwd, "kept.txt"), "kept\n");
     git(cwd, "add", "kept.txt");
     git(cwd, "commit", "-qm", "kept");
     const head = git(cwd, "rev-parse", "HEAD");
     git(fixture.root, "worktree", "remove", cwd);
-    await checkoutTaskWorktree(fixture.root, taskId, binding, []);
+    await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup());
     assert.equal(git(cwd, "rev-parse", "HEAD"), head);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
@@ -480,7 +507,7 @@ test("a node without a default branch has no worktree to give, and forwarded wri
   const gitless = mkdtempSync(path.join(tmpdir(), "ha-task-worktree-gitless-")),
     fixture = repositoryFixture(t);
   try {
-    assert.equal(await checkoutTaskWorktree(gitless, taskId, binding, []), null);
+    assert.equal(await checkoutTaskWorktree(gitless, taskId, binding, noWorktreeSetup()), null);
     const gitlessStart = await lifecycle(gitless, () => boundTask("active"), { kind: "task-start", taskId }, {});
     assert.match(
       String((gitlessStart as { summary?: unknown }).summary),
@@ -572,7 +599,7 @@ test("closing a task reclaims its worktree by the managed-worktree rule", async 
       const fixture = repositoryFixture(t);
       try {
         let task = boundTask("active");
-        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd;
+        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd;
         scenario.work(cwd, fixture.root);
         task = boundTask("cancelled");
         const closed = await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, {}),
@@ -607,8 +634,8 @@ test("a worktree retained at close is reclaimed by a later close on this node on
           return lifecycle(fixture.root, readTask, { kind: "task-transition", taskId: id }, {});
         };
       try {
-        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
-          otherCwd = (await checkoutTaskWorktree(fixture.root, otherId, bindingOf(otherId), []))!.cwd,
+        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd,
+          otherCwd = (await checkoutTaskWorktree(fixture.root, otherId, bindingOf(otherId), noWorktreeSetup()))!.cwd,
           // A worktree no task is bound to (a schedule occurrence, a Squad worker) is not this rule's to reclaim.
           unbound = path.join(fixture.root, ".worktrees", "occ-unbound");
         mkdirSync(unbound);
@@ -643,9 +670,9 @@ test("the standalone reconciliation reclaims what a failed close left behind onc
         ]),
         readTask = (id: string) => tasks.get(id) ?? null;
       try {
-        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
-          otherCwd = (await checkoutTaskWorktree(fixture.root, otherId, bindingOf(otherId), []))!.cwd,
-          openCwd = (await checkoutTaskWorktree(fixture.root, openId, bindingOf(openId), []))!.cwd;
+        const cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd,
+          otherCwd = (await checkoutTaskWorktree(fixture.root, otherId, bindingOf(otherId), noWorktreeSetup()))!.cwd,
+          openCwd = (await checkoutTaskWorktree(fixture.root, openId, bindingOf(openId), noWorktreeSetup()))!.cwd;
         writeFileSync(path.join(cwd, "draft.txt"), "draft\n");
         writeFileSync(path.join(otherCwd, "draft.txt"), "draft\n");
         // Both tasks close while dirty: the close-time reclaim fails once, both worktrees stay.
@@ -695,7 +722,7 @@ test("an applied write that leaves the task open does not touch its worktree", a
   const fixture = repositoryFixture(t);
   try {
     const task = boundTask("active"),
-      cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!.cwd,
+      cwd = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!.cwd,
       receipt = applied();
     assert.equal(
       await lifecycle(fixture.root, () => task, { kind: "task-transition", taskId }, { write: () => receipt }),
@@ -718,7 +745,7 @@ test("a finished Squad run's worker checkout is reclaimed against the Commander 
           baseSha,
           "writer",
           "a1",
-          { rootDir: fixture.root, taskId: "task_child", steps: [] },
+          { rootDir: fixture.root, taskId: "task_child", ...noWorktreeSetup() },
         ))!;
       commit(worker.cwd, "worker.txt");
       if (merged) git(fixture.root, "merge", "-q", "--no-ff", "-m", "merge worker", worker.branch);
@@ -745,7 +772,7 @@ test("handoff checkout uses the accepted SHA even when the published branch adva
   git(fixture.root, "push", "-q", "origin", taskId);
   git(fixture.root, "switch", "-q", "main");
   git(fixture.root, "branch", "-D", taskId);
-  const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, [], accepted);
+  const checkout = await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup(), accepted);
   assert.ok(checkout);
   assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), accepted);
   assert.equal(checkout.baseRef, accepted);
@@ -754,21 +781,21 @@ test("handoff checkout uses the accepted SHA even when the published branch adva
 test("handoff checkout rejects dirty, mismatched, missing and non-SHA anchors without changing the tree", async (t) => {
   const fixture = repositoryFixture(t);
   t.after(() => rmSync(fixture.base, { recursive: true, force: true }));
-  const checkout = (await checkoutTaskWorktree(fixture.root, taskId, binding, []))!,
+  const checkout = (await checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup()))!,
     accepted = git(checkout.cwd, "rev-parse", "HEAD");
   writeFileSync(path.join(checkout.cwd, "untracked.txt"), "keep me");
-  await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, [], accepted), {
+  await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup(), accepted), {
     code: "runtime_handoff_workspace_dirty",
   });
   assert.equal(readFileSync(path.join(checkout.cwd, "untracked.txt"), "utf8"), "keep me");
   git(checkout.cwd, "add", "untracked.txt");
   git(checkout.cwd, "commit", "-qm", "local work");
   const current = git(checkout.cwd, "rev-parse", "HEAD");
-  await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, [], accepted), {
+  await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup(), accepted), {
     code: "runtime_handoff_sha_mismatch",
   });
   for (const anchor of ["origin/main", "0".repeat(40)])
-    await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, [], anchor));
+    await assert.rejects(checkoutTaskWorktree(fixture.root, taskId, binding, noWorktreeSetup(), anchor));
   assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), current);
 });
 
@@ -845,16 +872,24 @@ test("an explicit stack checkout preserves its anchor and refuses an unrelated e
   git(rootDir, "commit", "-qm", "stack anchor");
   const anchor = git(rootDir, "rev-parse", "HEAD");
   git(rootDir, "checkout", "-q", "-");
-  const checkout = await checkoutTaskWorktree(rootDir, "task-stack", bindingOf("task-stack"), [], undefined, anchor);
+  const checkout = await checkoutTaskWorktree(
+    rootDir,
+    "task-stack",
+    bindingOf("task-stack"),
+    noWorktreeSetup(),
+    undefined,
+    anchor,
+  );
   assert.equal(checkout?.baseRef, anchor);
   assert.equal(git(checkout!.cwd, "rev-parse", "HEAD"), anchor);
   assert.equal(
-    (await checkoutTaskWorktree(rootDir, "task-stack", bindingOf("task-stack"), [], undefined, anchor))?.baseRef,
+    (await checkoutTaskWorktree(rootDir, "task-stack", bindingOf("task-stack"), noWorktreeSetup(), undefined, anchor))
+      ?.baseRef,
     null,
   );
   git(rootDir, "branch", "task-unrelated");
   await assert.rejects(
-    checkoutTaskWorktree(rootDir, "task-unrelated", bindingOf("task-unrelated"), [], undefined, anchor),
+    checkoutTaskWorktree(rootDir, "task-unrelated", bindingOf("task-unrelated"), noWorktreeSetup(), undefined, anchor),
   );
   assert.equal(
     git(path.join(rootDir, ".worktrees/task-unrelated"), "rev-parse", "HEAD"),

@@ -7,6 +7,7 @@ import path from "node:path";
 import test from "node:test";
 import { runAcpProviderSession } from "../src/runtime-worker-acp.ts";
 import { writeAcpProviderStub } from "./fixtures/acp-stub.ts";
+import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 
 function fixture() {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
@@ -536,6 +537,43 @@ test("acp worker session fails when the provider exits 0 in the middle of the pr
       type: "acp.error",
       message: "ACP provider exited before the session completed (exit 0, signal null)",
     });
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("the manifest handshake timeout governs the deadline: a silent provider fails at the configured value, not the default", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-"));
+  try {
+    // A provider that consumes the handshake and never answers it.
+    const executablePath = writeProviderExecutable(
+      path.join(parent, "silent-acp"),
+      "process.stdin.on('data', () => {}); process.stdin.on('end', () => process.exit(0)); setInterval(() => {}, 60_000);",
+    );
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      startedAt = Date.now(),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          handshakeTimeoutMs: 400,
+        },
+        append,
+      );
+    await session.done;
+    const elapsed = Date.now() - startedAt,
+      error = records
+        .filter((record) => record.kind === "provider_event")
+        .map((record) => record.event as Record<string, unknown>)
+        .find((frame) => frame.type === "acp.error");
+    // The configured 400ms deadline fires; the 30s default never had a chance to matter.
+    assert.ok(elapsed < 10_000, `the handshake failed at the configured deadline, not after ${elapsed}ms`);
+    assert.match(String(error?.message), /ACP initialize timed out/u);
+    assert.equal(await closed(child), null);
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

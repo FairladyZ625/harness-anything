@@ -7,6 +7,7 @@ import { repositorySettingsActionValues } from "../../src/domain/settings-action
 import { assertSettingsEventInputs, validateCurrentSettingsEvent } from "../../src/domain/settings-event.ts";
 import { effectiveCloseoutGates } from "../../src/domain/settings-closeout.ts";
 import {
+  SETTINGS_DECLARATION_RUNTIME,
   SETTINGS_FIELD_DECLARATIONS,
   createSettingsDeclarationRuntime,
   defineSettingsField,
@@ -606,12 +607,15 @@ test("repositorySettingsActionValues covers every repository field for a fully p
   const values = repositorySettingsActionValues(populated),
     names = new Set(settingsUpdateInputFields.map(({ field }) => field));
   for (const key of Object.keys(values)) assert.ok(names.has(key), `${key} is not an action field`);
+  const localOnlyFields = new Set(SETTINGS_DECLARATION_RUNTIME.localOnlyActionFields);
   const repositoryFields = settingsUpdateInputFields
     .map(({ field }) => field)
-    // locale/expectedVersion/idempotencyKey 是机械项;gatesFromDocument 与 gatesDraft 是
-    // 写侧草稿命令——经 ingress 铸造进 authored 文档,不产生扁平读值。
+    // 本地设置字段(locale、GUI 时限)与 expectedVersion/idempotencyKey 是机械项;gatesFromDocument 与
+    // gatesDraft 是写侧草稿命令——经 ingress 铸造进 authored 文档,不产生扁平读值。
     .filter(
-      (field) => !["locale", "expectedVersion", "idempotencyKey", "gatesFromDocument", "gatesDraft"].includes(field),
+      (field) =>
+        !localOnlyFields.has(field) &&
+        !["expectedVersion", "idempotencyKey", "gatesFromDocument", "gatesDraft"].includes(field),
     );
   for (const field of repositoryFields) assert.ok(Object.hasOwn(values, field), `${field} has no flat action value`);
   // closeout 门布尔承载生效值:strict 基线即无覆写时的值。

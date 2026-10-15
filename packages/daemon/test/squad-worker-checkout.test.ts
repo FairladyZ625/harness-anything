@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { prepareWorkerWorktree } from "../src/squad-worker-checkout.ts";
+import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
 test("the same squad worker receives a distinct checkout for each attempt", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-squad-worker-checkout-"));
@@ -111,12 +112,13 @@ test("a worker checkout runs the repository's setup steps with the child task id
       {
         rootDir,
         taskId: "task_child",
-        steps: ['run: echo "$HARNESS_TASK_ID" > setup.out'],
+        setup: ['run: echo "$HARNESS_TASK_ID" > setup.out'],
+        setupStepTimeoutMs: noWorktreeSetup().setupStepTimeoutMs,
       },
     );
   assert.equal(readFileSync(path.join(worker!.cwd, "setup.out"), "utf8"), "task_child\n");
 });
 
 function noSetup(rootDir: string) {
-  return { rootDir, taskId: "task_child", steps: [] };
+  return { rootDir, taskId: "task_child", ...noWorktreeSetup() };
 }

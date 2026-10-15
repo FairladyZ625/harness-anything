@@ -344,6 +344,18 @@ export const settingsFieldProtocolProjection = {
       enum: ["en-US", "zh-CN"],
     },
     {
+      field: "guiConnectTimeoutMs",
+      description: "How long the GUI waits to connect its local daemon before calling it unreachable, in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
+      field: "guiRequestTimeoutMs",
+      description: "How long the GUI waits for a daemon answer before the request fails, in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "overviewWatchedActivityDays",
       description: "How many days back the overview's watched-works activity window reaches.",
       type: "number",
@@ -437,6 +449,12 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "worktreeSetupStepTimeoutMs",
+      description: "How long one worktree setup step may run before it fails, in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "taskAssignmentTtlMs",
       description: "Default task assignment duration in milliseconds.",
       type: "number",
@@ -504,8 +522,20 @@ export const settingsFieldProtocolProjection = {
       required: false,
     },
     {
+      field: "runtimeProviderHandshakeTimeoutMs",
+      description: "How long an ACP provider may take to answer one handshake request, in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
       field: "scheduleAdmissionWindowMs",
       description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
+      type: "number",
+      required: false,
+    },
+    {
+      field: "storageBackupExecutionLimitMs",
+      description: "How long one scheduled backup run may take end to end, in milliseconds.",
       type: "number",
       required: false,
     },
@@ -593,6 +623,26 @@ export const settingsFieldProtocolProjection = {
       name: "--locale",
       kind: "single",
       enum: ["en-US", "zh-CN"],
+    },
+    {
+      field: "guiConnectTimeoutMs",
+      description: "How long the GUI waits to connect its local daemon before calling it unreachable, in milliseconds.",
+      group: "presentation",
+      effect: "Raise it if the GUI reports the daemon unreachable on a busy machine; applies on this machine only.",
+      name: "--gui-connect-timeout-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{2,}$",
+      projection: "number",
+    },
+    {
+      field: "guiRequestTimeoutMs",
+      description: "How long the GUI waits for a daemon answer before the request fails, in milliseconds.",
+      group: "presentation",
+      effect: "Raise it when sustained ledger writes turn ordinary reads into GUI errors; this machine only.",
+      name: "--gui-request-timeout-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{3,}$",
+      projection: "number",
     },
     {
       field: "overviewWatchedActivityDays",
@@ -725,6 +775,17 @@ export const settingsFieldProtocolProjection = {
       format: "built-in adapter (node-modules), run: <command>, or none to clear",
     },
     {
+      field: "worktreeSetupStepTimeoutMs",
+      description: "How long one worktree setup step may run before it fails, in milliseconds.",
+      group: "worktree",
+      effect:
+        "A step still running after this fails like any other: the start is refused and the step named with its log.",
+      name: "--worktree-setup-step-timeout-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{3,}$",
+      projection: "number",
+    },
+    {
       field: "taskAssignmentTtlMs",
       description: "Default task assignment duration in milliseconds.",
       group: "new-task-defaults",
@@ -835,6 +896,17 @@ export const settingsFieldProtocolProjection = {
       projection: "number",
     },
     {
+      field: "runtimeProviderHandshakeTimeoutMs",
+      description: "How long an ACP provider may take to answer one handshake request, in milliseconds.",
+      group: "schedules-nodes",
+      effect:
+        "Slow container or model hosts that exceed this fail the dispatch at startup; raise it instead of retrying.",
+      name: "--runtime-provider-handshake-timeout-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{3,}$",
+      projection: "number",
+    },
+    {
       field: "scheduleAdmissionWindowMs",
       description: "How late a scheduled run may still start when nothing was awake at its due time, in milliseconds.",
       group: "schedules-nodes",
@@ -843,6 +915,16 @@ export const settingsFieldProtocolProjection = {
       name: "--schedule-admission-window-ms",
       kind: "single",
       regex: "^[1-9][0-9]{3,}$",
+      projection: "number",
+    },
+    {
+      field: "storageBackupExecutionLimitMs",
+      description: "How long one scheduled backup run may take end to end, in milliseconds.",
+      group: "storage-backup",
+      effect: "A backup still running past this limit is stopped and settles failed; raise it for large ledgers.",
+      name: "--storage-backup-execution-limit-ms",
+      kind: "single",
+      regex: "^[1-9][0-9]{4,}$",
       projection: "number",
     },
     {

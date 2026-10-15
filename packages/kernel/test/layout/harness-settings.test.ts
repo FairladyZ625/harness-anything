@@ -35,6 +35,34 @@ test("absent declared keys use their declared defaults", () => {
   assert.equal(settings.schedule.admissionWindowMs, 60_000);
 });
 
+test("the worktree step timeout defaults to 20 minutes and reads a slower repository's larger value", () => {
+  assert.equal(readSettingsFacet(body).worktree.setupStepTimeoutMs, 20 * 60 * 1000);
+  assert.equal(
+    readSettingsFacet("settings:\n  worktree:\n    setupStepTimeoutMs: 3600000\n").worktree.setupStepTimeoutMs,
+    3_600_000,
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  worktree:\n    setupStepTimeoutMs: 999\n"));
+});
+
+test("the backup execution limit defaults to 30 minutes, reads a larger value, and refuses under a minute", () => {
+  assert.equal(readSettingsFacet(body).storage.backupExecutionLimitMs, 30 * 60_000);
+  assert.equal(
+    readSettingsFacet("settings:\n  storage:\n    backupExecutionLimitMs: 3600000\n").storage.backupExecutionLimitMs,
+    3_600_000,
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  storage:\n    backupExecutionLimitMs: 30000\n"));
+});
+
+test("the ACP handshake timeout defaults to 30 seconds, reads a larger value, and refuses under a second", () => {
+  assert.equal(readSettingsFacet(body).runtime.providerHandshakeTimeoutMs, 30_000);
+  assert.equal(
+    readSettingsFacet("settings:\n  runtime:\n    providerHandshakeTimeoutMs: 120000\n").runtime
+      .providerHandshakeTimeoutMs,
+    120_000,
+  );
+  assert.throws(() => readSettingsFacet("settings:\n  runtime:\n    providerHandshakeTimeoutMs: 999\n"));
+});
+
 test("the schedule admission window is read from the facet and refuses a sub-second value", () => {
   assert.equal(
     readSettingsFacet("settings:\n  schedule:\n    admissionWindowMs: 600000\n").schedule.admissionWindowMs,

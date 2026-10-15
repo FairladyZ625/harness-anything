@@ -6,6 +6,11 @@ import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
   DEFAULT_CI_WORKFLOWS,
   DEFAULT_RESTORE_DRILL_RETENTION,
+  DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+  DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
+  DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+  DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+  DEFAULT_GUI_REQUEST_TIMEOUT_MS,
   AGENDA_PIN_LIMIT_SETTING,
   SETTINGS_FIELD_DECLARATIONS,
   SETTINGS_FIELD_GROUPS,
@@ -30,6 +35,11 @@ import {
 export {
   DEFAULT_CI_WORKFLOWS,
   DEFAULT_RESTORE_DRILL_RETENTION,
+  DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+  DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
+  DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+  DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+  DEFAULT_GUI_REQUEST_TIMEOUT_MS,
   AGENDA_PIN_LIMIT_SETTING,
   SETTINGS_FIELD_DECLARATIONS,
   SETTINGS_FIELD_GROUPS,
@@ -113,19 +123,40 @@ export function repositorySettings(settings: SettingsV1 | RepositorySettingsV1):
   ) as unknown as RepositorySettingsV1;
 }
 
+/** The local settings shape: declared local fields with defaults, the local schema, no settings id. */
+function localSettingsValue(
+  declarations: readonly SettingsFieldDeclaration[],
+  source: Readonly<Record<string, unknown>>,
+): SettingsRecord {
+  const projected = settingsValueFromDeclarations(declarations, source) as SettingsRecord;
+  projected.schema = "settings-local/v1";
+  delete projected.settingsId;
+  return projected;
+}
+
+/** The machine-local settings fields with their declared defaults filling whatever is absent. */
+export function localSettings(settings: Readonly<Record<string, unknown>>): LocalSettingsV1 {
+  return localSettingsValue(
+    SETTINGS_FIELD_DECLARATIONS.filter(({ ownership }) => ownership === "local"),
+    settings,
+  ) as unknown as LocalSettingsV1;
+}
+
 export function validateLocalSettingsV1(value: unknown): readonly string[] {
   return validateEntityJsonSchema(SETTINGS_LOCAL_V1_SCHEMA, value, "local settings");
 }
 
-export function serializeLocalSettings(locale: SettingsLocale): string {
-  const value: LocalSettingsV1 = { schema: "settings-local/v1", locale },
-    errors = validateLocalSettingsV1(value);
+export function serializeLocalSettings(value: LocalSettingsV1): string {
+  const errors = validateLocalSettingsV1(value);
   if (errors.length) throw new Error(errors.join("; "));
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
 export function parseLocalSettings(value: unknown): LocalSettingsV1 | null {
-  return validateLocalSettingsV1(value).length ? null : (value as LocalSettingsV1);
+  if (validateLocalSettingsV1(value).length) return null;
+  // Absent local fields take their declared defaults, so a file written before a field
+  // existed reads with that field's default rather than a hole.
+  return localSettings(value as Readonly<Record<string, unknown>>);
 }
 
 export function readSettingsFacet(body: string): SettingsV1 {
@@ -159,12 +190,18 @@ export interface SettingsDeclarationRuntime {
   readonly actionInputFields: ReturnType<typeof settingsActionInputFieldsFromDeclarations>;
   readonly cliInputFields: readonly SettingsCliInputField[];
   readonly repositoryActionFields: readonly string[];
+  readonly localOnlyActionFields: readonly string[];
   readonly read: (body: string) => Readonly<SettingsRecord>;
   readonly writeRepository: (body: string, settings: Readonly<SettingsRecord>) => string;
   readonly applyRepositoryAction: (
     current: Readonly<SettingsRecord>,
     action: Readonly<Record<string, unknown>>,
   ) => Readonly<SettingsRecord>;
+  /** Applies the action's local-only fields onto the current local settings; undefined when the action names none. */
+  readonly applyLocalAction: (
+    current: Readonly<SettingsRecord>,
+    action: Readonly<Record<string, unknown>>,
+  ) => Readonly<SettingsRecord> | undefined;
   readonly actionValues: (settings: Readonly<SettingsRecord>) => Readonly<Record<string, unknown>>;
 }
 
@@ -172,20 +209,27 @@ export function createSettingsDeclarationRuntime(
   declarations: readonly SettingsFieldDeclaration[],
 ): SettingsDeclarationRuntime {
   const repositoryDeclarations = declarations.filter(({ ownership }) => ownership === "repository"),
+    localDeclarations = declarations.filter(({ ownership }) => ownership === "local"),
     actionInputFields = settingsActionInputFieldsFromDeclarations(declarations),
     cliInputFields = settingsCliInputFieldsFromDeclarations(declarations),
     repositoryActionFields = Object.freeze([
       ...new Set(repositoryDeclarations.flatMap(({ action }) => (action ? [action.field] : []))),
+    ]),
+    localOnlyActionFields = Object.freeze([
+      ...new Set(localDeclarations.flatMap(({ action }) => (action ? [action.field] : []))),
     ]);
   return Object.freeze({
     actionInputFields,
     cliInputFields,
     repositoryActionFields,
+    localOnlyActionFields,
     read: (body: string) => readDeclaredSettings(body, declarations),
     writeRepository: (body: string, settings: Readonly<SettingsRecord>) =>
       writeDeclaredRepositorySettings(body, settings, declarations),
     applyRepositoryAction: (current: Readonly<SettingsRecord>, action: Readonly<Record<string, unknown>>) =>
       applyDeclaredRepositoryAction(current, action, repositoryDeclarations),
+    applyLocalAction: (current: Readonly<SettingsRecord>, action: Readonly<Record<string, unknown>>) =>
+      applyDeclaredLocalAction(current, action, localDeclarations),
     actionValues: (settings: Readonly<SettingsRecord>) => declaredSettingsActionValues(settings, declarations),
   });
 }
@@ -524,6 +568,21 @@ function applyDeclaredRepositoryAction(
     }
     setValueAtPath(candidate, declaration.path, parseActionValue(input, declaration));
   }
+  return candidate;
+}
+
+function applyDeclaredLocalAction(
+  current: Readonly<SettingsRecord>,
+  action: Readonly<Record<string, unknown>>,
+  declarations: readonly SettingsFieldDeclaration[],
+): Readonly<SettingsRecord> | undefined {
+  const named = declarations.filter(
+    ({ action: declaration }) => declaration && Object.hasOwn(action, declaration.field),
+  );
+  if (!named.length) return undefined;
+  const candidate = localSettingsValue(declarations, current);
+  for (const declaration of named)
+    setValueAtPath(candidate, declaration.path, parseActionValue(action[declaration.action!.field!], declaration));
   return candidate;
 }
 

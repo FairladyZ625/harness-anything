@@ -509,6 +509,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),
                   runtimeSessionId,
+                  handshakeTimeoutMs: input.readSettings?.().runtime.providerHandshakeTimeoutMs,
                 }),
             result = {
               fallbackAttempt: fallbackAttemptForDispatch,
@@ -1068,16 +1069,8 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       input,
       publishRuntimeEvent: extracted.publishRuntimeEvent,
       closed: () => fallbackClosed,
-      launch: async (
-        payload,
-        binding,
-        fallback,
-        schedule,
-        handoffFromRuntimeSessionId,
-        publicationOwner,
-        onDispatched,
-      ) => {
-        await spawnAttempt(
+      launch: (payload, binding, fallback, schedule, handoffFromRuntimeSessionId, publicationOwner, onDispatched) =>
+        spawnAttempt(
           payload,
           binding,
           fallback,
@@ -1088,8 +1081,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           undefined,
           undefined,
           onDispatched,
-        );
-      },
+        ),
       stream,
     });
   }

@@ -125,6 +125,16 @@ export const decisionReviewRequirementLevels = ["off", "high", "medium_and_high"
 export type DecisionReviewRequirement = (typeof decisionReviewRequirementLevels)[number];
 export const rolePreferenceFields = ["defaultWorker", "defaultCommander", "defaultReviewer"] as const;
 export const DEFAULT_RESTORE_DRILL_RETENTION = 3;
+/** One worktree setup step may run this long before it fails and refuses the start (20 minutes). */
+export const DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS = 20 * 60 * 1000;
+/** A scheduled ledger backup run is stopped after this whole-run budget (30 minutes; successful runs took ~8.5). */
+export const DEFAULT_BACKUP_EXECUTION_LIMIT_MS = 30 * 60_000;
+/** An ACP provider must answer one handshake request within this; slower hosts raise it (30 seconds). */
+export const DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS = 30_000;
+/** The GUI connect deadline: raised from the CLI's 75ms once (泽宇 2026-09-01/02, 75ms→2s). */
+export const DEFAULT_GUI_CONNECT_TIMEOUT_MS = 2_000;
+/** The GUI default answer deadline: 200ms, 2s and 10s all failed live before 30s held (泽宇 2026-09-01/02). */
+export const DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_000;
 export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
@@ -270,6 +280,30 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "presentation",
     action: { field: "locale", type: "string" },
     cli: { name: "--locale", kind: "single", enum: settingsLocales },
+  }),
+  defineSettingsField({
+    path: ["gui", "connectTimeoutMs"],
+    ownership: local,
+    valueKind: "integer",
+    defaultValue: DEFAULT_GUI_CONNECT_TIMEOUT_MS,
+    minimum: 100,
+    description: "How long the GUI waits to connect its local daemon before calling it unreachable, in milliseconds.",
+    effect: "Raise it if the GUI reports the daemon unreachable on a busy machine; applies on this machine only.",
+    group: "presentation",
+    action: { field: "guiConnectTimeoutMs", type: "number" },
+    cli: { name: "--gui-connect-timeout-ms", kind: "single", regex: "^[1-9][0-9]{2,}$" },
+  }),
+  defineSettingsField({
+    path: ["gui", "requestTimeoutMs"],
+    ownership: local,
+    valueKind: "integer",
+    defaultValue: DEFAULT_GUI_REQUEST_TIMEOUT_MS,
+    minimum: 1_000,
+    description: "How long the GUI waits for a daemon answer before the request fails, in milliseconds.",
+    effect: "Raise it when sustained ledger writes turn ordinary reads into GUI errors; this machine only.",
+    group: "presentation",
+    action: { field: "guiRequestTimeoutMs", type: "number" },
+    cli: { name: "--gui-request-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
   }),
   defineSettingsField({
     path: ["overview", "watchedActivityDays"],
@@ -457,6 +491,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     yamlStyle: "block-list",
   }),
   defineSettingsField({
+    path: ["worktree", "setupStepTimeoutMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+    minimum: 1_000,
+    description: "How long one worktree setup step may run before it fails, in milliseconds.",
+    effect:
+      "A step still running after this fails like any other: the start is refused and the step named with its log.",
+    group: "worktree",
+    action: { field: "worktreeSetupStepTimeoutMs", type: "number" },
+    cli: { name: "--worktree-setup-step-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
+  }),
+  defineSettingsField({
     path: ["tasks", "assignmentTtlMs"],
     ownership: repository,
     valueKind: "integer",
@@ -598,6 +645,19 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     cli: { name: "--runtime-provider-max-wait-seconds", kind: "single", regex: "^[0-9]+$" },
   }),
   defineSettingsField({
+    path: ["runtime", "providerHandshakeTimeoutMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+    minimum: 1_000,
+    description: "How long an ACP provider may take to answer one handshake request, in milliseconds.",
+    effect:
+      "Slow container or model hosts that exceed this fail the dispatch at startup; raise it instead of retrying.",
+    group: "schedules-nodes",
+    action: { field: "runtimeProviderHandshakeTimeoutMs", type: "number" },
+    cli: { name: "--runtime-provider-handshake-timeout-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
+  }),
+  defineSettingsField({
     path: ["schedule", "admissionWindowMs"],
     ownership: repository,
     valueKind: "integer",
@@ -609,6 +669,18 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     group: "schedules-nodes",
     action: { field: "scheduleAdmissionWindowMs", type: "number" },
     cli: { name: "--schedule-admission-window-ms", kind: "single", regex: "^[1-9][0-9]{3,}$" },
+  }),
+  defineSettingsField({
+    path: ["storage", "backupExecutionLimitMs"],
+    ownership: repository,
+    valueKind: "integer",
+    defaultValue: DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
+    minimum: 60_000,
+    description: "How long one scheduled backup run may take end to end, in milliseconds.",
+    effect: "A backup still running past this limit is stopped and settles failed; raise it for large ledgers.",
+    group: "storage-backup",
+    action: { field: "storageBackupExecutionLimitMs", type: "number" },
+    cli: { name: "--storage-backup-execution-limit-ms", kind: "single", regex: "^[1-9][0-9]{4,}$" },
   }),
   defineSettingsField({
     path: ["restoreDrillRetention"],

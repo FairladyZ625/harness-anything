@@ -10,18 +10,20 @@ import {
   SETTINGS_ID,
   SETTINGS_LOCAL_PATH,
   compileSettingsChangedEvent,
+  localSettings,
   parseLocalSettings,
   readSettingsFacet,
   repositorySettings,
   resolveHarnessLayout,
   serializeLocalSettings,
+  stableStringify,
   validateRepositorySettings,
   writeRepositorySettingsFacet,
   type CloseoutGate,
   type CloseoutSnapshot,
   type CloseoutSettingsV1,
+  type LocalSettingsV1,
   type RepositorySettingsV1,
-  type SettingsLocale,
   type SettingsV1,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
@@ -50,24 +52,31 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
 
   const readRepository = (): RepositorySettingsV1 => readRepositorySettings(cell.projection);
 
-  const readLocalState = (): { readonly locale: SettingsLocale; readonly valid: boolean } => {
-    if (!existsSync(localPath)) return { locale: INITIAL_SETTINGS_V1.locale, valid: false };
+  const readLocalState = (): { readonly value: LocalSettingsV1; readonly valid: boolean } => {
+    const fallback = localSettings(INITIAL_SETTINGS_V1);
+    if (!existsSync(localPath)) return { value: fallback, valid: false };
     try {
       const parsed = parseLocalSettings(JSON.parse(readFileSync(localPath, "utf8")));
-      if (parsed) return { locale: parsed.locale, valid: true };
+      if (parsed) return { value: parsed, valid: true };
     } catch (error) {
       consumeKnownError(error);
       // The read boundary stays available while an invalid local preference is repaired by an update.
     }
-    return { locale: INITIAL_SETTINGS_V1.locale, valid: false };
+    return { value: fallback, valid: false };
   };
 
-  const read = (): SettingsV1 => ({ ...readRepository(), locale: readLocalState().locale });
+  const readLocal = (): LocalSettingsV1 => readLocalState().value;
 
-  const writeLocal = (locale: SettingsLocale): boolean => {
+  // The local file's own schema marker is not part of the merged view; every local field is.
+  const read = (): SettingsV1 => {
+    const { schema: _localSchema, ...local } = readLocal();
+    return { ...readRepository(), ...local };
+  };
+
+  const writeLocal = (value: LocalSettingsV1): boolean => {
     const current = readLocalState();
-    if (current.valid && current.locale === locale) return false;
-    writeFileDurably(localPath, serializeLocalSettings(locale), 0o600);
+    if (current.valid && stableStringify(current.value) === stableStringify(value)) return false;
+    writeFileDurably(localPath, serializeLocalSettings(value), 0o600);
     return true;
   };
 
@@ -103,7 +112,7 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
       digest = createHash("sha256").update(`${cell.input.repoId}\0${candidateDocumentBody}`).digest("hex"),
       opId = `settings-initialize-${digest}`,
       appended = appendInitialization(repository, documentBody, candidateDocumentBody, opId, revision, binding);
-    writeLocal(settings.locale);
+    writeLocal(localSettings(settings));
     return appended;
   };
 
@@ -115,7 +124,7 @@ export function makeRepoCellSettingsState(cell: RepoCellActionContext): RepoCell
     return initialize(readSettingsFacet(documentBody), documentBody, binding);
   };
 
-  return { initialize, initializeFromAuthoredDocument, read, readRepository, writeLocal };
+  return { initialize, initializeFromAuthoredDocument, read, readLocal, readRepository, writeLocal };
 }
 
 /**

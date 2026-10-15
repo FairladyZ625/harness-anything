@@ -1,8 +1,10 @@
 import { normalizeRelativeDocumentPath } from "../layout/portable-path.ts";
+import { RAW_ARTIFACT_MAX_BYTES } from "./artifact-text-classification.ts";
 import { hasOnlyFields, isRecord, normalizeContentAddressedInputs } from "./write-chain.contract.ts";
 
 export const ENTITY_OWNED_CONTENT_SCHEMA = "entity-owned-content/v1";
-export const MAX_ENTITY_CONTENT_OBJECT_BYTES = 50_000_000;
+/** The dec_776B4D61 blob contract limit, single-sourced from the artifact classification. */
+export const MAX_ENTITY_CONTENT_OBJECT_BYTES = RAW_ARTIFACT_MAX_BYTES;
 /** Imported entity content is raw bytes: the center records it and never decodes it. */
 export const ENTITY_CONTENT_POLICY_ID = "entity-content/v1";
 

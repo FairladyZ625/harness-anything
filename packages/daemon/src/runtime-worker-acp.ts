@@ -17,7 +17,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { ChildProcess } from "node:child_process";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { consumeKnownError, DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS } from "@harness-anything/kernel";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import type { RuntimeInstanceKind } from "./agent-runtime-instance-types.ts";
@@ -31,12 +31,13 @@ export interface AcpWorkerManifest {
   readonly permissionMode?: string;
   readonly providerSessionId?: string;
   readonly acpApiKey?: string;
+  /** The Settings runtime.providerHandshakeTimeoutMs value the launch carried; the declared default when absent. */
+  readonly handshakeTimeoutMs?: number;
 }
 
 type JsonRpcId = number;
 type Append = (value: Readonly<Record<string, unknown>>) => void;
 
-const handshakeTimeoutMs = 30_000;
 const cancelGraceMs = 2_000;
 
 // Updates worth persisting. Agents emit plenty of configuration chatter
@@ -84,33 +85,34 @@ export function runAcpProviderSession(
   };
   // Handshake calls get a bounded wait; session/prompt has none — a turn runs as
   // long as the provider runs, same as the other runtime kinds.
-  const request = (method: string, params: Record<string, unknown>, timeoutMs = handshakeTimeoutMs): Promise<unknown> =>
-    new Promise((resolve, reject) => {
-      if (exited) {
-        reject(exited);
-        return;
-      }
-      const id = nextId++;
-      const timeout =
-        timeoutMs > 0
-          ? setTimeout(() => {
-              pending.delete(id);
-              reject(new Error(`ACP ${method} timed out`));
-            }, timeoutMs)
-          : null;
-      timeout?.unref();
-      pending.set(id, {
-        resolve: (value) => {
-          if (timeout) clearTimeout(timeout);
-          resolve(value);
-        },
-        reject: (error) => {
-          if (timeout) clearTimeout(timeout);
-          reject(error);
-        },
+  const handshakeTimeoutMs = manifest.handshakeTimeoutMs ?? DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS,
+    request = (method: string, params: Record<string, unknown>, timeoutMs = handshakeTimeoutMs): Promise<unknown> =>
+      new Promise((resolve, reject) => {
+        if (exited) {
+          reject(exited);
+          return;
+        }
+        const id = nextId++;
+        const timeout =
+          timeoutMs > 0
+            ? setTimeout(() => {
+                pending.delete(id);
+                reject(new Error(`ACP ${method} timed out`));
+              }, timeoutMs)
+            : null;
+        timeout?.unref();
+        pending.set(id, {
+          resolve: (value) => {
+            if (timeout) clearTimeout(timeout);
+            resolve(value);
+          },
+          reject: (error) => {
+            if (timeout) clearTimeout(timeout);
+            reject(error);
+          },
+        });
+        send({ jsonrpc: "2.0", id, method, params });
       });
-      send({ jsonrpc: "2.0", id, method, params });
-    });
   const event = (frame: Record<string, unknown>): void =>
     append({ kind: "provider_event", event: scrubProviderValue(sessionId ? { sessionId, ...frame } : frame) });
   const fail = (error: unknown): void => {

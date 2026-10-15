@@ -11,6 +11,7 @@ import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
 import { checkoutTaskWorktree } from "../src/task-worktree.ts";
+import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
 // dec_57370FF2021DADF04E3B21724D: an edge node holds no ledger, so the center delivers the task's worktree binding
 // (CH1), the edge dispatch works in that worktree (CH2), and a node that takes a task over continues the branch the
@@ -109,7 +110,7 @@ test("a Git-less edge has no worktree to give and works in its workspace root", 
 
 test("a node that takes a task over continues from the branch the previous node pushed", async (t) => {
   const fixture = nodesFixture(t),
-    first = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, []))!;
+    first = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!;
   assert.equal(first.baseRef, "origin/main");
   const delivered = commit(first.cwd, "node-a.txt");
   assert.deepEqual(await pushWorkerBranch({ cwd: first.cwd, canonicalRoot: fixture.nodeA, taskId }), {
@@ -120,7 +121,7 @@ test("a node that takes a task over continues from the branch the previous node 
     pushedCommit: delivered,
   });
 
-  const second = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+  const second = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
   assert.equal(second.baseRef, `origin/${taskId}`, "the checkout names the pushed branch it continues");
   assert.equal(git(second.cwd, "rev-parse", "HEAD"), delivered);
   assert.equal(git(second.cwd, "branch", "--show-current"), taskId);
@@ -134,8 +135,8 @@ test("a node that takes a task over continues from the branch the previous node 
 test("a node whose checkout predates another node's push cannot overwrite the published task branch", async (t) => {
   const fixture = nodesFixture(t),
     // Both nodes check the task out before either delivers: each starts from the default branch.
-    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, []))!,
-    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!,
     fromA = commit(onA.cwd, "node-a.txt");
   commit(onB.cwd, "node-b.txt");
   assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
@@ -150,13 +151,13 @@ test("a node whose checkout predates another node's push cannot overwrite the pu
 test("a node refused before it worked takes the task over from what the other node pushed", async (t) => {
   const fixture = nodesFixture(t),
     // Node B's dispatch was refused after its checkout: an idle worktree at the default branch stays behind.
-    idle = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
-    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, []))!,
+    idle = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!,
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
     delivered = commit(onA.cwd, "node-a.txt");
   assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
   assert.equal(git(idle.cwd, "rev-parse", "HEAD"), git(fixture.nodeB, "rev-parse", "origin/main"));
 
-  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
   assert.equal(resumed.cwd, idle.cwd);
   assert.equal(resumed.baseRef, null, "the checkout was already here");
   assert.equal(git(resumed.cwd, "rev-parse", "HEAD"), delivered, "the idle checkout is brought up to the push");
@@ -166,21 +167,21 @@ test("a node refused before it worked takes the task over from what the other no
   assert.equal(git(fixture.remote, "rev-parse", `refs/heads/${taskId}`), continued);
   assert.equal(git(fixture.remote, "merge-base", "--is-ancestor", delivered, continued), "");
   // The node that pushed last is not behind: its next checkout fetches and changes nothing.
-  await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []);
+  await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup());
   assert.equal(git(resumed.cwd, "rev-parse", "HEAD"), continued);
 });
 
 test("an idle checkout a refused dispatch cut is advanced to the present default branch on retry", async (t) => {
   const fixture = nodesFixture(t),
     // The refused dispatch's checkout: cut from the default branch before the prerequisite landed on it.
-    idle = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
+    idle = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!,
     stale = git(idle.cwd, "rev-parse", "HEAD");
   // The prerequisite merges and this node's view of the default branch moves with it.
   const merged = commit(fixture.nodeA, "prerequisite.txt");
   git(fixture.nodeA, "push", "-q", "origin", "main");
   git(fixture.nodeB, "fetch", "-q", "origin", "main");
 
-  const retry = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+  const retry = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
   assert.equal(retry.cwd, idle.cwd);
   assert.equal(retry.baseRef, null, "the checkout was already here");
   assert.equal(git(retry.cwd, "rev-parse", "HEAD"), merged, "the idle checkout starts the retry on current main");
@@ -190,7 +191,7 @@ test("an idle checkout a refused dispatch cut is advanced to the present default
 test("an advancing default branch leaves a checkout that holds work of its own exactly where it is", async (t) => {
   for (const scenario of ["a commit of its own", "an uncommitted change"] as const) {
     const fixture = nodesFixture(t),
-      checkout = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!;
+      checkout = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
     if (scenario === "a commit of its own") commit(checkout.cwd, "node-b.txt");
     else writeFileSync(path.join(checkout.cwd, "src", "index.txt"), "edited on node b\n");
     commit(fixture.nodeA, "prerequisite.txt");
@@ -199,7 +200,7 @@ test("an advancing default branch leaves a checkout that holds work of its own e
     const head = git(checkout.cwd, "rev-parse", "HEAD"),
       status = git(checkout.cwd, "status", "--porcelain");
 
-    await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []);
+    await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup());
     assert.equal(git(checkout.cwd, "rev-parse", "HEAD"), head, scenario);
     assert.equal(git(checkout.cwd, "status", "--porcelain"), status, scenario);
   }
@@ -208,8 +209,8 @@ test("an advancing default branch leaves a checkout that holds work of its own e
 test("a checkout behind the published branch that holds work of its own is refused and left untouched", async (t) => {
   for (const scenario of ["a commit of its own", "an uncommitted change"] as const) {
     const fixture = nodesFixture(t),
-      onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, []))!,
-      onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, []))!;
+      onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!,
+      onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!;
     commit(onA.cwd, "node-a.txt");
     assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
     if (scenario === "a commit of its own") commit(onB.cwd, "node-b.txt");
@@ -218,7 +219,7 @@ test("a checkout behind the published branch that holds work of its own is refus
       status = git(onB.cwd, "status", "--porcelain");
 
     await assert.rejects(
-      checkoutTaskWorktree(fixture.nodeB, taskId, binding, []),
+      checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()),
       (error: unknown) =>
         error instanceof Error &&
         (error as { code?: unknown }).code === "task_worktree_diverged" &&

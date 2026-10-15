@@ -7,7 +7,6 @@ import {
   isSettingsEvent,
   readGateSettings,
   resolveHarnessLayout,
-  settingsActionLocale,
   writeGatesFacet,
   type EntityActionCompileInput,
   type GateWitnessMappingV1,
@@ -16,6 +15,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { runPresetAction } from "@harness-anything/preset";
+import { SETTINGS_DECLARATION_RUNTIME, SettingsDeclarationError, type LocalSettingsV1 } from "@harness-anything/kernel";
 import { settingsLastChanged, settingsSingletonRevision } from "./repo-cell-settings-state.ts";
 import type { RepoCellRuntimeContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { EntityActionCatalogRunner } from "./entity-action-catalog-executor.ts";
@@ -49,12 +49,12 @@ export function makeSettingsActionRuntime(
       revision = settingsSingletonRevision(cell.projection),
       opId = settingsOperationId(cell, action, binding, revision, catalogOpId),
       targetRef = contract.target.refTemplate.replace("{id}", SETTINGS_ID),
-      locale = settingsActionLocale(action.locale),
+      local = localSettingsFromAction(cell, action, settingsState),
       existing = cell.store.readEvent(opId);
     if (existing) {
       if (!isSettingsEvent(existing))
         throw cell.cellCodedError("revision_conflict", `Operation ${opId} belongs to a non-Settings event.`);
-      const localChanged = locale === undefined ? false : settingsState.writeLocal(locale),
+      const localChanged = local === null ? false : settingsState.writeLocal(local),
         receipt = cell.receiptForOperation(opId, binding);
       return replayReceipt(receipt, settingsState.read(), localChanged, targetRef);
     }
@@ -91,8 +91,26 @@ export function makeSettingsActionRuntime(
       } satisfies EntityActionCompileInput);
     if (compiled.kind !== "settings")
       throw cell.cellCodedError("invalid_store", `${action.kind} compiled a non-Settings action draft.`);
-    return publishSettingsDraft(cell, settingsState, opId, compiled.result, locale, targetRef);
+    return publishSettingsDraft(cell, settingsState, opId, compiled.result, local, targetRef);
   };
+}
+
+/** The action's local-only fields (locale, GUI deadlines) applied onto this machine's local settings; null when it names none. */
+function localSettingsFromAction(
+  cell: RepoCellRuntimeContext,
+  action: RepoTaskAction,
+  settingsState: Pick<RepoCellSettingsState, "readLocal">,
+): LocalSettingsV1 | null {
+  try {
+    const applied = SETTINGS_DECLARATION_RUNTIME.applyLocalAction(
+      settingsState.readLocal() as unknown as Readonly<Record<string, unknown>>,
+      action as unknown as Readonly<Record<string, unknown>>,
+    );
+    return applied === undefined ? null : (applied as unknown as LocalSettingsV1);
+  } catch (error: unknown) {
+    if (error instanceof SettingsDeclarationError) throw cell.cellCodedError("invalid_command", error.message);
+    throw error;
+  }
 }
 
 function readAuthoredDocument(cell: RepoCellRuntimeContext): string | undefined {
@@ -200,11 +218,11 @@ async function publishSettingsDraft(
   settingsState: RepoCellSettingsState,
   opId: string,
   draft: SettingsActionDraft,
-  locale: SettingsV1["locale"] | undefined,
+  local: LocalSettingsV1 | null,
   targetRef: string,
 ): Promise<WriteReceipt> {
   if (draft.kind === "no-changes") {
-    const localChanged = locale === undefined ? false : settingsState.writeLocal(locale),
+    const localChanged = local === null ? false : settingsState.writeLocal(local),
       settings = settingsState.read();
     return {
       outcome: localChanged ? "applied" : "no_changes",
@@ -224,12 +242,14 @@ async function publishSettingsDraft(
     } as WriteReceipt;
   }
   const repository = draft.bundle.event.payload.settings,
-    fullSettings: SettingsV1 = { ...repository, locale: locale ?? settingsState.read().locale };
+    // The local file's schema marker is dropped: the merged view keeps the repository settings schema.
+    { schema: _localSchema, ...localValue } = local ?? settingsState.readLocal(),
+    fullSettings: SettingsV1 = { ...repository, ...localValue };
   await assertCatalogSelection(cell.rootDir, fullSettings);
   const appended = cell.store.append(draft.bundle),
     publication = cell.publicPublication(appended);
   cell.projection.apply(draft.bundle.event, draft.bundle.plan);
-  const localChanged = locale === undefined ? false : settingsState.writeLocal(locale),
+  const localChanged = local === null ? false : settingsState.writeLocal(local),
     applied = cell.projection.readOperation(draft.bundle.event.opId),
     canonicalVisible = applied !== null && applied.watermark >= appended.revision,
     receipt = {

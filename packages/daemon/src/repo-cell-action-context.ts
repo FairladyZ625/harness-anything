@@ -6,6 +6,7 @@ import type {
   DaemonRepoMode,
   DispatchRecordLeaseSettlement,
   EventPublicationKillpoint,
+  LocalSettingsV1,
   RepositorySettingsV1,
   SettingsV1,
   TaskProjection,
@@ -111,8 +112,9 @@ export interface RepoCellSettingsState {
     binding: RepoCellBinding,
   ) => ReturnType<CanonicalEventStore["append"]> | null;
   readonly read: () => SettingsV1;
+  readonly readLocal: () => LocalSettingsV1;
   readonly readRepository: () => RepositorySettingsV1;
-  readonly writeLocal: (locale: SettingsV1["locale"]) => boolean;
+  readonly writeLocal: (value: LocalSettingsV1) => boolean;
 }
 
 export interface RepoCellActionContext extends TaskQueryCell {

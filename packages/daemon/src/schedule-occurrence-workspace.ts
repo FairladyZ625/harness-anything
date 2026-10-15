@@ -6,6 +6,7 @@ import type { TrustedScheduleRuntime } from "./runtime-spawn-types.ts";
 import {
   cleanupWorktreeSetup,
   runWorktreeSetup,
+  type WorktreeSetupSettings,
   unlinkWorktreeLedger,
   worktreeSetupFailure,
 } from "./worktree-setup.ts";
@@ -178,7 +179,7 @@ export async function prepareScheduleOccurrenceWorkspace(
   rootDir: string,
   schedule: ScheduleV1,
   /** Read only when a worktree is made: a detect occurrence runs in the root and prepares nothing. */
-  readSetup: () => readonly string[],
+  readWorktree: () => WorktreeSetupSettings,
 ): Promise<ScheduleOccurrenceWorkspace> {
   const active = schedule.status.activeRun;
   if (!active) throw new Error(`Schedule ${schedule.scheduleId} has no claimed occurrence workspace.`);
@@ -195,7 +196,14 @@ export async function prepareScheduleOccurrenceWorkspace(
     baseRef = repositoryBaseRef(rootDir);
   if (!baseRef) throw new Error(`Repository ${rootDir} has no default branch to cut the occurrence worktree from.`);
   await addManagedWorktree(rootDir, { cwd, branch, baseRef });
-  const prepared = await runWorktreeSetup({ rootDir, cwd, taskId: null, steps: readSetup() });
+  const worktree = readWorktree(),
+    prepared = await runWorktreeSetup({
+      rootDir,
+      cwd,
+      taskId: null,
+      steps: worktree.setup,
+      stepTimeoutMs: worktree.setupStepTimeoutMs,
+    });
   if (!prepared.ok) throw new Error(worktreeSetupFailure(cwd, prepared, "let the next occurrence run"));
   return { rootDir, cwd, runtime: { ...base, worktree: { cwd, branch, baseRef } } };
 }

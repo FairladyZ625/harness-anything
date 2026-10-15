@@ -37,6 +37,23 @@ export interface WriterSupervisor {
   readonly close: () => Promise<void>;
 }
 
+/** Node-local override for the ready watchdog (dec_9DBB2EB3 CH3: machine-speed thresholds stay off the shared
+ * settings); a cold rebuild on a large repository or slow disk can outlive the default without being dead. */
+export const WRITER_READY_WATCHDOG_MS_ENV = "HARNESS_WRITER_READY_WATCHDOG_MS";
+export const WRITER_READY_WATCHDOG_MS = 30_000;
+
+/** Effective watchdog: the environment override, else the default. An invalid override fails closed. */
+export function resolveWriterReadyWatchdogMs(env: NodeJS.ProcessEnv = process.env): number {
+  const fromEnv = env[WRITER_READY_WATCHDOG_MS_ENV];
+  if (fromEnv === undefined || fromEnv === "") return WRITER_READY_WATCHDOG_MS;
+  const value = Number(fromEnv);
+  if (!Number.isSafeInteger(value) || value <= 0)
+    throw Object.assign(new Error(`${WRITER_READY_WATCHDOG_MS_ENV} must be a positive integer of milliseconds.`), {
+      code: "writer_ready_watchdog_invalid",
+    });
+  return value;
+}
+
 export async function openWriterSupervisor(
   input: RepoCellOpenInput,
   options: {
@@ -174,12 +191,13 @@ export async function openWriterSupervisor(
   function startWriterWorker(): Promise<void> {
     if (closed) return Promise.reject(new Error("WriterSupervisor is closed"));
     return new Promise((resolve, reject) => {
-      const workerOptions = {
-        execArgv: process.execArgv.filter(
-          (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
-        ),
-        workerData: bootstrapMessage(input),
-      };
+      const watchdogMs = resolveWriterReadyWatchdogMs(),
+        workerOptions = {
+          execArgv: process.execArgv.filter(
+            (argument) => argument === "--experimental-strip-types" || argument === "--enable-source-maps",
+          ),
+          workerData: bootstrapMessage(input),
+        };
       const candidate =
         options.createWorker?.(writerWorkerUrl(), workerOptions) ?? new Worker(writerWorkerUrl(), workerOptions);
       let settled = false,
@@ -188,7 +206,7 @@ export async function openWriterSupervisor(
       const readyInactive = () => {
         if (settled) return;
         settled = true;
-        const error = new Error("RepoWriterCell did not publish ready after 30000ms without progress");
+        const error = new Error(`RepoWriterCell did not publish ready after ${watchdogMs}ms without progress`);
         if (!opened) closed = true;
         reject(error);
         failActive(error);
@@ -196,7 +214,7 @@ export async function openWriterSupervisor(
       };
       const armReadyWatchdog = () => {
         clearTimeout(readyWatchdog);
-        readyWatchdog = setTimeout(readyInactive, 30_000);
+        readyWatchdog = setTimeout(readyInactive, watchdogMs);
         readyWatchdog.unref?.();
       };
       armReadyWatchdog();

@@ -22,7 +22,12 @@ import {
   type ManagedWorktree,
   type WorktreeReclaim,
 } from "./schedule-occurrence-workspace.ts";
-import { runWorktreeSetup, worktreeSetupFailure, type WorktreeSetupResult } from "./worktree-setup.ts";
+import {
+  runWorktreeSetup,
+  worktreeSetupFailure,
+  type WorktreeSetupResult,
+  type WorktreeSetupSettings,
+} from "./worktree-setup.ts";
 
 // dec_BBA713052997C3EF5F5D3DD952: a task's worktree binding follows from fields fixed at its creation; the node
 // that runs the task checks it out on first start or dispatch and reclaims it when the task closes. There is no
@@ -128,11 +133,13 @@ export async function checkoutTaskWorktree(
   rootDir: string,
   taskId: string,
   binding: TaskWorktreeBindingV1,
-  setup: readonly string[],
+  worktree: WorktreeSetupSettings,
   acceptedCommit?: string,
   stackedCommit?: string,
 ): Promise<TaskWorktreeCheckout | null> {
-  const cwd = path.join(rootDir, binding.path);
+  const cwd = path.join(rootDir, binding.path),
+    steps = worktree.setup,
+    stepTimeoutMs = worktree.setupStepTimeoutMs;
   return inWorktreeTurn(cwd, async () => {
     if (acceptedCommit !== undefined) {
       if (!/^[0-9a-f]{40}$/u.test(acceptedCommit))
@@ -153,7 +160,7 @@ export async function checkoutTaskWorktree(
       if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: acceptedCommit });
       const verify = () => verifyHandoffWorktree(cwd, acceptedCommit);
       await verify();
-      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup });
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs });
       await verify();
       return { cwd, branch: binding.branch, baseRef: fresh ? acceptedCommit : null, setup: prepared };
     }
@@ -169,7 +176,7 @@ export async function checkoutTaskWorktree(
         await runProcessTextAsync("git", ["-C", cwd, "merge-base", "--is-ancestor", stackedCommit, "HEAD"]);
       };
       await verify();
-      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup });
+      const prepared = await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs });
       await verify();
       return { cwd, branch: binding.branch, baseRef: fresh ? stackedCommit : null, setup: prepared };
     }
@@ -188,7 +195,7 @@ export async function checkoutTaskWorktree(
       cwd,
       branch: binding.branch,
       baseRef: fresh ? (published ?? defaultRef) : null,
-      setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup }),
+      setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps, stepTimeoutMs }),
     };
   });
 }
@@ -236,7 +243,7 @@ export interface TaskWorktreeLifecycleInput {
   readonly rootDir: string;
   readonly readTask: (taskId: string) => TaskV2 | null | undefined;
   readonly readPresetSnapshot: PresetSnapshotRead;
-  readonly readSetup: () => readonly string[];
+  readonly readWorktree: () => WorktreeSetupSettings;
 }
 
 type TaskWorktreeAction = {
@@ -404,7 +411,14 @@ async function checkoutOnStart(
   }
   let checkout: TaskWorktreeCheckout | null;
   try {
-    checkout = await checkoutTaskWorktree(input.rootDir, taskId, binding, input.readSetup(), undefined, stackedCommit);
+    checkout = await checkoutTaskWorktree(
+      input.rootDir,
+      taskId,
+      binding,
+      input.readWorktree(),
+      undefined,
+      stackedCommit,
+    );
   } catch (error) {
     if (stackedCommit !== undefined) throw error;
     return { notes: [], warnings: [`Worktree ${binding.path} was not checked out: ${errorText(error)}`] };

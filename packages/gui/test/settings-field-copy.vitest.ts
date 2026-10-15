@@ -73,11 +73,7 @@ describe("Settings 自描述文案 chokepoint(两个 locale 都要有,缺一项�
       for (const suffix of ["label", "description"] as const)
         if (!messages[`views.settingsView.settingsGroup.${id}.${suffix}`])
           missing.push(`settingsGroup.${id}.${suffix}`);
-    // presentation 组只承载 locale(GUI 归语言页签),不要求出现在仓库设置页文案里。
-    expect(
-      missing.filter((entry) => !entry.startsWith("settingsGroup.presentation.")),
-      `${locale} 缺分组文案: ${missing.join(", ")}`,
-    ).toEqual([]);
+    expect(missing, `${locale} 缺分组文案: ${missing.join(", ")}`).toEqual([]);
   });
 
   it.each(["en-US", "zh-CN"] as const)("枚举选择器的每个取值都有旁注人话 (%s)", (locale) => {

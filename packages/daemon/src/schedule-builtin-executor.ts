@@ -1,5 +1,5 @@
 import { existsSync, rmSync } from "node:fs";
-import { isMainThread, parentPort, workerData } from "node:worker_threads";
+import { isMainThread, parentPort, workerData, Worker } from "node:worker_threads";
 import path from "node:path";
 import {
   applyLedgerBackupRetention,
@@ -24,12 +24,14 @@ export const builtinNightlyReckoningScheduleId = "builtin-nightly-reckoning";
 /** Retention defaults when the schedule carries no explicit params. */
 export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { keepDays: 3, keepMonthly: true };
 
-/** The executor's entire cell dependency: where the repository lives and what time it is. */
+/** The executor's entire cell dependency: where the repository lives, what time it is, and the backup run budget. */
 export interface BuiltinExecutorCell {
   readonly rootDir: string;
   readonly now: () => string;
   readonly observeCi: (schedule: ScheduleV1) => Promise<BuiltinExecutionResult>;
   readonly runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>;
+  /** The Settings `storage.backupExecutionLimitMs` value: how long one backup run may take end to end. */
+  readonly backupExecutionLimitMs: number;
 }
 
 type RunInternal<Receipt extends WriteReceipt> = (action: RepoTaskAction, binding: RepoCellBinding) => Promise<Receipt>;
@@ -147,6 +149,8 @@ async function executeLedgerBackup(input: {
       policy,
     },
     input.cell.runSnapshot,
+    Worker,
+    input.cell.backupExecutionLimitMs,
   );
   return {
     outcome: "succeeded",

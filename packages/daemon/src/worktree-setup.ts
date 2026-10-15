@@ -10,7 +10,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { resolveHarnessLayout } from "@harness-anything/kernel";
+import {
+  DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
+  resolveHarnessLayout,
+  type RepositorySettingsV1,
+} from "@harness-anything/kernel";
 import { posixShellFallback, runProcessExitAsync, runProcessTextAsync, startDetachedProcess } from "./process-port.ts";
 import { nodeModulesSetupAdapter } from "./worktree-setup-node-modules.ts";
 
@@ -30,10 +34,18 @@ const adapters: Readonly<
 > = { "node-modules": nodeModulesSetupAdapter };
 
 /**
- * A `run:` step still running after this long fails like any other: the start is refused and the step named. Every
- * process the step started stops with it, so nothing keeps writing the worktree after the refusal.
+ * A `run:` step still running past Settings `worktree.setupStepTimeoutMs` fails like any other: the start is
+ * refused and the step named. Every process the step started stops with it, so nothing keeps writing the worktree
+ * after the refusal.
  */
-const worktreeSetupStepTimeoutMs = 20 * 60 * 1000;
+
+/** The Settings `worktree` section whole: the steps and how long one step may run. */
+export type WorktreeSetupSettings = RepositorySettingsV1["worktree"];
+
+/** The section where no Settings reader exists: no steps, the declared default step timeout. */
+export function noWorktreeSetup(): WorktreeSetupSettings {
+  return { setup: [], setupStepTimeoutMs: DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS };
+}
 
 export interface WorktreeSetupInput {
   readonly rootDir: string;
@@ -121,7 +133,7 @@ async function runStep(input: WorktreeSetupInput, step: string, log: string): Pr
         input.cwd,
         log,
         environment,
-        input.stepTimeoutMs ?? worktreeSetupStepTimeoutMs,
+        input.stepTimeoutMs ?? DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
       );
       return exitCode === 0 ? null : `exit code ${exitCode}`;
     }

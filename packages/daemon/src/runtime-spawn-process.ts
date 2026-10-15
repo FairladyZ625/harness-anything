@@ -481,6 +481,7 @@ export function launchNative(
       ...(input.permissionMode ? { permissionMode: input.permissionMode } : {}),
       ...(input.providerSessionId ? { providerSessionId: input.providerSessionId } : {}),
       ...(input.acpApiKey ? { acpApiKey: input.acpApiKey } : {}),
+      ...(input.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: input.handshakeTimeoutMs } : {}),
       ...(persistence.callbackRelay
         ? {
             callbackRelay: {

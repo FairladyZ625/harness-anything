@@ -58,7 +58,7 @@ export function taskWorktreeInput(
     rootDir: cell.rootDir,
     readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
     readPresetSnapshot: presetSnapshotReader(cell.projection),
-    readSetup: () => cell.settings.read().worktree.setup,
+    readWorktree: () => cell.settings.read().worktree,
   };
 }
 

@@ -299,6 +299,7 @@ describe("设置页按用途分组并逐项解释", () => {
     const fields = settingsFieldsFace();
     expect(fields.filter(({ field }) => field.startsWith("walFlush"))).toEqual([]);
     expect(fields.filter((row) => row.group === "storage-backup").map(({ field }) => field)).toEqual([
+      "storageBackupExecutionLimitMs",
       "restoreDrillRetention",
     ]);
   });

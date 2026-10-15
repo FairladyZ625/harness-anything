@@ -1,6 +1,10 @@
 import path from "node:path";
 import { Worker, type WorkerOptions } from "node:worker_threads";
-import type { applyLedgerBackupRetention, LedgerBackupRetentionPolicyV1 } from "@harness-anything/kernel";
+import {
+  DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
+  type applyLedgerBackupRetention,
+  type LedgerBackupRetentionPolicyV1,
+} from "@harness-anything/kernel";
 
 export interface BackupVerification {
   readonly rootDir: string;
@@ -23,15 +27,15 @@ export type BackupWorkerMessage =
   | { readonly kind: "captured" }
   | { readonly kind: "result"; readonly result: BackupVerificationResult };
 
-// A builtin owns physical worker resources, not a renewable Schedule lease. Bound its
-// lifetime to 30 minutes (the supplied successful runs took about 8.5 minutes).
-export const backupExecutionLimitMs = 30 * 60_000;
+// A builtin owns physical worker resources, not a renewable Schedule lease. Its lifetime is bounded by the
+// Settings `storage.backupExecutionLimitMs` execution limit (the supplied successful runs took about 8.5 minutes).
 
 /** Only live-source capture holds the writer queue; all validation reads the frozen payload. */
 export function finishLedgerBackup(
   input: BackupVerification,
   runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>,
   spawnWorker: new (url: string | URL, options: WorkerOptions) => Worker = Worker,
+  executionLimitMs: number = DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
 ): Promise<BackupVerificationResult> {
   const prepared = Promise.withResolvers<void>(),
     captured = Promise.withResolvers<void>(),
@@ -64,11 +68,11 @@ export function finishLedgerBackup(
     fail(failure ?? new Error(`backup worker exited ${code} without a result`));
   });
   const deadline = setTimeout(() => {
-    failure = new Error(`backup worker exceeded ${backupExecutionLimitMs}ms execution limit`);
+    failure = new Error(`backup worker exceeded ${executionLimitMs}ms execution limit`);
     // Reject capture only after exit: releasing the writer while a worker can still
     // copy live source would let a later capture overlap an abandoned executor.
     void worker.terminate().catch(fail);
-  }, backupExecutionLimitMs);
+  }, executionLimitMs);
   deadline.unref?.();
   // Observe every phase from the outset, including failures before capture admission.
   const capture = prepared.promise.then(() =>

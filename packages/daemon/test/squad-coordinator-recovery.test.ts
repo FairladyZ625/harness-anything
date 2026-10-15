@@ -10,6 +10,7 @@ import { makeSquadCoordinator } from "../src/squad-coordinator.ts";
 import { latestSquadStates, rejectedSquadAttemptChildren } from "../src/squad-run-state.ts";
 import { appendRuntimeWorkerRecord, dispatchStreamPath, openDispatchStream } from "../src/dispatch-stream.ts";
 import type { JsonObject } from "../src/protocol/json-rpc-types.ts";
+import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
 const SQUAD_RUN_ID = "squad_0123456789abcdef01234567",
   TASK_ID = "task-squad-recovery",
@@ -261,7 +262,7 @@ function makeRecoveryFixture(
   const buildCoordinator = () =>
     makeSquadCoordinator({
       rootDir,
-      readWorktreeSetup: () => [],
+      readWorktreeSetup: () => noWorktreeSetup(),
       query: (read) => read(projection),
       readResult: (ref) => {
         const body = resultBodies.get(ref.split("/").at(-1)!);

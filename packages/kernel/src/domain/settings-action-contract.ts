@@ -65,6 +65,8 @@ export const settingsUpdateInputFields: readonly EntityActionInputField[] = Obje
   field("expectedVersion", "number"),
   field("idempotencyKey"),
 ]);
+/** Local-only action fields derive from the declarations: what an edge may apply without the center. */
+const localOnlySettingsFields = Object.freeze(SETTINGS_DECLARATION_RUNTIME.localOnlyActionFields);
 const noLease = Object.freeze({ authority: "not-applicable" });
 const noOccurrence = Object.freeze({ authority: "not-applicable" });
 const settingsConcurrency: EntityActionContract["concurrency"] = Object.freeze({
@@ -111,7 +113,7 @@ export function createSettingsActionCatalog(
         concurrency: settingsConcurrency,
         effects: Object.freeze([]),
         returns: actionResultContract,
-        explain: "Read the repository Settings singleton and this daemon's local locale preference.",
+        explain: "Read the repository Settings singleton and this daemon's local preferences.",
         execution: Object.freeze({
           ingress: "settings-read",
           compile: null,
@@ -142,14 +144,14 @@ export function createSettingsActionCatalog(
         ]),
         returns: actionResultContract,
         explain:
-          "Update the repository Settings singleton through settings-event/v1; locale remains a runtime-local effect.",
+          "Update the repository Settings singleton through settings-event/v1; local preferences (locale, GUI deadlines) remain runtime-local effects.",
         execution: Object.freeze({
           ingress: "settings-update",
           compile: compileSettingsUpdateAction,
           read: false,
           implementation: "catalog-runtime" as const,
           topology: "center-forward-write" as const,
-          localOnlyFields: Object.freeze(["locale"]),
+          localOnlyFields: localOnlySettingsFields,
           targetIdField: "settingsId",
         }),
       }),

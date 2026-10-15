@@ -861,6 +861,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     const executorCell: BuiltinExecutorCell = {
       rootDir: context.rootDir,
       now: context.now,
+      backupExecutionLimitMs: context.settings.read().storage.backupExecutionLimitMs,
       observeCi: async (schedule) => {
         const result = await reconcileCiOccurrence({
           cell: context.extracted,

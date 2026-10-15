@@ -271,6 +271,7 @@ export function scheduleFallbackContinuation(args: {
   readonly input: RuntimeSpawnerInput;
   readonly closed: () => boolean;
   readonly publishRuntimeEvent: RuntimeSpawnerContext["publishRuntimeEvent"];
+  /** The continuation awaits the launch and uses no result. */
   readonly launch: (
     payload: JsonObject,
     binding: RuntimeBinding,
@@ -279,7 +280,7 @@ export function scheduleFallbackContinuation(args: {
     handoffFromRuntimeSessionId: string | undefined,
     publicationOwner: ActiveRuntime["publicationOwner"] | undefined,
     onDispatched: (dispatchId: string, runtimeSessionId: string) => void,
-  ) => Promise<void>;
+  ) => Promise<unknown>;
   readonly stream: ReturnType<typeof readDispatchStream>;
 }): void {
   const { input, stream } = args;

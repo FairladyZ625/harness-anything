@@ -53,6 +53,7 @@ import type {
   RuntimeInstanceConfig,
   RuntimeInstanceKind,
   RuntimeInstanceSummary,
+  RuntimeLaunchRequest,
 } from "./agent-runtime-instance-types.ts";
 import {
   credentialHint,
@@ -253,19 +254,7 @@ export function openRuntimeInstanceStore(input: {
       cwd: path.join(instancesRoot, config.instanceId),
     };
   }
-  async function prepareLaunch(
-    instanceId: string,
-    request: {
-      readonly cwd: string;
-      readonly prompt: string;
-      readonly model?: string;
-      readonly effort?: string;
-      readonly fast?: boolean;
-      readonly providerSessionId?: string;
-      readonly permissionMode?: string;
-      readonly runtimeSessionId?: string;
-    },
-  ): Promise<PreparedRuntimeLaunch> {
+  async function prepareLaunch(instanceId: string, request: RuntimeLaunchRequest): Promise<PreparedRuntimeLaunch> {
     const config = readOne(instanceId);
     if (!config)
       throw runtimeInstanceError("runtime_instance_not_found", `Runtime instance ${instanceId} does not exist.`);
@@ -326,6 +315,9 @@ export function openRuntimeInstanceStore(input: {
         prompt: request.prompt,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
+        ...(protocolFamily === "acp" && request.handshakeTimeoutMs !== undefined
+          ? { handshakeTimeoutMs: request.handshakeTimeoutMs }
+          : {}),
       };
     }
     let secret: string;
@@ -367,7 +359,12 @@ export function openRuntimeInstanceStore(input: {
       ...(permissionMode ? { permissionMode } : {}),
       // ACP agents authenticate through the client handshake, so the key rides the
       // launch manifest rather than the provider's environment.
-      ...(protocolFamily === "acp" ? { acpApiKey: secret } : {}),
+      ...(protocolFamily === "acp"
+        ? {
+            acpApiKey: secret,
+            ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
+          }
+        : {}),
     };
   }
   async function prepareDaemonGitEnvironment(

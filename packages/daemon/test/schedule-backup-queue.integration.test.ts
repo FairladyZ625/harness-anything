@@ -15,7 +15,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { after, before, describe, mock } from "node:test";
 import workerThreads, { Worker } from "node:worker_threads";
-import { backupExecutionLimitMs } from "../src/schedule-backup-worker.ts";
+import { DEFAULT_BACKUP_EXECUTION_LIMIT_MS as backupExecutionLimitMs } from "@harness-anything/kernel";
 import { syncBuiltinESMExports } from "node:module";
 import { readOfflineLedgerEvents, readVerifiedLedgerBackup, type ScheduleV1 } from "@harness-anything/kernel";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";

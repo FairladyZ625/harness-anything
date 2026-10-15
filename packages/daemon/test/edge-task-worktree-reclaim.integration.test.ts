@@ -20,6 +20,7 @@ import { reclaimEdgeTaskWorktrees } from "../src/fleet-edge-worktree-reclaim.ts"
 import { pushWorkerBranch } from "../src/runtime-worker-push.ts";
 import { addManagedWorktree } from "../src/schedule-occurrence-workspace.ts";
 import { checkoutTaskWorktree } from "../src/task-worktree.ts";
+import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
 // dec_57370FF2021DADF04E3B21724D CH4: an edge reclaims its own checkouts of the tasks its mirrored cut says are
 // closed. Two clones of one bare remote stand for two nodes; each has its own replica view of the center's cuts,
@@ -264,7 +265,13 @@ function setCut(
 }
 
 async function checkout(node: Node, taskId: string): Promise<string> {
-  return (await checkoutTaskWorktree(node.root, taskId, { branch: taskId, path: `.worktrees/${taskId}` }, []))!.cwd;
+  // Worktree setup is a section with both steps and timeout; this fixture intentionally declares no steps.
+  return (await checkoutTaskWorktree(
+    node.root,
+    taskId,
+    { branch: taskId, path: `.worktrees/${taskId}` },
+    noWorktreeSetup(),
+  ))!.cwd;
 }
 
 /** What a settlement does: the task branch is pushed, with one more commit on it unless the head is to go as is. */

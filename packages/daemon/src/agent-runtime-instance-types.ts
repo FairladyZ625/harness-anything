@@ -90,6 +90,23 @@ export interface RuntimeAuthReadiness {
 
 export type RuntimeInstanceSummary = AgentRuntimeInstanceDto;
 
+/** What a spawner asks the machine instance store to prepare for one runtime launch. */
+export interface RuntimeLaunchRequest {
+  readonly cwd: string;
+  readonly prompt: string;
+  readonly model?: string;
+  readonly effort?: string;
+  readonly fast?: boolean;
+  readonly providerSessionId?: string;
+  readonly permissionMode?: string;
+  readonly runtimeSessionId?: string;
+  /**
+   * The Settings `runtime.providerHandshakeTimeoutMs` value. It rides the launch to the ACP worker
+   * host, whose process does not share the daemon's settings reader.
+   */
+  readonly handshakeTimeoutMs?: number;
+}
+
 export interface PreparedRuntimeLaunch {
   readonly definition: AgentDefinitionSnapshot;
   readonly installation: RuntimeInstallationWitness;
@@ -103,6 +120,8 @@ export interface PreparedRuntimeLaunch {
   readonly permissionMode?: RuntimePermissionMode;
   /** Resolved API key delivered to the ACP client for `authenticate`; never enters the provider's environment. */
   readonly acpApiKey?: string;
+  /** The caller's ACP handshake deadline; acp-family launches carry it to the worker host. */
+  readonly handshakeTimeoutMs?: number;
 }
 
 export interface PreparedRuntimeAuthCommand {

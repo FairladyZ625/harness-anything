@@ -25,6 +25,7 @@ import type {
   RuntimeInstallationWitness,
   RuntimeInstanceKind,
   RuntimeInstanceSummary,
+  RuntimeLaunchRequest,
 } from "./agent-runtime-instances.ts";
 import type { AgentRuntimeStreamHub, AgentRuntimeNativeSignal } from "./agent-runtime-stream.ts";
 import { type DispatchStreamWriter } from "./dispatch-stream.ts";
@@ -309,19 +310,7 @@ export interface RuntimeSpawnerInput {
   readonly now: () => string;
   readonly runtimeInstances?: () => readonly RuntimeInstanceSummary[];
   readonly runtimeProviderHealth?: RuntimeProviderHealthStore;
-  readonly prepareLaunch: (
-    instanceId: string,
-    request: {
-      readonly cwd: string;
-      readonly prompt: string;
-      readonly model?: string;
-      readonly effort?: string;
-      readonly fast?: boolean;
-      readonly providerSessionId?: string;
-      readonly permissionMode?: string;
-      readonly runtimeSessionId?: string;
-    },
-  ) => Promise<PreparedRuntimeLaunch>;
+  readonly prepareLaunch: (instanceId: string, request: RuntimeLaunchRequest) => Promise<PreparedRuntimeLaunch>;
   /** Reclaims one runtime session's per-run temp directory under its instance state root;
    *  a no-op for instances without enforced isolation. Returns the filesystem failure (if
    *  any) so terminal settlement can record it honestly instead of swallowing it. */
