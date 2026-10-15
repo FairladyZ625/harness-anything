@@ -212,11 +212,13 @@ describe("G6-B observe 模型:分页 → 行流", () => {
     expect(first.rows.at(2)!.refs.map((chip) => chip.ref)).toEqual([`session/${SESSION_ID}`]);
   });
 
-  it("日志页产出方法行,repo-log 与 daemon-log 同一形状", () => {
+  it("日志页产出命令行(command 缺失的遗留记录退到 event 标签,method 作次要标签)", () => {
     for (const kind of ["repo-log", "daemon-log"] as const) {
       const state = applyObserveTailPage(initialObserveTail(), logPage(kind));
       expect(state.rows).toHaveLength(1);
-      expect(state.rows.at(0)!.type).toBe("repo.tasks.list");
+      // 无 command 的遗留记录不再并入 method:type 退到 event 标签,method 保留为次要标签。
+      expect(state.rows.at(0)!.type).toBe("request");
+      expect(state.rows.at(0)!.method).toBe("repo.tasks.list");
       expect(state.rows.at(0)!.text).toBe("repo.tasks.list 4ms");
       expect(state.rows.at(0)!.ok).toBe(true);
       expect(state.liveCursor).toEqual({ kind, fileId: "file-g6b", offset: 88 });
@@ -667,15 +669,45 @@ describe("G6-B observe 视图:两栏实况", () => {
 describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏透镜", () => {
   /** 慢操作与异常混合的 repo-log 首页:2 次 4.8s 级 adjudicate + 常规快调用 + 3 次同类失败。 */
   function slowLogPage(): ObserveTailRead {
+    // 请求日志写入端每条都落 command;这里 command 与 method 同值(未解析动作的回退形状)。
     const items = [
-      { schema: "daemon-request-log/v1", at: AT, method: "task.adjudicate", ok: true, durationMs: 4_859 },
-      { schema: "daemon-request-log/v1", at: AT, method: "task.adjudicate", ok: true, durationMs: 4_600 },
-      { schema: "daemon-request-log/v1", at: AT, method: "repo.tasks.list", ok: true, durationMs: 4 },
-      { schema: "daemon-request-log/v1", at: AT, method: "repo.tasks.list", ok: true, durationMs: 6 },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "task.adjudicate",
+        command: "task.adjudicate",
+        ok: true,
+        durationMs: 4_859,
+      },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "task.adjudicate",
+        command: "task.adjudicate",
+        ok: true,
+        durationMs: 4_600,
+      },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "repo.tasks.list",
+        command: "repo.tasks.list",
+        ok: true,
+        durationMs: 4,
+      },
+      {
+        schema: "daemon-request-log/v1",
+        at: AT,
+        method: "repo.tasks.list",
+        command: "repo.tasks.list",
+        ok: true,
+        durationMs: 6,
+      },
       {
         schema: "daemon-request-log/v1",
         at: AT,
         method: "repo.write",
+        command: "repo.write",
         ok: false,
         code: "repo_locked",
         durationMs: 1_200,
@@ -684,6 +716,7 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
         schema: "daemon-request-log/v1",
         at: AT,
         method: "repo.write",
+        command: "repo.write",
         ok: false,
         code: "repo_locked",
         durationMs: 1_180,
@@ -692,6 +725,7 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
         schema: "daemon-request-log/v1",
         at: AT,
         method: "repo.write",
+        command: "repo.write",
         ok: false,
         code: "repo_locked",
         durationMs: 1_160,
@@ -769,14 +803,14 @@ describe("G6-B observe 观察现代化:HUD / 慢操作 / 异常聚类 / 双栏�
     expect(rows).toHaveLength(3);
   });
 
-  it("点击日志行方法列设置双栏透镜:两栏一起收敛,清除后恢复", async () => {
+  it("点击日志行命令列设置双栏透镜:两栏一起收敛,清除后恢复", async () => {
     const container = await mountModern();
-    const method = container.querySelector(
-      '[data-testid="observe-pane-repo-log"] [data-testid="observe-method-focus"]',
+    const command = container.querySelector(
+      '[data-testid="observe-pane-repo-log"] [data-testid="observe-command-focus"]',
     ) as HTMLButtonElement;
-    expect(method.textContent).toContain("task.adjudicate");
+    expect(command.textContent).toContain("task.adjudicate");
     await act(async () => {
-      method.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      command.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     // 双栏联动:左右两栏都出现透镜 chip,行集都收敛到透镜词。
     expect(container.querySelector('[data-testid="observe-lens-chip-events"]')).not.toBeNull();

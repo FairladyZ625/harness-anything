@@ -27,7 +27,10 @@ export interface ObserveRow {
   readonly key: string;
   readonly at: string | null;
   readonly revision: number | null;
+  /** 分组与展示主键:日志行取 command(无 command 的遗留记录退到 event/schema,绝不并入 method)。 */
   readonly type: string;
+  /** 日志行的 RPC method,只作次要标签展示;统计与面板不再按 method 聚合(#3627 后 command 是唯一分组键)。 */
+  readonly method: string | null;
   readonly text: string;
   /** 完整原始记录(title 提示用),已截断到安全长度。 */
   readonly detail: string;
@@ -493,6 +496,7 @@ function gapMarkerRow(gap: { readonly reason: string; readonly requestedFileId: 
     at: null,
     revision: null,
     type: "gap",
+    method: null,
     text: "",
     detail: "",
     refs: [],
@@ -536,6 +540,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
       at,
       revision: integerOf(source.workspaceRevision),
       type,
+      method: null,
       text: eventSummary(payload),
       detail: clip(JSON.stringify(event)),
       refs: eventRefs({ payload, taskId, decisionId, factId }),
@@ -557,7 +562,7 @@ export function observeEventRow(event: ObserveTailRead["items"][number]): Observ
 export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: number): ObserveRow {
   const method = stringOf(record.method),
     event = stringOf(record.event),
-    command = stringOf(record.command) ?? method,
+    command = stringOf(record.command),
     outcome = stringOf(record.outcome) ?? stringOf(record.code),
     duration = numberToMs(record.durationMs),
     at = stringOf(record.at),
@@ -566,7 +571,8 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       at,
       revision: null as number | null,
       type: command ?? event ?? stringOf(record.schema) ?? "record",
-      text: [command, outcome, duration].filter(Boolean).join(" "),
+      method,
+      text: [command ?? method, outcome, duration].filter(Boolean).join(" "),
       detail: clip(JSON.stringify(record)),
       refs: [] as readonly ObserveRefChip[],
       ok: typeof record.ok === "boolean" ? record.ok : null,
@@ -581,7 +587,7 @@ export function observeLogRow(record: Readonly<Record<string, unknown>>, seq: nu
       subject: (stringOf(recordOf(record.executor)?.id) ?? stringOf(record.connectionId) ?? stringOf(record.conn)) as
         | string
         | null,
-      opClass: observeLogOpClass(command ?? event ?? method ?? "", stringOf(record.commandClass)),
+      opClass: observeLogOpClass(command ?? method ?? event ?? "", stringOf(record.commandClass)),
     };
   return { ...base, searchText: searchTextOf(base) };
 }
@@ -665,6 +671,7 @@ function searchTextOf(row: Omit<ObserveRow, "searchText">): string {
     row.at ?? "",
     row.revision === null ? "" : `#${row.revision}`,
     row.type,
+    row.method ?? "",
     row.text,
     ...row.refs.flatMap((chip) => [chip.kind, chip.ref, chip.label]),
     row.nodeId ?? "",

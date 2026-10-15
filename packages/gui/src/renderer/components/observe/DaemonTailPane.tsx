@@ -222,23 +222,23 @@ export function DaemonTailPane({
       viewportHeight: scroll.height,
     }),
     visible = effective.slice(rowWindow.start, rowWindow.end),
-    focusMethod = useCallback(
-      (method: string) => {
-        onLensChange?.(method);
+    focusCommand = useCallback(
+      (command: string) => {
+        onLensChange?.(command);
         setLensOpen(false);
       },
       [onLensChange],
     ),
-    // 行内方法列的透镜出口:只在日志栏且有视图级 lens 通道时挂;事件行一律文本列。
-    methodFocusHandler = onLensChange === undefined ? undefined : focusMethod,
+    // 行内命令列的透镜出口:只在日志栏且有视图级 lens 通道时挂;事件行一律文本列。
+    commandFocusHandler = onLensChange === undefined ? undefined : focusCommand,
     focusCluster = useCallback((matchText: string) => setQuery(matchText), []),
     // 异味 Tag / Top Talker 的一键下钻:有视图级透镜通道时收敛双栏,否则退到本栏过滤框。
     focusLensOrQuery = useCallback(
       (text: string) => {
         if (onLensChange === undefined) setQuery(text);
-        else focusMethod(text);
+        else focusCommand(text);
       },
-      [focusMethod, onLensChange],
+      [focusCommand, onLensChange],
     ),
     selectRange = useCallback((selection: ObserveTimeSelection | null) => setTimeRange(selection), []),
     changeWindow = useCallback((next: ObserveHudWindow) => setHudWindow(next), []);
@@ -482,7 +482,7 @@ export function DaemonTailPane({
                               key={candidate.value}
                               type="button"
                               data-testid={`observe-lens-candidate-${kind}`}
-                              onClick={() => focusMethod(candidate.value)}
+                              onClick={() => focusCommand(candidate.value)}
                               title={t("views.daemonObserve.lensCandidateTip")}
                               className={PANE_LENS_CANDIDATE}
                             >
@@ -504,14 +504,14 @@ export function DaemonTailPane({
             )}
           </div>
           {boardTab === "ops" && isLogPane ? (
-            <ObserveSlowOpsBoard testId={`observe-slowops-${kind}`} stats={stats} onFocusMethod={focusMethod} />
+            <ObserveSlowOpsBoard testId={`observe-slowops-${kind}`} stats={stats} onFocusCommand={focusCommand} />
           ) : null}
           {boardTab === "volume" ? (
             <ObserveCallVolumeBoard
               testId={`observe-volume-${kind}`}
               isLogPane={isLogPane}
               stats={stats}
-              onFocusItem={(name) => (isLogPane ? focusMethod(name) : setQuery(name))}
+              onFocusItem={(name) => (isLogPane ? focusCommand(name) : setQuery(name))}
             />
           ) : null}
           {boardTab === "anomalies" ? (
@@ -586,7 +586,7 @@ export function DaemonTailPane({
                 key={row.key}
                 row={row}
                 onNavigateEntity={onNavigateEntity}
-                onFocusMethod={methodFocusHandler}
+                onFocusCommand={commandFocusHandler}
               />
             ))}
             {rowWindow.end >= effective.length ? null : (
@@ -613,16 +613,16 @@ export function DaemonTailPane({
 /**
  * 单行渲染:memo 化后行对象在快照间保持同一引用,窗口平移只挂/卸进出窗口的行,
  * 留在窗口内的行不重渲。高度由内联 style 固定为 OBSERVE_ROW_HEIGHT(窗口化的前提)。
- * 日志行的方法列可点(透镜收敛双栏过滤);事件行的实体 chip 仍是实体导航出口。
+ * 日志行的命令列可点(透镜收敛双栏过滤);事件行的实体 chip 仍是实体导航出口。
  */
 const ObserveRowView = memo(function ObserveRowView({
   row,
   onNavigateEntity,
-  onFocusMethod,
+  onFocusCommand,
 }: {
   readonly row: ObserveRow;
   readonly onNavigateEntity: (ref: string) => void;
-  readonly onFocusMethod: ((method: string) => void) | undefined;
+  readonly onFocusCommand: ((command: string) => void) | undefined;
 }) {
   if (row.gapMarker !== null)
     return (
@@ -647,18 +647,21 @@ const ObserveRowView = memo(function ObserveRowView({
     >
       <span className="shrink-0 text-text-faint">{time}</span>
       {row.revision === null ? null : <span className="shrink-0 text-text-faint">#{row.revision}</span>}
-      {onFocusMethod !== undefined && row.durationMs !== null ? (
+      {onFocusCommand !== undefined && row.durationMs !== null ? (
         <button
           type="button"
-          data-testid="observe-method-focus"
-          title={t("views.daemonObserve.methodFocusTip")}
-          onClick={() => onFocusMethod(row.type)}
+          data-testid="observe-command-focus"
+          title={t("views.daemonObserve.commandFocusTip")}
+          onClick={() => onFocusCommand(row.type)}
           className={`shrink-0 ${rowTone(row.ok)} hover:underline`}
         >
           {row.type}
         </button>
       ) : (
         <span className={`shrink-0 ${rowTone(row.ok)}`}>{row.type}</span>
+      )}
+      {row.method === null || row.method === row.type ? null : (
+        <span className="shrink-0 text-text-faint">({row.method})</span>
       )}
       <span className="min-w-0 flex-1 truncate text-text-muted">{row.text}</span>
       <span className="flex shrink-0 items-baseline gap-1.5">
@@ -685,7 +688,7 @@ function lensGroupsOf(stats: ObserveStats): readonly (readonly [string, readonly
     [
       [t("views.daemonObserve.lensTasks"), stats.lens.tasks],
       [t("views.daemonObserve.lensSessions"), stats.lens.sessions],
-      [t("views.daemonObserve.lensMethods"), stats.lens.methods],
+      [t("views.daemonObserve.lensCommands"), stats.lens.commands],
       [t("views.daemonObserve.lensNodes"), stats.lens.nodes],
     ] as const
   ).filter((group) => group[1].length > 0);

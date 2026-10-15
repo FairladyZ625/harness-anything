@@ -34,7 +34,7 @@ export const ObserveCallVolumeBoard = memo(function ObserveCallVolumeBoard({
 
   const maxCount = topVolumes[0]?.count ?? 1,
     // 快速索引 RPC 的 P50 耗时
-    opsMap = new Map([...stats.ops, ...stats.waits].map((op) => [op.method, op]));
+    opsMap = new Map([...stats.ops, ...stats.waits].map((op) => [op.command, op]));
 
   return (
     <div data-testid={testId} className="px-3 py-2">

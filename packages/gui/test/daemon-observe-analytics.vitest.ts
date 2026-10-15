@@ -32,7 +32,7 @@ const REPO_ID = "analytics-probe",
 
 function logItem(input: {
   method: string;
-  command?: string;
+  command?: string | null;
   durationMs: number;
   wait?: boolean;
   ok?: boolean;
@@ -47,7 +47,9 @@ function logItem(input: {
     schema: "daemon-request-log/v1",
     at: new Date(input.atMs ?? T0).toISOString(),
     method: input.method,
-    ...(input.command === undefined ? {} : { command: input.command }),
+    // 写入端每条请求记录都落 command(#3627 后);command: null 显式生成无 command 的
+    // 遗留记录(#3627 之前保留集里的旧形状),验证它们不再并入 method 分组。
+    ...(input.command === null ? {} : { command: input.command ?? input.method }),
     ...(input.wait === undefined ? {} : { wait: input.wait }),
     event: "request",
     ok: input.ok ?? true,
@@ -200,15 +202,64 @@ describe("协议命令级慢请求统计", () => {
       ),
     );
     const stats = observeStatsLog(state.rows, null).stats;
-    expect(stats.waits).toMatchObject([{ method: "task-ci", count: 1, maxMs: 120_000 }]);
-    expect(stats.ops.map((entry) => entry.method)).toContain("task-list");
-    expect(stats.ops.find((entry) => entry.method === "task-ci")).toMatchObject({ count: 2, maxMs: 60_000 });
+    expect(stats.waits).toMatchObject([{ command: "task-ci", method: "repo.task.read", count: 1, maxMs: 120_000 }]);
+    expect(stats.ops.map((entry) => entry.command)).toContain("task-list");
+    expect(stats.ops.find((entry) => entry.command === "task-ci")).toMatchObject({ count: 2, maxMs: 60_000 });
     expect(stats.p95Ms).toBe(60_000);
+  });
+
+  it("同一 method 下的 task-show 与 task-ci 分成两行,method 只作次要标签", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          // 本地读:毫秒级;外部提供方命令 task-ci 同走 repo.task.read 但秒级——两行分开,
+          // 互不污染分位(业主曾看到的「repo.task.read P50 5s / P95 20s」正是两者混算)。
+          logItem({ method: "repo.task.read", command: "task-show", durationMs: 3 }),
+          logItem({ method: "repo.task.read", command: "task-show", durationMs: 12 }),
+          logItem({ method: "repo.task.read", command: "task-show", durationMs: 40 }),
+          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 6_000, wait: true }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const stats = observeStatsLog(state.rows, null).stats;
+    const show = stats.ops.find((entry) => entry.command === "task-show");
+    expect(show).toMatchObject({ method: "repo.task.read", count: 3, maxMs: 40 });
+    expect(stats.waits.find((entry) => entry.command === "task-ci")).toMatchObject({
+      method: "repo.task.read",
+      count: 1,
+      maxMs: 6_000,
+    });
+    expect(stats.ops.map((entry) => entry.command)).not.toContain("repo.task.read");
+    expect(stats.p95Ms).toBe(40);
+  });
+
+  it("无 command 的遗留记录不并入 method 分组,method 作次要标签保留", () => {
+    let state = initialObserveTail();
+    state = applyObserveTailPage(
+      state,
+      logPage(
+        [
+          logItem({ method: "repo.task.read", command: null, durationMs: 5 }),
+          logItem({ method: "repo.task.read", command: null, durationMs: 7 }),
+        ],
+        "history",
+        0,
+      ),
+    );
+    const stats = observeStatsLog(state.rows, null).stats;
+    expect(stats.ops).toHaveLength(1);
+    // 遗留记录自成键(退到 event 标签),method 不再冒充分组键。
+    expect(stats.ops[0]).toMatchObject({ command: "request", method: "repo.task.read", count: 2, maxMs: 7 });
+    expect(stats.lens.commands.map((entry) => entry.value)).toEqual(["request"]);
   });
 });
 
 describe("慢操作聚合与分位点", () => {
-  it("按方法聚合次数/最大值,Top 排序按 maxMs 降序;P50/P95/Max 取最近邻上取整秩", () => {
+  it("按命令聚合次数/最大值,Top 排序按 maxMs 降序;P50/P95/Max 取最近邻上取整秩", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
@@ -223,8 +274,8 @@ describe("慢操作聚合与分位点", () => {
       ),
     );
     const stats = observeStatsLog(state.rows, null).stats;
-    expect(stats.ops[0]).toMatchObject({ method: "task.adjudicate", count: 2, maxMs: 4_859 });
-    expect(stats.ops[1]!.method).toBe("fast.list");
+    expect(stats.ops[0]).toMatchObject({ command: "task.adjudicate", count: 2, maxMs: 4_859 });
+    expect(stats.ops[1]!.command).toBe("fast.list");
     // 102 个耗时的最近邻上取整秩:P50 = 第 51 个 = 51;P95 = 第 97 个 = 97。
     expect(stats.p50Ms).toBe(51);
     expect(stats.p95Ms).toBe(97);
@@ -287,8 +338,8 @@ describe("异常与缺口指纹聚类", () => {
   });
 });
 
-describe("透镜候选(活跃 task/session/method/node)", () => {
-  it("事件引用与日志节点/方法分别归组,按频次排序", () => {
+describe("透镜候选(活跃 task/session/command/node)", () => {
+  it("事件引用与日志节点/命令分别归组,按频次排序", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
@@ -320,7 +371,7 @@ describe("透镜候选(活跃 task/session/method/node)", () => {
       ["task_b", 1],
     ]);
     expect(lens.sessions.map((entry) => entry.value)).toEqual(["runtime_x"]);
-    expect(lens.methods.map((entry) => [entry.value, entry.count])).toEqual([
+    expect(lens.commands.map((entry) => [entry.value, entry.count])).toEqual([
       ["repo.tasks.list", 2],
       ["repo.write", 1],
     ]);

@@ -9,16 +9,32 @@ import { ObserveSnifferStrip } from "../src/renderer/components/observe/ObserveS
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 // Fixed measurements from the retained conn-log: at is handler start, not completion.
+// Records carry the post-#3627 shape: event + command (the conn-log writer resolves command,
+// falling back to the method string for transport-only methods like the await below).
 const records = [
   {
+    event: "request",
     method: "repo.agentRuntime.sessions.await",
+    command: "repo.agentRuntime.sessions.await",
     at: "2026-10-07T06:22:54.298Z",
     durationMs: 1067342,
     code: "provider_exit",
     wait: true,
   },
-  { method: "repo.task.run", at: "2026-10-07T06:41:25.396Z", durationMs: 22049 },
-  { method: "repo.task.run", at: "2026-10-07T06:45:16.203Z", durationMs: 12023 },
+  {
+    event: "request",
+    method: "repo.task.run",
+    command: "repo.task.run",
+    at: "2026-10-07T06:41:25.396Z",
+    durationMs: 22049,
+  },
+  {
+    event: "request",
+    method: "repo.task.run",
+    command: "repo.task.run",
+    at: "2026-10-07T06:45:16.203Z",
+    durationMs: 12023,
+  },
 ];
 function statsFor(items: readonly Record<string, unknown>[]) {
   const state = new ObserveStatsState();
@@ -31,16 +47,16 @@ describe("等待耗时与执行耗时", () => {
     const stats = statsFor(records);
     expect(stats.maxMs).toBe(22049);
     expect(stats.p50Ms).toBe(12023);
-    expect(stats.ops.map((op) => op.method)).toEqual(["repo.task.run"]);
+    expect(stats.ops.map((op) => op.command)).toEqual(["repo.task.run"]);
     expect(observeLogRow(records[0]!, 0).durationMs).toBe(1067342);
-    expect(stats.waits[0]).toMatchObject({ method: records[0]!.method, maxMs: 1067342, count: 1 });
+    expect(stats.waits[0]).toMatchObject({ command: records[0]!.command, maxMs: 1067342, count: 1 });
   });
 
   it.each(["zh-CN", "en-US"] as const)("%s: 等待单独可查，慢写不被宣称为锁异常", (locale) => {
     setActiveLocale(locale);
     const stats = statsFor(records);
     const board = renderToStaticMarkup(
-      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusMethod: () => {} }),
+      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusCommand: () => {} }),
     );
     expect(board).toContain("repo.task.run");
     expect(board).toContain("repo.agentRuntime.sessions.await");
@@ -70,17 +86,19 @@ describe("等待耗时与执行耗时", () => {
     expect(stats.ops).toEqual([]);
     expect(stats.waits[0]!.count).toBe(7);
     expect(stats.volumes[0]!.count).toBe(7);
-    expect(stats.lens.methods[0]!.value).toBe("repo.agentRuntime.sessions.await");
+    expect(stats.lens.commands[0]!.value).toBe("repo.agentRuntime.sessions.await");
     expect(stats.windows["1h"].smells.map((smell) => smell.kind)).toEqual(["spike_failures"]);
   });
 
   it("attach 测量订阅建立，单独标注并保留慢建立异常", () => {
     setActiveLocale("zh-CN");
-    const stats = statsFor([{ method: "repo.agentRuntime.attach", durationMs: 2000 }]);
+    const stats = statsFor([
+      { event: "request", method: "repo.agentRuntime.attach", command: "repo.agentRuntime.attach", durationMs: 2000 },
+    ]);
     expect(stats.maxMs).toBe(2000);
     expect(stats.waits).toEqual([]);
     const board = renderToStaticMarkup(
-      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusMethod: () => {} }),
+      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusCommand: () => {} }),
     );
     expect(board).toContain("订阅建立耗时");
     expect(board).toContain("text-status-blocked");
@@ -92,7 +110,7 @@ describe("等待耗时与执行耗时", () => {
     expect(stats.maxMs).toBeNull();
     expect(stats.windows["1h"].smells).toEqual([]);
     const board = renderToStaticMarkup(
-      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusMethod: () => {} }),
+      createElement(ObserveSlowOpsBoard, { testId: "slow", stats, onFocusCommand: () => {} }),
     );
     expect(board).toContain("repo.agentRuntime.sessions.await");
     expect(board).not.toContain("text-status-blocked");
