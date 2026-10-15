@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import {
   archiveDispatchStream,
   readDispatchStream,
@@ -412,27 +411,6 @@ export function scheduleFallbackContinuation(args: {
           endedAt: input.now(),
           binding,
         });
-        const terminal = current.terminalOutcome;
-        if (terminal) {
-          const payload = {
-            ...terminal.payload,
-            attempt: {
-              classification: current.attemptOutcome.classification,
-              reason,
-              ...(current.attemptOutcome.faultClass ? { faultClass: current.attemptOutcome.faultClass } : {}),
-              ...(current.attemptOutcome.resetAt ? { resetAt: current.attemptOutcome.resetAt } : {}),
-              fallbackState: "exhausted" as const,
-            },
-          };
-          writer.appendTerminalOutcome({ ...terminal, payload, reason }, input.now());
-          await args.publishRuntimeEvent(
-            "runtime_session_outcome_observed",
-            payload,
-            randomUUID(),
-            binding,
-            terminal.body,
-          );
-        }
       }
     }, runtimeBindingForDispatch(stream.header.binding!));
   }, remainingMs);

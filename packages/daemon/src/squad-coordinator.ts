@@ -575,6 +575,7 @@ export function makeSquadCoordinator(input: {
         .query((projection) =>
           readTaskDispatches({
             projection,
+            rootDir: input.rootDir,
             taskId,
           }),
         )
@@ -840,6 +841,7 @@ export function makeSquadCoordinator(input: {
       result = input.query((projection) =>
         readTaskDispatches({
           projection,
+          rootDir: input.rootDir,
           ...(childIds.length ? { taskIds: [state.taskId, ...childIds] } : { taskId: state.taskId }),
         }),
       );

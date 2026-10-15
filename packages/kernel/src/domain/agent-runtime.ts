@@ -426,7 +426,6 @@ interface RuntimePayloads {
       readonly reason: string;
       readonly faultClass?: "quota_exhausted" | "rate_limited";
       readonly resetAt?: string;
-      readonly fallbackState: "scheduled" | "exhausted" | null;
     };
   };
   readonly runtime_handoff_exported: {
@@ -628,7 +627,6 @@ function validateAgentRuntimePayloadFields(
           !hasOnlyFields(value.attempt, [
             "classification",
             "reason",
-            "fallbackState",
             ...["faultClass", "resetAt"].filter((field) => Object.hasOwn(value.attempt as object, field)),
           ]) ||
           !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(
@@ -637,10 +635,7 @@ function validateAgentRuntimePayloadFields(
           !isNonEmptyString(value.attempt.reason) ||
           (value.attempt.faultClass !== undefined &&
             !["quota_exhausted", "rate_limited"].includes(String(value.attempt.faultClass))) ||
-          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))) ||
-          (value.attempt.fallbackState !== null &&
-            value.attempt.fallbackState !== "scheduled" &&
-            value.attempt.fallbackState !== "exhausted"))))
+          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))))))
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];

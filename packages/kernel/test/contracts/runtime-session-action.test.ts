@@ -112,7 +112,6 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
         reason: "Quota exhausted",
         faultClass: "quota_exhausted",
         resetAt: "2026-09-02T00:00:00Z",
-        fallbackState: "exhausted",
       },
       resultBody: body,
     };
@@ -127,14 +126,13 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   assert.equal(draft.event.payload.endedAt, command.endedAt);
   assert.deepEqual(draft.event.payload.runtimeMetrics, command.runtimeMetrics);
   assert.deepEqual(draft.event.payload.attempt, command.attempt);
-  const plain = { classification: "worker_stop", reason: "Stopped", fallbackState: null };
+  const plain = { classification: "worker_stop", reason: "Stopped" };
   assert.doesNotThrow(() =>
     action.execution!.compile!({ ...compileInput, action: { ...command, attempt: plain }, currentEntity: current }),
   );
   for (const attempt of [
     { ...command.attempt, faultClass: "other" },
     { ...command.attempt, resetAt: "tomorrow" },
-    { ...command.attempt, fallbackState: "other" },
   ]) {
     assert.throws(() =>
       action.execution!.compile!({ ...compileInput, action: { ...command, attempt }, currentEntity: current }),

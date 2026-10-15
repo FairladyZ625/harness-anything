@@ -330,7 +330,6 @@ export async function publishExit(
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
       });
-    const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -347,8 +346,6 @@ export async function publishExit(
           reason: attemptOutcome.reason,
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
-          fallbackState:
-            fallbackState === "exhausted" ? "exhausted" : fallbackState === "scheduled" ? "scheduled" : null,
         },
       },
       body,

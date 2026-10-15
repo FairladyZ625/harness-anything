@@ -62,9 +62,9 @@ export function readRuntimeSessionActivityEvidence(
 
 /** Repository dispatch reads consume only canonical queries; local activity has its separate reader above. */
 export function readTaskDispatches(
-  input: { readonly projection: TaskProjectionQueries } & DaemonTaskDispatchesPayload,
+  input: { readonly projection: TaskProjectionQueries; readonly rootDir?: string } & DaemonTaskDispatchesPayload,
 ): DaemonTaskDispatchesResult {
-  const { projection } = input,
+  const { projection, rootDir } = input,
     singleTaskId = input.taskId,
     batch = projection.readTaskRuntimeBatch(
       singleTaskId === undefined
@@ -94,7 +94,7 @@ export function readTaskDispatches(
     if (event.payload.taskId && tasks.has(event.payload.taskId))
       rows.set(
         event.payload.dispatchId,
-        canonicalDispatchRow(projection, event, sessions.get(event.payload.runtimeSessionId)),
+        canonicalDispatchRow(projection, event, sessions.get(event.payload.runtimeSessionId), rootDir),
       );
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
     resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
@@ -270,6 +270,7 @@ function canonicalDispatchRow(
   projection: DispatchQueries,
   event: DispatchEvent,
   session: RuntimeSession | undefined,
+  rootDir?: string,
 ): TaskDispatchRow {
   const payload = event.payload,
     packagePath = payload.taskId ? projection.read(payload.taskId).packagePath : null,
@@ -299,6 +300,10 @@ function canonicalDispatchRow(
       exitCode,
       ...(session?.reasonCode ? { reasonCode: session.reasonCode } : {}),
     }),
+    dispatchStream = rootDir ? readDispatchStreamSummary(rootDir, payload.dispatchId) : null,
+    fallbackReason = dispatchStream?.records.findLast(
+      (record) => record.kind === "fallback_state" && typeof record.reason === "string",
+    )?.reason,
     classification =
       outcomeEvent?.payload.attempt?.classification ??
       (isClassification(archive?.classification) ? archive.classification : null),
@@ -345,11 +350,14 @@ function canonicalDispatchRow(
     attemptIndex: payload.attemptIndex ?? 0,
     provider: { instance: payload.instanceId, model: payload.definitionSnapshot?.model ?? null },
     classification,
-    reason: outcomeEvent?.payload.attempt?.reason ?? (typeof archive?.reason === "string" ? archive.reason : null),
+    reason:
+      (typeof fallbackReason === "string" ? fallbackReason : null) ??
+      outcomeEvent?.payload.attempt?.reason ??
+      (typeof archive?.reason === "string" ? archive.reason : null),
     ...(outcomeEvent?.payload.attempt?.faultClass ? { faultClass: outcomeEvent.payload.attempt.faultClass } : {}),
     ...(outcomeEvent?.payload.attempt?.resetAt ? { resetAt: outcomeEvent.payload.attempt.resetAt } : {}),
     ...resumeDispatch(payload, providerSessionId, resumed, classification),
-    fallbackState: successor ? "dispatched" : (outcomeEvent?.payload.attempt?.fallbackState ?? null),
+    fallbackState: dispatchStream?.fallbackState ?? (successor ? "dispatched" : null),
     nextDispatchId: successor?.payload.dispatchId ?? null,
     ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),

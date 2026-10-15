@@ -135,7 +135,7 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     id: "runtimeSession.attempt.fallbackState",
     entity: "RuntimeSession",
     field: "attempt.fallbackState",
-    module: "packages/kernel/src/domain/agent-runtime.ts",
+    module: "packages/daemon/src/dispatch-stream.ts",
     anchor: "#fallbackState",
     words: ["scheduled", "exhausted"],
   },
