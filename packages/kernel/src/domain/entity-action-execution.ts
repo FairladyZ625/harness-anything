@@ -6,6 +6,8 @@ import {
   decisionTransitionDefinitions,
   type DecisionAmendableSnapshot,
   type DecisionEventDraftV1,
+  type DecisionReviewFindingV1,
+  type DecisionReviewResponseV1,
 } from "./decision-event.ts";
 import { proposalIssues } from "./decision-event-payload-validation.ts";
 import { deriveRelationId } from "./entity-relation.ts";
@@ -466,7 +468,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
         ) as `sha256:${string}`,
         verdict: choice(input, action.verdict, ["approved", "changes_requested"], "verdict"),
         reason: requiredText(input, action.reason, "reason"),
-        findings: Array.isArray(action.findings) ? (action.findings as never) : [],
+        findings: reviewFindings(input, action.findings),
         evidenceChecked: stringList(action.evidenceChecked),
         reportRef: typeof action.reportRef === "string" ? action.reportRef : null,
       },
@@ -475,7 +477,7 @@ function decisionEvent(id: DecisionActionCompilerId, input: EntityActionCompileI
     return {
       ...base,
       type: "decision_review_responded",
-      payload: { responses: Array.isArray(action.responses) ? (action.responses as never) : [] },
+      payload: { responses: reviewResponses(input, action.responses) },
     };
   if (id === "override-review")
     return {
@@ -643,6 +645,61 @@ function choice<T extends string>(
 ): T {
   if (typeof value === "string" && choices.includes(value as T)) return value as T;
   invalid(input, `${field} is invalid; expected one of: ${choices.join(", ")}.`);
+}
+const reviewResponseFields = ["reviewId", "findingId", "disposition", "rationale", "amendmentRef"],
+  reviewFindingFields = ["findingId", "text", "anchor"];
+
+/**
+ * Review packets reach the kernel as raw JSON items. Compile runs before the finding-existence
+ * judgment (assertDecisionReviewMutation), so checking each item's own fields here makes a
+ * malformed response name its field instead of surfacing as a missing review finding; the same
+ * checks previously fired only at event serialization with a packet-level message.
+ */
+function reviewResponses(
+  input: EntityActionCompileInput,
+  value: unknown,
+): readonly Omit<DecisionReviewResponseV1, "actor" | "respondedAt">[] {
+  if (!Array.isArray(value) || value.length === 0) invalid(input, "responses must be a non-empty array.");
+  return value.map((response, index) => {
+    if (!plainRecordValue(response)) invalid(input, `responses[${index}] must be an object.`);
+    const label = `responses[${index}]`,
+      record = {
+        reviewId: requiredText(input, response.reviewId, `${label}.reviewId`),
+        findingId: requiredText(input, response.findingId, `${label}.findingId`),
+        disposition: choice(input, response.disposition, ["adopt", "rebut"] as const, `${label}.disposition`),
+        rationale: requiredText(input, response.rationale, `${label}.rationale`),
+        amendmentRef:
+          response.amendmentRef === null || response.amendmentRef === undefined
+            ? null
+            : requiredText(input, response.amendmentRef, `${label}.amendmentRef`),
+      },
+      unknown = Object.keys(response).filter((field) => !reviewResponseFields.includes(field));
+    if (unknown.length > 0)
+      invalid(
+        input,
+        `${label} does not accept ${unknown.join(", ")}; allowed fields are ${reviewResponseFields.join(", ")}.`,
+      );
+    return record;
+  });
+}
+function reviewFindings(input: EntityActionCompileInput, value: unknown): readonly DecisionReviewFindingV1[] {
+  if (!Array.isArray(value)) invalid(input, "findings must be an array.");
+  return value.map((finding, index) => {
+    if (!plainRecordValue(finding)) invalid(input, `findings[${index}] must be an object.`);
+    const label = `findings[${index}]`,
+      record = {
+        findingId: requiredText(input, finding.findingId, `${label}.findingId`),
+        text: requiredText(input, finding.text, `${label}.text`),
+        ...(finding.anchor === undefined ? {} : { anchor: requiredText(input, finding.anchor, `${label}.anchor`) }),
+      },
+      unknown = Object.keys(finding).filter((field) => !reviewFindingFields.includes(field));
+    if (unknown.length > 0)
+      invalid(
+        input,
+        `${label} does not accept ${unknown.join(", ")}; allowed fields are ${reviewFindingFields.join(", ")}.`,
+      );
+    return record;
+  });
 }
 function stringList(value: unknown): readonly string[] {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : [];

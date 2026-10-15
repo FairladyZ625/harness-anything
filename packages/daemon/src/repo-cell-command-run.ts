@@ -37,6 +37,7 @@ import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { readTaskCi } from "./task-ci-read.ts";
+import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 
 function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
   if (context.state !== "attached" || getExecutableEntityAction(action.kind)?.target.kind !== "schedule") return false;
@@ -130,7 +131,7 @@ export function makeRepoCellCommandRunner(
           now: context.now(),
         }).then(async (decision) => {
           if (decision.outcome === "allowed")
-            binding = await bindCurrentPersonIdentityWitnesses(action, binding, context.projection);
+            binding = await bindCurrentPersonIdentityWitnesses(action, binding, context.projection, context.rootDir);
           return decision;
         });
       },
@@ -408,19 +409,26 @@ async function bindCurrentPersonIdentityWitnesses(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   projection: RepoCellApiContext["projection"],
+  rootDir: string,
 ): Promise<RepoCellBinding> {
   const ids = new Set<string>();
   if (action.kind === "relation-relate" && typeof action.targetRef === "string") {
     const target = parseEntityRef(action.targetRef);
     if (target?.kind === "person") ids.add(target.id);
   }
-  if (
-    action.kind === "decision-review" &&
-    action.verdict === "changes_requested" &&
-    typeof action.decisionId === "string"
-  ) {
-    const proposer = projection.readDecision(action.decisionId).decision?.proposer.principal.personId;
-    if (proposer) ids.add(proposer);
+  if (typeof action.decisionId === "string" && ["decision-review", "decision-respond-review"].includes(action.kind)) {
+    // The review-await reconcile after these writes relates decision/<id> awaits person/<proposer>.
+    // Person entities left the projection with the Keycloak migration, so that target resolves only
+    // through this binding's witness; the proposer must be collected before the write. CLI packets
+    // are resolved at execute time, so the same packet is resolved here to read its verdict.
+    const decision = projection.readDecision(action.decisionId).decision;
+    if (decision?.state === "proposed") {
+      const changesRequested =
+        action.kind === "decision-review"
+          ? resolveDecisionReviewAction(rootDir, action).verdict === "changes_requested"
+          : decision.reviews.some(({ verdict }) => verdict === "changes_requested");
+      if (changesRequested) ids.add(decision.proposer.principal.personId);
+    }
   }
   if (ids.size === 0) return binding;
   const credential = binding.keycloakAuthorization;
