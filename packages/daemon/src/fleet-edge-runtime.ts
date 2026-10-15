@@ -276,7 +276,7 @@ export function openFleetEdgeRuntime(input: {
           ? (receipt as JsonObject)
           : null;
       },
-      taskContext: async (taskId, missionName, review) => {
+      taskContext: async (taskId, attemptId, missionName, review) => {
         // Pull only in write preparation; repository values themselves use the shared local query.
         await pullRuntimeReplica();
         let runtimeContext = taskRuntimeContext(
@@ -291,6 +291,7 @@ export function openFleetEdgeRuntime(input: {
             ? current.lease.executionId
             : undefined;
         const taskStartExecutionId = "runtime-task-start-" + taskId;
+        const taskStartOpId = `runtime-task-start-${taskId}-${attemptId}`;
         if (!executionId && !review && canStartExecution(current, taskStartExecutionId)) {
           const started = await runFleetEdgeWrite({
             viewRoot: request.viewRoot,
@@ -302,7 +303,7 @@ export function openFleetEdgeRuntime(input: {
                 ...writePeer,
                 repoId: request.repoId,
                 taskId,
-                opId: taskStartExecutionId,
+                opId: taskStartOpId,
                 action: { kind: "task-start", taskId },
                 waitMs: centerWriteWaitMs,
                 timeoutMs: centerWriteWaitMs + 10_000,
