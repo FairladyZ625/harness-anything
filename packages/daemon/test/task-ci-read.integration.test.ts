@@ -33,8 +33,8 @@ test("real read runner invokes gh with daemon credential and keeps the write que
     else if (endpoint.includes("branches/task-ci")) console.log(JSON.stringify({commit:{sha:${JSON.stringify(sha)}}}));
     else if (endpoint.includes("check-runs")) console.log(JSON.stringify([{check_runs:[{id:44,name:"fast",...state,details_url:"https://checks/1"}]}]));
     else if (endpoint.includes("actions/runs?")) console.log(JSON.stringify([{workflow_runs:[{id:11,workflow_id:22,run_attempt:1,head_sha:${JSON.stringify(sha)},head_branch:"task-ci",event:"pull_request",...state,html_url:"https://runs/11"}]}]));
+    else if (args[0] === "api" && endpoint.includes("actions/jobs/33/logs")) console.log("✖ current CI arm (3.1ms)\\n  Error: expected 1, actual 2\\n[node-test-file] fail tools/current.test.mjs\\n" + process.env.GH_TOKEN);
     else if (endpoint.includes("/jobs")) console.log(JSON.stringify([{jobs:[{id:33,name:"fast",...state,html_url:"https://jobs/33"}]}]));
-    else if (args[0] === "run") console.log("not ok 1 - current CI\\nAssertionError: expected 1, actual 2\\n" + process.env.GH_TOKEN);
     else throw new Error("unexpected provider call");
   `,
   );
@@ -67,12 +67,14 @@ test("real read runner invokes gh with daemon credential and keeps the write que
     };
   assert.equal(receipt.ci.headSha, sha);
   assert.equal(receipt.ci.conclusion, "failure");
-  assert.match(receipt.evidence, /not ok 1 - current CI/u);
+  assert.match(receipt.evidence, /current CI arm/u);
+  assert.match(receipt.evidence, /Error: expected 1, actual 2/u);
   assert.equal(context.queueDepth, 0);
   assert.equal(JSON.stringify(receipt).includes(secret), false);
   const calls = readFileSync(path.join(root, "calls.jsonl"), "utf8");
   assert.equal(calls.includes(secret), false);
-  assert.match(calls, /--log-failed/u);
+  assert.match(calls, /actions\/jobs\/33\/logs/u);
+  assert.equal(calls.includes("--log-failed"), false);
   assert.equal(calls.includes("rerun"), false);
 });
 

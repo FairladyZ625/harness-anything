@@ -1,14 +1,21 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readTaskCi, failureExcerpt } from "../src/task-ci-read.ts";
+import { readTaskCi, extractJobFailure } from "../src/task-ci-read.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { fixture, sha, secret } from "./task-ci.fixtures.ts";
+// Mirrors the raw job log of PR #3602 run 38376686123 job 116476680459: the S4 failure name, error
+// and frames are verbatim from the CEO's authenticated pull (ci-red-e35ff75c.md); the surrounding
+// runner format ([node-test-file], spec-reporter recap) is captured from a real local
+// tools/run-node-tests.mjs failure, and each line carries GitHub's raw-log timestamp prefix.
+const fleetCampaignJobLog =
+  readFileSync(path.join(import.meta.dirname, "fixtures", "task-ci-fleet-campaign-job.log.txt"), "utf8") +
+  `credential ${secret}\n`;
 type ProviderCheck = {
   readonly id: number;
   readonly name: string;
@@ -70,31 +77,41 @@ function provider(
           jobs: [{ id: 22, name: "contract", status: "completed", conclusion: "success", html_url: "https://jobs/22" }],
         },
       ]);
-    if (args[0] === "run")
-      return `job step 2026-10-12 not ok 7 - task scope\nAssertionError: Expected 1\nactual: 2\nexpected: 1\ncredential ${secret}\n`;
+    if (args[0] === "api" && endpoint.includes("actions/jobs/21/logs")) return fleetCampaignJobLog;
     throw new Error(`Unexpected provider call ${args.join(" ")}`);
   };
   return { run, calls };
 }
 
 for (const role of ["implementation", "reviewer"] as const)
-  test(`${role} reads only its current published SHA with failed names, assertions and secret redaction`, async () => {
+  test(`${role} reads only its current published SHA with failed files, names, errors and secret redaction`, async () => {
     const f = fixture(role),
       gh = provider(),
       receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, gh.run);
-    assert.match(receipt.evidence!, /task-ci\/v1/u);
+    assert.match(receipt.evidence!, /task-ci\/v2/u);
     assert.equal(receipt.ci.headSha, sha);
     assert.equal(receipt.ci.conclusion, "failure");
     assert.equal(receipt.ci.runs.length, 1);
     assert.equal(receipt.ci.runs[0]!.id, 2);
     assert.equal(receipt.ci.runs[0]!.jobs.length, 2);
-    assert.match(
-      receipt.ci.runs[0]!.jobs[0]!.failure!.excerpt,
-      /not ok 7 - task scope\nAssertionError: Expected 1\nactual: 2/u,
-    );
+    const failure = receipt.ci.runs[0]!.jobs[0]!.failure!;
+    // The PR #3602 evidence: file, test name, error first line and frames straight from the raw log.
+    assert.deepEqual(failure.testFiles, ["fail tools/stress/fleet-campaign.integration.test.mjs"]);
+    assert.deepEqual(failure.tests, ["S4 exercises fleet claim, replica, takeover and injected-clock arms"]);
+    assert.equal(failure.errors.length, 1);
+    assert.equal(failure.errors[0]!.test, "S4 exercises fleet claim, replica, takeover and injected-clock arms");
+    assert.equal(failure.errors[0]!.firstLine, "TypeError: Cannot read properties of undefined (reading 'length')");
+    assert.deepEqual(failure.errors[0]!.frames, [
+      "at runWorktreeSetup (packages/daemon/src/worktree-setup.ts:75:19)",
+      "at prepareScheduleOccurrenceWorkspace (packages/daemon/src/schedule-occurrence-workspace.ts:200:22)",
+      "at async occurrenceArm (tools/stress/fleet-campaign.integration.test.mjs:171:22)",
+      "at async TestContext.<anonymous> (tools/stress/fleet-campaign.integration.test.mjs:57:19)",
+    ]);
+    assert.equal(failure.truncated, false);
+    assert.equal(failure.logUrl, "https://jobs/21");
     assert.equal(JSON.stringify(receipt).includes(secret), false);
     assert.match(JSON.stringify(receipt), /REDACTED/u);
-    assert.equal(gh.calls.filter((args) => args[0] === "run").length, 1);
+    assert.equal(gh.calls.filter((args) => args[0] === "api" && args.at(-1)!.includes("/logs")).length, 1);
     assert.equal(f.credentialReads(), 1);
   });
 
@@ -192,7 +209,7 @@ test("only the newest run of a same-named check decides the verdict", async () =
     const lint = receipt.ci.checks.find((check) => check.name === "pr-body-lint");
     assert.equal(lint?.url, keptUrl);
     assert.equal(lint?.conclusion, expected);
-    assert.equal(gh.calls.filter((args) => args[0] === "run").length, 0);
+    assert.equal(gh.calls.filter((args) => args[0] === "api" && args.at(-1)!.includes("/logs")).length, 0);
   }
 });
 
@@ -205,7 +222,7 @@ test("pending, successful and missing CI are distinct and no successful job fetc
       gh = provider({ status, conclusion });
     const receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, gh.run);
     assert.equal(receipt.ci.conclusion, expected);
-    assert.equal(gh.calls.filter((args) => args[0] === "run").length, 0);
+    assert.equal(gh.calls.filter((args) => args[0] === "api" && args.at(-1)!.includes("/logs")).length, 0);
   }
   const f = fixture(),
     gh = provider();
@@ -300,18 +317,91 @@ test("unbound callers and missing dispatch credentials never reach GitHub", asyn
   );
 });
 
-test("large failed logs retain bounded assertion context and report truncation", () => {
-  const result = failureExcerpt(`not ok 1 - boundary\nAssertionError: ${"x".repeat(20_000)}\nactual: 2`);
-  assert.equal(result.excerpt.length, 8192);
-  assert.equal(result.truncated, true);
-  assert.match(result.excerpt, /not ok 1 - boundary/u);
+test("extraction reads the runner's own markers from a timestampless local log", () => {
+  // Captured from a real local `node tools/run-node-tests.mjs --file <failing>` run: the inline ✖
+  // carries no error; only the recap block does. No GitHub timestamp prefixes appear here.
+  const result = extractJobFailure(
+    "✖ runner file outcome fixture fails only when explicitly enabled (1.235417ms)\n" +
+      "ℹ tests 1\nℹ fail 1\n\n✖ failing tests:\n\ntest at tools/test-fixtures/runner-file-outcomes/failing.test.mjs:5:1\n" +
+      "✖ runner file outcome fixture fails only when explicitly enabled (1.235417ms)\n" +
+      "  AssertionError [ERR_ASSERTION]: runner file outcome fixture assertion\n\n  1 !== 2\n\n" +
+      "    at TestContext.<anonymous> (tools/test-fixtures/runner-file-outcomes/failing.test.mjs:7:10)\n" +
+      "    at Test.runInAsyncScope (node:async_hooks:227:14)\n" +
+      "[node-test-file] fail tools/test-fixtures/runner-file-outcomes/failing.test.mjs\n",
+  );
+  assert.deepEqual(result.tests, ["runner file outcome fixture fails only when explicitly enabled"]);
+  assert.deepEqual(result.testFiles, ["fail tools/test-fixtures/runner-file-outcomes/failing.test.mjs"]);
+  assert.equal(result.errors.length, 1);
+  assert.equal(result.errors[0]!.firstLine, "AssertionError [ERR_ASSERTION]: runner file outcome fixture assertion");
+  assert.equal(result.errors[0]!.frames.length, 2);
+  assert.match(result.errors[0]!.frames[0]!, /^at TestContext\.<anonymous>/u);
+  assert.equal(result.truncated, false);
 });
 
-test("failure excerpts deduplicate repeated failed test lines within the bound", () => {
-  const result = failureExcerpt(
-    "not ok 1 - repeated\nAssertionError: first\nnot ok 1 - repeated\nAssertionError: second",
+test("extraction bounds each failure to its error first line and five frames", () => {
+  const frames = Array.from({ length: 7 }, (_, index) => `    at frame${index} (file.ts:${index}:1)`).join("\n");
+  const result = extractJobFailure(
+    `✖ deep failure\n  Error: boom\n${frames}\n[node-test-file] fail tools/x.test.mjs\n`,
   );
-  assert.deepEqual(result.tests, ["not ok 1 - repeated"]);
+  assert.equal(result.errors[0]!.frames.length, 5);
+  assert.match(result.errors[0]!.frames.at(-1)!, /frame4/u);
+  assert.equal(result.truncated, true);
+});
+
+test("extraction reports truncation when failed tests or lines exceed their caps", () => {
+  const many = Array.from({ length: 25 }, (_, index) => `✖ test ${index}`).join("\n");
+  const byCount = extractJobFailure(many);
+  assert.equal(byCount.tests.length, 20);
+  assert.equal(byCount.truncated, true);
+  const longLine = extractJobFailure(`✖ wide\n  ${"x".repeat(900)}\n`);
+  assert.equal(longLine.errors[0]!.firstLine.length, 512);
+  assert.equal(longLine.truncated, true);
+});
+
+test("a log without runner markers falls back to a short error excerpt, not a guess", () => {
+  const result = extractJobFailure(
+    "npm warn config\nRun supply-chain gate\n##[error]Process completed with exit code 1.\n",
+  );
+  assert.deepEqual(result.tests, []);
+  assert.deepEqual(result.testFiles, []);
+  assert.match(result.excerpt, /##\[error\]Process completed with exit code 1\./u);
+  assert.equal(result.truncated, false);
+});
+
+test("only non-pass file outcomes count, across the runner's whole vocabulary", () => {
+  const result = extractJobFailure(
+    "[node-test-file] pass tools/a.test.mjs\n" +
+      "[node-test-file] fail tools/b.test.mjs\n" +
+      "[node-test-file] timeout tools/c.test.mjs\n" +
+      "[node-test-file] incomplete tools/d.test.mjs\n",
+  );
+  assert.deepEqual(result.testFiles, [
+    "fail tools/b.test.mjs",
+    "timeout tools/c.test.mjs",
+    "incomplete tools/d.test.mjs",
+  ]);
+});
+
+test("an unreachable raw job log reports unavailability instead of an empty verdict", async () => {
+  const f = fixture(),
+    gh = provider();
+  const receipt = await readTaskCi(
+    f.context as never,
+    { kind: "task-ci", taskId: "task-ci" },
+    f.binding,
+    async (args, env, cwd) => {
+      const endpoint = args.at(-1)!;
+      if (args[0] === "api" && endpoint.includes("actions/jobs/21/logs"))
+        throw new Error(`gh: API HTTP 404 - Not Found (${secret})`);
+      return gh.run(args, env, cwd);
+    },
+  );
+  assert.equal(receipt.ci.conclusion, "failure");
+  const failure = receipt.ci.runs[0]!.jobs[0]!.failure!;
+  assert.match(failure.unavailable!, /raw job log unavailable/u);
+  assert.match(failure.unavailable!, /404/u);
+  assert.deepEqual(failure.tests, []);
+  assert.equal(JSON.stringify(receipt).includes(secret), false);
 });
 
 test("CI command is a center-forwarded read, not a write or edge replica read", () => {
@@ -351,7 +441,12 @@ test("GitLab task CI reports the newest self-hosted pipeline and its failed job 
       return Response.json([
         { id: 101, name: "integration", status: "failed", web_url: "https://gitlab.example.test/jobs/101" },
       ]);
-    if (url.includes("/jobs/101/trace")) return new Response(`not ok 1 - failure\n${secret}`, { status: 200 });
+    if (url.includes("/jobs/101/trace"))
+      return new Response(
+        "✖ fleet trace arm fails (12.5ms)\n  Error: trace boom\n      at arm (tools/trace.test.mjs:9:1)\n" +
+          `[node-test-file] fail tools/trace.test.mjs\ncredential ${secret}`,
+        { status: 200 },
+      );
     throw new Error(`Unexpected GitLab API call ${url}`);
   }) as typeof fetch;
   const context = {
@@ -365,7 +460,9 @@ test("GitLab task CI reports the newest self-hosted pipeline and its failed job 
   const result = await readTaskCi(context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding);
   assert.equal(result.ci.conclusion, "failure");
   assert.equal(result.ci.runs[0]!.id, 10);
-  assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.tests[0], "not ok 1 - failure");
+  assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.tests[0], "fleet trace arm fails");
+  assert.deepEqual(result.ci.runs[0]!.jobs[0]!.failure!.testFiles, ["fail tools/trace.test.mjs"]);
+  assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.errors[0]!.firstLine, "Error: trace boom");
   assert.equal(result.ci.runs[0]!.jobs[0]!.failure!.logUrl, "https://gitlab.example.test/jobs/101");
   assert.equal(JSON.stringify(result).includes(secret), false);
   assert.equal(

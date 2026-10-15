@@ -4,7 +4,7 @@ import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
-import type { WriteReceiptDraft } from "@harness-anything/kernel";
+import { consumeKnownError, type WriteReceiptDraft } from "@harness-anything/kernel";
 import {
   detectHostingProvider,
   hostingCredentialConfigurationAdvice,
@@ -67,7 +67,7 @@ interface Job {
 }
 
 interface TaskCiReport {
-  readonly schema: "task-ci/v1";
+  readonly schema: "task-ci/v2";
   readonly taskId: string;
   readonly branch: string;
   readonly headSha: string;
@@ -95,7 +95,7 @@ interface TaskCiReport {
       readonly status: string;
       readonly conclusion: string | null;
       readonly url: string;
-      readonly failure: (ReturnType<typeof failureExcerpt> & { readonly logUrl: string }) | null;
+      readonly failure: TaskCiJobFailure | null;
     }[];
   }[];
 }
@@ -193,19 +193,21 @@ export async function readTaskCi(
         );
         const jobs = [];
         for (const job of pages.flatMap((page) => page.jobs)) {
-          let failure = null;
+          let failure: TaskCiJobFailure | null = null;
           if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
-            const log = await runCommand([
-              "run",
-              "view",
-              String(run.id),
-              "--repo",
-              repository,
-              "--job",
-              String(job.id),
-              "--log-failed",
-            ]);
-            failure = { ...failureExcerpt(log), logUrl: job.html_url };
+            try {
+              const log = await runCommand(["api", `${prefix}actions/jobs/${job.id}/logs`]);
+              failure = { ...extractJobFailure(log), logUrl: job.html_url };
+            } catch (error) {
+              // One job's missing log must not sink the whole read; the report names why it is absent.
+              const detail = error instanceof Error ? error.message : String(error);
+              consumeKnownError(error);
+              failure = {
+                ...emptyJobFailure(),
+                logUrl: job.html_url,
+                unavailable: `raw job log unavailable: ${detail.slice(0, 300)}`,
+              };
+            }
           }
           jobs.push({
             id: job.id,
@@ -250,7 +252,7 @@ export async function readTaskCi(
     const notStarted =
       conclusion !== "not_started" ? undefined : await explainNotStarted(api, prefix, repository, branch);
     const ci: TaskCiReport = {
-      schema: "task-ci/v1",
+      schema: "task-ci/v2",
       taskId: branch,
       branch,
       headSha,
@@ -385,7 +387,7 @@ async function readGitLabTaskCi(
     const jobs = await request<readonly Job[]>(`/pipelines/${pipeline.id}/jobs?per_page=100`);
     const mapped = [];
     for (const job of jobs) {
-      let failure = null;
+      let failure: TaskCiJobFailure | null = null;
       if (job.status === "failed") {
         const response = await fetch(
           `${hosting.apiBaseUrl}/projects/${encodeURIComponent(hosting.projectPath)}/jobs/${job.id}/trace`,
@@ -394,12 +396,12 @@ async function readGitLabTaskCi(
           },
         );
         failure = {
-          ...failureExcerpt(
-            (response.ok ? await response.text() : `GitLab trace unavailable (${response.status})`).replaceAll(
-              token,
-              "[REDACTED]",
-            ),
-          ),
+          ...(response.ok
+            ? extractJobFailure((await response.text()).replaceAll(token, "[REDACTED]"))
+            : {
+                ...emptyJobFailure(),
+                unavailable: `GitLab trace unavailable (${response.status})`,
+              }),
           logUrl: job.web_url ?? `${hosting.apiBaseUrl}/jobs/${job.id}`,
         };
       }
@@ -436,33 +438,109 @@ async function readGitLabTaskCi(
         : runs.every((run) => run.conclusion === "success")
           ? "success"
           : "failure";
-  const ci: TaskCiReport = { schema: "task-ci/v1", taskId: branch, branch, headSha, conclusion, checks, runs };
+  const ci: TaskCiReport = { schema: "task-ci/v2", taskId: branch, branch, headSha, conclusion, checks, runs };
   cache.reports.set(cacheKey, { expiresAt: Date.now() + ciReportTtlMs, ci });
   return makeTaskCiReceipt(context, branch, headSha, ci);
 }
 
-/** Preserve failed test names and the assertion context, while bounding the returned diagnostic. */
-export function failureExcerpt(log: string): {
+/** What a red job's raw log says, in the runner's own vocabulary: the files that did not pass
+ * (`[node-test-file]` lines from tools/run-node-tests.mjs), the failed test names (spec-reporter
+ * `✖` lines), and each failure's error first line with its first stack frames. */
+export interface TaskCiJobFailure {
+  readonly testFiles: readonly string[];
   readonly tests: readonly string[];
+  readonly errors: readonly {
+    readonly test: string;
+    readonly firstLine: string;
+    readonly frames: readonly string[];
+  }[];
+  /** Fallback context for jobs with no runner markers (a gate or setup failure); empty otherwise. */
   readonly excerpt: string;
   readonly truncated: boolean;
-} {
-  const lines = log.split(/\r?\n/u),
-    tests = lines.filter((line) => /not ok\s+\d+|[✖×]\s|FAIL\s/u.test(line)),
-    indices = new Set<number>();
-  lines.forEach((line, index) => {
-    if (/not ok\s+\d+|[✖×]\s|FAIL\s|AssertionError|error:|Expected|actual:|expected:|##\[error\]/u.test(line))
-      for (let i = Math.max(0, index - 2); i <= Math.min(lines.length - 1, index + 12); i++) indices.add(i);
-  });
-  const excerpt = indices.size
-    ? [...indices]
-        .sort((a, b) => a - b)
-        .map((i) => lines[i])
-        .join("\n")
-    : log;
-  return {
-    tests: [...new Set(tests.map((line) => line.slice(0, 512)))].slice(0, 40),
-    excerpt: excerpt.slice(0, 8192),
-    truncated: excerpt.length > 8192 || new Set(tests).size > 40,
+  readonly logUrl: string;
+  readonly unavailable?: string;
+}
+
+const maxFailedTestsPerJob = 20,
+  maxFailedFilesPerJob = 20,
+  maxFramesPerError = 5,
+  failureLineCharBudget = 512,
+  errorBlockLineBudget = 60,
+  fallbackExcerptLines = 15,
+  fallbackExcerptChars = 2048;
+const timestampPrefix = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z /u;
+const failedFileLine = /^\[node-test-file\] (?!pass\b)(\S+) (.+)$/u;
+const failedTestLine = /^\s*✖ (.+)$/u;
+const durationSuffix = / \([\d.]+m?s\)$/u;
+const frameLine = /^\s*at /u;
+const reporterLine = /^\s*[✔✖❯▼﹒✎‼﹖ℹ]/u;
+const fallbackErrorLine = /##\[error\]|Error:|error:/u;
+
+function emptyJobFailure(): Omit<TaskCiJobFailure, "logUrl"> {
+  return { testFiles: [], tests: [], errors: [], excerpt: "", truncated: false };
+}
+
+/** Extract failed test files, names and error context from a raw job log. Every bound keeps the
+ * report short; `truncated` says when one was hit. The spec reporter prints the error block only in
+ * its end-of-run recap, so a `✖` line seen inline carries no error and the recap block fills it in. */
+export function extractJobFailure(log: string): Omit<TaskCiJobFailure, "logUrl" | "unavailable"> {
+  const lines = log.split(/\r?\n/u).map((line) => line.replace(timestampPrefix, "")),
+    testFiles: string[] = [],
+    tests: string[] = [],
+    errors = new Map<string, { test: string; firstLine: string; frames: string[] }>();
+  let truncated = false;
+  const bounded = (text: string): string =>
+    text.length <= failureLineCharBudget ? text : ((truncated = true), text.slice(0, failureLineCharBudget));
+  const scanErrorBlock = (start: number, name: string) => {
+    let firstLine = "";
+    const frames: string[] = [];
+    for (let j = start; j < Math.min(lines.length, start + errorBlockLineBudget); j += 1) {
+      const raw = lines[j]!;
+      if (reporterLine.test(raw) || failedFileLine.test(raw)) break;
+      const text = raw.trim();
+      if (text === "") continue;
+      if (frameLine.test(text)) {
+        if (firstLine === "") break; // frames before any error line belong to an earlier block
+        if (frames.length >= maxFramesPerError) truncated = true;
+        else frames.push(bounded(text));
+        continue;
+      }
+      if (firstLine === "") firstLine = bounded(text);
+    }
+    const previous = errors.get(name);
+    errors.set(name, {
+      test: name,
+      firstLine: previous?.firstLine || firstLine,
+      frames: previous && previous.frames.length > 0 ? previous.frames : frames,
+    });
   };
+  for (let i = 0; i < lines.length; i += 1) {
+    const line = lines[i]!,
+      file = failedFileLine.exec(line);
+    if (file) {
+      const entry = `${file[1]} ${file[2]}`;
+      if (testFiles.length >= maxFailedFilesPerJob) truncated = true;
+      else if (!testFiles.includes(entry)) testFiles.push(entry);
+      continue;
+    }
+    const failed = failedTestLine.exec(line);
+    if (!failed) continue;
+    const name = bounded(failed[1]!.trim().replace(durationSuffix, ""));
+    if (name === "failing tests:") continue; // the recap header is not a test
+    if (!tests.includes(name)) {
+      if (tests.length >= maxFailedTestsPerJob) truncated = true;
+      else tests.push(name);
+    }
+    scanErrorBlock(i + 1, name);
+  }
+  let excerpt = "";
+  if (tests.length === 0 && testFiles.length === 0) {
+    const index = lines.findIndex((line) => fallbackErrorLine.test(line));
+    if (index >= 0) {
+      const joined = lines.slice(index, index + fallbackExcerptLines).join("\n");
+      excerpt =
+        joined.length <= fallbackExcerptChars ? joined : ((truncated = true), joined.slice(0, fallbackExcerptChars));
+    }
+  }
+  return { testFiles, tests, errors: [...errors.values()], excerpt, truncated };
 }

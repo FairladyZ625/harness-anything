@@ -190,11 +190,28 @@ function renderTaskCi(receipt: Record<string, unknown>): string {
       if (job.conclusion !== "failure") continue;
       lines.push(`failed job ${String(job.name)} (${String(job.url)})`);
       const failure = isRecord(job.failure) ? job.failure : null;
-      const tests = failure && Array.isArray(failure.tests) ? failure.tests.map(String) : [];
+      if (!failure) continue;
+      if (typeof failure.unavailable === "string") lines.push(`  log unavailable: ${failure.unavailable}`);
+      const testFiles = Array.isArray(failure.testFiles) ? failure.testFiles.map(String) : [];
+      for (const file of testFiles) lines.push(`  test file: ${file}`);
+      const tests = Array.isArray(failure.tests) ? failure.tests.map(String) : [];
       for (const test of tests) lines.push(`  failed test: ${test}`);
-      if (failure && typeof failure.excerpt === "string") lines.push(`  assertion: ${failure.excerpt.split("\n")[0]}`);
-      if (failure && typeof failure.logUrl === "string") lines.push(`  full log: ${failure.logUrl}`);
-      if (failure?.truncated === true) lines.push("  diagnostic excerpt truncated");
+      const errors = Array.isArray(failure.errors) ? failure.errors.filter(isRecord) : [];
+      for (const error of errors) {
+        lines.push(`  error: ${String(error.firstLine)} (${String(error.test)})`);
+        const frames = Array.isArray(error.frames) ? error.frames.map(String) : [];
+        for (const frame of frames) lines.push(`    ${frame}`);
+      }
+      // The fallback excerpt is the only context a job without runner markers can offer.
+      if (
+        typeof failure.excerpt === "string" &&
+        failure.excerpt.length > 0 &&
+        testFiles.length === 0 &&
+        tests.length === 0
+      )
+        lines.push(`  assertion: ${failure.excerpt.split("\n")[0]}`);
+      if (typeof failure.logUrl === "string") lines.push(`  full log: ${failure.logUrl}`);
+      if (failure.truncated === true) lines.push("  failure detail truncated");
     }
   }
   if (lines.length === 1) lines.push("No failed jobs observed.");
