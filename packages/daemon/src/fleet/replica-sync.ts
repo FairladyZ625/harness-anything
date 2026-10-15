@@ -17,6 +17,9 @@ type Waiter = { readonly sequence: number; readonly resolve: () => void; readonl
 const waiters = new Map<string, Set<Waiter>>();
 /** Running streams by key; `down` holds the last failure until the next connection attempt. */
 const streams = new Map<string, { down: unknown; connection: AbortController }>();
+// Distinguish a daemon startup window (no stream has registered yet) from an explicit stop.
+// Startup callers may wait under their existing abort budget; stopped views fail closed.
+const stoppedStreams = new Set<string>();
 const syncKey = (options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">): string =>
   `${options.viewRoot}\u0000${options.repoId}\u0000${options.nodeId}`;
 
@@ -69,7 +72,8 @@ export function waitForFleetReplicaSequence(
   if (signal?.aborted) return Promise.reject(signal.reason);
   const key = syncKey(options),
     stream = streams.get(key);
-  if (!stream) return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
+  if (!stream && stoppedStreams.has(key))
+    return Promise.reject(new FleetReplicaStreamDownError("replica stream is not running"));
   if (current && current.metadata.position.sequence >= sequence) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const pending = waiters.get(key) ?? new Set<Waiter>();
@@ -98,6 +102,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   const key = syncKey(options),
     stream = { down: null as unknown, connection: new AbortController() },
     viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
+  stoppedStreams.delete(key);
   const observe = (syncFailure: { readonly code: string; readonly message: string } | null): void =>
     recordReplicaHealth(viewDir, {
       syncFailure,
@@ -166,6 +171,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     // A restarted stream for the same view already owns the key and its waiters.
     if (streams.get(key) === stream) {
       streams.delete(key);
+      stoppedStreams.add(key);
       settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
     }
   }
