@@ -12,7 +12,7 @@ import { readEdgeViewBlob, readEdgeRuntimeResult } from "./runtime-result-read.t
 import { runRuntimeHandoff } from "./runtime-handoff.ts";
 import { recordRuntimeExecutionPrincipal } from "./runtime-execution-principal-store.ts";
 import { createHash, randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import {
   assertTransitionDocumentReady,
@@ -656,6 +656,8 @@ export function openFleetEdgeRuntime(input: {
       if (method === "repo.squad.control" && action.kind === "squad-cancel") return squad.run(action);
       if (method === "repo.agentRuntime.cancel") return spawner.cancel(action, await input.readBinding());
       if (method === "repo.agentRuntime.steer") return spawner.steer(action, await input.readBinding());
+      if (method === "repo.agentRuntime.spawn" && typeof action.taskId === "string")
+        await prepareRuntimeWorkspace(action.taskId);
       await ensureReady();
       await squad.flushPublications();
       if (method === "repo.squad.control") return squad.run(action);
@@ -815,8 +817,22 @@ export function openFleetEdgeRuntime(input: {
     return pulled;
   }
 
-  async function prepareRuntimeWorkspace(): Promise<void> {
+  async function prepareRuntimeWorkspace(taskId?: string): Promise<void> {
     const pulled = await pullRuntimeReplica();
+    if (taskId !== undefined) {
+      const view = locateFleetMirrorView(request.viewRoot, request.repoId, request.nodeId, {
+        entriesPrefix: `tasks/${taskId}`,
+      });
+      const materializedRoot = resolveHarnessLayout(request.workspaceRoot).authoredRoot;
+      const packagePresent =
+        view !== null &&
+        fleetMirrorTaskPaths(view, taskId)
+          .filter((logical) => logical.endsWith("/INDEX.md"))
+          .some((logical) =>
+            existsSync(path.join(materializedRoot, ...logical.slice(0, -"/INDEX.md".length).split("/"))),
+          );
+      if (packagePresent) return;
+    }
     const materialized = applyFleetMirrorCut(request.viewRoot, request.repoId, request.workspaceRoot, "pull", {
       viewId: pulled.replica.viewId,
     });

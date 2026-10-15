@@ -263,16 +263,16 @@ test("a failing setup step fails the occurrence workspace and names the step and
 test(
   "a node_modules mirror that cannot be written fails the adapter and leaves no half-made store",
   { skip: process.platform === "win32" },
-  (t) => {
+  async (t) => {
     const fixture = repositoryFixture({}, t),
       worktree = mkdtempSync(path.join(fixture.base, "wt-"));
     try {
       mkdirSync(path.join(fixture.root, "node_modules"));
       chmodSync(worktree, 0o555);
-      assert.throws(() => nodeModulesSetupAdapter.prepare({ rootDir: fixture.root, cwd: worktree }), /EACCES/u);
+      await assert.rejects(nodeModulesSetupAdapter.prepare({ rootDir: fixture.root, cwd: worktree }), /EACCES/u);
       assert.equal(existsSync(path.join(worktree, "node_modules")), false);
       chmodSync(worktree, 0o755);
-      nodeModulesSetupAdapter.prepare({ rootDir: fixture.root, cwd: worktree });
+      await nodeModulesSetupAdapter.prepare({ rootDir: fixture.root, cwd: worktree });
       assert.equal(lstatSync(path.join(worktree, "node_modules")).isDirectory(), true);
     } finally {
       chmodSync(worktree, 0o755);

@@ -9,7 +9,7 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import { cellCodedError } from "./repo-cell-errors.ts";
-import { runProcessTextAsync } from "./process-port.ts";
+import { runProcessExitAsync, runProcessTextAsync } from "./process-port.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import {
   addManagedWorktree,
@@ -173,8 +173,9 @@ export async function checkoutTaskWorktree(
       await verify();
       return { cwd, branch: binding.branch, baseRef: fresh ? stackedCommit : null, setup: prepared };
     }
-    const fresh = !existsSync(cwd),
-      defaultRef = repositoryBaseRef(rootDir);
+    const fresh = !existsSync(cwd);
+    if (fresh) await refreshDefaultBranch(rootDir);
+    const defaultRef = repositoryBaseRef(rootDir);
     if (fresh && !defaultRef) return null;
     const published = await publishedBranchRef(rootDir, binding.branch);
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
@@ -190,6 +191,17 @@ export async function checkoutTaskWorktree(
       setup: await runWorktreeSetup({ rootDir, cwd, taskId, steps: setup }),
     };
   });
+}
+
+/** A remote-edge checkout must judge its baseline against the current published main, not an old local ref. */
+async function refreshDefaultBranch(rootDir: string): Promise<void> {
+  await runProcessExitAsync("git", ["-C", rootDir, "fetch", "--quiet", "origin"], undefined, {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: "0",
+  }).then(
+    () => undefined,
+    () => undefined,
+  );
 }
 
 // A checkout runs outside the repository write queue, so two starts, or a start and a dispatch, can reach one

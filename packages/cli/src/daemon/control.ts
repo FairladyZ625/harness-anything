@@ -289,19 +289,12 @@ async function fleetControl(
       "unsupported_command",
       "Use daemon fleet status, daemon fleet center start, or daemon fleet edge sync.",
     );
-  const required = center
-      ? ["--port", "--key", "--cert", "--repo", "--quota-bytes"]
-      : ["--host", "--port", "--ca", "--node-id", "--view-root", "--quota-bytes"],
+  const required = center ? ["--port", "--key", "--cert", "--repo", "--quota-bytes"] : [],
     missing = required.filter((name) => !flag(name));
   if (missing.length > 0)
     return reject(
       "missing_field",
       `Add ${missing.join(" ")} to ${center ? "start the fleet TLS center" : "mirror the fleet center ledger"}.`,
-    );
-  if (!fleetNumber.port.test(flag("--port")!) || !fleetNumber.quota.test(flag("--quota-bytes")!))
-    return reject(
-      "invalid_field",
-      "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
     );
   const edgeTarget = edge
     ? await resolveLocalDaemonTarget({
@@ -312,6 +305,38 @@ async function fleetControl(
         daemonId,
       })
     : null;
+  const edgeConfig = edge ? readFleetEdgeConfig(edgeTarget!.canonicalRoot) : null;
+  type EdgeConfigKey = "host" | "port" | "caPath" | "nodeId" | "viewRoot" | "quotaBytes";
+  const edgeValue = (name: EdgeConfigKey, cliName: string): string | number | undefined =>
+    flag(cliName) ?? edgeConfig?.[name];
+  if (
+    edge &&
+    ["host", "port", "caPath", "nodeId", "viewRoot", "quotaBytes"].some(
+      (name) =>
+        edgeValue(
+          name as EdgeConfigKey,
+          (
+            {
+              host: "--host",
+              port: "--port",
+              caPath: "--ca",
+              nodeId: "--node-id",
+              viewRoot: "--view-root",
+              quotaBytes: "--quota-bytes",
+            } as const
+          )[name as EdgeConfigKey],
+        ) === undefined,
+    )
+  )
+    return reject("missing_field", "Add edge connection fields or populate fleet-edge.json in the workspace.");
+  if (
+    !fleetNumber.port.test(String(edgeValue("port", "--port"))) ||
+    !fleetNumber.quota.test(String(edgeValue("quotaBytes", "--quota-bytes")))
+  )
+    return reject(
+      "invalid_field",
+      "Use a TCP port from 0 to 65535 and a positive integer byte count for --quota-bytes.",
+    );
   // The machine credential the center issued at node registration: named on the command line, or kept
   // off it in the workspace's fleet-edge.json.
   let credential = flag("--credential");
@@ -334,16 +359,18 @@ async function fleetControl(
     ...(flag("--state-root") ? { stateRoot: path.resolve(flag("--state-root")!) } : {}),
   });
   const edgePayload = () => ({
-    host: flag("--host"),
-    port: Number(flag("--port")),
-    caPath: path.resolve(flag("--ca")!),
-    nodeId: flag("--node-id"),
+    host: edgeValue("host", "--host"),
+    port: Number(edgeValue("port", "--port")),
+    caPath: path.resolve(String(edgeValue("caPath", "--ca"))),
+    nodeId: edgeValue("nodeId", "--node-id"),
     credential,
     repoId: edgeTarget!.repoId,
-    viewRoot: path.resolve(flag("--view-root")!),
-    quotaBytes: Number(flag("--quota-bytes")),
+    viewRoot: path.resolve(String(edgeValue("viewRoot", "--view-root"))),
+    quotaBytes: Number(edgeValue("quotaBytes", "--quota-bytes")),
     workspaceRoot: edgeTarget!.canonicalRoot,
-    ...(flag("--servername") ? { servername: flag("--servername") } : {}),
+    ...((flag("--servername") ?? edgeConfig?.servername)
+      ? { servername: flag("--servername") ?? edgeConfig?.servername }
+      : {}),
     timeoutMs: flag("--timeout-ms") ? Number(flag("--timeout-ms")) : 60_000,
   });
   const payload = (center ? centerPayload() : edgePayload()) as JsonObject;

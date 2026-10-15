@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync } from "node:fs";
 import path from "node:path";
 import { runProcessTextAsync } from "./process-port.ts";
 
@@ -10,9 +10,12 @@ import { runProcessTextAsync } from "./process-port.ts";
  * (@scope/pkg -> ../../packages/pkg), so a copy of the link lands in the worktree's own packages.
  */
 export const nodeModulesSetupAdapter = {
-  prepare(input: { readonly rootDir: string; readonly cwd: string }): void {
-    if (!existsSync(path.join(input.rootDir, "node_modules")))
-      throw new Error(`${path.join(input.rootDir, "node_modules")} does not exist; install dependencies there first.`);
+  async prepare(input: { readonly rootDir: string; readonly cwd: string }): Promise<void> {
+    if (!existsSync(path.join(input.rootDir, "node_modules"))) {
+      const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+      await runProcessTextAsync(npm, ["ci"], input.rootDir);
+      mkdirSync(path.join(input.rootDir, "node_modules"), { recursive: true });
+    }
     if (existsSync(path.join(input.cwd, "node_modules"))) return;
     try {
       mirrorStore(input.rootDir, input.cwd, "node_modules");
@@ -46,6 +49,10 @@ function mirrorStore(rootDir: string, worktreeDir: string, relative: string): vo
         !path.isAbsolute(link) &&
         !path.relative(rootDir, path.resolve(path.dirname(source), link)).startsWith(".."),
       type = statSync(source, { throwIfNoEntry: false })?.isDirectory() ? "junction" : "file";
-    symlinkSync(inRepository ? link : source, path.join(worktreeDir, name), type);
+    if (type === "file" && process.platform === "win32") {
+      // Ordinary Windows users cannot create file symlinks. The package store is immutable
+      // for the worktree lifetime, so a byte copy is the usable equivalent for .bin entries.
+      copyFileSync(inRepository ? path.resolve(path.dirname(source), link!) : source, path.join(worktreeDir, name));
+    } else symlinkSync(inRepository ? link! : source, path.join(worktreeDir, name), type);
   }
 }

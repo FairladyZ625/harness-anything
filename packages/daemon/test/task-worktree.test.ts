@@ -428,13 +428,33 @@ test("the node-modules adapter mirrors the root store and removes its mirror bef
   }
 });
 
-test("the node-modules adapter fails the step when the repository root has no store to share", async (t) => {
+test("the node-modules adapter installs the root store when it is missing", async (t) => {
   const fixture = repositoryFixture(t);
   try {
-    await assert.rejects(
-      lifecycle(fixture.root, () => boundTask("active"), { kind: "task-start", taskId }, { setup: ["node-modules"] }),
-      /setup step 1 \(node-modules\) failed: .*node_modules does not exist; install dependencies there first/u,
+    writeFileSync(
+      path.join(fixture.root, "package.json"),
+      JSON.stringify({ name: "fixture", version: "1.0.0", private: true }),
     );
+    writeFileSync(
+      path.join(fixture.root, "package-lock.json"),
+      JSON.stringify({
+        name: "fixture",
+        version: "1.0.0",
+        lockfileVersion: 3,
+        requires: true,
+        packages: { "": { name: "fixture", version: "1.0.0" } },
+      }),
+    );
+    git(fixture.root, "add", "package.json", "package-lock.json");
+    git(fixture.root, "commit", "-qm", "declare fixture dependencies");
+    await lifecycle(
+      fixture.root,
+      () => boundTask("active"),
+      { kind: "task-start", taskId },
+      { setup: ["node-modules"] },
+    );
+    assert.equal(existsSync(path.join(fixture.root, "node_modules")), true);
+    assert.equal(existsSync(path.join(fixture.root, binding.path, "node_modules")), true);
   } finally {
     rmSync(fixture.base, { recursive: true, force: true });
   }
