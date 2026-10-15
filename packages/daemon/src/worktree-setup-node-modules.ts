@@ -10,9 +10,12 @@ import { runProcessTextAsync } from "./process-port.ts";
  * (@scope/pkg -> ../../packages/pkg), so a copy of the link lands in the worktree's own packages.
  */
 export const nodeModulesSetupAdapter = {
-  prepare(input: { readonly rootDir: string; readonly cwd: string }): void {
-    if (!existsSync(path.join(input.rootDir, "node_modules")))
-      throw new Error(`${path.join(input.rootDir, "node_modules")} does not exist; install dependencies there first.`);
+  async prepare(input: { readonly rootDir: string; readonly cwd: string }): Promise<void> {
+    if (!existsSync(path.join(input.rootDir, "node_modules"))) {
+      const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+      await runProcessTextAsync(npm, ["ci"], input.rootDir);
+      mkdirSync(path.join(input.rootDir, "node_modules"), { recursive: true });
+    }
     if (existsSync(path.join(input.cwd, "node_modules"))) return;
     try {
       mirrorStore(input.rootDir, input.cwd, "node_modules");
