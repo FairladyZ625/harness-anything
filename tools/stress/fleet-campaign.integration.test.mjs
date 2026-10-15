@@ -8,6 +8,7 @@ import path from "node:path";
 import test from "node:test";
 import { makeTaskEventReader, sha256Bytes } from "../../packages/kernel/src/index.ts";
 import { prepareScheduleOccurrenceWorkspace } from "../../packages/daemon/src/schedule-occurrence-workspace.ts";
+import { noWorktreeSetup } from "../../packages/daemon/src/worktree-setup.ts";
 import { generateCoverageDenominators } from "./core/denominators.mjs";
 import { oracleO6 } from "./core/oracles.mjs";
 import { buildStressReport, emitStressReport } from "./core/report.mjs";
@@ -167,7 +168,9 @@ async function occurrenceArm(fixture, repo, subjects) {
     true,
   );
   const firstClaim = winners[0].receipt.schedule.status.activeRun,
-    firstWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, winners[0].receipt.schedule, () => []),
+    firstWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, winners[0].receipt.schedule, () =>
+      noWorktreeSetup(),
+    ),
     artifactName = "result.txt";
   writeFileSync(path.join(firstWorkspace.cwd, artifactName), "first occurrence\n");
   const winner = subjects.find((subject) => subject.nodeId === firstClaim.nodeId),
@@ -197,7 +200,9 @@ async function occurrenceArm(fixture, repo, subjects) {
       scheduledFor: "2026-09-06T02:00:00.000Z",
     }),
     secondClaim = second.receipt.schedule.status.activeRun,
-    secondWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, second.receipt.schedule, () => []);
+    secondWorkspace = await prepareScheduleOccurrenceWorkspace(repo.rootDir, second.receipt.schedule, () =>
+      noWorktreeSetup(),
+    );
   assert.equal(second.outcome, "applied");
   assert.notEqual(firstWorkspace.cwd, secondWorkspace.cwd);
   writeFileSync(path.join(secondWorkspace.cwd, artifactName), "second occurrence\n");
