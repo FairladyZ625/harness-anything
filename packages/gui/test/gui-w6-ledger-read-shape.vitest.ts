@@ -203,18 +203,40 @@ describe("W6 Goal 第二项演进:受控快读水化(顺序续读 + 页预算封
     expect(pending.cut.status).toBe("pending"); // 「正在追赶」仍显形。
   });
 
-  it("超过一页的增量在同一刷新内补完,水位锚定不变", async () => {
+  it("超过一页的增量在同一刷新内补完,水位锚定在增量首页的 cut", async () => {
     const ledger = installFakeLedger();
     const cut = (await refresh(ledger)).cut;
-    const anchor = cut.watermark;
     for (let index = 0; index < 600; index += 1) ledger.touch(index);
     const truncated = await refresh(ledger, cut);
     // 一次增量(500 行,截断)+ 三页游标续读(续读不带增量过滤,拉的是剩余全部行),
-    // 全部在同一刷新内;水位停在上一轮,直到「锚定在上一水位且一页读完」的增量才推进。
+    // 全部在同一刷新内;水位推进到增量首页的 cut(600 次 touch → 1,600),续读页以
+    // min() 保持该锚——(旧锚点, 该 cut] 的变更行已到齐,之后的变更由下一轮增量补齐。
     expect(truncated.requests).toBe(4);
     expect(truncated.cut.rows).toHaveLength(LEDGER_ROWS);
-    expect(truncated.cut.watermark).toBe(anchor);
+    expect(truncated.cut.watermark).toBe(1_600);
+    expect(truncated.cut.sourceRevision).toBe(1_600);
     expect(truncated.cut.status).toBe("ready");
+  });
+
+  it("投影重定基(显式重建)后切面必须收敛:巨大增量集不再把水位钉死在旧锚点", async () => {
+    // 现场(2026-10-15):explicit rebuild 从零重放,行 revision 重定基到远高于 GUI 缓存
+    // 锚点的位置;changed-since-旧锚点 集合从此永久超过一页。旧口径下水位停在重建
+    // 中途的锚点(侧栏「事件 13,824 · 刚刚刷新 · 落后 0」),不重启 GUI 不恢复。
+    const ledger = installFakeLedger();
+    const stale = (await refresh(ledger)).cut;
+    for (let index = 0; index < LEDGER_ROWS; index += 1) ledger.touch(index);
+    const rebased = await refresh(ledger, stale);
+    expect(rebased.requests).toBeLessThanOrEqual(HYDRATION_PAGE_BUDGET);
+    expect(rebased.cut.rows).toHaveLength(LEDGER_ROWS);
+    expect(rebased.cut.status).toBe("ready");
+    expect(rebased.cut.watermark).toBe(1_000 + LEDGER_ROWS);
+    expect(rebased.cut.sourceRevision).toBe(1_000 + LEDGER_ROWS);
+    // 再刷一次仍然前进,且稳态恢复成单页增量,不是每轮重读全集。
+    ledger.touch(3);
+    const steady = await refresh(ledger, rebased.cut);
+    expect(steady.requests).toBe(1);
+    expect(steady.cut.watermark).toBe(1_000 + LEDGER_ROWS + 1);
+    expect(steady.cut.sourceRevision).toBe(1_000 + LEDGER_ROWS + 1);
   });
 
   it("台账规模下的读数(改前/改后同一条件的实测)", async () => {
