@@ -99,9 +99,18 @@ export function deriveCloseoutSubmission(
   // gate set is empty; a task-package-artifact task delivers through accepted artifact versions.
   if (privateDelivery) {
     if (!artifacts.length)
-      throw cell.cellCodedError(
-        "invalid_submission",
-        `No accepted task artifacts were found. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+      // The default stop guidance says to fill closeout.md, which never counts as a deliverable;
+      // this rejection's real remedy is a deliverable file under the package's own artifacts/.
+      throw Object.assign(
+        cell.cellCodedError(
+          "invalid_submission",
+          `No accepted task artifacts were found. Sync deliverables with ha doc sync --submit --task <task-id> before submitting.`,
+        ),
+        {
+          nextAction:
+            `Write the deliverable into harness/${document.packagePath}/artifacts/ (closeout.md and runtime reports are not deliverables), ` +
+            `run ha doc sync --submit --task ${taskId}, then run ha task submit ${taskId}.`,
+        },
       );
     return {
       ...prose,
@@ -637,6 +646,12 @@ export async function settleTask(
 
 const submissionStopCodes = ["closeout_placeholder", "invalid_submission", "gate_mapping_invalid"];
 
+/** A stop guard that knows its own remedy attaches it to the error it throws; the closeout default covers the rest. */
+function submissionStopNextAction(error: Error): string | null {
+  const action = (error as Error & { readonly nextAction?: unknown }).nextAction;
+  return typeof action === "string" && action !== "" ? action : null;
+}
+
 export function submissionStopped(
   cell: Pick<RepoCellOperationalContext, "rejected" | "operationId" | "input">,
   action: RepoTaskAction,
@@ -657,10 +672,11 @@ export function submissionStopped(
       completionGuidance(
         snapshot,
         executionId,
-        code === "gate_mapping_invalid"
-          ? `Map every declared gate in harness.yaml settings.gates, then run ha task submit ${String(action.taskId)}.`
-          : `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
-              `then run ha task submit ${String(action.taskId)}.`,
+        submissionStopNextAction(error) ??
+          (code === "gate_mapping_invalid"
+            ? `Map every declared gate in harness.yaml settings.gates, then run ha task submit ${String(action.taskId)}.`
+            : `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task ${String(action.taskId)}, ` +
+              `then run ha task submit ${String(action.taskId)}.`),
         error.message,
       ),
     ],
