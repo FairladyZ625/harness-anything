@@ -12,6 +12,7 @@ import {
 } from "@harness-anything/kernel";
 import { compileRepoPresetSnapshotUpgrade } from "@harness-anything/preset";
 import {
+  backfillRestatedContractDocuments,
   compileRestatedTaskContract,
   restateTaskContractBody,
   type RestatedTaskContract,
@@ -213,7 +214,7 @@ export function migrateTaskContracts(
         .flatMap((event) => (event.payload.entity.kind === "task" ? [event.payload.entity.task.taskId] : [])),
     ),
     candidates = typeof action.taskId === "string" ? [action.taskId] : [...cell.projectedTaskIds()],
-    repairs = new Map<string, RestatedTaskContract>(),
+    repairs = new Map<string, ContractRepair>(),
     contractRow = (taskId: string): ContractMigrationRow => {
       const current = cell.projection.read(taskId),
         task = current.snapshot.task;
@@ -270,7 +271,11 @@ export function migrateTaskContracts(
             contractPresetSnapshotDigest: restated.presetSnapshotDigest,
           };
         if (digestBefore === null || packagePathBefore !== current.packagePath || (task.contractVersion ?? 0) < 1) {
-          repairs.set(taskId, restated);
+          repairs.set(taskId, {
+            body: restated.body,
+            digest: restated.presetSnapshotDigest,
+            ...(restated.repair ? { repair: restated.repair } : {}),
+          });
           return {
             taskId,
             status: "repair",
@@ -293,7 +298,7 @@ export function migrateTaskContracts(
         return { taskId, status: "current" };
       }
       return (task.contractVersion ?? 0) >= 1
-        ? { taskId, status: "current" }
+        ? withBackfilledContractDocuments(cell, taskId, { taskId, status: "current" }, repairs)
         : !task.metadata || !task.presetSnapshotDigest || !current.packagePath
           ? {
               taskId,
@@ -342,19 +347,20 @@ export function migrateTaskContracts(
     } as WriteReceipt;
   const headRevision = cell.store.readHead()?.revision ?? 0,
     outerOpId = cell.operationId(action, binding, cell.input.repoId, headRevision),
-    prepared = backfills.map(({ taskId, taskClassAfter }, index) =>
-      requirePrepared(
+    prepared = backfills.map(({ taskId, taskClassAfter }, index) => {
+      const repair = repairs.get(taskId) ?? null;
+      return requirePrepared(
         prepareTaskSurfaceWriteAt(
           cell,
           {
             kind: "task-contract-migrate",
             taskId,
-            ...(repairs.has(taskId) ? { repairPresetSnapshotDigest: repairs.get(taskId)!.presetSnapshotDigest } : {}),
-            ...(repairs.has(taskId) ? { repairTaskContractBody: repairs.get(taskId)!.body } : {}),
-            ...(repairs.get(taskId)?.repair
+            ...(repair?.digest ? { repairPresetSnapshotDigest: repair.digest } : {}),
+            ...(repair ? { repairTaskContractBody: repair.body } : {}),
+            ...(repair?.repair
               ? {
-                  repairPresetId: repairs.get(taskId)!.repair!.presetId,
-                  repairTaskClass: repairs.get(taskId)!.repair!.taskClass,
+                  repairPresetId: repair.repair.presetId,
+                  repairTaskClass: repair.repair.taskClass,
                 }
               : typeof taskClassAfter === "string"
                 ? { repairTaskClass: taskClassAfter }
@@ -367,8 +373,8 @@ export function migrateTaskContracts(
             ...(index === backfills.length - 1 ? { opId: outerOpId } : {}),
           },
         ),
-      ),
-    ),
+      );
+    }),
     steps = acceptPreparedTaskSurfaceWrites(cell, prepared);
   return cell.readResult(
     outerOpId,
@@ -384,6 +390,74 @@ export function migrateTaskContracts(
 }
 
 type ContractMigrationRow = { readonly taskId: string; readonly status: string; readonly [field: string]: unknown };
+
+type ContractRepair = {
+  readonly body: string;
+  readonly digest: `sha256:${string}` | null;
+  readonly repair?: RestatedTaskContract["repair"];
+};
+
+/**
+ * The package compiler, not the preset definition, owns the task.explainer and task.pr-body slots,
+ * so a contract frozen before such a slot existed still carries a current preset snapshot digest
+ * and the digest-keyed checks above report it as current. Called only for contracts the task-create
+ * compiler wrote (the non-imported branch): those always carried every base slot at creation, so
+ * any slot a fresh compile declares and the contract lacks is one a later compiler generation
+ * added, and re-declaring it restores the compiler's own descriptor. Imported contracts restate a
+ * legacy source's document set and are intentionally not touched here. Hand editing
+ * task-contract.json stays denied: the slot registers through this route alone. A digest that no
+ * longer matches the compile (preset drift) is the preset-upgrade route's concern and keeps the
+ * current verdict.
+ */
+export function withBackfilledContractDocuments(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  row: ContractMigrationRow,
+  repairs: Map<string, ContractRepair>,
+): ContractMigrationRow {
+  if (row.status !== "current") return row;
+  const current = cell.projection.read(taskId),
+    task = current.snapshot.task;
+  if (!task || !current.packagePath || task.presetSnapshotDigest === null || task.presetSnapshotDigest === undefined)
+    return row;
+  const contract = cell.projection.readDocument(`${current.packagePath}/task-contract.json`);
+  if (!cell.projectionReady(contract) || !contract.document)
+    return { ...row, status: "manual", reason: "contract_projection_pending" };
+  let backfill: ReturnType<typeof backfillRestatedContractDocuments>;
+  try {
+    const restated = compileRestatedTaskContract({
+      sourceRoot: cell.rootDir,
+      sourcePath: `${current.packagePath}/task-contract.json`,
+      targetTaskId: taskId,
+      targetPackagePath: current.packagePath,
+      fallback: {
+        title: task.title,
+        taskClass: task.taskClass,
+        verticalId: task.metadata?.verticalId,
+        presetId: task.metadata?.presetId,
+        profileId: task.metadata?.profileId,
+        slug: task.metadata?.slug,
+      },
+    });
+    if (restated.presetSnapshotDigest !== task.presetSnapshotDigest) return row;
+    backfill = backfillRestatedContractDocuments(contract.document.body, restated.body);
+  } catch (error) {
+    return {
+      ...row,
+      status: "manual",
+      reason: "contract_slots_not_derivable",
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+  if (backfill === null) return row;
+  repairs.set(taskId, { body: backfill.body, digest: null });
+  return {
+    ...row,
+    status: "repair",
+    disposition: "document-slots-backfilled",
+    addedSlots: backfill.addedSlots,
+  };
+}
 
 /**
  * dec_5F7E74F1 retired the milestone and epic task classes. The same contract-migrate event restates a
