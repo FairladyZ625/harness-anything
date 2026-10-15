@@ -1138,8 +1138,16 @@ test("thin parser exposes read-only task CI with JSON and rejects ref/run select
             conclusion: "failure",
             url: "https://jobs/2",
             failure: {
-              tests: ["not ok 1 - task scope"],
-              excerpt: "AssertionError: expected 1",
+              testFiles: ["fail tools/scope.test.mjs"],
+              tests: ["task scope"],
+              errors: [
+                {
+                  test: "task scope",
+                  firstLine: "AssertionError: expected 1",
+                  frames: ["at TestContext.<anonymous> (tools/scope.test.mjs:9:1)"],
+                },
+              ],
+              excerpt: "",
               truncated: false,
               logUrl: "https://jobs/2",
             },
@@ -1150,8 +1158,10 @@ test("thin parser exposes read-only task CI with JSON and rejects ref/run select
   };
   const renderedCi = renderCliReceipt({ ok: true, command: "task-ci", ci }).text;
   assert.match(renderedCi, /failed job fast/u);
-  assert.match(renderedCi, /failed test: not ok 1 - task scope/u);
-  assert.match(renderedCi, /assertion: AssertionError: expected 1/u);
+  assert.match(renderedCi, /test file: fail tools\/scope\.test\.mjs/u);
+  assert.match(renderedCi, /failed test: task scope/u);
+  assert.match(renderedCi, /error: AssertionError: expected 1 \(task scope\)/u);
+  assert.match(renderedCi, /at TestContext\.<anonymous> \(tools\/scope\.test\.mjs:9:1\)/u);
   assert.match(renderedCi, /full log: https:\/\/jobs\/2/u);
   assert.equal(parseThinCommand(["task", "ci"]).ok, false);
   for (const flag of ["--branch", "--sha", "--run", "--rerun"])
