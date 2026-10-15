@@ -52,6 +52,34 @@ test("missing workspace packets identify the root used for relative paths", () =
   }
 });
 
+test("doc-sync rejection guidance names paths and canonical LF remediation", () => {
+  assert.deepEqual(
+    humanError({
+      code: "unresolved_touch",
+      detail: {
+        kind: "doc_sync",
+        unresolvedTouches: [{ path: "tasks/task-a/closeout.md", reason: "claim is not canonical LF text" }],
+      },
+    }),
+    {
+      code: "unresolved_touch",
+      hint:
+        "unresolved_touch: tasks/task-a/closeout.md: claim is not canonical LF text. " +
+        "next: convert the file to canonical LF line endings, then rerun ha doc sync.",
+    },
+  );
+  assert.match(
+    humanError({
+      code: "preview_blocked",
+      detail: {
+        kind: "doc_sync",
+        unresolvedTouches: [{ path: "tasks/task-a/artifacts/report.md", reason: "canonical document is missing" }],
+      },
+    }).hint,
+    /tasks\/task-a\/artifacts\/report\.md: canonical document is missing/u,
+  );
+});
+
 test("successful Decision proposals point to the canonical action explanation", () => {
   const receipt = {
     ok: true,

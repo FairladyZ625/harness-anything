@@ -267,3 +267,26 @@ test(
     assert.equal(fixture.mirrorBytes(standard) !== null, true, "the center's newer bytes are in the mirror");
   },
 );
+
+test(
+  "scan ignores center documents that were never materialized but reports deletion of a materialized document",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await initializedCenterWithEdge();
+    t.after(() => fixture.close());
+    assert.equal((await fixture.edgeSync()).ok, true);
+    const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId)!;
+    const centerOnly = "tasks/task-center/artifacts/dispatch-report.md";
+    const withCenterOnly = {
+      ...view,
+      entries: new Map([...view.entries, [centerOnly, view.entries.get(standard)!]]),
+    };
+    const centerOnlyScan = scanFleetMirrorWorktree(withCenterOnly, fixture.workspace, [centerOnly]);
+    assert.deepEqual(centerOnlyScan.deletedPaths, [], "a center-only document is not an edge deletion");
+
+    rmSync(path.join(fixture.workspace, "harness", standard));
+    const deletionScan = scanFleetMirrorWorktree(view, fixture.workspace, [standard]);
+    assert.deepEqual(deletionScan.deletedPaths, [standard]);
+    assert.equal(deletionScan.blocked[0]?.path, standard);
+  },
+);

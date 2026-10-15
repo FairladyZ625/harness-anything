@@ -323,6 +323,22 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
             `Run ha fact type register <type> --source <source>, then retry this command.`
           : renderTemplate("failure", "fact-type-unregistered", {}),
     };
+  if (code === "preview_blocked" || code === "unresolved_touch") {
+    const detail = record(receipt.detail) && receipt.detail.kind === "doc_sync" ? receipt.detail : null,
+      touches = detail && Array.isArray(detail.unresolvedTouches) ? detail.unresolvedTouches.filter(record) : [];
+    if (touches.length > 0) {
+      const paths = touches.map((touch) => `${String(touch.path)}: ${String(touch.reason)}`).join("; "),
+        hasCanonicalLfFailure = touches.some((touch) => touch.reason === "claim is not canonical LF text");
+      return {
+        code,
+        hint:
+          `${code}: ${paths}. ` +
+          (hasCanonicalLfFailure
+            ? "next: convert the file to canonical LF line endings, then rerun ha doc sync."
+            : "next: follow the required route for the listed path, then rerun ha doc sync."),
+      };
+    }
+  }
   const rawDiagnostic = record(receipt.diagnostic) ? receipt.diagnostic : null,
     // A bare {kind:"failure"} diagnostic is the code-only placeholder `rejected()` always attaches;
     // it renders to the same generic sentence as the final fallback, so treat it as no diagnostic
