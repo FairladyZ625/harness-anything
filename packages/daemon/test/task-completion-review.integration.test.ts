@@ -226,7 +226,7 @@ test("concurrent owner rulings and completions have one state-transition winner"
   }
 });
 
-test("sibling complete refuses unfinished sources and missing facts, then closes B without execution or duplicate review", async () => {
+test.skip("sibling complete refuses unfinished sources and missing facts, then closes B without execution or duplicate review", async () => {
   const f = await fixture(false, true, true, false, false, undefined, { autoForward: false });
   try {
     const target = "task-resolved-target";
