@@ -253,7 +253,7 @@ test(
           cwd: { scope: "repo-root" },
           prompt: "Explicit edge mission.",
           taskId: fixture.subject.taskId,
-          idempotencyKey: "causal-edge-explicit",
+          dispatchKey: "causal-edge-explicit",
         },
       },
       localAuth,
@@ -318,7 +318,7 @@ test(
           runtimeInstanceId: runtimeDefinition.instanceId,
           cwd: { scope: "repo-root" },
           taskId: fixture.subject.taskId,
-          idempotencyKey: "causal-edge-task-bound",
+          dispatchKey: "causal-edge-task-bound",
         },
       },
       localAuth,
@@ -467,7 +467,7 @@ for (const probe of [
         missionName: probe.name === "mission absent" ? "missing" : "probe",
         runtimeInstanceId: "unavailable-instance",
         cwd: { scope: "repo-root" },
-        idempotencyKey: "mirror-probe",
+        dispatchKey: "mirror-probe",
       }),
       (error: unknown) => {
         assert.equal((error as { code?: string }).code, probe.code, (error as Error).stack);
@@ -506,8 +506,8 @@ test(
         viewId: "node-two_task-fleet",
         executionId: "execution-late",
       },
-      idempotencyKey = "late-node-dispatch",
-      hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
+      dispatchKey = "late-node-dispatch",
+      hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex"),
       // The verdict's code, whichever way the ingress hands it back.
       dispatch = (assignment: typeof fixture.subject, role: string | null) =>
         fixture.host
@@ -518,7 +518,7 @@ test(
               type: "runtime_dispatch_requested",
               opId: `runtime-spawn-${hash.slice(0, 32)}`,
               payload: {
-                idempotencyKey,
+                dispatchKey,
                 dispatchId: `dispatch_${hash.slice(0, 24)}`,
                 runtimeSessionId: `runtime_${hash.slice(24, 48)}`,
                 // Match the admission envelope so this probe reaches the submitted-execution check.

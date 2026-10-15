@@ -210,9 +210,9 @@ test("three process-level edges hold one consistent mirror of every center read"
   assert.ok(containsBytes(String(installs[2]!.generationDir), edgeNote), "edge-three received the submitted object");
   // An agent dispatch from an edge is one canonical runtime event, mirrored once everywhere.
   // 待对齐: runtime 派工帧按 A 分片 protocol 落地核对;事件唯一性以 runtimeSessionId 计数。
-  // Dispatch identities are derived from the repository idempotency key (repo-cell-runtime-ingress).
-  const idempotencyKey = `edge-dispatch-${randomUUID()}`,
-    dispatchHash = createHash("sha256").update(`replica-repo\0${idempotencyKey}`).digest("hex"),
+  // Dispatch identities are derived from the repository dispatch key.
+  const dispatchKey = `edge-dispatch-${randomUUID()}`,
+    dispatchHash = createHash("sha256").update(`replica-repo\0${dispatchKey}`).digest("hex"),
     runtimeSessionId = `runtime_${dispatchHash.slice(24, 48)}`;
   const peer = await rawPeer(fixture.track, fixture.centerPort(), fixture.cert, "edge-one", "secret-edge-one");
   const metadata = await peer.request({
@@ -234,7 +234,7 @@ test("three process-level edges hold one consistent mirror of every center read"
       instanceId: "runtime-instance-edge",
       installationId: `installation-${seededTask.taskId}`,
       kindId: "codex",
-      idempotencyKey,
+      dispatchKey,
       definitionSnapshotRef: "artifact:runtime-definition/edge",
       definitionSnapshot: {
         schema: "agent-definition-snapshot/v1",

@@ -249,7 +249,7 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
     ["repo.receipt.show", { opId: "op_A" }],
     ["repo.settings.update", { defaultPreset: "strict-task", locale: "zh-CN", idempotencyKey: "settings-once" }],
     ["repo.gui.catalog.reread", {}],
-    ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "runtime-once" }],
+    ["repo.agentRuntime.spawn", { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, dispatchKey: "runtime-once" }],
     ["repo.agent.entity.write", { declaration: { schema: "agent-declaration/v1", id: "gui-created-agent", name: "GUI Created Agent", instructions: "Keep the roster intact.\nSecond line.", runtimes: [{ type: "codex", model: "gpt-5.6-terra" }], role: "worker", skills: [{ id: "review", path: "skills/review" }], prompts: ["prompt://gui"], preset: "standard-task" } }],
     ["repo.squad.entity.write", { declaration: { schema: "squad-declaration/v1", id: "gui-created-squad", name: "GUI Created Squad", leader: "gui-created-agent", workers: ["gui-created-agent"], leaderTurnBudget: 8, roster: "## GUI Squad\n\n  GUI Created Agent\n\n" } }],
     ["repo.schedule.create", { scheduleId: "schedule-a", name: "Schedule A", mode: "detect", everyMs: 300000, agentId: "agent-a", mission: "Run A.", idempotencyKey: "schedule-create-once" }],
@@ -276,8 +276,8 @@ test("GUI action facets are exact, typed, and exclude the generic runner", () =>
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { limit: 0 } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { limit: 501 } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.list", { repo: { repoId: "alpha" }, payload: { cursor: "" } }).ok, false);
-  assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: "task-a", idempotencyKey: "task-derived" } }).ok, true);
-  assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: null, idempotencyKey: "missing-mission" } }).ok, false);
+  assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: "task-a", dispatchKey: "task-derived" } }).ok, true);
+  assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "instance-codex", cwd: { scope: "repo-root" }, taskId: null, dispatchKey: "missing-mission" } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.task.submit", { repo: { repoId: "alpha" }, payload: { taskId: "task-a", executionId: "execution-a", submission } }).ok, false);
   assert.equal(parseDaemonRpcParams("repo.decision.propose", { repo: { repoId: "alpha" }, payload: { ...proposal, appliesTo: { ...proposal.appliesTo, extra: [] } } }).ok, false);
   for (const payload of [{ taskId: "task-a" }, { taskId: "task-a", executionId: "execution-a", amend: true }]) {
@@ -334,7 +334,7 @@ test("JSON-RPC failure receipt carries formal operation identity and origin", as
   assert.ok(response && !Array.isArray(response) && "result" in response); if (response && !Array.isArray(response) && "result" in response) {
     const receipt = response.result as Record<string, unknown>; assert.deepEqual(receipt, { schema: "command-receipt/v2", ok: false, command: "protocol.hello", outcome: "op_rejected", opId: "N/A", origin: "daemon", code: "incompatible_protocol_version", evidence: "rejection:incompatible_protocol_version", rejectionExplanation: "Use the daemon protocol version reported by this binary.", error: { code: "incompatible_protocol_version" } }); }
   await server.handle({ jsonrpc: "2.0", id: 2, method: "protocol.hello", params: { protocolVersion: currentDaemonProtocolVersion } });
-  const unknown = await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.agentRuntime.spawn", params: { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, idempotencyKey: "unknown", permission_mode: "read-only" } } });
+  const unknown = await server.handle({ jsonrpc: "2.0", id: 3, method: "repo.agentRuntime.spawn", params: { repo: { repoId: "alpha" }, payload: { runtimeInstanceId: "codex", cwd: { scope: "repo-root" }, prompt: "Inspect", taskId: null, dispatchKey: "unknown", permission_mode: "read-only" } } });
   assert.ok(unknown && !Array.isArray(unknown) && "result" in unknown); if (unknown && !Array.isArray(unknown) && "result" in unknown) { const receipt = unknown.result as Record<string, unknown>, diagnostic = receipt.diagnostic as Record<string, unknown>; assert.equal(receipt.code, "unknown_field"); assert.deepEqual({ kind: diagnostic.kind, entity: diagnostic.entity, field: diagnostic.field, actual: diagnostic.actual }, { kind: "validation", entity: "repo.agentRuntime.spawn", field: "permission_mode", actual: "unknown" }); assert.match(String(diagnostic.expectation), /Allowed fields:.*agentId.*permissionMode/u); }
   const malformed = await server.handle({ jsonrpc: "2.0", id: 4, method: "daemon.status", params: "not-an-object" });
   assert.ok(malformed && !Array.isArray(malformed) && "result" in malformed); if (malformed && !Array.isArray(malformed) && "result" in malformed) assert.equal((malformed.result as Record<string, unknown>).code, "invalid_request");

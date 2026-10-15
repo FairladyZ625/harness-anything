@@ -200,7 +200,7 @@ for (const distinctNode of [false, true])
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-relative", path: `.worktrees/${fixture.subject.taskId}` },
           prompt: "Finish first.",
-          idempotencyKey: "first",
+          dispatchKey: "first",
         });
         assert.equal(a.outcome, "applied", JSON.stringify(a));
         sessionTasks.set(String(a.runtimeSessionId), fixture.subject.taskId);
@@ -230,7 +230,7 @@ for (const distinctNode of [false, true])
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-relative", path: `.worktrees/${second.taskId}` },
           prompt: "Finish second.",
-          idempotencyKey: "second",
+          dispatchKey: "second",
         });
         assert.equal(b.outcome, "applied", JSON.stringify(b));
         sessionTasks.set(String(b.runtimeSessionId), second.taskId);

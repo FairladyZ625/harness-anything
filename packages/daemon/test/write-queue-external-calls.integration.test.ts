@@ -394,7 +394,7 @@ test("a credential lookup nobody answers fails the spawn and releases the reposi
         cwd: { scope: "repo-root" },
         prompt: "Needs the unanswered credential",
         taskId: null,
-        idempotencyKey: "credential-queue-spawn",
+        dispatchKey: "credential-queue-spawn",
       },
       binding,
     );

@@ -135,7 +135,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
           cwd: { scope: "repo-root" },
           prompt: "Inspect without a task binding",
           taskId: null,
-          idempotencyKey: "github-worker-unbound",
+          dispatchKey: "github-worker-unbound",
         },
         binding,
       );
@@ -154,7 +154,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
         cwd: { scope: "repo-relative", path: ".worktrees/worker" },
         prompt: "Publish the completed worker branch",
         taskId,
-        idempotencyKey: "github-worker-task-bound",
+        dispatchKey: "github-worker-task-bound",
       },
       binding,
     );

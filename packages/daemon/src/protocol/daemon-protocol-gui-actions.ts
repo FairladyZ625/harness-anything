@@ -53,7 +53,7 @@ export const daemonGuiActionMethods = Object.freeze([
       dispatchId: "string",
       runtimeInstanceId: "string?",
       prompt: "string?",
-      idempotencyKey: "string?",
+      dispatchKey: "string?",
     }),
     "handoffAgentRuntime",
     "/api/agent-runtime/handoff",

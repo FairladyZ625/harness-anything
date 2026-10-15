@@ -276,7 +276,7 @@ describe("runtime entry split (W6 IA)", () => {
                 mission: "binding probe",
                 cwd: { scope: "repo-root" },
                 taskId: "task-bound",
-                idempotencyKey: "gui-dispatch-binding-probe",
+                dispatchKey: "gui-dispatch-binding-probe",
               });
             },
           },
@@ -331,7 +331,7 @@ describe("runtime entry split (W6 IA)", () => {
                 mission: "preview probe",
                 cwd: { scope: "repo-root" },
                 taskId: "task-bound",
-                idempotencyKey: "gui-preview-probe",
+                dispatchKey: "gui-preview-probe",
               });
             },
           },
@@ -349,7 +349,7 @@ describe("runtime entry split (W6 IA)", () => {
         agentId: "terra",
         taskId: "task-bound",
         prompt: "preview probe",
-        idempotencyKey: "gui-preview-probe",
+        dispatchKey: "gui-preview-probe",
       }),
     );
     expect(previewed.prompt).toBe(previewFixture.prompt);

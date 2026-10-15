@@ -113,11 +113,11 @@ test("project A admits codex-api while project B refuses it without changing eit
       },
       accepted = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId: "project-a" },
-        payload: { ...payload, idempotencyKey: "project-a" },
+        payload: { ...payload, dispatchKey: "project-a" },
       }),
       rejected = await rpc(host, auth, "repo.agentRuntime.spawn", {
         repo: { repoId: "project-b" },
-        payload: { ...payload, idempotencyKey: "project-b" },
+        payload: { ...payload, dispatchKey: "project-b" },
       });
     assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
     assert.equal(rejected.code, "runtime_instance_not_allowed", JSON.stringify(rejected));

@@ -67,7 +67,7 @@ describe("runtime resume", () => {
     expect(markup).toContain('data-testid="agent-runtime-resume"');
     expect(resumeRuntimeSpawnInput(row.resume.dispatchId, "once")).toEqual({
       dispatchId: row.resume.dispatchId,
-      idempotencyKey: "once",
+      dispatchKey: "once",
     });
   });
 });

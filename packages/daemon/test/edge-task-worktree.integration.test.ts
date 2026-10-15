@@ -29,7 +29,7 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
   const fixture = nodesFixture(t),
     edge = edgeSpawner(fixture.nodeA, binding);
   await assert.rejects(
-    edge.spawn({ taskId, runtimeInstanceId: "edge-instance", idempotencyKey: "edge-worker" }),
+    edge.spawn({ taskId, runtimeInstanceId: "edge-instance", dispatchKey: "edge-worker" }),
     launched,
   );
   const cwd = path.join(fixture.nodeA, binding.path);
@@ -50,7 +50,7 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
   const otherId = "task_e0000000000000000000cafe",
     other = edgeSpawner(fixture.nodeA, { branch: otherId, path: `.worktrees/${otherId}` });
   await assert.rejects(
-    other.spawn({ taskId: otherId, runtimeInstanceId: "edge-instance", idempotencyKey: "edge-other" }),
+    other.spawn({ taskId: otherId, runtimeInstanceId: "edge-instance", dispatchKey: "edge-other" }),
     launched,
   );
   assert.deepEqual(other.launchedIn, [path.join(fixture.nodeA, ".worktrees", otherId)]);
@@ -74,7 +74,7 @@ test("an edge dispatch that is not an implementation run stays in the node's mai
       edge.spawn({
         taskId,
         runtimeInstanceId: "edge-instance",
-        idempotencyKey: `edge-root-${index}`,
+        dispatchKey: `edge-root-${index}`,
         ...scenario.payload,
       }),
       launched,
@@ -89,7 +89,7 @@ test("an edge dispatch that is not an implementation run stays in the node's mai
     previewed = await preview.spawn({
       taskId,
       runtimeInstanceId: "edge-instance",
-      idempotencyKey: "edge-preview",
+      dispatchKey: "edge-preview",
       dryRun: true,
     });
   assert.equal(previewed.schema, "agent-dispatch-preview/v1");
@@ -101,7 +101,7 @@ test("a Git-less edge has no worktree to give and works in its workspace root", 
   t.after(() => rmSync(gitless, { recursive: true, force: true }));
   const edge = edgeSpawner(gitless, binding);
   await assert.rejects(
-    edge.spawn({ taskId, runtimeInstanceId: "edge-instance", idempotencyKey: "edge-gitless" }),
+    edge.spawn({ taskId, runtimeInstanceId: "edge-instance", dispatchKey: "edge-gitless" }),
     launched,
   );
   assert.deepEqual(edge.launchedIn, [gitless]);

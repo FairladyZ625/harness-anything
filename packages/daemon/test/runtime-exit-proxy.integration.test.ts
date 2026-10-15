@@ -125,7 +125,7 @@ test(
             cwd: { scope: "repo-root" },
             prompt: "Wait for release",
             taskId,
-            idempotencyKey: "proxy-exit",
+            dispatchKey: "proxy-exit",
           },
           binding,
         ),

@@ -13,7 +13,7 @@ import { admitRuntimeResume, runtimeResumeAdmission } from "../src/runtime-resum
 test("GUI resume spawn uses the dispatchId route", () => {
   const params = {
     repo: { repoId: "canonical" },
-    payload: { dispatchId: "dispatch_0123456789abcdef01234567", idempotencyKey: "resume-from-gui" },
+    payload: { dispatchId: "dispatch_0123456789abcdef01234567", dispatchKey: "resume-from-gui" },
   };
   assert.equal(parseDaemonRpcParams("repo.agentRuntime.spawn", params).ok, true);
 });

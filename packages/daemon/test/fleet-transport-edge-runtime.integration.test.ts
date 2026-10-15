@@ -248,7 +248,7 @@ test(
           cwd: { scope: "repo-root" },
           prompt: "Append one progress checkpoint.",
           taskId: fixture.subject.taskId,
-          idempotencyKey: "remote-edge-runtime",
+          dispatchKey: "remote-edge-runtime",
         },
       },
       localAuth,
@@ -379,7 +379,7 @@ test(
             cwd: { scope: "repo-root" },
             prompt: "Resume on the original runtime instance.",
             taskId: fixture.subject.taskId,
-            idempotencyKey: "remote-edge-runtime-resume",
+            dispatchKey: "remote-edge-runtime-resume",
           },
         },
         localAuth,
@@ -578,7 +578,7 @@ test(
     );
     const installed = await fixture.host.run(
       repoId,
-      { kind: "agent-install", packageSource, expectedVersion: 0, idempotencyKey: "edge-worker-install" },
+      { kind: "agent-install", packageSource, expectedVersion: 0, dispatchKey: "edge-worker-install" },
       localAuthFixture(),
     );
     assert.equal(installed.outcome, "applied", JSON.stringify(installed));
@@ -678,7 +678,7 @@ test(
         quotaBytes: replicaQuota,
         workspaceRoot: edgeRoot,
         method: "repo.agentRuntime.spawn",
-        action: { agentId: "edge-worker", taskId, idempotencyKey: "remote-edge-worker" },
+        action: { agentId: "edge-worker", taskId, dispatchKey: "remote-edge-worker" },
       },
       localAuth,
     );
@@ -886,7 +886,7 @@ test(
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         prompt: "Remain active for the replica pagination probe.",
-        idempotencyKey: `replica-page-${index}`,
+        dispatchKey: `replica-page-${index}`,
       });
       assert.equal(launched.outcome, "applied", JSON.stringify(launched));
       sessionIds.push(String(launched.runtimeSessionId));
@@ -906,7 +906,7 @@ test(
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         prompt: "Project access was revoked in the replica, without materializing the workspace.",
-        idempotencyKey: "replica-revoked",
+        dispatchKey: "replica-revoked",
       }),
       { code: "runtime_instance_not_allowed" },
     );

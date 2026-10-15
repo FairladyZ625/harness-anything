@@ -9,7 +9,7 @@ export const runtimeCommandClient = {
       readonly dispatchId: string;
       readonly runtimeInstanceId?: string;
       readonly prompt?: string;
-      readonly idempotencyKey?: string;
+      readonly dispatchKey?: string;
     },
   ) => action(await invoke("repo.agentRuntime.handoff", { repoId, ...input }, "handoffAgentRuntime")),
   spawn: async (repoId: string, input: RuntimeSpawnInput): Promise<unknown> =>

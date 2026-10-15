@@ -76,7 +76,7 @@ test(
             instanceId: definition.instanceId,
             installationId: definition.installationId,
             kindId: "codex",
-            idempotencyKey: key,
+            dispatchKey: key,
             definitionSnapshotRef: "artifact:runtime-definition/handoff-test",
             definitionSnapshot: { ...definition, kindId: "codex" },
             taskId: source.taskId,
@@ -274,7 +274,7 @@ test(
       "runtime_dispatch_already_resumed",
     );
     const acceptedKey = ["target-one", "target-two"][attempts.findIndex((item) => item.status === "fulfilled")];
-    const acceptedReplay = await command(target.nodeId, { ...claim, idempotencyKey: acceptedKey });
+    const acceptedReplay = await command(target.nodeId, { ...claim, dispatchKey: acceptedKey });
     assert.equal(acceptedReplay.receipt?.replayed, true, JSON.stringify(acceptedReplay));
     assert.equal(acceptedReplay.receipt?.handoffResumed, false, "admission alone does not confirm provider resume");
     const repeated = await command(target.nodeId, claim);

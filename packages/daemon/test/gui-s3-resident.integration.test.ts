@@ -211,7 +211,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
           payload: {
             runtimeAllowedInstances: ["resident-codex"],
             expectedVersion: 1,
-            idempotencyKey: "allow-resident-codex",
+            dispatchKey: "allow-resident-codex",
           },
         })
       ).outcome,
@@ -240,7 +240,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: null,
-        idempotencyKey: "resident-runtime",
+        dispatchKey: "resident-runtime",
       },
     });
     assert.equal(spawnedRuntime.outcome, "applied");
@@ -269,7 +269,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: null,
-        idempotencyKey: "bad",
+        dispatchKey: "bad",
         nested: { apiToken: "must-not-cross" },
       },
     });
@@ -280,7 +280,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     const terminal = await rpc("repo.terminal.spawn", {
       repo: { repoId: "alpha" },
       payload: {
-        idempotencyKey: "resident-pty",
+        dispatchKey: "resident-pty",
         backend: "direct-pty",
         name: "Resident",
         cwd: { scope: "repo-root" },

@@ -255,7 +255,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       prompt: liveCodex
         ? "This is a disposable handoff acceptance session. Read token.txt using your shell tool and remember its exact contents. Do not modify files, use ha, submit the task, or do other work. Respond only SOURCE_READY without repeating the token."
         : "Remember the private tool result.",
-      idempotencyKey: "handoff-product-source",
+      dispatchKey: "handoff-product-source",
     });
     assert.equal(first.outcome, "applied", JSON.stringify(first));
     const dispatchId = String(first.dispatchId),
@@ -358,7 +358,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       prompt: liveCodex
         ? "Without using tools or opening any files, what was the exact content read from token.txt earlier? Reply only with that content. If unavailable say UNKNOWN. Do no other work."
         : "Recall the tool result.",
-      idempotencyKey: "handoff-product-target",
+      dispatchKey: "handoff-product-target",
     };
     const resumed = await target.cli([
       "runtime",
@@ -370,7 +370,7 @@ for (const row of [{type:'thread.started',thread_id:id},
       "--prompt",
       claim.prompt,
       "--idempotency-key",
-      claim.idempotencyKey,
+      claim.dispatchKey,
     ]);
     assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
     const targetDispatch = String(resumed.dispatchId),
@@ -444,14 +444,14 @@ for (const row of [{type:'thread.started',thread_id:id},
     assert.equal(replay.dispatchId, resumed.dispatchId, JSON.stringify(replay));
     assert.equal(replay.replayed, true);
     assert.equal(replay.handoffResumed, true);
-    const repeated = await target.run("repo.agentRuntime.handoff", { ...claim, idempotencyKey: "another-target" });
+    const repeated = await target.run("repo.agentRuntime.handoff", { ...claim, dispatchKey: "another-target" });
     assert.equal(repeated.code, "runtime_dispatch_already_resumed", JSON.stringify(repeated));
     if (liveCodex) {
       const negative = await target.run("repo.agentRuntime.spawn", {
         runtimeInstanceId: instance.instanceId,
         prompt:
           "Without using tools or opening any files, what was the exact content read from token.txt earlier? Reply only with that content. If unavailable say UNKNOWN. Do no other work.",
-        idempotencyKey: "handoff-empty-negative",
+        dispatchKey: "handoff-empty-negative",
         cwd: { scope: "repo-root" },
       });
       assert.equal(negative.outcome, "applied", JSON.stringify(negative));

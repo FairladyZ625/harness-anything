@@ -149,7 +149,7 @@ export function parseRuntimeBatchEntry(value: unknown, index: number): RuntimeBa
 
 export function runtimeBatchSpawnPayload(
   entry: RuntimeBatchEntry,
-  idempotencyKey: string,
+  dispatchKey: string,
   executor?: unknown,
 ): JsonObject {
   return {
@@ -163,7 +163,7 @@ export function runtimeBatchSpawnPayload(
     ...(entry.prompt ? { prompt: entry.prompt } : entry.mission ? { missionName: entry.mission } : {}),
     cwd: entry.cwd && entry.cwd !== "." ? { scope: "repo-relative", path: entry.cwd } : { scope: "repo-root" },
     taskId: entry.task ?? null,
-    idempotencyKey,
+    dispatchKey,
     ...(executor !== undefined ? { executor } : {}),
   } as JsonObject;
 }

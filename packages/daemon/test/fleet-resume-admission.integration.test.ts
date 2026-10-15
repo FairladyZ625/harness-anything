@@ -50,7 +50,7 @@ test(
             instanceId: definition.instanceId,
             installationId: definition.installationId,
             kindId: definition.kindId,
-            idempotencyKey: key,
+            dispatchKey: key,
             definitionSnapshotRef: "artifact:runtime-definition/resume-test",
             definitionSnapshot: definition,
             taskId: first.taskId,

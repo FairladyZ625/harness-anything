@@ -82,7 +82,7 @@ test("a local binding executor names the parent runtime session when the caller 
         cwd: { scope: "repo-root" },
         prompt: "Delegate one worker without an explicit parent field.",
         taskId: null,
-        idempotencyKey: "parent-session-binding",
+        dispatchKey: "parent-session-binding",
       },
       executorBinding,
     );
@@ -144,7 +144,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
         cwd: { scope: "repo-root" },
         prompt: "Run as the attributed squad leader.",
         taskId,
-        idempotencyKey: "parent-session-archive",
+        dispatchKey: "parent-session-archive",
       },
       personBinding,
     );
@@ -197,7 +197,7 @@ test("a leader-only squad decision keeps attribution and settles success or fail
         cwd: { scope: "repo-root" },
         prompt: "Exit non-zero after declaring convergence.",
         taskId: failedTaskId,
-        idempotencyKey: "parent-session-archive-failed",
+        dispatchKey: "parent-session-archive-failed",
       },
       personBinding,
     );

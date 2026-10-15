@@ -27,7 +27,7 @@ export function parseRuntime(
         operation: kind.slice("runtime-handoff-".length),
         ...(f.one.get("--instance") ? { runtimeInstanceId: f.one.get("--instance") } : {}),
         ...(f.one.get("--prompt") ? { prompt: f.one.get("--prompt") } : {}),
-        ...(f.one.get("--idempotency-key") ? { idempotencyKey: f.one.get("--idempotency-key") } : {}),
+        ...(f.one.get("--idempotency-key") ? { dispatchKey: f.one.get("--idempotency-key") } : {}),
       },
       route.method,
     );

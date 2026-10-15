@@ -108,13 +108,13 @@ test("the real writer relays completed runtime restorations before ready without
     };
     cell = await openRepoCell(input);
     const sessions: string[] = [];
-    for (const idempotencyKey of ["first", "second"]) {
+    for (const dispatchKey of ["first", "second"]) {
       const receipt = await cell.spawnRuntime(
         {
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-root" },
           prompt: "adoption ready",
-          idempotencyKey,
+          dispatchKey,
         },
         binding,
       );

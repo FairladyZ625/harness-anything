@@ -149,7 +149,7 @@ test("attached task runtime settlement releases its execution lease before publi
           cwd: { scope: "repo-root" },
           prompt: "Settle the durable tail after attach",
           taskId,
-          idempotencyKey: "attached-tail",
+          dispatchKey: "attached-tail",
         },
         binding,
       );
@@ -298,7 +298,7 @@ test("attached task runtime settlement releases its execution lease before publi
           cwd: { scope: "repo-root" },
           prompt: "Complete the next iteration",
           taskId,
-          idempotencyKey: "attached-tail-redispatch",
+          dispatchKey: "attached-tail-redispatch",
         },
         binding,
       );
@@ -379,7 +379,7 @@ test("attached task runtime settlement releases its execution lease before publi
           cwd: { scope: "repo-root" },
           prompt: "Expose a failed terminal lease settlement",
           taskId: failedTaskId,
-          idempotencyKey: "failed-settlement",
+          dispatchKey: "failed-settlement",
         },
         binding,
       );
@@ -563,7 +563,7 @@ test("terminal settlement leaves an execution lease generation it never dispatch
           cwd: { scope: "repo-root" },
           prompt: "Dispatch under the first lease generation",
           taskId,
-          idempotencyKey: "lease-generation",
+          dispatchKey: "lease-generation",
         },
         binding,
       );
@@ -615,7 +615,7 @@ test("terminal settlement leaves an execution lease generation it never dispatch
           cwd: { scope: "repo-root" },
           prompt: "Dispatch under the surviving lease generation",
           taskId,
-          idempotencyKey: "lease-generation-next",
+          dispatchKey: "lease-generation-next",
         },
         binding,
       );
@@ -728,7 +728,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         cwd: { scope: "repo-root" },
         prompt: "Stay alive across restart",
         taskId: null,
-        idempotencyKey: "re-adopt",
+        dispatchKey: "re-adopt",
       },
       oldBinding,
     );
@@ -853,7 +853,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         cwd: { scope: "repo-root" },
         prompt: "Exit while daemon is absent",
         taskId: null,
-        idempotencyKey: "re-adopt-absent-exit",
+        dispatchKey: "re-adopt-absent-exit",
       },
       newBinding,
     );
@@ -903,7 +903,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         cwd: { scope: "repo-root" },
         prompt: "Dispatch after runtime adoption",
         taskId: null,
-        idempotencyKey: "re-adopt-next-dispatch",
+        dispatchKey: "re-adopt-next-dispatch",
       },
       newBinding,
     );
@@ -944,7 +944,7 @@ test("repo-cell restart re-adopts a live native runtime and settles an exit reco
         cwd: { scope: "repo-root" },
         prompt: "Lose the worker host while the daemon is absent",
         taskId,
-        idempotencyKey: "re-adopt-lost",
+        dispatchKey: "re-adopt-lost",
       },
       binding,
     );
@@ -1155,7 +1155,7 @@ test(
             cwd: { scope: "repo-root" },
             prompt: afterResult ? "result-before-loss" : "loss-before-result",
             taskId: null,
-            idempotencyKey: `host-loss-${afterResult}-${adopted}`,
+            dispatchKey: `host-loss-${afterResult}-${adopted}`,
           },
           oldBinding,
         );

@@ -307,7 +307,7 @@ test(
         cwd: { scope: "repo-root" },
         prompt: "Observe the proxy.",
         taskId: null,
-        idempotencyKey: "proxy-runtime",
+        dispatchKey: "proxy-runtime",
       },
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));

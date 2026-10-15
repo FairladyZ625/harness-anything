@@ -217,14 +217,14 @@ for (const row of [{type:'thread.started',thread_id:id},
     assert.equal(receipt.outcome, "stopped", JSON.stringify(receipt));
     assert.deepEqual(receipt.unavailable, []);
   };
-  const dispatch = async (idempotencyKey: string, prompt: string) => {
+  const dispatch = async (dispatchKey: string, prompt: string) => {
     const spawned = await source.run("repo.agentRuntime.spawn", {
       agentId: "handoff-worker",
       runtimeInstanceId: instance.instanceId,
       taskId,
       handoffEnabled: true,
       prompt,
-      idempotencyKey,
+      dispatchKey,
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     await waitForOutcome(String(spawned.runtimeSessionId));
@@ -303,7 +303,7 @@ for (const row of [{type:'thread.started',thread_id:id},
     dispatchId,
     runtimeInstanceId: instance.instanceId,
     prompt: "Recall the tool result.",
-    idempotencyKey: "resolved-home-target",
+    dispatchKey: "resolved-home-target",
   };
   const resumed = await target.run("repo.agentRuntime.handoff", claim);
   assert.equal(resumed.outcome, "applied", JSON.stringify(resumed));
