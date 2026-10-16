@@ -356,10 +356,10 @@ export class OidcSessionService {
         this.#assertLoginGeneration(generation);
         this.#writeSession(session);
       });
-    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.expiresAt };
+    return { ok: true, authenticated: true, personId: session.personId, expiresAt: session.sessionExpiresAt };
   }
 
-  /** Report the current access-token deadline; offline refresh validity has no inferred deadline. */
+  /** `expiresAt` is the SSO deadline, or null when Keycloak decides offline validity on refresh. */
   async status(): Promise<Record<string, unknown>> {
     const session = await this.#live();
     if (!session) return { ok: true, authenticated: false };
@@ -369,7 +369,7 @@ export class OidcSessionService {
       ok: true,
       authenticated: true,
       personId: session.personId,
-      expiresAt: session.sessionExpiresAt === null ? null : session.expiresAt,
+      expiresAt: session.sessionExpiresAt,
       deviceLoginRequests: [...this.#deviceRequests.values()].filter(
         (request) => request.personId === session.personId,
       ),

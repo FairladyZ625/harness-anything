@@ -84,12 +84,12 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
   assert.equal(authorizationUrl.searchParams.get("code_challenge_method"), "S256");
   assert.equal(authorizationUrl.searchParams.get("redirect_uri"), redirectUri);
   const completed = await service.complete("authorization-code", String(begun.state));
-  // The session lapses one session lifetime after its last use, not when the access token does.
+  // The receipt's deadline is the session lifetime, not the access token's short life.
   assert.deepEqual(completed, {
     ok: true,
     authenticated: true,
     personId: "person-zeyu",
-    expiresAt: 1_000 + accessTokenSeconds * 1_000,
+    expiresAt: 1_000 + sessionLifetimeSeconds * 1_000,
   });
   assert.match(await requests[0]!.text(), /code_verifier=/u);
   const bound = (await service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
@@ -131,7 +131,8 @@ test("a session in use outlives its access token without signing in again", asyn
   await signIn(active);
   const first = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
   assert.equal(serialOf(first?.accessToken), 1);
-  // Three access token lifetimes of continued use: every use past the token's life gets a fresh one.
+  // Three access token lifetimes of continued use: every use past the token's life renews the token
+  // while the reported deadline stays the session lifetime each renewal slides forward.
   for (const cycle of [1, 2, 3]) {
     active.clock.now += (accessTokenSeconds + 5) * 1_000;
     assert.deepEqual(await active.service.status(), {
@@ -139,7 +140,7 @@ test("a session in use outlives its access token without signing in again", asyn
       authenticated: true,
       deviceLoginRequests: [],
       personId: "person-zeyu",
-      expiresAt: active.clock.now + accessTokenSeconds * 1_000,
+      expiresAt: active.clock.now + sessionLifetimeSeconds * 1_000,
     });
     const bound = (await active.service.bind({ transportKind: "unix-socket" })).oidcPrincipal;
     assert.equal(serialOf(bound?.accessToken), cycle + 1);
@@ -208,7 +209,7 @@ test("a lowered session lifetime applies to a signed-in session at its next rene
   await signIn(active);
   active.keycloak.lifetimeSeconds = 300;
   active.clock.now += (accessTokenSeconds + 5) * 1_000;
-  assert.equal((await active.service.status()).expiresAt, active.clock.now + 60_000);
+  assert.equal((await active.service.status()).expiresAt, active.clock.now + 300_000);
 });
 
 test("a connection that outlives the access token carries the session as it is on each request", async (t) => {

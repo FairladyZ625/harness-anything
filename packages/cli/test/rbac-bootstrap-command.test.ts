@@ -26,7 +26,7 @@ test("device polling follows pending replies and ends at the device deadline", a
   assert.equal(polls, 2, "an expired device code never starts a token request");
 });
 
-test("device login prints the browser entry, code and expiry while session receipts show only identity", () => {
+test("device login prints the browser entry, code and expiry while session receipts show identity and the session deadline", () => {
   const pending = renderCliReceipt({
     ok: true,
     pending: true,
@@ -37,10 +37,11 @@ test("device login prints the browser entry, code and expiry while session recei
   assert.match(pending.text, /https:\/\/center.test\/device/u);
   assert.match(pending.text, /TEST-CODE/u);
   assert.match(pending.text, /1970-01-01T00:01:00.000Z/u);
-  assert.match(
-    renderCliReceipt({ ok: true, authenticated: true, personId: "alice", expiresAt: 60_000 }).text,
-    /Signed in as alice/u,
-  );
+  // The daemon reports the session lifetime deadline (not the access token's), so the labelled
+  // line is the session's own expiry.
+  const signedIn = renderCliReceipt({ ok: true, authenticated: true, personId: "alice", expiresAt: 60_000 }).text;
+  assert.match(signedIn, /Signed in as alice/u);
+  assert.match(signedIn, /Session expires: 1970-01-01T00:01:00.000Z/u);
   // An offline session (the edge device client) has no locally inferred deadline; the daemon reports
   // expiresAt null and the render must not coerce that into the 1970 epoch.
   const offline = renderCliReceipt({ ok: true, authenticated: true, personId: "alice", expiresAt: null }).text;
