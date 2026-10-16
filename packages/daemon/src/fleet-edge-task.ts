@@ -48,7 +48,7 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
-import { runFleetEdgeRetry, runFleetEdgeWrite } from "./fleet-edge-write.ts";
+import { runFleetEdgeTaskCommand, runFleetEdgeWrite } from "./fleet-edge-write.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
@@ -342,30 +342,44 @@ export async function runFleetEdgeTask(
       deadline = Date.now() + commandTimeoutMs;
     let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>>;
     try {
-      result = await runFleetEdgeRetry({
+      result = await runFleetEdgeTaskCommand({
         timeoutMs: commandTimeoutMs,
+        readOnly,
         write: async () => {
           const remaining = Math.max(1, deadline - Date.now());
-          const write = () =>
-            runFleetTaskCommandClient({
-              ...peer,
-              opId,
-              repoId: payload.repoId,
-              taskId,
-              action,
-              ...(artifact ? { artifact } : {}),
-              waitMs,
-              timeoutMs: remaining + 10_000,
-              docChanges: bundle === null ? undefined : bundle.docChanges,
-              mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
-            });
-          if (readOnly) return write();
+          return runFleetTaskCommandClient({
+            ...peer,
+            opId,
+            repoId: payload.repoId,
+            taskId,
+            action,
+            ...(artifact ? { artifact } : {}),
+            waitMs,
+            timeoutMs: remaining + 10_000,
+            docChanges: bundle === null ? undefined : bundle.docChanges,
+            mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
+          });
+        },
+        settle: async () => {
+          const remaining = Math.max(1, deadline - Date.now());
           return runFleetEdgeWrite({
             viewRoot: payload.viewRoot,
             repoId: payload.repoId,
             nodeId: payload.nodeId,
             timeoutMs: Math.max(1, deadline - Date.now()),
-            write,
+            write: () =>
+              runFleetTaskCommandClient({
+                ...peer,
+                opId,
+                repoId: payload.repoId,
+                taskId,
+                action,
+                ...(artifact ? { artifact } : {}),
+                waitMs,
+                timeoutMs: remaining + 10_000,
+                docChanges: bundle === null ? undefined : bundle.docChanges,
+                mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
+              }),
           });
         },
       });

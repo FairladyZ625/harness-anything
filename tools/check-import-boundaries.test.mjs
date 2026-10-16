@@ -18,9 +18,9 @@ test("Fleet center write frames must use the one center write entry", () => {
     writeFileSync(
       centerPath,
       [
-        'if (frame.schema === "fleet.doc.submit/v1") { centerRun(); }',
-        'if (frame.schema === "fleet.task.command/v1") { centerRun(); }',
-        'if (frame.schema === "fleet.schedule.command/v1") { centerRun(); }',
+        'if (frame.schema === "fleet.doc.submit/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.task.command/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.schedule.command/v1") { runFleetCenterWrite(); }',
         'if (frame.schema === "fleet.runtime.event/v1") { runFleetCenterWrite(); }',
         'if (frame.schema === "fleet.runtime.archive/v1") { runFleetCenterWrite(); }',
         'if (frame.schema === "fleet.upload.begin/v1") { runFleetCenterWrite(); }',
@@ -31,14 +31,17 @@ test("Fleet center write frames must use the one center write entry", () => {
     const valid = runChecker(root);
     assert.equal(valid.status, 0, valid.stderr);
 
-    writeFileSync(centerPath, readFileSync(centerPath, "utf8").replace("centerRun()", "options.host.run()"));
+    writeFileSync(centerPath, readFileSync(centerPath, "utf8").replace("runFleetCenterWrite()", "options.host.run()"));
     const bypass = runChecker(root);
     assert.notEqual(bypass.status, 0);
     assert.match(bypass.stderr, /fleet\.doc\.submit\/v1 must use its center write entry/u);
 
     writeFileSync(
       centerPath,
-      readFileSync(centerPath, "utf8").replace("runFleetCenterWrite()", "options.host.runtimeIngress()"),
+      readFileSync(centerPath, "utf8").replace(
+        'if (frame.schema === "fleet.runtime.event/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { options.host.runtimeIngress(); }',
+      ),
     );
     const runtimeBypass = runChecker(root);
     assert.notEqual(runtimeBypass.status, 0);

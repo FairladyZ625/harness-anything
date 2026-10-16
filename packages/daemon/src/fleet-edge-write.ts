@@ -97,6 +97,16 @@ export async function runFleetEdgeUploadClient(
   });
 }
 
+export async function runFleetEdgeTaskCommand<T>(options: {
+  readonly timeoutMs: number;
+  readonly readOnly: boolean;
+  readonly write: () => Promise<T>;
+  readonly settle?: () => Promise<T>;
+}): Promise<T> {
+  if (!options.readOnly && options.settle) return options.settle();
+  return runFleetEdgeRetry({ timeoutMs: options.timeoutMs, write: options.write });
+}
+
 export class FleetReplicaLagTimeoutError extends Error {
   readonly code = "replica_lag_timeout";
 

@@ -487,9 +487,9 @@ for (const file of packageSourceFiles) {
   }
   if (!isTestOrFixture && rel === "packages/daemon/src/fleet/center-listener.ts") {
     const centerWriteBranchRequirements = new Map([
-      ["fleet.doc.submit/v1", "centerRun("],
-      ["fleet.task.command/v1", "centerRun("],
-      ["fleet.schedule.command/v1", "centerRun("],
+      ["fleet.doc.submit/v1", "runFleetCenterWrite("],
+      ["fleet.task.command/v1", "runFleetCenterWrite("],
+      ["fleet.schedule.command/v1", "runFleetCenterWrite("],
       ["fleet.runtime.event/v1", "runFleetCenterWrite("],
       ["fleet.runtime.archive/v1", "runFleetCenterWrite("],
       ["fleet.upload.begin/v1", "runFleetCenterWrite("],
