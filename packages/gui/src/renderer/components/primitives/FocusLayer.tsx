@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { X } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
 import { TONE_COLOR, type StatusTone } from "./StatusTag";
+import { isImeComposingEvent } from "./ime-composition.ts";
 
 /**
  * 原位放大层(标准 §4):共享布局动画从原位长到中央(与 Region 的 focusId 配对),
@@ -64,7 +65,7 @@ export function FocusLayer({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
+      if (event.key === "Escape" && !isImeComposingEvent(event)) {
         onClose();
         return;
       }

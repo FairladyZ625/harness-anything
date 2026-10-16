@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { isImeComposingEvent } from "./primitives/ime-composition.ts";
 
 /**
  * 轻量气泡弹窗:一个触发按钮 + 挂在它下方的面板。面板 portal 到 body 并 fixed 定位,
@@ -57,7 +58,7 @@ export function Popover({
       const inDescendant = Boolean(
         target?.closest?.("[data-popover-ancestors]") && !panelRef.current?.contains(target),
       );
-      if (event.key === "Escape" && !inDescendant) setOpen(false);
+      if (event.key === "Escape" && !inDescendant && !isImeComposingEvent(event)) setOpen(false);
     };
     window.addEventListener("mousedown", onMouseDown, true);
     window.addEventListener("keydown", onKeyDown, true);

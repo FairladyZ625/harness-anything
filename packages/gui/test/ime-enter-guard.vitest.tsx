@@ -7,6 +7,9 @@ import { createElement, type ReactElement } from "react";
 import { CommandPalette, type PaletteEntry } from "../src/renderer/components/CommandPalette.tsx";
 import { FocusSwitcher } from "../src/renderer/components/FocusSwitcher.tsx";
 import { TerminalTaskTreePicker } from "../src/renderer/components/terminal/TerminalTaskTreePicker.tsx";
+import { Drawer } from "../src/renderer/components/primitives/Drawer.tsx";
+import { FocusLayer } from "../src/renderer/components/primitives/FocusLayer.tsx";
+import { Popover } from "../src/renderer/components/Popover.tsx";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 /**
@@ -47,6 +50,64 @@ function compositionStart(target: Element) {
 function compositionEnd(target: Element) {
   act(() => target.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true })));
 }
+
+function escape(init: KeyboardEventInit = {}) {
+  act(() => {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true, ...init }));
+  });
+}
+
+describe("window Escape:组字中不关闭容器", () => {
+  it.each([
+    [
+      "Drawer",
+      (closed: string[]) =>
+        createElement(Drawer, { open: true, onClose: () => closed.push("close"), children: createElement("input") }),
+    ],
+    [
+      "FocusLayer",
+      (closed: string[]) =>
+        createElement(FocusLayer, {
+          open: true,
+          title: "焦点层",
+          itemIds: ["one"],
+          selectedId: "one",
+          onSelect: () => {},
+          onClose: () => closed.push("close"),
+          list: createElement("div"),
+          detail: createElement("input"),
+        }),
+    ],
+  ] as const)("%s: isComposing 与 keyCode 229 不关闭,组字外关闭", (_name, make) => {
+    const closed: string[] = [];
+    mount(make(closed));
+    escape({ isComposing: true });
+    escape({ keyCode: 229 } as KeyboardEventInit);
+    expect(closed).toEqual([]);
+    escape();
+    expect(closed).toEqual(["close"]);
+  });
+
+  it("Popover: isComposing 与 keyCode 229 不关闭,组字外关闭", () => {
+    const closed: string[] = [];
+    const { host } = mount(
+      createElement(Popover, {
+        label: "筛选",
+        trigger: "打开",
+        children: () => createElement("input", { "data-testid": "popover-input" }),
+      }),
+    );
+    act(() => host.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true })));
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    escape({ isComposing: true });
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    escape({ keyCode: 229 } as KeyboardEventInit);
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+    escape();
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    expect(closed).toEqual([]);
+  });
+});
 
 describe("CommandPalette:组字中的 Enter 只上屏,不跳转", () => {
   const entries: PaletteEntry[] = [

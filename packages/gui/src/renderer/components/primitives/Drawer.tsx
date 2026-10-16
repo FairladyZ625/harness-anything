@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
+import { isImeComposingEvent } from "./ime-composition.ts";
 
 /**
  * 右侧抽屉(标准 §4):实体详情的玻璃壳——定位、scrim、进出场、Esc 关闭。
@@ -45,7 +46,7 @@ export function Drawer({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key === "Escape" && !isImeComposingEvent(event)) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
