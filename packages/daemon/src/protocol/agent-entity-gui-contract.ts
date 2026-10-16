@@ -54,7 +54,8 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
     errors.push(`${prefix} carries a forbidden credential-shaped key.`);
   return errors;
 }
-const agentCatalogRowFields = Object.freeze(["id", "name", "runtimes", "instance", "permissionMode", "role", "layer"]),
+const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
+  agentCatalogRowFields = Object.freeze(["id", "name", "runtimes", "instance", "permissionMode", "role", "layer"]),
   squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer"]),
   degradedCatalogRowFields = Object.freeze(["id", "layer", "state", "error"]),
   agentDetailFields = Object.freeze([
@@ -140,7 +141,7 @@ const catalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
 const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
   [
     ...catalogRowChecks(row),
-    !["worker", "commander"].includes(String(row.role)) ? "agent catalog row role must be worker or commander." : [],
+    !agentGuiRoles.includes(String(row.role)) ? "agent catalog row role must be worker, commander, or reviewer." : [],
     !agentRuntimeTargets(row.runtimes)
       ? "agent catalog row runtimes must be an array of unique {type, model?} targets."
       : [],
@@ -150,7 +151,7 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     !(
       entityNonEmpty(row.id) &&
       entityNonEmpty(row.name) &&
-      ["worker", "commander"].includes(String(row.role)) &&
+      agentGuiRoles.includes(String(row.role)) &&
       entityNonEmpty(row.instructions)
     )
       ? ["agent detail needs non-empty id, name, role, and instructions."]
