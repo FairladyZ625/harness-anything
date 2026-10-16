@@ -173,6 +173,49 @@ test("A: registry attached recovery wakes a skipped due builtin without refreshi
   }
 });
 
+test("remote-edge session expiry pauses with a login instruction and resumes after refresh", async (t) => {
+  const timers: Array<{ callback: () => void; delay: number; cleared: boolean }> = [],
+    actor = { principal: { personId: "scheduler-session" }, executor: null },
+    cell = {
+      status: () => ({ repoId: "edge", rootDir: "/missing", mode: "remote-edge", state: "attached" }),
+    } as unknown as RepoCell,
+    cells = new Map([["edge", cell]]),
+    warnings: string[] = [],
+    originalWarn = console.warn;
+  let authenticated = false;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+  const scheduler = makeScheduleScheduler({
+    cells,
+    now: () => "2026-08-27T10:00:00.000Z",
+    localBinding: () => ({ actor, source: "local" }),
+    remoteEdgeAction: async () => {
+      if (!authenticated)
+        throw Object.assign(new Error("Sign in with Keycloak before performing this action."), {
+          code: "authentication_required",
+        });
+      return { outcome: "applied", evidence: "schedule-list:0", schedules: [] };
+    },
+    setTimer: (callback, delay) => {
+      const timer = { callback, delay, cleared: false };
+      timers.push(timer);
+      return timer as unknown as ReturnType<typeof setTimeout>;
+    },
+    clearTimer: (timer) => {
+      (timer as unknown as (typeof timers)[number]).cleared = true;
+    },
+  });
+  t.after(() => {
+    console.warn = originalWarn;
+    scheduler.close();
+  });
+  await scheduler.start();
+  assert.match(warnings[0]!, /Run `ha bootstrap --operation login` on this edge/u);
+  assert.equal(timers.find((timer) => !timer.cleared)?.delay, 60_000);
+  authenticated = true;
+  await scheduler.refresh();
+  assert.equal(warnings.length, 1, "a healthy refresh clears the paused session state");
+});
+
 for (const rejectMissed of [false, true])
   test(`B: continuously attached builtin wakes after mixed missed settlement (peer rejected=${rejectMissed})`, async (t) => {
     const parent = realpathSync(mkdtempSync(path.join(tmpdir(), "ha-mixed-missed-"))),

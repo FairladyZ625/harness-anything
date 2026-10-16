@@ -65,7 +65,8 @@ export function makeScheduleScheduler(input: {
     setTimer = input.setTimer ?? ((callback, delayMs) => setTimeout(callback, delayMs)),
     clearTimer = input.clearTimer ?? clearTimeout,
     attempted = new Set<string>(),
-    humanBlocked = new Map<string, number>();
+    humanBlocked = new Map<string, number>(),
+    sessionBlocked = new Map<string, number>();
   // Consecutive unanswered Schedule reads per remote-edge repository; cleared by the first answer.
   let unreachable: ReadonlyMap<string, number> = new Map();
   let started = false,
@@ -200,6 +201,7 @@ export function makeScheduleScheduler(input: {
       let schedules: readonly ScheduleListRow[], admissionWindowMs: number;
       try {
         schedules = await listSchedules(target);
+        sessionBlocked.delete(repoId);
         admissionWindowMs = scheduleAdmissionWindowMs(cell.status().rootDir);
       } catch (error) {
         consumeKnownError(error);
@@ -212,6 +214,16 @@ export function makeScheduleScheduler(input: {
           continue;
         }
         if (mode === "remote-edge") {
+          if (cellErrorCode(error) === "authentication_required") {
+            const retryAt = Date.parse(observedAt) + HUMAN_BLOCK_RETRY_MS;
+            if (!sessionBlocked.has(repoId))
+              console.warn(
+                `[schedule-scheduler] ${repoId} paused: ${errorMessage(error)} ` +
+                  "Run `ha bootstrap --operation login` on this edge, then wait for the next refresh.",
+              );
+            sessionBlocked.set(repoId, retryAt);
+            continue;
+          }
           // The center answers every remote-edge read, so an unanswered one is retried on the edge's
           // own backoff; nothing else would wake this node again. One warning per outage.
           const failures = (unreachable.get(repoId) ?? 0) + 1;
@@ -267,7 +279,10 @@ export function makeScheduleScheduler(input: {
     const currentMissed = new Set(missed.map(missedKey));
     for (const key of humanBlocked.keys()) if (!currentMissed.has(key)) humanBlocked.delete(key);
     unreachable = stillUnreachable;
-    const retryAfterMs = Math.min(...[...unreachable.values()].map((failures) => fleetEdgeBackoffMs(failures - 1)));
+    const retryAfterMs = Math.min(
+      ...[...unreachable.values()].map((failures) => fleetEdgeBackoffMs(failures - 1)),
+      ...[...sessionBlocked.values()].map((at) => Math.max(0, at - Date.parse(observedAt))),
+    );
     return { due, missed, pending, retryAfterMs };
   }
 
