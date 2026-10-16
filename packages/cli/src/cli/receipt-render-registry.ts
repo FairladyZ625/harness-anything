@@ -121,7 +121,7 @@ function renderCliReceiptBase(
     return {
       stream: "stdout",
       text: receipt.authenticated
-        ? `Signed in as ${String(receipt.personId)}\nSession expires: ${new Date(Number(receipt.expiresAt)).toISOString()}`
+        ? `Signed in as ${String(receipt.personId)}\n${sessionExpiryText(receipt.expiresAt)}`
         : "Signed out.",
     };
   const commandRenderer = typeof receipt.command === "string" ? commandRenderers.get(receipt.command) : undefined;
@@ -430,6 +430,14 @@ function squadListColumns(value: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+// An offline session has no locally inferred deadline (the daemon reports expiresAt null); the
+// provider decides at renewal, so null renders as an honest line, not Number(null)'s 1970 epoch.
+function sessionExpiryText(expiresAt: unknown): string {
+  return expiresAt === null
+    ? "Session expires: no locally known deadline (offline session; renewed by the identity provider)"
+    : `Session expires: ${new Date(Number(expiresAt)).toISOString()}`;
 }
 
 // The git facet is the daemon's ledger-to-git publication channel (the harness outbox commits),
