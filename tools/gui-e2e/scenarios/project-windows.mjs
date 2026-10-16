@@ -72,7 +72,7 @@ export default {
       .waitFor({ timeout: 20_000 });
     // 窗口标题「项目名 — Harness Anything」(document.title 由 Electron 同步为原生标题)。
     await secondPage.waitForFunction(
-      (expected) => document.title === expected,
+      (expected) => globalThis.document.title === expected,
       `${SECOND_PROJECT_NAME} — Harness Anything`,
       { timeout: 10_000 },
     );
@@ -96,9 +96,11 @@ export default {
 
     // ③ 两窗口互不影响:窗口 1 切看板,窗口 2 仍停在自己的总览与项目上。
     await nav(page, /^(?:看板|Board)$/u, "board-header-summary");
-    await secondPage.waitForFunction(() => document.querySelector('[data-testid="overview-view"]') !== null, null, {
-      timeout: 10_000,
-    });
+    await secondPage.waitForFunction(
+      () => globalThis.document.querySelector('[data-testid="overview-view"]') !== null,
+      null,
+      { timeout: 10_000 },
+    );
     assert.match(
       await secondPage.getByTitle(SWITCHER_TITLE).innerText(),
       new RegExp(SECOND_PROJECT_NAME, "u"),
