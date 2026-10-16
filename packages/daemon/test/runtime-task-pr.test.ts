@@ -199,6 +199,32 @@ test("task PR provider errors surface with credentials removed", async () => {
   );
 });
 
+test("human task PR uses repository authentication without a dispatch credential", async () => {
+  const f = prFixture();
+  let prepared = false;
+  const context = {
+    ...f.context,
+    input: {
+      prepareDaemonGitEnvironment: async () => {
+        prepared = true;
+        throw new Error("human task PR must not resolve an execution instance credential");
+      },
+    },
+  };
+  const receipt = await createTaskPullRequest(
+    context as never,
+    { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): use human repository identity" },
+    { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
+    async (_args, env) => {
+      assert.equal(env.GH_TOKEN, undefined);
+      return "https://github.com/fixture/repo/pull/5";
+    },
+    lintPass,
+  );
+  assert.equal(prepared, false);
+  assert.match(receipt.evidence!, /pull\/5/u);
+});
+
 // The gate is the delivered repository's own script, resolved from its root (this checkout here).
 const checkoutRoot = path.resolve(import.meta.dirname, "../../..");
 
