@@ -47,7 +47,7 @@ test("Fleet document rejection receipts preserve explanation and path touches", 
     outcome: "op_rejected",
     opId: "op-doc",
     revision: null,
-    replicationSequence: 9,
+    replicationSequence: null,
     code: "task_docs_require_task_command",
     receipt: {
       outcome: "op_rejected",
@@ -114,13 +114,79 @@ test("runtime event receipts require the center replication position", () => {
       receipt: { outcome: "applied" },
     };
   assert.deepEqual(parseFleetFrame(event), event);
-  const noChanges = { ...event, event: null, receipt: { outcome: "no_changes", code: "no_changes" } };
+  const noChanges = {
+    ...event,
+    replicationSequence: null,
+    event: null,
+    receipt: { outcome: "no_changes", code: "no_changes" },
+  };
   assert.deepEqual(parseFleetFrame(noChanges), noChanges);
   assert.deepEqual(parseFleetFrame(archive), archive);
   const { replicationSequence: _sequence, ...missingEventSequence } = event;
   assert.throws(() => parseFleetFrame(missingEventSequence), FleetContractError);
   const { replicationSequence: _archiveSequence, ...missingArchiveSequence } = archive;
   assert.throws(() => parseFleetFrame(missingArchiveSequence), FleetContractError);
+});
+
+test("every Fleet write result requires a sequence only for applied outcomes", () => {
+  const results = [
+    {
+      schema: "fleet.doc.result/v1",
+      messageId: "doc-result",
+      inReplyTo: "doc",
+      outcome: "applied",
+      opId: "op-doc",
+      revision: 1,
+      replicationSequence: 1,
+      code: null,
+      receipt: { outcome: "applied" },
+    },
+    {
+      schema: "fleet.task.result/v1",
+      messageId: "task-result",
+      inReplyTo: "task",
+      outcome: "op_rejected",
+      opId: "op-task",
+      revision: null,
+      replicationSequence: null,
+      code: "rejected",
+      receipt: { outcome: "op_rejected" },
+    },
+    {
+      schema: "fleet.schedule.result/v1",
+      messageId: "schedule-result",
+      inReplyTo: "schedule",
+      outcome: "no_changes",
+      opId: "op-schedule",
+      revision: null,
+      replicationSequence: null,
+      code: "no_changes",
+      receipt: { outcome: "no_changes" },
+    },
+    {
+      schema: "fleet.runtime.event.result/v1",
+      messageId: "event-result",
+      inReplyTo: "event",
+      replicationSequence: 2,
+      event: {},
+      receipt: { outcome: "applied" },
+    },
+    {
+      schema: "fleet.runtime.archive.result/v1",
+      messageId: "archive-result",
+      inReplyTo: "archive",
+      replicationSequence: null,
+      receipt: { outcome: "no_changes" },
+    },
+  ];
+  for (const frame of results) assert.deepEqual(parseFleetFrame(frame), frame, frame.schema);
+  for (const frame of results) {
+    assert.throws(() =>
+      parseFleetFrame({ ...frame, replicationSequence: frame.replicationSequence === null ? 1 : null }),
+    );
+    const { replicationSequence: _missing, ...withoutSequence } = frame;
+    assert.throws(() => parseFleetFrame(withoutSequence), `${frame.schema} missing replicationSequence`);
+  }
 });
 test("fleet runtime await admits only the parked operational wait", () => {
   const frame = {
@@ -172,7 +238,7 @@ const frames = [
     opId: "op1",
     receipt: { outcome: "op_rejected", code: "operation_not_published" },
   },
-  { schema: "fleet.upload.begin/v1", messageId: "m5", repoId: "a1", content: blob },
+  { schema: "fleet.upload.begin/v1", messageId: "m5", opId: "op-upload", repoId: "a1", content: blob },
   {
     schema: "fleet.upload.ready/v1",
     messageId: "m6",
@@ -180,18 +246,28 @@ const frames = [
     uploadId: "u1",
     resumeOffset: 0,
     status: "receiving",
+    replicationSequence: null,
   },
-  { schema: "fleet.upload.chunk/v1", messageId: "m7", uploadId: "u1", offset: 0, dataBase64: "YWJj" },
-  { schema: "fleet.upload.finish/v1", messageId: "m8", uploadId: "u1" },
+  {
+    schema: "fleet.upload.chunk/v1",
+    messageId: "m7",
+    opId: "op-upload",
+    uploadId: "u1",
+    offset: 0,
+    dataBase64: "YWJj",
+  },
+  { schema: "fleet.upload.finish/v1", messageId: "m8", opId: "op-upload", uploadId: "u1" },
   {
     schema: "fleet.upload.result/v1",
     messageId: "m9",
     inReplyTo: "m8",
     status: "staged",
     descriptor: { ref: "doc-sync-claims/u1", ...blob },
+    replicationSequence: null,
   },
   {
     schema: "fleet.doc.submit/v1",
+    opId: "op-doc-submit",
     messageId: "m10",
     repoId: "a1",
     executionId: null,

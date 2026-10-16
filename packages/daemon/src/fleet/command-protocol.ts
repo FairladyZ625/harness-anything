@@ -81,27 +81,39 @@ export type FleetFrameV1 =
         baseLedgerSha: LedgerCutIdentity;
         writerEpoch: number;
         /** The center's replication head when it answered; an edge sync waits for its stream to reach it. */
-        replicationSequence: number;
+        replicationSequence: number | null;
         personId: string;
         actionAllowed: boolean | null;
       }
     >
   | Msg<"fleet.receipt.get/v1", { repoId: string; opId: string }>
   | Msg<"fleet.receipt.result/v1", { inReplyTo: string; opId: string; receipt: Readonly<Record<string, unknown>> }>
-  | Msg<"fleet.upload.begin/v1", { repoId: string; content: FleetBlob }>
+  | Msg<"fleet.upload.begin/v1", { repoId: string; opId: string; content: FleetBlob }>
   | Msg<
       "fleet.upload.ready/v1",
-      { inReplyTo: string; uploadId: string; resumeOffset: number; status: "receiving" | "already_staged" }
+      {
+        inReplyTo: string;
+        uploadId: string;
+        resumeOffset: number;
+        status: "receiving" | "already_staged";
+        replicationSequence: number | null;
+      }
     >
-  | Msg<"fleet.upload.chunk/v1", { uploadId: string; offset: number; dataBase64: string }>
-  | Msg<"fleet.upload.finish/v1", { uploadId: string }>
+  | Msg<"fleet.upload.chunk/v1", { uploadId: string; opId: string; offset: number; dataBase64: string }>
+  | Msg<"fleet.upload.finish/v1", { uploadId: string; opId: string }>
   | Msg<
       "fleet.upload.result/v1",
-      { inReplyTo: string; status: "staged" | "already_staged"; descriptor: FleetDescriptor }
+      {
+        inReplyTo: string;
+        status: "staged" | "already_staged";
+        descriptor: FleetDescriptor;
+        replicationSequence: number | null;
+      }
     >
   | Msg<
       "fleet.doc.submit/v1",
       {
+        opId: string;
         executionCredential?: string;
         taskId?: string;
         repoId: string;
@@ -118,7 +130,7 @@ export type FleetFrameV1 =
         outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         opId: string;
         revision: number | null;
-        replicationSequence: number;
+        replicationSequence: number | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>>;
       }
@@ -146,7 +158,7 @@ export type FleetFrameV1 =
         opId: string;
         revision: number | null;
         /** Center replication head after this command; a write-then-read waits for the edge to apply it. */
-        replicationSequence: number;
+        replicationSequence: number | null;
         appliedCut?: FleetCut | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>> | null;
@@ -170,7 +182,7 @@ export type FleetFrameV1 =
         outcome: "applied" | "pending" | "no_changes" | "op_rejected" | "indeterminate";
         revision: number | null;
         /** Center replication head after this command; applied edge writes wait until it is local. */
-        replicationSequence: number;
+        replicationSequence: number | null;
         code: string | null;
         receipt: Readonly<Record<string, unknown>>;
       }
@@ -191,15 +203,18 @@ export type FleetFrameV1 =
       "fleet.runtime.event.result/v1",
       {
         inReplyTo: string;
-        replicationSequence: number;
+        replicationSequence: number | null;
         event: Readonly<Record<string, unknown>> | null;
         receipt: Readonly<Record<string, unknown>>;
       }
     >
-  | Msg<"fleet.runtime.archive/v1", { writerEpoch: number; repoId: string; archive: Readonly<Record<string, unknown>> }>
+  | Msg<
+      "fleet.runtime.archive/v1",
+      { writerEpoch: number; repoId: string; opId: string; archive: Readonly<Record<string, unknown>> }
+    >
   | Msg<
       "fleet.runtime.archive.result/v1",
-      { inReplyTo: string; replicationSequence: number; receipt: Readonly<Record<string, unknown>> }
+      { inReplyTo: string; replicationSequence: number | null; receipt: Readonly<Record<string, unknown>> }
     >
   | Msg<
       "fleet.runtime.await/v1",
@@ -645,19 +660,26 @@ const schemas: Readonly<Record<string, Check>> = {
   }),
   "fleet.receipt.get/v1": shape({ ...common, repoId: id, opId: id }),
   "fleet.receipt.result/v1": shape({ ...reply, opId: id, receipt: record }),
-  "fleet.upload.begin/v1": shape({ ...common, repoId: id, content: blob }),
+  "fleet.upload.begin/v1": shape({ ...common, repoId: id, opId: id, content: blob }),
   "fleet.upload.ready/v1": shape({
     ...reply,
     uploadId: id,
     resumeOffset: uint,
     status: one("receiving", "already_staged"),
+    replicationSequence: nullable(uint),
   }),
-  "fleet.upload.chunk/v1": shape({ ...common, uploadId: id, offset: uint, dataBase64: base64 }),
-  "fleet.upload.finish/v1": shape({ ...common, uploadId: id }),
-  "fleet.upload.result/v1": shape({ ...reply, status: one("staged", "already_staged"), descriptor }),
+  "fleet.upload.chunk/v1": shape({ ...common, uploadId: id, opId: id, offset: uint, dataBase64: base64 }),
+  "fleet.upload.finish/v1": shape({ ...common, uploadId: id, opId: id }),
+  "fleet.upload.result/v1": shape({
+    ...reply,
+    status: one("staged", "already_staged"),
+    descriptor,
+    replicationSequence: nullable(uint),
+  }),
   "fleet.doc.submit/v1": optionalShape(
     {
       ...common,
+      opId: id,
       executionCredential: text,
       taskId: id,
       repoId: id,
@@ -666,14 +688,14 @@ const schemas: Readonly<Record<string, Check>> = {
       baseLedgerSha: ledgerCut,
       changes: array(docChange),
     },
-    ["schema", "messageId", "repoId", "executionId", "writerEpoch", "baseLedgerSha", "changes"],
+    ["schema", "messageId", "opId", "repoId", "executionId", "writerEpoch", "baseLedgerSha", "changes"],
   ),
   "fleet.doc.result/v1": shape({
     ...reply,
     outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
     opId: text,
     revision: nullable(uint),
-    replicationSequence: uint,
+    replicationSequence: nullable(uint),
     code: nullable(text),
     receipt: record,
   }),
@@ -699,7 +721,7 @@ const schemas: Readonly<Record<string, Check>> = {
       outcome: one("applied", "op_rejected"),
       opId: id,
       revision: nullable(uint),
-      replicationSequence: uint,
+      replicationSequence: nullable(uint),
       appliedCut: nullable(cut),
       code: nullable(text),
       receipt: nullable(record),
@@ -719,7 +741,7 @@ const schemas: Readonly<Record<string, Check>> = {
     opId: id,
     outcome: one("applied", "pending", "no_changes", "op_rejected", "indeterminate"),
     revision: nullable(uint),
-    replicationSequence: uint,
+    replicationSequence: nullable(uint),
     code: nullable(text),
     receipt: record,
   }),
@@ -735,12 +757,12 @@ const schemas: Readonly<Record<string, Check>> = {
   }),
   "fleet.runtime.event.result/v1": shape({
     ...reply,
-    replicationSequence: uint,
+    replicationSequence: nullable(uint),
     event: nullable(record),
     receipt: record,
   }),
-  "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, archive: record }),
-  "fleet.runtime.archive.result/v1": shape({ ...reply, replicationSequence: uint, receipt: record }),
+  "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, opId: id, archive: record }),
+  "fleet.runtime.archive.result/v1": shape({ ...reply, replicationSequence: nullable(uint), receipt: record }),
   "fleet.runtime.await/v1": shape({
     ...common,
     repoId: id,
@@ -779,6 +801,22 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
     );
   if (Buffer.byteLength(JSON.stringify(value)) > FLEET_FRAME_BYTES)
     throw new FleetContractError("Fleet frame exceeds 98304 bytes");
+  if (
+    record(value) &&
+    [
+      "fleet.doc.result/v1",
+      "fleet.task.result/v1",
+      "fleet.schedule.result/v1",
+      "fleet.runtime.event.result/v1",
+      "fleet.runtime.archive.result/v1",
+    ].includes(value.schema)
+  ) {
+    const outcome =
+      record(value.receipt) && typeof value.receipt.outcome === "string" ? value.receipt.outcome : value.outcome;
+    const applied = outcome === "applied";
+    if ((applied && typeof value.replicationSequence !== "number") || (!applied && value.replicationSequence !== null))
+      throw new FleetContractError("Fleet write result replicationSequence does not match outcome");
+  }
   return value as FleetFrameV1;
 }
 export function serializeFleetFrame(value: unknown): string {

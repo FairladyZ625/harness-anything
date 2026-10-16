@@ -15,6 +15,26 @@ function declaredWriteRoads(rootDir, violations) {
     "workspace.bootstrap": [],
     "daemon.runtime-control": [],
     "projection.sqlite": [],
+    "fleet.edge-write": [
+      "fleet.doc.submit/v1",
+      "fleet.task.command/v1",
+      "fleet.schedule.command/v1",
+      "fleet.runtime.event/v1",
+      "fleet.runtime.archive/v1",
+      "fleet.upload.begin/v1",
+      "fleet.upload.chunk/v1",
+      "fleet.upload.finish/v1",
+    ],
+    "fleet.center-write": [
+      "fleet.doc.submit/v1",
+      "fleet.task.command/v1",
+      "fleet.schedule.command/v1",
+      "fleet.runtime.event/v1",
+      "fleet.runtime.archive/v1",
+      "fleet.upload.begin/v1",
+      "fleet.upload.chunk/v1",
+      "fleet.upload.finish/v1",
+    ],
   };
   let declarations;
   try {
@@ -117,6 +137,12 @@ export function findWriteRoadRegistryViolations(
       "lifecycle.event-publication: authority/store/leasePolicy must bind RepoCell -> task event store -> domain contract",
     );
   }
+  const edge = registry.rows.find((row) => row.id === "fleet.edge-write"),
+    center = registry.rows.find((row) => row.id === "fleet.center-write");
+  if (edge?.authority !== "packages/daemon/src/fleet-edge-write.ts")
+    violations.push("fleet.edge-write: authority must be packages/daemon/src/fleet-edge-write.ts");
+  if (center?.authority !== "packages/daemon/src/fleet/center-listener.ts")
+    violations.push("fleet.center-write: authority must be packages/daemon/src/fleet/center-listener.ts");
   const cli = read(path.join(rootDir, "packages/cli/src/cli/thin-command.ts"));
   for (const action of expectedRows["lifecycle.event-publication"])
     if (!cli.includes(`"${action}"`)) violations.push(`thin CLI is missing lifecycle action ${action}`);

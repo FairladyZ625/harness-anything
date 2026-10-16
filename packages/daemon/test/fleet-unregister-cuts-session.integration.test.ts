@@ -63,6 +63,7 @@ test(
     // While the node is registered, repository metadata and upload/ack frames all work.
     const ready = await peer.request({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: "begin",
       repoId,
       content: {
@@ -75,6 +76,7 @@ test(
     if (ready.schema !== "fleet.upload.ready/v1") return;
     const chunked = await peer.request({
       schema: "fleet.upload.chunk/v1",
+      opId: "op-upload-test",
       messageId: "chunk",
       uploadId: ready.uploadId,
       offset: 0,
@@ -83,6 +85,7 @@ test(
     assert.equal(chunked.schema, "fleet.upload.ready/v1");
     const staged = await peer.request({
       schema: "fleet.upload.finish/v1",
+      opId: "op-upload-test",
       messageId: "finish",
       uploadId: ready.uploadId,
     });
