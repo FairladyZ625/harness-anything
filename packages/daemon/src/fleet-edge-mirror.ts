@@ -194,6 +194,14 @@ export function scanFleetMirrorWorktree(
   selection?: readonly string[],
 ): FleetMirrorScan {
   const root = materializedRoot(workspaceRoot),
+    markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
+    materializedEntries: ReadonlySet<string> = existsSync(markerPath)
+      ? new Set<string>(
+          Object.keys(
+            (JSON.parse(readFileSync(markerPath, "utf8")) as { entries?: Record<string, string> }).entries ?? {},
+          ),
+        )
+      : new Set(view.entries.keys()),
     wanted = selection ? new Set(selection) : null,
     changes: FleetMirrorDirtyFile[] = [],
     cleanPaths: string[] = [],
@@ -256,6 +264,7 @@ export function scanFleetMirrorWorktree(
     (logical) =>
       (!wanted || wanted.has(logical)) &&
       (logical.endsWith(".md") || logical.endsWith(".txt")) &&
+      materializedEntries.has(logical) &&
       !existsSync(path.join(root, ...logical.split("/"))),
   );
   for (const logical of deletedPaths)
