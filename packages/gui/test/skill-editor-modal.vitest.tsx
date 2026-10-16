@@ -83,6 +83,7 @@ async function renderSkillEditorModal(): Promise<HTMLElement> {
   await act(async () => {
     root.render(
       createElement(SkillEditorModal, {
+        open: true,
         skill: { id: "review", path: SKILL_DIR },
         availableSkills,
         onClose: noop,

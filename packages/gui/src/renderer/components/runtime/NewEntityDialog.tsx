@@ -1,5 +1,5 @@
 import { Notice } from "../primitives/Notice";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { AgentEntityAvailableRow, SquadEntityAvailableRow } from "../../agent-entity-client.ts";
 import { agentRuntimeTargetSummary } from "@harness-anything/daemon/protocol";
 import { t } from "../../i18n/index.tsx";
@@ -25,6 +25,7 @@ export const entitySlug = (value: string): boolean => /^[a-z0-9][a-z0-9-]{0,63}$
 // template reads that entity's declaration and rewrites only the identity, so a new
 // worker inherits the instructions the template author actually wrote.
 export function NewEntityDialog({
+  open,
   kind,
   agents,
   squads,
@@ -35,6 +36,7 @@ export function NewEntityDialog({
   onCancel,
   onCreate,
 }: {
+  readonly open: boolean;
   readonly kind: "agent" | "squad";
   readonly agents: readonly AgentEntityAvailableRow[];
   readonly squads: readonly SquadEntityAvailableRow[];
@@ -52,6 +54,15 @@ export function NewEntityDialog({
     [id, setId] = useState(initialId ?? ""),
     [name, setName] = useState(""),
     [leaderTurnBudget, setLeaderTurnBudget] = useState("");
+  // 组件随退场动画常驻,重新打开时回到初始表单——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (!open) return;
+    setTemplateId(null);
+    setPicked(false);
+    setId(initialId ?? "");
+    setName("");
+    setLeaderTurnBudget("");
+  }, [open, initialId]);
   const collision = taken.includes(id.trim()),
     validBudget = Number.isSafeInteger(Number(leaderTurnBudget)) && Number(leaderTurnBudget) >= 1,
     valid =
@@ -71,6 +82,7 @@ export function NewEntityDialog({
   };
   return (
     <Modal
+      open={open}
       testId={`new-${kind}-dialog`}
       wide
       title={t(kind === "agent" ? "agentRuntime.newAgentTitle" : "agentRuntime.newSquadTitle")}

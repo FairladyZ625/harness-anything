@@ -362,6 +362,7 @@ describe("runtime entry split (W6 IA)", () => {
     const onSubmit = vi.fn();
     await mountView(
       createElement(DispatchDialog, {
+        open: true,
         subject: { kind: "agent", agent: { agentId: "terra", agentName: "terra", runtimes: [{ type: "codex" }] } },
         instances: [providerInstance],
         tasks: [{ taskId: "task-bound", title: "Bound task title", heldLease: false }],

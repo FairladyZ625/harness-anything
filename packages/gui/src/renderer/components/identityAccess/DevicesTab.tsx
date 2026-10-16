@@ -150,13 +150,14 @@ export function DevicesTab({ access }: { readonly access: AccessAdminApi }) {
           </Button>
         )}
       </div>
-      {editing && (
-        <Modal
-          title={t("devices.rename")}
-          onClose={() => {
-            if (!busy) setEditing(null);
-          }}
-          footer={
+      <Modal
+        open={editing !== null}
+        title={t("devices.rename")}
+        onClose={() => {
+          if (!busy) setEditing(null);
+        }}
+        footer={
+          editing ? (
             <Button
               disabled={busy || !name.trim()}
               testId="device-save-name"
@@ -172,35 +173,36 @@ export function DevicesTab({ access }: { readonly access: AccessAdminApi }) {
             >
               {t("devices.save")}
             </Button>
-          }
-        >
-          <label className="flex flex-col gap-2">
-            {t("devices.name")}
-            <input
-              className={INPUT}
-              data-testid="device-name"
-              value={name}
-              onChange={(event) => setName(event.currentTarget.value)}
-            />
-          </label>
-        </Modal>
-      )}
-      {confirm && (
-        <Modal
-          title={confirm.label}
-          testId="device-confirmation"
-          onClose={() => {
-            if (!busy) setConfirm(null);
-          }}
-          footer={
+          ) : undefined
+        }
+      >
+        <label className="flex flex-col gap-2">
+          {t("devices.name")}
+          <input
+            className={INPUT}
+            data-testid="device-name"
+            value={name}
+            onChange={(event) => setName(event.currentTarget.value)}
+          />
+        </label>
+      </Modal>
+      <Modal
+        open={confirm !== null}
+        title={confirm?.label ?? ""}
+        testId="device-confirmation"
+        onClose={() => {
+          if (!busy) setConfirm(null);
+        }}
+        footer={
+          confirm ? (
             <Button disabled={busy} testId="device-confirm" onClick={() => void mutate(confirm.write)}>
               {confirm.label}
             </Button>
-          }
-        >
-          <p>{t("devices.confirmation")}</p>
-        </Modal>
-      )}
+          ) : undefined
+        }
+      >
+        <p>{t("devices.confirmation")}</p>
+      </Modal>
     </Region>
   );
 }

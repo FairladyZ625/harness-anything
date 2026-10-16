@@ -2,7 +2,7 @@ import { Notice } from "../primitives/Notice";
 import { Toggle } from "../primitives/Toggle.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { runtimeIsolationState, runtimePermissionMode } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstallationRow, RuntimeInstanceCreateInput } from "../../runtime-instance-client.ts";
 import {
@@ -58,6 +58,7 @@ const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
 // plane, never from a free-form toggle: agy renders no auth choice at all, claude renders
 // one instance with an optional API override, codex renders the two separate call paths.
 export function NewRuntimeDialog({
+  open,
   installations,
   existingInstanceIds = [],
   busy,
@@ -66,6 +67,7 @@ export function NewRuntimeDialog({
   onCancel,
   onCreate,
 }: {
+  readonly open: boolean;
   readonly installations: readonly RuntimeInstallationRow[];
   readonly existingInstanceIds?: readonly string[];
   readonly busy: boolean;
@@ -77,6 +79,12 @@ export function NewRuntimeDialog({
 }) {
   const [form, setForm] = useState<CreateInstanceFormState>(() => emptyForm(initialKind)),
     [customModelOpen, setCustomModelOpen] = useState(false);
+  // 组件随退场动画常驻,重新打开时回到初始表单——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (!open) return;
+    setForm(emptyForm(initialKind));
+    setCustomModelOpen(false);
+  }, [open, initialKind]);
   const plane = runtimeProviderPlane(form.kindId),
     witnessed = installations.filter((row) => row.kindId === form.kindId);
   const installationId = witnessed.some((row) => row.installationId === form.installationId)
@@ -101,6 +109,7 @@ export function NewRuntimeDialog({
   const patch = (value: Partial<CreateInstanceFormState>) => setForm((current) => ({ ...current, ...value }));
   return (
     <Modal
+      open={open}
       testId="new-runtime-dialog"
       title={t("agentRuntime.newRuntimeTitle")}
       hint={t("agentRuntime.newRuntimeHint")}

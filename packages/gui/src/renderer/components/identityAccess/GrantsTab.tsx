@@ -209,12 +209,13 @@ export function GrantsTab({
           </div>
         </Region>
       )}
-      {personId !== null && !pending && (
-        <Modal
-          title={t("accessControl.members.openGrant")}
-          testId="access-grant-form"
-          onClose={() => setPersonId(null)}
-          footer={
+      <Modal
+        open={personId !== null && !pending}
+        title={t("accessControl.members.openGrant")}
+        testId="access-grant-form"
+        onClose={() => setPersonId(null)}
+        footer={
+          personId !== null ? (
             <Button
               testId="access-grant-submit"
               variant="primary"
@@ -223,8 +224,10 @@ export function GrantsTab({
             >
               {t("accessControl.grants.grant")}
             </Button>
-          }
-        >
+          ) : undefined
+        }
+      >
+        {personId !== null && (
           <div className="flex flex-col gap-3">
             <p className="ui-body">{personId}</p>
             <label className="flex flex-col gap-1 ui-meta">
@@ -292,20 +295,25 @@ export function GrantsTab({
               </label>
             )}
           </div>
-        </Modal>
-      )}
-      {pending && (
-        <Modal
-          title={t(
-            pending.operation === "grant"
-              ? "accessControl.members.confirmGrant"
-              : "accessControl.members.confirmRevoke",
-          )}
-          testId="access-grant-confirmation"
-          onClose={() => {
-            if (!busy) setPending(null);
-          }}
-          footer={
+        )}
+      </Modal>
+      <Modal
+        open={pending !== null}
+        title={
+          pending === null
+            ? ""
+            : t(
+                pending.operation === "grant"
+                  ? "accessControl.members.confirmGrant"
+                  : "accessControl.members.confirmRevoke",
+              )
+        }
+        testId="access-grant-confirmation"
+        onClose={() => {
+          if (!busy) setPending(null);
+        }}
+        footer={
+          pending !== null ? (
             <div className="flex gap-2">
               <Button testId="access-change-confirm" variant="primary" disabled={busy} onClick={() => void confirm()}>
                 {t(
@@ -318,14 +326,18 @@ export function GrantsTab({
                 {t("accessControl.members.cancel")}
               </Button>
             </div>
-          }
-        >
-          <p className="ui-body">
-            {pending.grant.personId} · {name(pending.grant.groupId)} · {resourceLabel(pending.grant.resource)}
-          </p>
-          <p className="mt-2 text-text-muted ui-body">{t("accessControl.members.confirmHint")}</p>
-        </Modal>
-      )}
+          ) : undefined
+        }
+      >
+        {pending !== null && (
+          <>
+            <p className="ui-body">
+              {pending.grant.personId} · {name(pending.grant.groupId)} · {resourceLabel(pending.grant.resource)}
+            </p>
+            <p className="mt-2 text-text-muted ui-body">{t("accessControl.members.confirmHint")}</p>
+          </>
+        )}
+      </Modal>
     </div>
   );
 }

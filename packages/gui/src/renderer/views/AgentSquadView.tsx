@@ -1,5 +1,5 @@
 import { Notice } from "../components/primitives/Notice";
-import { useDeferredValue, useState, type ReactNode } from "react";
+import { useDeferredValue, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { agentEntityClient, isAvailableAgentEntityRow, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { useCatalogSnapshot } from "../catalog-data.ts";
@@ -97,6 +97,10 @@ export function AgentSquadView({
   const [dialog, setDialog] = useState<Dialog | null>(null),
     // 查看者本地过滤状态:内存即可,不写台账(任务契约 §6)。deferred 保输入不卡。
     [filters, setFilters] = useState<AgentSquadFilters>(DEFAULT_AGENT_SQUAD_FILTERS);
+  // 两个弹窗随退场动画常驻:关闭时 dialog 已置空,持住最近一份供退场渲染。
+  const lastDialog = useRef(dialog);
+  if (dialog !== null) lastDialog.current = dialog;
+  const heldDialog = lastDialog.current;
   const deferredQuery = useDeferredValue(filters.query),
     effectiveFilters = filters.query === deferredQuery ? filters : { ...filters, query: deferredQuery };
   const agentRows = workspace.agents.data ?? [],
@@ -440,26 +444,28 @@ export function AgentSquadView({
           ) : null}
         </main>
       </CatalogSplit>
-      {dialog?.kind === "new-entity" && (
+      {heldDialog?.kind === "new-entity" && (
         <NewEntityDialog
-          kind={dialog.entity}
+          open={dialog?.kind === "new-entity"}
+          kind={heldDialog.entity}
           agents={agents}
           squads={squads}
           busy={workspace.busy}
           actionError={workspace.error}
-          initialId={dialog.initialId}
-          taken={dialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)}
+          initialId={heldDialog.initialId}
+          taken={heldDialog.entity === "agent" ? agents.map((agent) => agent.id) : squads.map((squad) => squad.id)}
           onCancel={() => setDialog(null)}
           onCreate={(request) => void createEntity(request)}
         />
       )}
-      {dialog?.kind === "dispatch" && (
+      {heldDialog?.kind === "dispatch" && (
         <DispatchDialog
-          subject={dialog.subject}
+          open={dialog?.kind === "dispatch"}
+          subject={heldDialog.subject}
           instances={workspace.instances}
           tasks={tasks}
-          prompts={dialog.prompts}
-          initialMission={dialog.mission}
+          prompts={heldDialog.prompts}
+          initialMission={heldDialog.mission}
           busy={workspace.busy}
           notice={workspace.settlement?.state === "pending" ? workspace.settlement.hint : null}
           onCancel={() => setDialog(null)}

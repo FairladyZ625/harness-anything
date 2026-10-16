@@ -12,7 +12,7 @@ test("return requires feedback and an explicit mode, with cancellation available
     onReturn = vi.fn(),
     onClose = vi.fn();
   document.body.append(host);
-  await act(async () => root.render(<TaskReturnDialog onClose={onClose} onReturn={onReturn} />));
+  await act(async () => root.render(<TaskReturnDialog open onClose={onClose} onReturn={onReturn} />));
   try {
     const resume = host.querySelector<HTMLButtonElement>('[data-testid="task-return-resume"]')!,
       fresh = host.querySelector<HTMLButtonElement>('[data-testid="task-return-fresh"]')!,

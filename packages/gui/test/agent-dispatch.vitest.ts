@@ -233,6 +233,7 @@ describe("agent dispatch flow", () => {
   it("renders the prototype dispatch modal: who, task, mission, runtime, and what it produces", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
+        open: true,
         subject: agentSubject,
         instances: [codexInstance, claudeInstance],
         tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: true }],
@@ -264,6 +265,7 @@ describe("agent dispatch flow", () => {
   it("authors the mission as one field, with no title input that never reaches the spawn payload", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
+        open: true,
         subject: agentSubject,
         instances: [codexInstance],
         tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: true }],
@@ -285,6 +287,7 @@ describe("agent dispatch flow", () => {
   it("opens on the mission step and offers the agent's predefined prompts when entered from one", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
+        open: true,
         subject: agentSubject,
         instances: [codexInstance],
         tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }],
@@ -303,6 +306,7 @@ describe("agent dispatch flow", () => {
   it("renders the squad dialog with a fixed Commander and no worker selector", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
+        open: true,
         subject: squadSubject,
         instances: [codexInstance, claudeInstance],
         tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }],
@@ -333,6 +337,7 @@ describe("agent dispatch flow", () => {
     const submitted: DispatchRequest[] = [];
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
+        open: true,
         subject: agentSubject,
         instances: [codexInstance],
         tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: true }],
@@ -596,6 +601,7 @@ describe("agent dispatch flow", () => {
   it("offers the dispatch context preview entry beside the submit, gated on the same readiness", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchDialog, {
+        open: true,
         subject: agentSubject,
         instances: [codexInstance],
         tasks: [{ taskId: "task-dispatch", title: "Dispatch task", heldLease: false }],
@@ -615,6 +621,7 @@ describe("agent dispatch flow", () => {
   it("renders the previewed mission and prompt verbatim in the read-only modal", () => {
     const markup = renderToStaticMarkup(
       createElement(DispatchPreviewModal, {
+        open: true,
         preview: {
           dispatchId: "dispatch-preview",
           runtimeSessionId: "runtime-preview",

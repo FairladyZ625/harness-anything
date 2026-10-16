@@ -151,17 +151,22 @@ export function TeamsTab({ access }: { readonly access: AccessAdminApi }) {
           </Region>
         </BoardSide>
       </RegionBoard>
-      {pending && selected && change && (
-        <Modal
-          title={t(pending.adding ? "accessControl.teams.confirmAdd" : "accessControl.teams.confirmRemove", {
-            person: pending.personId,
-            team: selected.name,
-          })}
-          testId="access-team-confirmation"
-          onClose={() => {
-            if (!busy) setPending(null);
-          }}
-          footer={
+      <Modal
+        open={pending !== null && selected !== undefined && change !== null}
+        title={
+          pending && selected
+            ? t(pending.adding ? "accessControl.teams.confirmAdd" : "accessControl.teams.confirmRemove", {
+                person: pending.personId,
+                team: selected.name,
+              })
+            : ""
+        }
+        testId="access-team-confirmation"
+        onClose={() => {
+          if (!busy) setPending(null);
+        }}
+        footer={
+          pending && change ? (
             <div className="flex gap-2">
               <Button
                 testId="access-team-confirm"
@@ -181,11 +186,11 @@ export function TeamsTab({ access }: { readonly access: AccessAdminApi }) {
                 {t("accessControl.members.cancel")}
               </Button>
             </div>
-          }
-        >
-          <p>{t("accessControl.teams.rule")}</p>
-        </Modal>
-      )}
+          ) : undefined
+        }
+      >
+        <p>{t("accessControl.teams.rule")}</p>
+      </Modal>
     </>
   );
 }

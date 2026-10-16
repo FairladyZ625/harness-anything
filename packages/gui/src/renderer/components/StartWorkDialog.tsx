@@ -1,5 +1,5 @@
 import { Notice } from "./primitives/Notice";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
 import { useCatalogPreset } from "../catalog-data.ts";
@@ -53,6 +53,7 @@ const BLOCKER_LABEL: Record<"title" | "intent" | "preset", () => string> = {
 };
 
 export function StartWorkDialog({
+  open,
   repoId,
   catalog,
   catalogError,
@@ -62,6 +63,7 @@ export function StartWorkDialog({
   onRefreshLedger,
   onOpenTask,
 }: {
+  readonly open: boolean;
   readonly repoId: string;
   /** `repo.gui.catalog.snapshot` 同一条投影(App 已挂载);undefined = 尚未读到。 */
   readonly catalog: CatalogSnapshotSuccess | undefined;
@@ -83,6 +85,21 @@ export function StartWorkDialog({
     parentTaskId: null,
   });
   const [lookupRequested, setLookupRequested] = useState(false);
+  // 组件随退场动画常驻,重新打开时回到第一步的空白草稿——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (!open) return;
+    setStep("type");
+    setDraft({
+      title: "",
+      intent: "",
+      presetId: "",
+      profileId: null,
+      taskClass: START_WORK_TASK_CLASSES[0],
+      workKind: START_WORK_WORK_KINDS[0],
+      parentTaskId: null,
+    });
+    setLookupRequested(false);
+  }, [open]);
   // 目录快照到达前 presetId 为空;到达后落到仓库默认值一次,之后由用户接管。
   const defaultPresetId = catalog?.defaults.presetId ?? "";
   const effectiveDraft: StartWorkDraft =
@@ -113,6 +130,7 @@ export function StartWorkDialog({
 
   return (
     <Modal
+      open={open}
       wide
       testId="start-work-dialog"
       title={t("views.work.startWork.dialogTitle")}

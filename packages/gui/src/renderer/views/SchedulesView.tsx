@@ -218,9 +218,9 @@ export function ScheduleWorkspace({
           }}
         />
       )}
-      {dialog !== null && data !== null && (
+      {data !== null && (
         <ScheduleFormDialog
-          key="create"
+          open={dialog !== null}
           options={data.options}
           scheduleIds={rows.map((row) => row.scheduleId)}
           initial={null}

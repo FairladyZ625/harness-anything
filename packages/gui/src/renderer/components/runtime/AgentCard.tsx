@@ -1,6 +1,6 @@
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
 import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
@@ -132,6 +132,10 @@ export function AgentCard({
     [skillSearch, setSkillSearch] = useState(""),
     [presetSearch, setPresetSearch] = useState(""),
     [viewingSkill, setViewingSkill] = useState<ViewingSkill | null>(null);
+  // 技能编辑弹窗随退场动画常驻:关闭时 viewingSkill 已置空,持住最近一份供退场渲染。
+  const lastViewingSkill = useRef(viewingSkill);
+  if (viewingSkill !== null) lastViewingSkill.current = viewingSkill;
+  const heldViewingSkill = lastViewingSkill.current;
   useEffect(() => {
     setDraft(agentDraftFrom(detail));
   }, [detail]);
@@ -661,9 +665,10 @@ export function AgentCard({
           {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>
       </Card>
-      {viewingSkill !== null && (
+      {heldViewingSkill !== null && (
         <SkillEditorModal
-          skill={viewingSkill}
+          open={viewingSkill !== null}
+          skill={heldViewingSkill}
           availableSkills={availableSkills}
           onClose={() => setViewingSkill(null)}
         />

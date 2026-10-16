@@ -324,20 +324,19 @@ function ComponentCatalog() {
           <Button testId="catalog-open-modal" onClick={() => setModalOpen(true)}>
             打开长内容弹层
           </Button>
-          {modalOpen && (
-            <Modal
-              title="长内容弹层"
-              testId="catalog-modal"
-              onClose={() => setModalOpen(false)}
-              footer={<Button onClick={() => setModalOpen(false)}>完成</Button>}
-            >
-              <label>
-                示例输入
-                <input aria-label="示例输入" />
-              </label>
-              <pre>{("wide-line/".repeat(25) + "\n").repeat(80)}</pre>
-            </Modal>
-          )}
+          <Modal
+            open={modalOpen}
+            title="长内容弹层"
+            testId="catalog-modal"
+            onClose={() => setModalOpen(false)}
+            footer={<Button onClick={() => setModalOpen(false)}>完成</Button>}
+          >
+            <label>
+              示例输入
+              <input aria-label="示例输入" />
+            </label>
+            <pre>{("wide-line/".repeat(25) + "\n").repeat(80)}</pre>
+          </Modal>
           <p className="text-text-muted ui-meta">
             日志、评审、时间线和文件预览共用可用高度的 55% 上限，超出内容在自身区域滚动，不撑长页面。
           </p>
