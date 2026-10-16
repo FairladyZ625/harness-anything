@@ -376,6 +376,9 @@ export function createDaemonHostRuntimeApi(
           return context.host.read(request.repoId, request.method, request.action, auth) as unknown as Promise<
             Record<string, unknown>
           >;
+        // Runtime reads may race the asynchronous resident stream startup after daemon attach.
+        // Register the stream before ensureReady decides whether its first generation exists.
+        context.startReplicaSyncs();
         const result = await context.edgeRuntimeFor(request).run(request.method, request.action, auth.connectionSignal);
         await context.scheduleScheduler.refresh();
         return result;
