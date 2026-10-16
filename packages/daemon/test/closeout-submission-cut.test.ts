@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { sha256Bytes } from "@harness-anything/kernel";
-import { deriveCloseoutSubmission, submissionAnchorDriftWarnings } from "../src/repo-cell-submit.ts";
+import { deriveCloseoutSubmission, submissionAnchorDriftWarnings, submissionStopped } from "../src/repo-cell-submit.ts";
 import { openDispatchStream } from "../src/dispatch-stream.ts";
 
 const packagePath = "tasks/task-1";
@@ -517,6 +517,57 @@ test("implicit delivery fails closed when the task has no accepted artifacts", (
   assert.throws(
     () => derive(root, `Delivered ${empty}.`, undefined, [], undefined, undefined, undefined, "task-package-artifact"),
     { code: "invalid_submission", message: /artifacts/u },
+  );
+});
+
+test("an artifactless private delivery guides the next action at artifacts/, not closeout.md", (t) => {
+  const { root } = fixture(t);
+  const stop = (error: unknown) =>
+    submissionStopped(
+      {
+        rejected: (opId: string, code: string) => ({ opId, outcome: "op_rejected", code }),
+        operationId: () => "op-stop-1",
+        input: { repoId: "repo-stop" },
+      } as unknown as Parameters<typeof submissionStopped>[0],
+      { kind: "task-submit", taskId: "task-1" } as unknown as Parameters<typeof submissionStopped>[1],
+      {} as Parameters<typeof submissionStopped>[2],
+      {
+        revision: 3,
+        lease: null,
+        reviews: [],
+        executions: [],
+        task: { createdBy: { principal: { personId: "owner" } }, iteration: 1 },
+      } as unknown as Parameters<typeof submissionStopped>[3],
+      "execution-1",
+      packagePath,
+      error,
+    ) as { readonly code: string; readonly next: readonly { readonly action: string }[] };
+  let thrown: unknown;
+  try {
+    derive(root, "Delivered nothing yet.", undefined, [], undefined, undefined, undefined, "task-package-artifact");
+    assert.fail("the artifactless private delivery must stop");
+  } catch (error) {
+    thrown = error;
+  }
+  const receipt = stop(thrown);
+  assert.equal(receipt.code, "document_invalid");
+  assert.deepEqual(
+    receipt.next.map(({ action }) => action),
+    [
+      `Write the deliverable into harness/${packagePath}/artifacts/ (closeout.md and runtime reports are not deliverables), ` +
+        `run ha doc sync --submit --task task-1, then run ha task submit task-1.`,
+    ],
+  );
+  // Control: every stop whose guard carries no remedy of its own keeps the closeout-first guidance.
+  assert.deepEqual(
+    stop(
+      Object.assign(new Error("Requested delivery commit a does not match bound worktree HEAD b."), {
+        code: "invalid_submission",
+      }),
+    ).next.map(({ action }) => action),
+    [
+      `Fill harness/${packagePath}/closeout.md, run ha doc sync --submit --task task-1, then run ha task submit task-1.`,
+    ],
   );
 });
 
