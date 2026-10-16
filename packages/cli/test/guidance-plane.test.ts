@@ -522,13 +522,13 @@ test("rejected submit receipts render the daemon's completion guidance as next s
           completionGuidance(
             guidanceSnapshot,
             "exe-a",
-            "ha task submit --amend task-a",
+            "ha task submit task-a --amend",
             "Amend the submitted cut explicitly before review.",
           ),
           { command: "ha task show task-a" },
         ],
         lines: [
-          "next: ha task submit --amend task-a (Amend the submitted cut explicitly before review.)",
+          "next: ha task submit task-a --amend (Amend the submitted cut explicitly before review.)",
           "next: ha task show task-a",
         ],
       },

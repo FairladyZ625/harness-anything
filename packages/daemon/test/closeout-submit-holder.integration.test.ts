@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { HARNESS_LEDGER_WRITER_ENV, isTaskEvent, makeTaskEventReader } from "@harness-anything/kernel";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo } from "./task-surface.fixtures.ts";
@@ -135,7 +136,11 @@ test("closeout submit preserves holder authority and resumes one cut after a dis
     );
     const bareChanged = await submit();
     assert.equal(bareChanged.outcome, "op_rejected", JSON.stringify(bareChanged));
-    assert.match(JSON.stringify(bareChanged.next), new RegExp(`task submit --amend ${taskId}`, "u"));
+    assert.match(JSON.stringify(bareChanged.next), new RegExp(`task submit ${taskId} --amend`, "u"));
+    // The amend hint rides the rejected receipt; it must survive copy-paste into the CLI parser.
+    const hinted = JSON.stringify(bareChanged.next).match(/ha task submit \S+ --amend/u)?.[0];
+    assert.ok(hinted, `no submit --amend hint in ${JSON.stringify(bareChanged.next)}`);
+    assert.ok(parseThinCommand(hinted.slice("ha ".length).split(" ")).ok, hinted);
     assert.deepEqual(events(), before, "a changed bare retry must not reuse the prior applied receipt");
     let amended = await cell.run({ kind: "task-submit", taskId, executionId, amend: true }, holder);
     for (let attempt = 0; amended.outcome === "pending" && attempt < 4; attempt += 1) {

@@ -370,7 +370,7 @@ function ownerResumeLanes(
   if (!task || !isSamePerson(task.createdBy, actor)) return "";
   const review = currentCutReviewForReturn(snapshot, executionId);
   return (
-    ` The owning creator may instead replace the cut with ha task submit --amend ${taskId} --as-owner` +
+    ` The owning creator may instead replace the cut with ha task submit ${taskId} --amend --as-owner` +
     `, or reopen the rework round with ha task adjudicate ${taskId} --return${review ? ` --review-id ${review.reviewId}` : ""}.`
   );
 }
@@ -460,7 +460,7 @@ export async function submitTask(
   if (!selected || (!isSameExecution(selected.actor, binding.actor) && !ownerAmendment && !ownerSubmission && !event))
     return cell.lifecycleAction(action, binding);
   const executionId = selected.executionId,
-    amendCommand = `ha task submit --amend ${taskId}${
+    amendCommand = `ha task submit ${taskId} --amend${
       current.snapshot.task &&
       isSamePerson(current.snapshot.task.createdBy, binding.actor) &&
       !isSameExecution(selected.actor, binding.actor)
