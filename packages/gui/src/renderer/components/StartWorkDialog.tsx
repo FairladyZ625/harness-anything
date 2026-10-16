@@ -1,5 +1,5 @@
 import { Notice } from "./primitives/Notice";
-import { useMemo, useState } from "react";
+import { useLayoutEffect, useMemo, useState } from "react";
 import { CheckCircle, Question, WarningCircle } from "@phosphor-icons/react";
 import type { CatalogSnapshotSuccess } from "../api-client-catalog.ts";
 import { useCatalogPreset } from "../catalog-data.ts";
@@ -53,6 +53,7 @@ const BLOCKER_LABEL: Record<"title" | "intent" | "preset", () => string> = {
 };
 
 export function StartWorkDialog({
+  open,
   repoId,
   catalog,
   catalogError,
@@ -62,6 +63,7 @@ export function StartWorkDialog({
   onRefreshLedger,
   onOpenTask,
 }: {
+  readonly open: boolean;
   readonly repoId: string;
   /** `repo.gui.catalog.snapshot` 同一条投影(App 已挂载);undefined = 尚未读到。 */
   readonly catalog: CatalogSnapshotSuccess | undefined;
@@ -83,27 +85,27 @@ export function StartWorkDialog({
     parentTaskId: null,
   });
   const [lookupRequested, setLookupRequested] = useState(false);
+  // 组件随退场动画常驻,重新打开时回到第一步的空白草稿——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (!open) return;
+    setStep("type");
+    setDraft({
+      title: "",
+      intent: "",
+      presetId: "",
+      profileId: null,
+      taskClass: START_WORK_TASK_CLASSES[0],
+      workKind: START_WORK_WORK_KINDS[0],
+      parentTaskId: null,
+    });
+    setLookupRequested(false);
+  }, [open]);
   // 目录快照到达前 presetId 为空;到达后落到仓库默认值一次,之后由用户接管。
   const defaultPresetId = catalog?.defaults.presetId ?? "";
   const effectiveDraft: StartWorkDraft =
     draft.presetId === "" && defaultPresetId !== "" ? { ...draft, presetId: defaultPresetId } : draft;
   const presetRow = catalog?.presets.find((preset) => preset.id === effectiveDraft.presetId) ?? null;
   // 已解析 profile 只在第 3 步读:表单前两步不发任何请求。
-  const presetDetail = useCatalogPreset(
-    repoId,
-    step === "resources" && effectiveDraft.presetId !== "" ? effectiveDraft.presetId : null,
-    catalog?.defaults.locale ?? "zh-CN",
-  );
-  const completionGateIds = useMemo(() => {
-    const profile = presetDetail.data?.resolved.profile;
-    if (!profile || !Array.isArray(profile.completionGateIds)) return null;
-    return profile.completionGateIds.filter((gate): gate is string => typeof gate === "string");
-  }, [presetDetail.data]);
-  const preconditions = startWorkPreconditions({
-    daemonState,
-    presetValidity: presetRow?.validity ?? null,
-    completionGateIds,
-  });
   const blockers = startWorkBlockers(effectiveDraft);
   const command = startWorkCommand(effectiveDraft);
   const created = lookupRequested ? locateCreatedTask(tasks, effectiveDraft.title) : null;
@@ -113,6 +115,7 @@ export function StartWorkDialog({
 
   return (
     <Modal
+      open={open}
       wide
       testId="start-work-dialog"
       title={t("views.work.startWork.dialogTitle")}
@@ -166,12 +169,15 @@ export function StartWorkDialog({
         <IntentStep draft={effectiveDraft} onChange={setDraft} />
       ) : (
         <ResourcesStep
+          repoId={repoId}
+          locale={catalog?.defaults.locale ?? "zh-CN"}
+          presetId={effectiveDraft.presetId}
+          daemonState={daemonState}
+          presetValidity={presetRow?.validity ?? null}
           catalog={catalog}
           draft={effectiveDraft}
           blockers={blockers}
           command={command}
-          preconditions={preconditions}
-          gatesPending={presetDetail.isPending && completionGateIds === null}
           created={created}
           lookupRequested={lookupRequested}
           onVerify={() => {
@@ -333,28 +339,42 @@ const PRECONDITION_ICON = {
 };
 
 function ResourcesStep({
+  repoId,
+  locale,
+  presetId,
+  daemonState,
+  presetValidity,
   catalog,
   draft,
   blockers,
   command,
-  preconditions,
-  gatesPending,
   created,
   lookupRequested,
   onVerify,
   onOpenTask,
 }: {
+  readonly repoId: string;
+  readonly locale: string;
+  readonly presetId: string;
+  readonly daemonState: string;
+  readonly presetValidity: string | null;
   readonly catalog: CatalogSnapshotSuccess;
   readonly draft: StartWorkDraft;
   readonly blockers: readonly ("title" | "intent" | "preset")[];
   readonly command: ReturnType<typeof startWorkCommand>;
-  readonly preconditions: readonly StartWorkPrecondition[];
-  readonly gatesPending: boolean;
   readonly created: TaskRow | null;
   readonly lookupRequested: boolean;
   readonly onVerify: () => void;
   readonly onOpenTask: (taskId: string) => void;
 }) {
+  const presetDetail = useCatalogPreset(repoId, presetId !== "" ? presetId : null, locale);
+  const completionGateIds = useMemo(() => {
+    const profile = presetDetail.data?.resolved.profile;
+    if (!profile || !Array.isArray(profile.completionGateIds)) return null;
+    return profile.completionGateIds.filter((gate): gate is string => typeof gate === "string");
+  }, [presetDetail.data]);
+  const gatesPending = presetDetail.isPending && completionGateIds === null;
+  const preconditions = startWorkPreconditions({ daemonState, presetValidity, completionGateIds });
   return (
     <>
       <Sect title={t("views.work.startWork.preconditionsTitle")} desc={t("views.work.startWork.preconditionsDesc")}>

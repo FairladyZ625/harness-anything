@@ -1037,15 +1037,16 @@ function AppShell() {
             openTaskDetail(taskId);
           }}
         />
-        {returnTask?.repoId === projectId ? (
-          <TaskReturnDialog
-            onClose={() => setReturnTask(null)}
-            onReturn={(mode, feedback) => {
+        <TaskReturnDialog
+          open={returnTask?.repoId === projectId}
+          onClose={() => setReturnTask(null)}
+          onReturn={(mode, feedback) => {
+            if (returnTask !== null) {
               void taskActions.adjudicateTask(returnTask.task, "return", feedback, returnTask.reviewId, mode);
               setReturnTask(null);
-            }}
-          />
-        ) : null}
+            }
+          }}
+        />
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}

@@ -1,7 +1,7 @@
 import { Toggle } from "./primitives/Toggle.tsx";
 import { SegCtl } from "./primitives/SegCtl.tsx";
 import { Button } from "./primitives/Button.tsx";
-import { useMemo, useState, type ReactNode } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { AgentRuntimeInstanceDto } from "@harness-anything/daemon/protocol";
 import {
   compatibleDispatchInstances,
@@ -31,6 +31,7 @@ export interface DispatchDialogTaskOption {
   readonly heldLease: boolean;
 }
 export interface DispatchDialogProps {
+  readonly open: boolean;
   readonly subject: DispatchSubject;
   readonly instances: readonly AgentRuntimeInstanceDto[];
   readonly tasks: readonly DispatchDialogTaskOption[];
@@ -45,6 +46,7 @@ export interface DispatchDialogProps {
 }
 type StepKey = "who" | "task" | "mission" | "where";
 export function DispatchDialog({
+  open,
   subject,
   instances,
   tasks,
@@ -57,18 +59,39 @@ export function DispatchDialog({
   onPreview,
 }: DispatchDialogProps) {
   const [handoffEnabled, setHandoffEnabled] = useState(false);
-  const [open, setOpen] = useState<StepKey>(initialMission ? "mission" : "task");
+  const [step, setStep] = useState<StepKey>(initialMission ? "mission" : "task");
   const [taskId, setTaskId] = useState(""),
     [mission, setMission] = useState(initialMission);
   const [runtimeMode, setRuntimeMode] = useState<"auto" | "manual">("auto"),
     [runtimeInstanceId, setRuntimeInstanceId] = useState("");
   const [cwdScope, setCwdScope] = useState<"repo-root" | "repo-relative">("repo-root"),
-    [cwdPath, setCwdPath] = useState(""),
-    [model, setModel] = useState(""),
+    [cwdPath, setCwdPath] = useState("");
+  const [model, setModel] = useState(""),
     [effort, setEffort] = useState("");
   const [preview, setPreview] = useState<AgentDispatchPreview | null>(null),
     [previewing, setPreviewing] = useState(false),
     [previewFailed, setPreviewFailed] = useState(false);
+  // 组件随退场动画常驻,重新打开时回到初始表单——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (!open) return;
+    setHandoffEnabled(false);
+    setStep(initialMission ? "mission" : "task");
+    setTaskId("");
+    setMission(initialMission);
+    setRuntimeMode("auto");
+    setRuntimeInstanceId("");
+    setCwdScope("repo-root");
+    setCwdPath("");
+    setModel("");
+    setEffort("");
+    setPreview(null);
+    setPreviewing(false);
+    setPreviewFailed(false);
+  }, [open, initialMission]);
+  // 预览子弹窗随退场动画常驻:关闭时 preview 已置空,持住最近一份供退场渲染。
+  const heldPreview = useRef(preview);
+  if (preview !== null) heldPreview.current = preview;
+  const previewShown = heldPreview.current;
   const executor = dispatchExecutorRef({ subject }),
     executorRuntimes = executor?.runtimes ?? [];
   const compatible = useMemo(
@@ -116,6 +139,7 @@ export function DispatchDialog({
   return (
     <>
       <Modal
+        open={open}
         testId="dispatch-dialog"
         wide
         title={t("agentRuntime.dispatchTitle")}
@@ -173,8 +197,8 @@ export function DispatchDialog({
           title={t("agentRuntime.stepWho")}
           hint={t("agentRuntime.stepWhoHint")}
           current={subject.kind === "agent" ? subject.agent.agentName : subject.squadName}
-          open={open}
-          onOpen={setOpen}
+          open={step}
+          onOpen={setStep}
           locked
         >
           <div className="flex flex-wrap items-center gap-2 ui-meta">
@@ -213,8 +237,8 @@ export function DispatchDialog({
           title={t("agentRuntime.stepTask")}
           hint={t("agentRuntime.stepTaskHint")}
           current={task?.title ?? null}
-          open={open}
-          onOpen={setOpen}
+          open={step}
+          onOpen={setStep}
         >
           {tasks.length === 0 ? (
             <p className="ui-micro text-text-faint">{t("agentRuntime.noTasks")}</p>
@@ -226,7 +250,7 @@ export function DispatchDialog({
                 data-testid={`dispatch-task-${option.taskId}`}
                 onClick={() => {
                   setTaskId(option.taskId);
-                  setOpen("mission");
+                  setStep("mission");
                 }}
                 className={`mb-1.5 flex w-full items-center gap-2 rounded border px-2.5 py-1.5 text-left ${option.taskId === taskId ? "border-accent bg-accent/[0.08]" : "border-border hover:border-border-strong"}`}
               >
@@ -253,8 +277,8 @@ export function DispatchDialog({
           title={t("agentRuntime.stepMission")}
           hint={t("agentRuntime.stepMissionHint")}
           current={mission ? mission.slice(0, 40) : null}
-          open={open}
-          onOpen={setOpen}
+          open={step}
+          onOpen={setStep}
         >
           <textarea
             aria-label={t("agentRuntime.stepMission")}
@@ -291,8 +315,8 @@ export function DispatchDialog({
               ? t("agentRuntime.autoCompatible", { count: compatible.length })
               : (instance?.name ?? null)
           }
-          open={open}
-          onOpen={setOpen}
+          open={step}
+          onOpen={setStep}
         >
           <div className="flex flex-wrap items-center gap-2">
             <SegCtl
@@ -388,7 +412,9 @@ export function DispatchDialog({
           </div>
         </Step>
       </Modal>
-      {preview !== null && <DispatchPreviewModal preview={preview} onClose={() => setPreview(null)} />}
+      {previewShown !== null && (
+        <DispatchPreviewModal open={preview !== null} preview={previewShown} onClose={() => setPreview(null)} />
+      )}
     </>
   );
 }

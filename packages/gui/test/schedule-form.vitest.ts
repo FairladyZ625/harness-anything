@@ -73,6 +73,7 @@ async function renderForm(initial: ScheduleGuiRowDto | null): Promise<HTMLElemen
   await act(async () => {
     root.render(
       createElement(ScheduleFormDialog, {
+        open: true,
         options,
         scheduleIds: ["other-schedule"],
         initial,
@@ -143,6 +144,7 @@ describe("built-in schedule edit form", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial: builtinRow,
@@ -254,6 +256,7 @@ describe("segmented guided form (M5)", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial: null,
@@ -309,6 +312,7 @@ describe("segmented guided form (M5)", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options: mixed,
           scheduleIds: [],
           initial: null,
@@ -341,6 +345,7 @@ describe("interval round-trip (schedule duration vocabulary)", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial: {
@@ -402,6 +407,7 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial,
@@ -425,6 +431,7 @@ describe("real submit() payloads clear the preload and daemon gates", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial: remediateRow,
@@ -522,6 +529,7 @@ describe("cron round-trip on edit", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial: cronRow("30 2 * * 1,3"),
@@ -558,6 +566,7 @@ describe("cron round-trip on edit", () => {
     await act(async () => {
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options,
           scheduleIds: [],
           initial: cronRow("*/5 * * * *"),
@@ -586,6 +595,7 @@ describe("cron round-trip on edit", () => {
     await act(async () =>
       root.render(
         createElement(ScheduleFormDialog, {
+          open: true,
           options: {
             agents: [
               {

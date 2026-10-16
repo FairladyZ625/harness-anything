@@ -550,6 +550,7 @@ function scheduleAgentStateLabels(): Readonly<Record<"invalid" | "missing", stri
 }
 
 export function ScheduleFormDialog({
+  open,
   options,
   scheduleIds,
   initial,
@@ -558,6 +559,7 @@ export function ScheduleFormDialog({
   onCancel,
   onSubmit,
 }: {
+  readonly open: boolean;
   readonly options: ScheduleGuiOptionsDto;
   readonly scheduleIds: readonly string[];
   readonly initial: ScheduleGuiRowDto | null;
@@ -568,6 +570,7 @@ export function ScheduleFormDialog({
 }) {
   return (
     <Modal
+      open={open}
       testId="schedule-form-dialog"
       wide
       title={t(initial === null ? "schedules.form.createTitle" : "schedules.form.editTitle")}

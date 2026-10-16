@@ -1,18 +1,25 @@
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import { ArrowCounterClockwise, Plus } from "@phosphor-icons/react";
 import { Modal } from "../primitives/Modal.tsx";
 import { Button } from "../primitives/Button.tsx";
 
 export function TaskReturnDialog({
+  open,
   onClose,
   onReturn,
 }: {
+  readonly open: boolean;
   readonly onClose: () => void;
   readonly onReturn: (mode: "resume" | "fresh", feedback: string) => void;
 }) {
   const [feedback, setFeedback] = useState("");
+  // 组件随退场动画常驻,重新打开时清空上次反馈——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (open) setFeedback("");
+  }, [open]);
   return (
     <Modal
+      open={open}
       title="打回任务"
       testId="task-return-dialog"
       onClose={onClose}

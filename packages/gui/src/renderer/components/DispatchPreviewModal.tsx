@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { AgentDispatchPreview } from "../runtime-control.ts";
 import { t } from "../i18n/index.tsx";
 import { Modal } from "./primitives/Modal.tsx";
@@ -8,19 +8,26 @@ import { Button } from "./primitives/Button.tsx";
 // the full prompt the daemon would inject at this dispatch's launch boundary. The renderer
 // assembles nothing — every byte shown here came back from the daemon's dryRun call.
 export function DispatchPreviewModal({
+  open,
   preview,
   onClose,
 }: {
+  readonly open: boolean;
   readonly preview: AgentDispatchPreview;
   readonly onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  // 组件随退场动画常驻,重新打开时复位复制反馈——与旧的条件挂载逐次新建等价。
+  useLayoutEffect(() => {
+    if (open) setCopied(false);
+  }, [open]);
   const copy = async () => {
     await navigator.clipboard.writeText(preview.prompt);
     setCopied(true);
   };
   return (
     <Modal
+      open={open}
       testId="dispatch-preview"
       wide
       title={t("agentRuntime.previewTitle")}

@@ -16,6 +16,7 @@ const installation = {
 const dialog = () =>
   renderToStaticMarkup(
     createElement(NewRuntimeDialog, {
+      open: true,
       installations: [installation],
       busy: false,
       initialKind: "claude",

@@ -1,6 +1,6 @@
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from "react";
 import type { LocalDocReadResult, LocalDocWriteResult } from "../../../api/local-doc-contract.ts";
 import type { AgentSkillRow } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
@@ -46,10 +46,12 @@ export function resolveSkillManifestPath(skill: ViewingSkill, availableSkills: r
 }
 
 export function SkillEditorModal({
+  open,
   skill,
   availableSkills = [],
   onClose,
 }: {
+  readonly open: boolean;
   readonly skill: ViewingSkill;
   readonly availableSkills?: readonly AgentSkillRow[];
   readonly onClose: () => void;
@@ -63,6 +65,9 @@ export function SkillEditorModal({
     [writeFailure, setWriteFailure] = useState<Extract<LocalDocWriteResult, { readonly ok: false }> | null>(null);
 
   useEffect(() => {
+    // 组件随退场动画常驻:每次打开(或换技能)重新读盘,关闭期间不占读取通道;
+    // 上次的草稿/保存态一并复位,与旧的条件挂载逐次新建等价。
+    if (!open) return;
     let cancelled = false;
     setRead(null);
     setDraft(null);
@@ -74,7 +79,15 @@ export function SkillEditorModal({
     return () => {
       cancelled = true;
     };
-  }, [manifestPath]);
+  }, [open, manifestPath]);
+  // 每次重新打开复位查看/保存态;读取复位随上面按 open 门控的读取 effect。
+  useLayoutEffect(() => {
+    if (!open) return;
+    setView("preview");
+    setSaving(false);
+    setSavedOnce(false);
+    setWriteFailure(null);
+  }, [open]);
 
   const loadedContent = read?.ok === true ? read.content : null,
     dirty = draft !== null && loadedContent !== null && draft !== loadedContent;
@@ -114,6 +127,7 @@ export function SkillEditorModal({
     displayPath = read?.ok === true ? read.path : manifestPath;
   return (
     <Modal
+      open={open}
       title={t("agentRuntime.skillModal.title")}
       hint={skill.id}
       wide

@@ -180,21 +180,20 @@ export function WorkView({
           {t("views.work.startWork.cta")}
         </button>
       </header>
-      {startWorkOpen ? (
-        <StartWorkDialog
-          repoId={repoId}
-          catalog={catalog}
-          catalogError={catalogError}
-          daemonState={daemonState}
-          tasks={tasks}
-          onClose={() => setStartWorkOpen(false)}
-          onRefreshLedger={onRefreshLedger}
-          onOpenTask={(taskId) => {
-            setStartWorkOpen(false);
-            onOpenTask(taskId);
-          }}
-        />
-      ) : null}
+      <StartWorkDialog
+        open={startWorkOpen}
+        repoId={repoId}
+        catalog={catalog}
+        catalogError={catalogError}
+        daemonState={daemonState}
+        tasks={tasks}
+        onClose={() => setStartWorkOpen(false)}
+        onRefreshLedger={onRefreshLedger}
+        onOpenTask={(taskId) => {
+          setStartWorkOpen(false);
+          onOpenTask(taskId);
+        }}
+      />
       <div className="flex flex-wrap items-center gap-2 text-sm text-text">
         <input
           aria-label="搜索工作"

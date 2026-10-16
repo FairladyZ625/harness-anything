@@ -162,35 +162,38 @@ export function PermissionRequestsTab({
           <p className="px-3 py-3 text-text-muted ui-body">{t("accessControl.requests.empty")}</p>
         )}
       </div>
-      {confirming && (
-        <Modal
-          title={t("accessControl.requests.confirmTitle")}
-          testId="permission-request-confirm"
-          onClose={() => !busy && setConfirming(null)}
-          footer={
-            <div className="flex gap-2">
-              <Button
-                testId="permission-request-approve"
-                variant="primary"
-                disabled={busy}
-                onClick={() => void decide("approve")}
-              >
-                {t("accessControl.requests.approve")}
-              </Button>
-              <Button testId="permission-request-reject" disabled={busy} onClick={() => void decide("reject")}>
-                {t("accessControl.requests.reject")}
-              </Button>
-            </div>
-          }
-        >
-          <p className="ui-body">
-            {t("accessControl.requests.confirmVersion", { version: confirming.version })}:{" "}
-            <IdText value={confirming.personId} /> · {roleLabel(confirming.groupId)} ·{" "}
-            {resourceLabel(confirming.resource)}
-          </p>
-          <p className="text-text-muted ui-meta">{confirming.actions.join(", ")}</p>
-        </Modal>
-      )}
+      <Modal
+        open={confirming !== null}
+        title={t("accessControl.requests.confirmTitle")}
+        testId="permission-request-confirm"
+        onClose={() => !busy && setConfirming(null)}
+        footer={
+          <div className="flex gap-2">
+            <Button
+              testId="permission-request-approve"
+              variant="primary"
+              disabled={busy}
+              onClick={() => void decide("approve")}
+            >
+              {t("accessControl.requests.approve")}
+            </Button>
+            <Button testId="permission-request-reject" disabled={busy} onClick={() => void decide("reject")}>
+              {t("accessControl.requests.reject")}
+            </Button>
+          </div>
+        }
+      >
+        {confirming && (
+          <>
+            <p className="ui-body">
+              {t("accessControl.requests.confirmVersion", { version: confirming.version })}:{" "}
+              <IdText value={confirming.personId} /> · {roleLabel(confirming.groupId)} ·{" "}
+              {resourceLabel(confirming.resource)}
+            </p>
+            <p className="text-text-muted ui-meta">{confirming.actions.join(", ")}</p>
+          </>
+        )}
+      </Modal>
     </Region>
   );
 }

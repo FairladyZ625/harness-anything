@@ -243,24 +243,23 @@ export function ProvidersWorkspace({
           />
         )}
       </CatalogSplit>
-      {dialog && (
-        <NewRuntimeDialog
-          installations={installations}
-          existingInstanceIds={instances.map((row) => row.instanceId)}
-          busy={workspace.busy}
-          actionError={workspace.error}
-          onCancel={() => setDialog(false)}
-          onCreate={(input) => {
-            void workspace.createInstance(input).then((created) => {
-              if (created) {
-                setDialog(false);
-                updateProjectAllowedInstances(input.instanceId, true);
-                onSelectEntity(`provider/${input.instanceId}`);
-              }
-            });
-          }}
-        />
-      )}
+      <NewRuntimeDialog
+        open={dialog}
+        installations={installations}
+        existingInstanceIds={instances.map((row) => row.instanceId)}
+        busy={workspace.busy}
+        actionError={workspace.error}
+        onCancel={() => setDialog(false)}
+        onCreate={(input) => {
+          void workspace.createInstance(input).then((created) => {
+            if (created) {
+              setDialog(false);
+              updateProjectAllowedInstances(input.instanceId, true);
+              onSelectEntity(`provider/${input.instanceId}`);
+            }
+          });
+        }}
+      />
       {workspace.settlement && (
         <p
           role="status"
