@@ -63,12 +63,13 @@ test("canonical fixture change gate rejects modifying an existing sample", () =>
 
 test("canonical fixture change gate permits adding a new sample", () => {
   const { rootDir, base } = makeRepo({
-    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json": '{"schema":"task-event/v1"}\n',
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json":
+      '{"schema":"task-event/v1","payload":{"dispatchKey":"fixture"}}\n',
   });
   writeRepoFile(
     rootDir,
     "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-new-shape.json",
-    '{"schema":"task-event/v1"}\n',
+    '{"schema":"task-event/v1","payload":{"idempotencyKey":"fixture"}}\n',
   );
   const head = commitAll(rootDir);
   assert.deepEqual(validateCanonicalFixtureChanges(rootDir, base, head), []);
@@ -85,8 +86,8 @@ test("canonical fixture change gate rejects deleting and renaming existing sampl
   const head = commitAll(rootDir);
   const renamed = validateCanonicalFixtureChanges(rootDir, base, head);
   assert.deepEqual(renamed, [
-    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json: existing canonical event fixture was renamed to " +
-      "packages/kernel/fixtures/canonical-events/task-event-v1/renamed.json; add a new sample instead (dec_275F81E5B0BD795E65B7D835C4/CH1)",
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json: existing canonical event fixture was deleted; " +
+      "add a new sample instead (dec_275F81E5B0BD795E65B7D835C4/CH1)",
   ]);
 });
 

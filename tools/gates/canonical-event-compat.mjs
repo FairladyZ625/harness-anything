@@ -121,7 +121,7 @@ function isCanonicalFixturePath(filePath) {
 }
 
 export function validateCanonicalFixtureChanges(rootDir, base, head = "HEAD") {
-  const fields = git(rootDir, ["diff", "--name-status", "-z", `${base}...${head}`, "--", FIXTURE_ROOT])
+  const fields = git(rootDir, ["diff", "--no-renames", "--name-status", "-z", `${base}...${head}`, "--", FIXTURE_ROOT])
       .split("\0")
       .filter(Boolean),
     errors = [];
