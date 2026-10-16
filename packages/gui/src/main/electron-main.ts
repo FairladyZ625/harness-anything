@@ -98,7 +98,7 @@ export function createMainWindow(): BrowserWindow {
     focusable: !backgroundTest,
     // 窗口本体先于渲染层文档存在:未预设底色时冷启动首帧与 resize 露出系统白底。
     // 按主进程可感知的主题信号(原生主题;应用内选择存 renderer localStorage,首帧前
-    // 不可见)预铺应用底色 token(styles.css --color-bg,windowBackgroundColor 换算)。
+    // 不可见)预铺应用底色(styles.css --color-bg 的预换算 hex)。
     backgroundColor: windowBackgroundColor(nativeTheme.shouldUseDarkColors),
     webPreferences: {
       backgroundThrottling: !backgroundTest,

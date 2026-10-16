@@ -35,52 +35,27 @@ export function guiPlatformWindowOptions(platform: NodeJS.Platform = process.pla
 
 /**
  * 主窗口底色 = renderer `styles.css` 的 `--color-bg`(暗色来自 `@theme`,亮色来自
- * `html[data-theme="light"]` 覆盖)。主进程在首帧前读不到 CSS 变量,这里以逐字相同的
- * token 文本镜像;window-background.test.ts 对 styles.css 做字符串相等比对,改 CSS
- * 不改这里会红,两处不会静默漂移。
+ * `html[data-theme="light"]` 覆盖)token 的预换算 hex。主进程首帧前读不到 CSS 变量,
+ * Electron 的 `backgroundColor` 又只解析 Hex/RGB/HSL/命名色(electron.d.ts
+ * `setBackgroundColor` 文档),不解析 oklch,所以不在运行期换算,直接给两个 token 的
+ * 换算结果(CSS Color 4 / Ottosson OKLab 同源公式);换算与向量校验放在
+ * window-background.test.ts——测试读 styles.css 的 oklch 值、在测试内换算、断言
+ * 等于这两个常量,改 CSS 值或改常量任一侧都会红,两处不会静默漂移。
  */
-export const windowBackgroundOklch = {
-  dark: "oklch(0.205 0.006 285)",
-  light: "oklch(0.965 0.003 285)",
+export const windowBackgroundHex = {
+  /** styles.css `@theme` 的 `--color-bg` = `oklch(0.205 0.006 285)`。 */
+  dark: "#17171a",
+  /** styles.css `html[data-theme="light"]` 的 `--color-bg` = `oklch(0.965 0.003 285)`。 */
+  light: "#f3f3f5",
 } as const;
 
 /**
- * `oklch(L C H)` → `#rrggbb`。Electron 的 `backgroundColor` 只解析 Hex/RGB/HSL/命名
- * 色(electron.d.ts `setBackgroundColor` 文档),不解析 CSS Color 4 的 oklch,窗口底色
- * 在这里按 Ottosson OKLab 参考实现(CSS Color 4 同源公式)确定性换算。只收无 alpha 的
- * 窄格式——token 与窗口底色都恒不透明,其余输入直接抛错。
- */
-export function oklchToHex(color: string): string {
-  const match = /^oklch\(\s*([\d.]+)\s+([\d.]+)\s+(-?[\d.]+)\s*\)$/u.exec(color);
-  if (!match) throw new Error(`Not an opaque oklch(L C H) color: ${color}`);
-  const [lightness, chroma, hueDegree] = match.slice(1).map(Number) as [number, number, number];
-  const hue = (hueDegree * Math.PI) / 180;
-  const a = chroma * Math.cos(hue);
-  const b = chroma * Math.sin(hue);
-  const l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3;
-  const m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3;
-  const s = (lightness - 0.0894841775 * a - 1.291485548 * b) ** 3;
-  const channel = (linear: number): string => {
-    const clamped = Math.min(1, Math.max(0, linear));
-    const encoded = clamped <= 0.0031308 ? 12.92 * clamped : 1.055 * clamped ** (1 / 2.4) - 0.055;
-    return Math.round(encoded * 255)
-      .toString(16)
-      .padStart(2, "0");
-  };
-  return `#${[
-    channel(4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s),
-    channel(-1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s),
-    channel(-0.0041960863 * l - 0.7034186147 * m + 1.707614701 * s),
-  ].join("")}`;
-}
-
-/**
- * 传给 BrowserWindow 的底色:暗/亮各取 `--color-bg` token 的 hex。主进程可感知的
+ * 传给 BrowserWindow 的底色:暗/亮各取 `--color-bg` token 的预换算 hex。主进程可感知的
  * 主题信号只有原生主题(nativeTheme.shouldUseDarkColors);应用内主题选择存 renderer
  * localStorage,首帧前主进程不可见。
  */
 export function windowBackgroundColor(shouldUseDarkColors: boolean): string {
-  return oklchToHex(shouldUseDarkColors ? windowBackgroundOklch.dark : windowBackgroundOklch.light);
+  return shouldUseDarkColors ? windowBackgroundHex.dark : windowBackgroundHex.light;
 }
 
 const defaultDevRendererOrigin = "http://127.0.0.1:5173";
