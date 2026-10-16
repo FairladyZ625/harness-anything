@@ -1,16 +1,14 @@
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
-import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
+import { registerProjectWindowIpc } from "./project-window-ipc.ts";
 import {
-  app,
-  BrowserWindow,
-  dialog,
-  ipcMain,
-  Menu,
-  nativeTheme,
-  session,
-  shell,
-  type MenuItemConstructorOptions,
-} from "electron";
+  createProjectWindowRegistry,
+  menuNewWindow,
+  projectWindowArgument,
+  type ProjectWindowRegistryEntry,
+} from "./project-windows.ts";
+import { darwinAppMenuTemplate } from "./darwin-app-menu.ts";
+import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
+import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -74,12 +72,10 @@ delete process.env.HARNESS_EXECUTION_CREDENTIAL;
 const backgroundTest = app.commandLine.hasSwitch("headless");
 if (backgroundTest && process.platform === "darwin") app.setActivationPolicy("accessory");
 
-let _globalMainWindow: BrowserWindow | null = null;
-
 /** Per-sign-in login webview boundary; created once so its certificate-error handler is, too. */
 const loginWebviewSecurity = createLoginWebviewSecurity();
 
-export function createMainWindow(): BrowserWindow {
+export function createMainWindow(initialRepoId?: string): BrowserWindow {
   const preloadPath = path.join(resolveGuiPackageRoot(), "dist-electron/electron-preload.cjs");
   const rendererUrl = process.env.ELECTRON_RENDERER_URL;
   const packagedRendererUrl = createPackagedRendererUrl();
@@ -108,6 +104,10 @@ export function createMainWindow(): BrowserWindow {
       webSecurity: true,
       webviewTag: true,
       preload: preloadPath,
+      // 「在新窗口打开」的初始项目走 additionalArguments(不进 URL:打包态 file:// 文档
+      // 的 query 会被 isNavigableAppDocumentUrl 拒绝),preload 从 argv 读出后作 App 的
+      // 选仓种子;普通启动没有该参数,单窗口行为不变。
+      ...(initialRepoId === undefined ? {} : { additionalArguments: [projectWindowArgument(initialRepoId)] }),
     },
   });
 
@@ -268,17 +268,29 @@ export async function startGuiApp(): Promise<void> {
     // npm 通路跑的是通用 Electron bundle,Dock 瓦片默认是它的 electron.icns;
     // 运行期只有 app.dock.setIcon 换得动(task_e07b30fd 阶段一三探针实测)。
     app.dock?.setIcon(appIconPath());
-    const template: MenuItemConstructorOptions[] = [
-      { role: "appMenu" },
-      { role: "editMenu" },
-      { role: "viewMenu" },
-      { role: "windowMenu" },
-    ];
-    Menu.setApplicationMenu(Menu.buildFromTemplate(template));
   }
   installContentSecurityPolicy();
   loginWebviewSecurity.installCertificateErrorHandler(app);
   const trustedWebContentsIds = new Set<number>();
+  // 项目窗口注册表(task_ca1ee6b9e8f83c89cb376e5f07):窗口↔项目记账。开窗两条路
+  // (CEO 2026-10-17 裁定):切换器「在新窗口打开」已开即聚焦(openProjectWindow);
+  // 菜单「新建窗口 ⌘⇧N」总是新建、以当前项目作种子(newWindow)。headless 运行不碰
+  // 窗口可见性(后台验收要求全部窗口保持隐藏)。
+  const projectWindows = createProjectWindowRegistry({
+    createProjectWindow: (repoId) => toProjectWindowEntry(createTrustedMainWindow(trustedWebContentsIds, repoId)),
+    focusWindows: !backgroundTest,
+  });
+  if (process.platform === "darwin") {
+    Menu.setApplicationMenu(
+      Menu.buildFromTemplate(
+        // 「文件 → 新建窗口 ⌘⇧N」总是新建,不去重(CEO 2026-10-17 裁定);以聚焦窗口
+        // 的项目作初始项目,焦点不在任何窗口或未选项目时开默认窗口。
+        darwinAppMenuTemplate(() =>
+          menuNewWindow(projectWindows, BrowserWindow.getFocusedWindow()?.webContents.id ?? null),
+        ),
+      ),
+    );
+  }
   const rootDir = resolveGuiProjectRoot(),
     bridge = createLocalGuiServiceBridge(rootDir),
     controlled = addLocalMainControls({
@@ -384,22 +396,33 @@ export async function startGuiApp(): Promise<void> {
   );
   // GUI 内读本机文档(task_89d324b5):节点本地只读查询,主进程收窄见 local-doc-ipc.ts。
   registerLocalDocIpc(ipcMain, { homeDir: () => homedir() }, trustPolicy);
-  createTrustedMainWindow(trustedWebContentsIds);
+  registerProjectWindowIpc(ipcMain, projectWindows, trustPolicy);
+  projectWindows.newWindow(null);
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createTrustedMainWindow(trustedWebContentsIds);
+    if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });
 }
 
-function createTrustedMainWindow(trustedWebContentsIds: Set<number>): BrowserWindow {
-  const mainWindow = createMainWindow();
-  _globalMainWindow = mainWindow;
+function toProjectWindowEntry(mainWindow: BrowserWindow): ProjectWindowRegistryEntry {
+  return {
+    webContentsId: mainWindow.webContents.id,
+    focus() {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    },
+    onClosed: (listener) => mainWindow.once("closed", listener),
+  };
+}
+
+function createTrustedMainWindow(trustedWebContentsIds: Set<number>, initialRepoId: string | null): BrowserWindow {
+  const mainWindow = createMainWindow(initialRepoId === null ? undefined : initialRepoId);
   // Capture the id now: by the time "closed" fires the native window is
   // destroyed and reading mainWindow.webContents throws "Object has been destroyed".
   const webContentsId = mainWindow.webContents.id;
   trustedWebContentsIds.add(webContentsId);
   mainWindow.once("closed", () => {
     trustedWebContentsIds.delete(webContentsId);
-    _globalMainWindow = null;
   });
   return mainWindow;
 }

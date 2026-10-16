@@ -1,4 +1,5 @@
 import type { ProjectDirectoryApi } from "../api/project-directory-contract.ts";
+import type { ProjectWindowApi } from "../api/project-window-contract.ts";
 import type { AppCommandApi } from "../api/app-command-contract.ts";
 import type { DaemonRpcMethodMap, DaemonRpcResult } from "@harness-anything/daemon/protocol";
 import type { FirstRunApi } from "../api/first-run-contract.ts";
@@ -19,6 +20,7 @@ type GuiBridge = {
   readonly connections?: ConnectionAdminApi;
   readonly repoAdmin?: RepoAdminApi;
   readonly projects?: ProjectDirectoryApi;
+  readonly windows?: ProjectWindowApi;
   readonly appCommand?: AppCommandApi;
   readonly auth?: OidcAuthApi;
   readonly access?: AccessAdminApi;

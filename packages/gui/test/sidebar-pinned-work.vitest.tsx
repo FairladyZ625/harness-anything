@@ -82,6 +82,7 @@ function mountSidebar(
               projectSwitcherOpen={false}
               onProjectSwitcherToggle={() => {}}
               onOpenProject={() => {}}
+              onOpenProjectInNewWindow={null}
               onOpenProjectManager={() => {}}
               onNavigate={onNavigate}
               pinnedWork={pinnedWork}

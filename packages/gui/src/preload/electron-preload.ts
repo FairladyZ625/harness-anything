@@ -1,4 +1,10 @@
 import { PROJECT_DIRECTORY_CHANNEL, type ProjectDirectoryApi } from "../api/project-directory-contract.ts";
+import {
+  PROJECT_WINDOW_ACTIVE_CHANNEL,
+  PROJECT_WINDOW_OPEN_CHANNEL,
+  initialProjectFromArgv,
+  type ProjectWindowApi,
+} from "../api/project-window-contract.ts";
 import { APP_COMMAND_CHANNEL, type AppCommandApi, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import {
@@ -132,6 +138,13 @@ const exposedHarnessApi = {
   projects: {
     openDirectory: (input) => invoke(PROJECT_DIRECTORY_CHANNEL, input),
   } satisfies ProjectDirectoryApi,
+  // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):主进程按窗口上报的当前项目
+  // 聚焦/开窗;本窗口的初始项目来自 additionalArguments(见 project-window-contract)。
+  windows: {
+    openProject: (input) => invoke(PROJECT_WINDOW_OPEN_CHANNEL, input),
+    setActiveProject: (input) => invoke(PROJECT_WINDOW_ACTIVE_CHANNEL, input),
+    initialProjectId: initialProjectFromArgv(process.argv),
+  } satisfies ProjectWindowApi,
   // 鼠标侧键后退/前进:主进程 app-command 的只读订阅(见 api/app-command-contract.ts)。
   appCommand: {
     onNavigationCommand: (listener: (command: AppNavigationCommand) => void) => {
