@@ -222,7 +222,8 @@ function missingMarkdownSections(
     if (
       kind === "task.plan" &&
       contract.requiredSections.includes("Execution Surface") &&
-      standingTaskPlanSections.has(normalizeHeading(heading))
+      standingTaskPlanSections.has(normalizeHeading(heading)) &&
+      !untouchedScaffold
     )
       return [];
     const issue = (): TransitionDocumentMissingSection => ({

@@ -95,7 +95,7 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   assert.equal(scaffold.code, "plan_placeholder");
   assert.deepEqual(
     scaffold.missingSections.map(({ section }) => section),
-    planHeadings.filter((section) => !["Execution Surface", "Implementation Plan", "Verification"].includes(section)),
+    planHeadings,
   );
   assert.deepEqual(scaffold.missingSections[0], {
     section: "Brief",
@@ -145,9 +145,7 @@ test("task plan suffixes preserve empty and scaffold detection", () => {
   ).replace(/^(## .+)$/gmu, "$1 (details)");
   assert.deepEqual(
     plan(template).missingSections.map(({ section, reason }) => ({ section, reason })),
-    planHeadings
-      .filter((section) => !["Execution Surface", "Implementation Plan", "Verification"].includes(section))
-      .map((section) => ({ section, reason: "scaffold" })),
+    planHeadings.map((section) => ({ section, reason: "scaffold" })),
   );
 });
 
