@@ -19,6 +19,18 @@ import { submitRuntimeSpawn } from "../src/renderer/runtime-control.ts";
 import { previewFailureText } from "../src/renderer/components/runtime/useRuntimeWorkspace.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
+// Static-markup contract tests do not mount a browser projection tree; the
+// shared Modal motion behavior is covered by modal-motion.vitest.tsx.
+vi.mock("motion/react", async (original) => {
+  const actual = await original<typeof import("motion/react")>();
+  return {
+    ...actual,
+    motion: { div: "div" },
+    AnimatePresence: ({ children }: { readonly children: unknown }) => children,
+    useReducedMotion: () => false,
+  };
+});
+
 beforeAll(() => setActiveLocale("en-US"));
 
 const codexInstance = {

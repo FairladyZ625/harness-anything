@@ -716,6 +716,7 @@ describe("agent runtime renderer", () => {
     const dialog = (initialKind: "claude" | "codex" | "agy") =>
       renderToStaticMarkup(
         createElement(NewRuntimeDialog, {
+          open: true,
           installations: [installation],
           busy: false,
           initialKind,
@@ -741,6 +742,7 @@ describe("agent runtime renderer", () => {
   it("renders detected models as selected checkboxes and keeps custom text behind an override", () => {
     const markup = renderToStaticMarkup(
       createElement(NewRuntimeDialog, {
+        open: true,
         installations: [installation],
         busy: false,
         initialKind: "codex",

@@ -8,6 +8,7 @@ import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { TaskRow } from "../src/renderer/model/types.ts";
 import { workTier, WORK_TIERS, type WorkHealth } from "../src/renderer/model/work-collections.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 setActiveLocale("zh-CN");
 
@@ -81,23 +82,26 @@ interface Mounted {
 function mountWorkView(initial: { agenda?: AgendaSuccess } = {}): Mounted {
   const host = document.createElement("div"),
     root = createRoot(host),
+    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
     opened: string[] = [];
   let agenda = initial.agenda;
   const render = () =>
     act(() =>
       root.render(
-        <WorkView
-          tasks={ROWS}
-          repoId="p"
-          projectName="P"
-          ready
-          onOpenTask={(id) => opened.push(id)}
-          catalog={undefined}
-          catalogError={null}
-          daemonState="responsive"
-          onRefreshLedger={() => {}}
-          agenda={agenda}
-        />,
+        <QueryClientProvider client={queryClient}>
+          <WorkView
+            tasks={ROWS}
+            repoId="p"
+            projectName="P"
+            ready
+            onOpenTask={(id) => opened.push(id)}
+            catalog={undefined}
+            catalogError={null}
+            daemonState="responsive"
+            onRefreshLedger={() => {}}
+            agenda={agenda}
+          />
+        </QueryClientProvider>,
       ),
     );
   render();
@@ -262,28 +266,31 @@ describe("工作页:卡上的概况与注意力排序", () => {
     ];
     const host = document.createElement("div"),
       root = createRoot(host),
+      queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
       opened: string[] = [];
     act(() =>
       root.render(
-        <WorkView
-          tasks={rows}
-          repoId="p"
-          ready
-          onOpenTask={(id) => opened.push(id)}
-          catalog={undefined}
-          catalogError={null}
-          daemonState="responsive"
-          onRefreshLedger={() => {}}
-          agenda={
-            {
-              ...AGENDA,
-              attentionItems: [
-                attention("relation/r1", "awaiting-you", "mine", "w-two", 130, "验收两行：看截图"),
-                attention("relation/r2", "decision", "mine", "w-two", 90, "另一件"),
-              ],
-            } as unknown as AgendaSuccess
-          }
-        />,
+        <QueryClientProvider client={queryClient}>
+          <WorkView
+            tasks={rows}
+            repoId="p"
+            ready
+            onOpenTask={(id) => opened.push(id)}
+            catalog={undefined}
+            catalogError={null}
+            daemonState="responsive"
+            onRefreshLedger={() => {}}
+            agenda={
+              {
+                ...AGENDA,
+                attentionItems: [
+                  attention("relation/r1", "awaiting-you", "mine", "w-two", 130, "验收两行：看截图"),
+                  attention("relation/r2", "decision", "mine", "w-two", 90, "另一件"),
+                ],
+              } as unknown as AgendaSuccess
+            }
+          />
+        </QueryClientProvider>,
       ),
     );
     const card = host.querySelector('[data-testid="work-row"][data-work-id="w-two"]')!;
@@ -321,26 +328,31 @@ describe("工作页:卡上的概况与注意力排序", () => {
 
   it("最近有动静的任务不在本工作里(查不到标题)时,卡脚不出「最近」一行", () => {
     const host = document.createElement("div"),
-      root = createRoot(host);
+      root = createRoot(host),
+      queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     act(() =>
       root.render(
-        <WorkView
-          tasks={[
-            task("w-gone"),
-            member("t-stuck", "w-gone", {
-              canonicalStatus: "blocked",
-              events: [{ at: "2026-02-01", taskId: "t-elsewhere", projectId: "p", summary: "Execution exec-9 closed" }],
-            }),
-          ]}
-          repoId="p"
-          ready
-          onOpenTask={() => {}}
-          catalog={undefined}
-          catalogError={null}
-          daemonState="responsive"
-          onRefreshLedger={() => {}}
-          agenda={AGENDA}
-        />,
+        <QueryClientProvider client={queryClient}>
+          <WorkView
+            tasks={[
+              task("w-gone"),
+              member("t-stuck", "w-gone", {
+                canonicalStatus: "blocked",
+                events: [
+                  { at: "2026-02-01", taskId: "t-elsewhere", projectId: "p", summary: "Execution exec-9 closed" },
+                ],
+              }),
+            ]}
+            repoId="p"
+            ready
+            onOpenTask={() => {}}
+            catalog={undefined}
+            catalogError={null}
+            daemonState="responsive"
+            onRefreshLedger={() => {}}
+            agenda={AGENDA}
+          />
+        </QueryClientProvider>,
       ),
     );
     const card = host.querySelector('[data-testid="work-row"][data-work-id="w-gone"]')!;
