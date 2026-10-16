@@ -112,6 +112,10 @@ test("GitLab observer selects the newest pipeline for its delivery branch and re
       JSON.stringify(result.runs[0]!.jobs[0]!.artifact.detail.diagnostics[0]).includes("[REDACTED]"),
     true,
   );
+  assert.deepEqual(result.runs[0]!.jobs[0]!.artifact.detail.diagnostics[0], {
+    kind: "ci-failure-excerpt",
+    excerpt: "failed test\n[REDACTED]\n",
+  });
   assert.equal(
     calls.some((url) => url.includes("/jobs/200/trace")),
     true,
