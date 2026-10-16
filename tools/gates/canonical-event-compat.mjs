@@ -422,7 +422,7 @@ export function validateFrozenDaemonReadside(
   let errors;
   try {
     errors = validateProjectedDaemonResponses(projectFrozenDaemonResponses(rootDir, transformEvent), validators);
-  } catch {
+  } catch (error) {
     consumeKnownError(error);
     errors = [`daemon read-side history replay failed: ${error instanceof Error ? error.message : String(error)}`];
   }
@@ -438,7 +438,7 @@ function main() {
   let base;
   try {
     base = pullRequestBase(rootDir);
-  } catch (error) {
+  } catch {
     git(rootDir, ["fetch", "--no-tags", "origin", "main"]);
     base = pullRequestBase(rootDir);
   }
