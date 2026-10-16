@@ -435,13 +435,8 @@ export function validateFrozenDaemonReadside(
 function main() {
   if (!process.argv.includes("--check")) throw new Error("usage: node tools/gates/canonical-event-compat.mjs --check");
   const rootDir = repoRoot();
-  let base;
-  try {
-    base = pullRequestBase(rootDir);
-  } catch {
-    git(rootDir, ["fetch", "--no-tags", "origin", "main"]);
-    base = pullRequestBase(rootDir);
-  }
+  git(rootDir, ["fetch", "--no-tags", "origin", "main"]);
+  const base = pullRequestBase(rootDir);
   const daemon = validateFrozenDaemonReadside(rootDir);
   const errors = [
     ...validateCanonicalFixtureChanges(rootDir, base),
