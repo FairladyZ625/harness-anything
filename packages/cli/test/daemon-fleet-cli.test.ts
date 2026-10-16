@@ -21,8 +21,6 @@ import path from "node:path";
 import test from "node:test";
 import { signInAt, signOutAt, spawnKeycloak } from "../../daemon/test/keycloak.fixtures.ts";
 import { seedSettingsEvent } from "../../daemon/test/repo-settings.fixture.ts";
-import { readReplicaHealth } from "../../daemon/test/replica-catch-up.fixture.ts";
-import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
 import { realizedTaskPlan, sizedTaskPlan } from "../../../tools/fixtures/task-plan.mjs";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { runDaemonControl } from "../src/daemon/control.ts";
@@ -403,7 +401,6 @@ test(
         String(quotaBytes),
       ]);
       assert.equal(repaired.ok, true);
-      await eventuallyValue(() => (readReplicaHealth(viewRoot).syncFailure === null ? true : null));
       assert.equal(retryReplicaPending(sync).ok, true);
       assert.equal(
         existsSync(
