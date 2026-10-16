@@ -69,7 +69,7 @@ export async function runRuntimeFacadeCommand(
       },
       request,
     );
-    if (waited.ok !== true || waited.ci?.conclusion !== "success")
+    if (waited.ok !== true || (waited.ci as JsonObject | undefined)?.conclusion !== "success")
       return { ...waited, command: "task-submit", pendingSubmission: submitted };
     return request(command);
   }
