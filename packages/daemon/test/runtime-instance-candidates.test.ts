@@ -72,7 +72,8 @@ test("repository allowlist filters automatic candidates and reports the blocked 
       error instanceof Error &&
       error.message ===
         "Runtime instance project-b is not allowed for this repository. Allowed instances: project-a. " +
-          "Enable it with ha settings update --runtime-allowed-instance project-b.",
+          "Enable it without replacing the existing allowlist with ha settings update " +
+          "--runtime-allowed-instance project-a --runtime-allowed-instance project-b.",
   );
 });
 

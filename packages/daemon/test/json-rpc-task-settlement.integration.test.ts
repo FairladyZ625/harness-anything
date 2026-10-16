@@ -143,7 +143,10 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       { outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps },
       { outcome: "op_rejected", code: "ci_missing", steps: [] },
     );
-    assert.equal((missingCi.next as readonly { readonly action: string }[])[0]?.action, "Wait for the center CI Schedule to collect the workflow witness; inspect ha schedule show builtin-ci-observe.");
+    assert.equal(
+      (missingCi.next as readonly { readonly action: string }[])[0]?.action,
+      `Run ha ci observe pull --task ${taskId} to import the workflow witness.`,
+    );
     assert.deepEqual(store().read().events.slice(beforeMissingCi), [], "missing CI must return guidance without starting or waiting for a CI Schedule occurrence");
     assert.equal(ciInvocations(), invocationsBefore, "completion must not invoke GitHub when its witness is absent");
     assert.equal(

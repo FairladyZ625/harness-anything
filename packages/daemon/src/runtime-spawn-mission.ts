@@ -106,7 +106,12 @@ export function resolveRuntimeInstanceCandidates(input: {
 }): string[] {
   const configured = input.allowedInstanceIds !== undefined,
     allowed = input.allowedInstanceIds ?? [],
-    allowedNames = allowed.length ? allowed.join(", ") : "none";
+    allowedNames = allowed.length ? allowed.join(", ") : "none",
+    enableCommand = (instanceId: string): string =>
+      [...allowed, instanceId]
+        .filter((value, index, values) => values.indexOf(value) === index)
+        .map((value) => `--runtime-allowed-instance ${value}`)
+        .join(" ");
   const assertAllowed = (instanceId: string): void => {
     if (configured && allowed.includes(instanceId)) return;
     if (!input.instances.some((instance) => instance.instanceId === instanceId))
@@ -120,7 +125,8 @@ export function resolveRuntimeInstanceCandidates(input: {
     throw runtimeSpawnError(
       "runtime_instance_not_allowed",
       `Runtime instance ${instanceId} is not allowed for this repository. ` +
-        `Allowed instances: ${allowedNames}. Enable it with ha settings update --runtime-allowed-instance ${instanceId}.`,
+        `Allowed instances: ${allowedNames}. Enable it without replacing the existing allowlist with ` +
+        `ha settings update ${enableCommand(instanceId)}.`,
     );
   };
   if (input.providerSessionId) {
@@ -149,7 +155,7 @@ export function resolveRuntimeInstanceCandidates(input: {
   for (const instance of input.instances)
     if (!allowed.includes(instance.instanceId))
       unavailable.push(
-        `${instance.kindId}/${instance.instanceId}: runtime_instance_not_allowed (enable with ha settings update --runtime-allowed-instance ${instance.instanceId})`,
+        `${instance.kindId}/${instance.instanceId}: runtime_instance_not_allowed (enable with ha settings update ${enableCommand(instance.instanceId)})`,
       );
   for (const target of declaredTargets ?? (declaredType ? [{ type: declaredType }] : []))
     if (!instances.some((instance) => instance.kindId === target.type))

@@ -753,7 +753,7 @@ function taskWitnessContract(
     throw cell.cellCodedError(
       "ci_witness_delivery_unresolved",
       `Task ${taskId} has no submitted execution with a delivery commit. ` +
-        `next: submit the task delivery; the center CI Schedule will collect its witness.`,
+        `next: submit the task delivery, then run ha ci observe pull --task ${taskId} to import its CI witness.`,
     );
   if (strandedDelivery(cell.rootDir, submission))
     throw cell.cellCodedError(

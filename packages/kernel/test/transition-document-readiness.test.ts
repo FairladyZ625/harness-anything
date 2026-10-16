@@ -95,7 +95,7 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
   assert.equal(scaffold.code, "plan_placeholder");
   assert.deepEqual(
     scaffold.missingSections.map(({ section }) => section),
-    planHeadings,
+    planHeadings.filter((section) => !["Execution Surface", "Implementation Plan", "Verification"].includes(section)),
   );
   assert.deepEqual(scaffold.missingSections[0], {
     section: "Brief",
@@ -116,13 +116,7 @@ test("task plan rejects pure scaffolds but accepts a retained scaffold sentence 
       "## Verification\n\nImplemented Verification.",
       `## Verification\n\n${verificationScaffold}`,
     );
-  assert.deepEqual(plan(pureScaffoldSection).missingSections, [
-    {
-      section: "Verification",
-      reason: "scaffold",
-      retainedScaffold: verificationScaffold.slice(0, 60),
-    },
-  ]);
+  assert.deepEqual(plan(pureScaffoldSection).missingSections, []);
   assert.equal(plan(realizedPlan()).ready, true);
 });
 
@@ -151,8 +145,25 @@ test("task plan suffixes preserve empty and scaffold detection", () => {
   ).replace(/^(## .+)$/gmu, "$1 (details)");
   assert.deepEqual(
     plan(template).missingSections.map(({ section, reason }) => ({ section, reason })),
-    planHeadings.map((section) => ({ section, reason: "scaffold" })),
+    planHeadings
+      .filter((section) => !["Execution Surface", "Implementation Plan", "Verification"].includes(section))
+      .map((section) => ({ section, reason: "scaffold" })),
   );
+});
+
+test("task-plan operating rules remain valid while business sections are authored", () => {
+  const authored = planHeadings
+    .map((heading) => {
+      if (["Execution Surface", "Implementation Plan", "Verification"].includes(heading)) return null;
+      return `## ${heading}\n\nAuthored ${heading}.`;
+    })
+    .filter((section): section is string => section !== null)
+    .join("\n\n");
+  const body =
+    `${authored}\n\n## Execution Surface\n\n${planContract.scaffoldBySection["Execution Surface"]!.join("\n")}\n\n` +
+    `## Implementation Plan\n\n${planContract.scaffoldBySection["Implementation Plan"]!.join("\n")}\n\n` +
+    `## Verification\n\n${planContract.scaffoldBySection.Verification!.join("\n")}\n`;
+  assert.equal(plan(body).ready, true);
 });
 
 test("task plan suffix matching respects heading boundaries and fenced examples", () => {

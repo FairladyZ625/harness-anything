@@ -100,6 +100,10 @@ const placeholderCodes: Readonly<Record<TransitionDocumentKind, TransitionDocume
   "squad.roster": "roster_placeholder",
 };
 
+// These sections carry repository-wide operating rules. Keeping their scaffold prose is valid;
+// task-specific sections still require authored content and retain the placeholder rejection.
+const standingTaskPlanSections = new Set(["execution surface", "implementation plan", "verification"]);
+
 const declarationScaffolds: Readonly<Record<"agent.instructions" | "squad.roster", readonly string[]>> = {
   "agent.instructions": [
     "(To be written: this text becomes the agent's system prompt verbatim.)",
@@ -215,6 +219,12 @@ function missingMarkdownSections(
       normalized = normalizeText(content),
       retained = scaffolds.filter((scaffold) => normalized.includes(normalizeText(scaffold)));
     if (retained.length === 0) return [];
+    if (
+      kind === "task.plan" &&
+      contract.requiredSections.includes("Execution Surface") &&
+      standingTaskPlanSections.has(normalizeHeading(heading))
+    )
+      return [];
     const issue = (): TransitionDocumentMissingSection => ({
       section: heading,
       reason: "scaffold",

@@ -66,7 +66,7 @@ Close the loop before closeout: record at least one observation with `ha fact re
 
 ## Verification
 
-- **Stop point = `node tools/run-manifest-gates.mjs --changed origin/main` green + targeted tests for the surface you touched green + a local commit. The full gate matrix is GitHub CI's job, not this machine's.** The command derives cheap deterministic checks from the gate manifest's `localPathGlobs`; do not replace it with a second checklist. Name the specific test files this task's surface requires and paste real runner output rather than writing "all green". `npm run check:ci` remains available for deliberately reproducing a CI failure locally; it is not the stop point.
+- **Stop point = affected tests green + local commit + push this task branch + GitHub CI green for that delivery SHA.** Run `node tools/run-manifest-gates.mjs --changed origin/main` and the targeted tests locally; the full gate matrix is GitHub CI's job. Name the specific test files this task's surface requires and paste real runner output rather than writing "all green". `npm run check:ci` remains available for deliberately reproducing a CI failure locally; it is not the stop point.
 - The remaining targeted set is fixed: (1) affected integration files through `node tools/run-node-tests.mjs --file <path>`; (2) `git grep` every error code, message text, and protocol field name changed, then run the consumer tests found in other packages.
 - List any review and human acceptance conditions this task additionally requires.
 - Under the default completion contract, record at least one fact: `code-doc-reconciliation` rejects completion without one as `fact_missing`; verify delivery through Execution outputs, review, closeout, and every applicable completion gate.
