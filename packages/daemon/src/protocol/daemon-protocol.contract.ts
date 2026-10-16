@@ -196,6 +196,31 @@ export const daemonProtocolMethods = Object.freeze([
     }),
   },
   {
+    id: "runtime-instance-hosting-credential-set",
+    phase: "Runtime-Instances-S1",
+    method: "daemon.runtimeInstance.hostingCredential.set",
+    requiresRepo: false,
+    params: shape({
+      payload: shape({
+        instanceId: "string",
+        provider: optionalEnum(["github", "gitlab"]),
+        credentialRef: "string",
+      }),
+    }),
+  },
+  {
+    id: "runtime-instance-hosting-credential-unset",
+    phase: "Runtime-Instances-S1",
+    method: "daemon.runtimeInstance.hostingCredential.unset",
+    requiresRepo: false,
+    params: shape({
+      payload: shape({
+        instanceId: "string",
+        provider: optionalEnum(["github", "gitlab"]),
+      }),
+    }),
+  },
+  {
     id: "daemon.repo.register",
     phase: "W3",
     method: "daemon.repo.register",
