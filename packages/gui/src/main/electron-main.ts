@@ -1,6 +1,16 @@
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
-import { app, BrowserWindow, dialog, ipcMain, Menu, session, shell, type MenuItemConstructorOptions } from "electron";
+import {
+  app,
+  BrowserWindow,
+  dialog,
+  ipcMain,
+  Menu,
+  nativeTheme,
+  session,
+  shell,
+  type MenuItemConstructorOptions,
+} from "electron";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -44,6 +54,7 @@ import {
   isNavigableAppDocumentUrl,
   packagedRendererIndexPath,
   resolveGuiPackageRoot,
+  windowBackgroundColor,
 } from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 
@@ -85,6 +96,10 @@ export function createMainWindow(): BrowserWindow {
     minHeight: 720,
     show: false,
     focusable: !backgroundTest,
+    // 窗口本体先于渲染层文档存在:未预设底色时冷启动首帧与 resize 露出系统白底。
+    // 按主进程可感知的主题信号(原生主题;应用内选择存 renderer localStorage,首帧前
+    // 不可见)预铺应用底色(styles.css --color-bg 的预换算 hex)。
+    backgroundColor: windowBackgroundColor(nativeTheme.shouldUseDarkColors),
     webPreferences: {
       backgroundThrottling: !backgroundTest,
       nodeIntegration: false,
@@ -102,6 +117,14 @@ export function createMainWindow(): BrowserWindow {
       mainWindow.focus();
     }
   });
+  // 原生主题翻转时窗口底色跟随创建时的同一 token。窗口关闭即注销;"updated" 可能
+  // 在销毁与注销之间送达,此时跳过,避免对已销毁窗口调用 setBackgroundColor。
+  const syncWindowBackground = () => {
+    if (!mainWindow.isDestroyed())
+      mainWindow.setBackgroundColor(windowBackgroundColor(nativeTheme.shouldUseDarkColors));
+  };
+  nativeTheme.on("updated", syncWindowBackground);
+  mainWindow.once("closed", () => nativeTheme.off("updated", syncWindowBackground));
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: evaluateWindowOpenRequest().action }));
   // 鼠标侧键(Windows/Linux):OS 把侧键转成 app-command 而不是 DOM mousedown 3/4,
   // 这里把它转发给 renderer 的统一导航历史;macOS 侧键走 DOM,不会重复触发。

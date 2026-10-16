@@ -33,6 +33,31 @@ export function guiPlatformWindowOptions(platform: NodeJS.Platform = process.pla
   return platform === "darwin" ? { titleBarStyle: "hiddenInset" } : {};
 }
 
+/**
+ * 主窗口底色 = renderer `styles.css` 的 `--color-bg`(暗色来自 `@theme`,亮色来自
+ * `html[data-theme="light"]` 覆盖)token 的预换算 hex。主进程首帧前读不到 CSS 变量,
+ * Electron 的 `backgroundColor` 又只解析 Hex/RGB/HSL/命名色(electron.d.ts
+ * `setBackgroundColor` 文档),不解析 oklch,所以不在运行期换算,直接给两个 token 的
+ * 换算结果(CSS Color 4 / Ottosson OKLab 同源公式);换算与向量校验放在
+ * window-background.test.ts——测试读 styles.css 的 oklch 值、在测试内换算、断言
+ * 等于这两个常量,改 CSS 值或改常量任一侧都会红,两处不会静默漂移。
+ */
+export const windowBackgroundHex = {
+  /** styles.css `@theme` 的 `--color-bg` = `oklch(0.205 0.006 285)`。 */
+  dark: "#17171a",
+  /** styles.css `html[data-theme="light"]` 的 `--color-bg` = `oklch(0.965 0.003 285)`。 */
+  light: "#f3f3f5",
+} as const;
+
+/**
+ * 传给 BrowserWindow 的底色:暗/亮各取 `--color-bg` token 的预换算 hex。主进程可感知的
+ * 主题信号只有原生主题(nativeTheme.shouldUseDarkColors);应用内主题选择存 renderer
+ * localStorage,首帧前主进程不可见。
+ */
+export function windowBackgroundColor(shouldUseDarkColors: boolean): string {
+  return shouldUseDarkColors ? windowBackgroundHex.dark : windowBackgroundHex.light;
+}
+
 const defaultDevRendererOrigin = "http://127.0.0.1:5173";
 
 /** dev renderer 只接受 loopback 上的 http 源;端口跟随 dev 脚本经 ELECTRON_RENDERER_URL 传入的地址。 */
