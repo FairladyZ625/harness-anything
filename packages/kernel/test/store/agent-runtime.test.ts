@@ -503,6 +503,28 @@ test("runtime schema rejects credential, transcript body, tool/cost stream, and 
   assert.deepEqual(forbiddenKeys(bound), []);
 });
 
+test("runtime schema replays the historical fallback state while rejecting unknown attempt fields", () => {
+  const outcome = eventFromProviderWitness(witness("runtime_session_outcome_observed"), envelope(1));
+  assert.ok(outcome);
+  if (!outcome || outcome.type !== "runtime_session_outcome_observed") return;
+  const attempt = { classification: "worker_stop" as const, reason: "historical stop" };
+  for (const fallbackState of [null, "scheduled", "exhausted"] as const)
+    assert.deepEqual(
+      validateCurrentAgentRuntimeEvent({
+        ...outcome,
+        payload: { ...outcome.payload, attempt: { ...attempt, fallbackState } },
+      }),
+      [],
+    );
+  assert.match(
+    validateCurrentAgentRuntimeEvent({
+      ...outcome,
+      payload: { ...outcome.payload, attempt: { ...attempt, unknownField: true } },
+    }).join("\n"),
+    /metadata/iu,
+  );
+});
+
 test("runtime dispatch history supports keyed reads and done-driven startedAt pages", async () => {
   await withTempStoreAsync(async (rootDir) => {
     initRepo(rootDir);

@@ -426,6 +426,8 @@ interface RuntimePayloads {
       readonly reason: string;
       readonly faultClass?: "quota_exhausted" | "rate_limited";
       readonly resetAt?: string;
+      /** Retained for strict replay of events written before 160230b1c. */
+      readonly fallbackState?: "scheduled" | "exhausted" | null;
     };
   };
   readonly runtime_handoff_exported: {
@@ -627,7 +629,9 @@ function validateAgentRuntimePayloadFields(
           !hasOnlyFields(value.attempt, [
             "classification",
             "reason",
-            ...["faultClass", "resetAt"].filter((field) => Object.hasOwn(value.attempt as object, field)),
+            ...["fallbackState", "faultClass", "resetAt"].filter((field) =>
+              Object.hasOwn(value.attempt as object, field),
+            ),
           ]) ||
           !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(
             String(value.attempt.classification),
@@ -635,7 +639,11 @@ function validateAgentRuntimePayloadFields(
           !isNonEmptyString(value.attempt.reason) ||
           (value.attempt.faultClass !== undefined &&
             !["quota_exhausted", "rate_limited"].includes(String(value.attempt.faultClass))) ||
-          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))))))
+          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))) ||
+          (value.attempt.fallbackState !== undefined &&
+            value.attempt.fallbackState !== null &&
+            value.attempt.fallbackState !== "scheduled" &&
+            value.attempt.fallbackState !== "exhausted"))))
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];
