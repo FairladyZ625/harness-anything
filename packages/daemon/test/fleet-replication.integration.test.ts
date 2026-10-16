@@ -25,7 +25,7 @@ import { rawPeer } from "./fleet-tls-session.fixture.ts";
 const seededTask = { taskId: "task_e2e0000000000000000000001", executionId: "exe_e2e", title: "End to end" };
 
 const mirrorHead = (ledgerPath: string): number => {
-    const db = new DatabaseSync(ledgerPath, { readOnly: true });
+    const db = new DatabaseSync(ledgerPath, { readOnly: true, timeout: 5000 });
     try {
       return (db.prepare("SELECT COALESCE(MAX(revision), 0) AS head FROM event").get() as { head: number }).head;
     } finally {
@@ -33,7 +33,7 @@ const mirrorHead = (ledgerPath: string): number => {
     }
   },
   mirrorSequence = (ledgerPath: string): number => {
-    const db = new DatabaseSync(ledgerPath, { readOnly: true });
+    const db = new DatabaseSync(ledgerPath, { readOnly: true, timeout: 5000 });
     try {
       return (db.prepare("SELECT sequence FROM replication_state WHERE singleton = 1").get() as { sequence: number })
         .sequence;
@@ -42,7 +42,7 @@ const mirrorHead = (ledgerPath: string): number => {
     }
   },
   mirrorEventRows = (ledgerPath: string, where: string, params: readonly unknown[] = []): unknown[] => {
-    const db = new DatabaseSync(ledgerPath, { readOnly: true });
+    const db = new DatabaseSync(ledgerPath, { readOnly: true, timeout: 5000 });
     try {
       return db.prepare(`SELECT * FROM event WHERE ${where}`).all(...params);
     } finally {
@@ -54,7 +54,7 @@ const mirrorHead = (ledgerPath: string): number => {
     where: string,
     params: readonly unknown[] = [],
   ): unknown[] => {
-    const db = new DatabaseSync(fixture.ledgerPath, { readOnly: true });
+    const db = new DatabaseSync(fixture.ledgerPath, { readOnly: true, timeout: 5000 });
     try {
       return db.prepare(`SELECT * FROM event WHERE ${where}`).all(...params);
     } finally {
@@ -62,7 +62,7 @@ const mirrorHead = (ledgerPath: string): number => {
     }
   },
   tableRows = (databasePath: string): Record<string, unknown[][]> => {
-    const db = new DatabaseSync(databasePath, { readOnly: true });
+    const db = new DatabaseSync(databasePath, { readOnly: true, timeout: 5000 });
     try {
       const tables = db
         .prepare("SELECT name FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
@@ -275,7 +275,7 @@ test("three process-level edges hold one consistent mirror of every center read"
   await Promise.all(
     installs.map((installed) =>
       waitForState(() => {
-        const db = new DatabaseSync(String(installed.projectionPath), { readOnly: true });
+        const db = new DatabaseSync(String(installed.projectionPath), { readOnly: true, timeout: 5000 });
         try {
           return (
             (
