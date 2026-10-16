@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { isImeComposingEvent } from "./ime-composition.ts";
+import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 
 /**
  * 右侧抽屉(标准 §4):实体详情的玻璃壳——定位、scrim、进出场、Esc 关闭。
@@ -75,7 +76,7 @@ export function Drawer({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.3, ease: "easeOut" }}
+          transition={{ duration: MOTION_DURATION.overlayRise, ease: MOTION_EASE.out }}
           onClick={onClose}
         />
       )}
@@ -96,7 +97,7 @@ export function Drawer({
           initial={{ x: "110%" }}
           animate={{ x: 0 }}
           exit={{ x: "110%" }}
-          transition={{ duration: 0.38, ease: [0.2, 0.85, 0.25, 1] }}
+          transition={{ duration: MOTION_DURATION.drawerSlide, ease: MOTION_EASE.panel }}
         >
           {children}
         </motion.aside>

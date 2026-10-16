@@ -2,17 +2,14 @@ import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion, type Transition } from "motion/react";
 import { t } from "../../i18n";
 import { useEntryMotion } from "../../motion-config.tsx";
+import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 
 /** A3 弹窗进出动效(gui-visual-language-standard §6;dec_AEE443D93D207C4AEB032E7881 CH2):
  * 进场 300ms 上浮淡入、退场 180ms 下落淡出,均缓出曲线;减少动态效果只保留 100ms
- * 纯淡入淡出、无位移;偏好「关」时不播,瞬时进出。 */
-export const MODAL_MOTION = {
-  enterDistance: 10,
-  enterDuration: 0.3,
-  exitDistance: 6,
-  exitDuration: 0.18,
-  reducedDuration: 0.1,
-} as const;
+ * 纯淡入淡出、无位移;偏好「关」时不播,瞬时进出。时长与缓动取自动效 token。 */
+/** 位移量(px)是形状参数,不进 token。 */
+const ENTER_DISTANCE = 10;
+const EXIT_DISTANCE = 6;
 
 type ModalSurfaceProps = {
   readonly title: string;
@@ -40,12 +37,12 @@ function ModalSurface({ title, hint, wide = false, testId, footer, onClose, chil
   }, []);
   const { enabled, reduced } = useEntryMotion();
   const enter: Transition = {
-      duration: reduced ? MODAL_MOTION.reducedDuration : MODAL_MOTION.enterDuration,
-      ease: "easeOut",
+      duration: reduced ? MOTION_DURATION.reducedFade : MOTION_DURATION.overlayRise,
+      ease: MOTION_EASE.out,
     },
     exit: Transition = {
-      duration: reduced ? MODAL_MOTION.reducedDuration : MODAL_MOTION.exitDuration,
-      ease: "easeIn",
+      duration: reduced ? MOTION_DURATION.reducedFade : MOTION_DURATION.overlayFall,
+      ease: MOTION_EASE.in,
     };
   return (
     <dialog
@@ -65,18 +62,18 @@ function ModalSurface({ title, hint, wide = false, testId, footer, onClose, chil
         className="glass-scrim pointer-events-none fixed inset-0"
         initial={enabled ? { opacity: 0 } : false}
         animate={{ opacity: 1 }}
-        exit={enabled ? { opacity: 0, transition: { ...exit, ease: "easeOut" } } : undefined}
+        exit={enabled ? { opacity: 0, transition: { ...exit, ease: MOTION_EASE.out } } : undefined}
         transition={enter}
       />
       <motion.div
         className={`glass mx-auto flex max-h-[var(--overlay-content-cap)] w-full flex-col overflow-hidden rounded-lg shadow-2xl ${wide ? "max-w-[760px]" : "max-w-[640px]"}`}
-        initial={enabled ? (reduced ? { opacity: 0 } : { opacity: 0, y: MODAL_MOTION.enterDistance }) : false}
+        initial={enabled ? (reduced ? { opacity: 0 } : { opacity: 0, y: ENTER_DISTANCE }) : false}
         animate={{ opacity: 1, ...(reduced || !enabled ? {} : { y: 0 }) }}
         exit={
           enabled
             ? reduced
               ? { opacity: 0, transition: exit }
-              : { opacity: 0, y: MODAL_MOTION.exitDistance, transition: exit }
+              : { opacity: 0, y: EXIT_DISTANCE, transition: exit }
             : undefined
         }
         transition={enter}
