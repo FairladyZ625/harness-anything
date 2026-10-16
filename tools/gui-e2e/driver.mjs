@@ -6,10 +6,17 @@ import path from "node:path";
 import electronPath from "electron";
 import { _electron as electron } from "playwright-core";
 
-export async function startGuiDriver({ workspaceRoot, rootDir, env, runRoot, headless = true }) {
+export async function startGuiDriver({
+  workspaceRoot,
+  sourceRoot = workspaceRoot,
+  rootDir,
+  env,
+  runRoot,
+  headless = true,
+}) {
   const profile = mkdtempSync(path.join(tmpdir(), "hg-profile-"));
   const consoleFailures = [];
-  const args = [path.join(workspaceRoot, "packages/gui/src/main/electron-main.ts"), `--user-data-dir=${profile}`];
+  const args = [path.join(sourceRoot, "packages/gui/src/main/electron-main.ts"), `--user-data-dir=${profile}`];
   if (headless) args.push("--no-sandbox", "--headless", "--disable-gpu", "--disable-dev-shm-usage");
   let app;
   try {
