@@ -197,6 +197,10 @@ export default {
       await shot(`ci-detail-${width}-${theme}`);
     }
     writeFileSync(path.join(runRoot, "ci-geometry.json"), JSON.stringify(geometry, null, 2) + "\n");
+    // Close the focus layer before changing the presentation fixture. Reloading the
+    // Electron page does not guarantee the historical focus stack is empty.
+    await page.keyboard.press("Escape");
+    await page.getByTestId("overview-ci-alert").waitFor();
     await app.evaluate(() => {
       globalThis.__ciState = "missing";
     });

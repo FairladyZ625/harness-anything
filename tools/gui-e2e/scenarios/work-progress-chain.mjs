@@ -156,7 +156,14 @@ export default {
       await mustApply(
         fixture.endpoint,
         fixture.repoId,
-        { kind: "task-adjudicate", taskId: LONG_TASK, return: true, reason: `chain rework round ${round}` },
+        {
+          kind: "task-adjudicate",
+          taskId: LONG_TASK,
+          return: true,
+          workerMode: "fresh",
+          followUp: `chain rework round ${round}`,
+          reason: `chain rework round ${round}`,
+        },
         `round ${round} return`,
       );
     }

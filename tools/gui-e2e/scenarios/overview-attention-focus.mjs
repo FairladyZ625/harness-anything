@@ -208,6 +208,8 @@ export default {
           taskId: rework.taskId,
           executionId: rework.executionId,
           return: true,
+          workerMode: "fresh",
+          followUp: "attention focus fixture: machine rework round",
           reason: "attention focus fixture: machine rework round",
         },
       });

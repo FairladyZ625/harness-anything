@@ -583,6 +583,8 @@ export default {
             taskId,
             executionId,
             return: true,
+            workerMode: "fresh",
+            followUp: "Continue the isolated layout fixture round",
             reason: "Continue the isolated layout fixture round",
           },
           { kind: "task-start", taskId, executionId: `execution-layout-${taskId}-${index}` },

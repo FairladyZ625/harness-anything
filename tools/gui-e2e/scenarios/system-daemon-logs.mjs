@@ -40,6 +40,15 @@ export default {
       ok: true,
       ...sample,
     }));
+    appendFileSync(
+      path.join(
+        fixture.userRoot,
+        "logs",
+        `daemon-${fixture.daemonId}-conn-${new Date(now).toISOString().slice(0, 10).replaceAll("-", "")}.jsonl`,
+      ),
+      samples.map((sample) => JSON.stringify(sample)).join("\n") + "\n",
+    );
+    await page.reload();
     await page.getByRole("button", { name: /^(?:Daemon 状态|Daemon status)$/u }).click();
     const panel = page.getByTestId("system-daemon-logs");
     await panel.waitFor();
@@ -94,14 +103,6 @@ export default {
     await page.getByTestId("observe-tab-ops-daemon-log").click();
     const board = page.getByTestId("observe-slowops-daemon-log");
     await board.waitFor();
-    appendFileSync(
-      path.join(
-        fixture.userRoot,
-        "logs",
-        `daemon-${fixture.daemonId}-conn-${new Date(now).toISOString().slice(0, 10).replaceAll("-", "")}.jsonl`,
-      ),
-      samples.map((sample) => JSON.stringify(sample)).join("\n") + "\n",
-    );
     await board.getByTestId("observe-slowops-daemon-log-waits").waitFor();
     const execution = board.getByTestId("observe-slowops-daemon-log-execution");
     assert.ok((await execution.textContent()).includes("repo.task.run"));

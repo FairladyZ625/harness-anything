@@ -659,6 +659,8 @@ export default {
         .getByRole("button", { name: /筛选|Filters/u })
         .first()
         .click();
+      const moreEntityTypes = page.getByText(/更多实体类型|More entity types/u).first();
+      if (await moreEntityTypes.count()) await moreEntityTypes.click();
       const adrChip = page.getByTestId(`graph-filter-entity-type-${ADR_KIND}`);
       await adrChip.waitFor();
       assert.equal(await adrChip.innerText(), "Architecture Decision Record");

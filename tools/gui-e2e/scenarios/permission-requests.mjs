@@ -95,7 +95,11 @@ export default {
       client.close();
     }
     await page.getByRole("button", { name: /^(?:账号与访问控制|Identity & access)$/u }).click();
-    await page.getByRole("tab", { name: "Permission requests", exact: true }).click();
+    await page.getByRole("tab", { name: /^(?:权限申请|Permission requests)$/u }).click();
+    await page
+      .getByTestId("permission-requests")
+      .getByText(/person-ada.*(?:请求|requests)/u)
+      .waitFor();
     await page.getByTestId(`permission-request-decide-${request.requestId}`).click();
     assert.match(await page.getByTestId("permission-request-confirm").textContent(), /Confirm version 1/u);
     assert.equal((await evaluate()).outcome, "denied");
