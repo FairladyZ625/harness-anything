@@ -106,7 +106,17 @@ export async function dispatchReturnedWorker(
       throw cell.cellCodedError("authorization_denied", authorizationDecision.nextActions.join(" "));
     const worktree = await cell.runtimeSpawner.prepareWorktree(payload),
       spawned = await cell.runtimeSpawner.spawn(payload, { ...binding, authorizationDecision }, worktree);
-    return { ...receipt, continuation: { mode, ...spawned } } as WriteReceiptDraft;
+    return {
+      ...receipt,
+      continuation: { mode, ...spawned },
+      next: [
+        {
+          command: `ha task show ${payload.taskId}`,
+          reason:
+            "the worker was dispatched automatically; monitor its resumed execution instead of starting another worker",
+        },
+      ],
+    } as WriteReceiptDraft;
   } catch (error) {
     // The return is already durable. Preserve the actual launch error and its code,
     // together with the return receipt, so callers never mistake it for a launched worker.

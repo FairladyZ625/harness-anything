@@ -59,6 +59,17 @@ test("ACP serving capacity errors remain provider faults after tool activity", (
   assert.equal(result.classification, "provider_fault");
 });
 
+test("transient busy model service errors remain retryable provider faults", () => {
+  const providerFault = providerFaultFromFrame("codex", {
+      type: "turn.failed",
+      error: { message: "service is busy; please try again later" },
+    }),
+    result = classifyRuntimeExit(active({ providerFault }), 1);
+
+  assert.equal(providerFault?.code, "server_error");
+  assert.equal(result.classification, "provider_fault");
+});
+
 test("claude api_error 429 preserves quota classification and reset header", () => {
   const fault = providerFaultFromFrame("claude", {
     type: "result",

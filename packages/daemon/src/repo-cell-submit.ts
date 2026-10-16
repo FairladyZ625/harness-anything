@@ -544,7 +544,17 @@ export async function submitTask(
     ciRequired = submission.commitSha !== null && binding.executionPrincipal !== undefined && hosted;
   if (ciRequired) {
     const ci = await readTaskCi(cell, { kind: "task-ci", taskId }, binding);
-    if (ci.ci.headSha !== submission.commitSha || ci.ci.conclusion !== "success")
+    if (ci.ci.headSha !== submission.commitSha || ci.ci.conclusion !== "success") {
+      if (
+        ci.ci.headSha === submission.commitSha &&
+        (ci.ci.conclusion === "not_started" || ci.ci.conclusion === "pending")
+      )
+        return cell.withHumanSummary({
+          outcome: "pending",
+          opId: cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
+          revision: fresh.snapshot.revision,
+          evidence: `Task CI for ${submission.commitSha} is ${ci.ci.conclusion}; the submitted lifecycle cut remains durable while the provider settles.`,
+        }) as WriteReceiptDraft;
       return {
         ...cell.rejected(
           cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
@@ -563,6 +573,7 @@ export async function submitTask(
         ],
         steps: synced ? [synced] : [],
       } as WriteReceiptDraft;
+    }
   }
   const anchorDriftWarnings = submissionAnchorDriftWarnings(selected.submission, submission);
   // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
