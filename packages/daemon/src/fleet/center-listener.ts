@@ -46,7 +46,6 @@ import {
 import { runWalSender } from "./walsender.ts";
 import { createReplicationRetention, openReplicationSlots } from "./replication-slot.ts";
 import { startBaseBackup } from "./basebackup.ts";
-
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -62,7 +61,6 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
     signal.addEventListener("abort", done, { once: true });
   });
 }
-
 export async function listenFleetTls(options: FleetCenterOptions): Promise<FleetTlsCenter> {
   mkdirSync(options.stateRoot, { recursive: true });
   const closing = new AbortController();
@@ -179,7 +177,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       );
     return retention;
   };
-  /** The center's replication head now; a commit accepted before this read is at or below it. */
   const readReplicationHead = (repoId: string) => {
     const store = openSqliteEventStore({ databasePath: sqliteLedgerPath(repoRoot(repoId)), repoId, readOnly: true });
     try {
@@ -189,16 +186,13 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
   };
   const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
-  // Single center write entry: all Fleet write-frame branches remain behind
-  // this boundary, where authenticated principal and writer fencing are already
-  // established by nodeContext/auth before the operation is admitted.
-  const runFleetCenterWrite = async <T>(
-    write: (() => T | Promise<T>) | Parameters<typeof options.host.run>[0],
-    ...args: unknown[]
-  ): Promise<T> =>
-    typeof write === "function"
-      ? write()
-      : (options.host.run(write, ...(args as Parameters<typeof options.host.run>).slice(1)) as Promise<T>);
+  function runFleetCenterWrite<T>(frame: FleetFrameV1, execute: () => T | Promise<T>): Promise<T>; function runFleetCenterWrite<T>(write: () => T | Promise<T>): Promise<T>;
+  function runFleetCenterWrite(write: string, ...args: unknown[]): Promise<any>;
+  async function runFleetCenterWrite<T>(write: (() => T | Promise<T>) | string | FleetFrameV1, ...args: unknown[]): Promise<T> {
+    if (typeof write === "object") return (await (args[0] as () => T)()) as T;
+    if (typeof write === "function") return (await write()) as T;
+    return (await (options.host.run as (...runArgs: unknown[]) => Promise<unknown>)(write, ...args)) as T;
+  }
   const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
@@ -358,7 +352,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       store.close();
     }
   };
-
   function verifyOwnedClaims(
     nodeId: string,
     repoId: string,
@@ -508,6 +501,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       });
     }
     if (frame.schema === "fleet.upload.begin/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
         uploadId = digestId(
           nodeId,
@@ -557,8 +551,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         status: upload.descriptor ? "already_staged" : "receiving",
         replicationSequence: null,
       });
+    
+      });
     }
     if (frame.schema === "fleet.upload.chunk/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const upload = ownedUpload(state, nodeId, frame.uploadId);
       await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
       const file = uploadPath(frame.uploadId),
@@ -586,8 +583,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         status: "receiving",
         replicationSequence: null,
       });
+    
+      });
     }
     if (frame.schema === "fleet.upload.finish/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const upload = state.uploads[frame.uploadId];
       if (!upload || upload.nodeId !== nodeId)
         throw new FleetFault("upload_unknown", "Upload is unknown or belongs to another node.");
@@ -629,8 +629,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         descriptor,
         replicationSequence: null,
       });
+    
+      });
     }
     if (frame.schema === "fleet.doc.submit/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const completed: string[] = [];
@@ -689,8 +692,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           ...(frame.taskId ? { taskId: frame.taskId } : {}),
         },
       });
+    
+      });
     }
     if (frame.schema === "fleet.task.command/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       try {
         assertFrameEpoch(a.repoId, frame.writerEpoch);
@@ -823,8 +829,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         };
       }
       return immediate(response);
+    
+      });
     }
     if (frame.schema === "fleet.schedule.command/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.scheduleId !== frame.action.scheduleId)
         throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
@@ -847,8 +856,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         code: receipt.code ?? null,
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       });
+    
+      });
     }
     if (frame.schema === "fleet.runtime.event/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
@@ -918,8 +930,11 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         event: event as Readonly<Record<string, unknown>>,
         receipt,
       });
+    
+      });
     }
     if (frame.schema === "fleet.runtime.archive/v1") {
+      return runFleetCenterWrite(frame, async () => {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
       if (frame.repoId !== a.repoId)
         throw new FleetFault(
@@ -950,6 +965,8 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         inReplyTo: frame.messageId,
         replicationSequence: writeReplicationSequence(a.repoId, receipt),
         receipt,
+      });
+    
       });
     }
     if (frame.schema === "fleet.runtime.await/v1") {

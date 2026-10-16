@@ -18,20 +18,26 @@ test("Fleet center write frames must use the one center write entry", () => {
     writeFileSync(
       centerPath,
       [
-        'if (frame.schema === "fleet.doc.submit/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.task.command/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.schedule.command/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.runtime.event/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.runtime.archive/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.upload.begin/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.upload.chunk/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.upload.finish/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.doc.submit/v1") { return runFleetCenterWrite(frame, async () => { return options.host.run(); }); }',
+        'if (frame.schema === "fleet.task.command/v1") { return runFleetCenterWrite(frame, async () => { return options.host.run(); }); }',
+        'if (frame.schema === "fleet.schedule.command/v1") { return runFleetCenterWrite(frame, async () => { return options.host.run(); }); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+        'if (frame.schema === "fleet.runtime.archive/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+        'if (frame.schema === "fleet.upload.begin/v1") { return runFleetCenterWrite(frame, async () => { return persist(); }); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(frame, async () => { return appendFileSync(); }); }',
+        'if (frame.schema === "fleet.upload.finish/v1") { return runFleetCenterWrite(frame, async () => { return renameSync(); }); }',
       ].join("\n"),
     );
     const valid = runChecker(root);
     assert.equal(valid.status, 0, valid.stderr);
 
-    writeFileSync(centerPath, readFileSync(centerPath, "utf8").replace("runFleetCenterWrite()", "options.host.run()"));
+    writeFileSync(
+      centerPath,
+      readFileSync(centerPath, "utf8").replace(
+        "return runFleetCenterWrite(frame, async () => { return options.host.run(); });",
+        "return options.host.run();",
+      ),
+    );
     const bypass = runChecker(root);
     assert.notEqual(bypass.status, 0);
     assert.match(bypass.stderr, /fleet\.doc\.submit\/v1 must use its center write entry/u);
@@ -39,13 +45,28 @@ test("Fleet center write frames must use the one center write entry", () => {
     writeFileSync(
       centerPath,
       readFileSync(centerPath, "utf8").replace(
-        'if (frame.schema === "fleet.runtime.event/v1") { runFleetCenterWrite(); }',
-        'if (frame.schema === "fleet.runtime.event/v1") { options.host.runtimeIngress(); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { return options.host.runtimeIngress(); }',
       ),
     );
     const runtimeBypass = runChecker(root);
     assert.notEqual(runtimeBypass.status, 0);
     assert.match(runtimeBypass.stderr, /fleet\.runtime\.event\/v1 must use its center write entry/u);
+
+    const restored = readFileSync(centerPath, "utf8").replace(
+      'if (frame.schema === "fleet.runtime.event/v1") { return options.host.runtimeIngress(); }',
+      'if (frame.schema === "fleet.runtime.event/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+    );
+    writeFileSync(
+      centerPath,
+      restored.replace(
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(frame, async () => { return appendFileSync(); }); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { return appendFileSync(); }',
+      ),
+    );
+    const uploadBypass = runChecker(root);
+    assert.notEqual(uploadBypass.status, 0);
+    assert.match(uploadBypass.stderr, /fleet\.upload\.chunk\/v1 must use its center write entry/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

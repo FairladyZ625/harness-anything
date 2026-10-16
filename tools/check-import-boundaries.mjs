@@ -487,14 +487,14 @@ for (const file of packageSourceFiles) {
   }
   if (!isTestOrFixture && rel === "packages/daemon/src/fleet/center-listener.ts") {
     const centerWriteBranchRequirements = new Map([
-      ["fleet.doc.submit/v1", "runFleetCenterWrite("],
-      ["fleet.task.command/v1", "runFleetCenterWrite("],
-      ["fleet.schedule.command/v1", "runFleetCenterWrite("],
-      ["fleet.runtime.event/v1", "runFleetCenterWrite("],
-      ["fleet.runtime.archive/v1", "runFleetCenterWrite("],
-      ["fleet.upload.begin/v1", "runFleetCenterWrite("],
-      ["fleet.upload.chunk/v1", "runFleetCenterWrite("],
-      ["fleet.upload.finish/v1", "runFleetCenterWrite("],
+      ["fleet.doc.submit/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.task.command/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.schedule.command/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.runtime.event/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.runtime.archive/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.upload.begin/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.upload.chunk/v1", "return runFleetCenterWrite(frame, async () => {"],
+      ["fleet.upload.finish/v1", "return runFleetCenterWrite(frame, async () => {"],
     ]);
     for (const [frame, requiredCall] of centerWriteBranchRequirements) {
       const branchStart = text.indexOf(`if (frame.schema === "${frame}")`);

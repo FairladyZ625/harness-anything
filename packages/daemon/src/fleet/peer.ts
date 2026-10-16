@@ -449,7 +449,11 @@ export async function runFleetRuntimeEventClient(
   }
 }
 export async function runFleetRuntimeArchiveClient(
-  options: FleetPeerOptions & { readonly repoId: string; readonly archive: Readonly<Record<string, unknown>> },
+  options: FleetPeerOptions & {
+    readonly repoId: string;
+    readonly archive: Readonly<Record<string, unknown>>;
+    readonly opId?: string;
+  },
 ): Promise<Extract<FleetFrameV1, { schema: "fleet.runtime.archive.result/v1" }>> {
   const session = await openPeer(options);
   try {
@@ -464,7 +468,7 @@ export async function runFleetRuntimeArchiveClient(
       messageId: session.messageId(),
       writerEpoch: assigned.writerEpoch,
       repoId: options.repoId,
-      opId: randomUUID(),
+      opId: options.opId ?? randomUUID(),
       archive: options.archive,
     });
     if (response.schema !== "fleet.runtime.archive.result/v1") throw new Error("runtime archive result expected");

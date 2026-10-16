@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
-import { FleetRemoteError as FleetRemoteErrorClass, runFleetUploadClient as fleetUploadClient } from "./fleet/peer.ts";
+import {
+  FleetRemoteError as FleetRemoteErrorClass,
+  runFleetRuntimeArchiveClient,
+  runFleetUploadClient as fleetUploadClient,
+} from "./fleet/peer.ts";
 // The edge write port is the only production composition root for Fleet write
 // clients. Keep this list explicit so a new peer export cannot silently bypass
 // the port through a wildcard re-export.
@@ -94,6 +98,18 @@ export async function runFleetEdgeUploadClient(
   return runFleetEdgeRetry({
     timeoutMs: options.timeoutMs,
     write: () => fleetUploadClient({ ...options, operationIds }),
+  });
+}
+
+export async function runFleetEdgeRuntimeArchiveClient(
+  options: Parameters<typeof runFleetRuntimeArchiveClient>[0] & {
+    readonly timeoutMs: number;
+  },
+): Promise<Awaited<ReturnType<typeof runFleetRuntimeArchiveClient>>> {
+  const opId = randomUUID();
+  return runFleetEdgeRetry({
+    timeoutMs: options.timeoutMs,
+    write: () => runFleetRuntimeArchiveClient({ ...options, opId }),
   });
 }
 

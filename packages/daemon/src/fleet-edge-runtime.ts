@@ -33,7 +33,7 @@ import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
-  runFleetRuntimeArchiveClient,
+  runFleetEdgeRuntimeArchiveClient,
   runFleetRuntimeEventClient,
   awaitFleetRuntimeSessionsClient,
   runFleetScheduleCommandClient,
@@ -464,10 +464,11 @@ export function openFleetEdgeRuntime(input: {
           nodeId: request.nodeId,
           timeoutMs: centerWriteWaitMs,
           write: () =>
-            runFleetRuntimeArchiveClient({
+            runFleetEdgeRuntimeArchiveClient({
               ...writePeer,
               repoId: request.repoId,
               archive: archive as unknown as Readonly<Record<string, unknown>>,
+              timeoutMs: centerWriteWaitMs,
             }),
         });
         return response.receipt as { readonly outcome: string };
