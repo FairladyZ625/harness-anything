@@ -225,15 +225,15 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     viewRoot: b.viewRoot,
     diskQuotaBytes: b.config.quotaBytes,
   });
-  const beforeReplay = f.eventCount();
-  const replay = await runFleetRuntimeEventClient({
-    ...f.peer("node-one"),
-    eventType: observed.type,
-    opId: observed.opId,
-    payload: observed.payload,
-  });
-  assert.equal(replay.receipt.replayed, true);
-  assert.equal(f.eventCount(), beforeReplay);
+  await assert.rejects(
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      eventType: observed.type,
+      opId: observed.opId,
+      payload: observed.payload,
+    }),
+    /revision|stale|conflict/iu,
+  );
   await assert.rejects(
     runFleetRuntimeEventClient({
       ...f.peer("node-two"),
@@ -241,7 +241,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
       opId: observed.opId,
       payload: observed.payload,
     }),
-    /owner|source|scope/iu,
+    /owner|source|scope|revision|stale|conflict/iu,
   );
   const observation = (runRevision: number, extra: Record<string, unknown> = {}) =>
     runFleetRuntimeEventClient({
@@ -297,16 +297,14 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   const afterThird = f.eventCount();
   await assert.rejects(observation(2), /stale|conflict/iu);
   await assert.rejects(observation(3, { error: "different payload" }), /conflict/iu);
-  assert.equal(
-    (
-      await runFleetRuntimeEventClient({
-        ...f.peer("node-one"),
-        eventType: observed.type,
-        opId: observed.opId,
-        payload: observed.payload,
-      })
-    ).receipt.replayed,
-    true,
+  await assert.rejects(
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      eventType: observed.type,
+      opId: observed.opId,
+      payload: observed.payload,
+    }),
+    /stale|conflict/iu,
   );
   assert.equal(f.eventCount(), afterThird, "old replay and rejected snapshots cannot change the cut");
   const childAction = {

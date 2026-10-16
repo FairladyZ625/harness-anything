@@ -204,19 +204,15 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
       },
     });
     assert.equal(created.outcome, "applied", JSON.stringify(created));
-    assert.equal(
-      (
-        await rpc("repo.settings.update", {
-          repo: { repoId: "alpha" },
-          payload: {
-            runtimeAllowedInstances: ["resident-codex"],
-            expectedVersion: 1,
-            dispatchKey: "allow-resident-codex",
-          },
-        })
-      ).outcome,
-      "applied",
-    );
+    const settingsUpdate = await rpc("repo.settings.update", {
+      repo: { repoId: "alpha" },
+      payload: {
+        runtimeAllowedInstances: ["resident-codex"],
+        expectedVersion: 1,
+        idempotencyKey: "allow-resident-codex",
+      },
+    });
+    assert.equal(settingsUpdate.outcome, "applied", JSON.stringify(settingsUpdate));
     const updated = await rpc("daemon.runtimeInstance.update", {
       payload: {
         instanceId: "resident-codex",
@@ -280,7 +276,7 @@ test("GUI S3 resident daemon bridge serves two RepoCells, catalog/runtime/contro
     const terminal = await rpc("repo.terminal.spawn", {
       repo: { repoId: "alpha" },
       payload: {
-        dispatchKey: "resident-pty",
+        idempotencyKey: "resident-pty",
         backend: "direct-pty",
         name: "Resident",
         cwd: { scope: "repo-root" },

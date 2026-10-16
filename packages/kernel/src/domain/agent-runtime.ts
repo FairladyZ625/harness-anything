@@ -866,8 +866,6 @@ export function reduceRuntimeSession(
   }
   if (event.type === "runtime_session_liveness_changed") {
     if (current.liveness === "exited") throw new Error(`runtime session ${sessionId} already exited`);
-    if (current.liveness === event.payload.liveness && (event.payload.liveness !== "live" || current.attachable))
-      return current;
     return {
       ...current,
       liveness: event.payload.liveness,
