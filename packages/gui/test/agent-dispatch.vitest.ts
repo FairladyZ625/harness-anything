@@ -20,12 +20,13 @@ import { previewFailureText } from "../src/renderer/components/runtime/useRuntim
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 // Static-markup contract tests do not mount a browser projection tree; the
-// shared Modal motion behavior is covered by modal-motion.vitest.tsx.
+// shared Modal motion behavior is covered by modal-motion.vitest.tsx and the
+// SegCtl sliding thumb (motion.span layoutId) by seg-ctl-motion.vitest.tsx.
 vi.mock("motion/react", async (original) => {
   const actual = await original<typeof import("motion/react")>();
   return {
     ...actual,
-    motion: { div: "div" },
+    motion: { div: "div", span: "span" },
     AnimatePresence: ({ children }: { readonly children: unknown }) => children,
     useReducedMotion: () => false,
   };
