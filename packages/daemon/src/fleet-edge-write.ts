@@ -1,7 +1,8 @@
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
+export * from "./fleet/peer.ts";
 
 export interface FleetEdgeWriteReceipt {
-  readonly replicationSequence: number;
+  readonly replicationSequence: number | null;
 }
 
 export class FleetReplicaLagTimeoutError extends Error {
@@ -24,6 +25,7 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
 }): Promise<T> {
   const receipt = await options.write();
   if ("outcome" in receipt && receipt.outcome !== "applied") return receipt;
+  if (receipt.replicationSequence === null) return receipt;
   const signal = AbortSignal.timeout(options.timeoutMs);
   try {
     await waitForFleetReplicaSequence(

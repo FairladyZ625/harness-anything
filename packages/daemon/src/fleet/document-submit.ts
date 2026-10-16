@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { runFleetWriteClient, type FleetEdgeChange } from "./peer.ts";
+import { runFleetWriteClient, type FleetEdgeChange } from "../fleet-edge-write.ts";
 interface FleetEdgeChannelPayload {
   readonly host: string;
   readonly port: number;

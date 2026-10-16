@@ -34,7 +34,7 @@ import {
   runFleetTaskCommandClient,
   runFleetUploadClient,
   runFleetWriteClient,
-} from "./fleet/peer.ts";
+} from "./fleet-edge-write.ts";
 import type { FleetDescriptor } from "./fleet/command-protocol.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
 import {

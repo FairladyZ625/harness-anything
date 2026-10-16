@@ -169,7 +169,7 @@ export async function syncFleetEdgeMirror(
   // (started or restarted by onAdmitted); sync then waits on that stream.
   persistEdgeConnection(request);
   onAdmitted?.();
-  await waitForFleetReplicaSequence(request, head.replicationSequence);
+  if (head.replicationSequence !== null) await waitForFleetReplicaSequence(request, head.replicationSequence);
   return withFleetMirrorLock(input.payload.viewRoot, input.payload.repoId, async () => {
     const generation = readReplicaGeneration(
       path.join(input.payload.viewRoot, "repos", input.payload.repoId, "views", input.payload.nodeId),

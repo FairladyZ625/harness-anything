@@ -20,7 +20,7 @@ export {
   type FleetWriteClientOptions,
   type FleetWriteClientResult,
   type FleetEdgeView,
-} from "./fleet/peer.ts";
+} from "./fleet-edge-write.ts";
 export { parseFleetFrame, serializeFleetFrame, type FleetFrameV1 } from "./fleet/command-protocol.ts";
 export { createJsonRpcProtocolServer, type JsonRpcProtocolServer } from "./protocol/json-rpc-server.ts";
 export { jsonRpcMethodContracts } from "./protocol/daemon-protocol.contract.ts";

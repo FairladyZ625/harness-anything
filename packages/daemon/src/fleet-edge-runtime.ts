@@ -39,7 +39,7 @@ import {
   runFleetScheduleCommandClient,
   runFleetTaskCommandClient,
   type FleetPeerOptions,
-} from "./fleet/peer.ts";
+} from "./fleet-edge-write.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";

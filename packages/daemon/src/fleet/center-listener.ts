@@ -189,6 +189,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
   };
   const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
+  const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
+    typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
+      ? replicationHead(repoId)
+      : null;
   const projectionReady = new Map<string, Promise<void>>();
   const backupQueues = new Map<string, Promise<void>>();
   type CachedBackup = {
@@ -663,7 +667,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         outcome: receipt.outcome,
         opId: receipt.opId,
         revision: receipt.revision ?? null,
-        replicationSequence: replicationHead(a.repoId),
+        replicationSequence: writeReplicationSequence(a.repoId, receipt),
         code: receipt.code ?? null,
         receipt: {
           ...(receipt as unknown as Readonly<Record<string, unknown>>),
@@ -756,7 +760,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
             : ("applied" as const),
         opId: frame.opId,
         revision: receipt.revision ?? null,
-        replicationSequence: replicationHead(a.repoId),
+        replicationSequence: writeReplicationSequence(a.repoId, receipt),
         ...(receipt.outcome === "applied" &&
         receipt.cut &&
         typeof receipt.cut.revision === "number" &&
@@ -883,7 +887,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           schema: "fleet.runtime.event.result/v1",
           messageId: mid(frame.messageId, "runtime-event"),
           inReplyTo: frame.messageId,
-          replicationSequence: replicationHead(a.repoId),
+          replicationSequence: writeReplicationSequence(a.repoId, receipt),
           event: null,
           receipt,
         });
@@ -893,7 +897,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.runtime.event.result/v1",
         messageId: mid(frame.messageId, "runtime-event"),
         inReplyTo: frame.messageId,
-        replicationSequence: replicationHead(a.repoId),
+        replicationSequence: writeReplicationSequence(a.repoId, receipt),
         event: event as Readonly<Record<string, unknown>>,
         receipt,
       });
@@ -925,7 +929,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         schema: "fleet.runtime.archive.result/v1",
         messageId: mid(frame.messageId, "runtime-archive"),
         inReplyTo: frame.messageId,
-        replicationSequence: replicationHead(a.repoId),
+        replicationSequence: writeReplicationSequence(a.repoId, receipt),
         receipt,
       });
     }

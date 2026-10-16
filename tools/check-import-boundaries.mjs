@@ -21,6 +21,16 @@ const guiAdapterCompositionRoots = new Set(entryValues(allowlist.guiAdapterCompo
 const cliAdapterCompositionRoots = new Set(entryValues(allowlist.cliAdapterCompositionRoots));
 const kernelStoreCompositionRoots = new Set(entryValues(allowlist.kernelStoreCompositionRoots));
 const cliAdapterKnownDebt = new Set(entryValues(allowlist.cliAdapterKnownDebt));
+const fleetWriteClientNames = new Set([
+  "runFleetWriteClient",
+  "runFleetUploadClient",
+  "runFleetRuntimeEventClient",
+  "runFleetRuntimeArchiveClient",
+  "runFleetTaskCommandClient",
+  "runFleetScheduleCommandClient",
+]);
+const fleetWritePort = "packages/daemon/src/fleet-edge-write.ts";
+const fleetCenterListener = "packages/daemon/src/fleet/center-listener.ts";
 const workspacePackages = await loadWorkspacePackages(path.join(root, "packages"));
 const workspacePackagesByName = new Map(
   workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]),
@@ -458,6 +468,22 @@ for (const file of packageSourceFiles) {
     }
     if (oldRuntimePattern.test(text)) {
       record(file, "production package references old runtime symbol or path");
+    }
+  }
+
+  // dec_66CE6F92D92CE3424C44B985D2/CH2: Fleet write clients have one edge
+  // composition root. Tests may call the transport directly to exercise the
+  // wire contract, but production code must enter through the edge port.
+  if (!isTestOrFixture && rel !== fleetWritePort) {
+    for (const specifier of imports) {
+      const target = resolveImport(file, specifier);
+      if (target !== "packages/daemon/src/fleet/peer.ts") continue;
+      const edge = importEdges.find((candidate) => candidate.importer === rel && candidate.specifier === specifier);
+      if (
+        edge?.importedNames === "namespace" ||
+        [...(edge?.importedNames ?? [])].some((name) => fleetWriteClientNames.has(name))
+      )
+        record(file, `Fleet write client imports must go through ${fleetWritePort}`);
     }
   }
 }

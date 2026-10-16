@@ -3,7 +3,11 @@ import { makeSquadCoordinator } from "./squad-coordinator.ts";
 import { deriveSquadChildPlan, reacquireSquadTaskLease } from "./repo-cell-squad-child.ts";
 import { withEdgeReadModel } from "./fleet-edge-task-read.ts";
 import { runFleetEdgeTask } from "./fleet-edge-task.ts";
-import { readFleetRepositoryMetadataClient, runFleetRuntimeEventClient, type FleetPeerOptions } from "./fleet/peer.ts";
+import {
+  readFleetRepositoryMetadataClient,
+  runFleetRuntimeEventClient,
+  type FleetPeerOptions,
+} from "./fleet-edge-write.ts";
 import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import type { FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import type { makeRuntimeSpawner } from "./runtime-spawner.ts";
