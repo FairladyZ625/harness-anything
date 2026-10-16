@@ -372,6 +372,20 @@ test("a log without runner markers falls back to a short error excerpt, not a gu
   assert.equal(result.truncated, false);
 });
 
+test("an unstructured provider trace keeps a bounded scrubbed excerpt", () => {
+  const result = extractJobFailure("failed test\n[REDACTED]\n");
+  assert.deepEqual(result.tests, []);
+  assert.deepEqual(result.testFiles, []);
+  assert.equal(result.excerpt, "failed test\n[REDACTED]\n");
+  assert.equal(result.truncated, false);
+});
+
+test("a blank provider trace does not create a fallback diagnostic", () => {
+  const result = extractJobFailure("\n  \n");
+  assert.equal(result.excerpt, "");
+  assert.equal(result.truncated, false);
+});
+
 test("only non-pass file outcomes count, across the runner's whole vocabulary", () => {
   const result = extractJobFailure(
     "[node-test-file] pass tools/a.test.mjs\n" +

@@ -96,7 +96,8 @@ function parseCiFailure(log: string): ParsedFailure {
   }
   let excerpt = "";
   if (tests.length === 0 && testFiles.length === 0) {
-    const index = lines.findIndex((line) => fallbackErrorLine.test(line));
+    const errorIndex = lines.findIndex((line) => fallbackErrorLine.test(line));
+    const index = errorIndex >= 0 ? errorIndex : lines.findIndex((line) => line.trim() !== "");
     if (index >= 0) {
       const joined = lines.slice(index, index + fallbackExcerptLines).join("\n");
       excerpt = bounded(joined, fallbackExcerptChars, truncated);
