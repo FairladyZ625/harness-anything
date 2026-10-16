@@ -8,6 +8,57 @@ import test from "node:test";
 import { openSqliteEventStore } from "../../src/store/sqlite-event-store.ts";
 import { openReplicaStore } from "../../src/store/replica-store.ts";
 
+test("a restored replica recycles backup log rows without waiting for another commit", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-replication-restored-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const repoId = "replication-test",
+    databasePath = path.join(root, "center.sqlite"),
+    replicaPath = path.join(root, "replica.sqlite"),
+    fence = { repoId, holder: "center", epoch: 1 },
+    center = openSqliteEventStore({ repoId, databasePath });
+  try {
+    center.claimWriter(fence);
+    for (let index = 0; index < 7; index += 1)
+      center.appendCommand({
+        fence,
+        events: [],
+        rejectionCode: "test_rejected",
+        intent: { opId: `rejected-${index}`, intentDigest: `sha256:${"a".repeat(64)}`, summary: "retained outcome" },
+      });
+    const position = center.replicationPosition(),
+      source = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      await backup(source, replicaPath);
+    } finally {
+      source.close();
+    }
+    // The center handles the backup ACK; no subsequent commit will invoke replica.apply.
+    center.pruneReplicationLog(position.sequence);
+    const replica = openReplicaStore({ repoId, databasePath: replicaPath }),
+      restored = new DatabaseSync(replicaPath, { readOnly: true }),
+      current = new DatabaseSync(databasePath, { readOnly: true });
+    try {
+      assert.deepEqual(replica.position(), position);
+      assert.deepEqual(
+        restored.prepare("SELECT * FROM replication_log ORDER BY sequence").all(),
+        current.prepare("SELECT * FROM replication_log ORDER BY sequence").all(),
+        "restored log keeps only its applied anchor, even without a subsequent commit",
+      );
+      assert.deepEqual(
+        restored.prepare("SELECT * FROM command_outcome ORDER BY op_id").all(),
+        current.prepare("SELECT * FROM command_outcome ORDER BY op_id").all(),
+        "recycling transport rows preserves every canonical outcome",
+      );
+    } finally {
+      restored.close();
+      current.close();
+      replica.close();
+    }
+  } finally {
+    center.close();
+  }
+});
+
 test("online backup preserves pinned ledger and projection snapshots while another connection commits", async (t) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-replication-primitives-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));

@@ -9,6 +9,8 @@ export function openReplicaStore(options: {
   readonly generation?: number;
 }) {
   const store = openSqliteEventStore(options);
+  // A backup may already be at the head, so no later apply will recycle its inherited log.
+  store.pruneReplicationLog(store.replicationPosition().sequence);
   return {
     position: store.replicationPosition,
     apply: (commit: ReplicationCommit, blobs: readonly CanonicalContentBlob[]) => {
