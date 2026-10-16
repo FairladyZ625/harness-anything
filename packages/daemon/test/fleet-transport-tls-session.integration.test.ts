@@ -372,6 +372,7 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
   t.after(() => fixture.close());
   const probe = serializeFleetFrame({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: "unicode-probe",
       repoId: fixture.subject.repoId,
       content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
@@ -391,6 +392,7 @@ test("split UTF-8 frame preserves multibyte text in both TLS directions", { time
     inbound = await peer.split(
       {
         schema: "fleet.upload.begin/v1",
+        opId: "op-upload-test",
         messageId: "unicode-in",
         repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(Buffer.from("unicode")), size: 7, mediaType: "text/雪" },
@@ -598,6 +600,7 @@ test(
     symlinkSync(stagingTarget, staging);
     const unsafeStaging = await peer.request({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: "unsafe-staging",
       repoId: fixture.subject.repoId,
       content: { sha256: "c".repeat(64), size: 1, mediaType: "text/plain" },
@@ -607,6 +610,7 @@ test(
     rmSync(staging);
     const uploadConflict = await peer.request({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: "upload-conflict",
       repoId: fixture.subject.repoId,
       content: conflictingContent,
@@ -632,6 +636,7 @@ test(
     fixture.setOwnerLookupDelay(0);
     const spoofed = await peer.raw({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: "spoof",
       repoId: fixture.subject.repoId,
       content: { sha256: "a".repeat(64), size: 1, mediaType: "text/plain", actor: { personId: "forged" } },
@@ -643,6 +648,7 @@ test(
     fixture.failOwnerLookup(new Error("registry unreadable"));
     const crashed = await peer.request({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: "handler-crash",
       repoId: fixture.subject.repoId,
       content: { sha256: sha256Bytes(Buffer.from("crash")), size: 5, mediaType: "text/plain" },
@@ -654,6 +660,7 @@ test(
     assert.match(String((fixture.transportErrors[0] as { error: unknown }).error), /registry unreadable/u);
     const unknownUpload = await peer.request({
       schema: "fleet.upload.chunk/v1",
+      opId: "op-upload-test",
       messageId: "unknown-upload",
       uploadId: "foreign-upload",
       offset: 0,
@@ -664,6 +671,7 @@ test(
     for (let index = 0; index < 9; index += 1) {
       const response = await peer.request({
         schema: "fleet.upload.begin/v1",
+        opId: "op-upload-test",
         messageId: `busy-${index}`,
         repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(Buffer.from(`partial-${index}`)), size: 9, mediaType: "text/plain" },
@@ -682,6 +690,7 @@ test(
     const declared = Buffer.from("abc"),
       ready = await peer.request({
         schema: "fleet.upload.begin/v1",
+        opId: "op-upload-test",
         messageId: "bad-begin",
         repoId: fixture.subject.repoId,
         content: { sha256: sha256Bytes(declared), size: declared.byteLength, mediaType: "text/plain" },
@@ -690,6 +699,7 @@ test(
     if (ready.schema !== "fleet.upload.ready/v1") throw new Error("ready expected");
     const gap = await peer.request({
       schema: "fleet.upload.chunk/v1",
+      opId: "op-upload-test",
       messageId: "gap-chunk",
       uploadId: ready.uploadId,
       offset: ready.resumeOffset + 1,
@@ -702,6 +712,7 @@ test(
     }
     await peer.request({
       schema: "fleet.upload.chunk/v1",
+      opId: "op-upload-test",
       messageId: "bad-chunk",
       uploadId: ready.uploadId,
       offset: ready.resumeOffset,
@@ -711,6 +722,7 @@ test(
     // bytes at a non-zero offset are accepted, divergent bytes are refused.
     const replayed = await peer.request({
       schema: "fleet.upload.chunk/v1",
+      opId: "op-upload-test",
       messageId: "replay-chunk",
       uploadId: ready.uploadId,
       offset: 1,
@@ -719,6 +731,7 @@ test(
     assert.equal(replayed.schema, "fleet.upload.ready/v1");
     const divergent = await peer.request({
       schema: "fleet.upload.chunk/v1",
+      opId: "op-upload-test",
       messageId: "divergent-chunk",
       uploadId: ready.uploadId,
       offset: 1,
@@ -728,6 +741,7 @@ test(
     if (divergent.schema === "fleet.error/v1") assert.equal(divergent.code, "upload_replay_mismatch");
     const bad = await peer.request({
       schema: "fleet.upload.finish/v1",
+      opId: "op-upload-test",
       messageId: "bad-finish",
       uploadId: ready.uploadId,
     });

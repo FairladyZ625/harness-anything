@@ -225,6 +225,7 @@ async function uploadBegin(fixture: AdmissionFixture, probe: number): Promise<Fl
     const body = Buffer.from(`admission-probe-${probe}`);
     return await request({
       schema: "fleet.upload.begin/v1",
+      opId: "op-upload-test",
       messageId: `admission-begin-${probe}`,
       repoId: fixture.subject.repoId,
       content: { sha256: sha256Bytes(body), size: body.byteLength, mediaType: "text/plain; charset=utf-8" },
