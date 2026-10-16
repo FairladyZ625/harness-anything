@@ -181,11 +181,11 @@ test("every Fleet write result requires a sequence only for applied outcomes", (
   ];
   for (const frame of results) assert.deepEqual(parseFleetFrame(frame), frame, frame.schema);
   for (const frame of results) {
-    if (frame.schema === "fleet.runtime.event.result/v1" || frame.schema === "fleet.runtime.archive.result/v1")
-      continue;
     assert.throws(() =>
       parseFleetFrame({ ...frame, replicationSequence: frame.replicationSequence === null ? 1 : null }),
     );
+    const { replicationSequence: _missing, ...withoutSequence } = frame;
+    assert.throws(() => parseFleetFrame(withoutSequence), `${frame.schema} missing replicationSequence`);
   }
 });
 test("fleet runtime await admits only the parked operational wait", () => {
@@ -238,7 +238,7 @@ const frames = [
     opId: "op1",
     receipt: { outcome: "op_rejected", code: "operation_not_published" },
   },
-  { schema: "fleet.upload.begin/v1", messageId: "m5", repoId: "a1", content: blob },
+  { schema: "fleet.upload.begin/v1", messageId: "m5", opId: "op-upload", repoId: "a1", content: blob },
   {
     schema: "fleet.upload.ready/v1",
     messageId: "m6",
@@ -247,8 +247,15 @@ const frames = [
     resumeOffset: 0,
     status: "receiving",
   },
-  { schema: "fleet.upload.chunk/v1", messageId: "m7", uploadId: "u1", offset: 0, dataBase64: "YWJj" },
-  { schema: "fleet.upload.finish/v1", messageId: "m8", uploadId: "u1" },
+  {
+    schema: "fleet.upload.chunk/v1",
+    messageId: "m7",
+    opId: "op-upload",
+    uploadId: "u1",
+    offset: 0,
+    dataBase64: "YWJj",
+  },
+  { schema: "fleet.upload.finish/v1", messageId: "m8", opId: "op-upload", uploadId: "u1" },
   {
     schema: "fleet.upload.result/v1",
     messageId: "m9",
@@ -258,6 +265,7 @@ const frames = [
   },
   {
     schema: "fleet.doc.submit/v1",
+    opId: "op-doc-submit",
     messageId: "m10",
     repoId: "a1",
     executionId: null,

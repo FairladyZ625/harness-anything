@@ -1,4 +1,5 @@
 import { sha256Bytes } from "@harness-anything/kernel";
+import { randomUUID } from "node:crypto";
 import { FLEET_CHUNK_BYTES, type FleetFrameV1, type FleetDescriptor } from "./command-protocol.ts";
 import type { FleetEdgeChange } from "./peer.ts";
 
@@ -12,6 +13,7 @@ export async function uploadFleetChange(
   input: FleetEdgeChange,
 ): Promise<FleetDescriptor> {
   const body = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body),
+    opId = randomUUID(),
     content = {
       sha256: sha256Bytes(body),
       size: body.byteLength,
@@ -20,6 +22,7 @@ export async function uploadFleetChange(
     ready = await session.request({
       schema: "fleet.upload.begin/v1",
       messageId: session.messageId(),
+      opId,
       repoId,
       content,
     });
@@ -29,6 +32,7 @@ export async function uploadFleetChange(
     const response = await session.request({
       schema: "fleet.upload.chunk/v1",
       messageId: session.messageId(),
+      opId,
       uploadId: ready.uploadId,
       offset,
       dataBase64: body.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
@@ -39,6 +43,7 @@ export async function uploadFleetChange(
   const uploaded = await session.request({
     schema: "fleet.upload.finish/v1",
     messageId: session.messageId(),
+    opId,
     uploadId: ready.uploadId,
   });
   if (uploaded.schema !== "fleet.upload.result/v1") throw new Error("upload result expected");

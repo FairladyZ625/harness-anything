@@ -1,5 +1,26 @@
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
-export * from "./fleet/peer.ts";
+// The edge write port is the only production composition root for Fleet write
+// clients. Keep this list explicit so a new peer export cannot silently bypass
+// the port through a wildcard re-export.
+export {
+  FleetRemoteError,
+  awaitFleetRuntimeSessionsClient,
+  openFleetEdgeView,
+  readFleetRepositoryMetadataClient,
+  runFleetRuntimeArchiveClient,
+  runFleetRuntimeEventClient,
+  runFleetScheduleCommandClient,
+  runFleetTaskCommandClient,
+  runFleetUploadClient,
+  runFleetWriteClient,
+} from "./fleet/peer.ts";
+export type {
+  FleetEdgeView,
+  FleetPeerOptions,
+  FleetTaskCommandClientOptions,
+  FleetWriteClientOptions,
+  FleetWriteClientResult,
+} from "./fleet/peer.ts";
 
 export interface FleetEdgeWriteReceipt {
   readonly replicationSequence: number | null;

@@ -486,6 +486,8 @@ for (const file of packageSourceFiles) {
         record(file, `Fleet write client imports must go through ${fleetWritePort}`);
     }
   }
+  if (!isTestOrFixture && rel === fleetCenterListener && !text.includes("runFleetCenterWrite"))
+    record(file, "Fleet write frames must use the center write entry runFleetCenterWrite");
 }
 
 await checkOrphanPackageModules(packageSourceFiles, importEdges);

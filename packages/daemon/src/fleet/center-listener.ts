@@ -189,6 +189,12 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
   };
   const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
+  // Single center write entry: all Fleet write-frame branches remain behind
+  // this boundary, where authenticated principal and writer fencing are already
+  // established by nodeContext/auth before the operation is admitted.
+  const runFleetCenterWrite = async <T>(write: () => Promise<T>): Promise<T> => write();
+  const centerRun = (...args: Parameters<typeof options.host.run>) =>
+    runFleetCenterWrite(() => options.host.run(...args));
   const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
@@ -488,7 +494,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        receipt = await options.host.run(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
+        receipt = await centerRun(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
         messageId: mid(frame.messageId, "receipt"),
@@ -630,7 +636,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       // the node's registered owner, never against a client claim.
       let executionId = frame.executionId;
       if (executionId === null && frame.taskId) {
-        const shown = await options.host.run(
+        const shown = await centerRun(
           a.repoId,
           { kind: "task-show", taskId: frame.taskId },
           await auth(a, undefined, frame.executionCredential),
@@ -640,7 +646,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         const snapshot = JSON.parse(shown.evidence) as { readonly lease?: { readonly executionId?: unknown } | null };
         executionId = typeof snapshot.lease?.executionId === "string" ? snapshot.lease.executionId : null;
       }
-      const receipt = await options.host.run(
+      const receipt = await centerRun(
         a.repoId,
         {
           kind: "doc-submit",
@@ -716,7 +722,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
           });
           if (admission.outcome !== "allowed")
             throw new FleetFault("authorization_denied", "Task delivery is not authorized.");
-          const shown = await options.host.run(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
+          const shown = await centerRun(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
           if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
             throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
           const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
@@ -748,7 +754,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         ...(frame.docChanges === null ? {} : { docChanges: frame.docChanges }),
         ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
       };
-      const receipt = await options.host.run(
+      const receipt = await centerRun(
         a.repoId,
         action,
         await writerAuth(a, frame.accessToken, frame.executionCredential),
@@ -815,7 +821,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       const ingressAuth = await auth(a),
-        receipt = await options.host.run(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
+        receipt = await centerRun(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
       if (isSquadControlResult(receipt))
         throw new FleetFault(
           "execution_scope_mismatch",
@@ -828,7 +834,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         opId: frame.opId,
         outcome: receipt.outcome,
         revision: receipt.revision ?? null,
-        replicationSequence: replicationHead(a.repoId),
+        replicationSequence: writeReplicationSequence(a.repoId, receipt),
         code: receipt.code ?? null,
         receipt: receipt as unknown as Readonly<Record<string, unknown>>,
       });

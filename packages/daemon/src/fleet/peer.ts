@@ -1,6 +1,7 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -322,6 +323,7 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
     const executionId = options.executionId ?? null;
     const center = await session.request({
       schema: "fleet.doc.submit/v1",
+      opId: randomUUID(),
       ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
       messageId: session.messageId(),
@@ -456,6 +458,7 @@ export async function runFleetRuntimeArchiveClient(
       messageId: session.messageId(),
       writerEpoch: assigned.writerEpoch,
       repoId: options.repoId,
+      opId: randomUUID(),
       archive: options.archive,
     });
     if (response.schema !== "fleet.runtime.archive.result/v1") throw new Error("runtime archive result expected");
