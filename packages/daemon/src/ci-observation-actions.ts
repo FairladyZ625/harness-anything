@@ -37,7 +37,6 @@ import {
   hostingCredentialConfigurationAdvice,
   type HostingProvider,
 } from "./hosting-provider.ts";
-
 type CiRunArtifact = {
   readonly schema: "ci-run-artifact/v2";
   readonly run: CiRunObservationEventV4["payload"]["run"];
@@ -349,9 +348,11 @@ export async function fetchCiObservations(
             for (const job of apiJobs) {
               if (job.conclusion !== "failure" || jobs.some((prepared) => prepared.jobExecutionId === String(job.id)))
                 continue;
-              const log = await runGh("gh", ["api", `repos/:owner/:repo/actions/jobs/${job.id}/logs`], {
-                cwd: cell.rootDir,
-              });
+              const log = await runGh(
+                "gh",
+                ["api", "--allow-escape-sequences", `repos/:owner/:repo/actions/jobs/${job.id}/logs`],
+                { cwd: cell.rootDir },
+              );
               const detail = ciFailureDetail(scrubCiProviderLog(log)),
                 body = JSON.stringify(detail),
                 artifact: CiRunArtifact = {

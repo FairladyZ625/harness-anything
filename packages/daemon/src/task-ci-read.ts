@@ -201,7 +201,7 @@ export async function readTaskCi(
           let failure: TaskCiJobFailure | null = null;
           if (job.conclusion === "failure" && run.status === "completed" && job.status === "completed") {
             try {
-              const log = await runCommand(["api", `${prefix}actions/jobs/${job.id}/logs`]);
+              const log = await runCommand(["api", "--allow-escape-sequences", `${prefix}actions/jobs/${job.id}/logs`]);
               failure = { ...extractJobFailure(log), logUrl: job.html_url };
             } catch (error) {
               // One job's missing log must not sink the whole read; the report names why it is absent.

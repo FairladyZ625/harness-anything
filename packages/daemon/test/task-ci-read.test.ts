@@ -112,6 +112,10 @@ for (const role of ["implementation", "reviewer"] as const)
     assert.equal(JSON.stringify(receipt).includes(secret), false);
     assert.match(JSON.stringify(receipt), /REDACTED/u);
     assert.equal(gh.calls.filter((args) => args[0] === "api" && args.at(-1)!.includes("/logs")).length, 1);
+    assert.deepEqual(
+      gh.calls.find((args) => args[0] === "api" && args.at(-1)!.includes("/logs")),
+      ["api", "--allow-escape-sequences", "repos/owner/repo/actions/jobs/21/logs"],
+    );
     assert.equal(f.credentialReads(), 1);
   });
 
