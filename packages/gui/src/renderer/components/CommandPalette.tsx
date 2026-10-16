@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { MagnifyingGlass, ArrowRight } from "@phosphor-icons/react";
 import { entityKindAxisVar } from "../graph/kindVisuals.ts";
+import { useImeKeyDown } from "./primitives/ime-composition.ts";
 
 /**
  * ⌘K 命令面板(REQ-GUI-01):跨实体搜索 + 快速跳转。
@@ -98,7 +99,8 @@ export function CommandPalette({
 
   if (!open) return null;
 
-  const onKey = (e: React.KeyboardEvent) => {
+  // 组字守卫:IME 选词期间的 Enter/方向键归输入法,不跳转、不动高亮。
+  const ime = useImeKeyDown((e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
       onClose();
@@ -116,7 +118,7 @@ export function CommandPalette({
         onClose();
       }
     }
-  };
+  });
 
   return (
     <div
@@ -134,7 +136,8 @@ export function CommandPalette({
             ref={inputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKey}
+            onKeyDown={ime.onKeyDown}
+            {...ime.compositionProps}
             placeholder={placeholder}
             className="flex-1 bg-transparent text-sm text-text outline-none placeholder:text-text-faint"
           />

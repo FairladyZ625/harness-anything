@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { MagnifyingGlass } from "@phosphor-icons/react";
 import type { PaletteEntry } from "./CommandPalette.tsx";
 import { DenseRow } from "./primitives/DenseRow.tsx";
+import { useImeKeyDown } from "./primitives/ime-composition.ts";
 import { t } from "../i18n/index.tsx";
 
 /**
@@ -90,7 +91,8 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
     setQuery("");
     onFocus(hit.ref);
   };
-  const onKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+  // 组字守卫:IME 选词期间的 Enter/方向键归输入法,不切焦点、不动高亮。
+  const ime = useImeKeyDown((event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setActiveIndex((i) => Math.min(i + 1, Math.max(0, navHits.length - 1)));
@@ -111,7 +113,7 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
       event.preventDefault();
       setQuery("");
     }
-  };
+  });
 
   // 行用 DenseRow(视觉基线 v1):种类列 + 标题(经 TitleText 冒号拆分)+ 等宽补充;
   // 键盘/悬停选中态复用 DenseRow 的选中样式。testid 落在 li 上,命中仍是整行可点。
@@ -146,7 +148,8 @@ export function FocusSwitcher({ recentRefs, entries, focusRef, onFocus, onOpenPa
             value={query}
             data-testid="focus-switcher-input"
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKeyDown}
+            onKeyDown={ime.onKeyDown}
+            {...ime.compositionProps}
             placeholder={t("components.focusSwitcher.searchEntityPlaceholder")}
             className="flex-1 bg-transparent ui-meta text-text placeholder:text-text-faint focus:outline-none"
             autoComplete="off"

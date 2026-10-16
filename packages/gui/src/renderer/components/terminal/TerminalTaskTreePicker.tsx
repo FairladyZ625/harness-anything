@@ -3,6 +3,7 @@ import { CaretDown, CaretRight, Crosshair } from "@phosphor-icons/react";
 import type { SnapshotStatus } from "../../model/types.ts";
 import { STATUS_META } from "../badges.tsx";
 import { Popover } from "../Popover.tsx";
+import { useImeKeyDown } from "../primitives/ime-composition.ts";
 import { t } from "../../i18n/index.tsx";
 import {
   buildTaskTreeIndex,
@@ -104,7 +105,8 @@ function TreeBody({
     setFocusId(taskId);
     setToggles(new Map());
   };
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  // 组字守卫挂容器:搜索框里的 IME 组字期间,Enter/方向键归输入法,不绑定任务。
+  const ime = useImeKeyDown((event: KeyboardEvent<HTMLDivElement>) => {
     const row = rows[active];
     if (event.key === "ArrowDown") setActive((i) => Math.min(i + 1, rows.length - 1));
     else if (event.key === "ArrowUp") setActive((i) => Math.max(i - 1, 0));
@@ -115,13 +117,14 @@ function TreeBody({
     } else if (event.key === "Enter" && row) onPick(row.node.taskId);
     else return;
     event.preventDefault();
-  };
+  });
   const crumbs = focusId ? [...taskAncestors(index, focusId)].reverse() : [];
   const focusNode = focusId ? index.byId.get(focusId) : null;
   return (
     <div
       className="flex max-h-[var(--long-content-cap)] flex-col gap-2"
-      onKeyDown={onKeyDown}
+      onKeyDown={ime.onKeyDown}
+      {...ime.compositionProps}
       data-testid="terminal-task-tree-body"
     >
       <div className="flex flex-wrap items-center gap-2">
