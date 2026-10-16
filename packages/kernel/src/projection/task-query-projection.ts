@@ -45,6 +45,8 @@ export interface TaskProjectionListQuery {
   readonly workKind?: string;
   readonly riskTier?: string;
   readonly urgency?: string;
+  readonly workRootsOnly?: boolean;
+  readonly openOnly?: boolean;
   readonly search?: string;
   readonly slug?: string;
   readonly activePackagesOnly?: boolean;
@@ -189,6 +191,14 @@ export function readTaskIndexRows(
       where.push(`${expression} = ?`);
       values.push(value);
     }
+  if (query.workRootsOnly)
+    where.push(
+      `(json_extract(task_snapshot.snapshot_json, '$.task.taskClass') = 'work' OR (` +
+        `${field("$.task.metadata.parentTaskId")} IS NULL AND EXISTS (` +
+        "SELECT 1 FROM task_snapshot AS child WHERE json_extract(child.snapshot_json, '$.task.metadata.parentTaskId') = +task_snapshot.task_id" +
+        ")))",
+    );
+  if (query.openOnly) where.push("task_snapshot.status NOT IN ('done', 'cancelled')");
   if (query.parentTaskId !== undefined) {
     where.push(`${field("$.task.metadata.parentTaskId")} IS ?`);
     values.push(query.parentTaskId);
