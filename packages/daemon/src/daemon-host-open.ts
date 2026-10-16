@@ -76,6 +76,7 @@ import {
 import type { DaemonHost } from "./daemon-host-types.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
+import { applyFleetMirrorCut } from "./fleet-edge-mirror.ts";
 import type { FleetTlsCenter } from "./fleet/center.ts";
 import type { DaemonControlReceipt } from "./gui-s3-control.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -873,15 +874,17 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
         signal: controller.signal,
-        onConfirmed: () =>
-          edgeRuntimeFor({
+        onConfirmed: async () => {
+          applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull");
+          await edgeRuntimeFor({
             ...config,
             caPath,
             viewRoot,
             workspaceRoot: rootDir,
             method: "repo.squad.control",
             action: {},
-          }).reconcile(),
+          }).reconcile();
+        },
         onConfirmedFailure: (error) =>
           input.recordLifecycle?.({
             event: "replica_confirm_failed",
