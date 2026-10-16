@@ -94,6 +94,10 @@ export function githubActionsWitnessEvidence(
   const gateRun = currentGateRun(execution, requirement.gateId);
   if (!gateRun || (!allowSettledGateRun && gateRun.state !== "running")) return null;
   const options = requirement.witness.adapterOptions;
+  const mergeCommit =
+    execution.schema === "execution/v1"
+      ? execution.annotations?.some((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note)) === true
+      : false;
   // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
   const submitted = ciWitnessCommit(execution)!,
@@ -110,7 +114,7 @@ export function githubActionsWitnessEvidence(
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
   const covers =
-    options.coverage === "descendant"
+    !mergeCommit && options.coverage === "descendant"
       ? (event: CiObservationRead) =>
           event.payload.run.sha === submitted ||
           localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)

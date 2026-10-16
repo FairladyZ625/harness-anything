@@ -22,7 +22,7 @@ import { compileRepoTaskPackage } from "@harness-anything/preset";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
 import { completeTask, prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
-import { githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
+import { ciWitnessCommit, githubActionsWitnessEvidence } from "../src/repo-cell-ci-evidence.ts";
 import { completionSettlement, completionStopped, projectionReady } from "../src/repo-cell-settlement.ts";
 import { deriveActionResult } from "../src/entity-action-catalog-executor.ts";
 
@@ -259,6 +259,40 @@ test("automatic CI evidence selects exact and descendant main runs, excluding un
         current,
       )?.result,
       "pass",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("merge CI uses the exact merge commit and ignores a later unrelated green main run", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-evidence-merge-sha-"));
+  try {
+    const delivery = init(root);
+    git(root, "commit", "--allow-empty", "-qm", "merge commit");
+    const mergeSha = git(root, "rev-parse", "HEAD");
+    git(root, "update-ref", "refs/remotes/origin/main", mergeSha);
+    git(root, "commit", "--allow-empty", "-qm", "unrelated later main run");
+    const unrelatedGreenSha = git(root, "rev-parse", "HEAD"),
+      submitted = {
+        ...execution(delivery),
+        annotations: [
+          { kind: "correction", note: `merge_commit_sha:${mergeSha}`, annotatedAt: "2026-09-12T00:00:00.000Z", actor },
+        ],
+      } as Snapshot["executions"][number],
+      current = fixture(root, submitted, [
+        observation(unrelatedGreenSha, 2, "success"),
+        observation(mergeSha, 1, "failure"),
+      ]);
+    assert.equal(ciWitnessCommit(submitted), mergeSha);
+    assert.equal(ci(current.cell, submitted)?.result, "fail");
+    const fallbackExecution = execution(delivery),
+      fallback = fixture(root, fallbackExecution, [observation(delivery)]);
+    assert.equal(ciWitnessCommit(fallbackExecution), delivery, "without a merge record, use the delivery SHA");
+    assert.equal(
+      ci(fallback.cell, fallbackExecution)?.result,
+      "pass",
+      "the delivery SHA remains the fallback CI target",
     );
   } finally {
     rmSync(root, { recursive: true, force: true });
