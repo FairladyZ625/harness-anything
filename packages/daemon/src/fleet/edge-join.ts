@@ -24,6 +24,8 @@ export interface EdgeJoinInviteStatusResult {
   readonly consumedAt: string | null;
 }
 export interface EdgeJoinStoreOptions {
+  readonly records?: readonly EdgeJoinInviteRecord[];
+  readonly onChange?: (record: EdgeJoinInviteRecord) => void;
   readonly now?: () => string;
   readonly randomToken?: () => string;
 }
@@ -73,7 +75,9 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinInviteLink {
 export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
   const now = options.now ?? (() => new Date().toISOString());
   const token = options.randomToken ?? (() => randomBytes(TOKEN_BYTES).toString("base64url"));
-  const records = new Map<string, EdgeJoinInviteRecord>();
+  const records = new Map<string, EdgeJoinInviteRecord>(
+    options.records?.map((record) => [record.inviteId, clone(record)]) ?? [],
+  );
   const status = (record: EdgeJoinInviteRecord): EdgeJoinInviteStatus =>
     record.consumedAt ? "consumed" : Date.parse(now()) >= Date.parse(record.expiresAt) ? "expired" : "pending";
   return {
@@ -93,6 +97,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         token: token(),
       };
       records.set(link.inviteId, { ...link, createdAt, consumedAt: null });
+      options.onChange?.(records.get(link.inviteId)!);
       return clone(link);
     },
     consume(input: ConsumeEdgeJoinOptions): EdgeJoinInviteRecord {
@@ -109,6 +114,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         throw new EdgeJoinError("person_mismatch", "The signed-in person does not match the invitation.");
       const consumed = { ...record, consumedAt: now() };
       records.set(record.inviteId, consumed);
+      options.onChange?.(consumed);
       return clone(consumed);
     },
     status(inviteId: string): EdgeJoinInviteStatusResult {

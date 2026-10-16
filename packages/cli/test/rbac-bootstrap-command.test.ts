@@ -74,6 +74,43 @@ test("ha bootstrap routes managed lifecycle options to the daemon", () => {
   });
 });
 
+test("ha bootstrap exposes the center invitation and edge consume operations on the daemon route", () => {
+  const created = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "edge-join-create",
+      "--center-url",
+      "https://center.test",
+      "--node-id",
+      "edge-a",
+      "--spki-sha256",
+      "pin",
+    ],
+    "/repo",
+  );
+  assert.equal(created.ok, true);
+  if (created.ok) {
+    assert.equal(created.command.method, "daemon.rbac.manage");
+    assert.equal(created.command.action.operation, "edge-join-create");
+    assert.equal(created.command.action.nodeId, "edge-a");
+  }
+  const consumed = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "edge-join-consume",
+      "--link",
+      "harness-edge://join/token",
+      "--observed-spki-sha256",
+      "pin",
+    ],
+    "/repo",
+  );
+  assert.equal(consumed.ok, true);
+  if (consumed.ok) assert.equal(consumed.command.method, "daemon.rbac.manage");
+});
+
 test("ha bootstrap parses one external Keycloak through the same command", () => {
   const parsed = parseThinCommand(
     [

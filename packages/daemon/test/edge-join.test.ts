@@ -1,7 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createEdgeJoinStore, decodeEdgeJoinLink, EdgeJoinError, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
+import {
+  createEdgeJoinStore,
+  decodeEdgeJoinLink,
+  EdgeJoinError,
+  encodeEdgeJoinLink,
+  type EdgeJoinInviteRecord,
+} from "../src/fleet/edge-join.ts";
 
 test("edge join invitation is typed, pin checked, person bound, and single use", () => {
   const current = "2026-10-16T00:00:00.000Z";
@@ -49,4 +55,25 @@ test("edge join invitation expires before consumption", () => {
     () => store.consume({ link, loginPersonId: "person-a", observedSpkiSha256: "pin" }),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "expired",
   );
+});
+
+test("edge join state can be restored from the center writer journal", () => {
+  const current = "2026-10-16T00:00:00.000Z";
+  const journal: EdgeJoinInviteRecord[] = [];
+  const first = createEdgeJoinStore({
+    now: () => current,
+    randomToken: () => "opaque-token",
+    onChange: (record) => journal.push(record),
+  });
+  const link = first.create({
+    centerUrl: "https://center.example",
+    personId: "person-a",
+    nodeId: "node-a",
+    spkiSha256: "pin",
+    ttlMs: 60_000,
+  });
+  const restored = createEdgeJoinStore({ records: journal, now: () => current });
+  assert.equal(restored.status(link.inviteId).status, "pending");
+  restored.consume({ link, loginPersonId: "person-a", observedSpkiSha256: "pin" });
+  assert.equal(restored.status(link.inviteId).status, "consumed");
 });
