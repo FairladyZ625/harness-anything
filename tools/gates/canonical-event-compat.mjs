@@ -435,7 +435,8 @@ export function validateFrozenDaemonReadside(
 function main() {
   if (!process.argv.includes("--check")) throw new Error("usage: node tools/gates/canonical-event-compat.mjs --check");
   const rootDir = repoRoot();
-  git(rootDir, ["fetch", "--no-tags", "origin", "main"]);
+  if (git(rootDir, ["rev-parse", "--is-shallow-repository"]).trim() === "true")
+    git(rootDir, ["fetch", "--no-tags", "--unshallow", "origin", "main"]);
   const base = pullRequestBase(rootDir);
   const daemon = validateFrozenDaemonReadside(rootDir);
   const errors = [
