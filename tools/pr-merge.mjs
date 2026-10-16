@@ -8,6 +8,7 @@ const REMOTE = "origin";
 // The kernel's task id shape (doc-sync-validation.ts taskFromPath): a PR head branch equal to a
 // task id is the harness convention for task-bound PRs; anything else merges without the check.
 const TASK_BRANCH_PATTERN = /^task_(?:[0-9A-HJKMNP-TV-Z]{26}|[0-9a-f]{26})$/u;
+const RUNTIME_BUILD_PACKAGES = ["@harness-anything/daemon", "@harness-anything/cli"];
 
 function run(command, args, { cwd, allowFailure = false } = {}) {
   const invocation =
@@ -306,6 +307,20 @@ function printHelp() {
   process.stdout.write("\n");
 }
 
+function rebuildRuntimePackages(root) {
+  for (const packageName of RUNTIME_BUILD_PACKAGES) {
+    try {
+      run("npm", ["run", "build", "-w", packageName], { cwd: root });
+    } catch (error) {
+      throw new Error(
+        `Building ${packageName} after synchronizing local ${MAIN_BRANCH} failed: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
+  }
+}
+
 function main(argv) {
   if (argv.includes("--help") || argv.includes("-h")) {
     printHelp();
@@ -328,6 +343,7 @@ function main(argv) {
   run("git", ["pull", "--ff-only", REMOTE, MAIN_BRANCH], { cwd: mainWorktree.path });
   const head = output("git", ["rev-parse", "HEAD"], { cwd: mainWorktree.path });
   console.log(`Local ${MAIN_BRANCH} synchronized to ${head}.`);
+  rebuildRuntimePackages(mainWorktree.path);
   console.log("Private harness ledger was not pulled; use the daemon-stop procedure if it needs separate maintenance.");
 }
 
