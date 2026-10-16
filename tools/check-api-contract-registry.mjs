@@ -10,6 +10,8 @@ const expectedMethods = Object.freeze([
   { method: "daemon.stop", requiresRepo: false },
   { method: "daemon.repo.bootstrap", requiresRepo: false },
   { method: "daemon.rbac.manage", requiresRepo: false },
+  { method: "daemon.runtimeInstance.hostingCredential.set", requiresRepo: false },
+  { method: "daemon.runtimeInstance.hostingCredential.unset", requiresRepo: false },
   { method: "daemon.repo.register", requiresRepo: false },
   { method: "daemon.repo.update", requiresRepo: false },
   { method: "daemon.repo.backup", requiresRepo: false },
