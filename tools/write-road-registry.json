@@ -60,7 +60,6 @@
     "packages/daemon/src/doc-sync-files.ts",
     "packages/daemon/src/durable-file.ts",
     "packages/daemon/src/fleet-edge-mirror.ts",
-    "packages/daemon/src/fleet/edge-join.ts",
     "packages/daemon/src/fleet/center-lease-claims.ts",
     "packages/daemon/src/fleet/center-listener.ts",
     "packages/daemon/src/fleet/basebackup-worker.ts",

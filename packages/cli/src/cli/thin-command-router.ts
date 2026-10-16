@@ -101,6 +101,13 @@ function parseRbacBootstrap(
       ...(f.one.get("--password-file") ? { passwordFile: path.resolve(f.one.get("--password-file")!) } : {}),
       // The daemon writes the file, so it is told where the caller's relative path points.
       ...(f.one.get("--credential-file") ? { credentialFile: path.resolve(f.one.get("--credential-file")!) } : {}),
+      ...(f.one.get("--center-url") ? { centerUrl: f.one.get("--center-url") } : {}),
+      ...(f.one.get("--spki-sha256") ? { spkiSha256: f.one.get("--spki-sha256") } : {}),
+      ...(f.one.get("--ttl-ms") ? { ttlMs: Number(f.one.get("--ttl-ms")) } : {}),
+      ...(f.one.get("--invite-id") ? { inviteId: f.one.get("--invite-id") } : {}),
+      ...(f.one.get("--link") ? { link: f.one.get("--link") } : {}),
+      ...(f.one.get("--login-person-id") ? { loginPersonId: f.one.get("--login-person-id") } : {}),
+      ...(f.one.get("--observed-spki-sha256") ? { observedSpkiSha256: f.one.get("--observed-spki-sha256") } : {}),
     },
     "daemon.rbac.manage",
   );

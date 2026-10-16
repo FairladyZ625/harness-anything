@@ -22,6 +22,7 @@ import {
   reserveCredentialFile,
 } from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
+import { createEdgeJoinStore } from "./fleet/edge-join.ts";
 
 export const accessAdminOperations = Object.freeze([
   "group-list",
@@ -46,6 +47,9 @@ export const accessAdminOperations = Object.freeze([
   "node-list",
   "node-register",
   "node-unregister",
+  "edge-join-create",
+  "edge-join-consume",
+  "edge-join-status",
   "device-list",
   "device-rename",
   "device-pause",
@@ -76,6 +80,13 @@ export interface AccessAdminRequest {
   readonly platform?: string;
   /** Where a first node registration puts the machine credential instead of returning it. */
   readonly credentialFile?: string;
+  readonly centerUrl?: string;
+  readonly spkiSha256?: string;
+  readonly ttlMs?: number;
+  readonly inviteId?: string;
+  readonly link?: string;
+  readonly loginPersonId?: string;
+  readonly observedSpkiSha256?: string;
   readonly requestId?: string;
   readonly requestVersion?: number;
   readonly decision?: "approve" | "reject";
@@ -156,10 +167,12 @@ export class AccessAdminService {
   readonly #oidc: OidcSessionService;
   readonly #ports: AccessAdminPorts;
   readonly #permissionRequests: ReturnType<typeof managedPermissionRequestStore>;
+  readonly #edgeJoins: ReturnType<typeof createEdgeJoinStore>;
 
   constructor(oidc: OidcSessionService, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
     this.#oidc = oidc;
     this.#permissionRequests = managedPermissionRequestStore(userRoot);
+    this.#edgeJoins = createEdgeJoinStore();
     this.#ports = {
       fetch,
       now: () => new Date().toISOString(),
@@ -171,7 +184,7 @@ export class AccessAdminService {
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
     if (request.operation === "permission-request-create" && requester !== undefined)
       return this.#createPermissionRequest(request, requester);
-    const ownDevices = request.operation?.startsWith("device-") === true,
+    const ownDevices = request.operation?.startsWith("device-") === true || request.operation === "edge-join-consume",
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
       actor = (
@@ -222,6 +235,26 @@ export class AccessAdminService {
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "node-unregister":
         return this.#mutate(request, actor, (session) => this.#planNodeRemoval(session, request));
+      case "edge-join-create": {
+        const link = this.#edgeJoins.create({
+          centerUrl: text(request.centerUrl, "centerUrl"),
+          personId: actor,
+          nodeId: text(request.nodeId, "nodeId"),
+          spkiSha256: text(request.spkiSha256, "spkiSha256"),
+          ttlMs: request.ttlMs ?? 72 * 60 * 60 * 1000,
+        });
+        return { ok: true, link, joinId: link.inviteId, state: "pending" };
+      }
+      case "edge-join-consume": {
+        const consumed = this.#edgeJoins.consume({
+          link: text(request.link, "link"),
+          loginPersonId: text(request.loginPersonId ?? actor, "loginPersonId"),
+          observedSpkiSha256: text(request.observedSpkiSha256, "observedSpkiSha256"),
+        });
+        return { ok: true, joinId: consumed.inviteId, state: "consumed", nodeId: consumed.nodeId };
+      }
+      case "edge-join-status":
+        return { ok: true, ...this.#edgeJoins.status(text(request.inviteId, "inviteId")) };
       case "receipt-reconcile":
         return this.#oidc.serialize(() => this.#reconcile(text(request.operationId, "operationId"), actor));
       case "group-create":

@@ -1,6 +1,4 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import path from "node:path";
 
 export type EdgeJoinInviteStatus = "pending" | "consumed" | "expired";
 export interface EdgeJoinInviteLink {
@@ -26,7 +24,6 @@ export interface EdgeJoinInviteStatusResult {
   readonly consumedAt: string | null;
 }
 export interface EdgeJoinStoreOptions {
-  readonly stateRoot?: string;
   readonly now?: () => string;
   readonly randomToken?: () => string;
 }
@@ -75,31 +72,13 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinInviteLink {
 
 export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
   const now = options.now ?? (() => new Date().toISOString());
-  const stateRoot = options.stateRoot;
-  const stateFile = stateRoot ? path.join(stateRoot, "edge-join-invites.json") : null;
   const token = options.randomToken ?? (() => randomBytes(TOKEN_BYTES).toString("base64url"));
   const records = new Map<string, EdgeJoinInviteRecord>();
-  if (stateFile && existsSync(stateFile)) {
-    const parsed: unknown = JSON.parse(readFileSync(stateFile, "utf8"));
-    if (Array.isArray(parsed))
-      for (const row of parsed)
-        if (row && typeof row === "object" && isText((row as Record<string, unknown>).inviteId))
-          records.set((row as EdgeJoinInviteRecord).inviteId, row as EdgeJoinInviteRecord);
-  }
-  const persist = () => {
-    if (!stateFile) return;
-    mkdirSync(path.dirname(stateFile), { recursive: true });
-    const temp = `${stateFile}.${randomUUID()}.tmp`;
-    writeFileSync(temp, JSON.stringify([...records.values()]), { encoding: "utf8", mode: 0o600 });
-    chmodSync(temp, 0o600);
-    renameSync(temp, stateFile);
-    chmodSync(stateFile, 0o600);
-  };
   const status = (record: EdgeJoinInviteRecord): EdgeJoinInviteStatus =>
     record.consumedAt ? "consumed" : Date.parse(now()) >= Date.parse(record.expiresAt) ? "expired" : "pending";
   return {
     create(
-      input: Omit<EdgeJoinInviteLink, "version" | "inviteId" | "token"> & { readonly ttlMs: number },
+      input: Omit<EdgeJoinInviteLink, "version" | "inviteId" | "token" | "expiresAt"> & { readonly ttlMs: number },
     ): EdgeJoinInviteLink {
       if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
       const createdAt = now();
@@ -114,7 +93,6 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         token: token(),
       };
       records.set(link.inviteId, { ...link, createdAt, consumedAt: null });
-      persist();
       return clone(link);
     },
     consume(input: ConsumeEdgeJoinOptions): EdgeJoinInviteRecord {
@@ -131,7 +109,6 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         throw new EdgeJoinError("person_mismatch", "The signed-in person does not match the invitation.");
       const consumed = { ...record, consumedAt: now() };
       records.set(record.inviteId, consumed);
-      persist();
       return clone(consumed);
     },
     status(inviteId: string): EdgeJoinInviteStatusResult {
