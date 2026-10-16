@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 
 export function isRuntimeFacadeCommand(command: ThinCommand): boolean {
   return (
+    command.action.kind === "task-submit" ||
     command.action.kind === "squad-run" ||
     (command.action.kind === "squad-status" && command.action.wait === true) ||
     (command.action.kind === "task-ci" && command.action.wait === true) ||
@@ -57,6 +58,21 @@ export async function runRuntimeFacadeCommand(
     command = { ...command, action: { ...action, taskId } };
   }
   const action = command.action;
+  if (action.kind === "task-submit") {
+    const submitted = await request(command);
+    if (submitted.ok !== true || submitted.outcome !== "pending") return submitted;
+    const waited = await waitForTaskCi(
+      {
+        ...command,
+        method: "repo.task.read",
+        action: { kind: "task-ci", taskId: String(action.taskId), wait: true },
+      },
+      request,
+    );
+    if (waited.ok !== true || (waited.ci as JsonObject | undefined)?.conclusion !== "success")
+      return { ...waited, command: "task-submit", pendingSubmission: submitted };
+    return request(command);
+  }
   if (action.kind.startsWith("runtime-handoff-")) return runCommandThroughDaemon(command);
   if (command.method.startsWith("repo.runtimeInstance.auth.")) return runRuntimeAuthCommand(command, writeActivity);
   if (action.kind === "runtime-batch") return runRuntimeBatch(command);

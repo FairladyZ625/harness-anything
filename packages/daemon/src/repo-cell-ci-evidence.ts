@@ -17,6 +17,14 @@ import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 import type { Snapshot } from "./repo-cell-types.ts";
 
+export function ciWitnessCommit(execution: Snapshot["executions"][number]): string | null {
+  const note =
+    execution.schema === "execution/v1"
+      ? execution.annotations?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))?.note
+      : undefined;
+  return note ? note.slice("merge_commit_sha:".length) : (execution.submission?.commitSha ?? null);
+}
+
 /**
  * A cut whose delivery commit no run on its frozen CI branch can ever cover: the commit is gone
  * from the canonical repository, or every commit of its unpublished fork already landed on the
@@ -86,9 +94,13 @@ export function githubActionsWitnessEvidence(
   const gateRun = currentGateRun(execution, requirement.gateId);
   if (!gateRun || (!allowSettledGateRun && gateRun.state !== "running")) return null;
   const options = requirement.witness.adapterOptions;
+  const mergeCommit =
+    execution.schema === "execution/v1"
+      ? execution.annotations?.some((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note)) === true
+      : false;
   // Newest GitHub run and attempt first; non-push runs are measurements, not delivery verdicts.
   // Never skip a red/unverified push for an older green; cancelled/skipped: no verdict.
-  const submitted = execution.submission.commitSha,
+  const submitted = ciWitnessCommit(execution)!,
     publicCut = localGitObjectRefStore.hasCommit(cell.rootDir, submitted),
     root = publicCut ? cell.rootDir : resolveHarnessLayout(cell.rootDir).authoredRoot;
   if (publicCut && options.coverage === "descendant") {
@@ -102,7 +114,7 @@ export function githubActionsWitnessEvidence(
   if (!cell.projectionReady(observations))
     throw cell.cellCodedError("content_not_ready", "CI observation projection is not ready.");
   const covers =
-    options.coverage === "descendant"
+    !mergeCommit && options.coverage === "descendant"
       ? (event: CiObservationRead) =>
           event.payload.run.sha === submitted ||
           localGitObjectRefStore.isAncestor(root, submitted, event.payload.run.sha)

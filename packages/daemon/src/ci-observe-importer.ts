@@ -14,7 +14,7 @@ import {
   type RunGh,
 } from "./ci-observation-actions.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
+import { ciWitnessCommit, githubActionsGateResult } from "./repo-cell-ci-evidence.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
 import type { RepoTaskAction } from "./repo-cell-types.ts";
 import type { BuiltinExecutionResult } from "./schedule-builtin-executor.ts";
@@ -189,14 +189,15 @@ export async function reconcileCiOccurrence(input: {
           (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
         );
         const submission = execution?.submission;
+        const witnessCommit = execution ? ciWitnessCommit(execution) : null;
         const requirement = (submission?.completionContract.gates ?? []).find(
           (gate) => gate.witness.kind === "github-actions" || gate.witness.kind === "gitlab-pipeline",
         );
         if (
           !submission ||
           !requirement ||
-          !submission.commitSha ||
-          !localGitObjectRefStore.hasCommit(cell.rootDir, submission.commitSha)
+          !witnessCommit ||
+          !localGitObjectRefStore.hasCommit(cell.rootDir, witnessCommit)
         )
           continue;
         if (githubActionsGateResult(requirement, execution!) === "pass") continue;

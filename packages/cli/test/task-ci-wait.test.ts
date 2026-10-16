@@ -19,6 +19,51 @@ test("plain task-ci reads have no wait marker", () => {
   assert.deepEqual(command.action, { kind: "task-ci", taskId: "task-1" });
 });
 
+test("task submit waits for the exact task CI verdict and retries submission after success", async () => {
+  const parsed = parseThinCommand(["task", "submit", "task-1"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) throw new Error(parsed.nextAction);
+  const seen: ThinCommand[] = [],
+    reports = [{ ok: true, outcome: "pending" }, report("success"), { ok: true, outcome: "submitted" }];
+  let index = 0;
+  const result = await runRuntimeFacadeCommand(
+    parsed.command,
+    () => {},
+    async (command) => {
+      seen.push(command);
+      return reports[index++]!;
+    },
+  );
+  assert.equal(result.outcome, "submitted");
+  assert.equal(seen.length, 3);
+  assert.equal(seen[1]!.action.kind, "task-ci");
+  assert.equal(seen[1]!.action.wait, true);
+  assert.equal(seen[2]!.action.kind, "task-submit");
+});
+
+test("task submit returns actionable no-pull-request state without waiting", async () => {
+  const parsed = parseThinCommand(["task", "submit", "task-1"]);
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) throw new Error(parsed.nextAction);
+  const seen: ThinCommand[] = [];
+  let reads = 0;
+  const result = await runRuntimeFacadeCommand(
+    parsed.command,
+    () => {},
+    async (command) => {
+      seen.push(command);
+      reads += 1;
+      return reads === 1
+        ? { ok: true, outcome: "pending" }
+        : report("not_started", { reason: "no_pull_request", detail: "open the task PR first" });
+    },
+  );
+  assert.equal(reads, 2);
+  assert.equal(seen[1]!.action.kind, "task-ci");
+  assert.equal(result.ci.conclusion, "not_started");
+  assert.equal(result.exitCode, 1);
+});
+
 const report = (conclusion: string, notStarted?: JsonObject): JsonObject => ({
   ok: true,
   command: "task-ci",
