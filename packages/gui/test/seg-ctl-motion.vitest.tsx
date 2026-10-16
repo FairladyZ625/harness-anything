@@ -12,7 +12,10 @@ import { MOTION_DURATION, MOTION_EASE } from "../src/renderer/motion-tokens.ts";
  * 从旧选项滑到新选项;「减少动态效果」或偏好「关」时不渲染 motion 元素,背景
  * 瞬时到位(规范 §6)。happy-dom 没有布局,这里断言「传给 motion 的合同」——
  * transition 取自动效 token、layoutId 随实例隔离;滑动本身的视觉在截图真机帧上验证。
- * 阴性对照:去掉 motion.span(或 reduced 分支),下面的 called/not-called 断言变红。
+ * 层级合同:thumb 置底(z-auto)、全部 label 提 z-10——layoutId 滑动途中 thumb 挂在
+ * 新选项按钮内,DOM 序在旧选项之后,不提层就会盖住途经选项的文字(正 z 在 CSS
+ * 绘制序里高于 z-auto,与 DOM 序无关)。阴性对照:去掉 motion.span(或 reduced
+ * 分支),下面的 called/not-called 断言变红;去掉 label 的 z-10 提层,层级断言变红。
  */
 const probe = vi.hoisted(() => ({ reduced: false, span: vi.fn(() => null) }));
 vi.mock("motion/react", async (original) => ({
@@ -53,6 +56,10 @@ const mount = (initial: string) => {
 };
 const buttons = () => [...host.querySelectorAll("button")].filter((b) => b.dataset.testid !== "pref-off");
 const thumb = () => host.querySelector<HTMLElement>('[data-testid="seg-ctl-thumb"]');
+const labelSpans = () =>
+  [...host.querySelectorAll("button")].flatMap((button) =>
+    [...button.children].filter((el) => el instanceof HTMLElement && el.dataset.testid !== "seg-ctl-thumb"),
+  ) as HTMLElement[];
 
 beforeEach(() => {
   probe.reduced = false;
@@ -111,11 +118,29 @@ it("isolates layoutId per instance so neighbouring controls never share a thumb"
   expect(host.querySelectorAll('[data-testid="seg-ctl-thumb"]')).toHaveLength(2);
 });
 
+it("keeps every option label above the sliding thumb", () => {
+  mount("a");
+  act(() => buttons()[1].click());
+  // 途经选项的文字必须在滑块之上:全部 label 提正 z(z-10),thumb 保持 z-auto 置底。
+  expect(labelSpans().length).toBeGreaterThanOrEqual(2);
+  for (const label of labelSpans()) {
+    expect(label.className, `label "${label.textContent}" must be lifted`).toContain("relative");
+    expect(label.className, `label "${label.textContent}" must be lifted`).toContain("z-10");
+  }
+  const thumbClass = thumb()?.className ?? "";
+  expect(thumbClass).toContain("absolute");
+  expect(thumbClass).not.toMatch(/(?:^|\s)z-(?:\d|\[)/u);
+  // 洗底 + accent 左竖线(与 DenseRow/RecordRow 选中语言一致),实底 accent 会把
+  // 途经的 muted 文字压成 1.05:1(暗)/1.82:1(亮)。
+  expect(thumbClass).toContain("bg-accent/10");
+  expect(thumbClass).toContain("shadow-[inset_2px_0_0_var(--color-accent)]");
+});
+
 it("reduced motion swaps the thumb instantly without a motion element", () => {
   probe.reduced = true;
   mount("a");
   expect(probe.span).not.toHaveBeenCalled();
-  expect(thumb()?.className).toContain("bg-accent");
+  expect(thumb()?.className).toContain("bg-accent/10");
   act(() => buttons()[1].click());
   expect(probe.span).not.toHaveBeenCalled();
   expect(buttons()[1].contains(thumb())).toBe(true);
