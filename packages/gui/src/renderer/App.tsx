@@ -90,8 +90,8 @@ import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
-import { guiTransport, guiHostBridge } from "./gui-transport.ts";
-import { useProjectWindowHost, useProjectWindowTitle } from "./project-window-host.ts";
+import { guiTransport } from "./gui-transport.ts";
+import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } from "./project-window-host.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
@@ -114,7 +114,7 @@ function AppShell() {
   // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):本窗口若是「在新窗口打开」
   // 开出的,preload 已带来初始项目作选仓种子(非启用仓由 selectActiveRepoId 回落默认)。
   const [activeRepoId, setActiveRepoId] = useState<string | null>(
-    () => guiHostBridge()?.windows?.initialProjectId ?? null,
+    () => hostProjectWindowApi()?.initialProjectId ?? null,
   );
   const queryClient = useQueryClient();
   const systemQuery = useSystemStatusQuery();
