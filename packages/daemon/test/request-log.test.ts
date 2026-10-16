@@ -193,6 +193,56 @@ test("only repo-log history diagnostics skip request recording, including failed
   assert.equal(traffic.length, 20);
 });
 
+test("a parked sessions.await records wait while ordinary reads do not", async (t) => {
+  const rootDir = tempRoot(t),
+    host = {
+      ...stubHost(rootDir),
+      awaitRuntimeSessions: async () => ({ ok: true, status: "ready", outcome: "succeeded", exitCode: 0 }),
+    } as unknown as DaemonHost,
+    server = openServerWithLog(rootDir, host);
+  await handshake(server);
+  // The direct method is how `ha runtime status --wait` parks on the daemon: without the wait bit
+  // the GUI ranks its minutes-long duration among executing requests.
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 2,
+    method: "repo.agentRuntime.sessions.await",
+    params: { repo: { repoId: "logged" }, payload: { runtimeSessionIds: ["sess-1"] } },
+  });
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 3,
+    method: "repo.task.read",
+    params: {
+      repo: { repoId: "logged" },
+      payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
+    },
+  });
+  // The command path keeps its own wait criterion: the client-declared --wait flag.
+  await server.handle({
+    jsonrpc: "2.0",
+    id: 4,
+    method: "repo.task.read",
+    params: {
+      repo: { repoId: "logged" },
+      payload: {
+        action: { kind: "task-ci", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV", wait: true },
+      },
+    },
+  });
+  server.close();
+  await server.requestLog.settle();
+
+  const records = readRecords(rootDir);
+  assert.equal(records.length, 3);
+  assert.equal(records[0].method, "repo.agentRuntime.sessions.await");
+  assert.equal(records[0].wait, true);
+  assert.equal(records[1].command, "task-show");
+  assert.equal(records[1].wait, false);
+  assert.equal(records[2].command, "task-ci");
+  assert.equal(records[2].wait, true);
+});
+
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {
   const rootDir = tempRoot(t),
     server = openServerWithLog(rootDir);

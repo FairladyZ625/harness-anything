@@ -176,7 +176,9 @@ export function createJsonRpcProtocolServer(options: {
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
     const call = parsed.call,
       { method, params } = call;
-    observed = { ...observed, repoId: repoIdFromParams(params) };
+    // The parked-wait predicate is the same one that parks the reply in one(): direct methods
+    // resolve to no action here, so this is the only place their wait classification is set.
+    observed = { ...observed, repoId: repoIdFromParams(params), wait: isDaemonParkedWaitMethod(method) };
     if (request.method === "protocol.hello" && method === request.method) {
       if (!isContractVersionCompatible(params.protocolVersion, currentDaemonProtocolVersion)) {
         const mismatch = {
@@ -753,7 +755,9 @@ export function createJsonRpcProtocolServer(options: {
       ...observed,
       command: action.kind,
       executor: declaredExecutorOrNull(action),
-      wait: action.wait === true || action.kind === "runtime-sessions-await",
+      // Only the client-declared --wait reaches here: the parked sessions.await method answers in
+      // its own direct branch above and never resolves to this command family.
+      wait: action.wait === true,
     };
     if (action.kind === "preset-run-start" || action.kind === "preset-run-status")
       return reply(commandMethod, await options.host.presetRun(repo, action, options.authContext));
