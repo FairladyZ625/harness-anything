@@ -468,7 +468,6 @@ export function openFleetEdgeRuntime(input: {
               ...writePeer,
               repoId: request.repoId,
               archive: archive as unknown as Readonly<Record<string, unknown>>,
-              timeoutMs: centerWriteWaitMs,
             }),
         });
         return response.receipt as { readonly outcome: string };

@@ -276,21 +276,21 @@ for (const restart of [false, true])
       assert.equal(launched.outcome, "applied", JSON.stringify(launched));
       assert.ok(terminal);
       let archiveFailed!: () => void;
-      const centerRestored = new Promise<Awaited<ReturnType<typeof fixture.center>>>((resolve) => {
-        archiveFailed = () => {
-          void fixture.center(center.port).then(resolve);
-        };
+      const archiveFailure = new Promise<void>((resolve) => {
+        archiveFailed = resolve;
       });
       t.mock.method(console, "error", (...args: unknown[]) => {
         if (String(args[0]).includes("[runtime-archive]")) archiveFailed();
       });
       await center.close();
       terminal();
+      await archiveFailure;
+      await assert.rejects(() => runtime.reconcile());
       if (restart) {
         runtime.close();
         runtime = createRuntime();
       }
-      await centerRestored;
+      await fixture.center(center.port);
       await syncReplica();
       await runtime.reconcile();
       const outcomes = () =>

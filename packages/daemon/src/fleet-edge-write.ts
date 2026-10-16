@@ -108,15 +108,11 @@ export const runFleetScheduleCommandClient = peerRunFleetScheduleCommandClient;
 export const runFleetTaskCommandClient = peerRunFleetTaskCommandClient;
 
 export async function runFleetEdgeRuntimeArchiveClient(
-  options: Parameters<typeof peerRunFleetRuntimeArchiveClient>[0] & {
-    readonly timeoutMs: number;
-  },
+  options: Parameters<typeof peerRunFleetRuntimeArchiveClient>[0],
 ): Promise<Awaited<ReturnType<typeof peerRunFleetRuntimeArchiveClient>>> {
-  const opId = randomUUID();
-  return runFleetEdgeRetry({
-    timeoutMs: options.timeoutMs,
-    write: () => peerRunFleetRuntimeArchiveClient({ ...options, opId }),
-  });
+  // One attempt: a failed archive is recovered by runtime reconcile after the center returns,
+  // so retrying here would only delay the failure that triggers that recovery.
+  return peerRunFleetRuntimeArchiveClient({ ...options, opId: randomUUID() });
 }
 
 export async function runFleetEdgeTaskCommand<T>(options: {
@@ -125,8 +121,11 @@ export async function runFleetEdgeTaskCommand<T>(options: {
   readonly write: () => Promise<T>;
   readonly settle?: () => Promise<T>;
 }): Promise<T> {
-  if (!options.readOnly && options.settle) return options.settle();
-  return runFleetEdgeRetry({ timeoutMs: options.timeoutMs, write: options.write });
+  // A write retries as a whole (center write plus replica catch-up), matching one canonical attempt per opId.
+  return runFleetEdgeRetry({
+    timeoutMs: options.timeoutMs,
+    write: !options.readOnly && options.settle ? options.settle : options.write,
+  });
 }
 
 export class FleetReplicaLagTimeoutError extends Error {
@@ -147,7 +146,7 @@ export async function runFleetEdgeWrite<T extends FleetEdgeWriteReceipt>(options
   readonly timeoutMs: number;
   readonly write: () => Promise<T>;
 }): Promise<T> {
-  const receipt = await runFleetEdgeRetry({ timeoutMs: options.timeoutMs, write: options.write });
+  const receipt = await options.write();
   if ("outcome" in receipt && receipt.outcome !== "applied") return receipt;
   if (receipt.replicationSequence === null) return receipt;
   const signal = AbortSignal.timeout(options.timeoutMs);
