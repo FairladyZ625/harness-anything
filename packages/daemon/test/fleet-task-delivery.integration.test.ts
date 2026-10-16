@@ -17,6 +17,28 @@ import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { humanError } from "../../cli/src/cli/guidance-plane.ts";
+
+test("edge Fleet document rejection is normalized for CLI rendering", { timeout: 60_000 }, async (t) => {
+  const fixture = await dualSyncFixture();
+  t.after(() => fixture.close());
+  const created = await fixture.createTask("node-one", "task-edge-doc-rejection", "Edge document rejection");
+  fixture.writeWorktree("node-one", `${created.packagePath}/closeout.md`, "# Edge change\n");
+  const rejected = await fixture.edgeTask("node-one", { kind: "doc-submit", taskId: created.taskId });
+  assert.equal(rejected.outcome, "op_rejected", JSON.stringify(rejected));
+  assert.equal(rejected.taskId, created.taskId, JSON.stringify(rejected));
+  assert.equal(typeof rejected.rejectionExplanation, "string", JSON.stringify(rejected));
+  const detail = rejected.detail as { readonly unresolvedTouches?: readonly { readonly path?: string }[] };
+  assert.ok(
+    detail.unresolvedTouches?.some((touch) => touch.path?.endsWith("/closeout.md")),
+    JSON.stringify(rejected),
+  );
+  const rendered = humanError(rejected);
+  assert.match(rendered.hint, /canonical lease-checked task command/u);
+  assert.match(rendered.hint, /closeout\.md/u);
+  assert.match(rendered.hint, /ha task start task-edge-doc-rejection/u);
+  assert.doesNotMatch(rendered.hint, /No remediation was recorded/u);
+});
 
 for (const explicit of [false, true])
   test(
