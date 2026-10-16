@@ -16,6 +16,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { noChanges } from "./entity-action-write-helpers.ts";
 
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
@@ -59,6 +60,26 @@ export function appendAuxiliaryRuntimeIngress(
       "invalid_runtime_event",
       "Runtime dispatch admission context is only valid on runtime_dispatch_requested.",
     );
+  if (action.type === "runtime_squad_run_observed") {
+    const current = cell.projection.readSquadRun(String(action.payload.squadRunId))?.state as
+      | Record<string, unknown>
+      | undefined;
+    if (current && Number(action.payload.runRevision) === Number(current.runRevision)) {
+      const currentPayload = Object.fromEntries(Object.keys(action.payload).map((key) => [key, current[key]]));
+      if (stableStringify(currentPayload) === stableStringify(action.payload))
+        return noChanges({
+          opId: action.opId,
+          revision: cell.store.readHead()?.revision ?? 0,
+          headRevision: cell.projection.readCut().watermark,
+          evidence: JSON.stringify({
+            schema: "squad-observation-no-changes/v1",
+            squadRunId: action.payload.squadRunId,
+            runRevision: action.payload.runRevision,
+          }),
+          origin: "runtime-squad-observation",
+        }) as unknown as JsonObject;
+    }
+  }
   if (action.type === "runtime_dispatch_requested") {
     if (remote && action.dispatchContext === undefined)
       throw cell.cellCodedError("invalid_runtime_event", "Remote runtime dispatch requires center admission context.");

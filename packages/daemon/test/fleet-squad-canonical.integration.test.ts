@@ -225,15 +225,13 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     viewRoot: b.viewRoot,
     diskQuotaBytes: b.config.quotaBytes,
   });
-  await assert.rejects(
-    runFleetRuntimeEventClient({
-      ...f.peer("node-one"),
-      eventType: observed.type,
-      opId: observed.opId,
-      payload: observed.payload,
-    }),
-    /revision|stale|conflict/iu,
-  );
+  const identicalReplay = await runFleetRuntimeEventClient({
+    ...f.peer("node-one"),
+    eventType: observed.type,
+    opId: observed.opId,
+    payload: observed.payload,
+  });
+  assert.equal(identicalReplay.receipt.outcome, "no_changes", JSON.stringify(identicalReplay));
   await assert.rejects(
     runFleetRuntimeEventClient({
       ...f.peer("node-two"),
@@ -462,24 +460,21 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
     "center closes the owner's assignment",
   );
   const closeoutCut = f.eventCount();
-  assert.equal((await observation(4, closeoutPayload)).receipt.replayed, true);
+  assert.equal((await observation(4, closeoutPayload)).receipt.outcome, "no_changes");
   assert.equal(f.eventCount(), closeoutCut, "terminal replay writes no second child cancellation");
   await assert.rejects(observation(5), /op_conflict/iu);
   await assert.rejects(
     observation(5, { phase: "cancelled", executionId: "different-execution" }),
     /execution|identity/iu,
   );
-  assert.equal(
-    (
-      await runFleetRuntimeEventClient({
-        ...f.peer("node-one"),
-        eventType: observed.type,
-        opId: observed.opId,
-        payload: observed.payload,
-      })
-    ).receipt.replayed,
-    true,
-    "accepted op replays after the parent changes iteration",
+  await assert.rejects(
+    runFleetRuntimeEventClient({
+      ...f.peer("node-one"),
+      eventType: observed.type,
+      opId: observed.opId,
+      payload: observed.payload,
+    }),
+    /stale|conflict/iu,
   );
   const afterTerminal = await f.host.read(
     "lease-repo",
@@ -510,7 +505,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   await f.closeHost(f.host);
   const restartedHost = await f.openHost(),
     restartedCenter = await f.openCenter(restartedHost, f.center.port);
-  assert.equal((await observation(4, closeoutPayload)).receipt.replayed, true);
+  assert.equal((await observation(4, closeoutPayload)).receipt.outcome, "no_changes");
   assert.equal(
     f.eventCount(),
     beforeRestart,

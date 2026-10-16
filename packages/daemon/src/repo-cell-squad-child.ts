@@ -12,13 +12,16 @@ import {
   parseDocWriteIntent,
   sha256Text,
   runtimeSessionIdFromActor,
+  stableStringify,
 } from "@harness-anything/kernel";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction, RuntimeIngressAction } from "./repo-cell-types.ts";
+import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { appendAuxiliaryRuntimeIngress } from "./repo-cell-runtime-ingress.ts";
 import { publishDocIntent } from "./doc-sync-publication.ts";
+import { noChanges } from "./entity-action-write-helpers.ts";
 
 /**
  * Keep the parent's readiness contract while applying the commander's authored assignment.
@@ -226,7 +229,24 @@ export async function appendSquadRunObservation(
   // Validate before task writes. Publish the terminal observation last, so its visible cut
   // cannot announce settlement while assignments still occupy WIP. Partial writes replay by status.
   requireSquadRuntimeOwner(cell, action, binding);
-  if (cell.store.readEvent(action.opId)) return appendAuxiliaryRuntimeIngress(cell, action, binding);
+  const current = cell.projection.readSquadRun(run.squadRunId)?.state as unknown as Record<string, unknown> | undefined;
+  if (current && run.runRevision === Number(current.runRevision)) {
+    const currentPayload = Object.fromEntries(
+      Object.keys(run as unknown as Record<string, unknown>).map((key) => [key, current[key]]),
+    );
+    if (stableStringify(currentPayload) === stableStringify(run))
+      return noChanges({
+        opId: action.opId,
+        revision: cell.store.readHead()?.revision ?? 0,
+        headRevision: cell.projection.readCut().watermark,
+        evidence: JSON.stringify({
+          schema: "squad-observation-no-changes/v1",
+          squadRunId: run.squadRunId,
+          runRevision: run.runRevision,
+        }),
+        origin: "runtime-squad-observation",
+      }) as unknown as JsonObject;
+  }
   requireSquadRuntimeAdmission(cell, action, binding);
   const reason = `Squad ${run.squadRunId} ended (${run.phase}); assignment lifecycle belongs to this run.`;
   const authorize = async (command: RepoTaskAction): Promise<RepoCellBinding> => {
