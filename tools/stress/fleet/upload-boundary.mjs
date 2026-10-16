@@ -303,7 +303,7 @@ async function concurrentSameContent(fixture, center, subjects, target) {
     losers = accepted.filter(({ center: result }) => result.outcome === "op_rejected");
   assert.equal(winners.length, 1, JSON.stringify(results));
   assert.equal(losers.length, 1, JSON.stringify(results));
-  assert.equal(losers[0].center.code, "base_ledger_changed", JSON.stringify(losers[0].center));
+  assert.equal(losers[0].center.code, "base_blob_changed", JSON.stringify(losers[0].center));
   assert.notEqual(results[0].descriptors[0].ref, results[1].descriptors[0].ref);
   return { body, results, winner: winners[0], loser: losers[0] };
 }

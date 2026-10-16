@@ -536,7 +536,7 @@ export async function runFleetEdgeTask(
     };
   }
 }
-const FLEET_DOC_CONFLICT_CODES = Object.freeze(["mirror_behind_center", "base_blob_changed", "base_ledger_changed"]);
+const FLEET_DOC_CONFLICT_CODES = Object.freeze(["mirror_behind_center", "base_blob_changed"]);
 function transientResult(result: Awaited<ReturnType<typeof runFleetTaskCommandClient>>): boolean {
   return (
     result.outcome === "op_rejected" &&

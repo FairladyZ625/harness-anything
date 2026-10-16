@@ -1,5 +1,5 @@
 import { consumeKnownError } from "../error-consumption.ts";
-import { sha256Bytes, stableStringify } from "../integrity/stable-hash.ts";
+import { sha256Bytes } from "../integrity/stable-hash.ts";
 import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { type PortableDocumentPath } from "../layout/portable-path.ts";
 import {
@@ -124,8 +124,6 @@ function decideDocWriteInternal(input: DocWriteDecisionInput, requireAuthorizati
       input.runtimeBinding !== undefined &&
       isTaskBoundRuntimeWriter(input.lease, input.actor, input.source, input.runtimeBinding);
   if (input.intent.executionId !== null && !directHolder) return reject("lease_conflict");
-  if (stableStringify(input.intent.baseLedgerSha) !== stableStringify(input.currentLedgerSha))
-    return reject("base_ledger_changed");
   for (const [index, change] of input.intent.changes.entries()) {
     const current = input.documents[index] ?? null,
       route = resolveDocRoute(change.path),
