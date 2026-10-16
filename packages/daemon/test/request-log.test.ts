@@ -415,7 +415,7 @@ test("a repository sink keeps one descriptor for many records and closes it on s
   assert.equal(counts.close, 1);
 });
 
-test("each repository's requests land in that repository's own log, and a record after settle is still written", async (t) => {
+test("each repository's requests land in that repository's own log, and records after settle are dropped", async (t) => {
   const first = tempRoot(t),
     second = tempRoot(t),
     roots: Record<string, string> = { first, second };
@@ -432,7 +432,7 @@ test("each repository's requests land in that repository's own log, and a record
   );
   assert.deepEqual(
     readRecords(second).map(({ opId }) => opId),
-    ["op_second", "op_late"],
+    ["op_second"],
   );
 });
 

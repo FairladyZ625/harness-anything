@@ -180,12 +180,11 @@ test("conn log records open/request/close with monotonic ids, active counts, and
 test("conn log rolls over at a UTC day boundary and keeps both day files", async (t) => {
   const userRoot = tempRoot(t);
   let iso = "2026-08-20T23:59:58Z";
-  const log = openDaemonConnLog({ userRoot, daemonId: "day", now: () => new Date(iso) });
-  // The write picks its day file asynchronously, so each day's write is flushed before the clock
-  // advances — the same ordering a real midnight rollover produces.
+  let log = openDaemonConnLog({ userRoot, daemonId: "day", now: () => new Date(iso) });
   log.connectionOpened("a", "unix-socket");
   await log.settle();
   iso = "2026-08-21T00:00:01Z";
+  log = openDaemonConnLog({ userRoot, daemonId: "day", now: () => new Date(iso) });
   log.connectionOpened("b", "unix-socket");
   await log.settle();
   const names = readdirSync(path.join(userRoot, "logs")).sort();
@@ -255,6 +254,25 @@ test("a failing conn log reports once and never throws into the request path", a
   await log.settle();
   assert.equal(failures.length, 1);
   rmSync(userRoot, { recursive: true, force: true });
+});
+
+test("conn log drops traffic arriving after settlement without reopening its file", async (t) => {
+  const userRoot = tempRoot(t),
+    log = openDaemonConnLog({ userRoot, daemonId: "late" });
+  await log.settle();
+  log.connectionOpened("late-connection", "unix-socket");
+  log.request({
+    conn: "c-1",
+    transport: "unix-socket",
+    method: "protocol.hello",
+    startedAt: 0,
+    durationMs: 1,
+    ok: true,
+    code: null,
+    detail: null,
+  });
+  await log.settle();
+  assert.equal(readdirSync(userRoot, { withFileTypes: true }).length, 0);
 });
 
 test("a close for a connection this sink never saw is ignored instead of corrupting the active count", async (t) => {

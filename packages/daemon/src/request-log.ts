@@ -87,15 +87,18 @@ export function openDaemonRequestLog(options: DaemonRequestLogOptions): DaemonRe
   const logPaths = new Map<string, string>();
   const sinks = new Map<string, { handle: FileHandle; bytes: number }>();
   let reportedFailure = false;
+  let settled = false;
   let chain: Promise<void> = Promise.resolve();
 
   return {
     record: (entry) => {
+      if (settled) return;
       const logPath = resolveLogPath(entry.repoId);
       if (!logPath) return;
       chain = chain.then(() => writeRequestLogLine(logPath, `${JSON.stringify(buildRecord(entry, now()))}\n`));
     },
     settle: async () => {
+      settled = true;
       let tail: Promise<void>;
       do {
         tail = chain;

@@ -56,7 +56,7 @@ test("observe.tail exposes the 3x3 mode matrix and advances only when the source
     // The request log keeps its file handle open between writes since #2470; settle before the
     // test ends so no handle is left for garbage collection to close.
     await requestLog.settle();
-    const connLog = openDaemonConnLog({
+    let connLog = openDaemonConnLog({
       userRoot,
       daemonId,
       now: at("2026-08-26T04:00:00.000Z"),
@@ -191,7 +191,7 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
   try {
     initRepo(rootDir);
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "observe-tail-gap" });
-    const connLog = openDaemonConnLog({
+    let connLog = openDaemonConnLog({
       userRoot,
       daemonId,
       maxBytes: 1,
@@ -207,6 +207,13 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
     assertAvailable(beforeRetention, "local", "daemon-log");
     assert.equal(beforeRetention.items.length, 1);
 
+    connLog = openDaemonConnLog({
+      userRoot,
+      daemonId,
+      maxBytes: 1,
+      keptGenerations: 1,
+      now: at("2026-08-26T05:00:00.000Z"),
+    });
     connLog.connectionOpened("gap-connection-2", "unix-socket");
     await connLog.settle();
     const afterRename = await cell.observeTail(
@@ -219,9 +226,16 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
     const rotatedHistory = await cell.observeTail({ kind: "daemon-log", direction: "history" }, { userRoot, daemonId });
     assert.deepEqual(
       rotatedHistory.items.map((item) => item.conn),
-      ["c-1", "c-2"],
+      ["c-1", "c-1"],
     );
 
+    connLog = openDaemonConnLog({
+      userRoot,
+      daemonId,
+      maxBytes: 1,
+      keptGenerations: 1,
+      now: at("2026-08-26T05:00:00.000Z"),
+    });
     connLog.connectionOpened("gap-connection-3", "unix-socket");
     await connLog.settle();
     const afterRetention = await cell.observeTail(
