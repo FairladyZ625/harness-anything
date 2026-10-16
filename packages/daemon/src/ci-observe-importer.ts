@@ -201,6 +201,21 @@ export async function reconcileCiOccurrence(input: {
         )
           continue;
         if (githubActionsGateResult(requirement, execution!) === "pass") continue;
+        const observeTaskBranch = async () => {
+          if (hosting?.kind !== "github" && hosting?.kind !== "gitlab") return;
+          const branchResult = await fetchCiRequest(
+            cell,
+            { kind: "ci-observe-pull", taskId, observeBranch: true },
+            gh,
+            hosting.kind,
+          );
+          if ("failure" in branchResult) {
+            // Branch diagnostics are supplementary to the canonical witness. Keep the target
+            // visible for the next center occurrence without turning an unavailable log into a
+            // false witness verdict.
+            failedTargets += 1;
+          } else await acceptFetched(branchResult.fetched);
+        };
         const result = await fetchCiRequest(
           cell,
           { kind: "ci-observe-pull", taskId },
@@ -219,9 +234,11 @@ export async function reconcileCiOccurrence(input: {
           )
             throw result.failure;
           failedTargets += 1;
+          await observeTaskBranch();
           continue;
         }
         await acceptFetched(result.fetched);
+        await observeTaskBranch();
       }
     }
     await accept(privateLedgerCiObservations(cell));

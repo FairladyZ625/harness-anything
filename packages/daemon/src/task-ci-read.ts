@@ -5,6 +5,8 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { consumeKnownError, type WriteReceiptDraft } from "@harness-anything/kernel";
+import type { CiObservationRead, CiRunDetail } from "@harness-anything/kernel";
+import { extractCiFailure } from "./ci-failure-detail.ts";
 import {
   detectHostingProvider,
   hostingCredentialConfigurationAdvice,
@@ -66,7 +68,7 @@ interface Job {
   readonly html_url: string;
 }
 
-interface TaskCiReport {
+export interface TaskCiReport {
   readonly schema: "task-ci/v2";
   readonly taskId: string;
   readonly branch: string;
@@ -106,6 +108,7 @@ export async function readTaskCi(
     readonly rootDir: string;
     readonly input: RepoCellApiContext["input"];
     readonly projection: RepoCellApiContext["projection"];
+    readonly store?: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
     readonly now: RepoCellApiContext["now"];
     readonly cellCodedError: RepoCellApiContext["cellCodedError"];
     readonly readResult?: RepoCellApiContext["extracted"]["readResult"];
@@ -118,6 +121,8 @@ export async function readTaskCi(
   if (!principal)
     throw context.cellCodedError("actor_unauthorized", "Task CI requires a bound worker or reviewer dispatch.");
   requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
+  if (typeof context.projection.readCiRunObservations === "function" && context.store)
+    return readTaskCiFromObservations(context, principal.taskId, action);
   const instanceId = context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId;
   let hosting: HostingProvider;
   if (provider !== runProvider) hosting = { kind: "github" } as HostingProvider;
@@ -292,6 +297,220 @@ function makeTaskCiReceipt(
   };
 }
 
+type ObservationTaskCiContext = Pick<RepoCellApiContext, "projection" | "now" | "cellCodedError"> & {
+  readonly store?: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
+  readonly readResult?: RepoCellApiContext["extracted"]["readResult"];
+};
+
+/** Build task-ci from the center observation cut. Provider credentials are intentionally absent here. */
+function readTaskCiFromObservations(
+  context: ObservationTaskCiContext,
+  taskId: string,
+  _action: RepoTaskAction,
+): WriteReceiptDraft & { readonly ci: TaskCiReport } {
+  const snapshot = context.projection.read(taskId).snapshot as {
+      readonly task?: { readonly iteration?: number } | null;
+      readonly executions?: readonly {
+        readonly iteration?: number;
+        readonly submission?: { readonly commitSha?: string | null } | null;
+      }[];
+    },
+    execution = snapshot.executions?.find(
+      (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
+    ),
+    headSha = execution?.submission?.commitSha ?? null;
+  if (!headSha)
+    return makeTaskCiReceipt(context, taskId, "", {
+      schema: "task-ci/v2",
+      taskId,
+      branch: taskId,
+      headSha: "",
+      conclusion: "not_started",
+      notStarted: {
+        reason: "queued",
+        detail: `Task ${taskId} has no submitted delivery yet; submit the task before reading its CI.`,
+      },
+      checks: [],
+      runs: [],
+    });
+  const cut = context.projection.readCiRunObservations(2000),
+    projectionPending = cut.status !== "ready";
+  if (projectionPending)
+    return makeTaskCiReceipt(context, taskId, headSha, {
+      schema: "task-ci/v2",
+      taskId,
+      branch: taskId,
+      headSha,
+      conclusion: "pending",
+      checks: [],
+      runs: [],
+    });
+  const events = cut.events.filter((event) => event.payload.run.branch === taskId && event.payload.run.sha === headSha),
+    groups = new Map<string, CiObservationRead[]>();
+  for (const event of events) {
+    const key = event.payload.run.runId,
+      group = groups.get(key) ?? [];
+    group.push(event);
+    groups.set(key, group);
+  }
+  const runs = [...groups.values()]
+      .sort((left, right) => (right[0]?.workspaceRevision ?? 0) - (left[0]?.workspaceRevision ?? 0))
+      .map((group) => observationRunReport(context, group)),
+    checks = runs.flatMap((run) =>
+      run.jobs.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion, url: job.url })),
+    ),
+    conclusion =
+      runs.length === 0
+        ? "not_started"
+        : runs.some((run) => run.status !== "completed")
+          ? "pending"
+          : runs.some((run) => run.conclusion === "failure")
+            ? "failure"
+            : "success";
+  const ci: TaskCiReport = {
+    schema: "task-ci/v2",
+    taskId,
+    branch: taskId,
+    headSha,
+    conclusion,
+    ...(runs.length === 0
+      ? {
+          notStarted: {
+            reason: "queued" as const,
+            detail: `No completed CI observation for ${headSha} is visible at center revision ${cut.sourceRevision}; read again after the observer runs.`,
+          },
+        }
+      : {}),
+    checks,
+    runs,
+  };
+  return makeTaskCiReceipt(context, taskId, headSha, ci);
+}
+
+function observationRunReport(
+  context: ObservationTaskCiContext,
+  events: readonly CiObservationRead[],
+): TaskCiReport["runs"][number] {
+  const workflow = events.find((event) => event.payload.scope === "workflow"),
+    attempt = events.find((event) => event.payload.scope === "attempt"),
+    jobEvents = events.filter((event) => event.payload.scope === "job"),
+    jobs = new Map<string, TaskCiReport["runs"][number]["jobs"][number]>();
+  for (const event of jobEvents) {
+    const id = event.payload.identity.jobExecutionId ?? event.payload.identity.jobKey ?? event.eventId,
+      detail = readObservationDetail(context, event),
+      failed =
+        event.payload.failedTests.length > 0 ||
+        event.payload.fileOutcomes.length > 0 ||
+        detail?.tests.some((test) => test.status === "failed") === true ||
+        (detail?.fileOutcomes !== undefined && detail.fileOutcomes.length > 0) ||
+        detail?.diagnostics.some((value) => {
+          if (typeof value !== "object" || value === null) return false;
+          const kind = (value as { readonly kind?: unknown }).kind;
+          return kind === "ci-failure" || kind === "ci-failure-excerpt";
+        }) === true;
+    jobs.set(id, {
+      id: Number.isSafeInteger(Number(id)) ? Number(id) : 0,
+      name: event.payload.run.job,
+      status: "completed",
+      conclusion: failed ? "failure" : "success",
+      url: "",
+      failure: failed ? failureFromObservation(event, detail) : null,
+    });
+  }
+  for (const inventory of attempt?.payload.attemptInventory?.jobs ?? []) {
+    if (jobs.has(inventory.jobExecutionId)) continue;
+    jobs.set(inventory.jobExecutionId, {
+      id: Number.isSafeInteger(Number(inventory.jobExecutionId)) ? Number(inventory.jobExecutionId) : 0,
+      name: inventory.name,
+      status: "completed",
+      conclusion: inventory.conclusion === "failure" ? "failure" : inventory.conclusion,
+      url: "",
+      failure:
+        inventory.conclusion === "failure"
+          ? {
+              testFiles: [],
+              tests: [],
+              errors: [],
+              excerpt: "",
+              truncated: false,
+              logUrl: "",
+              unavailable: "center has no CI detail blob for this failed job",
+            }
+          : null,
+    });
+  }
+  const runConclusion =
+    workflow?.payload.verification?.conclusion ??
+    ([...jobs.values()].some((job) => job.conclusion === "failure") ? "failure" : "success");
+  return {
+    id: Number.parseInt(events[0]?.payload.identity.databaseRunId ?? "0", 10) || 0,
+    attempt: events[0]?.payload.identity.runAttempt ?? 1,
+    event: workflow?.payload.verification?.event ?? "pull_request",
+    status: "completed",
+    conclusion: runConclusion,
+    url: "",
+    jobs: [...jobs.values()],
+  };
+}
+
+function readObservationDetail(context: ObservationTaskCiContext, event: CiObservationRead): CiRunDetail | null {
+  const ref = event.payload.detailRef;
+  if (!ref) return null;
+  const bytes = context.store?.readContentBlob(ref.sha256);
+  if (!bytes) return null;
+  return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as CiRunDetail;
+}
+
+function failureFromObservation(event: CiObservationRead, detail: CiRunDetail | null): TaskCiJobFailure {
+  const tests = [
+      ...new Set([
+        ...event.payload.failedTests.map((test) => test.name),
+        ...(detail?.tests.filter((test) => test.status === "failed").map((test) => test.name) ?? []),
+      ]),
+    ],
+    testFiles = [
+      ...new Set([
+        ...event.payload.failedTests.map((test) => test.file),
+        ...(detail?.tests.filter((test) => test.status === "failed").map((test) => test.file) ?? []),
+      ]),
+    ],
+    errors = (detail?.diagnostics ?? [])
+      .filter(
+        (
+          value,
+        ): value is {
+          readonly kind: "ci-failure";
+          readonly test: string;
+          readonly firstLine: string;
+          readonly frames?: readonly string[];
+        } =>
+          typeof value === "object" &&
+          value !== null &&
+          (value as { readonly kind?: unknown }).kind === "ci-failure" &&
+          typeof (value as { readonly test?: unknown }).test === "string" &&
+          typeof (value as { readonly firstLine?: unknown }).firstLine === "string",
+      )
+      .map((value) => ({ test: value.test, firstLine: value.firstLine, frames: value.frames ?? [] })),
+    excerpt = (detail?.diagnostics ?? []).find(
+      (value): value is { readonly kind: "ci-failure-excerpt"; readonly excerpt: string } =>
+        typeof value === "object" &&
+        value !== null &&
+        (value as { readonly kind?: unknown }).kind === "ci-failure-excerpt" &&
+        typeof (value as { readonly excerpt?: unknown }).excerpt === "string",
+    );
+  return {
+    testFiles,
+    tests,
+    errors,
+    excerpt: excerpt?.excerpt ?? "",
+    truncated:
+      event.payload.failedTests.some((test) => test.truncated === true) ||
+      detail?.tests.some((test) => test.truncated === true) === true,
+    logUrl: "",
+    ...(detail ? {} : { unavailable: "center CI detail blob is unavailable at this replica cut" }),
+  };
+}
+
 async function hasOriginRemote(rootDir: string): Promise<boolean> {
   try {
     await execFileAsync("git", ["-C", rootDir, "remote", "get-url", "origin"], { timeout: 10_000 });
@@ -461,20 +680,23 @@ export interface TaskCiJobFailure {
   readonly unavailable?: string;
 }
 
-const maxFailedTestsPerJob = 20,
-  maxFailedFilesPerJob = 20,
-  maxFramesPerError = 5,
-  failureLineCharBudget = 512,
-  errorBlockLineBudget = 60,
-  fallbackExcerptLines = 15,
-  fallbackExcerptChars = 2048;
-const timestampPrefix = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z /u;
-const failedFileLine = /^\[node-test-file\] (?!pass\b)(\S+) (.+)$/u;
-const failedTestLine = /^\s*✖ (.+)$/u;
-const durationSuffix = / \([\d.]+m?s\)$/u;
-const frameLine = /^\s*at /u;
-const reporterLine = /^\s*[✔✖❯▼﹒✎‼﹖ℹ]/u;
-const fallbackErrorLine = /##\[error\]|Error:|error:/u;
+/** Keep submit rejections actionable without returning provider logs or unbounded diagnostics. */
+export function formatTaskCiFailure(ci: TaskCiReport): string {
+  const lines: string[] = [];
+  for (const run of ci.runs) {
+    for (const job of run.jobs) {
+      if (job.conclusion !== "failure") continue;
+      lines.push(`failed job ${job.name}`);
+      const failure = job.failure;
+      if (!failure) continue;
+      if (failure.tests.length) lines.push(`failed tests: ${failure.tests.join(", ")}`);
+      for (const error of failure.errors) lines.push(`error: ${error.firstLine} (${error.test})`);
+      if (!failure.errors.length && failure.excerpt) lines.push(`error excerpt: ${failure.excerpt}`);
+      if (failure.unavailable) lines.push(`detail unavailable: ${failure.unavailable}`);
+    }
+  }
+  return lines.join("\n").slice(0, 4096);
+}
 
 function emptyJobFailure(): Omit<TaskCiJobFailure, "logUrl"> {
   return { testFiles: [], tests: [], errors: [], excerpt: "", truncated: false };
@@ -484,63 +706,5 @@ function emptyJobFailure(): Omit<TaskCiJobFailure, "logUrl"> {
  * report short; `truncated` says when one was hit. The spec reporter prints the error block only in
  * its end-of-run recap, so a `✖` line seen inline carries no error and the recap block fills it in. */
 export function extractJobFailure(log: string): Omit<TaskCiJobFailure, "logUrl" | "unavailable"> {
-  const lines = log.split(/\r?\n/u).map((line) => line.replace(timestampPrefix, "")),
-    testFiles: string[] = [],
-    tests: string[] = [],
-    errors = new Map<string, { test: string; firstLine: string; frames: string[] }>();
-  let truncated = false;
-  const bounded = (text: string): string =>
-    text.length <= failureLineCharBudget ? text : ((truncated = true), text.slice(0, failureLineCharBudget));
-  const scanErrorBlock = (start: number, name: string) => {
-    let firstLine = "";
-    const frames: string[] = [];
-    for (let j = start; j < Math.min(lines.length, start + errorBlockLineBudget); j += 1) {
-      const raw = lines[j]!;
-      if (reporterLine.test(raw) || failedFileLine.test(raw)) break;
-      const text = raw.trim();
-      if (text === "") continue;
-      if (frameLine.test(text)) {
-        if (firstLine === "") break; // frames before any error line belong to an earlier block
-        if (frames.length >= maxFramesPerError) truncated = true;
-        else frames.push(bounded(text));
-        continue;
-      }
-      if (firstLine === "") firstLine = bounded(text);
-    }
-    const previous = errors.get(name);
-    errors.set(name, {
-      test: name,
-      firstLine: previous?.firstLine || firstLine,
-      frames: previous && previous.frames.length > 0 ? previous.frames : frames,
-    });
-  };
-  for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]!,
-      file = failedFileLine.exec(line);
-    if (file) {
-      const entry = `${file[1]} ${file[2]}`;
-      if (testFiles.length >= maxFailedFilesPerJob) truncated = true;
-      else if (!testFiles.includes(entry)) testFiles.push(entry);
-      continue;
-    }
-    const failed = failedTestLine.exec(line);
-    if (!failed) continue;
-    const name = bounded(failed[1]!.trim().replace(durationSuffix, ""));
-    if (name === "failing tests:") continue; // the recap header is not a test
-    if (!tests.includes(name)) {
-      if (tests.length >= maxFailedTestsPerJob) truncated = true;
-      else tests.push(name);
-    }
-    scanErrorBlock(i + 1, name);
-  }
-  let excerpt = "";
-  if (tests.length === 0 && testFiles.length === 0) {
-    const index = lines.findIndex((line) => fallbackErrorLine.test(line));
-    if (index >= 0) {
-      const joined = lines.slice(index, index + fallbackExcerptLines).join("\n");
-      excerpt =
-        joined.length <= fallbackExcerptChars ? joined : ((truncated = true), joined.slice(0, fallbackExcerptChars));
-    }
-  }
-  return { testFiles, tests, errors: [...errors.values()], excerpt, truncated };
+  return extractCiFailure(log);
 }

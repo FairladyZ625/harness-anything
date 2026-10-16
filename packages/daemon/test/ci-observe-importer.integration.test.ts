@@ -8,7 +8,12 @@ import { makeTaskEventStore, makeTaskProjection, createScheduleV1, type Schedule
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { reconcileCiOccurrence } from "../src/ci-observe-importer.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { ingestCiObservations, runCiProviderCommand, type RunGh } from "../src/ci-observation-actions.ts";
+import {
+  fetchCiObservations,
+  ingestCiObservations,
+  runCiProviderCommand,
+  type RunGh,
+} from "../src/ci-observation-actions.ts";
 
 const actor = { principal: { personId: "ci-import-test" }, executor: null } as const;
 const binding = { actor, source: "local" as const };
@@ -210,6 +215,106 @@ function provider() {
   };
   return { state, gh };
 }
+
+test("center imports a failed task-branch job as bounded redacted detail", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    const store = makeTaskEventStore({ rootDir, repoId: "ci-branch-detail" }),
+      projection = makeTaskProjection({ rootDir, eventStore: store }),
+      binding = { actor, source: "local" as const },
+      secret = "opaque-ci-branch-token-123";
+    const calls: string[] = [];
+    let previousToken: string | undefined;
+    try {
+      previousToken = process.env.GH_TOKEN;
+      process.env.GH_TOKEN = secret;
+      const gh: RunGh = async (command, args) => {
+        calls.push(args.join(" "));
+        const endpoint = args.at(-1)!;
+        if (endpoint.includes("/branches/task-failure")) return JSON.stringify({ commit: { sha } });
+        if (endpoint.includes("actions/runs?branch="))
+          return JSON.stringify([
+            {
+              workflow_runs: [
+                {
+                  id: 91,
+                  head_branch: "task-failure",
+                  head_sha: sha,
+                  created_at: "2026-10-08T10:00:00Z",
+                  status: "completed",
+                  conclusion: "failure",
+                  event: "push",
+                },
+              ],
+            },
+          ]);
+        if (command === "gh" && args[0] === "run" && args[1] === "view")
+          return JSON.stringify({
+            workflowName: "rewrite-ci",
+            headSha: sha,
+            headBranch: "task-failure",
+            status: "completed",
+            conclusion: "failure",
+            attempt: 1,
+            event: "push",
+          });
+        if (endpoint.includes("/artifacts?")) return JSON.stringify([{ artifacts: [] }]);
+        if (endpoint.includes("/attempts/1/jobs"))
+          return JSON.stringify([
+            { jobs: [{ id: 910, name: "fast-contract", status: "completed", conclusion: "failure" }] },
+          ]);
+        if (endpoint.includes("/attempts/1"))
+          return JSON.stringify({
+            name: "rewrite-ci",
+            head_sha: sha,
+            head_branch: "task-failure",
+            status: "completed",
+            conclusion: "failure",
+            run_attempt: 1,
+            event: "push",
+            path: ".github/workflows/rewrite-ci.yml",
+            workflow_id: 11,
+            repository: { full_name: "fixture/repository" },
+          });
+        if (endpoint.includes("actions/jobs/910/logs"))
+          return `✖ branch test fails\n  Error: ${secret}\n      at branch (tools/branch.test.mjs:9:1)\n[node-test-file] fail tools/branch.test.mjs\n`;
+        throw new Error(`unexpected branch provider call ${args.join(" ")}`);
+      };
+      const cell = {
+        rootDir,
+        store,
+        projection,
+        now: () => now,
+        settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
+        input: {},
+        cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+      };
+      const fetched = await fetchCiObservations(
+        cell as never,
+        { kind: "ci-observe-pull", taskId: "task-failure", observeBranch: true },
+        gh,
+        "github",
+      );
+      assert.ok(fetched.runs.length > 0, JSON.stringify({ fetched, calls }));
+      assert.equal(fetched.runs[0]?.summary.headBranch, "task-failure");
+      assert.equal(fetched.runs[0]?.jobs[0]?.artifact.detail.tests[0]?.name, "branch test fails");
+      assert.equal(JSON.stringify(fetched).includes(secret), false);
+      ingestCiObservations(cell as never, binding, fetched);
+      const jobEvent = store
+        .read()
+        .events.find((event) => event.schema === "ci-run-observation/v4" && event.payload.scope === "job");
+      assert.ok(jobEvent?.payload.detailRef);
+      const body = store.readContentBlob(jobEvent!.payload.detailRef!.sha256);
+      assert.ok(body);
+      const decoded = new TextDecoder().decode(body!);
+      assert.equal(decoded.includes(secret), false);
+      assert.match(decoded, /branch test fails/u);
+    } finally {
+      if (previousToken === undefined) delete process.env.GH_TOKEN;
+      else process.env.GH_TOKEN = previousToken;
+      projection.close();
+    }
+  });
+});
 
 async function fixture(
   work: (input: {

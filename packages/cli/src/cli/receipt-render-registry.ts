@@ -210,7 +210,7 @@ function renderTaskCi(receipt: Record<string, unknown>): string {
         tests.length === 0
       )
         lines.push(`  assertion: ${failure.excerpt.split("\n")[0]}`);
-      if (typeof failure.logUrl === "string") lines.push(`  full log: ${failure.logUrl}`);
+      if (typeof failure.logUrl === "string" && failure.logUrl.length > 0) lines.push(`  full log: ${failure.logUrl}`);
       if (failure.truncated === true) lines.push("  failure detail truncated");
     }
   }
