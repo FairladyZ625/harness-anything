@@ -106,7 +106,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
           cwd: { scope: "repo-root" },
           prompt: "Claim the execution, then settle.",
           taskId,
-          idempotencyKey: "handoff-rejoin-first",
+          dispatchKey: "handoff-rejoin-first",
         },
       });
     assert.equal(first.outcome, "applied", JSON.stringify(first));
@@ -183,7 +183,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
         cwd: { scope: "repo-root" },
         prompt: "Hold an unrelated execution.",
         taskId: outsiderTaskId,
-        idempotencyKey: "handoff-rejoin-outsider",
+        dispatchKey: "handoff-rejoin-outsider",
       },
     });
     assert.equal(outsider.outcome, "applied", JSON.stringify(outsider));
@@ -204,7 +204,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
           runtimeInstanceId: ingressDefinition.instanceId,
           cwd: { scope: "repo-root" },
           taskId,
-          idempotencyKey: "handoff-rejoin-outsider-claim",
+          dispatchKey: "handoff-rejoin-outsider-claim",
           executor: { kind: "agent", id: `runtime-session:${String(outsider.runtimeSessionId)}` },
         },
       });
@@ -220,7 +220,7 @@ test("a settled dispatch re-enters its unsubmitted execution as a same-principal
         cwd: { scope: "repo-root" },
         prompt: "Rejoin the execution as a new RuntimeSession.",
         taskId,
-        idempotencyKey: "handoff-rejoin-second",
+        dispatchKey: "handoff-rejoin-second",
       },
     });
     assert.equal(second.outcome, "applied", JSON.stringify(second));

@@ -317,7 +317,7 @@ test("canonical Squad and live session rows are byte-stable on reopen and cold r
       instanceId: "one",
       installationId: "one",
       kindId: "codex",
-      idempotencyKey: "initial",
+      dispatchKey: "initial",
       definitionSnapshotRef: "artifact:runtime-definition/test",
       taskId: "task-1",
       executionId: "execution-1",

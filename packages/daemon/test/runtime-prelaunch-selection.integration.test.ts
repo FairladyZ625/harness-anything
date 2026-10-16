@@ -116,7 +116,7 @@ for (const route of ["agent", "schedule"] as const) {
         const run = () =>
           route === "agent"
             ? cell.spawnRuntime(
-                { agentId: "ordered-agent", prompt: "Inspect.", cwd: { scope: "repo-root" }, idempotencyKey: "run" },
+                { agentId: "ordered-agent", prompt: "Inspect.", cwd: { scope: "repo-root" }, dispatchKey: "run" },
                 binding,
               )
             : cell.run({ kind: "schedule-run-now", scheduleId: "ordered-probe", idempotencyKey: "run" }, binding);

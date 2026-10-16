@@ -9,8 +9,8 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   ...gateRunStatusWordRegister,
   {
     word: "scheduled",
-    entity: "RuntimeSession",
-    field: "attempt.fallbackState",
+    entity: "Dispatch",
+    field: "fallbackState",
     meaning:
       "The accepted terminal attempt has scheduled a provider continuation; its successor dispatch proves launch.",
     divergence: "entity-scoped",
@@ -24,8 +24,8 @@ export const statusWordRegister: readonly StatusWordRegistration[] = [
   },
   {
     word: "exhausted",
-    entity: "RuntimeSession",
-    field: "attempt.fallbackState",
+    entity: "Dispatch",
+    field: "fallbackState",
     meaning: "The accepted terminal attempt has no remaining eligible provider or its continuation could not launch.",
     divergence: "entity-scoped",
   },

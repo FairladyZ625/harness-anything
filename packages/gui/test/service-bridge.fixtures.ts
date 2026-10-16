@@ -56,7 +56,7 @@ export async function seedSquadRunState(
           instanceId: "codex-gui",
           installationId: "installation-gui",
           kindId: "codex",
-          idempotencyKey: "squad-gui",
+          dispatchKey: "squad-gui",
           definitionSnapshotRef: "artifact:runtime-definition/squad-gui",
           definitionSnapshot,
           taskId: identity.taskId,
@@ -148,7 +148,7 @@ export async function seedRuntime(
           instanceId: "codex-gui",
           installationId: "installation-gui",
           kindId: "codex",
-          idempotencyKey: "gui",
+          dispatchKey: "gui",
           definitionSnapshotRef: "artifact:runtime-definition/gui",
           definitionSnapshot: {
             schema: "agent-definition-snapshot/v1",

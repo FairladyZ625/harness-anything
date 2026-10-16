@@ -1,6 +1,5 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
@@ -90,7 +89,7 @@ test("runtime.run rejects a lagging task projection from a single read", async (
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: "task_ready",
-        idempotencyKey: "lagging-projection",
+        dispatchKey: "lagging-projection",
       },
       binding,
     ),
@@ -118,7 +117,7 @@ test("task-bound runtime dispatch requires an authorization decision", async () 
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: "task_ready",
-        idempotencyKey: "missing-authorization",
+        dispatchKey: "missing-authorization",
       },
       binding,
     ),
@@ -128,16 +127,43 @@ test("task-bound runtime dispatch requires an authorization decision", async () 
   );
 });
 
-test("runtime dispatch rejects an opId occupied by another canonical event", async () => {
+test("runtime dispatch does not replay-check an opId occupied by another canonical event", async () => {
   const repoId = "repository",
-    idempotencyKey = "occupied-dispatch-op",
-    hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
-    dispatchOpId = `runtime-spawn-${hash.slice(0, 32)}`,
+    dispatchKey = "occupied-dispatch-op",
+    dispatchOpId = "runtime-spawn-occupied-by-another-event",
+    reads: string[] = [],
     spawner = makeRuntimeSpawner({
       repoId,
       rootDir: tmpdir(),
-      store: () => ({ readEvent: (opId: string) => (opId === dispatchOpId ? { type: "task_created", opId } : null) }),
-      projection: () => ({}),
+      store: () => ({
+        readEvent: (opId: string) => {
+          reads.push(opId);
+          return opId === dispatchOpId ? { type: "task_created", opId } : null;
+        },
+      }),
+      projection: () => ({
+        readRuntimeSessions: () => [],
+        getEntity: (kind: string, id: string) =>
+          kind === "settings" && id === "repository"
+            ? { value: { runtime: { allowedInstances: ["worker"] } } }
+            : undefined,
+      }),
+      runtimeInstances: () => [
+        {
+          instanceId: "worker",
+          name: "Worker",
+          kindId: "codex",
+          models: ["gpt-5.6-sol"],
+          defaultModel: "gpt-5.6-sol",
+          enabled: true,
+          authMode: "subscription",
+          authReadiness: { status: "ready", code: null, hint: null },
+          permissionMode: "bypass",
+        },
+      ],
+      prepareLaunch: async () => {
+        throw new Error("stop at the launch boundary");
+      },
       now: () => "2026-09-10T00:00:00.000Z",
     } as unknown as RuntimeSpawnerInput);
   await assert.rejects(
@@ -147,14 +173,13 @@ test("runtime dispatch rejects an opId occupied by another canonical event", asy
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: null,
-        idempotencyKey,
+        dispatchKey,
       },
       binding,
     ),
-    (error: unknown) =>
-      (error as { readonly code?: unknown }).code === "runtime_dispatch_conflict" &&
-      (error as Error).message === `Dispatch opId ${dispatchOpId} belongs to another canonical event.`,
+    (error: unknown) => (error as Error).message === "stop at the launch boundary",
   );
+  assert.deepEqual(reads, []);
 });
 
 test("a current task projection is returned from a single read", () => {

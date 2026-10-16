@@ -161,7 +161,7 @@ test("archived settlements retain usage without a projected outcome", () => {
           instanceId: "instance-codex",
           installationId: "installation-test",
           kindId: "codex",
-          idempotencyKey: dispatchId,
+          dispatchKey: dispatchId,
           definitionSnapshotRef: "artifact:runtime-definition/test",
           startedAt: NOW,
           agentId: index === 0 ? "terra" : "sol",

@@ -105,7 +105,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
             cwd: { scope: "repo-root" },
             prompt: `Run ${kindId}`,
             taskId: null,
-            idempotencyKey: `${kindId}-provider-events`,
+            dispatchKey: `${kindId}-provider-events`,
           },
         });
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -188,7 +188,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           cwd: { scope: "repo-root" },
           prompt: "read-only",
           taskId: null,
-          idempotencyKey: "codex-read-only",
+          dispatchKey: "codex-read-only",
         },
       }),
       readOnlyRead = await eventuallyValue(async () => {
@@ -219,7 +219,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           cwd: { scope: "repo-root" },
           prompt: "no-action",
           taskId: null,
-          idempotencyKey: "codex-no-action",
+          dispatchKey: "codex-no-action",
         },
       }),
       noActionRead = await eventuallyValue(async () => {
@@ -250,7 +250,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           cwd: { scope: "repo-root" },
           prompt: "no-write",
           taskId: null,
-          idempotencyKey: "codex-no-write",
+          dispatchKey: "codex-no-write",
         },
       }),
       noWriteRead = await eventuallyValue(async () => {
@@ -281,7 +281,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           cwd: { scope: "repo-root" },
           prompt: "permission-denied",
           taskId: null,
-          idempotencyKey: "claude-permission-denied",
+          dispatchKey: "claude-permission-denied",
         },
       }),
       deniedRead = await eventuallyValue(async () => {
@@ -314,7 +314,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         cwd: { scope: "repo-root" },
         prompt: "failure:empty",
         taskId: null,
-        idempotencyKey: "codex-empty-failure",
+        dispatchKey: "codex-empty-failure",
       },
     });
     const emptyRead = await eventuallyValue(async () => {
@@ -349,7 +349,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
           cwd: { scope: "repo-root" },
           prompt: "failure:secret",
           taskId: null,
-          idempotencyKey: "codex-stderr-failure",
+          dispatchKey: "codex-stderr-failure",
         },
       });
     const stderrRead = await eventuallyValue(async () => {
@@ -374,7 +374,7 @@ test("daemon ingress persists scrubbed provider JSONL while returning canonical 
         cwd: { scope: "repo-root" },
         prompt: "failure:structured",
         taskId: null,
-        idempotencyKey: "codex-structured-failure",
+        dispatchKey: "codex-structured-failure",
       },
     });
     const structuredRead = await eventuallyValue(async () => {
@@ -527,7 +527,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
             cwd: { scope: "repo-root" },
             prompt: "First turn",
             taskId: null,
-            idempotencyKey: `${kindId}-resume-first`,
+            dispatchKey: `${kindId}-resume-first`,
           },
         });
         assert.equal(first.outcome, "applied", JSON.stringify(first));
@@ -549,7 +549,7 @@ test("daemon ingress resumes the same provider session for Claude and Codex", as
               prompt: "Second turn",
               providerSessionId,
               taskId: null,
-              idempotencyKey: `${kindId}-resume-second`,
+              dispatchKey: `${kindId}-resume-second`,
             },
           });
         await eventually(async () =>
@@ -641,7 +641,7 @@ test("daemon ingress cancellation is explicit and idempotent for an active runti
         cwd: { scope: "repo-root" },
         prompt: "Keep running",
         taskId: null,
-        idempotencyKey: "cancel-active",
+        dispatchKey: "cancel-active",
       },
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
@@ -825,7 +825,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
         prompt: "Structured result",
         effort: "low",
         taskId: null,
-        idempotencyKey: "agy-structured",
+        dispatchKey: "agy-structured",
       },
     });
     assert.equal(succeeded.outcome, "applied", JSON.stringify(succeeded));
@@ -848,7 +848,7 @@ test("agy consumes only its closed stream-json event protocol", async () => {
         prompt: "Unknown event",
         effort: "low",
         taskId: null,
-        idempotencyKey: "agy-unknown",
+        dispatchKey: "agy-unknown",
       },
     });
     assert.equal(rejected.outcome, "applied", JSON.stringify(rejected));
@@ -1050,7 +1050,7 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
         prompt: "reject",
         effort: "turbo",
         taskId: null,
-        idempotencyKey: "claude-effort-turbo",
+        dispatchKey: "claude-effort-turbo",
       },
     });
     assert.equal(rejectedIngress.outcome, "op_rejected", JSON.stringify(rejectedIngress));

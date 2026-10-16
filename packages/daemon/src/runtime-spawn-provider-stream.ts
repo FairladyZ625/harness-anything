@@ -1,4 +1,5 @@
 import { setTimeout as delay } from "node:timers/promises";
+import { randomUUID } from "node:crypto";
 import { globSync, readFileSync } from "node:fs";
 import { StringDecoder } from "node:string_decoder";
 import path from "node:path";
@@ -54,6 +55,11 @@ export async function publishRuntimeEvent<T extends RuntimeEventType>(
             );
           })();
   if (!published.event) {
+    if (published.receipt.outcome === "no_changes") {
+      if (type === "runtime_session_started")
+        throw context.runtimeSpawnError("runtime_event_missing", "A dispatch start must have an accepted event.");
+      return { receipt: published.receipt };
+    }
     throw context.runtimeSpawnError(
       typeof published.receipt.code === "string" ? published.receipt.code : "runtime_event_rejected",
       `RuntimeSession Action ${type} was ${String(published.receipt.outcome ?? "rejected")}.`,
@@ -416,7 +422,7 @@ export async function bindProvider(
       providerSessionId,
       transcriptRef,
     },
-    `${active.dispatchOpId}-provider`,
+    randomUUID(),
     active.binding,
   );
   if (active.task)
@@ -429,7 +435,7 @@ export async function bindProvider(
         providerSessionId,
         transcriptRef,
       },
-      `${active.dispatchOpId}-task`,
+      randomUUID(),
       active.binding,
     );
 }

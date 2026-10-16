@@ -129,7 +129,7 @@ test("writer supervisor observes internal runtime work draining to zero", async 
         cwd: { scope: "repo-root" },
         prompt: "Finish immediately",
         taskId: null,
-        idempotencyKey: "writer-queue-depth",
+        dispatchKey: "writer-queue-depth",
       },
       binding,
     );

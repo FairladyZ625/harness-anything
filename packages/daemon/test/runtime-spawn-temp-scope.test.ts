@@ -21,8 +21,8 @@ const binding: RepoCellBinding = {
 
 test("a dispatch hands its runtime session id to the launch preparation", async () => {
   const repoId = "repository",
-    idempotencyKey = "temp-scope-wiring",
-    hash = createHash("sha256").update(`${repoId}\0${idempotencyKey}`).digest("hex"),
+    dispatchKey = "temp-scope-wiring",
+    hash = createHash("sha256").update(`${repoId}\0${dispatchKey}`).digest("hex"),
     expectedSessionId = `runtime_${hash.slice(24, 48)}`,
     launches: { instanceId: string; runtimeSessionId: string | undefined }[] = [];
   const spawner = makeRuntimeSpawner({
@@ -62,7 +62,7 @@ test("a dispatch hands its runtime session id to the launch preparation", async 
         cwd: { scope: "repo-root" },
         prompt: "Scoped temp run",
         taskId: null,
-        idempotencyKey,
+        dispatchKey,
       },
       binding,
     ),

@@ -137,7 +137,7 @@ function runtimeEvents(): readonly AgentRuntimeEventV1[] {
         instanceId: definition.instanceId,
         installationId: definition.installationId,
         kindId: definition.kindId,
-        idempotencyKey: "runtime-read-cut",
+        dispatchKey: "runtime-read-cut",
         definitionSnapshotRef: "artifact:runtime-definition/test",
         definitionSnapshot: definition,
       },

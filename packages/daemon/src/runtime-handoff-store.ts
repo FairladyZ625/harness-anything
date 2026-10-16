@@ -138,7 +138,7 @@ export function runRuntimeHandoffAction(
   const successor = cell.projection.readRuntimeDispatchByResumeSource(dispatchId)?.event;
   if (
     successor &&
-    action.idempotencyKey === successor.payload.idempotencyKey &&
+    action.dispatchKey === successor.payload.dispatchKey &&
     stableStringify(successor.source) === stableStringify(binding.source)
   ) {
     const receipt: WriteReceiptDraft = cell.receiptForOperation(successor.opId, binding);

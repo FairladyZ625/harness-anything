@@ -243,7 +243,7 @@ describe("agent runtime renderer", () => {
         cwd: { scope: "repo-root" },
         prompt: "Inspect",
         taskId: null,
-        idempotencyKey: "once",
+        dispatchKey: "once",
       },
       { spawn, showReceipt, overview, onPending },
       async () => undefined,
@@ -263,7 +263,7 @@ describe("agent runtime renderer", () => {
       cwd: { scope: "repo-root" },
       prompt: "Reply with exactly: runtime connectivity ok",
       taskId: null,
-      idempotencyKey: "self-test-once",
+      dispatchKey: "self-test-once",
     });
     const succeeded = {
       ok: true,

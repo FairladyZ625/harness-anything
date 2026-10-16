@@ -52,7 +52,9 @@ import {
   compileRuntimeSessionDraft,
   isRuntimeSessionBundle,
   type RuntimeSessionBundle,
+  type RuntimeSessionNoChanges,
 } from "./entity-action-runtime-session.ts";
+import { noChanges } from "./entity-action-write-helpers.ts";
 import { matchingReplayBundle } from "./entity-action-replay.ts";
 import {
   executeArtifactEntityImport,
@@ -72,7 +74,7 @@ type ExecutableAction = EntityActionContract & { readonly execution: EntityActio
 type FactBundle = ReturnType<typeof compileFactWrite>;
 type DecisionBundle = ReturnType<typeof compileDecisionWrite>;
 type EntityCatalogBundle = EntityUpsertBundle | EntityDeletedBundle | AgentRetiredBundle;
-type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle;
+type CatalogBundle = FactBundle | DecisionBundle | EntityCatalogBundle | RuntimeSessionBundle | RuntimeSessionNoChanges;
 export type EntityActionCatalogRunner = (
   contract: ExecutableAction,
   action: RepoTaskAction,
@@ -305,7 +307,7 @@ export function makeEntityActionCatalogExecutor(input: {
               : rawAction
       ) as RepoTaskAction,
       dryRun = action.dryRun === true,
-      existing = dryRun ? null : input.store.readEvent(opId),
+      existing = dryRun || contract.target.kind === "runtime-session" ? null : input.store.readEvent(opId),
       requestedTime = typeof action.decidedAt === "string" ? action.decidedAt : undefined,
       occurredAt = existing?.occurredAt ?? requestedTime ?? input.now();
     if (contract.target.kind === "relation" && dryRun)
@@ -344,21 +346,31 @@ export function makeEntityActionCatalogExecutor(input: {
         binding,
       });
     }
+    if ("noChanges" in bundle)
+      return deriveActionResult(
+        contract,
+        action,
+        noChanges({
+          opId,
+          revision: input.store.readHead()?.revision ?? 0,
+          headRevision: input.projection.readCut().watermark,
+          evidence: JSON.stringify({
+            schema: "runtime-session-no-changes/v1",
+            runtimeSessionId: bundle.runtimeSessionId,
+            action: contract.id,
+          }),
+          authorizationDecision,
+          origin: `runtime-session/${contract.id}`,
+        }),
+      );
     if (isRuntimeSessionBundle(bundle)) {
       if (dryRun) reject("invalid_command", `${contract.execution.ingress} does not support --dry-run.`);
       return deriveActionResult(
         contract,
         action,
-        commitRuntimeSessionBundle(
-          input.store,
-          input.projection,
-          bundle,
-          existing !== null,
-          authorizationDecision,
-          () => {
-            if (existing === null) publicationKillpoints(input.killpoint);
-          },
-        ),
+        commitRuntimeSessionBundle(input.store, input.projection, bundle, authorizationDecision, () => {
+          publicationKillpoints(input.killpoint);
+        }),
       );
     }
     if (isEntityBundle(bundle)) {
@@ -620,15 +632,15 @@ function executableAction(ingress: string): ExecutableAction {
 }
 
 function isFactBundle(bundle: CatalogBundle): bundle is FactBundle {
-  return bundle.event.schema === "fact-event/v1";
+  return "event" in bundle && bundle.event.schema === "fact-event/v1";
 }
 
 function isDecisionBundle(bundle: CatalogBundle): bundle is DecisionBundle {
-  return bundle.event.schema === "decision-event/v1";
+  return "event" in bundle && bundle.event.schema === "decision-event/v1";
 }
 
 function isEntityBundle(bundle: CatalogBundle): bundle is EntityCatalogBundle {
-  return bundle.event.schema === "entity-event/v1";
+  return "event" in bundle && bundle.event.schema === "entity-event/v1";
 }
 
 function isEntityUpsertBundle(bundle: EntityCatalogBundle): bundle is EntityUpsertBundle {

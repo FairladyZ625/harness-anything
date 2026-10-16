@@ -53,7 +53,7 @@ export const daemonGuiActionMethods = Object.freeze([
       dispatchId: "string",
       runtimeInstanceId: "string?",
       prompt: "string?",
-      idempotencyKey: "string?",
+      dispatchKey: "string?",
     }),
     "handoffAgentRuntime",
     "/api/agent-runtime/handoff",
@@ -349,7 +349,7 @@ export const daemonGuiActionMethods = Object.freeze([
       onExitCommand: "string?",
       taskId: "string-null?",
       handoffEnabled: "boolean?",
-      idempotencyKey: "string",
+      dispatchKey: "string",
       providerSessionId: "string?",
       // Reviewer dispatches carry the canonical decision/task binding through the
       // same payload that runtime-spawn consumes.

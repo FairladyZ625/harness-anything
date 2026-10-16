@@ -173,7 +173,7 @@ for (const scenario of ["init", "delayed-write", "ended-session"] as const) {
             instanceId: "instance-session",
             installationId: "installation-session",
             kindId: "codex",
-            idempotencyKey: "session-continued",
+            dispatchKey: "session-continued",
             definitionSnapshotRef: "artifact:runtime-definition/session",
             definitionSnapshot: {
               schema: "agent-definition-snapshot/v1",

@@ -14,7 +14,7 @@ export interface RuntimeSpawnInput {
   readonly cwd?: { readonly scope: "repo-root" } | { readonly scope: "repo-relative"; readonly path: string };
   readonly prompt?: string;
   readonly taskId?: string | null;
-  readonly idempotencyKey: string;
+  readonly dispatchKey: string;
 }
 
 type RuntimeReceipt = GuiActionResult & {
@@ -36,8 +36,8 @@ export interface RuntimeSpawnSettlement {
   readonly hint: string;
 }
 
-export function resumeRuntimeSpawnInput(dispatchId: string, idempotencyKey: string): RuntimeSpawnInput {
-  return { dispatchId, idempotencyKey };
+export function resumeRuntimeSpawnInput(dispatchId: string, dispatchKey: string): RuntimeSpawnInput {
+  return { dispatchId, dispatchKey };
 }
 
 // agent-dispatch-preview/v1: the daemon returns the fully assembled prompt exactly at the

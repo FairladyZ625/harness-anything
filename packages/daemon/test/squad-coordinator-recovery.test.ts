@@ -302,7 +302,7 @@ function makeRecoveryFixture(
       },
       runtimeSpawner: () => ({
         spawn: (payload) => {
-          const key = String(payload.idempotencyKey),
+          const key = String(payload.dispatchKey),
             existing = receipts.get(key);
           if (existing) return Promise.resolve(existing);
           spawns.push(payload);
@@ -476,7 +476,7 @@ test("a malformed leader result re-asks the same leader session instead of faili
     assert.equal(fixture.reacquired(), 2);
     assert.equal(fixture.spawns[0]?.squadId, "core-squad");
     assert.equal(fixture.spawns[0]?.providerSessionId, "provider-leader");
-    assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
+    assert.equal(fixture.spawns[0]?.dispatchKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
     assert.match(String(fixture.spawns[0]?.prompt), /Leader result was not JSON\./u);
     const status = fixture.status();
     assert.equal(status.status, "leader_running", String(status.error));
@@ -908,7 +908,7 @@ test("a leader retry remains primary while coalescing queued worker outcomes", a
       reason: "Leader result was not JSON.",
     });
     assert.equal(fixture.spawns[0]?.providerSessionId, "provider-leader");
-    assert.equal(fixture.spawns[0]?.idempotencyKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
+    assert.equal(fixture.spawns[0]?.dispatchKey, `${SQUAD_RUN_ID}:leader:retry:leader-1`);
     assert.match(
       String(fixture.spawns[0]?.prompt),
       /Merged callback batch: total=3; sources=leader_retry:1,worker_outcome:2/u,

@@ -878,6 +878,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       if (receipt.outcome === "op_rejected" && typeof receipt.code === "string")
         throw new FleetFault(receipt.code, String(receipt.rejectionExplanation ?? receipt.code));
       const event = receipt.event;
+      if (!event && receipt.outcome === "no_changes")
+        return immediate({
+          schema: "fleet.runtime.event.result/v1",
+          messageId: mid(frame.messageId, "runtime-event"),
+          inReplyTo: frame.messageId,
+          replicationSequence: replicationHead(a.repoId),
+          event: null,
+          receipt,
+        });
       if (!event || typeof event !== "object" || Array.isArray(event))
         throw new FleetFault("runtime_event_missing", "Center runtime ingress did not return its authoritative event.");
       return immediate({

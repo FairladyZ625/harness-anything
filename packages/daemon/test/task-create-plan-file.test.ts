@@ -105,7 +105,7 @@ test("a task-bound commander creates a planned child with its authored plan and 
         taskId,
         cwd: { scope: "repo-root" },
         prompt: "Create and plan a child task.",
-        idempotencyKey: "task-create-plan-commander",
+        dispatchKey: "task-create-plan-commander",
       },
       owner,
     );

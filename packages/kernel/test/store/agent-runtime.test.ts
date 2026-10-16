@@ -43,7 +43,7 @@ const canonicalRuntimeInputs: readonly ProviderWitnessV1[] = [
       instanceId: "claude-fixture",
       installationId: "installation-claude",
       kindId: "claude",
-      idempotencyKey: "dispatch-claude-attempt-1",
+      dispatchKey: "dispatch-claude-attempt-1",
       definitionSnapshotRef: "artifact:runtime-definitions/claude/v1",
       definitionSnapshot: {
         schema: "agent-definition-snapshot/v1",

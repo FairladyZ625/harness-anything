@@ -12,6 +12,7 @@ export type StatusEntity =
   | "FactRecord"
   | "Review"
   | "RuntimeSession"
+  | "Dispatch"
   | "SquadRun"
   | "WriteReceipt"
   | "AuthorizationDecision"
@@ -132,10 +133,10 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
   },
 
   {
-    id: "runtimeSession.attempt.fallbackState",
-    entity: "RuntimeSession",
-    field: "attempt.fallbackState",
-    module: "packages/kernel/src/domain/agent-runtime.ts",
+    id: "dispatch.fallbackState",
+    entity: "Dispatch",
+    field: "fallbackState",
+    module: "packages/daemon/src/dispatch-stream.ts",
     anchor: "#fallbackState",
     words: ["scheduled", "exhausted"],
   },

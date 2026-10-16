@@ -120,7 +120,7 @@ test("task-bound spawn exit keeps its released execution visible after a v12 cac
         cwd: { scope: "repo-root" },
         prompt: "Finish the task-bound runtime session.",
         taskId,
-        idempotencyKey: "lease-reservation-spawn",
+        dispatchKey: "lease-reservation-spawn",
       },
       auth,
     );

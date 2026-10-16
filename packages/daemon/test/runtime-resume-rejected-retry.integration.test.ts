@@ -91,10 +91,10 @@ test("a provider-rejected local resume leaves its source available for another a
       },
     });
     try {
-      for (const idempotencyKey of ["rejected-first", "rejected-retry"])
+      for (const dispatchKey of ["rejected-first", "rejected-retry"])
         await assert.rejects(
           cell.spawnRuntime(
-            { dispatchId, idempotencyKey, prompt: "Continue work" },
+            { dispatchId, dispatchKey, prompt: "Continue work" },
             withPolicyGroup(
               { actor: { principal: { personId: "fixture" }, executor: null }, source: "local" },
               "admin",

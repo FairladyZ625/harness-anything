@@ -137,7 +137,7 @@ export function createSoakEvents({ taskCount, eventCount }) {
     instanceId: runtimeDefinition.instanceId,
     installationId: runtimeDefinition.installationId,
     kindId: runtimeDefinition.kindId,
-    idempotencyKey: "nightly-soak",
+    dispatchKey: "nightly-soak",
     definitionSnapshotRef: "artifact:runtime-definition/nightly-soak",
     definitionSnapshot: runtimeDefinition,
   });

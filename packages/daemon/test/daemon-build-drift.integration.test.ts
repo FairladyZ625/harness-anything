@@ -68,7 +68,7 @@ test("a dist rebuild is observable while the daemon keeps serving and its runtim
         cwd: { scope: "repo-root" },
         prompt: "Keep running across the dist rebuild.",
         taskId: null,
-        idempotencyKey: "build-drift-worker",
+        dispatchKey: "build-drift-worker",
       },
       auth,
     );

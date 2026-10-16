@@ -463,7 +463,7 @@ test("Agent retire publishes lifecycle state, is idempotent by operation, and bl
             prompt: "Preview retired agent dispatch",
             cwd: { scope: "repo-root" },
             dryRun: true,
-            idempotencyKey: "retired-preview",
+            dispatchKey: "retired-preview",
           },
           binding,
         ),

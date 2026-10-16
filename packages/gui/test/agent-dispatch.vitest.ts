@@ -82,7 +82,7 @@ const baseRequest = {
   mission: "Verify the auth cleanup diff.",
   cwd: { scope: "repo-root" } as const,
   taskId: "task-dispatch",
-  idempotencyKey: "gui-dispatch-1",
+  dispatchKey: "gui-dispatch-1",
 };
 const definition = {
   schema: "agent-definition-snapshot/v1",
@@ -128,7 +128,7 @@ describe("agent dispatch flow", () => {
       prompt: "Verify the auth cleanup diff.",
       taskId: "task-dispatch",
       cwd: { scope: "repo-root" },
-      idempotencyKey: "gui-dispatch-1",
+      dispatchKey: "gui-dispatch-1",
     });
   });
   it("leaves automatic instance selection to the daemon", () => {
@@ -156,7 +156,7 @@ describe("agent dispatch flow", () => {
       prompt: "Verify the auth cleanup diff.",
       taskId: "task-dispatch",
       cwd: { scope: "repo-root" },
-      idempotencyKey: "gui-dispatch-1",
+      dispatchKey: "gui-dispatch-1",
     });
   });
   it("keeps task binding nullable and passes model and effort only when chosen", () => {

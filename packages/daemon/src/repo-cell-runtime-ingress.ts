@@ -16,6 +16,7 @@ import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import type { RepoCellBinding, RuntimeIngressAction } from "./repo-cell-types.ts";
 import type { RepoCellActionContext } from "./repo-cell-action-context.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import { noChanges } from "./entity-action-write-helpers.ts";
 
 const auxiliaryEventTypes = Object.freeze([
   "runtime_installation_observed",
@@ -54,21 +55,31 @@ export function appendAuxiliaryRuntimeIngress(
   if (action.resultBody !== undefined && action.type !== "runtime_dispatch_requested")
     throw cell.cellCodedError("invalid_runtime_event", "Only a runtime dispatch can carry auxiliary content bytes.");
   requireSquadRuntimeOwner(cell, action, binding);
-  const existing = cell.store.readEvent(action.opId);
-  if (existing) {
-    if (
-      existing.schema !== "agent-runtime-event/v1" ||
-      existing.type !== action.type ||
-      stableStringify(existing.payload) !== stableStringify(action.payload)
-    )
-      throw cell.cellCodedError("op_conflict", `Runtime opId ${action.opId} belongs to another canonical event.`);
-    return { ...runtimeIngressReceipt(cell, existing as AgentRuntimeEventV1), replayed: true };
-  }
   if (action.dispatchContext !== undefined && action.type !== "runtime_dispatch_requested")
     throw cell.cellCodedError(
       "invalid_runtime_event",
       "Runtime dispatch admission context is only valid on runtime_dispatch_requested.",
     );
+  if (action.type === "runtime_squad_run_observed") {
+    const current = cell.projection.readSquadRun(String(action.payload.squadRunId))?.state as
+      | Record<string, unknown>
+      | undefined;
+    if (current && Number(action.payload.runRevision) === Number(current.runRevision)) {
+      const currentPayload = Object.fromEntries(Object.keys(action.payload).map((key) => [key, current[key]]));
+      if (stableStringify(currentPayload) === stableStringify(action.payload))
+        return noChanges({
+          opId: action.opId,
+          revision: cell.store.readHead()?.revision ?? 0,
+          headRevision: cell.projection.readCut().watermark,
+          evidence: JSON.stringify({
+            schema: "squad-observation-no-changes/v1",
+            squadRunId: action.payload.squadRunId,
+            runRevision: action.payload.runRevision,
+          }),
+          origin: "runtime-squad-observation",
+        }) as unknown as JsonObject;
+    }
+  }
   if (action.type === "runtime_dispatch_requested") {
     if (remote && action.dispatchContext === undefined)
       throw cell.cellCodedError("invalid_runtime_event", "Remote runtime dispatch requires center admission context.");
@@ -164,17 +175,30 @@ export function appendAuxiliaryRuntimeIngress(
           `Dispatch ${sourceId} was already resumed as ${successor.event.payload.dispatchId}.`,
         );
     }
-    const key = cell.requiredCellText(action.payload.idempotencyKey, "idempotencyKey"),
+    const key = cell.requiredCellText(action.payload.dispatchKey, "dispatchKey"),
       hash = createHash("sha256").update(`${cell.input.repoId}\0${key}`).digest("hex");
     if (
       action.payload.dispatchId !== `dispatch_${hash.slice(0, 24)}` ||
-      action.payload.runtimeSessionId !== `runtime_${hash.slice(24, 48)}` ||
-      action.opId !== `runtime-spawn-${hash.slice(0, 32)}`
+      action.payload.runtimeSessionId !== `runtime_${hash.slice(24, 48)}`
     )
       throw cell.cellCodedError(
         "invalid_runtime_event",
-        "Runtime dispatch identity is not derived from its repository idempotency key.",
+        "Runtime dispatch identity is not derived from its repository dispatch key.",
       );
+    const existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event;
+    if (existing) {
+      const existingPayload = { ...existing.payload },
+        incomingPayload = { ...action.payload };
+      delete existingPayload.startedAt;
+      delete incomingPayload.startedAt;
+      if (
+        stableStringify(existingPayload) !== stableStringify(incomingPayload) ||
+        stableStringify(existing.actor) !== stableStringify(binding.actor) ||
+        stableStringify(existing.source) !== stableStringify(binding.source)
+      )
+        throw cell.cellCodedError("dispatch_key_conflict", `Dispatch key ${key} already names different content.`);
+      return { ...runtimeIngressReceipt(cell, existing), reused: true };
+    }
   }
   requireSquadRuntimeAdmission(cell, action, binding);
   const value = {

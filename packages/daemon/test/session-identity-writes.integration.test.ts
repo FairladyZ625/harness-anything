@@ -222,7 +222,7 @@ function runtimeEvents(): readonly AgentRuntimeEventV1[] {
         instanceId: "test-codex-sol",
         installationId: "installation-codex",
         kindId: "codex",
-        idempotencyKey: "session-identity-once",
+        dispatchKey: "session-identity-once",
         definitionSnapshotRef: "artifact:runtime-definition/session-identity",
         definitionSnapshot: {
           schema: "agent-definition-snapshot/v1",

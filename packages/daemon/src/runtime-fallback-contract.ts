@@ -30,7 +30,7 @@ export type RuntimeFallbackAttempt = {
   /** Number of completed retry rounds after the initial candidate pass. */
   readonly retryRound?: number;
   readonly waitStartedAt?: string;
-  readonly rootIdempotencyKey: string;
+  readonly rootDispatchKey: string;
   readonly originalMission: string;
   readonly candidates: readonly RuntimeFallbackCandidate[];
 };

@@ -42,7 +42,7 @@ export async function prepareTaskWorkerGitEnvironment(
 }
 
 export interface RuntimeEventPublication<T extends RuntimeEventType> {
-  readonly event: RuntimeEventOf<T>;
+  readonly event?: RuntimeEventOf<T>;
   readonly publication?: ReturnType<CanonicalEventStore["append"]>;
   readonly receipt?: JsonObject;
 }

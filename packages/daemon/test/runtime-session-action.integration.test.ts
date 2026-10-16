@@ -83,28 +83,57 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
     keycloakCenter: binding.keycloakAuthorization!.center,
   });
   try {
-    const dispatched = await cell.runtimeIngress(
-      {
-        kind: "event",
-        type: "runtime_dispatch_requested",
-        opId: dispatchOpId,
-        // A remote dispatch declares the admission context the center judges it by; a worker
-        // dispatch names its task scope and no reviewer role.
-        dispatchContext: { role: null, taskId: null, executionId: null },
-        payload: {
-          dispatchId,
-          runtimeSessionId,
-          instanceId: definition.instanceId,
-          installationId: definition.installationId,
-          kindId: definition.kindId,
-          idempotencyKey: key,
-          definitionSnapshotRef: "artifact:runtime-definition/action-a",
-          definitionSnapshot: definition,
+    const dispatch = (opId: string) =>
+      cell.runtimeIngress(
+        {
+          kind: "event",
+          type: "runtime_dispatch_requested",
+          opId,
+          // A remote dispatch declares the admission context the center judges it by; a worker
+          // dispatch names its task scope and no reviewer role.
+          dispatchContext: { role: null, taskId: null, executionId: null },
+          payload: {
+            dispatchId,
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            dispatchKey: key,
+            definitionSnapshotRef: "artifact:runtime-definition/action-a",
+            definitionSnapshot: definition,
+          },
         },
-      },
-      binding,
-    );
+        binding,
+      );
+    const [dispatched, concurrentDispatch] = await Promise.all([
+      dispatch(dispatchOpId),
+      dispatch("concurrent-edge-request"),
+    ]);
     assert.equal(dispatched.outcome, "applied", JSON.stringify(dispatched));
+    assert.equal(concurrentDispatch.outcome, "applied", JSON.stringify(concurrentDispatch));
+    assert.equal(concurrentDispatch.reused, true);
+    await assert.rejects(
+      cell.runtimeIngress(
+        {
+          kind: "event",
+          type: "runtime_dispatch_requested",
+          opId: "different-content-request",
+          dispatchContext: { role: null, taskId: null, executionId: null },
+          payload: {
+            dispatchId,
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            dispatchKey: key,
+            definitionSnapshotRef: "artifact:runtime-definition/action-changed",
+            definitionSnapshot: definition,
+          },
+        },
+        binding,
+      ),
+      { code: "dispatch_key_conflict" },
+    );
     const start = (opId: string, caller: RepoCellBinding) =>
         cell.runtimeIngress(
           {
@@ -166,15 +195,28 @@ test("the center queue admits one RuntimeSession adoption generation and rejects
       "center authority cannot replace a device session",
     );
     const stale = await start("runtime-start-stale-generation", binding);
-    assert.equal(stale.outcome, "op_rejected");
-    assert.equal(stale.code, "runtime_session_adoption_stale");
-    assert.deepEqual(stale.unmetCriteria, [
+    assert.equal(stale.outcome, "no_changes");
+    const exited = await cell.runtimeIngress(
       {
-        ref: "runtime-session/adoption-fence",
-        failureCode: "runtime_session_adoption_stale",
-        explain: "A RuntimeSession start must advance its center-projected launchGeneration.",
+        kind: "event",
+        type: "runtime_session_exited",
+        opId: "runtime-exit-before-liveness",
+        payload: { runtimeSessionId },
       },
-    ]);
+      binding,
+    );
+    assert.equal(exited.outcome, "applied", JSON.stringify(exited));
+    const lateLiveness = await cell.runtimeIngress(
+      {
+        kind: "event",
+        type: "runtime_session_liveness_changed",
+        opId: "runtime-liveness-after-exit",
+        payload: { runtimeSessionId, liveness: "stale" },
+      },
+      binding,
+    );
+    assert.equal(lateLiveness.outcome, "op_rejected", JSON.stringify(lateLiveness));
+    assert.equal(lateLiveness.code, "runtime_session_transition_invalid");
     await cell.close();
     cell = undefined;
     const store = makeTaskEventStore({ repoId, rootDir });

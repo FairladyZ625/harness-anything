@@ -139,7 +139,7 @@ test("declare-executor traces the authoring dispatch across executions and never
         cwd: { scope: "repo-relative", path: ".worktrees/implementer" },
         prompt: "Implement the task.",
         taskId,
-        idempotencyKey: "author-runtime",
+        dispatchKey: "author-runtime",
       },
       spawnOperator,
     );
@@ -195,7 +195,7 @@ test("declare-executor traces the authoring dispatch across executions and never
         cwd: { scope: "repo-root" },
         taskId,
         role: "reviewer",
-        idempotencyKey: "cut-reviewer-1",
+        dispatchKey: "cut-reviewer-1",
       },
       spawnOperator,
     );
@@ -304,7 +304,7 @@ test("declare-executor traces the authoring dispatch across executions and never
         cwd: { scope: "repo-root" },
         taskId,
         role: "reviewer",
-        idempotencyKey: "cut-reviewer-2",
+        dispatchKey: "cut-reviewer-2",
       },
       spawnOperator,
     );
@@ -412,7 +412,7 @@ test("declare-executor refuses when the lineage only ever hosted reviewer dispat
         cwd: { scope: "repo-root" },
         taskId,
         role: "reviewer",
-        idempotencyKey: "reviewer-only-cut",
+        dispatchKey: "reviewer-only-cut",
       },
       spawnOperator,
     );

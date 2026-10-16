@@ -15,7 +15,7 @@ export function RuntimeHandoff({
   readonly dispatchId: string;
   readonly onNavigate: (ref: string) => void;
 }) {
-  const [idempotencyKey] = useState(() => `gui-handoff-${crypto.randomUUID()}`);
+  const [dispatchKey] = useState(() => `gui-handoff-${crypto.randomUUID()}`);
   const [instance, setInstance] = useState(""),
     [prompt, setPrompt] = useState(""),
     [busy, setBusy] = useState(false),
@@ -27,7 +27,7 @@ export function RuntimeHandoff({
       const receipt = await runtimeCommandClient.handoff(repoId, {
         operation,
         dispatchId,
-        ...(operation === "claim" ? { runtimeInstanceId: instance, prompt, idempotencyKey } : {}),
+        ...(operation === "claim" ? { runtimeInstanceId: instance, prompt, dispatchKey } : {}),
       });
       if (receipt.outcome !== "applied") {
         const error = isRendererRecord(receipt.error) ? receipt.error : null;

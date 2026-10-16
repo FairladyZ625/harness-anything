@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ActiveRuntime, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
 import {
   appendRuntimeWorkerRecord,
@@ -59,6 +60,13 @@ export async function adoptRuntimes(
     if (!stream) continue;
     const processState = stream.process,
       processPid = processState?.pid ?? 0;
+    // A terminal outcome is appended before publication. If a second node opens while the
+    // center projection is still catching up, the local stream is the authoritative owner
+    // record and must not publish the same terminal transition a second time.
+    if (stream.terminalOutcome && processState?.exited && session?.outcome !== null && session?.outcome !== undefined) {
+      removeRuntimeCallbackRelay(context.input.rootDir, header.dispatchId);
+      continue;
+    }
     const runtimeProcess = adoptNativeProcess(
       context.input.rootDir,
       stream.header.dispatchId,
@@ -136,7 +144,7 @@ export async function adoptRuntimes(
           await context.publishRuntimeEvent(
             "runtime_session_liveness_changed",
             { runtimeSessionId: active.runtimeSessionId, liveness: "live" },
-            `${active.dispatchOpId}-adopt-${String(context.input.daemonGeneration)}`,
+            randomUUID(),
             active.binding,
           );
         }

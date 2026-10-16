@@ -80,7 +80,7 @@ test("a parked sessions.await does not re-read settlement for provider activity 
         cwd: { scope: "repo-root" },
         prompt: "Stream activity",
         taskId: null,
-        idempotencyKey: "sessions-await-wake",
+        dispatchKey: "sessions-await-wake",
       },
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));

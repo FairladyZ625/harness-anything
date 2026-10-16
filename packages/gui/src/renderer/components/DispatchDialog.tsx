@@ -95,7 +95,7 @@ export function DispatchDialog({
     taskId: task!.taskId,
     ...(model ? { model } : {}),
     ...(effort && planeAllowsEffort(instance!.kindId) ? { effort } : {}),
-    idempotencyKey: `gui-dispatch-${crypto.randomUUID()}`,
+    dispatchKey: `gui-dispatch-${crypto.randomUUID()}`,
   });
   const submit = () => {
     if (!ready || busy || !instance) return;

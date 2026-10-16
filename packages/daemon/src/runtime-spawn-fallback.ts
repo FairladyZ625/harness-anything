@@ -35,7 +35,7 @@ export function initialFallbackAttempt(
   requestedInstance: string | undefined,
   requestedModel: string | undefined,
   providerSessionId: string | null | undefined,
-  idempotencyKey: string,
+  dispatchKey: string,
   mission: string,
   instances: readonly RuntimeInstanceSummary[] = [],
   sessions: readonly RuntimeSessionSelection[] = [],
@@ -104,14 +104,14 @@ export function initialFallbackAttempt(
   // retrying the same scheduled runtime indefinitely.
   if (candidates.length < 2) return undefined;
   const digest = createHash("sha256")
-    .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${idempotencyKey}`)
+    .update(`${agent?.id ?? requestedInstance ?? "runtime"}\0${dispatchKey}`)
     .digest("hex");
   return {
     attemptGroupId: `attempt_${digest.slice(0, 24)}`,
     attemptIndex: 0,
     candidateIndex: 0,
     retryRound: 0,
-    rootIdempotencyKey: idempotencyKey,
+    rootDispatchKey: dispatchKey,
     originalMission: mission,
     candidates,
   };
@@ -364,7 +364,7 @@ export function scheduleFallbackContinuation(args: {
             ...(header.promptSource ? { promptSource: header.promptSource } : {}),
             ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
             ...(header.taskId ? { taskId: header.taskId } : {}),
-            idempotencyKey: `${fallback.rootIdempotencyKey}:fallback:${String(nextAttemptIndex)}`,
+            dispatchKey: `${fallback.rootDispatchKey}:fallback:${String(nextAttemptIndex)}`,
           },
           continuationBinding =
             (await input.authorizeRuntimeContinuation?.(
@@ -411,27 +411,6 @@ export function scheduleFallbackContinuation(args: {
           endedAt: input.now(),
           binding,
         });
-        const terminal = current.terminalOutcome;
-        if (terminal) {
-          const payload = {
-            ...terminal.payload,
-            attempt: {
-              classification: current.attemptOutcome.classification,
-              reason,
-              ...(current.attemptOutcome.faultClass ? { faultClass: current.attemptOutcome.faultClass } : {}),
-              ...(current.attemptOutcome.resetAt ? { resetAt: current.attemptOutcome.resetAt } : {}),
-              fallbackState: "exhausted" as const,
-            },
-          };
-          writer.appendTerminalOutcome({ ...terminal, payload, reason }, input.now());
-          await args.publishRuntimeEvent(
-            "runtime_session_outcome_observed",
-            payload,
-            `${header.dispatchOpId}-fallback-exhausted`,
-            binding,
-            terminal.body,
-          );
-        }
       }
     }, runtimeBindingForDispatch(stream.header.binding!));
   }, remainingMs);

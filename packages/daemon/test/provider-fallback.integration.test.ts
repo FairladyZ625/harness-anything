@@ -124,7 +124,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Finish the success fallback mission.",
         taskId: "task_provider_fallback_success",
-        idempotencyKey: "provider-fallback-success",
+        dispatchKey: "provider-fallback-success",
       },
       binding,
     );
@@ -181,7 +181,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Exhaust the provider chain.",
         taskId: "task_provider_fallback_exhausted",
-        idempotencyKey: "provider-fallback-exhausted",
+        dispatchKey: "provider-fallback-exhausted",
       },
       binding,
     );
@@ -255,7 +255,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Continue only after the requested provider.",
         taskId: "task_provider_fallback_explicit_priority",
-        idempotencyKey: "provider-fallback-explicit-priority",
+        dispatchKey: "provider-fallback-explicit-priority",
       },
       binding,
     );
@@ -277,7 +277,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Continue across two failed providers.",
         taskId: "task_provider_three_attempts",
-        idempotencyKey: "three-attempts",
+        dispatchKey: "three-attempts",
       },
       binding,
     );
@@ -302,7 +302,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Report a rejected continuation.",
         taskId: "task_provider_launch_rejected",
-        idempotencyKey: "launch-rejected",
+        dispatchKey: "launch-rejected",
       },
       binding,
     );
@@ -327,7 +327,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Stop normally without switching provider.",
         taskId: "task_provider_worker_stop",
-        idempotencyKey: "provider-worker-stop",
+        dispatchKey: "provider-worker-stop",
       },
       binding,
     );
@@ -348,7 +348,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Exit zero without structured provider output.",
         taskId: "task_provider_empty_success",
-        idempotencyKey: "provider-empty-success",
+        dispatchKey: "provider-empty-success",
       },
       binding,
     );
@@ -373,7 +373,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Resume fallback after daemon restart.",
         taskId: "task_provider_fallback_restart",
-        idempotencyKey: "provider-fallback-restart",
+        dispatchKey: "provider-fallback-restart",
       },
       binding,
     );
@@ -406,7 +406,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Fall back without an Agent declaration.",
         taskId: "task_provider_fallback_bare",
-        idempotencyKey: "provider-fallback-bare",
+        dispatchKey: "provider-fallback-bare",
       },
       binding,
     );
@@ -438,7 +438,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
           cwd: { scope: "repo-root" },
           prompt: "Surface this task failure without changing provider.",
           taskId,
-          idempotencyKey: `no-fallback-${suffix}`,
+          dispatchKey: `no-fallback-${suffix}`,
         },
         binding,
       );
@@ -468,7 +468,7 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
         cwd: { scope: "repo-root" },
         prompt: "Fail with a large provider stderr log.",
         taskId: "task_provider_fallback_stderr",
-        idempotencyKey: "provider-fallback-stderr",
+        dispatchKey: "provider-fallback-stderr",
       },
       binding,
     );
@@ -617,7 +617,7 @@ async function verifyFallbackAdoption(coordinated: boolean): Promise<void> {
         cwd: { scope: "repo-root" },
         prompt: "Schedule one durable fallback.",
         taskId: null,
-        idempotencyKey: "adopt-twice",
+        dispatchKey: "adopt-twice",
       },
       binding,
     );

@@ -1,7 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getExecutableEntityAction, sha256Text, type RuntimeSession } from "../../src/index.ts";
+import {
+  getExecutableEntityAction,
+  sha256Text,
+  type AgentRuntimeEventV1,
+  type RuntimeSession,
+} from "../../src/index.ts";
+import { reduceRuntimeSession } from "../../src/domain/agent-runtime.ts";
 
 const actor = { principal: { personId: "runtime-action" }, executor: null } as const;
 const source = { kind: "node", nodeId: "edge-a" } as const;
@@ -14,7 +20,7 @@ const compileInput = {
   workspaceRevision: 3,
 };
 
-test("RuntimeSession start compiles the existing canonical event and rejects a stale adoption generation", () => {
+test("RuntimeSession start compiles the canonical event and accepts an equal repeated start without a write", () => {
   const action = getExecutableEntityAction("runtime_session_started"),
     command = {
       kind: "runtime_session_started",
@@ -25,7 +31,6 @@ test("RuntimeSession start compiles the existing canonical event and rejects a s
       definitionSnapshotRef: "artifact:runtime-definition/action-a",
       launchGeneration: 2,
       attachable: true,
-      idempotencyKey: "start-a",
     };
   assert.ok(action?.execution?.compile);
   const draft = action.execution.compile({ ...compileInput, action: command });
@@ -58,10 +63,8 @@ test("RuntimeSession start compiles the existing canonical event and rejects a s
     resultRef: null,
     lastObservedAt: "2026-09-01T00:00:00.000Z",
   };
-  assert.throws(
-    () => action.execution!.compile!({ ...compileInput, action: command, currentEntity: current }),
-    (error: unknown) => (error as { readonly code?: unknown }).code === "runtime_session_adoption_stale",
-  );
+  const repeated = action.execution!.compile!({ ...compileInput, action: command, currentEntity: current });
+  assert.equal(repeated.noChanges, true);
 });
 
 test("RuntimeSession outcome compilation closes its content claim", () => {
@@ -109,10 +112,8 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
         reason: "Quota exhausted",
         faultClass: "quota_exhausted",
         resetAt: "2026-09-02T00:00:00Z",
-        fallbackState: "exhausted",
       },
       resultBody: body,
-      idempotencyKey: "outcome-a",
     };
   Object.assign(command, { resultRef: `artifact:runtime-result/sha256/${command.result.sha256}` });
   const draft = action?.execution?.compile?.({ ...compileInput, action: command, currentEntity: current });
@@ -125,14 +126,13 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
   assert.equal(draft.event.payload.endedAt, command.endedAt);
   assert.deepEqual(draft.event.payload.runtimeMetrics, command.runtimeMetrics);
   assert.deepEqual(draft.event.payload.attempt, command.attempt);
-  const plain = { classification: "worker_stop", reason: "Stopped", fallbackState: null };
+  const plain = { classification: "worker_stop", reason: "Stopped" };
   assert.doesNotThrow(() =>
     action.execution!.compile!({ ...compileInput, action: { ...command, attempt: plain }, currentEntity: current }),
   );
   for (const attempt of [
     { ...command.attempt, faultClass: "other" },
     { ...command.attempt, resetAt: "tomorrow" },
-    { ...command.attempt, fallbackState: "other" },
   ]) {
     assert.throws(() =>
       action.execution!.compile!({ ...compileInput, action: { ...command, attempt }, currentEntity: current }),
@@ -146,5 +146,130 @@ test("RuntimeSession outcome compilation closes its content claim", () => {
         currentEntity: current,
       }),
     (error: unknown) => (error as { readonly code?: unknown }).code === "content_claim_mismatch",
+  );
+});
+
+test("RuntimeSession events use one-time fields, ordered liveness, and terminal outcome completion", () => {
+  const event = (type: AgentRuntimeEventV1["type"], payload: Record<string, unknown>) =>
+    ({
+      schema: "agent-runtime-event/v1",
+      eventId: `event-${type}`,
+      workspaceRevision: 1,
+      opId: `request-${type}`,
+      actor,
+      source,
+      occurredAt: compileInput.occurredAt,
+      type,
+      payload,
+    }) as AgentRuntimeEventV1;
+  let session = reduceRuntimeSession(
+    null,
+    event("runtime_session_started", {
+      runtimeSessionId: "runtime-matrix",
+      instanceId: "instance-a",
+      installationId: "installation-a",
+      kindId: "codex",
+      definitionSnapshotRef: "artifact:runtime-definition/action-a",
+      launchGeneration: 1,
+      attachable: true,
+    }),
+  );
+  assert.ok(session);
+  const started = event("runtime_session_started", {
+    runtimeSessionId: "runtime-matrix",
+    instanceId: "instance-a",
+    installationId: "installation-a",
+    kindId: "codex",
+    definitionSnapshotRef: "artifact:runtime-definition/action-a",
+    launchGeneration: 1,
+    attachable: true,
+  });
+  assert.equal(reduceRuntimeSession(session, started), session);
+  assert.throws(
+    () => reduceRuntimeSession(session, event("runtime_session_started", { ...started.payload, kindId: "claude" })),
+    { name: "RuntimeSessionFieldConflictError" },
+  );
+  assert.throws(
+    () => reduceRuntimeSession(session, event("runtime_session_started", { ...started.payload, attachable: false })),
+    { name: "RuntimeSessionFieldConflictError" },
+  );
+  const provider = event("runtime_session_provider_bound", {
+    runtimeSessionId: "runtime-matrix",
+    providerSessionId: "provider-a",
+    transcriptRef: "file:runtime-transcripts/a.jsonl",
+  });
+  session = reduceRuntimeSession(session, provider);
+  assert.ok(session);
+  assert.equal(reduceRuntimeSession(session, provider), session);
+  assert.throws(
+    () =>
+      reduceRuntimeSession(
+        session,
+        event("runtime_session_provider_bound", { ...provider.payload, providerSessionId: "provider-b" }),
+      ),
+    { name: "RuntimeSessionFieldConflictError" },
+  );
+  session = reduceRuntimeSession(session, event("runtime_session_exited", { runtimeSessionId: "runtime-matrix" }));
+  assert.ok(session);
+  assert.equal(
+    reduceRuntimeSession(session, event("runtime_session_cancelled", { runtimeSessionId: "runtime-matrix" }))?.outcome,
+    null,
+  );
+  session = reduceRuntimeSession(
+    session,
+    event("runtime_session_task_bound", {
+      runtimeSessionId: "runtime-matrix",
+      taskId: "task-late",
+      executionId: "execution-late",
+      providerSessionId: "provider-a",
+      transcriptRef: "file:runtime-transcripts/a.jsonl",
+    }),
+  );
+  assert.ok(session);
+  assert.equal(session.liveness, "exited");
+  assert.equal(
+    session.taskBindings.some((binding) => binding.taskId === "task-late"),
+    true,
+  );
+  assert.equal(
+    reduceRuntimeSession(
+      session,
+      event("runtime_session_outcome_observed", {
+        runtimeSessionId: "runtime-matrix",
+        outcome: "succeeded",
+        exitCode: 0,
+        resultRef: "artifact:runtime-result/a",
+        result: null,
+      }),
+    )?.outcome,
+    "succeeded",
+  );
+  const outcome = event("runtime_session_outcome_observed", {
+    runtimeSessionId: "runtime-matrix",
+    outcome: "succeeded",
+    exitCode: 0,
+    resultRef: "artifact:runtime-result/a",
+    result: null,
+  });
+  session = reduceRuntimeSession(session, outcome);
+  assert.ok(session);
+  assert.equal(reduceRuntimeSession(session, outcome), session);
+  assert.throws(() =>
+    reduceRuntimeSession(
+      session,
+      event("runtime_session_liveness_changed", { runtimeSessionId: "runtime-matrix", liveness: "live" }),
+    ),
+  );
+  assert.throws(
+    () =>
+      reduceRuntimeSession(
+        session,
+        event("runtime_session_outcome_observed", { ...outcome.payload, reasonCode: "different" }),
+      ),
+    { name: "RuntimeSessionFieldConflictError" },
+  );
+  assert.equal(
+    reduceRuntimeSession(session, event("runtime_session_cancelled", { runtimeSessionId: "runtime-matrix" })),
+    session,
   );
 });

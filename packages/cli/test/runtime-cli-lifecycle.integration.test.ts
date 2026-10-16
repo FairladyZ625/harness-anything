@@ -654,7 +654,6 @@ test("Read-only dispatch contracts and closed batch and wire payloads are enforc
         cwd: { scope: "repo-root" },
         prompt: "unused",
         taskId: null,
-        idempotencyKey: "unknown-wire-field",
         permission_mode: "read-only",
       } as never,
     },

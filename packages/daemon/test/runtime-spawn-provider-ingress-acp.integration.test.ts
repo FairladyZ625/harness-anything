@@ -83,7 +83,7 @@ async function withAcpDaemon(
 async function spawnSettled(
   host: Awaited<ReturnType<typeof openDaemonHost>>,
   root: string,
-  payload: { readonly prompt: string; readonly model?: string; readonly idempotencyKey: string },
+  payload: { readonly prompt: string; readonly model?: string; readonly dispatchKey: string },
 ) {
   const receipt = await rpc(host, auth, "repo.agentRuntime.spawn", {
     repo: { repoId },
@@ -141,7 +141,7 @@ test("daemon ingress drives an ACP provider through the worker host", async () =
   await withAcpDaemon(process.env, async ({ host, root, capture }) => {
     const { receipt, read, outcome } = await spawnSettled(host, root, {
       prompt: "do work",
-      idempotencyKey: "devin-acp-ingress",
+      dispatchKey: "devin-acp-ingress",
     });
     assert.equal((read.session as Record<string, unknown>).providerSessionId, "devin-acp-session");
     assert.equal((read.session as { activity: { outcome: unknown; exitCode: unknown } }).activity.outcome, "succeeded");
@@ -181,7 +181,7 @@ test("an ACP provider that exits 0 before its turn completes settles as failed",
     const beforeSession = await spawnSettled(host, root, {
       prompt: "do work",
       model: "exit-before-session",
-      idempotencyKey: "devin-acp-exit-before-session",
+      dispatchKey: "devin-acp-exit-before-session",
     });
     assert.equal((beforeSession.read.session as Record<string, unknown>).providerSessionId, null);
     assert.deepEqual((beforeSession.read.session as { activity: Record<string, unknown> }).activity.outcome, "failed");
@@ -194,7 +194,7 @@ test("an ACP provider that exits 0 before its turn completes settles as failed",
 
     const midPrompt = await spawnSettled(host, root, {
       prompt: "exit-mid-prompt",
-      idempotencyKey: "devin-acp-exit-mid-prompt",
+      dispatchKey: "devin-acp-exit-mid-prompt",
     });
     assert.equal((midPrompt.read.session as Record<string, unknown>).providerSessionId, "devin-acp-session");
     assert.deepEqual((midPrompt.read.session as { activity: Record<string, unknown> }).activity.outcome, "failed");
@@ -217,7 +217,7 @@ test("the worker host does not bind the ACP provider to the editor host the daem
   await withAcpDaemon({ ...process.env, WINDSURF_EXT_HOST_PID: String(editorHostPid) }, async ({ host, root }) => {
     const { read, records } = await spawnSettled(host, root, {
       prompt: "do work",
-      idempotencyKey: "devin-acp-editor-host",
+      dispatchKey: "devin-acp-editor-host",
     });
     assert.equal((read.session as Record<string, unknown>).providerSessionId, "devin-acp-session");
     assert.equal((read.session as { activity: Record<string, unknown> }).activity.outcome, "succeeded");
@@ -231,7 +231,7 @@ test("a registered ACP executable removed before spawn reports its failure befor
     rmSync(executablePath);
     const { read, records } = await spawnSettled(host, root, {
       prompt: "do work",
-      idempotencyKey: "devin-acp-missing-executable",
+      dispatchKey: "devin-acp-missing-executable",
     });
     assert.equal((read.session as { activity: { outcome: unknown } }).activity.outcome, "failed");
     assert.deepEqual(streamOrder(records), ["acp.error", "process_exit", "attempt_outcome"]);

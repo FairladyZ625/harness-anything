@@ -19,11 +19,11 @@ export async function runRuntimeHandoff(input: {
   const { operation, dispatchId } = input.payload;
   if (!["export", "claim", "revoke"].includes(String(operation)) || typeof dispatchId !== "string")
     throw runtimeSpawnError("invalid_field", "Choose export, claim or revoke and a source dispatch.");
-  const idempotencyKey = input.payload.idempotencyKey ?? `handoff-${randomUUID()}`;
+  const dispatchKey = input.payload.dispatchKey ?? `handoff-${randomUUID()}`;
   const action: JsonObject = {
     kind: `runtime-handoff-${operation}`,
     dispatchId,
-    ...(operation === "claim" ? { idempotencyKey } : {}),
+    ...(operation === "claim" ? { dispatchKey } : {}),
   };
   if (operation === "export") {
     const exported = await prepareRuntimeHandoff(input.rootDir, dispatchId);
@@ -66,7 +66,7 @@ export async function runRuntimeHandoff(input: {
     throw runtimeSpawnError("content_claim_mismatch", "The downloaded rollout differs from the accepted checkpoint.");
   // The verified bytes travel to the launch: the spawner installs them into the directory the
   // prepared target launch resolves, immediately before that process starts.
-  const resumed = await input.spawn(checkpoint, { runtimeInstanceId, prompt, idempotencyKey }, body);
+  const resumed = await input.spawn(checkpoint, { runtimeInstanceId, prompt, dispatchKey }, body);
   if (resumed.replayed === true) return publicResult(await input.command(action));
   return { ...resumed, handoffResumed: true };
 }

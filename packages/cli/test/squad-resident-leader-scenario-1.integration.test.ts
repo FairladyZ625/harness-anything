@@ -209,7 +209,8 @@ test("each terminal worker batch calls back into one leader turn and a failed wo
     runtimeSessionId: string;
     taskBinding: { taskId: string; executionId: string };
   };
-  assert.match(acceptedAtLaunch.opId, /^runtime-spawn-/u);
+  assert.equal(typeof acceptedAtLaunch.opId, "string");
+  assert.notEqual(acceptedAtLaunch.opId, "");
   assert.equal(acceptedAtLaunch.runtimeSessionId, started.leaderRuntimeSessionId);
   assert.equal(acceptedAtLaunch.taskBinding.taskId, "resident-task");
   assert.match(acceptedAtLaunch.taskBinding.executionId, /^exe_/u);

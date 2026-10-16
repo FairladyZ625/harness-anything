@@ -353,7 +353,7 @@ test("a lightweight child bare-invocation execution closes without a review disp
         cwd: { scope: "repo-root" },
         prompt: "Implement the task.",
         taskId: parentTaskId,
-        idempotencyKey: "review-bare-worker",
+        dispatchKey: "review-bare-worker",
       },
       bare,
     );
@@ -943,7 +943,7 @@ test("review binding permits independent runtimes but still rejects the executio
         cwd: { scope: "repo-relative", path: ".worktrees/task-runtime-bound" },
         prompt: "Implement the task.",
         taskId,
-        idempotencyKey: "original-runtime",
+        dispatchKey: "original-runtime",
       },
       implementer,
     );
@@ -979,7 +979,7 @@ test("review binding permits independent runtimes but still rejects the executio
         prompt: "Resume the task.",
         taskId,
         providerSessionId: "provider-1",
-        idempotencyKey: "resumed-runtime",
+        dispatchKey: "resumed-runtime",
       },
       implementer,
     );
@@ -1080,7 +1080,7 @@ test("review binding permits independent runtimes but still rejects the executio
         cwd: { scope: "repo-root" },
         taskId,
         role: "reviewer",
-        idempotencyKey: "task-reviewer",
+        dispatchKey: "task-reviewer",
       },
       implementer,
     );

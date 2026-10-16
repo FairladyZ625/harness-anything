@@ -178,7 +178,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           cwd: { scope: "repo-relative", path: ".worktrees/worker" },
           prompt: "Inspect the task.\n\n```sh\nnode packages/cli/src/index.ts --version\n```",
           taskId,
-          idempotencyKey: "agent-task-bound",
+          dispatchKey: "agent-task-bound",
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -408,7 +408,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             cwd: { scope: "repo-root" },
             prompt: `Direct route ${runtime.id}`,
             taskId,
-            idempotencyKey: runtime.id,
+            dispatchKey: runtime.id,
           },
         });
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -438,7 +438,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           cwd: { scope: "repo-root" },
           prompt: "Dispatcher hands off to the runtime session.",
           taskId,
-          idempotencyKey: "dispatcher-handoff",
+          dispatchKey: "dispatcher-handoff",
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -480,7 +480,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
               cwd: { scope: "repo-root" },
               prompt: "A second dispatcher must not share the execution lease.",
               taskId,
-              idempotencyKey: "dispatcher-handoff-concurrent",
+              dispatchKey: "dispatcher-handoff-concurrent",
             },
           }),
           Promise.race([
@@ -570,7 +570,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             runtimeInstanceId: ingressDefinition.instanceId,
             cwd: { scope: "repo-relative", path: ".worktrees/worker" },
             taskId,
-            idempotencyKey: "invalid-glob",
+            dispatchKey: "invalid-glob",
           },
         });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -588,7 +588,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
             runtimeInstanceId: ingressDefinition.instanceId,
             cwd: { scope: "repo-relative", path: ".worktrees/worker" },
             taskId,
-            idempotencyKey: "missing-entry",
+            dispatchKey: "missing-entry",
           },
         });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -607,7 +607,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           cwd: { scope: "repo-root" },
           prompt: "Wrong executor",
           taskId,
-          idempotencyKey: "agent-task-mismatch",
+          dispatchKey: "agent-task-mismatch",
           executor: caller,
         },
       });
@@ -624,7 +624,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           cwd: { scope: "repo-root" },
           prompt: "Acquire the lease and dispatch",
           taskId,
-          idempotencyKey: "runtime-no-lease",
+          dispatchKey: "runtime-no-lease",
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
@@ -655,7 +655,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
           cwd: { scope: "repo-root" },
           prompt: "Inspect the human task",
           taskId,
-          idempotencyKey: "human-task-bound",
+          dispatchKey: "human-task-bound",
         },
       });
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));

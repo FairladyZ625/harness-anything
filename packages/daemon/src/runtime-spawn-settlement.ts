@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import {
@@ -31,11 +31,7 @@ export async function publishExit(
   code: number | null,
   resumePublishedExit = false,
 ): Promise<void> {
-  if (
-    context.exiting.has(active.runtimeSessionId) ||
-    (!context.input.remote && context.requiredRuntimeStore(context.input).readEvent(`${active.dispatchOpId}-outcome`))
-  )
-    return;
+  if (context.exiting.has(active.runtimeSessionId)) return;
   context.exiting.add(active.runtimeSessionId);
   // Every terminal path — success, failure, cancellation, and the daemon-restart loss
   // settlement — flows through here, so the run's own temp directory goes with it. A
@@ -287,7 +283,7 @@ export async function publishExit(
       await context.publishRuntimeEvent(
         "runtime_session_cancelled",
         { runtimeSessionId: active.runtimeSessionId },
-        active.cancelOpId ?? `${active.dispatchOpId}-cancelled`,
+        active.cancelOpId ?? randomUUID(),
         cancelBinding,
       );
     }
@@ -334,7 +330,6 @@ export async function publishExit(
         result = { sha256, size: Buffer.byteLength(body), mediaType: context.resultMediaType };
         resultRef = `artifact:runtime-result/sha256/${sha256}`;
       });
-    const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
     const terminalOutcome: DispatchTerminalOutcome = {
       payload: {
         runtimeSessionId: active.runtimeSessionId,
@@ -351,8 +346,6 @@ export async function publishExit(
           reason: attemptOutcome.reason,
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
-          fallbackState:
-            fallbackState === "exhausted" ? "exhausted" : fallbackState === "scheduled" ? "scheduled" : null,
         },
       },
       body,
@@ -375,17 +368,17 @@ async function publishTerminalOutcome(
   await context.publishRuntimeEvent(
     "runtime_session_exited",
     { runtimeSessionId: active.runtimeSessionId },
-    `${active.dispatchOpId}-exited`,
+    randomUUID(),
     terminalBinding,
   );
   const outcomeEvent = await context.publishRuntimeEvent(
     "runtime_session_outcome_observed",
     payload,
-    `${active.dispatchOpId}-outcome`,
+    randomUUID(),
     terminalBinding,
     body,
   );
-  context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
+  if (outcomeEvent.event) context.input.onRuntimeOutcome?.(outcomeEvent.event, active.schedule);
   context.input.recordLifecycle?.({
     event: "runtime_exit",
     runtimeSessionId: active.runtimeSessionId,

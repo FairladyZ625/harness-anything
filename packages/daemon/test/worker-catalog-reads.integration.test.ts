@@ -157,7 +157,7 @@ test(
         cwd: { scope: "repo-root" },
         taskId,
         prompt: "Exercise catalog reads.",
-        idempotencyKey: "worker-reads",
+        dispatchKey: "worker-reads",
       },
     });
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));

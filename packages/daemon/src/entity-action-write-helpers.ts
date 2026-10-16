@@ -7,9 +7,12 @@ export function noChanges(input: {
   readonly headRevision?: number;
   readonly authorizationDecision?: AuthorizationDecision;
   readonly relationId?: string;
+  readonly origin?: string;
 }): WriteReceiptDraft {
   return {
     outcome: "no_changes",
+    code: "no_changes",
+    origin: input.origin ?? "entity-action",
     opId: input.opId,
     revision: input.revision,
     evidence: input.evidence,

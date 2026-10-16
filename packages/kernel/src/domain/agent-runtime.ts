@@ -18,7 +18,12 @@ import { deriveRelationId, type EntityRelationRecord } from "./entity-relation.t
 import { timestamp } from "./timestamp.ts";
 import { sha256Text, stableStringify } from "../integrity/stable-hash.ts";
 
-export class RuntimeSessionAdoptionStaleError extends Error {}
+export class RuntimeSessionAdoptionStaleError extends Error {
+  override name = "RuntimeSessionAdoptionStaleError";
+}
+export class RuntimeSessionFieldConflictError extends Error {
+  override name = "RuntimeSessionFieldConflictError";
+}
 
 export const runtimeCapabilities = ["structured_witness", "resume", "attach", "session_identity"] as const;
 export const runtimeLivenessStates = ["live", "stale", "unknown", "exited"] as const;
@@ -351,7 +356,7 @@ interface RuntimePayloads {
     readonly instanceId: string;
     readonly installationId: string;
     readonly kindId: string;
-    readonly idempotencyKey: string;
+    readonly dispatchKey: string;
     readonly definitionSnapshotRef: string;
     readonly definitionSnapshot: AgentDefinitionSnapshot;
     readonly startedAt?: string;
@@ -421,7 +426,6 @@ interface RuntimePayloads {
       readonly reason: string;
       readonly faultClass?: "quota_exhausted" | "rate_limited";
       readonly resetAt?: string;
-      readonly fallbackState: "scheduled" | "exhausted" | null;
     };
   };
   readonly runtime_handoff_exported: {
@@ -474,7 +478,7 @@ const payloadFields: Record<AgentRuntimeEventType, readonly string[]> = {
     "instanceId",
     "installationId",
     "kindId",
-    "idempotencyKey",
+    "dispatchKey",
     "definitionSnapshotRef",
     "definitionSnapshot",
   ],
@@ -623,7 +627,6 @@ function validateAgentRuntimePayloadFields(
           !hasOnlyFields(value.attempt, [
             "classification",
             "reason",
-            "fallbackState",
             ...["faultClass", "resetAt"].filter((field) => Object.hasOwn(value.attempt as object, field)),
           ]) ||
           !["provider_fault", "provider_quota", "worker_stop", "gate_red"].includes(
@@ -632,10 +635,7 @@ function validateAgentRuntimePayloadFields(
           !isNonEmptyString(value.attempt.reason) ||
           (value.attempt.faultClass !== undefined &&
             !["quota_exhausted", "rate_limited"].includes(String(value.attempt.faultClass))) ||
-          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))) ||
-          (value.attempt.fallbackState !== null &&
-            value.attempt.fallbackState !== "scheduled" &&
-            value.attempt.fallbackState !== "exhausted"))))
+          (value.attempt.resetAt !== undefined && !timestamp(String(value.attempt.resetAt))))))
   )
     return ["runtime dispatch settlement metadata is invalid"];
   return [];
@@ -747,27 +747,35 @@ export function reduceRuntimeSession(
 ): RuntimeSession | null {
   if (event.type === "runtime_session_started") {
     const value = event.payload;
-    if (current !== null && value.launchGeneration <= current.launchGeneration)
-      throw new RuntimeSessionAdoptionStaleError(
-        `runtime session ${value.runtimeSessionId} launch generation is stale`,
-      );
+    if (current !== null) {
+      if (value.launchGeneration < current.launchGeneration)
+        throw new RuntimeSessionAdoptionStaleError(
+          `runtime session ${value.runtimeSessionId} launch generation is stale`,
+        );
+      if (
+        value.launchGeneration !== current.launchGeneration ||
+        value.instanceId !== current.instanceId ||
+        value.installationId !== current.installationId ||
+        value.kindId !== current.kindId ||
+        value.definitionSnapshotRef !== current.definitionSnapshotRef ||
+        value.attachable !== current.attachable
+      )
+        throw new RuntimeSessionFieldConflictError(`runtime session ${value.runtimeSessionId} start fields changed`);
+      return current;
+    }
     return {
       runtimeSessionId: value.runtimeSessionId,
       instanceId: value.instanceId,
       installationId: value.installationId,
       kindId: value.kindId,
       definitionSnapshotRef: value.definitionSnapshotRef,
-      providerSessionId: current?.providerSessionId ?? null,
-      transcriptRef: current?.transcriptRef ?? null,
+      providerSessionId: null,
+      transcriptRef: null,
       launchGeneration: value.launchGeneration,
       liveness: "live",
       attachable: value.attachable,
       taskBindings: value.taskBinding
         ? [
-            ...(current?.taskBindings.filter(
-              (binding) =>
-                binding.taskId !== value.taskBinding!.taskId || binding.executionId !== value.taskBinding!.executionId,
-            ) ?? []),
             {
               ...value.taskBinding,
               providerSessionId: null,
@@ -775,10 +783,10 @@ export function reduceRuntimeSession(
               boundAt: event.occurredAt,
             },
           ]
-        : (current?.taskBindings ?? []),
-      outcome: current?.outcome ?? null,
-      exitCode: current?.exitCode ?? null,
-      resultRef: current?.resultRef ?? null,
+        : [],
+      outcome: null,
+      exitCode: null,
+      resultRef: null,
       lastObservedAt: event.occurredAt,
     };
   }
@@ -796,8 +804,14 @@ export function reduceRuntimeSession(
   if (current === null || current.runtimeSessionId !== sessionId)
     throw new Error(`runtime session ${sessionId} has not started`);
   if (event.type === "runtime_session_provider_bound") {
-    if (current.providerSessionId !== null && current.providerSessionId !== event.payload.providerSessionId)
-      throw new Error(`runtime session ${sessionId} provider binding changed`);
+    if (current.providerSessionId !== null) {
+      if (
+        current.providerSessionId !== event.payload.providerSessionId ||
+        current.transcriptRef !== event.payload.transcriptRef
+      )
+        throw new RuntimeSessionFieldConflictError(`runtime session ${sessionId} provider binding changed`);
+      return current;
+    }
     return {
       ...current,
       providerSessionId: event.payload.providerSessionId,
@@ -807,7 +821,7 @@ export function reduceRuntimeSession(
   }
   if (event.type === "runtime_session_task_bound") {
     if (current.providerSessionId !== null && current.providerSessionId !== event.payload.providerSessionId)
-      throw new Error(`runtime session ${sessionId} task binding changed provider session`);
+      throw new RuntimeSessionFieldConflictError(`runtime session ${sessionId} task binding changed provider session`);
     const binding = {
         taskId: event.payload.taskId,
         executionId: event.payload.executionId,
@@ -815,12 +829,33 @@ export function reduceRuntimeSession(
         transcriptRef: event.payload.transcriptRef,
         boundAt: event.occurredAt,
       },
-      taskBindings = [
-        ...current.taskBindings.filter(
-          (value) => value.taskId !== binding.taskId || value.executionId !== binding.executionId,
-        ),
-        binding,
-      ];
+      existingBinding = current.taskBindings.find((value) => value.taskId === binding.taskId);
+    if (existingBinding) {
+      if (
+        existingBinding.executionId !== binding.executionId ||
+        (existingBinding.providerSessionId !== null &&
+          existingBinding.providerSessionId !== binding.providerSessionId) ||
+        (existingBinding.transcriptRef !== null && existingBinding.transcriptRef !== binding.transcriptRef)
+      )
+        throw new RuntimeSessionFieldConflictError(`runtime session ${sessionId} task binding changed`);
+      if (existingBinding.providerSessionId === null || existingBinding.transcriptRef === null)
+        return {
+          ...current,
+          providerSessionId: binding.providerSessionId,
+          transcriptRef: binding.transcriptRef,
+          taskBindings: current.taskBindings.map((value) =>
+            value === existingBinding ? { ...existingBinding, ...binding } : value,
+          ),
+          lastObservedAt: event.occurredAt,
+        };
+      return current;
+    }
+    const taskBindings = [
+      ...current.taskBindings.filter(
+        (value) => value.taskId !== binding.taskId || value.executionId !== binding.executionId,
+      ),
+      binding,
+    ];
     return {
       ...current,
       providerSessionId: binding.providerSessionId,
@@ -838,19 +873,30 @@ export function reduceRuntimeSession(
       lastObservedAt: event.occurredAt,
     };
   }
-  if (event.type === "runtime_session_cancelled")
+  if (event.type === "runtime_session_cancelled") {
+    if (current.liveness === "exited") return current;
     return {
       ...current,
       liveness: "exited",
       attachable: false,
-      outcome: "cancelled",
-      exitCode: null,
       cancelledBy: event.actor,
       lastObservedAt: event.occurredAt,
     };
+  }
+  if (event.type === "runtime_session_exited" && current.liveness === "exited") return current;
   if (event.type === "runtime_session_exited")
     return { ...current, liveness: "exited", attachable: false, lastObservedAt: event.occurredAt };
-  if (event.type === "runtime_session_outcome_observed")
+  if (event.type === "runtime_session_outcome_observed") {
+    if (current.outcome !== null) {
+      if (
+        current.outcome !== event.payload.outcome ||
+        current.exitCode !== event.payload.exitCode ||
+        current.resultRef !== event.payload.resultRef ||
+        current.reasonCode !== event.payload.reasonCode
+      )
+        throw new RuntimeSessionFieldConflictError(`runtime session ${sessionId} outcome changed`);
+      return current;
+    }
     return {
       ...current,
       outcome: event.payload.outcome,
@@ -859,6 +905,7 @@ export function reduceRuntimeSession(
       ...(event.payload.reasonCode ? { reasonCode: event.payload.reasonCode } : {}),
       lastObservedAt: event.occurredAt,
     };
+  }
   return current;
 }
 export function markRuntimeSessionUnknown(session: RuntimeSession): RuntimeSession {

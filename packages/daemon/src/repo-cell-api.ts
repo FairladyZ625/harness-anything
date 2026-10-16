@@ -441,6 +441,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     "repo.task.dispatches": (payload: Readonly<Record<string, unknown>>) =>
       readTaskDispatches({
         projection: context.projection,
+        rootDir: context.rootDir,
         ...taskDispatchesPayloadFromCell(context, payload),
       }),
   } satisfies DaemonGuiReadHandlers;

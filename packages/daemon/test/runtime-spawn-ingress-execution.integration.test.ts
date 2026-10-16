@@ -248,7 +248,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           prompt: "Review the first round.",
           role: "reviewer",
           taskId,
-          idempotencyKey: "runtime-changes-requested-first-reviewer",
+          dispatchKey: "runtime-changes-requested-first-reviewer",
         },
       });
       assert.equal(firstReviewer.outcome, "applied", JSON.stringify(firstReviewer));
@@ -452,7 +452,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           agentId: "worker-as-reviewer",
           role: "reviewer",
           taskId,
-          idempotencyKey: "runtime-changes-requested-reviewer",
+          dispatchKey: "runtime-changes-requested-reviewer",
         },
       });
       assert.equal(independentReview.outcome, "applied", JSON.stringify(independentReview));
@@ -474,7 +474,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             cwd: { scope: "repo-root" },
             prompt: "Continue the implementation.",
             taskId,
-            idempotencyKey: `runtime-frozen-cut-${status}`,
+            dispatchKey: `runtime-frozen-cut-${status}`,
           },
         });
       const assertFrozen = async (status: string): Promise<void> => {
@@ -536,7 +536,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
         assert.equal((await host.run(repoId, { kind: "task-start", taskId, executionId }, auth)).outcome, "applied");
         writeCloseout(taskId, "The read-only attach round is ready for inspection.");
         assert.equal((await host.run(repoId, { kind: "task-submit", taskId, executionId }, auth)).outcome, "applied");
-        const dispatch = (agentId: string, idempotencyKey: string) =>
+        const dispatch = (agentId: string, dispatchKey: string) =>
           rpc(host, auth, "repo.agentRuntime.spawn", {
             repo: { repoId },
             payload: {
@@ -544,7 +544,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
               prompt: "Pre-read the submitted cut.",
               agentId,
               taskId,
-              idempotencyKey,
+              dispatchKey,
             },
           });
         // Negative control first: a write-mode declaration on the same frozen task keeps the rejection.
@@ -644,7 +644,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             cwd: { scope: "repo-root" },
             prompt: "Record progress",
             taskId,
-            idempotencyKey: "runtime-progress",
+            dispatchKey: "runtime-progress",
           },
         });
         await eventuallyValue(
@@ -802,7 +802,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
               cwd: { scope: "repo-root" },
               prompt: "Plan and dispatch the child task.",
               taskId: parentTaskId,
-              idempotencyKey: `runtime-commander-parent-${sourceNode}`,
+              dispatchKey: `runtime-commander-parent-${sourceNode}`,
             },
           });
           assert.equal(commander.outcome, "applied", JSON.stringify(commander));
@@ -911,7 +911,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
               runtimeInstanceId: ingressDefinition.instanceId,
               cwd: { scope: "repo-root" },
               taskId: childTaskId,
-              idempotencyKey: `runtime-commander-child-${sourceNode}`,
+              dispatchKey: `runtime-commander-child-${sourceNode}`,
               executor: commanderExecutor,
             },
           });
@@ -946,7 +946,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
                 runtimeInstanceId: ingressDefinition.instanceId,
                 cwd: { scope: "repo-root" },
                 taskId: unrelatedTaskId,
-                idempotencyKey: "runtime-commander-unrelated",
+                dispatchKey: "runtime-commander-unrelated",
                 executor: commanderExecutor,
               },
             });
@@ -989,7 +989,7 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
             cwd: { scope: "repo-relative", path: ".worktrees/worker" },
             prompt: "Publish the report",
             taskId,
-            idempotencyKey: "runtime-artifact",
+            dispatchKey: "runtime-artifact",
           },
         });
         await eventuallyValue(

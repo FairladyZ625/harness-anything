@@ -94,7 +94,7 @@ test("edge terminal task settlement rejects a changed node owner", { timeout: 60
     runtimeInstanceId: settlementDefinition.instanceId,
     cwd: { scope: "repo-root" },
     prompt: "Finish this task.",
-    idempotencyKey: "holder-change",
+    dispatchKey: "holder-change",
   });
   assert.equal(launched.outcome, "applied", JSON.stringify(launched));
   assert.ok(terminal);
@@ -271,7 +271,7 @@ for (const restart of [false, true])
         runtimeInstanceId: settlementDefinition.instanceId,
         cwd: { scope: "repo-root" },
         prompt: "Finish this task.",
-        idempotencyKey: "holder-change",
+        dispatchKey: "holder-change",
       });
       assert.equal(launched.outcome, "applied", JSON.stringify(launched));
       assert.ok(terminal);

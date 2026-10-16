@@ -932,7 +932,7 @@ test("the in-progress agenda row names each running reviewer and the findings it
               instanceId: "instance-1",
               installationId: "installation-1",
               kindId: "codex",
-              idempotencyKey,
+              dispatchKey: idempotencyKey,
               definitionSnapshotRef: `artifact:runtime-definition/${agentId}`,
               definitionSnapshot: {
                 schema: "agent-definition-snapshot/v1",

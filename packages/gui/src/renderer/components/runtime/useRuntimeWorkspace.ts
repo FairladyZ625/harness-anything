@@ -614,7 +614,7 @@ export function useProviderWorkspace(repoId: string, requestedInstanceId: string
     selfTest,
   };
 }
-export function runtimeSelfTestSpawnInput(instanceId: string, model: string, idempotencyKey: string) {
+export function runtimeSelfTestSpawnInput(instanceId: string, model: string, dispatchKey: string) {
   return {
     runtimeInstanceId: instanceId,
     model,
@@ -622,7 +622,7 @@ export function runtimeSelfTestSpawnInput(instanceId: string, model: string, ide
     cwd: { scope: "repo-root" as const },
     prompt: "Reply with exactly: runtime connectivity ok",
     taskId: null,
-    idempotencyKey,
+    dispatchKey,
   };
 }
 

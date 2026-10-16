@@ -248,7 +248,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
           runtimeInstanceId: definition.instanceId,
           cwd: { scope: "repo-root" },
           taskId: "task_ctx_leaf",
-          idempotencyKey: "dispatch-context-proposed",
+          dispatchKey: "dispatch-context-proposed",
         },
         binding,
       ),
@@ -265,7 +265,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         taskId: "task_ctx_leaf",
-        idempotencyKey: "dispatch-context-leaf",
+        dispatchKey: "dispatch-context-leaf",
       },
       binding,
     );
@@ -308,7 +308,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         cwd: { scope: "repo-root" },
         prompt: "Finish the leaf task.",
         taskId: "task_ctx_explicit",
-        idempotencyKey: "dispatch-context-explicit",
+        dispatchKey: "dispatch-context-explicit",
       },
       binding,
     );
@@ -340,7 +340,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         agentId: "causal-worker",
         cwd: { scope: "repo-root" },
         taskId: "task_ctx_agent",
-        idempotencyKey: "dispatch-context-agent",
+        dispatchKey: "dispatch-context-agent",
       },
       binding,
     );
@@ -357,7 +357,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         taskId: "task_ctx_lonely",
-        idempotencyKey: "dispatch-context-lonely",
+        dispatchKey: "dispatch-context-lonely",
       },
       binding,
     );
@@ -386,7 +386,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         taskId: "task_ctx_explainer",
-        idempotencyKey: "dispatch-context-explainer",
+        dispatchKey: "dispatch-context-explainer",
       },
       binding,
     );
@@ -411,7 +411,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         taskId: "task_ctx_lite",
-        idempotencyKey: "dispatch-context-lite",
+        dispatchKey: "dispatch-context-lite",
       },
       binding,
     );
@@ -426,7 +426,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
         cwd: { scope: "repo-root" },
         taskId: "task_ctx_lite",
         prompt: "Explicit PR delivery.",
-        idempotencyKey: "dispatch-context-lite-explicit",
+        dispatchKey: "dispatch-context-lite-explicit",
         dryRun: true,
       },
       binding,
@@ -530,7 +530,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
         agentId: "preview-worker",
         cwd: { scope: "repo-root" as const },
         taskId: "task_pv_leaf",
-        idempotencyKey: "dispatch-preview-leaf",
+        dispatchKey: "dispatch-preview-leaf",
       },
       revisionBefore = makeTaskEventReader({ repoId, rootDir: canonical }).read().revision,
       preview = await cell.spawnRuntime({ ...spawnPayload, dryRun: true }, binding);
@@ -578,7 +578,7 @@ test("dry-run preview returns the injected prompt byte-for-byte with zero dispat
     );
     assert.equal(updated.outcome, "applied", JSON.stringify(updated));
     const revised = await cell.spawnRuntime(
-      { ...spawnPayload, idempotencyKey: "dispatch-preview-leaf-2", dryRun: true },
+      { ...spawnPayload, dispatchKey: "dispatch-preview-leaf-2", dryRun: true },
       binding,
     );
     assert.equal(revised.ok, true, JSON.stringify(revised));
@@ -687,7 +687,7 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
         runtimeInstanceId: definition.instanceId,
         cwd: { scope: "repo-root" },
         taskId: "task_cjk_leaf",
-        idempotencyKey: "dispatch-context-cjk",
+        dispatchKey: "dispatch-context-cjk",
       },
       binding,
     );
