@@ -29,7 +29,7 @@ import {
   state,
 } from "./doc-sync.fixtures.ts";
 
-test("stale ledger and stale blob reject the entire batch with current holder and typed conflict detail", () => {
+test("unrelated ledger changes pass while stale document bases reject with typed conflict detail", () => {
   const body = "# Notes\nA\n",
     change = {
       path: "context/notes.md",
@@ -43,31 +43,30 @@ test("stale ledger and stale blob reject the entire batch with current holder an
       headDigest: `sha256:${"b".repeat(64)}`,
     },
   });
-  assert.equal(staleLedger.accepted, false);
-  if (staleLedger.accepted) return;
-  assert.equal(staleLedger.code, "base_ledger_changed");
-  assert.equal(staleLedger.detail.holder?.personId, "person-owner");
-  assert.equal(staleLedger.detail.paths[0]?.currentBlobSha256, sha256Text(body));
+  assert.equal(staleLedger.accepted, true, JSON.stringify(staleLedger));
+  const staleBlob = decide({ ...change, baseBlobSha256: "c".repeat(64) }, state(body), Buffer.from(`${body}B\n`), {
+    currentLedgerSha: { ...baseLedgerSha, revision: 4, headDigest: `sha256:${"b".repeat(64)}` },
+  });
+  assert.equal(staleBlob.accepted, false);
+  if (staleBlob.accepted) return;
+  assert.equal(staleBlob.code, "base_blob_changed");
+  assert.equal(staleBlob.detail.holder?.personId, "person-owner");
+  assert.equal(staleBlob.detail.paths[0]?.currentBlobSha256, sha256Text(body));
   assert.deepEqual(
     validateWriteReceipt({
       ...rejectedAcceptance,
       outcome: "op_rejected",
       opId: "doc-op",
-      code: staleLedger.code,
+      code: staleBlob.code,
       origin: "doc-sync-contract",
-      evidence: `contract-rejection:${staleLedger.code}`,
-      diagnostic: { kind: "failure", code: staleLedger.code },
-      detail: staleLedger.detail,
-      authorizationDecision: staleLedger.authorizationDecision!,
+      evidence: `contract-rejection:${staleBlob.code}`,
+      diagnostic: { kind: "failure", code: staleBlob.code },
+      detail: staleBlob.detail,
+      authorizationDecision: staleBlob.authorizationDecision!,
     }),
     [],
   );
-  const staleBlob = decide({ ...change, baseBlobSha256: "c".repeat(64) }, state(body), Buffer.from(`${body}B\n`));
-  assert.equal(staleBlob.accepted, false);
-  if (!staleBlob.accepted) {
-    assert.equal(staleBlob.code, "base_blob_changed");
-    assert.equal(staleBlob.detail.holder?.version, 3);
-  }
+  assert.equal(staleBlob.detail.holder?.version, 3);
 });
 
 test("claim mismatch, deletion, machine touch, and ambiguous headings fail closed", () => {

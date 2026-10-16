@@ -22,7 +22,7 @@ import { admissionRejection } from "./doc-sync-settlement.ts";
 
 // Pure adjudication of one doc write intent against the current canonical
 // state: projection readiness, canonical task admission, and the domain
-// decideDocWrite judgment (lease channel, ledger base, per-path bases, region
+// decideDocWrite judgment (lease channel, per-path bases, region
 // proofs). Both the standalone doc submit and the class-A task bundle consume
 // the same verdict, so a carried document set can never pass a weaker check
 // than an explicit `ha doc sync` submission.

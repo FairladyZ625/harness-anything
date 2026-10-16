@@ -147,6 +147,12 @@ export function rejectDocSyncAction(
     opId,
     code,
     origin: "doc-sync-contract",
+    ...(code === "base_blob_changed"
+      ? {
+          rejectionExplanation:
+            "Concurrent document conflict: a submitted document changed at the center. Sync the latest documents, resolve any staged conflict with ha doc conflict resolve|discard-local|overwrite-center, then submit again.",
+        }
+      : {}),
     evidence: routing === undefined ? `contract-rejection:${code}` : `contract-rejection:${code}:${routing}`,
     detail: receiptDetail,
   };
