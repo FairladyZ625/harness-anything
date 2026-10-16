@@ -83,17 +83,16 @@ export function Region({
           <RegionLayoutControls />
         </span>
       </motion.div>
-      <motion.div layout={content} layoutDependency={focusOpen} className="relative min-h-0 flex-1">
-        {/* padded 是长正文容器(标准 §4.1):滚动/裁切/边距由这里统一管,正文词内换行默认开。 */}
-        <div data-region-scroll className={`h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}>
+      <motion.div layout={content} layoutDependency={focusOpen} className="min-h-0 flex-1">
+        {/* padded 是长正文容器(标准 §4.1):滚动/裁切/边距由这里统一管,正文词内换行默认开。
+            两端渐隐走共享 scroll-fade-y mask(A4):未到头一侧羽化提示、到头即消失、
+            不溢出不显示;替代旧的常亮底部渐隐 overlay(画玻璃色在文字上且无滚动状态)。 */}
+        <div
+          data-region-scroll
+          className={`scroll-fade-y h-full overflow-y-auto ${padded ? "break-words px-3.5 pb-3" : ""}`}
+        >
           {children}
         </div>
-        {/* 列表底部渐隐遮罩(业主 2026-10-12):滚动列表在玻璃面底缘平滑淡出,消除
-            死硬切边;做法对齐老原型 .tb::after 的渐隐,pointer-events 穿透不挡行点击。 */}
-        <div
-          aria-hidden="true"
-          className="pointer-events-none absolute inset-x-0 bottom-0 h-6.5 bg-gradient-to-t from-[var(--color-glass)] to-transparent"
-        />
       </motion.div>
       {footer !== undefined && (
         <motion.div

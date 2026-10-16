@@ -27,6 +27,24 @@ function blockBody(opener: RegExp): string {
   return styles.slice(open + 1, i - 1);
 }
 
+/** 同 blockBody,但返回每个匹配处的块体(同名选择器在不同条件块里出现多次时用)。 */
+function blockBodies(opener: RegExp): string[] {
+  const bodies: string[] = [];
+  const global = new RegExp(opener.source, opener.flags.includes("g") ? opener.flags : `${opener.flags}g`);
+  for (const match of styles.matchAll(global)) {
+    if (match.index === undefined) continue;
+    const open = styles.indexOf("{", match.index);
+    let depth = 1;
+    let i = open + 1;
+    for (; i < styles.length && depth > 0; i += 1) {
+      if (styles[i] === "{") depth += 1;
+      else if (styles[i] === "}") depth -= 1;
+    }
+    bodies.push(styles.slice(open + 1, i - 1));
+  }
+  return bodies;
+}
+
 function radiusTokens(): Record<string, number> {
   const theme = blockBody(/@theme\s*\{/u);
   const tokens: Record<string, number> = {};
@@ -152,5 +170,57 @@ describe("visual foundation: motion as the sole animation library", () => {
       ),
     );
     expect(rivals).toEqual([]);
+  });
+});
+
+describe("visual foundation: A4 shared scroll fade (scroll-driven mask)", () => {
+  it("drives registered fade lengths from the element's own scroll timeline", () => {
+    expect(styles).toMatch(/@property\s+--scroll-fade-before\s*\{/u);
+    expect(styles).toMatch(/@property\s+--scroll-fade-after\s*\{/u);
+    // 同一联合选择器出现两处:主 @supports 块里的状态机,与 reduced-motion 里的
+    // !important 再确认;按「不带 !important」取主块。
+    const shared = blockBodies(/\.scroll-fade-y,\s*\.scroll-fade-x\s*\{/u).find(
+      (body) => !body.includes("!important"),
+    )!;
+    // 未溢出 → 时间线不激活 → 变量落回 0px:无渐隐、无装饰。
+    expect(shared).toMatch(/--scroll-fade-before:\s*0px/u);
+    expect(shared).toMatch(/--scroll-fade-after:\s*0px/u);
+    expect(shared).toMatch(/animation-range:\s*0 6%,\s*94% 100%/u);
+    // 到头即消失:before 在 progress=0(from 0px)、after 在 progress=100%(to 0px);
+    // 羽化宽走单一 token。
+    expect(blockBody(/@keyframes\s+scroll-fade-before\s*\{/u)).toMatch(
+      /--scroll-fade-before:\s*var\(--scroll-fade-size\)/u,
+    );
+    expect(blockBody(/@keyframes\s+scroll-fade-after\s*\{/u)).toMatch(/--scroll-fade-after:\s*0px/u);
+    expect(blockBody(/:root\s*\{/u)).toMatch(/--scroll-fade-size:\s*26px/u);
+  });
+
+  it("fades content through a mask, guarded by scroll-driven animation support", () => {
+    // 两处 @supports:主机制块与 reduced-motion 内嵌套的再确认;按含 mask-image 取主块。
+    const supports = blockBodies(/@supports\s*\(animation-timeline:\s*scroll\(\)\)\s*\{/u).find((body) =>
+      body.includes("mask-image"),
+    )!;
+    expect(supports).toMatch(/\.scroll-fade-y\s*\{[^}]*mask-image:/u);
+    expect(supports).toMatch(/\.scroll-fade-x\s*\{[^}]*mask-image:/u);
+    // 纵/横两轴都从自身命名时间线驱动;不支持时整块不生效,回退现状硬边,
+    // 不在默认(文档)时间线上把渐隐钉死在终态。
+    expect(supports).toMatch(/scroll-timeline:\s*--scroll-fade-scroll block/u);
+    expect(supports).toMatch(/scroll-timeline:\s*--scroll-fade-scroll inline/u);
+  });
+
+  it("keeps scroll fades alive under reduced motion as scroll-linked indicators", () => {
+    const reduced = blockBody(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/u);
+    expect(reduced).toMatch(/\.scroll-fade-y,\s*\.scroll-fade-x\s*\{[^}]*scroll-fade-before[^}]*!important/u);
+  });
+});
+
+describe("visual foundation: A8 prose text wrap", () => {
+  it("balances prose headings, pretty-wraps prose paragraphs, keeps diagrams out", () => {
+    expect(styles).toMatch(/\.prose-harness\s*:is\(h1,\s*h2,\s*h3,\s*h4\)\s*\{[^}]*text-wrap:\s*balance/u);
+    expect(styles).toMatch(/\.prose-harness\s*p\s*\{[^}]*text-wrap:\s*pretty/u);
+    expect(styles).toMatch(/\.document-diagram\s*p\s*\{[^}]*text-wrap:\s*auto/u);
+    // 作用域阴性对照:全文件 text-wrap 只允许这三处,不落到表格/密集列表。
+    const wraps = [...styles.matchAll(/text-wrap:\s*([\w-]+)/gu)].map((match) => match[1]);
+    expect(wraps).toEqual(["balance", "pretty", "auto"]);
   });
 });
