@@ -41,6 +41,12 @@ test("device login prints the browser entry, code and expiry while session recei
     renderCliReceipt({ ok: true, authenticated: true, personId: "alice", expiresAt: 60_000 }).text,
     /Signed in as alice/u,
   );
+  // An offline session (the edge device client) has no locally inferred deadline; the daemon reports
+  // expiresAt null and the render must not coerce that into the 1970 epoch.
+  const offline = renderCliReceipt({ ok: true, authenticated: true, personId: "alice", expiresAt: null }).text;
+  assert.match(offline, /Signed in as alice/u);
+  assert.doesNotMatch(offline, /1970/u);
+  assert.match(offline, /Session expires: no locally known deadline/u);
   assert.equal(renderCliReceipt({ ok: true, authenticated: false }).text, "Signed out.");
 });
 
