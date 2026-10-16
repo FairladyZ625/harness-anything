@@ -30,7 +30,6 @@ const fleetWriteClientNames = new Set([
   "runFleetScheduleCommandClient",
 ]);
 const fleetWritePort = "packages/daemon/src/fleet-edge-write.ts";
-const fleetCenterListener = "packages/daemon/src/fleet/center-listener.ts";
 const workspacePackages = await loadWorkspacePackages(path.join(root, "packages"));
 const workspacePackagesByName = new Map(
   workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]),
@@ -486,8 +485,26 @@ for (const file of packageSourceFiles) {
         record(file, `Fleet write client imports must go through ${fleetWritePort}`);
     }
   }
-  if (!isTestOrFixture && rel === fleetCenterListener && !text.includes("runFleetCenterWrite"))
-    record(file, "Fleet write frames must use the center write entry runFleetCenterWrite");
+  if (!isTestOrFixture && rel === "packages/daemon/src/fleet/center-listener.ts") {
+    const centerWriteBranchRequirements = new Map([
+      ["fleet.doc.submit/v1", "centerRun("],
+      ["fleet.task.command/v1", "centerRun("],
+      ["fleet.schedule.command/v1", "centerRun("],
+      ["fleet.runtime.event/v1", "runtimeIngress("],
+      ["fleet.runtime.archive/v1", "runtimeIngress("],
+      ["fleet.upload.begin/v1", "persist("],
+      ["fleet.upload.chunk/v1", "appendFileSync("],
+      ["fleet.upload.finish/v1", "persist("],
+    ]);
+    for (const [frame, requiredCall] of centerWriteBranchRequirements) {
+      const branchStart = text.indexOf(`if (frame.schema === "${frame}")`);
+      const nextBranchMatch = text.slice(branchStart + 1).match(/\n\s*if \(frame\.schema ===/u);
+      const nextBranch = nextBranchMatch ? branchStart + 1 + nextBranchMatch.index : -1;
+      const branch = branchStart < 0 ? "" : text.slice(branchStart, nextBranch < 0 ? undefined : nextBranch);
+      if (!branch || !branch.includes(requiredCall))
+        record(file, `Fleet write frame ${frame} must use its center write entry ${requiredCall}`);
+    }
+  }
 }
 
 await checkOrphanPackageModules(packageSourceFiles, importEdges);
