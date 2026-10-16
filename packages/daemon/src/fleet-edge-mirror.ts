@@ -14,7 +14,7 @@ import {
   sha256Text,
 } from "@harness-anything/kernel";
 import { withReplicaGeneration, type ReplicaGeneration } from "./fleet/replica-generation.ts";
-import { writeFileDurably } from "./durable-file.ts";
+import { removeFileDurably, writeFileDurably } from "./durable-file.ts";
 
 export interface FleetMirrorBlob {
   readonly sha256: string;
@@ -332,6 +332,23 @@ export function applyFleetMirrorCut(
     if (bytes === null) throw new FleetMirrorError("replica_corrupt", `Replica document object is missing: ${logical}`);
     writeFileDurably(target, bytes);
     entries[logical] = blob.sha256;
+  }
+  // A center deletion is represented by the path disappearing from the current cut. Remove only
+  // files this mirror previously wrote; a local candidate remains untouched and is surfaced for
+  // the caller to reconcile, just like a conflicting update.
+  for (const [logical, previousSha] of Object.entries(previous.entries)) {
+    if (view.entries.has(logical)) continue;
+    const target = path.join(root, ...logical.split("/"));
+    if (!existsSync(target)) {
+      delete entries[logical];
+      continue;
+    }
+    if (sha256Bytes(readFileSync(target)) !== previousSha) {
+      dirtyPaths.push(logical);
+      continue;
+    }
+    removeFileDurably(target);
+    delete entries[logical];
   }
   writeFileDurably(markerPath, JSON.stringify({ revision: view.revision, entries }));
   return { outcome: "applied", fromRevision: previous.revision, toRevision: view.revision, dirtyPaths, conflicts: [] };
