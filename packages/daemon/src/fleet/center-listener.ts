@@ -665,6 +665,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         revision: receipt.revision ?? null,
         replicationSequence: replicationHead(a.repoId),
         code: receipt.code ?? null,
+        receipt: {
+          ...(receipt as unknown as Readonly<Record<string, unknown>>),
+          ...(frame.taskId ? { taskId: frame.taskId } : {}),
+        },
       });
     }
     if (frame.schema === "fleet.task.command/v1") {

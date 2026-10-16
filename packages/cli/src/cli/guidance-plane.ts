@@ -323,6 +323,7 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
             `Run ha fact type register <type> --source <source>, then retry this command.`
           : renderTemplate("failure", "fact-type-unregistered", {}),
     };
+  if (code === "task_docs_require_task_command") return fleetTaskDocsGuidance(receipt, code);
   if (code === "preview_blocked" || code === "unresolved_touch") {
     const detail = record(receipt.detail) && receipt.detail.kind === "doc_sync" ? receipt.detail : null,
       touches = detail && Array.isArray(detail.unresolvedTouches) ? detail.unresolvedTouches.filter(record) : [];
@@ -378,6 +379,21 @@ export function humanError(receipt: Record<string, unknown>): { readonly code: s
     hint =
       criteria.length === 0 ? baseHint : `${baseHint} ${renderTemplate("failure", "unmet-criteria", { criteria })}`;
   return { code, hint };
+}
+
+function fleetTaskDocsGuidance(
+  receipt: Record<string, unknown>,
+  code: string,
+): { readonly code: string; readonly hint: string } {
+  const detail = record(receipt.detail) ? receipt.detail : null,
+    touches = detail && Array.isArray(detail.unresolvedTouches) ? detail.unresolvedTouches.filter(record) : [],
+    touchText = touches.map((touch) => `${String(touch.path)}: ${String(touch.reason)}`).join("; "),
+    explanation = typeof receipt.rejectionExplanation === "string" ? receipt.rejectionExplanation : null,
+    taskId = typeof receipt.taskId === "string" ? receipt.taskId : null,
+    next = taskId
+      ? `next: run ha task start ${taskId} to reacquire an execution, then rerun ha doc sync --submit --task ${taskId}`
+      : "next: reacquire the task execution with ha task start <task-id>, then rerun ha doc sync --submit --task <task-id>";
+  return { code, hint: [explanation, touchText || null, next].filter(Boolean).join(" ") };
 }
 
 function renderDiagnostic(diagnostic: Record<string, unknown>): string | null {

@@ -120,6 +120,7 @@ export type FleetFrameV1 =
         revision: number | null;
         replicationSequence: number;
         code: string | null;
+        receipt: Readonly<Record<string, unknown>>;
       }
     >
   | Msg<
@@ -674,6 +675,7 @@ const schemas: Readonly<Record<string, Check>> = {
     revision: nullable(uint),
     replicationSequence: uint,
     code: nullable(text),
+    receipt: record,
   }),
   "fleet.task.command/v1": optionalShape(
     {

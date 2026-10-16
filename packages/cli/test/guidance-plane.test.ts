@@ -80,6 +80,23 @@ test("doc-sync rejection guidance names paths and canonical LF remediation", () 
   );
 });
 
+test("Fleet rejection details survive into actionable CLI guidance", () => {
+  const rendered = humanError({
+    code: "task_docs_require_task_command",
+    taskId: "task-edge",
+    rejectionExplanation: "Task package documents require the canonical task command.",
+    detail: {
+      kind: "doc_sync",
+      unresolvedTouches: [{ path: "tasks/task-edge/closeout.md", reason: "doc-submit channel is not allowed" }],
+    },
+  });
+  assert.equal(rendered.code, "task_docs_require_task_command");
+  assert.match(rendered.hint, /Task package documents require the canonical task command/u);
+  assert.match(rendered.hint, /tasks\/task-edge\/closeout\.md: doc-submit channel is not allowed/u);
+  assert.match(rendered.hint, /ha task start task-edge/u);
+  assert.doesNotMatch(rendered.hint, /No remediation was recorded/u);
+});
+
 test("successful Decision proposals point to the canonical action explanation", () => {
   const receipt = {
     ok: true,
