@@ -140,6 +140,14 @@ export const statusVocabularies: readonly StatusVocabulary[] = [
     anchor: "#fallbackState",
     words: ["scheduled", "exhausted"],
   },
+  {
+    id: "runtime-session.fallbackState",
+    entity: "RuntimeSession",
+    field: "attempt.fallbackState",
+    module: "packages/kernel/src/domain/agent-runtime.ts",
+    anchor: "#fallbackState",
+    words: ["scheduled", "exhausted"],
+  },
   // Existing daemon phases moved to the canonical run contract (dec_FB7DE6338E7D3D94ED2A4C05A2).
   {
     id: "squadRun.phase",
