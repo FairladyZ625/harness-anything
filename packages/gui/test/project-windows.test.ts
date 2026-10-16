@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createProjectWindowRegistry,
+  menuNewWindow,
   projectWindowArgument,
   type ProjectWindowRegistryEntry,
 } from "../src/main/project-windows.ts";
@@ -72,15 +73,43 @@ test("openProjectWindow creates a window seeded with the repoId, then focuses th
   assert.equal((second as FakeProjectWindow).initialRepoId, "beta");
 });
 
-test("null repoId always opens a new default window (menu New Window without a project)", () => {
+test("newWindow always creates even when the same project already has a window (⌘⇧N ruling)", () => {
   const { impl, created } = registry();
-  impl.openProjectWindow(null);
-  impl.openProjectWindow(null);
+  const first = impl.openProjectWindow("alpha") as FakeProjectWindow;
+  // 菜单路径不去重:alpha 已有窗口,仍要新增一个停在 alpha 上的窗口。
+  const second = impl.newWindow("alpha");
   assert.equal(created.length, 2);
+  assert.notEqual(second, first);
+  assert.equal((second as FakeProjectWindow).initialRepoId, "alpha");
+  assert.equal(first.focusCount, 0, "always-create path must not just focus the existing window");
+
+  // 同项目两窗并存后,切换器路径(openProjectWindow)仍去重:不再建窗。
+  impl.openProjectWindow("alpha");
+  assert.equal(created.length, 2);
+
+  // 种子为 null(焦点不在任何窗口/未选项目):默认窗口,同样总是新建。
+  impl.newWindow(null);
+  impl.newWindow(null);
+  assert.equal(created.length, 4);
   assert.equal(
-    created.every((window) => window.initialRepoId === null),
+    created.slice(2).every((window) => window.initialRepoId === null),
     true,
   );
+});
+
+test("menuNewWindow seeds a fresh window from the focused window's project instead of focusing it", () => {
+  const { impl, created } = registry();
+  const focused = impl.openProjectWindow("alpha") as FakeProjectWindow;
+  // 聚焦窗口停在 alpha 上按 ⌘⇧N:必须新增窗口。修复前菜单走 openProjectWindow,
+  // 只会聚焦当前窗口自己,什么都不开(CEO 2026-10-17 打回的缺陷,本用例即阴性对照)。
+  menuNewWindow(impl, focused.webContentsId);
+  assert.equal(created.length, 2);
+  assert.equal(created[1].initialRepoId, "alpha");
+  assert.equal(focused.focusCount, 0);
+  // 焦点不在任何窗口:开默认窗口(种子 null)。
+  menuNewWindow(impl, null);
+  assert.equal(created.length, 3);
+  assert.equal(created[2].initialRepoId, null);
 });
 
 test("setActiveProject retargets accounting when a window switches project in place", () => {
@@ -95,7 +124,7 @@ test("setActiveProject retargets accounting when a window switches project in pl
   impl.openProjectWindow("beta");
   assert.equal(created.length, 2);
   assert.equal(first.focusCount, 1);
-  // 未知窗口的上报被忽略(表项只经 openProjectWindow 建立)。
+  // 未知窗口的上报被忽略(表项只经 openProjectWindow/newWindow 建立)。
   impl.setActiveProject(999, "gamma");
   assert.equal(impl.repoIdOf(999), null);
 });

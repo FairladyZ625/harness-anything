@@ -14,23 +14,24 @@ import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
 export function registerProjectWindowIpc(
   registrar: Pick<HarnessIpcRegistrar, "handle">,
   services: {
-    readonly openProjectWindow: (repoId: string | null) => unknown;
+    readonly openProjectWindow: (repoId: string) => unknown;
     readonly setActiveProject: (webContentsId: number, repoId: string | null) => void;
   },
   trustPolicy: IpcWebContentsTrustPolicy,
 ): void {
   registrar.handle(PROJECT_WINDOW_OPEN_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
-    const repoId = checkedRepoIdPayload(payload, false);
+    const repoId = checkedRepoIdPayload(payload);
+    if (repoId === null) throw new Error("Project window open payload requires an exact repoId.");
     services.openProjectWindow(repoId);
   });
   registrar.handle(PROJECT_WINDOW_ACTIVE_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
-    services.setActiveProject(event.sender.id, checkedRepoIdPayload(payload, true));
+    services.setActiveProject(event.sender.id, checkedRepoIdPayload(payload));
   });
 }
 
-function checkedRepoIdPayload(value: unknown, allowNull: boolean): string | null {
+function checkedRepoIdPayload(value: unknown): string | null {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -38,9 +39,9 @@ function checkedRepoIdPayload(value: unknown, allowNull: boolean): string | null
     Object.keys(value).length !== 1 ||
     !("repoId" in value)
   )
-    throw new Error(`Set project window payload must be exactly { repoId }${allowNull ? " or null" : ""}.`);
+    throw new Error("Project window payload must be exactly { repoId }.");
   const repoId = (value as { readonly repoId: unknown }).repoId;
-  if (repoId === null && allowNull) return null;
+  if (repoId === null) return null;
   if (!isProjectWindowRepoId(repoId)) throw new Error("Project window payload requires an exact repoId.");
   return repoId;
 }

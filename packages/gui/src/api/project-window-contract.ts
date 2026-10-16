@@ -6,8 +6,10 @@
  *   BrowserWindow webPreferences.additionalArguments,preload 从 process.argv 读出,
  *   单窗口(无该参数)行为一字不变。
  * - 主进程靠「每个窗口上报自己的当前项目」记账:setActiveProject 由 renderer 在
- *   activeRepoId 变化时发出,注册表据此实现「同项目已开则聚焦、不重复开」。
- * 窗口内仍可用切换器换项目(不锁死),上报保证记账随之更新。
+ *   activeRepoId 变化时发出。开窗入口分两条(CEO 2026-10-17 裁定):切换器
+ *   「在新窗口打开」按记账去重(同项目已开则聚焦、不重复开);菜单「新建窗口 ⌘⇧N」
+ *   总是新建、以当前项目作初始项目。窗口内仍可用切换器换项目(不锁死),上报保证
+ *   记账随之更新。
  */
 export const PROJECT_WINDOW_OPEN_CHANNEL = "harness:windows:openProject";
 export const PROJECT_WINDOW_ACTIVE_CHANNEL = "harness:windows:setActiveProject";

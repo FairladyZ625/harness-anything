@@ -2,6 +2,7 @@ import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { registerProjectWindowIpc } from "./project-window-ipc.ts";
 import {
   createProjectWindowRegistry,
+  menuNewWindow,
   projectWindowArgument,
   type ProjectWindowRegistryEntry,
 } from "./project-windows.ts";
@@ -271,8 +272,10 @@ export async function startGuiApp(): Promise<void> {
   installContentSecurityPolicy();
   loginWebviewSecurity.installCertificateErrorHandler(app);
   const trustedWebContentsIds = new Set<number>();
-  // 项目窗口注册表(task_ca1ee6b9e8f83c89cb376e5f07):窗口↔项目记账,「在新窗口打开」
-  // 已开即聚焦;headless 运行不碰窗口可见性(后台验收要求全部窗口保持隐藏)。
+  // 项目窗口注册表(task_ca1ee6b9e8f83c89cb376e5f07):窗口↔项目记账。开窗两条路
+  // (CEO 2026-10-17 裁定):切换器「在新窗口打开」已开即聚焦(openProjectWindow);
+  // 菜单「新建窗口 ⌘⇧N」总是新建、以当前项目作种子(newWindow)。headless 运行不碰
+  // 窗口可见性(后台验收要求全部窗口保持隐藏)。
   const projectWindows = createProjectWindowRegistry({
     createProjectWindow: (repoId) => toProjectWindowEntry(createTrustedMainWindow(trustedWebContentsIds, repoId)),
     focusWindows: !backgroundTest,
@@ -280,12 +283,11 @@ export async function startGuiApp(): Promise<void> {
   if (process.platform === "darwin") {
     Menu.setApplicationMenu(
       Menu.buildFromTemplate(
-        // 「文件 → 新建窗口 ⌘⇧N」默认停在当前(聚焦)窗口的项目;焦点不在任何窗口或
-        // 未选项目时开默认窗口。
-        darwinAppMenuTemplate(() => {
-          const focused = BrowserWindow.getFocusedWindow();
-          projectWindows.openProjectWindow(focused === null ? null : projectWindows.repoIdOf(focused.webContents.id));
-        }),
+        // 「文件 → 新建窗口 ⌘⇧N」总是新建,不去重(CEO 2026-10-17 裁定);以聚焦窗口
+        // 的项目作初始项目,焦点不在任何窗口或未选项目时开默认窗口。
+        darwinAppMenuTemplate(() =>
+          menuNewWindow(projectWindows, BrowserWindow.getFocusedWindow()?.webContents.id ?? null),
+        ),
       ),
     );
   }
@@ -395,9 +397,9 @@ export async function startGuiApp(): Promise<void> {
   // GUI 内读本机文档(task_89d324b5):节点本地只读查询,主进程收窄见 local-doc-ipc.ts。
   registerLocalDocIpc(ipcMain, { homeDir: () => homedir() }, trustPolicy);
   registerProjectWindowIpc(ipcMain, projectWindows, trustPolicy);
-  projectWindows.openProjectWindow(null);
+  projectWindows.newWindow(null);
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) projectWindows.openProjectWindow(null);
+    if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });
 }
 

@@ -8,11 +8,16 @@ import { bridgeReady, nav } from "./helpers.mjs";
 //     侧栏头部/窗口标题都落在第二个仓上;
 //   ② 同项目重复「在新窗口打开」不重复建窗(headless 下聚焦不改变可见性,以窗口计数
 //     与 window 事件缺席为准);
-//   ③ 两窗口互不影响:窗口 1 切看板,窗口 2 仍停在自己的总览。
+//   ③ 两窗口互不影响:窗口 1 切看板,窗口 2 仍停在自己的总览;
+//   ④ 同项目两窗并存(⌘⇧N 的产物状态,CEO 2026-10-17 裁定):窗口 1 在本窗内切到第二
+//     项目(headless 无焦点,菜单无法带种子,等价走切换器行点击),随后再点「在新窗口
+//     打开」同一项目仍不建第三窗;
+//   ⑤ darwin 真菜单:evaluate 里点应用菜单「新建窗口」,必须总是新增一窗。
 // 第二个仓在本场景内经 daemon.repo.bootstrap 自建(permit 在 lanes.mjs keycloakSetup
 // 里登记);新窗口的 renderer console 错误单独收集——driver 只监听首个窗口。
 // 坑:headless 运行里全部窗口必须保持隐藏(driver.assertBackground),新窗口的
 // show/focus 已由主进程注册表按 backgroundTest 关闭,勿在场景里调 show()。
+// 截图:切换器入口截图必须在面板展开时拍(打回教训:面板收起后拍到的只是看板页)。
 
 const SWITCHER_TITLE = /快速切换项目|Quickly switch projects/u;
 const SECOND_REPO_ID = "gui-e2e-windows";
@@ -25,8 +30,26 @@ async function openSwitcher(page) {
   return panel;
 }
 
+async function closeSwitcher(page) {
+  await page.getByTitle(SWITCHER_TITLE).click();
+  await page.getByTestId("quick-switcher-panel").waitFor({ state: "hidden", timeout: 5_000 });
+}
+
 async function windowCount(app) {
   return app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length);
+}
+
+async function noWindowAppears(app, expectedCount) {
+  const appeared = await app.waitForEvent("window", { timeout: 1_500 }).then(
+    () => true,
+    () => false,
+  );
+  assert.equal(appeared, false, `window count must stay at ${expectedCount}, not spawn a new window`);
+  assert.equal(await windowCount(app), expectedCount);
+}
+
+async function headerShowsProject(page, projectName) {
+  await page.getByTitle(SWITCHER_TITLE).getByText(projectName, { exact: true }).waitFor({ timeout: 20_000 });
 }
 
 export default {
@@ -34,7 +57,7 @@ export default {
   feature: "project-windows",
   lane: "isolated",
   description:
-    "Opening a project from the switcher in a new window lands that window on the project with a matching window title, reopening the same project focuses the existing window instead of creating one, and the two windows navigate independently.",
+    "Opening a project from the switcher in a new window lands that window on the project with a matching window title, reopening the same project focuses the existing window instead of creating one, two windows may rest on the same project (menu New Window ruling) without a third being spawned, and the two windows navigate independently.",
   async run({ app, page, fixture, shot, runRoot }) {
     await bridgeReady(page);
 
@@ -66,10 +89,7 @@ export default {
     ]);
     secondPage.on("pageerror", (error) => secondConsole.push(error.message));
     // 新窗口停在指定项目:侧栏头部(切换器按钮)显示项目名 = 初始项目已生效。
-    await secondPage
-      .getByTitle(SWITCHER_TITLE)
-      .getByText(SECOND_PROJECT_NAME, { exact: true })
-      .waitFor({ timeout: 20_000 });
+    await headerShowsProject(secondPage, SECOND_PROJECT_NAME);
     // 窗口标题「项目名 — Harness Anything」(document.title 由 Electron 同步为原生标题)。
     await secondPage.waitForFunction(
       (expected) => globalThis.document.title === expected,
@@ -83,16 +103,14 @@ export default {
 
     // ② 同项目重复「在新窗口打开」:已开即聚焦,不再建窗(窗口事件缺席 + 计数不变)。
     await panel.getByTestId(`quick-switcher-open-window-${SECOND_REPO_ID}`).click();
-    const duplicate = await app.waitForEvent("window", { timeout: 1_500 }).then(
-      () => true,
-      () => false,
-    );
-    assert.equal(duplicate, false, "reopening the same project must focus the existing window, not create one");
-    assert.equal(await windowCount(app), 2, "window count stays at two after reopening the same project");
+    await noWindowAppears(app, 2);
+
+    // 交付截图素材:切换器展开、「在新窗口打开」入口在画面里(悬停高亮)时拍窗口 1。
+    await panel.getByTestId(`quick-switcher-open-window-${SECOND_REPO_ID}`).hover();
+    await shot("project-windows-switcher-entry");
 
     // 图标按钮不收面板;显式收起再导航(与 project-switch-restore 同款收起路径)。
-    await page.getByTitle(SWITCHER_TITLE).click();
-    await page.getByTestId("quick-switcher-panel").waitFor({ state: "hidden", timeout: 5_000 });
+    await closeSwitcher(page);
 
     // ③ 两窗口互不影响:窗口 1 切看板,窗口 2 仍停在自己的总览与项目上。
     await nav(page, /^(?:看板|Board)$/u, "board-header-summary");
@@ -106,11 +124,46 @@ export default {
       new RegExp(SECOND_PROJECT_NAME, "u"),
       "second window still rests on its own project",
     );
-
-    // 交付截图素材:两个窗口分别停在不同项目(正文截图由本任务的截图步骤发布)。
     await page.screenshot({ path: path.join(runRoot, "project-windows-window-1-board.png"), fullPage: true });
     await secondPage.screenshot({ path: path.join(runRoot, "project-windows-window-2-overview.png"), fullPage: true });
-    await shot("project-windows-switcher-entry");
+
+    // ④ 同项目两窗并存(⌘⇧N 产物状态):headless 无聚焦窗口,菜单种子必为 null,等价地
+    //    把窗口 1 在本窗内切到第二项目(设计允许的窗内切换),此后两窗同停第二项目。
+    const switchPanel = await openSwitcher(page);
+    await switchPanel.getByText(SECOND_PROJECT_NAME, { exact: true }).click();
+    await headerShowsProject(page, SECOND_PROJECT_NAME);
+    await headerShowsProject(secondPage, SECOND_PROJECT_NAME);
+    // 选定项目会收起面板(onProjectOpened);重开后再点「在新窗口打开」同一项目,
+    // 两窗同停该项目时仍必须是去重聚焦,不开第三窗。
+    const dedupPanel = await openSwitcher(page);
+    await dedupPanel.getByTestId(`quick-switcher-open-window-${SECOND_REPO_ID}`).click();
+    await noWindowAppears(app, 2);
+    await closeSwitcher(page);
+    await page.screenshot({ path: path.join(runRoot, "project-windows-same-project-window-1.png"), fullPage: true });
+    await secondPage.screenshot({
+      path: path.join(runRoot, "project-windows-same-project-window-2.png"),
+      fullPage: true,
+    });
+
+    // ⑤ darwin 真菜单「新建窗口」:headless 下聚焦为空 → 种子 null,但必须总是新增一窗
+    //    (修复前菜单会把当前项目交给去重的 openProjectWindow,什么都开不出来)。
+    if (process.platform === "darwin") {
+      const [thirdPage] = await Promise.all([
+        app.waitForEvent("window"),
+        app.evaluate(({ Menu }) => {
+          const menu = Menu.getApplicationMenu();
+          const fileMenu = menu?.items.find((item) => item.label === "文件");
+          const newItem = fileMenu?.submenu?.items.find((item) => item.label === "新建窗口");
+          if (newItem === undefined || newItem.click === null) throw new Error("新建窗口 menu item missing");
+          newItem.click(newItem, undefined, undefined);
+        }),
+      ]);
+      const thirdConsole = [];
+      thirdPage.on("pageerror", (error) => thirdConsole.push(error.message));
+      await bridgeReady(thirdPage);
+      assert.equal(await windowCount(app), 3, "menu New Window must always create a window");
+      assert.deepEqual(thirdConsole, [], `third window renderer errors: ${thirdConsole.join("\n")}`);
+    }
 
     assert.deepEqual(secondConsole, [], `second window renderer errors: ${secondConsole.join("\n")}`);
   },
