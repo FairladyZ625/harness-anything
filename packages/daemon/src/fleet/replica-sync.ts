@@ -14,7 +14,9 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
   readonly onFailure?: (error: unknown) => void;
 }
 type Waiter = { readonly sequence: number; readonly resolve: () => void; readonly reject: (error: unknown) => void };
+type ReadyWaiter = { readonly resolve: (ready: boolean) => void; readonly reject: (error: unknown) => void };
 const waiters = new Map<string, Set<Waiter>>();
+const readyWaiters = new Map<string, Set<ReadyWaiter>>();
 /** Running streams by key; `down` holds the last failure until the next connection attempt. */
 const streams = new Map<string, { down: unknown; connection: AbortController }>();
 const syncKey = (options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">): string =>
@@ -56,6 +58,12 @@ const settle = (key: string, sequence: number | null, failure?: unknown): void =
     }
   if (pending.size === 0) waiters.delete(key);
 };
+const settleReady = (key: string, ready: boolean): void => {
+  const pending = readyWaiters.get(key);
+  if (!pending) return;
+  readyWaiters.delete(key);
+  for (const waiter of pending) waiter.resolve(ready);
+};
 /**
  * Write-then-read: resolves once the resident stream applied the center commit sequence of a write.
  * It waits across resident stream reconnects; the caller's signal owns the wait budget.
@@ -91,6 +99,42 @@ export function waitForFleetReplicaSequence(
     signal?.addEventListener("abort", onAbort, { once: true });
     pending.add(waiter);
     waiters.set(key, pending);
+  });
+}
+/**
+ * Resolves when the resident stream has durably applied its first position and published a generation.
+ * A missing stream is an immediate negative result so callers preserve the unavailable-replica contract;
+ * an in-flight stream is the only state that waits.
+ */
+export function waitForFleetReplicaReady(
+  options: Pick<ReplicaSyncOptions, "viewRoot" | "repoId" | "nodeId">,
+  signal?: AbortSignal,
+): Promise<boolean> {
+  const viewDir = `${options.viewRoot}/repos/${options.repoId}/views/${options.nodeId}`;
+  if (readReplicaGeneration(viewDir)) return Promise.resolve(true);
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  const key = syncKey(options),
+    stream = streams.get(key);
+  if (!stream || stream.down !== null) return Promise.resolve(false);
+  return new Promise<boolean>((resolve, reject) => {
+    const pending = readyWaiters.get(key) ?? new Set<ReadyWaiter>();
+    const waiter: ReadyWaiter = {
+      resolve: (ready) => {
+        signal?.removeEventListener("abort", onAbort);
+        resolve(ready);
+      },
+      reject: (error) => {
+        signal?.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    };
+    const onAbort = () => {
+      pending.delete(waiter);
+      reject(signal!.reason);
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+    pending.add(waiter);
+    readyWaiters.set(key, pending);
   });
 }
 /** One long-lived stream per node and repository; it reconnects with backoff only after a failure. */
@@ -141,12 +185,14 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
           failures = 0;
           observe(null);
           settle(key, position.sequence);
+          settleReady(key, true);
           confirm();
         },
       });
       if (options.signal?.aborted) return;
       if (attempt.failed) {
         stream.down = attempt.error;
+        settleReady(key, false);
         observe(replicaFailure(attempt.error, "replica_sync_failed"));
         options.onFailure?.(attempt.error);
       }
@@ -167,6 +213,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
     if (streams.get(key) === stream) {
       streams.delete(key);
       settle(key, null, new FleetReplicaStreamDownError("replica stream stopped"));
+      settleReady(key, false);
     }
   }
 }

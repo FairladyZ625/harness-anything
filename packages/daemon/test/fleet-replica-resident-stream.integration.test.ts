@@ -17,7 +17,11 @@ import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
 import { syncFleetEdgeMirror } from "../src/fleet-center-admission.ts";
 import { locateFleetMirrorView } from "../src/fleet-edge-mirror.ts";
-import { runFleetReplicaSync, waitForFleetReplicaSequence } from "../src/fleet/replica-sync.ts";
+import {
+  runFleetReplicaSync,
+  waitForFleetReplicaReady,
+  waitForFleetReplicaSequence,
+} from "../src/fleet/replica-sync.ts";
 import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/replica-generation.ts";
 import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import {
@@ -325,7 +329,12 @@ test(
       return true;
     };
     const link = await relay(t, fixture.centerPort());
-    const stream = startStream(t, fixture, viewRoot, link.port);
+    assert.equal(await waitForFleetReplicaReady(view), false, "an edge without a resident stream stays unavailable");
+    link.hold();
+    const stream = startStream(t, fixture, viewRoot, link.port),
+      initialReady = waitForFleetReplicaReady(view);
+    link.release();
+    assert.equal(await initialReady, true, "runtime readiness waits for the first durable replica ACK");
     await converged("initial convergence");
     // The stream is held behind the center's head; sync asks the center for it and waits for it.
     link.hold();

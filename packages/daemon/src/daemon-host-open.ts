@@ -102,7 +102,7 @@ import {
 import { AccessAdminService, accessAdminOperations } from "./access-admin-service.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
-import { runFleetReplicaSync } from "./fleet/replica-sync.ts";
+import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
 
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
@@ -331,6 +331,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             daemonGeneration: Date.now() * 1000 + (process.pid % 1000),
             daemonRoute: runtimeDaemonRoute,
             ports: runtimePorts,
+            waitForReplicaReady: () =>
+              waitForFleetReplicaReady({
+                viewRoot: path.isAbsolute(request.viewRoot)
+                  ? request.viewRoot
+                  : path.resolve(request.workspaceRoot, request.viewRoot),
+                repoId: request.repoId,
+                nodeId: request.nodeId,
+              }),
             ...(input.runtimeLaunch ? { launch: input.runtimeLaunch } : {}),
             now,
           });

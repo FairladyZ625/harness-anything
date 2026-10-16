@@ -167,6 +167,8 @@ export function openFleetEdgeRuntime(input: {
   readonly daemonGeneration: number;
   readonly daemonRoute: RuntimeDaemonRoute;
   readonly ports: RuntimePorts;
+  /** Waits for an in-flight resident stream to publish its first readable generation. */
+  readonly waitForReplicaReady?: (signal?: AbortSignal) => Promise<boolean>;
   readonly launch?: RuntimeLauncher;
   readonly now?: () => string;
 }) {
@@ -802,9 +804,11 @@ export function openFleetEdgeRuntime(input: {
   }
 
   async function pullRuntimeReplica() {
-    const generation = readReplicaGeneration(
+    let generation = readReplicaGeneration(
       path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId),
     );
+    if (!generation && input.waitForReplicaReady && (await input.waitForReplicaReady()))
+      generation = readReplicaGeneration(path.join(request.viewRoot, "repos", request.repoId, "views", request.nodeId));
     if (!generation) throw edgeRuntimeError("replica_unavailable", "The edge replica has not been initialized.");
     const pulled = { replica: { viewId: request.nodeId, knownHead: generation.metadata.position } };
     replicaOwner = (await input.readBinding()).actor.principal.personId;
