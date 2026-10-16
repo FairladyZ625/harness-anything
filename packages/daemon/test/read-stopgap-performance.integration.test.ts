@@ -122,7 +122,7 @@ test("runtime discovery write load keeps independent read clients within the sto
     assert.equal(spawned.outcome, "applied", JSON.stringify(spawned));
     for (const [name, metric] of Object.entries(metrics))
       assert.equal(
-        metric.loaded.p95 <= Math.max(30, Math.max(1, metric.idle.p95) * 2),
+        metric.loaded.p95 <= Math.max(100, Math.max(1, metric.idle.p95) * 2),
         true,
         `${name}: ${JSON.stringify(metric)}`,
       );
@@ -285,9 +285,13 @@ test("sustained RepoWriterCell writes keep completed-cut reads within strict CH3
     // is the same form the read-stopgap subtest above uses: it still catches the pre-stage-3
     // 55-67 ms regression class while leaving hosted variance out of the merge path. The residual
     // main-vs-stage-3 gap is measured nightly and attributed by task_4a19a5705bffc5bb610310fd55.
+    // 2026-10-16 ruling (Zeyu): the absolute floor is 100 ms, not 30 ms. Hosted runs kept grazing 30 ms
+    // (30.7-33.4 ms) while local runs measured 7.5-8.3 ms and the cause stayed unproven
+    // (task_529c84e65815399f6de6787927). Accepted cost: a 55-67 ms regression no longer fails here
+    // unless it also exceeds twice the idle p95.
     for (const [name, metric] of Object.entries(metrics))
       assert.equal(
-        metric.loaded.p95 <= Math.max(30, Math.max(1, metric.idle.p95) * 2),
+        metric.loaded.p95 <= Math.max(100, Math.max(1, metric.idle.p95) * 2),
         true,
         `${name}: ${JSON.stringify(metric)}`,
       );
