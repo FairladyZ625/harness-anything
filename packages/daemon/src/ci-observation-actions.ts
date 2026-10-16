@@ -18,7 +18,7 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { runProcessTextAsync } from "./process-port.ts";
-import { strandedDelivery } from "./repo-cell-ci-evidence.ts";
+import { ciWitnessCommit, strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import {
@@ -781,7 +781,7 @@ function taskWitnessContract(
     : undefined;
   return {
     taskId,
-    delivery,
+    delivery: ciWitnessCommit(execution!) ?? delivery,
     options: witness.adapterOptions,
     ...(typeof instanceId === "string" ? { instanceId } : {}),
   };

@@ -70,6 +70,7 @@ function readPr(selector, root) {
     "baseRefName",
     "headRefName",
     "headRefOid",
+    "mergeCommit",
     "isCrossRepository",
     "mergeable",
     "url",
@@ -245,6 +246,35 @@ function mergeOpenPr(pr, root) {
   const merged = readPr(String(pr.number), root);
   if (merged.state !== "MERGED") {
     throw new Error(`PR #${pr.number} did not reach MERGED state (state=${merged.state}).`);
+  }
+  if (TASK_BRANCH_PATTERN.test(pr.headRefName) && merged.mergeCommit?.oid) {
+    const taskId = pr.headRefName,
+      evidence = readTaskReviewConsent(taskId, root),
+      cuts = currentExecutionCuts({
+        task: evidence.task,
+        executions: evidence.executions,
+        reviews: evidence.reviews,
+        consents: evidence.consents,
+        reviewDispositions: evidence.reviewDispositions ?? [],
+        codeDocWitnesses: evidence.codeDocWitnesses,
+        gateWitnesses: evidence.gateWitnesses,
+      });
+    if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
+    output(
+      "ha",
+      [
+        "task",
+        "annotate",
+        taskId,
+        "--execution-id",
+        cuts[0].executionId,
+        "--kind",
+        "correction",
+        "--note",
+        `merge_commit_sha:${merged.mergeCommit.oid}`,
+      ],
+      { cwd: root },
+    );
   }
 }
 
