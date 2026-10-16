@@ -21,7 +21,8 @@ import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { catchUpReplica } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { waitForState } from "./fleet-replication.fixture.ts";
 
 const repoId = "scaffold-mirror",
   nodeId = "node-one",
@@ -146,6 +147,9 @@ async function initializedCenterWithEdge() {
     centerSubmit,
     viewRoot,
     repoId,
+    centerPort: center.port,
+    certificate: readFileSync(certFile),
+    readAccessToken: owners.readAccessToken(nodeId),
     edgeRevision: () => locateFleetMirrorView(viewRoot, repoId)?.revision ?? null,
     // The shared projection exposes documents; replica databases are generation-local.
     mirroredPaths: () => [...(locateFleetMirrorView(viewRoot, repoId)?.entries.keys() ?? [])].sort(),
@@ -296,10 +300,27 @@ test("a document added after the initial mirror pull reaches the edge workspace"
   const fixture = await initializedCenterWithEdge();
   t.after(() => fixture.close());
   assert.equal((await fixture.edgeSync()).ok, true);
+  const resident = startResidentReplicaSync({
+    hostname: "127.0.0.1",
+    port: fixture.centerPort,
+    ca: fixture.certificate,
+    servername: "localhost",
+    nodeId,
+    credential: "secret-node-one",
+    repoId,
+    viewRoot: fixture.viewRoot,
+    diskQuotaBytes: replicaQuota,
+    readAccessToken: fixture.readAccessToken,
+    onConfirmed: () => applyFleetMirrorCut(fixture.viewRoot, repoId, fixture.workspace, "pull"),
+  });
+  t.after(() => resident.close());
   const logical = "skills/worker-handbook/SKILL.md",
     body = "# Worker handbook\n\nAdded after the edge baseline.\n";
   await fixture.centerSubmit(logical, body);
   assert.equal(existsSync(path.join(fixture.workspace, "harness", ...logical.split("/"))), false);
-  assert.equal((await fixture.edgeSync()).ok, true);
+  await waitForState(
+    () => existsSync(path.join(fixture.workspace, "harness", ...logical.split("/"))),
+    "resident mirror applies the newly replicated document",
+  );
   assert.equal(readFileSync(path.join(fixture.workspace, "harness", ...logical.split("/")), "utf8"), body);
 });
