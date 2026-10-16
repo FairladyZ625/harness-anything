@@ -520,6 +520,26 @@ function validateAgentRuntimePayloadFields(
     !validSquadDispatchContext(value.squadRun)
   )
     return ["Squad dispatch context is invalid"];
+  const historicalDispatchKey =
+    allowUnknownFields &&
+    type === "runtime_dispatch_requested" &&
+    isRecord(value) &&
+    value.dispatchKey === undefined &&
+    value.idempotencyKey !== undefined;
+  if (
+    allowUnknownFields &&
+    type === "runtime_dispatch_requested" &&
+    isRecord(value) &&
+    value.dispatchKey !== undefined &&
+    value.idempotencyKey !== undefined
+  )
+    return ["agent runtime payload fields are incomplete or unknown"];
+  const requiredFields = historicalDispatchKey
+    ? payloadFields[type].filter((field) => field !== "dispatchKey")
+    : payloadFields[type];
+  const acceptedFields = historicalDispatchKey
+    ? payloadFields[type].map((field) => (field === "dispatchKey" ? "idempotencyKey" : field))
+    : payloadFields[type];
   const optionalFields =
     type === "runtime_session_outcome_observed"
       ? ["reasonCode", "dispatchId", "endedAt", "runtimeMetrics", "attempt"]
@@ -548,9 +568,9 @@ function validateAgentRuntimePayloadFields(
           : [];
   if (
     !isRecord(value) ||
-    !hasRequiredFields(value, payloadFields[type]) ||
-    (!allowUnknownFields &&
-      Object.keys(value).some((field) => !payloadFields[type].includes(field) && !optionalFields.includes(field)))
+    !hasRequiredFields(value, requiredFields) ||
+    ((!allowUnknownFields || historicalDispatchKey) &&
+      Object.keys(value).some((field) => !acceptedFields.includes(field) && !optionalFields.includes(field)))
   )
     return ["agent runtime payload fields are incomplete or unknown"];
   if (
@@ -558,7 +578,7 @@ function validateAgentRuntimePayloadFields(
     (!/^[a-f0-9]{40}$/u.test(String(value.commit)) || !/^[a-f0-9]{64}$/u.test(String(value.sha256)))
   )
     return ["runtime handoff audit binding is invalid"];
-  const ids = payloadFields[type].filter((field) => /(?:Id|Key)$/u.test(field));
+  const ids = acceptedFields.filter((field) => /(?:Id|Key)$/u.test(field));
   if (ids.some((field) => !isNonEmptyString(value[field]))) return ["agent runtime payload identity is invalid"];
   if (
     type === "runtime_installation_observed" &&

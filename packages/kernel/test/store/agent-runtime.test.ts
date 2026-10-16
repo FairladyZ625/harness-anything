@@ -12,6 +12,7 @@ import {
   type AgentRuntimeEventV1,
 } from "../../src/domain/agent-runtime.ts";
 import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { parseCanonicalEvent, serializeCanonicalEventUnchecked } from "../../src/domain/doc-sync-canonical-events.ts";
 import { makeTaskEventReader } from "../../src/store/task-event-store-factory.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
 import {
@@ -523,6 +524,30 @@ test("runtime schema replays the historical fallback state while rejecting unkno
     }).join("\n"),
     /metadata/iu,
   );
+});
+
+test("runtime dispatch history accepts only the historical idempotencyKey spelling", () => {
+  const current = eventFromProviderWitness(witness("runtime_dispatch_requested"), envelope(1))!;
+  assert.equal(current.type, "runtime_dispatch_requested");
+  if (current.type !== "runtime_dispatch_requested") return;
+  const { dispatchKey, ...currentPayload } = current.payload;
+  const historical = {
+    ...current,
+    payload: { ...currentPayload, idempotencyKey: dispatchKey },
+  } as unknown as AgentRuntimeEventV1;
+  const body = serializeCanonicalEventUnchecked(historical);
+  assert.equal(parseCanonicalEvent(body).type, "runtime_dispatch_requested");
+  assert.match(validateCurrentAgentRuntimeEvent(historical).join("\n"), /payload fields are incomplete or unknown/iu);
+  for (const payload of [
+    { ...historical.payload, dispatchKey },
+    { ...historical.payload, idempotencyKey: "" },
+    { ...historical.payload, unexpected: true },
+  ]) {
+    assert.throws(
+      () => parseCanonicalEvent(serializeCanonicalEventUnchecked({ ...historical, payload } as AgentRuntimeEventV1)),
+      /payload fields are incomplete or unknown|identity is invalid/iu,
+    );
+  }
 });
 
 test("runtime dispatch history supports keyed reads and done-driven startedAt pages", async () => {
