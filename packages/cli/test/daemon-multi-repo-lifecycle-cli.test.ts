@@ -220,10 +220,10 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     ]);
     assert.equal(alpha.outcome, "applied", JSON.stringify(alpha));
     assert.equal(beta.outcome, "applied", JSON.stringify(beta));
-    // A standalone task's receipt points at --work and ha work list instead of scanning for open works.
+    // A standalone task's receipt lists current work candidates when any exist.
     assert.equal(
       alpha.summary,
-      "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)",
+      "created task task-alpha at harness/tasks/task-alpha-alpha\nwork: none (standalone task)\nnext: ha work list",
     );
     settleFollower(fixture.alpha, fixture.userRoot, alpha);
     const alphaPlan = `${String(alpha.packagePath)}/task_plan.md`;
@@ -574,6 +574,20 @@ test("real CLI files subtask-expansion packages under a work and reads the work 
     ]);
     assert.equal(child.outcome, "applied", JSON.stringify(child));
     assert.match(String(child.summary), /work: task-parent Parent/u);
+    const standalone = run(fixture.alpha, fixture.userRoot, [
+      "task",
+      "create",
+      "--id",
+      "task-standalone",
+      "--admin",
+      "--title",
+      "Standalone",
+    ]);
+    assert.equal(standalone.outcome, "applied", JSON.stringify(standalone));
+    assert.match(
+      String(standalone.summary),
+      /work: none \(standalone task\)\ncandidate works:\n- task-parent Parent: ha task move task-standalone --parent task-parent\nnext: ha work list/u,
+    );
     const childEvent = ledgerReaders
       .open(fixture.alpha, "alpha")
       .read()

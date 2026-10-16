@@ -344,14 +344,31 @@ export function preparedTaskCreateReceipt(
   return receipt;
 }
 
-/** dec_5F7E74F1: the receipt names the task's work, or tells a standalone task how to join one. Listing the
- * open works here would scan every task on each create, so the receipt points at ha work list instead. */
+/** Standalone task receipts point at a small set of current work roots so the next filing action is concrete. */
 function workSummary(cell: RepoCellOperationalContext, task: TaskV2): string {
   const parentTaskId = task.metadata?.parentTaskId ?? null,
     work = parentTaskId === null ? null : workRootOf(cell.projection, parentTaskId);
   if (work !== null) return `\nwork: ${work.taskId} ${work.title}`;
   if (task.taskClass === "work") return `\nwork: ${task.taskId} (new work root; add tasks with --work ${task.taskId})`;
-  return "\nwork: none (standalone task); to file it under a work use ha task create --work <id> (see ha work list)";
+  const candidates = cell.projection.readTaskIndex({
+    workRootsOnly: true,
+    openOnly: true,
+    activePackagesOnly: true,
+    presentationStatus: true,
+    limit: 5,
+  }).rows;
+  return [
+    "\nwork: none (standalone task)",
+    ...(candidates.length
+      ? [
+          "candidate works:",
+          ...candidates.map(
+            ({ taskId, title }) => `- ${taskId} ${title}: ha task move ${task.taskId} --parent ${taskId}`,
+          ),
+        ]
+      : []),
+    "next: ha work list",
+  ].join("\n");
 }
 
 /** A low-risk task created on a full-ceremony profile hears about the lightweight short path; the profile is
