@@ -23,7 +23,7 @@ type RoutedParser = (
   inputs: ThinCliInputDirectory,
 ) => ThinParseResult;
 
-function edgeJoinFields(f: ReturnType<typeof readFlags>): Record<string, unknown> {
+function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>): Record<string, unknown> {
   return {
     ...(f.one.get("--center-url") ? { centerUrl: f.one.get("--center-url") } : {}),
     ...(f.one.get("--spki-sha256") ? { spkiSha256: f.one.get("--spki-sha256") } : {}),
