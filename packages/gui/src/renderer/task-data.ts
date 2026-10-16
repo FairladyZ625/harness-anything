@@ -251,6 +251,9 @@ export async function invalidateLedgerDependents(queryClient: QueryClient, repoI
     queryClient.invalidateQueries({ queryKey: ["triadic", repoId], refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: agendaQueryKeys.read(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: workspaceSummaryQueryKeys.read(repoId), refetchType: "active" }),
+    // 工作页读面(repo.workspace.scope.read)由 App 顶层常驻挂载,同一工作下从不卸载,又无
+    // 自有计时器与聚焦重取,唯一刷新通道就是这份扇出;两段前缀覆盖所有 rootTaskId 的工作页。
+    queryClient.invalidateQueries({ queryKey: ["workspace-scope", repoId], refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.dispatchesAll(repoId), refetchType: "active" }),
     queryClient.invalidateQueries({ queryKey: runtimeQueryKeys.overviewAll(repoId), refetchType: "active" }),
     // 会话页读面(session groups / squad runs / run 详情 / 选中 session / agent inspector 的

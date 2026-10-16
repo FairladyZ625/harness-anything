@@ -1,5 +1,5 @@
 // harness-test-tier: fast
-import { QueryClient, QueryObserver } from "@tanstack/react-query";
+import { InfiniteQueryObserver, QueryClient, QueryObserver } from "@tanstack/react-query";
 import { describe, expect, it, vi } from "vitest";
 
 vi.hoisted(() => {
@@ -8,14 +8,18 @@ vi.hoisted(() => {
 
 import { invalidateLedgerDependents, taskDocumentQuery } from "../src/renderer/task-data.ts";
 import { triadicQueryKeys } from "../src/renderer/triadic-data.ts";
+import { workspaceScopeQueryKeys } from "../src/renderer/workspace-scope-data.ts";
 
 /**
  * 台账切面推进时的重取范围(`task_9d53606292`):**只重取当前挂载的视图正在观察的查询**。
  *
  * 这个文件是那一条的行为门。把 `invalidateLedgerDependents` 的 refetchType 改成 "all"
- * 或 "inactive",第一条立刻红——没人看的全量三元投影(实测单次响应 4,771,601.6 B,
+ * 或 "inactive"，第一条立刻红——没人看的全量三元投影(实测单次响应 4,771,601.6 B,
  * daemon handler p50 1,131 ms;task_be97f0d8 S1 final-10m/summary.json)会重新在后台被拉一次。
  * 第二条钉住反向:挂载中的查询必须照常刷新,省字节不能省掉新鲜度。
+ *
+ * workspace-scope 两条例子钉住工作页读面的同类契约:它由 App 顶层常驻挂载、无自有计时器
+ * 也不做聚焦重取,唯一刷新通道就是这份扇出(两段前缀覆盖所有 rootTaskId)。
  */
 describe("ledger invalidation scope", () => {
   it("leaves an unmounted ledger dependent stale instead of refetching it", async () => {
@@ -66,6 +70,52 @@ describe("ledger invalidation scope", () => {
       expect(observer.getCurrentResult().data?.body).toBe("after");
     } finally {
       unsubscribe();
+      client.clear();
+    }
+  });
+
+  it("refreshes the mounted workspace-scope read on the same cut change", async () => {
+    let title = "before";
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const observer = new InfiniteQueryObserver(client, {
+      queryKey: workspaceScopeQueryKeys.read("repo-a", "root-mounted"),
+      queryFn: async () => ({ root: { title }, tasks: [], page: { nextCursor: null } }),
+      initialPageParam: null,
+      getNextPageParam: () => undefined,
+      staleTime: 4_000,
+    });
+    const unsubscribe = observer.subscribe(() => undefined);
+    try {
+      await observer.refetch();
+      expect(observer.getCurrentResult().data?.pages[0]?.root.title).toBe("before");
+      // 后台推进:CLI 建了任务/改了工作名,工作页读面必须随台账 cut 前进重读。
+      title = "after";
+      await invalidateLedgerDependents(client, "repo-a");
+      expect(observer.getCurrentResult().data?.pages[0]?.root.title).toBe("after");
+    } finally {
+      unsubscribe();
+      client.clear();
+    }
+  });
+
+  it("leaves an unmounted workspace-scope page stale instead of refetching it", async () => {
+    const readScope = vi.fn(async () => ({ root: { title: "idle" }, tasks: [], page: { nextCursor: null } }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    try {
+      // 没有 observer:换到别的工作后留下的缓存,没有任何挂载的视图在看它。
+      await client.fetchInfiniteQuery({
+        queryKey: workspaceScopeQueryKeys.read("repo-a", "root-idle"),
+        queryFn: readScope,
+        initialPageParam: null,
+        getNextPageParam: () => undefined,
+      });
+      expect(readScope).toHaveBeenCalledOnce();
+
+      await invalidateLedgerDependents(client, "repo-a");
+
+      expect(readScope).toHaveBeenCalledOnce();
+      expect(client.getQueryState(workspaceScopeQueryKeys.read("repo-a", "root-idle"))?.isInvalidated).toBe(true);
+    } finally {
       client.clear();
     }
   });
