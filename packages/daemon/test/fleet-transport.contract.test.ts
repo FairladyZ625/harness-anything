@@ -39,6 +39,36 @@ test("fleet authentication metadata admits a standard JWT and remains separate f
     FleetContractError,
   );
 });
+test("Fleet document rejection receipts preserve explanation and path touches", () => {
+  const frame = {
+    schema: "fleet.doc.result/v1",
+    messageId: "doc-result-rejected",
+    inReplyTo: "doc-submit",
+    outcome: "op_rejected",
+    opId: "op-doc",
+    revision: null,
+    replicationSequence: 9,
+    code: "task_docs_require_task_command",
+    receipt: {
+      outcome: "op_rejected",
+      code: "task_docs_require_task_command",
+      taskId: "task-edge",
+      rejectionExplanation: "Task package documents require the canonical task command.",
+      detail: {
+        kind: "doc_sync",
+        unresolvedTouches: [{ path: "tasks/task-edge/closeout.md", reason: "doc-submit channel is not allowed" }],
+      },
+    },
+  } as const;
+  const parsed = parseFleetFrame(frame);
+  assert.deepEqual(parsed, frame);
+  if (parsed.schema !== "fleet.doc.result/v1") return;
+  assert.equal(parsed.receipt.rejectionExplanation, frame.receipt.rejectionExplanation);
+  assert.deepEqual(
+    (parsed.receipt.detail as { readonly unresolvedTouches: readonly unknown[] }).unresolvedTouches,
+    frame.receipt.detail.unresolvedTouches,
+  );
+});
 test("runtime dispatch frames carry typed center admission context without mirrored budget state", () => {
   const frame = {
     schema: "fleet.runtime.event/v1",
@@ -183,6 +213,7 @@ const frames = [
     revision: 7,
     replicationSequence: 7,
     code: null,
+    receipt: { outcome: "applied" },
   },
   {
     schema: "fleet.task.command/v1",

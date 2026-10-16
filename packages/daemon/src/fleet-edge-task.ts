@@ -286,6 +286,7 @@ export async function runFleetEdgeTask(
       }
       return {
         ...center,
+        ...(center.receipt ?? {}),
         schema: "command-receipt/v2",
         command: action.kind,
         ok: center.outcome === "applied" || center.outcome === "no_changes",
