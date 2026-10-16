@@ -52,7 +52,7 @@ export interface DaemonConnLog {
   readonly connectionClosed: (conn: string) => void;
   readonly request: (entry: DaemonTrafficLogEntry) => void;
   // Drains queued appends (looping until no racing line extends the chain) and closes the handle on
-  // the write chain itself, so shutdown leaks no descriptor; a later append transparently reopens.
+  // the write chain itself, so shutdown leaks no descriptor. Appends after settlement are dropped.
   readonly settle: () => Promise<void>;
 }
 
@@ -72,6 +72,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     pending = 0,
     dropped = 0,
     reportedFailure = false;
+  let settled = false;
   let handle: FileHandle | null = null,
     fileBase = "",
     openDay = "",
@@ -82,6 +83,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
     openedAt = new Map<number, number>(),
     requestsByConn = new Map<number, number>();
   const append = (record: Record<string, unknown>): void => {
+    if (settled) return;
     const lines = [
       `${JSON.stringify({ schema: DAEMON_CONN_LOG_SCHEMA.id, at: now().toISOString(), daemonId: options.daemonId, pid, ...record })}\n`,
     ];
@@ -158,6 +160,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
       });
     },
     settle: async () => {
+      settled = true;
       let tail: Promise<void>;
       do {
         tail = chain;
