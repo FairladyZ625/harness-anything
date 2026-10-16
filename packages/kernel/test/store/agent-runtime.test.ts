@@ -538,10 +538,19 @@ test("runtime dispatch history accepts only the historical idempotencyKey spelli
   const body = serializeCanonicalEventUnchecked(historical);
   assert.equal(parseCanonicalEvent(body).type, "runtime_dispatch_requested");
   assert.match(validateCurrentAgentRuntimeEvent(historical).join("\n"), /payload fields are incomplete or unknown/iu);
+  // Forward compatibility (canonical-event-forward-compat contract): unknown fields are ignored in both spellings.
+  assert.equal(
+    parseCanonicalEvent(
+      serializeCanonicalEventUnchecked({
+        ...historical,
+        payload: { ...historical.payload, futureField: true },
+      } as AgentRuntimeEventV1),
+    ).type,
+    "runtime_dispatch_requested",
+  );
   for (const payload of [
     { ...historical.payload, dispatchKey },
     { ...historical.payload, idempotencyKey: "" },
-    { ...historical.payload, unexpected: true },
   ]) {
     assert.throws(
       () => parseCanonicalEvent(serializeCanonicalEventUnchecked({ ...historical, payload } as AgentRuntimeEventV1)),

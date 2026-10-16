@@ -569,7 +569,7 @@ function validateAgentRuntimePayloadFields(
   if (
     !isRecord(value) ||
     !hasRequiredFields(value, requiredFields) ||
-    ((!allowUnknownFields || historicalDispatchKey) &&
+    (!allowUnknownFields &&
       Object.keys(value).some((field) => !acceptedFields.includes(field) && !optionalFields.includes(field)))
   )
     return ["agent runtime payload fields are incomplete or unknown"];
