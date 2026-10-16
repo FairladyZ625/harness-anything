@@ -21,8 +21,9 @@ import { readReplicaGeneration } from "../src/fleet/replica-generation.ts";
 import { listenFleetTls } from "../src/fleet/center.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
-import { catchUpReplica, startResidentReplicaSync } from "./replica-catch-up.fixture.ts";
+import { catchUpReplica } from "./replica-catch-up.fixture.ts";
 import { waitForState } from "./fleet-replication.fixture.ts";
+import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 
 const repoId = "scaffold-mirror",
   nodeId = "node-one",
@@ -142,6 +143,8 @@ async function initializedCenterWithEdge() {
   };
   return {
     repo,
+    root,
+    owners,
     workspace,
     edgeSync,
     centerSubmit,
@@ -296,31 +299,29 @@ test(
   },
 );
 
-test("a document added after the initial mirror pull reaches the edge workspace", { timeout: 60_000 }, async (t) => {
-  const fixture = await initializedCenterWithEdge();
-  t.after(() => fixture.close());
-  assert.equal((await fixture.edgeSync()).ok, true);
-  const resident = startResidentReplicaSync({
-    hostname: "127.0.0.1",
-    port: fixture.centerPort,
-    ca: fixture.certificate,
-    servername: "localhost",
-    nodeId,
-    credential: "secret-node-one",
-    repoId,
-    viewRoot: fixture.viewRoot,
-    diskQuotaBytes: replicaQuota,
-    readAccessToken: fixture.readAccessToken,
-    onConfirmed: () => applyFleetMirrorCut(fixture.viewRoot, repoId, fixture.workspace, "pull"),
-  });
-  t.after(() => resident.close());
-  const logical = "skills/worker-handbook/SKILL.md",
-    body = "# Worker handbook\n\nAdded after the edge baseline.\n";
-  await fixture.centerSubmit(logical, body);
-  assert.equal(existsSync(path.join(fixture.workspace, "harness", ...logical.split("/"))), false);
-  await waitForState(
-    () => existsSync(path.join(fixture.workspace, "harness", ...logical.split("/"))),
-    "resident mirror applies the newly replicated document",
-  );
-  assert.equal(readFileSync(path.join(fixture.workspace, "harness", ...logical.split("/")), "utf8"), body);
-});
+test(
+  "a document added at the center reaches the edge through openDaemonHost's resident stream",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await initializedCenterWithEdge();
+    t.after(() => fixture.close());
+    const edge = await fleetEdgeHostFixture(
+      t,
+      { root: fixture.root, repo: fixture.repo, center: { port: fixture.centerPort }, owners: fixture.owners },
+      { repoId, waitForAttachments: true },
+    );
+    const logical = "skills/worker-handbook/SKILL.md",
+      body = "# Worker handbook\n\nAdded after the edge baseline.\n";
+    await waitForState(
+      () => readReplicaGeneration(path.join(edge.viewRoot, "repos", repoId, "views", nodeId)) !== null,
+      "the production resident stream to establish its initial replica generation",
+    );
+    await fixture.centerSubmit(logical, body);
+    assert.equal(existsSync(path.join(edge.edgeRoot, "harness", ...logical.split("/"))), false);
+    await waitForState(
+      () => existsSync(path.join(edge.edgeRoot, "harness", ...logical.split("/"))),
+      "openDaemonHost resident confirmation applies the newly replicated document",
+    );
+    assert.equal(readFileSync(path.join(edge.edgeRoot, "harness", ...logical.split("/")), "utf8"), body);
+  },
+);
