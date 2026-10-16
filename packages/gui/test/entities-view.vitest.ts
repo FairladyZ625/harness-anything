@@ -48,6 +48,17 @@ import {
  *
  * 素材、桥接桩与挂载脚手架在 `entities-view.fixtures.ts`;这里只留判据。
  */
+// SegCtl 的滑动滑块(motion.span layoutId)会挂 motion 投影树,本环境的
+// document/window 不完整;滑块行为由 seg-ctl-motion.vitest.tsx 与真窗口截图覆盖。
+vi.mock("motion/react", async (original) => {
+  const actual = await original<typeof import("motion/react")>();
+  return {
+    ...actual,
+    motion: { div: "div", span: "span" },
+    AnimatePresence: ({ children }: { readonly children: unknown }) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 beforeAll(() => {
   setActiveLocale("zh-CN");

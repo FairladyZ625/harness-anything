@@ -117,7 +117,9 @@ function ComponentCatalog() {
             <Toggle label="禁用开关" checked disabled /> 禁用
           </div>
           <h2 className="font-semibold ui-title">分段选择 / SegCtl</h2>
-          <p className="text-text-muted ui-meta">统一设置、权限和运行时的选择交互；原生按钮支持键盘并避免提交表单。</p>
+          <p className="text-text-muted ui-meta">
+            统一设置、权限和运行时的选择交互；原生按钮支持键盘并避免提交表单。选中背景是共享元素滑块，切换时滑到新项；减少动态效果时瞬时。
+          </p>
           <div>
             <SegCtl
               label="目录主题"

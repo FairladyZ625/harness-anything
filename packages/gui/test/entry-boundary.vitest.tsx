@@ -9,7 +9,8 @@ import {
   useMotionPreference,
   type MotionPreference,
 } from "../src/renderer/motion-config.tsx";
-import { ENTRY_MOTION, PageEntryBoundary, TabPanel } from "../src/renderer/components/primitives/EntryBoundary.tsx";
+import { PageEntryBoundary, TabPanel } from "../src/renderer/components/primitives/EntryBoundary.tsx";
+import { MOTION_DURATION } from "../src/renderer/motion-tokens.ts";
 
 const probe = vi.hoisted(() => ({ animate: vi.fn(() => ({ complete: vi.fn() })), reduced: false }));
 vi.mock("motion", async (original) => ({ ...(await original<typeof import("motion")>()), animate: probe.animate }));
@@ -97,7 +98,7 @@ it("caps region staggering and animates a region-free panel only once", () => {
   expect(calls[0]?.[1]).toEqual({ opacity: [0, 1], y: [7, 0] });
   expect(calls[1]?.[2].delay).toBe(0.025);
   expect(calls.at(-1)?.[2].delay).toBe(0.1);
-  expect(ENTRY_MOTION.duration + ENTRY_MOTION.maxDelay).toBeLessThanOrEqual(0.28);
+  expect(MOTION_DURATION.entryRise + MOTION_DURATION.entryMaxDelay).toBeLessThanOrEqual(0.28);
   probe.animate.mockClear();
   render("third", "overview", 0, 0);
   expect(probe.animate).toHaveBeenCalledTimes(1);

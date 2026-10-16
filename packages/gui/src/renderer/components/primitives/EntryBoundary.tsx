@@ -1,14 +1,10 @@
 import { createContext, useContext, useLayoutEffect, useRef, type HTMLAttributes, type ReactNode } from "react";
 import { animate } from "motion";
 import { useEntryMotion } from "../../motion-config.tsx";
+import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 
-export const ENTRY_MOTION = {
-  distance: 7,
-  duration: 0.16,
-  stagger: 0.025,
-  maxDelay: 0.1,
-  reducedDuration: 0.1,
-} as const;
+/** 切换入场的上浮位移(px)是形状参数,不进 token;时长/错开/封顶见 MOTION_DURATION。 */
+const ENTRY_DISTANCE = 7;
 const PageEntryContext = createContext<string | null>(null);
 
 /** Identity is navigation intent, never component lifetime or query readiness. */
@@ -26,10 +22,10 @@ function useEntryBoundary(identity: string, pageIdentity: string | null) {
     const regions = [...element.current.querySelectorAll<HTMLElement>("[data-entry-region]")];
     const targets = regions.length ? regions : [element.current];
     const animations = targets.map((target, index) =>
-      animate(target, reduced ? { opacity: [0, 1] } : { opacity: [0, 1], y: [ENTRY_MOTION.distance, 0] }, {
-        duration: reduced ? ENTRY_MOTION.reducedDuration : ENTRY_MOTION.duration,
-        delay: reduced ? 0 : Math.min(index * ENTRY_MOTION.stagger, ENTRY_MOTION.maxDelay),
-        ease: "easeOut",
+      animate(target, reduced ? { opacity: [0, 1] } : { opacity: [0, 1], y: [ENTRY_DISTANCE, 0] }, {
+        duration: reduced ? MOTION_DURATION.reducedFade : MOTION_DURATION.entryRise,
+        delay: reduced ? 0 : Math.min(index * MOTION_DURATION.entryStagger, MOTION_DURATION.entryMaxDelay),
+        ease: MOTION_EASE.out,
       }),
     );
     return () => {

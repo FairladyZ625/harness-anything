@@ -10,6 +10,18 @@ import { ArtifactsWorkspace } from "../src/renderer/views/ArtifactsView.tsx";
 import type { ArtifactGuiRowDto, ArtifactsListResult } from "@harness-anything/daemon/protocol";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
+// SegCtl 的滑动滑块(motion.span layoutId)会挂 motion 投影树,本环境的
+// document/window 不完整;滑块行为由 seg-ctl-motion.vitest.tsx 与真窗口截图覆盖。
+vi.mock("motion/react", async (original) => {
+  const actual = await original<typeof import("motion/react")>();
+  return {
+    ...actual,
+    motion: { div: "div", span: "span" },
+    AnimatePresence: ({ children }: { readonly children: unknown }) => children,
+    useReducedMotion: () => false,
+  };
+});
+
 beforeAll(() => {
   setActiveLocale("en-US");
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;

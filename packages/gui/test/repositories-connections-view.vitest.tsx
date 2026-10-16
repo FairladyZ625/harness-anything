@@ -19,6 +19,17 @@ import { RepositoriesAndConnectionsView } from "../src/renderer/views/settings/R
  * ⑥添加本机仓:有台账走注册,无台账走 bootstrap(沿用首次运行 IPC);
  * ⑦空态并入本页(无仓时显示添加引导,而非独立对话框)。
  */
+// SegCtl 的滑动滑块(motion.span layoutId)会挂 motion 投影树,本环境的
+// document/window 不完整;滑块行为由 seg-ctl-motion.vitest.tsx 与真窗口截图覆盖。
+vi.mock("motion/react", async (original) => {
+  const actual = await original<typeof import("motion/react")>();
+  return {
+    ...actual,
+    motion: { div: "div", span: "span" },
+    AnimatePresence: ({ children }: { readonly children: unknown }) => children,
+    useReducedMotion: () => false,
+  };
+});
 
 const localRepo: SystemRepoRow = {
   repoId: "local-repo",

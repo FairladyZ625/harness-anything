@@ -5,6 +5,7 @@ import { X } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
 import { TONE_COLOR, type StatusTone } from "./StatusTag";
 import { isImeComposingEvent } from "./ime-composition.ts";
+import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 
 /**
  * 原位放大层(标准 §4):共享布局动画从原位长到中央(与 Region 的 focusId 配对),
@@ -96,7 +97,7 @@ export function FocusLayer({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          transition={{ duration: 0.35, ease: "easeOut" }}
+          transition={{ duration: MOTION_DURATION.focusScrim, ease: MOTION_EASE.out }}
           onClick={onClose}
         />
       )}
@@ -106,7 +107,7 @@ export function FocusLayer({
           layoutId={sourceId}
           layoutDependency={sourceId}
           className="glass fixed inset-0 z-11 m-auto h-[min(84vh,860px)] w-[min(86vw,1320px)] overflow-hidden rounded-lg"
-          transition={{ duration: 0.42, ease: [0.2, 0.85, 0.25, 1] }}
+          transition={{ duration: MOTION_DURATION.focusGrow, ease: MOTION_EASE.panel }}
           role="dialog"
           aria-modal="true"
           aria-label={typeof title === "string" ? title : undefined}
