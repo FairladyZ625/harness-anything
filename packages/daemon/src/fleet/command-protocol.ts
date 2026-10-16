@@ -91,13 +91,24 @@ export type FleetFrameV1 =
   | Msg<"fleet.upload.begin/v1", { repoId: string; opId: string; content: FleetBlob }>
   | Msg<
       "fleet.upload.ready/v1",
-      { inReplyTo: string; uploadId: string; resumeOffset: number; status: "receiving" | "already_staged" }
+      {
+        inReplyTo: string;
+        uploadId: string;
+        resumeOffset: number;
+        status: "receiving" | "already_staged";
+        replicationSequence: number | null;
+      }
     >
   | Msg<"fleet.upload.chunk/v1", { uploadId: string; opId: string; offset: number; dataBase64: string }>
   | Msg<"fleet.upload.finish/v1", { uploadId: string; opId: string }>
   | Msg<
       "fleet.upload.result/v1",
-      { inReplyTo: string; status: "staged" | "already_staged"; descriptor: FleetDescriptor }
+      {
+        inReplyTo: string;
+        status: "staged" | "already_staged";
+        descriptor: FleetDescriptor;
+        replicationSequence: number | null;
+      }
     >
   | Msg<
       "fleet.doc.submit/v1",
@@ -655,10 +666,16 @@ const schemas: Readonly<Record<string, Check>> = {
     uploadId: id,
     resumeOffset: uint,
     status: one("receiving", "already_staged"),
+    replicationSequence: nullable(uint),
   }),
   "fleet.upload.chunk/v1": shape({ ...common, uploadId: id, opId: id, offset: uint, dataBase64: base64 }),
   "fleet.upload.finish/v1": shape({ ...common, uploadId: id, opId: id }),
-  "fleet.upload.result/v1": shape({ ...reply, status: one("staged", "already_staged"), descriptor }),
+  "fleet.upload.result/v1": shape({
+    ...reply,
+    status: one("staged", "already_staged"),
+    descriptor,
+    replicationSequence: nullable(uint),
+  }),
   "fleet.doc.submit/v1": optionalShape(
     {
       ...common,

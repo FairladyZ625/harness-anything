@@ -11,9 +11,9 @@ export async function uploadFleetChange(
   session: FleetUploadSession,
   repoId: string,
   input: FleetEdgeChange,
+  opId: string = randomUUID(),
 ): Promise<FleetDescriptor> {
   const body = Buffer.isBuffer(input.body) ? input.body : Buffer.from(input.body),
-    opId = randomUUID(),
     content = {
       sha256: sha256Bytes(body),
       size: body.byteLength,

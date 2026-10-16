@@ -490,11 +490,11 @@ for (const file of packageSourceFiles) {
       ["fleet.doc.submit/v1", "centerRun("],
       ["fleet.task.command/v1", "centerRun("],
       ["fleet.schedule.command/v1", "centerRun("],
-      ["fleet.runtime.event/v1", "runtimeIngress("],
-      ["fleet.runtime.archive/v1", "runtimeIngress("],
-      ["fleet.upload.begin/v1", "persist("],
-      ["fleet.upload.chunk/v1", "appendFileSync("],
-      ["fleet.upload.finish/v1", "persist("],
+      ["fleet.runtime.event/v1", "runFleetCenterWrite("],
+      ["fleet.runtime.archive/v1", "runFleetCenterWrite("],
+      ["fleet.upload.begin/v1", "runFleetCenterWrite("],
+      ["fleet.upload.chunk/v1", "runFleetCenterWrite("],
+      ["fleet.upload.finish/v1", "runFleetCenterWrite("],
     ]);
     for (const [frame, requiredCall] of centerWriteBranchRequirements) {
       const branchStart = text.indexOf(`if (frame.schema === "${frame}")`);

@@ -10,7 +10,7 @@ import test from "node:test";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-import-boundaries.mjs");
 
-test("Fleet center write frames must keep their frame-specific center entry", () => {
+test("Fleet center write frames must use the one center write entry", () => {
   const root = makeFixtureRoot();
   try {
     const centerPath = path.join(root, "packages/daemon/src/fleet/center-listener.ts");
@@ -21,11 +21,11 @@ test("Fleet center write frames must keep their frame-specific center entry", ()
         'if (frame.schema === "fleet.doc.submit/v1") { centerRun(); }',
         'if (frame.schema === "fleet.task.command/v1") { centerRun(); }',
         'if (frame.schema === "fleet.schedule.command/v1") { centerRun(); }',
-        'if (frame.schema === "fleet.runtime.event/v1") { runtimeIngress(); }',
-        'if (frame.schema === "fleet.runtime.archive/v1") { runtimeIngress(); }',
-        'if (frame.schema === "fleet.upload.begin/v1") { persist(); }',
-        'if (frame.schema === "fleet.upload.chunk/v1") { appendFileSync(); }',
-        'if (frame.schema === "fleet.upload.finish/v1") { persist(); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.runtime.archive/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.upload.begin/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { runFleetCenterWrite(); }',
+        'if (frame.schema === "fleet.upload.finish/v1") { runFleetCenterWrite(); }',
       ].join("\n"),
     );
     const valid = runChecker(root);
@@ -35,6 +35,14 @@ test("Fleet center write frames must keep their frame-specific center entry", ()
     const bypass = runChecker(root);
     assert.notEqual(bypass.status, 0);
     assert.match(bypass.stderr, /fleet\.doc\.submit\/v1 must use its center write entry/u);
+
+    writeFileSync(
+      centerPath,
+      readFileSync(centerPath, "utf8").replace("runFleetCenterWrite()", "options.host.runtimeIngress()"),
+    );
+    const runtimeBypass = runChecker(root);
+    assert.notEqual(runtimeBypass.status, 0);
+    assert.match(runtimeBypass.stderr, /fleet\.runtime\.event\/v1 must use its center write entry/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

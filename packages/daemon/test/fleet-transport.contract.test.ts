@@ -246,6 +246,7 @@ const frames = [
     uploadId: "u1",
     resumeOffset: 0,
     status: "receiving",
+    replicationSequence: null,
   },
   {
     schema: "fleet.upload.chunk/v1",
@@ -262,6 +263,7 @@ const frames = [
     inReplyTo: "m8",
     status: "staged",
     descriptor: { ref: "doc-sync-claims/u1", ...blob },
+    replicationSequence: null,
   },
   {
     schema: "fleet.doc.submit/v1",

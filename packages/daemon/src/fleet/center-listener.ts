@@ -192,7 +192,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   // Single center write entry: all Fleet write-frame branches remain behind
   // this boundary, where authenticated principal and writer fencing are already
   // established by nodeContext/auth before the operation is admitted.
-  const runFleetCenterWrite = async <T>(write: () => Promise<T>): Promise<T> => write();
+  const runFleetCenterWrite = async <T>(write: () => T | Promise<T>): Promise<T> => write();
   const centerRun = (...args: Parameters<typeof options.host.run>) =>
     runFleetCenterWrite(() => options.host.run(...args));
   const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
@@ -535,7 +535,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         mkdirSync(path.dirname(file), { recursive: true });
         if (!existsSync(file)) writeFileSync(file, "");
       }
-      persist();
+      await runFleetCenterWrite(() => persist());
       if (!window.uploads.has(uploadId) && window.uploads.size >= 8)
         throw new FleetFault(
           "busy",
@@ -551,6 +551,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         uploadId,
         resumeOffset: upload.descriptor ? upload.content.size : existsSync(file) ? statSync(file).size : 0,
         status: upload.descriptor ? "already_staged" : "receiving",
+        replicationSequence: null,
       });
     }
     if (frame.schema === "fleet.upload.chunk/v1") {
@@ -567,8 +568,10 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         if (!readFileWindow(file, frame.offset, bytes.length).equals(bytes))
           throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
       } else {
-        appendFileSync(file, bytes);
-        syncFile(file);
+        await runFleetCenterWrite(() => {
+          appendFileSync(file, bytes);
+          syncFile(file);
+        });
       }
       return immediate({
         schema: "fleet.upload.ready/v1",
@@ -577,6 +580,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         uploadId: frame.uploadId,
         resumeOffset: statSync(file).size,
         status: "receiving",
+        replicationSequence: null,
       });
     }
     if (frame.schema === "fleet.upload.finish/v1") {
@@ -610,7 +614,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         }
         syncDirectory(path.dirname(target));
         upload.descriptor = descriptor;
-        persist();
+        await runFleetCenterWrite(() => persist());
       }
       window.uploads.delete(frame.uploadId);
       return immediate({
@@ -619,6 +623,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
         inReplyTo: frame.messageId,
         status: wasStaged ? "already_staged" : "staged",
         descriptor,
+        replicationSequence: null,
       });
     }
     if (frame.schema === "fleet.doc.submit/v1") {
@@ -865,17 +870,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
       try {
-        receipt = await options.host.runtimeIngress(
-          a.repoId,
-          {
-            kind: "event",
-            type: frame.eventType as import("@harness-anything/kernel").AgentRuntimeEventV1["type"],
-            payload: frame.payload,
-            opId: frame.opId,
-            ...(resultBody === undefined ? {} : { resultBody }),
-            ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
-          },
-          await auth(a),
+        receipt = await runFleetCenterWrite(async () =>
+          options.host.runtimeIngress(
+            a.repoId,
+            {
+              kind: "event",
+              type: frame.eventType as import("@harness-anything/kernel").AgentRuntimeEventV1["type"],
+              payload: frame.payload,
+              opId: frame.opId,
+              ...(resultBody === undefined ? {} : { resultBody }),
+              ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
+            },
+            await auth(a),
+          ),
         );
       } catch (error) {
         const code = runtimeErrorCode(error);
@@ -918,13 +925,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       assertFrameEpoch(a.repoId, frame.writerEpoch);
       let receipt;
       try {
-        receipt = await options.host.runtimeIngress(
-          a.repoId,
-          {
-            kind: "archive",
-            archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
-          },
-          await auth(a),
+        receipt = await runFleetCenterWrite(async () =>
+          options.host.runtimeIngress(
+            a.repoId,
+            {
+              kind: "archive",
+              archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
+            },
+            await auth(a),
+          ),
         );
       } catch (error) {
         const code = runtimeErrorCode(error);

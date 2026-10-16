@@ -347,7 +347,10 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
 // Stage claim bytes for a task transition bundle without submitting: the
 // descriptors ride the fleet task command frame instead of a doc submit.
 export async function runFleetUploadClient(
-  options: FleetPeerOptions & { readonly changes: readonly FleetEdgeChange[] },
+  options: FleetPeerOptions & {
+    readonly changes: readonly FleetEdgeChange[];
+    readonly operationIds?: readonly string[];
+  },
 ): Promise<readonly FleetDescriptor[]> {
   const session = await openPeer(options);
   try {
@@ -357,7 +360,10 @@ export async function runFleetUploadClient(
       repoId: options.repoId,
     });
     const descriptors: FleetDescriptor[] = [];
-    for (const input of options.changes) descriptors.push(await uploadFleetChange(session, options.repoId, input));
+    for (const [index, input] of options.changes.entries())
+      descriptors.push(
+        await uploadFleetChange(session, options.repoId, input, options.operationIds?.[index] ?? randomUUID()),
+      );
     return descriptors;
   } finally {
     session.close();
