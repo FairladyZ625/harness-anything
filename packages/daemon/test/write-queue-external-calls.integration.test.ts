@@ -125,7 +125,7 @@ test(
       const changed = await cell.run({ kind: "task-submit", taskId, executionId }, binding);
       assert.equal(changed.outcome, "op_rejected", JSON.stringify(changed));
       assert.equal(changed.code, "invalid_transition", JSON.stringify(changed));
-      assert.match(JSON.stringify(changed.next), /task submit --amend/u);
+      assert.match(JSON.stringify(changed.next), /task submit task-submit-no-ci-read --amend/u);
       assert.equal(events().length, 1, "a changed bare retry must not append another submission event");
       assert.equal(existsSync(invoked), false, "a changed submit retry must not invoke gh");
     } finally {

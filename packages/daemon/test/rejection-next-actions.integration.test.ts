@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
 import test, { after, before } from "node:test";
 import { makeTaskEventReader, makeTaskProjection, currentGateRun } from "@harness-anything/kernel";
+import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
@@ -82,11 +83,13 @@ test("submit lease refusals name the state-specific command that advances the ex
     // The refusal names the owning creator's two real lanes (2026-09-30 defect: it named none, so
     // an owner with a patched branch had to dispatch another worker to resubmit).
     assert.match(String(otherHolder.rejectionExplanation), /Only the original submission holder/u);
-    assert.match(String(otherHolder.rejectionExplanation), /ha task submit --amend task-submit-exit --as-owner/u);
+    assert.match(String(otherHolder.rejectionExplanation), /ha task submit task-submit-exit --amend --as-owner/u);
+    assertSubmitHintsParse(String(otherHolder.rejectionExplanation));
     assert.match(String(otherHolder.rejectionExplanation), /ha task adjudicate task-submit-exit --return\./u);
     const otherSettle = await cell.run({ kind: "task-settle", taskId }, binding("other-holder"));
     assert.equal(otherSettle.code, "lease_required", JSON.stringify(otherSettle));
-    assert.match(String(otherSettle.rejectionExplanation), /ha task submit --amend task-submit-exit --as-owner/u);
+    assert.match(String(otherSettle.rejectionExplanation), /ha task submit task-submit-exit --amend --as-owner/u);
+    assertSubmitHintsParse(String(otherSettle.rejectionExplanation));
     assert.equal(
       (
         await cell.run(
@@ -599,6 +602,14 @@ test("task reads against a task id the projection does not have answer task_not_
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
+
+// A `submit --amend` hint is copy-paste runnable only when the CLI's own parser accepts it; the
+// positional task id must lead the flags (task_2c609a85f436dce0ca98435f6d symptom).
+function assertSubmitHintsParse(text: string): void {
+  const commands = [...text.matchAll(/ha task submit \S+ --amend(?: --as-owner)?/gu)].map((match) => match[0]);
+  assert.ok(commands.length > 0, `no copyable submit --amend hint in ${text}`);
+  for (const command of commands) assert.ok(parseThinCommand(command.slice("ha ".length).split(" ")).ok, command);
+}
 
 function binding(executorId: string) {
   return withPolicyGroup(
