@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle, FolderSimple, PushPin, PushPinSlash, WarningCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, CheckCircle, FolderSimple, PushPin, PushPinSlash, WarningCircle } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
 import { orderProjects } from "../../project-order-preferences.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
@@ -54,12 +54,15 @@ function ProjectRow({
   active,
   pinned,
   onOpen,
+  onOpenInNewWindow,
   onTogglePin,
 }: {
   readonly repo: SystemRepoRow;
   readonly active: boolean;
   readonly pinned: boolean;
   readonly onOpen: () => void;
+  /** 「在新窗口打开」;能力缺失(浏览器壳)或仓停用时为 null,按钮不渲染。 */
+  readonly onOpenInNewWindow: (() => void) | null;
   readonly onTogglePin: () => void;
 }) {
   const enabled = repo.registrationState === "enabled",
@@ -94,6 +97,18 @@ function ProjectRow({
           <CheckCircle weight="fill" className="mt-0.5 shrink-0 ui-prose" style={{ color: "var(--color-accent)" }} />
         )}
       </button>
+      {onOpenInNewWindow !== null ? (
+        <button
+          type="button"
+          onClick={onOpenInNewWindow}
+          data-testid={`quick-switcher-open-window-${repo.repoId}`}
+          aria-label={t("components.appSidebar.projectOpenWindowLabel", { name: repo.displayName || repo.repoId })}
+          title={t("components.appSidebar.projectOpenWindowLabel", { name: repo.displayName || repo.repoId })}
+          className="grid w-7 shrink-0 place-items-center rounded-md text-text-faint hover:bg-surface-raised hover:text-text"
+        >
+          <ArrowSquareOut weight="bold" className="size-3.5" aria-hidden />
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onTogglePin}
@@ -124,6 +139,7 @@ export function QuickSwitcher({
   pinnedRepoIds,
   onToggleProjectPin,
   onOpenProject,
+  onOpenProjectInNewWindow,
   onOpenProjectManager,
 }: {
   readonly open: boolean;
@@ -133,6 +149,8 @@ export function QuickSwitcher({
   readonly pinnedRepoIds: ReadonlyArray<string>;
   readonly onToggleProjectPin: (repoId: string) => void;
   readonly onOpenProject: (repoId: string) => void;
+  /** 在独立窗口打开项目;null = 无此能力(浏览器壳),行内不出现该入口。 */
+  readonly onOpenProjectInNewWindow: ((repoId: string) => void) | null;
   readonly onOpenProjectManager: () => void;
 }) {
   const [position, setPosition] = useState<QuickSwitcherPosition | null>(null);
@@ -189,6 +207,7 @@ export function QuickSwitcher({
             active={repo.repoId === activeRepoId}
             pinned={pinnedRepoIds.includes(repo.repoId)}
             onOpen={() => onOpenProject(repo.repoId)}
+            onOpenInNewWindow={onOpenProjectInNewWindow === null ? null : () => onOpenProjectInNewWindow(repo.repoId)}
             onTogglePin={() => onToggleProjectPin(repo.repoId)}
           />
         ))}
@@ -213,6 +232,7 @@ export function QuickSwitcher({
                     active={repo.repoId === activeRepoId}
                     pinned={pinnedRepoIds.includes(repo.repoId)}
                     onOpen={() => onOpenProject(repo.repoId)}
+                    onOpenInNewWindow={null}
                     onTogglePin={() => onToggleProjectPin(repo.repoId)}
                   />
                 ))}

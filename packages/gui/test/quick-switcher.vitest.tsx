@@ -154,4 +154,33 @@ describe("快速切换面板精简(业主 2026-10-11)", () => {
     expect(okRow?.textContent).not.toMatch(/attached|已附着/u);
     expect(warmingRow?.textContent).toMatch(/挂载中/u);
   });
+
+  it("「在新窗口打开」:有回调才出现,点击带 repoId;无能力(浏览器壳)或停用仓不渲染", async () => {
+    const opened: string[] = [];
+    await renderSwitcher({
+      repos: [
+        repo({ repoId: "main", displayName: "主项目" }),
+        repo({ repoId: "test-accept", displayName: "验收仓", registrationState: "disabled" }),
+      ],
+      onOpenProjectInNewWindow: (repoId) => opened.push(repoId),
+    });
+    // 无回调(浏览器壳):启用行也不出现该入口。
+    expect(document.querySelector('[data-testid="quick-switcher-open-window-main"]')).not.toBeNull();
+    await act(async () =>
+      document
+        .querySelector('[data-testid="quick-switcher-open-window-main"]')
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    expect(opened).toEqual(["main"]);
+    // 停用仓折叠区里的行不带新窗口入口(停用仓无法打开)。
+    expect(document.querySelector('[data-testid="quick-switcher-open-window-test-accept"]')).toBeNull();
+  });
+
+  it("无窗口能力时(浏览器壳)行内不出现新窗口入口", async () => {
+    await renderSwitcher({
+      repos: [repo({ repoId: "main", displayName: "主项目" })],
+      onOpenProjectInNewWindow: null,
+    });
+    expect(document.querySelector('[data-testid="quick-switcher-open-window-main"]')).toBeNull();
+  });
 });

@@ -90,7 +90,8 @@ import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
-import { guiTransport } from "./gui-transport.ts";
+import { guiTransport, guiHostBridge } from "./gui-transport.ts";
+import { useProjectWindowHost, useProjectWindowTitle } from "./project-window-host.ts";
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
@@ -110,7 +111,11 @@ const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
 
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
-  const [activeRepoId, setActiveRepoId] = useState<string | null>(null);
+  // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):本窗口若是「在新窗口打开」
+  // 开出的,preload 已带来初始项目作选仓种子(非启用仓由 selectActiveRepoId 回落默认)。
+  const [activeRepoId, setActiveRepoId] = useState<string | null>(
+    () => guiHostBridge()?.windows?.initialProjectId ?? null,
+  );
   const queryClient = useQueryClient();
   const systemQuery = useSystemStatusQuery();
   const enabledRepos = useMemo(
@@ -121,6 +126,8 @@ function AppShell() {
     const next = selectActiveRepoId(systemQuery.data?.repos ?? [], activeRepoId);
     if (next !== activeRepoId) setActiveRepoId(next);
   }, [activeRepoId, systemQuery.data?.repos]);
+  // 当前项目上报主进程 + 「在新窗口打开」入口(浏览器壳为 null)。
+  const openProjectInNewWindow = useProjectWindowHost(activeRepoId);
   const projectId = activeRepoId ?? "unselected";
   // 已注册 kind 清单(内核内建 + 本仓 vertical 声明):图筛选、命令面板与实体页同源于此。
   const entityKinds = useEntityKindOptions(projectId);
@@ -242,6 +249,8 @@ function AppShell() {
     });
   }, [projectId, taskWipQuery.data, tasksQuery.data, activeTasksQuery.data, works]);
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
+  // 窗口标题「项目名 — Harness Anything」:Dock/任务栏/⌘` 切窗口可辨认。
+  useProjectWindowTitle(activeRepo?.displayName ?? null);
   // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂载时读。
   const fleetOverview = useFleetOverview(activeRepoId, view === "collaboration");
   const project = adaptRepoProject(
@@ -557,6 +566,7 @@ function AppShell() {
           onOpenProject={(repoId) => {
             void openProject(repoId);
           }}
+          onOpenProjectInNewWindow={openProjectInNewWindow}
           onOpenProjectManager={() => {
             setProjectSwitcherOpen(false);
             goto("home");

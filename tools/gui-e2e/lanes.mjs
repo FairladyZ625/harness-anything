@@ -155,10 +155,15 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
             keycloakSetup: (keycloak) => {
               keycloak.account("person-ada");
               keycloak.account("person-bo");
-              // project-switch-restore 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
+              // project-switch-restore / project-windows 场景自建的第二个仓:与主仓同 scope 授权 person-gui。
               keycloak.permit(
                 "person-gui",
                 "gui-e2e-restore",
+                effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
+              );
+              keycloak.permit(
+                "person-gui",
+                "gui-e2e-windows",
                 effectivePolicyGroupScopes(deriveBasePolicyGroups(), "admin"),
               );
             },

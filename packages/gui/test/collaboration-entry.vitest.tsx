@@ -72,6 +72,7 @@ function mountSidebar(activeRepoId: string | null, repos: readonly SystemRepoRow
               projectSwitcherOpen={false}
               onProjectSwitcherToggle={() => {}}
               onOpenProject={() => {}}
+              onOpenProjectInNewWindow={null}
               onOpenProjectManager={() => {}}
               onNavigate={onNavigate}
               pinnedWork={[]}

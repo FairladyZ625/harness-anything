@@ -1,5 +1,6 @@
 {
   "components.appSidebar.accountSynchronizationV2": "账号与同步 · V2",
+  "components.appSidebar.projectOpenWindowLabel": "在新窗口打开 {name}",
   "components.appSidebar.taskCensus": "共 {totalCount} 个任务",
   "components.appSidebar.failedReadLedgerBridge": "台账桥读取失败",
   "components.appSidebar.ledgerCatchingUp": "显示 r{watermark} · 正在追赶 r{sourceRevision}",

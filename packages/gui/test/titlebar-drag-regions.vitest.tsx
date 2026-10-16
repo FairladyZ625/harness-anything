@@ -54,6 +54,7 @@ it("侧栏顶行(HARNESS 行)是拖拽区并在顶部给红绿灯让位,主题�
           projectSwitcherOpen={false}
           onProjectSwitcherToggle={() => {}}
           onOpenProject={() => {}}
+          onOpenProjectInNewWindow={null}
           onOpenProjectManager={() => {}}
           onNavigate={() => {}}
           pinnedWork={[]}

@@ -1,5 +1,6 @@
 {
   "components.appSidebar.accountSynchronizationV2": "Account and synchronization · V2",
+  "components.appSidebar.projectOpenWindowLabel": "Open {name} in a new window",
   "components.appSidebar.taskCensus": "{totalCount} tasks total",
   "components.appSidebar.failedReadLedgerBridge": "Failed to read ledger bridge",
   "components.appSidebar.ledgerCatchingUp": "shown r{watermark} · catching up to r{sourceRevision}",
