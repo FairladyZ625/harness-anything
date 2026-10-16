@@ -4,7 +4,8 @@ import { nav } from "./helpers.mjs";
 /**
  * 取代链组件内横滚(ChainStrip 链接链契约):supersede 关系数无界增长时,链接链
  * 单行、在链内部横向滚动,链接仍可点(点击导航),滚动手势与键盘平移不触发导航;
- * 溢出时出右缘提示并进入 tab 序。
+ * 溢出时未到头一侧由共享 scroll-fade-x 羽化提示(到头即归零,替代已删除的右缘
+ * 「›」提示),并可焦点(焦点/语义落在外层 data-chain-strip 链组)。
  * 数据面:lanes.mjs 的 seedSupersedeChain(dec_gui_smoke → 12 个真实 proposed 决策,
  * 走 decisionService 同一写路)。覆盖两个真实消费面:决策池行抽屉(ChainView)与
  * 专注裁决模式的 VerdictCard relation 卡。
@@ -36,13 +37,26 @@ export default {
       clientWidth: node.clientWidth,
       singleLine: node.scrollHeight <= node.clientHeight + 1,
       links: node.querySelectorAll("button").length,
-      hint: node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
       drawerOpen: node.closest("[role='dialog'], aside, [data-drawer]") !== null,
     }));
     assert.ok(geometry.scrollWidth > geometry.clientWidth, `chain must overflow: ${JSON.stringify(geometry)}`);
     assert.ok(geometry.singleLine, `chain must stay single-line: ${JSON.stringify(geometry)}`);
     assert.equal(geometry.links, 13, `self link + 12 superseded decisions: ${JSON.stringify(geometry)}`);
-    assert.equal(geometry.hint, 1, `overflowing chain must show the hint: ${JSON.stringify(geometry)}`);
+    // A4 渐隐契约:链在头部——到头的头侧羽化为零、未到头的尾侧羽化非零
+    // (scroll-driven 计算值渲染后才落定,等待它出现再断言两侧)。
+    await page.waitForFunction(
+      (node) => Number.parseFloat(globalThis.getComputedStyle(node).getPropertyValue("--scroll-fade-after")) > 0.5,
+      await chain.elementHandle(),
+    );
+    const headFade = await chain.evaluate((node) => {
+      const style = globalThis.getComputedStyle(node);
+      return {
+        before: Number.parseFloat(style.getPropertyValue("--scroll-fade-before")),
+        after: Number.parseFloat(style.getPropertyValue("--scroll-fade-after")),
+      };
+    });
+    assert.ok(headFade.before < 0.5, `the reached head edge must not fade: ${JSON.stringify(headFade)}`);
+    assert.ok(headFade.after > 0.5, `the unreached tail edge must stay faded: ${JSON.stringify(headFade)}`);
 
     // 横向滚轮只滚链,不导航(抽屉仍在、URL 不动)。
     const beforeWheelUrl = page.url();
@@ -60,7 +74,8 @@ export default {
     assert.equal(page.url(), beforeWheelUrl, "wheel scrolling must not change the route");
 
     // 键盘:链在抽屉正文里,Tab 可达,方向键平移不导航。锚在抽屉头部的实体链接
-    // (链外、链前的最后一个可焦点面),真实 Tab 步进到滚动区。
+    // (链外、链前的最后一个可焦点面),真实 Tab 步进到链组(可焦点面在外层
+    // data-chain-strip,渐隐 mask 会裁掉滚动区自身的焦点环)。
     await chain.evaluate((node) => {
       node.scrollLeft = 0;
     });
@@ -72,9 +87,11 @@ export default {
     let stripFocused = false;
     for (let step = 0; step < 15 && !stripFocused; step += 1) {
       await page.keyboard.press("Tab");
-      stripFocused = await chain.evaluate((node) => globalThis.document.activeElement === node);
+      stripFocused = await chain.evaluate(
+        (node) => globalThis.document.activeElement === node.closest("[data-chain-strip]"),
+      );
     }
-    assert.ok(stripFocused, "Tab must reach the supersede chain scroll region");
+    assert.ok(stripFocused, "Tab must reach the supersede chain group");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
     const afterArrows = await chain.evaluate((node) => ({
@@ -107,14 +124,26 @@ export default {
       scrollWidth: node.scrollWidth,
       clientWidth: node.clientWidth,
       singleLine: node.scrollHeight <= node.clientHeight + 1,
-      hint: node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
     }));
     assert.ok(
       verdictGeometry.scrollWidth > verdictGeometry.clientWidth,
       `verdict chain must overflow: ${JSON.stringify(verdictGeometry)}`,
     );
     assert.ok(verdictGeometry.singleLine, `verdict chain must stay single-line: ${JSON.stringify(verdictGeometry)}`);
-    assert.equal(verdictGeometry.hint, 1, `verdict chain must show the hint: ${JSON.stringify(verdictGeometry)}`);
+    // 同一 ChainStrip 契约:头部到头侧不羽化、未到头侧羽化。
+    await page.waitForFunction(
+      (node) => Number.parseFloat(globalThis.getComputedStyle(node).getPropertyValue("--scroll-fade-after")) > 0.5,
+      await verdictChain.elementHandle(),
+    );
+    const verdictFade = await verdictChain.evaluate((node) => {
+      const style = globalThis.getComputedStyle(node);
+      return {
+        before: Number.parseFloat(style.getPropertyValue("--scroll-fade-before")),
+        after: Number.parseFloat(style.getPropertyValue("--scroll-fade-after")),
+      };
+    });
+    assert.ok(verdictFade.before < 0.5, `the reached head edge must not fade: ${JSON.stringify(verdictFade)}`);
+    assert.ok(verdictFade.after > 0.5, `the unreached tail edge must stay faded: ${JSON.stringify(verdictFade)}`);
     const verdictBox = await verdictChain.boundingBox();
     await page.mouse.move(verdictBox.x + verdictBox.width / 2, verdictBox.y + verdictBox.height / 2);
     await page.mouse.wheel(600, 0);

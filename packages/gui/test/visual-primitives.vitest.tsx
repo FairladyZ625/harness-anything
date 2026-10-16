@@ -284,7 +284,6 @@ describe("ChainStrip", () => {
     expect(group.getAttribute("role")).toBe("group");
     expect(group.getAttribute("aria-label")).toBe("进展步骤链");
     expect(group.getAttribute("tabindex")).toBeNull();
-    expect(container.querySelector("[data-chain-hint]")).toBeNull();
     act(() => root.unmount());
   });
 

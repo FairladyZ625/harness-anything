@@ -153,10 +153,18 @@ export default {
         { kind: "task-submit", taskId: LONG_TASK, executionId, commitSha },
         `round ${round} submit`,
       );
+      // worker-mode none(9ceab8bb1 起 return 必须显式选续派模式):夹具只要返工状态
+      // 转移落账增长链,不派发真实 worker。
       await mustApply(
         fixture.endpoint,
         fixture.repoId,
-        { kind: "task-adjudicate", taskId: LONG_TASK, return: true, reason: `chain rework round ${round}` },
+        {
+          kind: "task-adjudicate",
+          taskId: LONG_TASK,
+          return: true,
+          reason: `chain rework round ${round}`,
+          workerMode: "none",
+        },
         `round ${round} return`,
       );
     }
@@ -221,6 +229,21 @@ export default {
     });
     assert.ok(endState.scrollLeft > 0, "chain must be scrollable to the end");
     assert.ok(endState.lastReached, "the last step tag must be reachable by scrolling");
+    // A4 渐隐契约(scroll-fade-x 注册变量,替代已删除的「›」提示):到头一侧羽化归零、
+    // 未到头一侧保持。scroll-driven 动画的计算值在滚动后的下一渲染帧才更新,等待落定。
+    await page.waitForFunction(
+      (node) => Number.parseFloat(globalThis.getComputedStyle(node).getPropertyValue("--scroll-fade-after")) < 0.5,
+      await longChain.elementHandle(),
+    );
+    const tailFade = await longChain.evaluate((node) => {
+      const style = globalThis.getComputedStyle(node);
+      return {
+        before: Number.parseFloat(style.getPropertyValue("--scroll-fade-before")),
+        after: Number.parseFloat(style.getPropertyValue("--scroll-fade-after")),
+      };
+    });
+    assert.ok(tailFade.before > 0.5, `the unreached head edge must stay faded: ${JSON.stringify(tailFade)}`);
+    assert.ok(tailFade.after < 0.5, `the reached tail edge must not fade: ${JSON.stringify(tailFade)}`);
     const chainBox = await longChain.boundingBox();
     await page.mouse.move(chainBox.x + chainBox.width / 2, chainBox.y + chainBox.height / 2);
     await page.mouse.wheel(600, 0);
@@ -228,23 +251,35 @@ export default {
     assert.ok(afterWheel.scrollLeft > 0, "horizontal wheel must scroll the chain");
     assert.ok(await onWorkPage(), "scrolling must not navigate the row");
 
-    // ——— 键盘可达:溢出链是原生可焦点 scroll region,方向键平移且不误触导航 ———
-    // 标题按钮与链是兄弟元素:从标题用真实 Tab 进入链，验证独立焦点
+    // ——— 键盘可达:溢出链是可焦点组(tabindex/role 落在外层 data-chain-strip——渐隐
+    // mask 会裁掉滚动区自身的焦点环),方向键平移且不误触导航 ———
+    // 标题按钮与链是兄弟元素:从标题用真实 Tab 进入链组，验证独立焦点
     // 可键盘到达(Chromium 行为,不以另一详情页替代)。
-    const hintCount = await longChain.evaluate(
-      (node) => node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
-    );
-    assert.equal(hintCount, 1, "an overflowing chain must show the right-edge overflow hint");
     await longChain.evaluate((node) => {
       node.scrollLeft = 0;
       node.closest("[data-day-path]").querySelector("button").focus();
     });
+    await page.waitForFunction(
+      (node) => Number.parseFloat(globalThis.getComputedStyle(node).getPropertyValue("--scroll-fade-before")) < 0.5,
+      await longChain.elementHandle(),
+    );
+    const headFade = await longChain.evaluate((node) => {
+      const style = globalThis.getComputedStyle(node);
+      return {
+        before: Number.parseFloat(style.getPropertyValue("--scroll-fade-before")),
+        after: Number.parseFloat(style.getPropertyValue("--scroll-fade-after")),
+      };
+    });
+    assert.ok(headFade.before < 0.5, `the reached head edge must not fade: ${JSON.stringify(headFade)}`);
+    assert.ok(headFade.after > 0.5, `the unreached tail edge must stay faded: ${JSON.stringify(headFade)}`);
     let stripFocused = false;
     for (let step = 0; step < 8 && !stripFocused; step += 1) {
       await page.keyboard.press("Tab");
-      stripFocused = await longChain.evaluate((node) => globalThis.document.activeElement === node);
+      stripFocused = await longChain.evaluate(
+        (node) => globalThis.document.activeElement === node.closest("[data-chain-strip]"),
+      );
     }
-    assert.ok(stripFocused, "Tab must reach the overflowing chain after the title button");
+    assert.ok(stripFocused, "Tab must reach the overflowing chain group after the title button");
     await page.keyboard.press("ArrowRight");
     await page.keyboard.press("ArrowRight");
     const afterArrows = await longChain.evaluate((node) => ({ scrollLeft: node.scrollLeft }));
@@ -264,16 +299,23 @@ export default {
       endReached.atEnd && endReached.lastVisible,
       `End must bring the last step into view: ${JSON.stringify(endReached)}`,
     );
-    // 短链对照:不溢出的链不出提示、不进 tab 序。
+    // 短链对照:不溢出的链时间线不激活,渐隐变量回落 0px、外层链组不进 tab 序。
     const shortChain = region.getByTestId("step-chain").filter({ hasText: "开始" }).first();
     if ((await shortChain.count()) > 0) {
-      const shortState = await shortChain.evaluate((node) => ({
-        overflow: node.scrollWidth > node.clientWidth,
-        hint: node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
-        tabindex: node.getAttribute("tabindex"),
-      }));
+      const shortState = await shortChain.evaluate((node) => {
+        const style = globalThis.getComputedStyle(node);
+        return {
+          overflow: node.scrollWidth > node.clientWidth,
+          before: Number.parseFloat(style.getPropertyValue("--scroll-fade-before")),
+          after: Number.parseFloat(style.getPropertyValue("--scroll-fade-after")),
+          tabindex: node.closest("[data-chain-strip]")?.getAttribute("tabindex") ?? null,
+        };
+      });
       if (!shortState.overflow) {
-        assert.equal(shortState.hint, 0, "a non-overflowing chain must not show the hint");
+        assert.ok(
+          shortState.before < 0.5 && shortState.after < 0.5,
+          `a non-overflowing chain must not fade either edge: ${JSON.stringify(shortState)}`,
+        );
         assert.equal(shortState.tabindex, null, "a non-overflowing chain must stay out of the tab order");
       }
     }
@@ -308,20 +350,22 @@ export default {
         return (
           node.closest("[data-day]").clientWidth < 512 &&
           Math.abs(node.parentElement.getBoundingClientRect().width - row.getBoundingClientRect().width) <= 1 &&
-          node.parentElement.querySelector(":scope > [data-chain-hint]") !== null
+          Number.parseFloat(globalThis.getComputedStyle(node).getPropertyValue("--scroll-fade-after")) > 0.5
         );
       },
       await narrowChain.elementHandle(),
     );
     const narrow = await narrowChain.evaluate((node) => {
       const row = node.parentElement.parentElement;
+      const style = globalThis.getComputedStyle(node);
       return {
         dayWidth: node.closest("[data-day]").clientWidth,
         stripWidth: node.parentElement.getBoundingClientRect().width,
         rowWidth: row.getBoundingClientRect().width,
         stillSingleLine: node.scrollHeight <= node.clientHeight + 1,
         stillScrollable: node.scrollWidth > node.clientWidth,
-        hintVisible: node.parentElement.querySelectorAll(":scope > [data-chain-hint]").length,
+        fadeBefore: Number.parseFloat(style.getPropertyValue("--scroll-fade-before")),
+        fadeAfter: Number.parseFloat(style.getPropertyValue("--scroll-fade-after")),
       };
     });
     assert.ok(narrow.dayWidth < 512, `narrow panel must trigger the stacked layout: ${JSON.stringify(narrow)}`);
@@ -331,7 +375,10 @@ export default {
     );
     assert.ok(narrow.stillSingleLine, `narrow chain must stay single-line: ${JSON.stringify(narrow)}`);
     assert.ok(narrow.stillScrollable, `narrow chain must still scroll inside: ${JSON.stringify(narrow)}`);
-    assert.equal(narrow.hintVisible, 1, `narrow overflowing chain must show the hint: ${JSON.stringify(narrow)}`);
+    assert.ok(
+      narrow.fadeBefore < 0.5 && narrow.fadeAfter > 0.5,
+      `narrow chain at the head must fade only the unreached tail edge: ${JSON.stringify(narrow)}`,
+    );
     await shot("work-progress-chain-narrow");
   },
 };
