@@ -1,5 +1,10 @@
 import { useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 
+/** Native keyboard events do not pass through React's composition session state. */
+export function isImeComposingEvent(event: Pick<KeyboardEvent, "isComposing" | "keyCode">): boolean {
+  return event.isComposing || event.keyCode === 229;
+}
+
 /**
  * IME 组字守卫(标准 §1.10「规则住在原语里」):CJK 输入法组字(选词)期间,
  * 键盘事件属于输入法——Enter 只上屏候选,不触发确认/跳转/提交;方向键/Escape
@@ -22,7 +27,7 @@ export function useImeKeyDown<T extends Element>(
   const [composing, setComposing] = useState(false);
   return {
     onKeyDown(event) {
-      if (composing || event.nativeEvent.isComposing || event.keyCode === 229) return;
+      if (composing || isImeComposingEvent(event.nativeEvent)) return;
       handler(event);
     },
     compositionProps: {
