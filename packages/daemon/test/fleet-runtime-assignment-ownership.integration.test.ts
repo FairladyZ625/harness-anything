@@ -53,7 +53,7 @@ for (const distinctNode of [false, true])
 
         const sequence: string[] = [];
         const counts = new Map<string, { archive: number; release: number; terminal: number }>();
-        const terminalOpIds = new Map<string, Set<string>>();
+        const terminalReceipts = new Map<string, Array<{ outcome: string; eventOutcome: string }>>();
         const terminals = new Map<string, () => void>();
         const credentials = new Map<string, string>();
         const settled = new Map<string, () => void>();
@@ -62,7 +62,7 @@ for (const distinctNode of [false, true])
             new Promise<void>((resolve) => {
               settled.set(subject.taskId, resolve);
               counts.set(subject.taskId, { archive: 0, release: 0, terminal: 0 });
-              terminalOpIds.set(subject.taskId, new Set());
+              terminalReceipts.set(subject.taskId, []);
             }),
         );
         const sessionTasks = new Map<string, string>();
@@ -81,8 +81,11 @@ for (const distinctNode of [false, true])
                 if (command.kind === "event" && command.type === "runtime_session_outcome_observed") {
                   const taskId = sessionTasks.get(String(command.payload.runtimeSessionId))!;
                   counts.get(taskId)!.terminal += 1;
-                  terminalOpIds.get(taskId)!.add(command.opId);
-                  sequence.push(`${taskId}:terminal:${command.opId}`);
+                  terminalReceipts.get(taskId)!.push({
+                    outcome: String(receipt.outcome),
+                    eventOutcome: String(command.payload.outcome),
+                  });
+                  sequence.push(`${taskId}:terminal:${command.opId}:${String(receipt.outcome)}`);
                   settled.get(taskId)!();
                 }
                 return receipt;
@@ -296,7 +299,21 @@ for (const distinctNode of [false, true])
         for (const [taskId, count] of counts) {
           assert.deepEqual({ archive: count.archive, release: count.release }, { archive: 1, release: 1 });
           assert.ok(count.terminal >= 1, `${taskId}: ${JSON.stringify(sequence)}`);
-          assert.equal(terminalOpIds.get(taskId)!.size, 1, `${taskId}: ${JSON.stringify(sequence)}`);
+          const receipts = terminalReceipts.get(taskId)!;
+          assert.equal(
+            receipts.filter((receipt) => receipt.outcome === "applied").length,
+            1,
+            `${taskId}: ${JSON.stringify({ sequence, receipts })}`,
+          );
+          assert.ok(
+            receipts.every((receipt) => receipt.outcome === "applied" || receipt.outcome === "no_changes"),
+            `${taskId}: ${JSON.stringify({ sequence, receipts })}`,
+          );
+          assert.equal(
+            new Set(receipts.map((receipt) => receipt.eventOutcome)).size,
+            1,
+            `${taskId}: terminal outcomes disagree: ${JSON.stringify({ sequence, receipts })}`,
+          );
         }
         const events = makeTaskEventReader({ repoId: second.repoId, rootDir: fixture.repo }).read().events;
         for (const [runtimeSessionId, expected] of [
