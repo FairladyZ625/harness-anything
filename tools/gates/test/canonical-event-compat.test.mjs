@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { readFileSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync, renameSync, writeFileSync, rmSync } from "node:fs";
 import path from "node:path";
 import { completionGenerationFixtures, convertFrozenCompletionSample } from "../completion-generation-fixtures.mjs";
 import { makeOfflineCompletionChain } from "../../../packages/kernel/src/store/offline-completion-chain.ts";
@@ -11,13 +11,14 @@ import {
 } from "../../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
 import test from "node:test";
 import {
+  validateCanonicalFixtureChanges,
   projectFrozenDaemonResponses,
   validateFrozenCanonicalEvents,
   validateFrozenDaemonReadside,
   validateProjectedDaemonResponses,
 } from "../canonical-event-compat.mjs";
 const sourceRoot = path.resolve(import.meta.dirname, "../../..");
-import { makeRepo } from "./helpers.mjs";
+import { commitAll, makeRepo, writeRepoFile } from "./helpers.mjs";
 function makeCompletionFixtureRepo(files) {
   return makeRepo({
     ...Object.fromEntries(
@@ -41,6 +42,63 @@ test("canonical event compatibility gate names a rejected frozen sample", () => 
 
   assert.deepEqual(errors, [
     "packages/kernel/fixtures/canonical-events/task-event-v1/sample.json [sourceEventIds=unknown]: task-event/v1 rejected frozen sample: legacy shape is no longer accepted",
+  ]);
+});
+
+test("canonical fixture change gate rejects modifying an existing sample", () => {
+  const { rootDir, base } = makeRepo({
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json": '{"schema":"task-event/v1"}\n',
+  });
+  writeRepoFile(
+    rootDir,
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json",
+    '{"schema":"task-event/v1","type":"changed"}\n',
+  );
+  const head = commitAll(rootDir);
+  assert.deepEqual(validateCanonicalFixtureChanges(rootDir, base, head), [
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json: existing canonical event fixture was modified; " +
+      "add a new sample instead (dec_275F81E5B0BD795E65B7D835C4/CH1)",
+  ]);
+});
+
+test("canonical fixture change gate permits adding a new sample", () => {
+  const { rootDir, base } = makeRepo({
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json": '{"schema":"task-event/v1"}\n',
+  });
+  writeRepoFile(
+    rootDir,
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted-new-shape.json",
+    '{"schema":"task-event/v1"}\n',
+  );
+  const head = commitAll(rootDir);
+  assert.deepEqual(validateCanonicalFixtureChanges(rootDir, base, head), []);
+});
+
+test("canonical fixture change gate rejects deleting and renaming existing samples", () => {
+  const { rootDir, base } = makeRepo({
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json": '{"schema":"task-event/v1"}\n',
+  });
+  renameSync(
+    path.join(rootDir, "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json"),
+    path.join(rootDir, "packages/kernel/fixtures/canonical-events/task-event-v1/renamed.json"),
+  );
+  const head = commitAll(rootDir);
+  const renamed = validateCanonicalFixtureChanges(rootDir, base, head);
+  assert.deepEqual(renamed, [
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json: existing canonical event fixture was renamed to " +
+      "packages/kernel/fixtures/canonical-events/task-event-v1/renamed.json; add a new sample instead (dec_275F81E5B0BD795E65B7D835C4/CH1)",
+  ]);
+});
+
+test("canonical fixture change gate rejects deleting an existing sample", () => {
+  const { rootDir, base } = makeRepo({
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json": '{"schema":"task-event/v1"}\n',
+  });
+  rmSync(path.join(rootDir, "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json"));
+  const head = commitAll(rootDir);
+  assert.deepEqual(validateCanonicalFixtureChanges(rootDir, base, head), [
+    "packages/kernel/fixtures/canonical-events/task-event-v1/accepted.json: existing canonical event fixture was deleted; " +
+      "add a new sample instead (dec_275F81E5B0BD795E65B7D835C4/CH1)",
   ]);
 });
 

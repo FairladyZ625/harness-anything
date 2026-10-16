@@ -43,7 +43,7 @@ import {
 } from "../../packages/daemon/src/protocol/daemon-protocol.contract.ts";
 import { makeTaskQueryReadModel } from "../../packages/daemon/src/task-query-read.ts";
 import { workspaceSummaryFromReads } from "../../packages/daemon/src/workspace-summary-read.ts";
-import { repoRoot } from "./git.mjs";
+import { git, pathExistsAt, pullRequestBase, repoRoot } from "./git.mjs";
 
 const FIXTURE_ROOT = "packages/kernel/fixtures/canonical-events";
 const DAEMON_FIXTURE_ROOT = "packages/daemon/fixtures/readside-responses";
@@ -115,6 +115,38 @@ const frozenReadsideEvents = Object.freeze([
     validators: ["validateDaemonRelationGraph"],
   },
 ]);
+
+function isCanonicalFixturePath(filePath) {
+  return filePath === FIXTURE_ROOT || filePath.startsWith(`${FIXTURE_ROOT}/`);
+}
+
+export function validateCanonicalFixtureChanges(rootDir, base, head = "HEAD") {
+  const fields = git(rootDir, ["diff", "--name-status", "-z", `${base}...${head}`, "--", FIXTURE_ROOT])
+      .split("\0")
+      .filter(Boolean),
+    errors = [];
+  for (let index = 0; index < fields.length; ) {
+    const status = fields[index++],
+      paths = status.startsWith("R") || status.startsWith("C") ? [fields[index++], fields[index++]] : [fields[index++]],
+      sourcePath = paths[0],
+      destinationPath = paths.at(-1);
+    if ((status.startsWith("R") || status.startsWith("C")) && isCanonicalFixturePath(sourcePath)) {
+      if (status.startsWith("R"))
+        errors.push(
+          `${sourcePath}: existing canonical event fixture was renamed to ${destinationPath}; add a new sample instead ` +
+            "(dec_275F81E5B0BD795E65B7D835C4/CH1)",
+        );
+      continue;
+    }
+    if (!isCanonicalFixturePath(destinationPath) || !pathExistsAt(rootDir, base, destinationPath)) continue;
+    if (status.startsWith("M") || status.startsWith("D"))
+      errors.push(
+        `${destinationPath}: existing canonical event fixture was ${status.startsWith("D") ? "deleted" : "modified"}; ` +
+          "add a new sample instead (dec_275F81E5B0BD795E65B7D835C4/CH1)",
+      );
+  }
+  return errors;
+}
 
 export const daemonResponseValidators = Object.freeze([
   { name: "validateDaemonTaskSnapshotList", validate: validateDaemonTaskSnapshotList },
@@ -403,8 +435,10 @@ export function validateFrozenDaemonReadside(
 function main() {
   if (!process.argv.includes("--check")) throw new Error("usage: node tools/gates/canonical-event-compat.mjs --check");
   const rootDir = repoRoot(),
+    base = pullRequestBase(rootDir),
     daemon = validateFrozenDaemonReadside(rootDir);
   const errors = [
+    ...validateCanonicalFixtureChanges(rootDir, base),
     ...validateFrozenCanonicalEvents(rootDir, canonicalEventSchemas, parseCanonicalEvent),
     ...validateFrozenCanonicalEvents(rootDir, [
       { schema: "ci-run-observation/v1", validate: validateCurrentCanonicalEvent },
