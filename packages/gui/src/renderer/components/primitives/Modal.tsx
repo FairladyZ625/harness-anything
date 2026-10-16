@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { AnimatePresence, motion, type Transition } from "motion/react";
 import { t } from "../../i18n";
 import { useEntryMotion } from "../../motion-config.tsx";
 
@@ -39,11 +39,11 @@ function ModalSurface({ title, hint, wide = false, testId, footer, onClose, chil
     return () => dialog.close();
   }, []);
   const { enabled, reduced } = useEntryMotion();
-  const enter = {
+  const enter: Transition = {
       duration: reduced ? MODAL_MOTION.reducedDuration : MODAL_MOTION.enterDuration,
       ease: "easeOut",
     },
-    exit = {
+    exit: Transition = {
       duration: reduced ? MODAL_MOTION.reducedDuration : MODAL_MOTION.exitDuration,
       ease: "easeIn",
     };
