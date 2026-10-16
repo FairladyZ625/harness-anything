@@ -67,6 +67,17 @@ test("Fleet center write frames must use the one center write entry", () => {
     const uploadBypass = runChecker(root);
     assert.notEqual(uploadBypass.status, 0);
     assert.match(uploadBypass.stderr, /fleet\.upload\.chunk\/v1 must use its center write entry/u);
+
+    writeFileSync(
+      centerPath,
+      restored.replace(
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(frame, async () => { return appendFileSync(); }); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(async () => { return appendFileSync(); }); }',
+      ),
+    );
+    const malformedEntry = runChecker(root);
+    assert.notEqual(malformedEntry.status, 0);
+    assert.match(malformedEntry.stderr, /fleet\.upload\.chunk\/v1 must call the center write entry with its frame/u);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

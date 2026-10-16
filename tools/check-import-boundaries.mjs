@@ -503,6 +503,8 @@ for (const file of packageSourceFiles) {
       const branch = branchStart < 0 ? "" : text.slice(branchStart, nextBranch < 0 ? undefined : nextBranch);
       if (!branch || !branch.includes(requiredCall))
         record(file, `Fleet write frame ${frame} must use its center write entry ${requiredCall}`);
+      if (branch && /runFleetCenterWrite\((?!frame,)/u.test(branch))
+        record(file, `Fleet write frame ${frame} must call the center write entry with its frame`);
     }
   }
 }

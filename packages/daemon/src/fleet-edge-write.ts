@@ -2,8 +2,12 @@ import { randomUUID } from "node:crypto";
 import { waitForFleetReplicaSequence } from "./fleet/replica-sync.ts";
 import {
   FleetRemoteError as FleetRemoteErrorClass,
-  runFleetRuntimeArchiveClient,
-  runFleetUploadClient as fleetUploadClient,
+  runFleetRuntimeArchiveClient as peerRunFleetRuntimeArchiveClient,
+  runFleetRuntimeEventClient as peerRunFleetRuntimeEventClient,
+  runFleetScheduleCommandClient as peerRunFleetScheduleCommandClient,
+  runFleetTaskCommandClient as peerRunFleetTaskCommandClient,
+  runFleetUploadClient as peerRunFleetUploadClient,
+  runFleetWriteClient as peerRunFleetWriteClient,
 } from "./fleet/peer.ts";
 // The edge write port is the only production composition root for Fleet write
 // clients. Keep this list explicit so a new peer export cannot silently bypass
@@ -13,11 +17,6 @@ export {
   awaitFleetRuntimeSessionsClient,
   openFleetEdgeView,
   readFleetRepositoryMetadataClient,
-  runFleetRuntimeArchiveClient,
-  runFleetRuntimeEventClient,
-  runFleetScheduleCommandClient,
-  runFleetTaskCommandClient,
-  runFleetWriteClient,
 } from "./fleet/peer.ts";
 export type {
   FleetEdgeView,
@@ -92,24 +91,31 @@ export async function runFleetEdgeRetry<T>(options: {
 }
 
 export async function runFleetEdgeUploadClient(
-  options: Parameters<typeof fleetUploadClient>[0] & { readonly timeoutMs: number },
+  options: Parameters<typeof peerRunFleetUploadClient>[0] & { readonly timeoutMs: number },
 ): Promise<readonly import("./fleet/command-protocol.ts").FleetDescriptor[]> {
   const operationIds = options.changes.map(() => randomUUID());
   return runFleetEdgeRetry({
     timeoutMs: options.timeoutMs,
-    write: () => fleetUploadClient({ ...options, operationIds }),
+    write: () => peerRunFleetUploadClient({ ...options, operationIds }),
   });
 }
 
+// Peer clients are composed here so production callers cannot import the wire
+// implementation from `fleet/peer.ts` through a re-export.
+export const runFleetWriteClient = peerRunFleetWriteClient;
+export const runFleetRuntimeEventClient = peerRunFleetRuntimeEventClient;
+export const runFleetScheduleCommandClient = peerRunFleetScheduleCommandClient;
+export const runFleetTaskCommandClient = peerRunFleetTaskCommandClient;
+
 export async function runFleetEdgeRuntimeArchiveClient(
-  options: Parameters<typeof runFleetRuntimeArchiveClient>[0] & {
+  options: Parameters<typeof peerRunFleetRuntimeArchiveClient>[0] & {
     readonly timeoutMs: number;
   },
-): Promise<Awaited<ReturnType<typeof runFleetRuntimeArchiveClient>>> {
+): Promise<Awaited<ReturnType<typeof peerRunFleetRuntimeArchiveClient>>> {
   const opId = randomUUID();
   return runFleetEdgeRetry({
     timeoutMs: options.timeoutMs,
-    write: () => runFleetRuntimeArchiveClient({ ...options, opId }),
+    write: () => peerRunFleetRuntimeArchiveClient({ ...options, opId }),
   });
 }
 

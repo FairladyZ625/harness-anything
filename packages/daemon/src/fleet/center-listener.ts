@@ -186,13 +186,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
   };
   const replicationHead = (repoId: string): number => readReplicationHead(repoId).sequence;
-  function runFleetCenterWrite<T>(frame: FleetFrameV1, execute: () => T | Promise<T>): Promise<T>; function runFleetCenterWrite<T>(write: () => T | Promise<T>): Promise<T>;
-  function runFleetCenterWrite(write: string, ...args: unknown[]): Promise<any>;
-  async function runFleetCenterWrite<T>(write: (() => T | Promise<T>) | string | FleetFrameV1, ...args: unknown[]): Promise<T> {
-    if (typeof write === "object") return (await (args[0] as () => T)()) as T;
-    if (typeof write === "function") return (await write()) as T;
-    return (await (options.host.run as (...runArgs: unknown[]) => Promise<unknown>)(write, ...args)) as T;
-  }
+  // The only center write entry for transport frames. The writer callback is
+  // deliberately private to this listener; callers must supply the frame so
+  // the gate can prove every write branch crosses this boundary.
+  const runFleetCenterWrite = async <T>(frame: FleetFrameV1, execute: () => T | Promise<T>): Promise<T> => {
+    if (!frame.schema.startsWith("fleet.") || frame.schema.endsWith(".result/v1"))
+      throw new FleetFault("invalid_write_frame", "Center write entry requires a Fleet request frame.");
+    return execute();
+  };
+  const runCenterWriter = (...args: Parameters<typeof options.host.run>) => options.host.run(...args);
   const writeReplicationSequence = (repoId: string, receipt: unknown): number | null =>
     typeof receipt === "object" && receipt !== null && "outcome" in receipt && receipt.outcome === "applied"
       ? replicationHead(repoId)
@@ -491,7 +493,7 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.receipt.get/v1") {
       const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        receipt = await runFleetCenterWrite(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
+        receipt = await runCenterWriter(a.repoId, { kind: "receipt-show", opId: frame.opId }, await readerAuth(a));
       return immediate({
         schema: "fleet.receipt.result/v1",
         messageId: mid(frame.messageId, "receipt"),
@@ -502,392 +504,383 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     }
     if (frame.schema === "fleet.upload.begin/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
-        uploadId = digestId(
-          nodeId,
-          a.repoId,
-          frame.content.sha256,
-          String(frame.content.size),
-          frame.content.mediaType,
-        );
-      await readerAuth(a);
-      let upload = state.uploads[uploadId];
-      if (upload && JSON.stringify(upload.content) !== JSON.stringify(frame.content))
-        throw new FleetFault("upload_conflict", "Upload identity conflicts with persisted metadata.");
-      if (!upload && Object.keys(state.uploads).length >= 64)
-        throw new FleetFault("busy", "Upload recovery window is full.", true);
-      if (!upload)
-        upload = state.uploads[uploadId] = {
-          nodeId,
-          repoId: a.repoId,
-          content: frame.content,
-          descriptor: null,
-        };
-      const file = uploadPath(uploadId, upload);
-      if (
-        upload.descriptor &&
-        !existsSync(path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(upload.descriptor.ref)))
-      )
-        upload.descriptor = null;
-      if (!upload.descriptor) {
-        mkdirSync(path.dirname(file), { recursive: true });
-        if (!existsSync(file)) writeFileSync(file, "");
-      }
-      await runFleetCenterWrite(() => persist());
-      if (!window.uploads.has(uploadId) && window.uploads.size >= 8)
-        throw new FleetFault(
-          "busy",
-          "Session already has eight active uploads.",
-          true,
-          existsSync(file) ? statSync(file).size : 0,
-        );
-      window.uploads.add(uploadId);
-      return immediate({
-        schema: "fleet.upload.ready/v1",
-        messageId: mid(frame.messageId, "ready"),
-        inReplyTo: frame.messageId,
-        uploadId,
-        resumeOffset: upload.descriptor ? upload.content.size : existsSync(file) ? statSync(file).size : 0,
-        status: upload.descriptor ? "already_staged" : "receiving",
-        replicationSequence: null,
-      });
-    
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken),
+          uploadId = digestId(
+            nodeId,
+            a.repoId,
+            frame.content.sha256,
+            String(frame.content.size),
+            frame.content.mediaType,
+          );
+        await readerAuth(a);
+        let upload = state.uploads[uploadId];
+        if (upload && JSON.stringify(upload.content) !== JSON.stringify(frame.content))
+          throw new FleetFault("upload_conflict", "Upload identity conflicts with persisted metadata.");
+        if (!upload && Object.keys(state.uploads).length >= 64)
+          throw new FleetFault("busy", "Upload recovery window is full.", true);
+        if (!upload)
+          upload = state.uploads[uploadId] = {
+            nodeId,
+            repoId: a.repoId,
+            content: frame.content,
+            descriptor: null,
+          };
+        const file = uploadPath(uploadId, upload);
+        if (
+          upload.descriptor &&
+          !existsSync(path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(upload.descriptor.ref)))
+        )
+          upload.descriptor = null;
+        if (!upload.descriptor) {
+          mkdirSync(path.dirname(file), { recursive: true });
+          if (!existsSync(file)) writeFileSync(file, "");
+        }
+        await persist();
+        if (!window.uploads.has(uploadId) && window.uploads.size >= 8)
+          throw new FleetFault(
+            "busy",
+            "Session already has eight active uploads.",
+            true,
+            existsSync(file) ? statSync(file).size : 0,
+          );
+        window.uploads.add(uploadId);
+        return immediate({
+          schema: "fleet.upload.ready/v1",
+          messageId: mid(frame.messageId, "ready"),
+          inReplyTo: frame.messageId,
+          uploadId,
+          resumeOffset: upload.descriptor ? upload.content.size : existsSync(file) ? statSync(file).size : 0,
+          status: upload.descriptor ? "already_staged" : "receiving",
+          replicationSequence: null,
+        });
       });
     }
     if (frame.schema === "fleet.upload.chunk/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const upload = ownedUpload(state, nodeId, frame.uploadId);
-      await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
-      const file = uploadPath(frame.uploadId),
-        bytes = Buffer.from(frame.dataBase64, "base64"),
-        length = existsSync(file) ? statSync(file).size : 0;
-      if (frame.offset > length)
-        throw new FleetFault("upload_gap", "Chunk offset is beyond the durable prefix.", true, length);
-      if (frame.offset < length) {
-        // Replay comparison reads only the contested window; the durable
-        // prefix can be far larger than the chunk being retried.
-        if (!readFileWindow(file, frame.offset, bytes.length).equals(bytes))
-          throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
-      } else {
-        await runFleetCenterWrite(() => {
+        const upload = ownedUpload(state, nodeId, frame.uploadId);
+        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
+        const file = uploadPath(frame.uploadId),
+          bytes = Buffer.from(frame.dataBase64, "base64"),
+          length = existsSync(file) ? statSync(file).size : 0;
+        if (frame.offset > length)
+          throw new FleetFault("upload_gap", "Chunk offset is beyond the durable prefix.", true, length);
+        if (frame.offset < length) {
+          // Replay comparison reads only the contested window; the durable
+          // prefix can be far larger than the chunk being retried.
+          if (!readFileWindow(file, frame.offset, bytes.length).equals(bytes))
+            throw new FleetFault("upload_replay_mismatch", "Replayed chunk differs from durable bytes.");
+        } else {
           appendFileSync(file, bytes);
           syncFile(file);
+        }
+        return immediate({
+          schema: "fleet.upload.ready/v1",
+          messageId: mid(frame.messageId, "chunk"),
+          inReplyTo: frame.messageId,
+          uploadId: frame.uploadId,
+          resumeOffset: statSync(file).size,
+          status: "receiving",
+          replicationSequence: null,
         });
-      }
-      return immediate({
-        schema: "fleet.upload.ready/v1",
-        messageId: mid(frame.messageId, "chunk"),
-        inReplyTo: frame.messageId,
-        uploadId: frame.uploadId,
-        resumeOffset: statSync(file).size,
-        status: "receiving",
-        replicationSequence: null,
-      });
-    
       });
     }
     if (frame.schema === "fleet.upload.finish/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const upload = state.uploads[frame.uploadId];
-      if (!upload || upload.nodeId !== nodeId)
-        throw new FleetFault("upload_unknown", "Upload is unknown or belongs to another node.");
-      await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
-      const wasStaged = upload.descriptor !== null,
-        file = uploadPath(frame.uploadId, upload),
-        a = await nodeContext(nodeId, upload.repoId, frame.accessToken),
-        descriptor = upload.descriptor ?? {
-          ref: `doc-sync-claims/${frame.uploadId}`,
-          ...upload.content,
-        },
-        target = path.join(safeLocal(a.repoId, "doc-sync-claims"), frame.uploadId);
-      if (!upload.descriptor) {
-        const source = existsSync(file) ? file : target;
-        if (!existsSync(source)) throw new FleetFault("upload_missing", "Durable upload prefix is missing.", true, 0);
-        const bytes = readFileSync(source);
-        if (bytes.byteLength !== upload.content.size || sha256Bytes(bytes) !== upload.content.sha256)
-          throw new FleetFault(
-            "content_claim_mismatch",
-            "Upload size or digest does not match the declaration.",
-            true,
-            bytes.byteLength,
-          );
-        mkdirSync(path.dirname(target), { recursive: true });
-        if (source !== target) {
-          renameSync(source, target);
-          syncDirectory(path.dirname(source));
+        const upload = state.uploads[frame.uploadId];
+        if (!upload || upload.nodeId !== nodeId)
+          throw new FleetFault("upload_unknown", "Upload is unknown or belongs to another node.");
+        await readerAuth({ nodeId, repoId: upload.repoId, accessToken: frame.accessToken });
+        const wasStaged = upload.descriptor !== null,
+          file = uploadPath(frame.uploadId, upload),
+          a = await nodeContext(nodeId, upload.repoId, frame.accessToken),
+          descriptor = upload.descriptor ?? {
+            ref: `doc-sync-claims/${frame.uploadId}`,
+            ...upload.content,
+          },
+          target = path.join(safeLocal(a.repoId, "doc-sync-claims"), frame.uploadId);
+        if (!upload.descriptor) {
+          const source = existsSync(file) ? file : target;
+          if (!existsSync(source)) throw new FleetFault("upload_missing", "Durable upload prefix is missing.", true, 0);
+          const bytes = readFileSync(source);
+          if (bytes.byteLength !== upload.content.size || sha256Bytes(bytes) !== upload.content.sha256)
+            throw new FleetFault(
+              "content_claim_mismatch",
+              "Upload size or digest does not match the declaration.",
+              true,
+              bytes.byteLength,
+            );
+          mkdirSync(path.dirname(target), { recursive: true });
+          if (source !== target) {
+            renameSync(source, target);
+            syncDirectory(path.dirname(source));
+          }
+          syncDirectory(path.dirname(target));
+          upload.descriptor = descriptor;
+          await persist();
         }
-        syncDirectory(path.dirname(target));
-        upload.descriptor = descriptor;
-        await runFleetCenterWrite(() => persist());
-      }
-      window.uploads.delete(frame.uploadId);
-      return immediate({
-        schema: "fleet.upload.result/v1",
-        messageId: mid(frame.messageId, "result"),
-        inReplyTo: frame.messageId,
-        status: wasStaged ? "already_staged" : "staged",
-        descriptor,
-        replicationSequence: null,
-      });
-    
+        window.uploads.delete(frame.uploadId);
+        return immediate({
+          schema: "fleet.upload.result/v1",
+          messageId: mid(frame.messageId, "result"),
+          inReplyTo: frame.messageId,
+          status: wasStaged ? "already_staged" : "staged",
+          descriptor,
+          replicationSequence: null,
+        });
       });
     }
     if (frame.schema === "fleet.doc.submit/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
-      assertFrameEpoch(a.repoId, frame.writerEpoch);
-      const completed: string[] = [];
-      for (const change of frame.changes) {
-        const owned = findOwnedClaim(nodeId, a.repoId, change.candidate);
-        if (!owned) throw new FleetFault("claim_not_owned", "Descriptor was not issued to this node.");
-        completed.push(owned[0]);
-      }
-      // The submit names its execution channel itself: shared-surface prose
-      // rides the repository channel (null) while task-context pushes name the
-      // leased execution — decideDocWrite then arbitrates the holder against
-      // the node's registered owner, never against a client claim.
-      let executionId = frame.executionId;
-      if (executionId === null && frame.taskId) {
-        const shown = await runFleetCenterWrite(
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        assertFrameEpoch(a.repoId, frame.writerEpoch);
+        const completed: string[] = [];
+        for (const change of frame.changes) {
+          const owned = findOwnedClaim(nodeId, a.repoId, change.candidate);
+          if (!owned) throw new FleetFault("claim_not_owned", "Descriptor was not issued to this node.");
+          completed.push(owned[0]);
+        }
+        // The submit names its execution channel itself: shared-surface prose
+        // rides the repository channel (null) while task-context pushes name the
+        // leased execution — decideDocWrite then arbitrates the holder against
+        // the node's registered owner, never against a client claim.
+        let executionId = frame.executionId;
+        if (executionId === null && frame.taskId) {
+          const shown = await runCenterWriter(
+            a.repoId,
+            { kind: "task-show", taskId: frame.taskId },
+            await auth(a, undefined, frame.executionCredential),
+          );
+          if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+            throw new FleetFault("task_read_failed", "Cannot read the document task at the center.");
+          const snapshot = JSON.parse(shown.evidence) as { readonly lease?: { readonly executionId?: unknown } | null };
+          executionId = typeof snapshot.lease?.executionId === "string" ? snapshot.lease.executionId : null;
+        }
+        const receipt = await runCenterWriter(
           a.repoId,
-          { kind: "task-show", taskId: frame.taskId },
+          {
+            kind: "doc-submit",
+            ...(frame.taskId ? { taskId: frame.taskId } : {}),
+            executionId,
+            baseLedgerSha: frame.baseLedgerSha,
+            changes: frame.changes,
+          },
           await auth(a, undefined, frame.executionCredential),
         );
-        if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
-          throw new FleetFault("task_read_failed", "Cannot read the document task at the center.");
-        const snapshot = JSON.parse(shown.evidence) as { readonly lease?: { readonly executionId?: unknown } | null };
-        executionId = typeof snapshot.lease?.executionId === "string" ? snapshot.lease.executionId : null;
-      }
-      const receipt = await runFleetCenterWrite(
-        a.repoId,
-        {
-          kind: "doc-submit",
-          ...(frame.taskId ? { taskId: frame.taskId } : {}),
-          executionId,
-          baseLedgerSha: frame.baseLedgerSha,
-          changes: frame.changes,
-        },
-        await auth(a, undefined, frame.executionCredential),
-      );
-      if (isSquadControlResult(receipt))
-        throw new FleetFault(
-          "execution_scope_mismatch",
-          "Fleet document writes cannot return runtime control results.",
-        );
-      if (receipt.outcome === "applied") {
-        for (const uploadId of completed) delete state.uploads[uploadId];
-        persist();
-      }
-      return immediate({
-        schema: "fleet.doc.result/v1",
-        messageId: mid(frame.messageId, "doc"),
-        inReplyTo: frame.messageId,
-        outcome: receipt.outcome,
-        opId: receipt.opId,
-        revision: receipt.revision ?? null,
-        replicationSequence: writeReplicationSequence(a.repoId, receipt),
-        code: receipt.code ?? null,
-        receipt: {
-          ...(receipt as unknown as Readonly<Record<string, unknown>>),
-          ...(frame.taskId ? { taskId: frame.taskId } : {}),
-        },
-      });
-    
+        if (isSquadControlResult(receipt))
+          throw new FleetFault(
+            "execution_scope_mismatch",
+            "Fleet document writes cannot return runtime control results.",
+          );
+        if (receipt.outcome === "applied") {
+          for (const uploadId of completed) delete state.uploads[uploadId];
+          persist();
+        }
+        return immediate({
+          schema: "fleet.doc.result/v1",
+          messageId: mid(frame.messageId, "doc"),
+          inReplyTo: frame.messageId,
+          outcome: receipt.outcome,
+          opId: receipt.opId,
+          revision: receipt.revision ?? null,
+          replicationSequence: writeReplicationSequence(a.repoId, receipt),
+          code: receipt.code ?? null,
+          receipt: {
+            ...(receipt as unknown as Readonly<Record<string, unknown>>),
+            ...(frame.taskId ? { taskId: frame.taskId } : {}),
+          },
+        });
       });
     }
     if (frame.schema === "fleet.task.command/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
-      try {
-        assertFrameEpoch(a.repoId, frame.writerEpoch);
-      } catch (error) {
-        if (error instanceof FleetFault && error.code === "writer_epoch_stale" && frame.docChanges !== null)
-          discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
-        throw error;
-      }
-      if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
-      let command = frame.action;
-      if (command.kind === "runtime-handoff-export") {
-        const candidate = command.candidate as import("./command-protocol.ts").FleetDescriptor;
-        if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
-          throw new FleetFault(
-            "claim_not_owned",
-            "Native checkpoint upload must belong to the authenticated source node.",
-          );
-      }
-      if (frame.artifact) {
-        if (
-          command.kind !== "task-artifact-add" ||
-          command.source !== undefined ||
-          command.content !== undefined ||
-          !findOwnedClaim(nodeId, a.repoId, frame.artifact)
-        )
-          throw new FleetFault("claim_not_owned", "Artifact must name this node's staged claim.");
-        command = {
-          ...command,
-          source: path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(frame.artifact.ref)),
-        };
-      } else if (command.kind === "task-artifact-add")
-        throw new FleetFault("claim_not_owned", "Edge artifacts require staged bytes.");
-      try {
-        if (command.kind === "task-submit" && typeof command.taskId === "string") {
-          const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
-          const admission = await options.host.authorize(a.repoId, command.kind, submitAuth, {
-            taskId: command.taskId,
-          });
-          if (admission.outcome !== "allowed")
-            throw new FleetFault("authorization_denied", "Task delivery is not authorized.");
-          const shown = await runFleetCenterWrite(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
-          if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
-            throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
-          const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
-          if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
-            const executionId = assertFleetDeliveryHolder(snapshot, {
-              nodeId,
-              personId: (await readerAuth(a)).nodePrincipal!.personId,
-              ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
-            });
-            const commitSha = await fetchWorkerDelivery(
-              repoRoot(a.repoId),
-              command.taskId,
-              typeof command.commitSha === "string" ? command.commitSha : undefined,
-              workerGitIdentityForPerson(snapshot.lease.actor.principal.personId),
-            ).catch((error: unknown) => {
-              throw new FleetFault("delivery_fetch_failed", runtimeErrorMessage(error));
-            });
-            command = { ...command, executionId, commitSha };
-          }
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        try {
+          assertFrameEpoch(a.repoId, frame.writerEpoch);
+        } catch (error) {
+          if (error instanceof FleetFault && error.code === "writer_epoch_stale" && frame.docChanges !== null)
+            discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
+          throw error;
         }
-      } catch (error) {
-        const code = runtimeErrorCode(error);
-        if (code && ["lease_holder_mismatch", "delivery_fetch_failed"].includes(code))
-          throw new FleetFault(code, runtimeErrorMessage(error));
-        throw error;
-      }
-      const action = {
-        ...command,
-        ...(frame.docChanges === null ? {} : { docChanges: frame.docChanges }),
-        ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
-      };
-      const receipt = await runFleetCenterWrite(
-        a.repoId,
-        action,
-        await writerAuth(a, frame.accessToken, frame.executionCredential),
-      );
-      const result = {
-        outcome:
-          receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
-            ? ("op_rejected" as const)
-            : ("applied" as const),
-        opId: frame.opId,
-        revision: receipt.revision ?? null,
-        replicationSequence: writeReplicationSequence(a.repoId, receipt),
-        ...(receipt.outcome === "applied" &&
-        receipt.cut &&
-        typeof receipt.cut.revision === "number" &&
-        typeof receipt.cut.headDigest === "string"
-          ? {
-              appliedCut: {
-                revision: receipt.cut.revision,
-                headDigest: receipt.cut.headDigest,
-                schemaGeneration: 0,
-              },
+        if (frame.docChanges !== null) verifyOwnedClaims(nodeId, a.repoId, frame.docChanges);
+        let command = frame.action;
+        if (command.kind === "runtime-handoff-export") {
+          const candidate = command.candidate as import("./command-protocol.ts").FleetDescriptor;
+          if (!candidate || !findOwnedClaim(nodeId, a.repoId, candidate))
+            throw new FleetFault(
+              "claim_not_owned",
+              "Native checkpoint upload must belong to the authenticated source node.",
+            );
+        }
+        if (frame.artifact) {
+          if (
+            command.kind !== "task-artifact-add" ||
+            command.source !== undefined ||
+            command.content !== undefined ||
+            !findOwnedClaim(nodeId, a.repoId, frame.artifact)
+          )
+            throw new FleetFault("claim_not_owned", "Artifact must name this node's staged claim.");
+          command = {
+            ...command,
+            source: path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(frame.artifact.ref)),
+          };
+        } else if (command.kind === "task-artifact-add")
+          throw new FleetFault("claim_not_owned", "Edge artifacts require staged bytes.");
+        try {
+          if (command.kind === "task-submit" && typeof command.taskId === "string") {
+            const submitAuth = await writerAuth(a, frame.accessToken, frame.executionCredential);
+            const admission = await options.host.authorize(a.repoId, command.kind, submitAuth, {
+              taskId: command.taskId,
+            });
+            if (admission.outcome !== "allowed")
+              throw new FleetFault("authorization_denied", "Task delivery is not authorized.");
+            const shown = await runCenterWriter(a.repoId, { kind: "task-show", taskId: command.taskId }, submitAuth);
+            if (shown.outcome !== "applied" || typeof shown.evidence !== "string")
+              throw new FleetFault("task_read_failed", "Cannot read the delivery task.");
+            const snapshot = JSON.parse(shown.evidence) as FleetDeliveryTask;
+            if (snapshot.workspace?.kind === "worktree" && snapshot.lease) {
+              const executionId = assertFleetDeliveryHolder(snapshot, {
+                nodeId,
+                personId: (await readerAuth(a)).nodePrincipal!.personId,
+                ...(typeof command.executionId === "string" ? { executionId: command.executionId } : {}),
+              });
+              const commitSha = await fetchWorkerDelivery(
+                repoRoot(a.repoId),
+                command.taskId,
+                typeof command.commitSha === "string" ? command.commitSha : undefined,
+                workerGitIdentityForPerson(snapshot.lease.actor.principal.personId),
+              ).catch((error: unknown) => {
+                throw new FleetFault("delivery_fetch_failed", runtimeErrorMessage(error));
+              });
+              command = { ...command, executionId, commitSha };
             }
-          : {}),
-        code: receipt.code ?? null,
-        receipt: receipt as unknown as Readonly<Record<string, unknown>>,
-      };
-      if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
-      if (command.kind === "runtime-handoff-export" && command.candidate)
-        discardOwnedClaims(nodeId, a.repoId, [
-          { candidate: command.candidate as import("./command-protocol.ts").FleetDescriptor },
-        ]);
-      if (receipt.outcome === "applied" && frame.artifact)
-        discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
-      const response: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
-        schema: "fleet.task.result/v1",
-        messageId: mid(frame.messageId, "task"),
-        inReplyTo: frame.messageId,
-        ...result,
-      };
-      if (command.kind === "doc-show" && receipt.outcome === "applied") {
-        const { evidence, ...metadata } = result.receipt,
-          bytes = Buffer.from(evidence as string);
-        return {
-          key: null,
-          frames: (async function* () {
-            for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
-              yield {
-                schema: "fleet.task.evidence/v1" as const,
-                messageId: mid(frame.messageId, `evidence-${offset}`),
-                inReplyTo: frame.messageId,
-                dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
-              };
-            }
-            yield { ...response, receipt: metadata };
-          })(),
+          }
+        } catch (error) {
+          const code = runtimeErrorCode(error);
+          if (code && ["lease_holder_mismatch", "delivery_fetch_failed"].includes(code))
+            throw new FleetFault(code, runtimeErrorMessage(error));
+          throw error;
+        }
+        const action = {
+          ...command,
+          ...(frame.docChanges === null ? {} : { docChanges: frame.docChanges }),
+          ...(frame.mirrorBaseCut === null ? {} : { mirrorBaseCut: frame.mirrorBaseCut }),
         };
-      }
-      return immediate(response);
-    
+        const receipt = await runCenterWriter(
+          a.repoId,
+          action,
+          await writerAuth(a, frame.accessToken, frame.executionCredential),
+        );
+        const result = {
+          outcome:
+            receipt.outcome === "op_rejected" || receipt.outcome === "indeterminate"
+              ? ("op_rejected" as const)
+              : ("applied" as const),
+          opId: frame.opId,
+          revision: receipt.revision ?? null,
+          replicationSequence: writeReplicationSequence(a.repoId, receipt),
+          ...(receipt.outcome === "applied" &&
+          receipt.cut &&
+          typeof receipt.cut.revision === "number" &&
+          typeof receipt.cut.headDigest === "string"
+            ? {
+                appliedCut: {
+                  revision: receipt.cut.revision,
+                  headDigest: receipt.cut.headDigest,
+                  schemaGeneration: 0,
+                },
+              }
+            : {}),
+          code: receipt.code ?? null,
+          receipt: receipt as unknown as Readonly<Record<string, unknown>>,
+        };
+        if (receipt.outcome === "applied" && frame.docChanges) discardOwnedClaims(nodeId, a.repoId, frame.docChanges);
+        if (command.kind === "runtime-handoff-export" && command.candidate)
+          discardOwnedClaims(nodeId, a.repoId, [
+            { candidate: command.candidate as import("./command-protocol.ts").FleetDescriptor },
+          ]);
+        if (receipt.outcome === "applied" && frame.artifact)
+          discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.artifact }]);
+        const response: Extract<FleetFrameV1, { schema: "fleet.task.result/v1" }> = {
+          schema: "fleet.task.result/v1",
+          messageId: mid(frame.messageId, "task"),
+          inReplyTo: frame.messageId,
+          ...result,
+        };
+        if (command.kind === "doc-show" && receipt.outcome === "applied") {
+          const { evidence, ...metadata } = result.receipt,
+            bytes = Buffer.from(evidence as string);
+          return {
+            key: null,
+            frames: (async function* () {
+              for (let offset = 0; offset < bytes.length; offset += FLEET_CHUNK_BYTES) {
+                yield {
+                  schema: "fleet.task.evidence/v1" as const,
+                  messageId: mid(frame.messageId, `evidence-${offset}`),
+                  inReplyTo: frame.messageId,
+                  dataBase64: bytes.subarray(offset, offset + FLEET_CHUNK_BYTES).toString("base64"),
+                };
+              }
+              yield { ...response, receipt: metadata };
+            })(),
+          };
+        }
+        return immediate(response);
       });
     }
     if (frame.schema === "fleet.schedule.command/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
-      if (frame.scheduleId !== frame.action.scheduleId)
-        throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
-      assertFrameEpoch(a.repoId, frame.writerEpoch);
-      const ingressAuth = await auth(a),
-        receipt = await runFleetCenterWrite(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
-      if (isSquadControlResult(receipt))
-        throw new FleetFault(
-          "execution_scope_mismatch",
-          "Fleet schedule writes cannot return runtime control results.",
-        );
-      return immediate({
-        schema: "fleet.schedule.result/v1",
-        messageId: mid(frame.messageId, "schedule"),
-        inReplyTo: frame.messageId,
-        opId: frame.opId,
-        outcome: receipt.outcome,
-        revision: receipt.revision ?? null,
-        replicationSequence: writeReplicationSequence(a.repoId, receipt),
-        code: receipt.code ?? null,
-        receipt: receipt as unknown as Readonly<Record<string, unknown>>,
-      });
-    
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        if (frame.scheduleId !== frame.action.scheduleId)
+          throw new FleetFault("schedule_scope_mismatch", "Schedule command IDs must match.");
+        assertFrameEpoch(a.repoId, frame.writerEpoch);
+        const ingressAuth = await auth(a),
+          receipt = await runCenterWriter(a.repoId, { ...frame.action, idempotencyKey: frame.opId }, ingressAuth);
+        if (isSquadControlResult(receipt))
+          throw new FleetFault(
+            "execution_scope_mismatch",
+            "Fleet schedule writes cannot return runtime control results.",
+          );
+        return immediate({
+          schema: "fleet.schedule.result/v1",
+          messageId: mid(frame.messageId, "schedule"),
+          inReplyTo: frame.messageId,
+          opId: frame.opId,
+          outcome: receipt.outcome,
+          revision: receipt.revision ?? null,
+          replicationSequence: writeReplicationSequence(a.repoId, receipt),
+          code: receipt.code ?? null,
+          receipt: receipt as unknown as Readonly<Record<string, unknown>>,
+        });
       });
     }
     if (frame.schema === "fleet.runtime.event/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
-      if (frame.repoId !== a.repoId)
-        throw new FleetFault(
-          "execution_scope_mismatch",
-          "Runtime event repository must match the authenticated node request.",
-        );
-      assertFrameEpoch(a.repoId, frame.writerEpoch);
-      if ((frame.eventType === "runtime_dispatch_requested") !== (frame.dispatchContext !== null))
-        throw new FleetFault(
-          "invalid_runtime_event",
-          "Only a runtime dispatch carries its center admission context, and every remote dispatch must carry it.",
-        );
-      let resultBody: string | undefined, uploadId: string | undefined;
-      if (frame.result) {
-        const owned = findOwnedClaim(nodeId, a.repoId, frame.result);
-        if (!owned) throw new FleetFault("claim_not_owned", "Runtime result descriptor was not issued to this node.");
-        uploadId = owned[0];
-        const claim = path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(frame.result.ref)),
-          bytes = readFileSync(claim);
-        if (bytes.byteLength !== frame.result.size || sha256Bytes(bytes) !== frame.result.sha256)
-          throw new FleetFault("content_claim_mismatch", "Runtime result bytes do not match the staged descriptor.");
-        resultBody = bytes.toString("utf8");
-      }
-      let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
-      try {
-        receipt = await runFleetCenterWrite(async () =>
-          options.host.runtimeIngress(
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        if (frame.repoId !== a.repoId)
+          throw new FleetFault(
+            "execution_scope_mismatch",
+            "Runtime event repository must match the authenticated node request.",
+          );
+        assertFrameEpoch(a.repoId, frame.writerEpoch);
+        if ((frame.eventType === "runtime_dispatch_requested") !== (frame.dispatchContext !== null))
+          throw new FleetFault(
+            "invalid_runtime_event",
+            "Only a runtime dispatch carries its center admission context, and every remote dispatch must carry it.",
+          );
+        let resultBody: string | undefined, uploadId: string | undefined;
+        if (frame.result) {
+          const owned = findOwnedClaim(nodeId, a.repoId, frame.result);
+          if (!owned) throw new FleetFault("claim_not_owned", "Runtime result descriptor was not issued to this node.");
+          uploadId = owned[0];
+          const claim = path.join(safeLocal(a.repoId, "doc-sync-claims"), path.basename(frame.result.ref)),
+            bytes = readFileSync(claim);
+          if (bytes.byteLength !== frame.result.size || sha256Bytes(bytes) !== frame.result.sha256)
+            throw new FleetFault("content_claim_mismatch", "Runtime result bytes do not match the staged descriptor.");
+          resultBody = bytes.toString("utf8");
+        }
+        let receipt: Awaited<ReturnType<typeof options.host.runtimeIngress>>;
+        try {
+          receipt = await options.host.runtimeIngress(
             a.repoId,
             {
               kind: "event",
@@ -898,75 +891,73 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
               ...(frame.dispatchContext === null ? {} : { dispatchContext: frame.dispatchContext }),
             },
             await auth(a),
-          ),
-        );
-      } catch (error) {
-        const code = runtimeErrorCode(error);
-        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
-        throw error;
-      }
-      if (uploadId && receipt.outcome === "applied") {
-        discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.result! }]);
-      }
-      if (receipt.outcome === "op_rejected" && typeof receipt.code === "string")
-        throw new FleetFault(receipt.code, String(receipt.rejectionExplanation ?? receipt.code));
-      const event = receipt.event;
-      if (!event && receipt.outcome === "no_changes")
+          );
+        } catch (error) {
+          const code = runtimeErrorCode(error);
+          if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+          throw error;
+        }
+        if (uploadId && receipt.outcome === "applied") {
+          discardOwnedClaims(nodeId, a.repoId, [{ candidate: frame.result! }]);
+        }
+        if (receipt.outcome === "op_rejected" && typeof receipt.code === "string")
+          throw new FleetFault(receipt.code, String(receipt.rejectionExplanation ?? receipt.code));
+        const event = receipt.event;
+        if (!event && receipt.outcome === "no_changes")
+          return immediate({
+            schema: "fleet.runtime.event.result/v1",
+            messageId: mid(frame.messageId, "runtime-event"),
+            inReplyTo: frame.messageId,
+            replicationSequence: writeReplicationSequence(a.repoId, receipt),
+            event: null,
+            receipt,
+          });
+        if (!event || typeof event !== "object" || Array.isArray(event))
+          throw new FleetFault(
+            "runtime_event_missing",
+            "Center runtime ingress did not return its authoritative event.",
+          );
         return immediate({
           schema: "fleet.runtime.event.result/v1",
           messageId: mid(frame.messageId, "runtime-event"),
           inReplyTo: frame.messageId,
           replicationSequence: writeReplicationSequence(a.repoId, receipt),
-          event: null,
+          event: event as Readonly<Record<string, unknown>>,
           receipt,
         });
-      if (!event || typeof event !== "object" || Array.isArray(event))
-        throw new FleetFault("runtime_event_missing", "Center runtime ingress did not return its authoritative event.");
-      return immediate({
-        schema: "fleet.runtime.event.result/v1",
-        messageId: mid(frame.messageId, "runtime-event"),
-        inReplyTo: frame.messageId,
-        replicationSequence: writeReplicationSequence(a.repoId, receipt),
-        event: event as Readonly<Record<string, unknown>>,
-        receipt,
-      });
-    
       });
     }
     if (frame.schema === "fleet.runtime.archive/v1") {
       return runFleetCenterWrite(frame, async () => {
-      const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
-      if (frame.repoId !== a.repoId)
-        throw new FleetFault(
-          "execution_scope_mismatch",
-          "Runtime archive repository must match the authenticated node request.",
-        );
-      assertFrameEpoch(a.repoId, frame.writerEpoch);
-      let receipt;
-      try {
-        receipt = await runFleetCenterWrite(async () =>
-          options.host.runtimeIngress(
+        const a = await nodeContext(nodeId, frame.repoId, frame.accessToken);
+        if (frame.repoId !== a.repoId)
+          throw new FleetFault(
+            "execution_scope_mismatch",
+            "Runtime archive repository must match the authenticated node request.",
+          );
+        assertFrameEpoch(a.repoId, frame.writerEpoch);
+        let receipt;
+        try {
+          receipt = await options.host.runtimeIngress(
             a.repoId,
             {
               kind: "archive",
               archive: frame.archive as unknown as import("../doc-sync-actions.ts").RuntimeDispatchArchive,
             },
             await auth(a),
-          ),
-        );
-      } catch (error) {
-        const code = runtimeErrorCode(error);
-        if (code) throw new FleetFault(code, runtimeErrorMessage(error));
-        throw error;
-      }
-      return immediate({
-        schema: "fleet.runtime.archive.result/v1",
-        messageId: mid(frame.messageId, "runtime-archive"),
-        inReplyTo: frame.messageId,
-        replicationSequence: writeReplicationSequence(a.repoId, receipt),
-        receipt,
-      });
-    
+          );
+        } catch (error) {
+          const code = runtimeErrorCode(error);
+          if (code) throw new FleetFault(code, runtimeErrorMessage(error));
+          throw error;
+        }
+        return immediate({
+          schema: "fleet.runtime.archive.result/v1",
+          messageId: mid(frame.messageId, "runtime-archive"),
+          inReplyTo: frame.messageId,
+          replicationSequence: writeReplicationSequence(a.repoId, receipt),
+          receipt,
+        });
       });
     }
     if (frame.schema === "fleet.runtime.await/v1") {
