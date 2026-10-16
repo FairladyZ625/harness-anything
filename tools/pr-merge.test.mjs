@@ -79,10 +79,12 @@ if (args[0] !== "task" || args[1] !== "show" || !args[2] || args[3] !== "--json"
   process.stderr.write(\`unexpected ha args: \${args.join(" ")}\\n\`);
   process.exit(2);
 }
+
 if (state.fail) {
   process.stderr.write("Error: daemon socket not found; is the harness daemon running?\\n");
   process.exit(1);
 }
+
 process.stdout.write(
   JSON.stringify({
     schema: "command-receipt/v2",
@@ -108,6 +110,30 @@ process.stdout.write(
   chmodSync(ha, 0o755);
 }
 
+function makeFakeNpm(bin) {
+  const script = `import { appendFileSync } from "node:fs";
+const args = process.argv.slice(2);
+const packageName = args.at(-1);
+appendFileSync(process.env.BUILD_LOG_PATH, packageName + "\\n");
+if (packageName === process.env.BUILD_FAIL_PACKAGE) {
+  process.stderr.write("simulated build failure\\n");
+  process.exit(1);
+}
+`;
+  if (process.platform === "win32") {
+    writeFileSync(path.join(bin, "npm.mjs"), script, "utf8");
+    writeFileSync(
+      path.join(bin, "npm.cmd"),
+      `@echo off\r\n"${process.execPath}" "%~dp0npm.mjs" %*\r\nexit /b %ERRORLEVEL%\r\n`,
+      "utf8",
+    );
+    return;
+  }
+  const npm = path.join(bin, "npm");
+  writeFileSync(npm, `#!/usr/bin/env node\n${script}`, "utf8");
+  chmodSync(npm, 0o755);
+}
+
 // haState shapes the fake `ha` fixture: { fail: true } answers every task-show with an
 // unreachable-daemon exit, { receipt: <task-show evidence payload> } answers with that payload.
 // A fake ha always shadows any real one so tests never reach the production daemon.
@@ -120,6 +146,7 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true } } = {}) 
   const prWorktree = path.join(root, "pr-worktree");
   const statePath = path.join(root, "pr-state.json");
   const haStatePath = path.join(root, "ha-state.json");
+  const buildLogPath = path.join(root, "build.log");
 
   git(root, "init", "--bare", "--initial-branch=main", remote);
   git(root, "init", "--initial-branch=main", seed);
@@ -166,16 +193,18 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true } } = {}) 
 
   const fakeBin = makeFakeGh(root);
   makeFakeHa(fakeBin);
+  makeFakeNpm(fakeBin);
   const env = {
     ...process.env,
     PATH: `${fakeBin}${path.delimiter}${process.env.PATH}`,
     PR_STATE_PATH: statePath,
     HA_STATE_PATH: haStatePath,
+    BUILD_LOG_PATH: buildLogPath,
     HARNESS_TASK_BOUND: "",
     HARNESS_ACTOR: "",
     HARNESS_CANONICAL_ROOT: "",
   };
-  return { env, headRefOid, main, prWorktree, remote, seed, statePath, upstreamHead };
+  return { env, headRefOid, main, prWorktree, remote, seed, statePath, upstreamHead, buildLogPath };
 }
 
 test("merges, cleans the PR branch and worktree, and fast-forwards local main", (t) => {
@@ -193,6 +222,29 @@ test("merges, cleans the PR branch and worktree, and fast-forwards local main", 
   assert.equal(git(setup.main, "branch", "--list", "codex/pr-123"), "");
   assert.equal(git(setup.main, "ls-remote", "--heads", "origin", "refs/heads/codex/pr-123"), "");
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "MERGED");
+  assert.deepEqual(readFileSync(setup.buildLogPath, "utf8").trim().split("\n"), [
+    "@harness-anything/daemon",
+    "@harness-anything/cli",
+  ]);
+});
+
+test("reports which runtime package failed after local main synchronization", (t) => {
+  const setup = fixture(t);
+  setup.env.BUILD_FAIL_PACKAGE = "@harness-anything/cli";
+
+  const result = run(process.execPath, [helper, "123"], {
+    cwd: setup.main,
+    env: setup.env,
+    allowFailure: true,
+  });
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Building @harness-anything\/cli after synchronizing local main failed/u);
+  assert.equal(git(setup.main, "rev-parse", "HEAD"), setup.upstreamHead);
+  assert.deepEqual(readFileSync(setup.buildLogPath, "utf8").trim().split("\n"), [
+    "@harness-anything/daemon",
+    "@harness-anything/cli",
+  ]);
 });
 
 test("waits while GitHub is still computing mergeability, then merges", (t) => {
