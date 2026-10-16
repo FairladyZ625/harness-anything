@@ -130,17 +130,17 @@ it("keeps every option label above the sliding thumb", () => {
   const thumbClass = thumb()?.className ?? "";
   expect(thumbClass).toContain("absolute");
   expect(thumbClass).not.toMatch(/(?:^|\s)z-(?:\d|\[)/u);
-  // 洗底 + accent 左竖线(与 DenseRow/RecordRow 选中语言一致),实底 accent 会把
-  // 途经的 muted 文字压成 1.05:1(暗)/1.82:1(亮)。
-  expect(thumbClass).toContain("bg-accent/10");
-  expect(thumbClass).toContain("shadow-[inset_2px_0_0_var(--color-accent)]");
+  // 全应用统一的实底 accent 选中语言(与 TaskFilterBar/ObserveHudStrip 一致);
+  // 滑动途中文字短暂压在实底上是滑动指示器的正常形态,不为它改配色。
+  expect(thumbClass).toContain("bg-accent");
+  expect(thumbClass).not.toContain("bg-accent/");
 });
 
 it("reduced motion swaps the thumb instantly without a motion element", () => {
   probe.reduced = true;
   mount("a");
   expect(probe.span).not.toHaveBeenCalled();
-  expect(thumb()?.className).toContain("bg-accent/10");
+  expect(thumb()?.className).toContain("bg-accent");
   act(() => buttons()[1].click());
   expect(probe.span).not.toHaveBeenCalled();
   expect(buttons()[1].contains(thumb())).toBe(true);
