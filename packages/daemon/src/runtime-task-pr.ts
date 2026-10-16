@@ -88,9 +88,11 @@ export async function createTaskPullRequest(
       "delivery_publish_failed",
       "Task PR creation is currently supported only for GitHub repositories.",
     );
+  // Worker actions must use the credential bound to their execution instance. A human principal has
+  // no execution instance; let gh use the daemon/operator's own repository authentication instead.
   const credential =
     typeof instanceId === "string" ? await context.input.prepareDaemonGitEnvironment?.(instanceId, hosting.kind) : null;
-  if (!credential?.GH_TOKEN)
+  if (principal && !credential?.GH_TOKEN)
     throw context.cellCodedError(
       "runtime_credential_unavailable",
       "The dispatch instance has no configured GitHub credential. " +
@@ -100,7 +102,8 @@ export async function createTaskPullRequest(
   if (!task) throw context.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
   const document = readTaskTransitionDocument({ projection: context.projection, taskId, slot: "task.pr-body" }),
     env = { ...process.env, ...credential, GH_PROMPT_DISABLED: "1" },
-    redact = (text: string) => String(scrubProviderValue(text.replaceAll(credential.GH_TOKEN!, "[REDACTED]")));
+    redact = (text: string) =>
+      String(scrubProviderValue(credential?.GH_TOKEN ? text.replaceAll(credential.GH_TOKEN, "[REDACTED]") : text));
   try {
     await prBodyLint(document.body, context.rootDir);
   } catch (error) {
