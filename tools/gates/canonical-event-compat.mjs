@@ -422,7 +422,7 @@ export function validateFrozenDaemonReadside(
   let errors;
   try {
     errors = validateProjectedDaemonResponses(projectFrozenDaemonResponses(rootDir, transformEvent), validators);
-  } catch (error) {
+  } catch {
     consumeKnownError(error);
     errors = [`daemon read-side history replay failed: ${error instanceof Error ? error.message : String(error)}`];
   }
