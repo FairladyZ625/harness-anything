@@ -642,7 +642,7 @@ const agentDoc: EntityKindDoc = {
     field("name", true, "string", "显示名。"),
     field("instructions", true, "string", "身份指令(提示词纪律)。"),
     field("runtimes", true, "array", "可派的运行时目标行 {type, model?};空数组 = 任意兼容运行时种类。"),
-    field("role", false, "enum", "worker / commander。"),
+    field("role", false, "enum", "worker / commander / reviewer。"),
     field("skills", false, "array", "技能引用:{id, path}。"),
     field("prompts", false, "array", "提示词引用。"),
   ],

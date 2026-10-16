@@ -24,6 +24,7 @@ import {
   serializeAgentEntityCatalog,
   serializeSquadEntityCatalog,
   validateAgentEntityCatalog,
+  validateAgentEntityDetail,
   validateSquadEntityCatalog,
 } from "../src/protocol/agent-entity-gui-contract.ts";
 import { discoverAgentSkills, resolveAgentSkills } from "../src/agent-skills.ts";
@@ -631,6 +632,51 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.throws(
       () => readAgentEntityGuiProjection({ kind: "agent-inspect", entityId: "unknown", projection: projection! }),
       (error: unknown) => (error as { code?: string }).code === "agent_not_found",
+    );
+  } finally {
+    projection?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("the GUI read contract carries the reviewer role and stays closed to the Kernel AgentRole enum", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-entities-reviewer-")),
+    source = path.join(rootDir, "source");
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
+  try {
+    writeEntity(source, "voice-reviewer", "agent", {
+      ...agent,
+      id: "voice-reviewer",
+      name: "Voice Reviewer",
+      role: "reviewer",
+    });
+    await install({ rootDir, kind: "agent-install", packageSource: path.join(source, "voice-reviewer") });
+    const eventStore = makeTaskEventStore({ repoId: "agent-entities", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore });
+    projection.catchUp();
+    const catalog = readAgentEntityGuiProjection({ kind: "agent-list", projection });
+    assert.deepEqual(catalog.agents, [
+      {
+        id: "voice-reviewer",
+        name: "Voice Reviewer",
+        runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
+        instance: null,
+        permissionMode: null,
+        role: "reviewer",
+        layer: "user",
+      },
+    ]);
+    assert.deepEqual(validateAgentEntityCatalog(catalog), []);
+    const detail = readAgentEntityGuiProjection({ kind: "agent-inspect", entityId: "voice-reviewer", projection });
+    assert.equal(detail.agent.role, "reviewer");
+    assert.deepEqual(validateAgentEntityDetail(detail), []);
+    // Roles outside the Kernel AgentRole enum keep failing both read faces.
+    assert.deepEqual(validateAgentEntityCatalog({ ...catalog, agents: [{ ...catalog.agents[0]!, role: "ceo" }] }), [
+      "agent catalog row role must be worker, commander, or reviewer.",
+    ]);
+    assert.match(
+      validateAgentEntityDetail({ ...detail, agent: { ...detail.agent, role: "ceo" } }).join("\n"),
+      /agent detail needs non-empty id, name, role, and instructions/u,
     );
   } finally {
     projection?.close();
