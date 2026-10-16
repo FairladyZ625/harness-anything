@@ -134,6 +134,7 @@ async function initializedCenterWithEdge() {
       return { ok: true } as Record<string, unknown>;
     });
   const centerSubmit = async (logical: string, body: string): Promise<void> => {
+    mkdirSync(path.dirname(path.join(repo, "harness", ...logical.split("/"))), { recursive: true });
     writeFileSync(path.join(repo, "harness", ...logical.split("/")), body);
     const submitted = await host.run(repoId, { kind: "doc-submit", paths: [logical] } as never, auth);
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
@@ -290,3 +291,15 @@ test(
     assert.equal(deletionScan.blocked[0]?.path, standard);
   },
 );
+
+test("a document added after the initial mirror pull reaches the edge workspace", { timeout: 60_000 }, async (t) => {
+  const fixture = await initializedCenterWithEdge();
+  t.after(() => fixture.close());
+  assert.equal((await fixture.edgeSync()).ok, true);
+  const logical = "skills/worker-handbook/SKILL.md",
+    body = "# Worker handbook\n\nAdded after the edge baseline.\n";
+  await fixture.centerSubmit(logical, body);
+  assert.equal(existsSync(path.join(fixture.workspace, "harness", ...logical.split("/"))), false);
+  assert.equal((await fixture.edgeSync()).ok, true);
+  assert.equal(readFileSync(path.join(fixture.workspace, "harness", ...logical.split("/")), "utf8"), body);
+});
