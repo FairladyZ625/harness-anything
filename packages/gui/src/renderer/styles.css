@@ -27,6 +27,19 @@
   --long-content-cap: 55cqb;
   --overlay-content-cap: 85dvh;
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
+  /* 发丝描边宽(A2 细边):逻辑 1px,Retina 按物理像素比收细,细边只占一个发光点。 */
+  --hairline-width: 1px;
+}
+
+@media (min-resolution: 2dppx) {
+  :root {
+    --hairline-width: 0.5px;
+  }
+}
+@media (min-resolution: 3dppx) {
+  :root {
+    --hairline-width: calc(1px / 3);
+  }
 }
 
 .content-viewport {
@@ -60,8 +73,10 @@
   --color-bg: oklch(0.205 0.006 285);
   --color-surface: oklch(0.235 0.007 285);
   --color-surface-raised: oklch(0.275 0.008 285);
-  --color-border: oklch(0.35 0.01 285);
-  --color-border-strong: oklch(0.45 0.012 285);
+  /* A2 细边:边线走低透明度 alpha(暗色白、亮色黑),印在不同底色上自适应融合;
+     两档层级靠透明度区分,不再是两档不透明灰。 */
+  --color-border: oklch(1 0 0 / 0.09);
+  --color-border-strong: oklch(1 0 0 / 0.18);
   --color-text: oklch(0.94 0.004 285);
   --color-text-muted: oklch(0.8 0.01 285);
   --color-text-faint: oklch(0.72 0.01 285);
@@ -159,8 +174,8 @@ html[data-theme="light"] {
   --color-bg: oklch(0.965 0.003 285);
   --color-surface: oklch(0.99 0.002 285);
   --color-surface-raised: oklch(1 0 0);
-  --color-border: oklch(0.9 0.004 285);
-  --color-border-strong: oklch(0.81 0.006 285);
+  --color-border: oklch(0.25 0.006 285 / 0.1);
+  --color-border-strong: oklch(0.25 0.006 285 / 0.2);
   --color-text: oklch(0.23 0.006 285);
   --color-text-muted: oklch(0.46 0.008 285);
   --color-text-faint: oklch(0.52 0.008 285);
@@ -317,11 +332,12 @@ html[data-theme="light"] {
   }
 }
 
-/* 玻璃面(原型 .tile 档):同一能力只此一个生产实现,散点 backdrop-blur 已并入。 */
+/* 玻璃面(原型 .tile 档):同一能力只此一个生产实现,散点 backdrop-blur 已并入。
+   描边宽走 --hairline-width:Retina 上是真发丝,只占一个物理像素。 */
 .glass {
   background: var(--color-glass);
   backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturate));
-  border: 1px solid var(--color-glass-border);
+  border: var(--hairline-width) solid var(--color-glass-border);
   box-shadow:
     inset 0 1px 0 var(--color-glass-highlight),
     0 8px 30px oklch(0 0 0 / 0.25);
@@ -331,7 +347,7 @@ html[data-theme="light"] {
 .glass-sub {
   background: oklch(1 0 0 / 0.05);
   backdrop-filter: blur(16px) saturate(130%);
-  border: 1px solid oklch(1 0 0 / 0.1);
+  border: var(--hairline-width) solid oklch(1 0 0 / 0.1);
   box-shadow:
     inset 0 1px 0 oklch(1 0 0 / 0.12),
     0 2px 8px oklch(0 0 0 / 0.15);
@@ -342,7 +358,7 @@ html[data-theme="light"] {
 }
 html[data-theme="light"] .glass-sub {
   background: oklch(1 0 0 / 0.7);
-  border: 1px solid oklch(0 0 0 / 0.08);
+  border: var(--hairline-width) solid oklch(0 0 0 / 0.08);
 }
 
 /* 模态压暗层(原型 .scrim.on 档) */
@@ -702,17 +718,17 @@ html[data-theme="light"] ::selection {
 .doc-flow .prose-harness[data-layout="double"] {
   columns: 2 24rem;
   column-gap: 2.5rem;
-  column-rule: 1px solid var(--color-border);
+  column-rule: var(--hairline-width) solid var(--color-border);
 }
 .doc-flow .prose-harness[data-layout="double"] > * {
   break-inside: avoid;
 }
-@container (min-width: 50rem) {
-  .doc-flow .prose-harness[data-layout="auto"] {
-    columns: 26rem;
-    column-gap: 2.5rem;
-    column-rule: 1px solid var(--color-border);
-  }
+  @container (min-width: 50rem) {
+    .doc-flow .prose-harness[data-layout="auto"] {
+      columns: 26rem;
+      column-gap: 2.5rem;
+      column-rule: var(--hairline-width) solid var(--color-border);
+    }
   .doc-flow .prose-harness[data-layout="auto"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote) {
     max-width: none;
   }
@@ -983,10 +999,8 @@ html[data-theme="light"] ::selection {
   outline-offset: 1px;
 }
 
-.component-modal::backdrop {
-  background: var(--color-scrim);
-  backdrop-filter: blur(var(--scrim-blur)) saturate(var(--scrim-saturate));
-}
+/* 模态压暗层:由 Modal 原语渲染在 dialog 内的 .glass-scrim div 承载(A3 进出动效
+   需要真实元素);::backdrop 保持 UA 默认的透明点击拦截,不再叠加视觉。 */
 
 /* A wide table/code block stays inside its own reading column. */
 .document-wide-block {

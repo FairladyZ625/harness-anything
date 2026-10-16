@@ -63,7 +63,8 @@ describe("visual foundation: glass layer tokens", () => {
   it("composes .glass from blur/saturate/stroke/inner-highlight tokens", () => {
     const glass = blockBody(/\.glass\s*\{/u);
     expect(glass).toMatch(/backdrop-filter:\s*blur\(var\(--glass-blur\)\)\s*saturate\(var\(--glass-saturate\)\)/u);
-    expect(glass).toMatch(/border:\s*1px solid var\(--color-glass-border\)/u);
+    // A2 细边:玻璃描边宽走发丝线 token(Retina 上 0.5px),颜色仍是独立描边色。
+    expect(glass).toMatch(/border:\s*var\(--hairline-width\) solid var\(--color-glass-border\)/u);
     expect(glass).toMatch(/inset 0 1px 0 var\(--color-glass-highlight\)/u);
   });
 
@@ -81,6 +82,25 @@ describe("visual foundation: glass layer tokens", () => {
     const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
     expect(light).toMatch(/--color-glass:/u);
     expect(light).toMatch(/--color-glass-border:/u);
+  });
+});
+
+describe("visual foundation: A2 hairline borders", () => {
+  it("scales the hairline width down on high-density screens", () => {
+    expect(styles).toMatch(/--hairline-width:\s*1px/u);
+    const double = blockBody(/@media \(min-resolution:\s*2dppx\)\s*\{/u);
+    expect(double).toMatch(/--hairline-width:\s*0\.5px/u);
+    const triple = blockBody(/@media \(min-resolution:\s*3dppx\)\s*\{/u);
+    expect(triple).toMatch(/--hairline-width:\s*calc\(1px \/ 3\)/u);
+  });
+
+  it("keeps border tokens alpha-based so lines blend with their substrate", () => {
+    const theme = blockBody(/@theme\s*\{/u);
+    expect(theme).toMatch(/--color-border:\s*oklch\(1 0 0 \/ 0\.09\)/u);
+    expect(theme).toMatch(/--color-border-strong:\s*oklch\(1 0 0 \/ 0\.18\)/u);
+    const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
+    expect(light).toMatch(/--color-border:\s*oklch\(0\.25 0\.006 285 \/ 0\.1\)/u);
+    expect(light).toMatch(/--color-border-strong:\s*oklch\(0\.25 0\.006 285 \/ 0\.2\)/u);
   });
 });
 
