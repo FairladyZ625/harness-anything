@@ -273,30 +273,33 @@ describe("ChainStrip", () => {
     Object.defineProperty(el, "clientWidth", { configurable: true, value: clientWidth });
   }
 
-  it("不溢出时不进 tab 序、不出溢出提示,滚动区带语义角色", () => {
+  it("不溢出时不进 tab 序;链组语义在外层,滚动区接共享横滚渐隐", () => {
     const { container, root } = mount(createElement(ChainStrip, { label: "进展步骤链" }, "短链"));
     const strip = container.querySelector("[data-chain-scroll]")!;
-    expect(strip.getAttribute("role")).toBe("group");
-    expect(strip.getAttribute("aria-label")).toBe("进展步骤链");
-    expect(strip.getAttribute("tabindex")).toBeNull();
+    // A4:滚动区挂共享渐隐类,两端羽化提示还有内容(mask 会裁自身 outline,
+    // 所以焦点/语义落在外层);「›」静态提示已删除。
+    expect(strip.className).toContain("scroll-fade-x");
+    expect(strip.className).toContain("overflow-x-auto");
+    const group = container.querySelector("[data-chain-strip]")!;
+    expect(group.getAttribute("role")).toBe("group");
+    expect(group.getAttribute("aria-label")).toBe("进展步骤链");
+    expect(group.getAttribute("tabindex")).toBeNull();
     expect(container.querySelector("[data-chain-hint]")).toBeNull();
     act(() => root.unmount());
   });
 
-  it("溢出时变为原生可焦点 scroll region 并给右缘可见溢出提示", () => {
+  it("溢出时链组变为可焦点,回落不溢出时撤出 tab 序", () => {
     const ro = installFakeResizeObserver();
     const { container, root } = mount(createElement(ChainStrip, { label: "继承组链" }, "长链"));
     const strip = container.querySelector("[data-chain-scroll]")! as HTMLSpanElement;
+    const group = container.querySelector("[data-chain-strip]")!;
     stubOverflow(strip, 800, 300);
     act(() => ro.fire());
-    expect(strip.getAttribute("tabindex")).toBe("0");
-    const hint = container.querySelector("[data-chain-hint]")!;
-    expect(hint.getAttribute("aria-hidden")).toBe("true");
-    // 回落为不溢出:tab 序与提示一起撤掉,短链不增加键盘噪音。
+    expect(group.getAttribute("tabindex")).toBe("0");
+    // 回落为不溢出:tab 序撤掉,短链不增加键盘噪音。
     stubOverflow(strip, 200, 300);
     act(() => ro.fire());
-    expect(strip.getAttribute("tabindex")).toBeNull();
-    expect(container.querySelector("[data-chain-hint]")).toBeNull();
+    expect(group.getAttribute("tabindex")).toBeNull();
     act(() => root.unmount());
   });
 
@@ -304,6 +307,7 @@ describe("ChainStrip", () => {
     const ro = installFakeResizeObserver();
     const { container, root } = mount(createElement(ChainStrip, { label: "进展步骤链" }, "长链"));
     const strip = container.querySelector("[data-chain-scroll]")! as HTMLSpanElement;
+    const group = container.querySelector("[data-chain-strip]")!;
     stubOverflow(strip, 900, 300);
     act(() => ro.fire());
     const scrollBy = vi.fn();
@@ -312,7 +316,7 @@ describe("ChainStrip", () => {
     strip.scrollTo = scrollTo;
     const press = (key: string) =>
       act(() => {
-        strip.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
+        group.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true }));
       });
     press("ArrowRight");
     press("ArrowLeft");
@@ -389,7 +393,12 @@ describe("Region", () => {
     );
     expect(container.textContent).not.toContain("+2");
     expect(container.querySelector("section > div:nth-child(2) > div")?.className).toContain("overflow-y-auto");
-    expect(container.querySelector("section > div:nth-child(2) > div")?.className).not.toContain("px-3.5");
+    // A4:滚动体接共享纵滚渐隐;常亮底部渐隐 overlay 已删(它画玻璃色在文字上、
+    // 且不随滚动位置变化),行体包装层只剩滚动体一个子节点。
+    expect(container.querySelector("section > div:nth-child(2) > div")?.className).toContain("scroll-fade-y");
+    const bodyHost = container.querySelector("section > div:nth-child(2)")!;
+    expect(bodyHost.children).toHaveLength(1);
+    expect(bodyHost.firstElementChild?.hasAttribute("data-region-scroll")).toBe(true);
     const rows = [...container.querySelectorAll("section div")].filter((node) =>
       /^行[一二三]$/u.test(node.textContent ?? ""),
     );
@@ -712,11 +721,13 @@ describe("DayDigest", () => {
     expect(chains).toHaveLength(1);
     const chain = chains[0]!;
     // 单行横滚契约:横向滚动容器,永不换行(flex-wrap 已删);箭头不收缩;
-    // 滚动区语义角色带链全文,键盘聚焦时可朗读(溢出/平移几何在 Electron e2e 验)。
+    // 滚动区接共享渐隐,链组语义角色带链全文,键盘聚焦时可朗读(溢出/平移几何在 Electron e2e 验)。
     expect(chain.className).toContain("overflow-x-auto");
     expect(chain.className).not.toContain("flex-wrap");
-    expect(chain.getAttribute("role")).toBe("group");
-    expect(chain.getAttribute("aria-label")).toContain("提交");
+    expect(chain.className).toContain("scroll-fade-x");
+    const chainGroup = chain.closest("[data-chain-strip]")!;
+    expect(chainGroup.getAttribute("role")).toBe("group");
+    expect(chainGroup.getAttribute("aria-label")).toContain("提交");
     expect(chain.querySelectorAll("[data-status-tone]")).toHaveLength(12);
     const arrows = [...chain.querySelectorAll("span")].filter((node) => node.textContent === "→");
     expect(arrows).toHaveLength(11);

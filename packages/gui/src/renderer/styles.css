@@ -29,6 +29,8 @@
   --ease: cubic-bezier(0.2, 0.85, 0.25, 1);
   /* 发丝描边宽(A2 细边):逻辑 1px,Retina 按物理像素比收细,细边只占一个发光点。 */
   --hairline-width: 1px;
+  /* A4 滚动渐隐羽化宽:与被替代的 Region 底部渐隐(h-6.5)同量级,两端一致。 */
+  --scroll-fade-size: 26px;
 }
 
 @media (min-resolution: 2dppx) {
@@ -538,6 +540,18 @@ html[data-theme="light"] .glass-sub {
   .aurora::after {
     animation: bottom-glow-float 42s ease-in-out infinite alternate !important;
   }
+  /* A4 滚动渐隐保留:它是滚动位置的指示器(与滚动条同语义,只在用户滚动时变化,
+     无自主运动),且 chain-strip 的「›」溢出提示已由它取代——关掉会让「减少动态
+     效果」用户失去「还有内容」的全部提示。仍限定在支持 scroll-driven 的引擎,
+     不在旧引擎把渐隐钉死在终态。 */
+  @supports (animation-timeline: scroll()) {
+    .scroll-fade-y,
+    .scroll-fade-x {
+      animation: scroll-fade-before 1ms linear both, scroll-fade-after 1ms linear both !important;
+      animation-timeline: --scroll-fade-scroll, --scroll-fade-scroll !important;
+      animation-range: 0 6%, 94% 100% !important;
+    }
+  }
 }
 
 html,
@@ -649,6 +663,76 @@ button:disabled,
   display: none;
 }
 
+/*
+ * A4 滚动区边缘渐隐(共享唯一实现,接 chain-strip/Region):滚动口两端羽化 mask,
+ * 提示「这一侧还有内容」;到头一侧渐隐归零,内容不溢出时完全不显示。
+ * 纯 CSS scroll-driven animations 驱动(Chromium 115+,本仓 Electron 42),零 JS:
+ *   - 滚动元素自带 scroll-timeline(命名,animation-timeline 从元素自身解析);
+ *   - 两个关键帧把注册过的 --scroll-fade-before/after(0 ↔ --scroll-fade-size)挂在
+ *     滚动进程的头 6% / 尾 6% 上:progress=0(在顶)before=0,progress=100%(到底)
+ *     after=0,fill:both 让区间外保持端值;
+ *   - mask-image 用这两个变量线性羽化内容本身——文字被半透明化而不是被玻璃色盖住,
+ *     暗/亮主题零配色,也不遮正文。
+ * 时间线不激活(没有可滚动溢出)时动画不生效,变量落回本类的 0px:无渐隐、无装饰。
+ * 引擎不支持时整块不生效,回退为现状硬边;不残生永久渐隐。
+ */
+@property --scroll-fade-before {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@property --scroll-fade-after {
+  syntax: "<length>";
+  inherits: false;
+  initial-value: 0px;
+}
+@supports (animation-timeline: scroll()) {
+  .scroll-fade-y,
+  .scroll-fade-x {
+    --scroll-fade-before: 0px;
+    --scroll-fade-after: 0px;
+    animation: scroll-fade-before 1ms linear both, scroll-fade-after 1ms linear both;
+    animation-timeline: --scroll-fade-scroll, --scroll-fade-scroll;
+    animation-range: 0 6%, 94% 100%;
+  }
+  .scroll-fade-y {
+    scroll-timeline: --scroll-fade-scroll block;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent,
+      #000 var(--scroll-fade-before),
+      #000 calc(100% - var(--scroll-fade-after)),
+      transparent
+    );
+  }
+  .scroll-fade-x {
+    scroll-timeline: --scroll-fade-scroll inline;
+    mask-image: linear-gradient(
+      to right,
+      transparent,
+      #000 var(--scroll-fade-before),
+      #000 calc(100% - var(--scroll-fade-after)),
+      transparent
+    );
+  }
+}
+@keyframes scroll-fade-before {
+  from {
+    --scroll-fade-before: 0px;
+  }
+  to {
+    --scroll-fade-before: var(--scroll-fade-size);
+  }
+}
+@keyframes scroll-fade-after {
+  from {
+    --scroll-fade-after: var(--scroll-fade-size);
+  }
+  to {
+    --scroll-fade-after: 0px;
+  }
+}
+
 /* 细滚动条：暗/亮主题各自贴合，避免 Windows 粗滚动条打断密度 */
 * {
   scrollbar-width: thin;
@@ -710,6 +794,18 @@ html[data-theme="light"] ::selection {
   line-height: 1.75;
   color: var(--color-text);
   overflow-wrap: anywhere;
+}
+/* A8 文档换行优化:标题 balance(多行标题两端均衡,避免末行孤字)、段落 pretty
+   (避免末行孤行);只作用于文档 prose 作用域,不碰表格与密集列表。Mermaid 图内
+   标签是 <p>,图自己管断行,同上方 color/margin 例外一起摘出。 */
+.prose-harness :is(h1, h2, h3, h4) {
+  text-wrap: balance;
+}
+.prose-harness p {
+  text-wrap: pretty;
+}
+.document-diagram p {
+  text-wrap: auto;
 }
 .doc-flow .prose-harness[data-layout="single"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote),
 .doc-flow .prose-harness[data-layout="auto"] > :where(h1, h2, h3, h4, p, ul, ol, blockquote) {
