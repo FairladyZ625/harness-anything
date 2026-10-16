@@ -97,9 +97,8 @@ export function CommandPalette({
     setActiveIdx(0);
   }, [query, entries.length]);
 
-  if (!open) return null;
-
   // 组字守卫:IME 选词期间的 Enter/方向键归输入法,不跳转、不动高亮。
+  // 挂在 if (!open) return null 之前:open 切换时 hook 数量恒定(React hooks 规则)。
   const ime = useImeKeyDown((e: React.KeyboardEvent) => {
     if (e.key === "Escape") {
       e.preventDefault();
@@ -119,6 +118,8 @@ export function CommandPalette({
       }
     }
   });
+
+  if (!open) return null;
 
   return (
     <div

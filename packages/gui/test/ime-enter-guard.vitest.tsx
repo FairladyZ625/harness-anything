@@ -107,6 +107,44 @@ describe("CommandPalette:组字中的 Enter 只上屏,不跳转", () => {
     enter(input);
     expect(actions.selected).toEqual(["task/t1"]);
   });
+
+  // 生命周期回归:App 常驻挂载本组件、用 open prop 开关,守卫 hook 若挂在
+  // if (!open) return null 之后,首次开关即触发 React「hooks 数量变化」崩溃。
+  it("open false→true→false→true:渲染不报错,重开后组字中 Enter 不跳转、组字外照常", () => {
+    const actions = { selected: [] as string[], closed: [] as string[] };
+    const host = document.createElement("div");
+    document.body.appendChild(host);
+    const root = createRoot(host);
+    const render = (open: boolean) =>
+      act(() =>
+        root.render(
+          createElement(CommandPalette, {
+            open,
+            entries,
+            onSelect: (ref: string) => actions.selected.push(ref),
+            onClose: () => actions.closed.push("close"),
+          }),
+        ),
+      );
+
+    render(false);
+    expect(host.querySelector('[data-testid="command-palette"]')).toBeNull();
+    render(true);
+    expect(host.querySelector('[data-testid="command-palette"]')).not.toBeNull();
+    render(false);
+    expect(host.querySelector('[data-testid="command-palette"]')).toBeNull();
+    render(true);
+    expect(host.querySelector('[data-testid="command-palette"]')).not.toBeNull();
+
+    const input = host.querySelector("input")!;
+    compositionStart(input);
+    enter(input);
+    expect(actions.selected).toEqual([]);
+    compositionEnd(input);
+    enter(input);
+    expect(actions.selected).toEqual(["task/t1"]);
+    act(() => root.unmount());
+  });
 });
 
 describe("FocusSwitcher:组字中的 Enter 不切换焦点", () => {
