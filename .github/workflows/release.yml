@@ -46,7 +46,7 @@ jobs:
       - run: node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui
 
   publish-npm:
-    needs: build-app
+    needs: [validate, build-app]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
