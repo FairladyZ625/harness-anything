@@ -12,9 +12,13 @@ export interface RuntimeExecutionPrincipal {
   readonly repoId: string;
   readonly runtimeSessionId: string;
   readonly dispatchId: string;
-  readonly taskId: string;
-  readonly executionId: string;
-  readonly role: "implementation" | "reviewer";
+  /**
+   * Null only on the read-only role: an unbound read-only dispatch (the bundled ask-agent
+   * surface) holds no task lease, so its credential is allowlist-scoped reads and nothing else.
+   */
+  readonly taskId: string | null;
+  readonly executionId: string | null;
+  readonly role: "implementation" | "reviewer" | "read-only";
   /** Decision review dispatches bind reads to this canonical decision id. */
   readonly reviewDecisionId?: string;
   /** Task review dispatches bind reads to this canonical task id. */
@@ -24,7 +28,14 @@ export interface RuntimeExecutionPrincipal {
 }
 
 export function executionCredentialRejected(
-  reason: "scope" | "write-other-task" | "self-approval" | "expired" | "revoked" | "authentication" = "scope",
+  reason:
+    | "scope"
+    | "write-other-task"
+    | "self-approval"
+    | "read-only-allowlist"
+    | "expired"
+    | "revoked"
+    | "authentication" = "scope",
 ): Error {
   const message = {
     scope:
@@ -33,6 +44,10 @@ export function executionCredentialRejected(
       "Execution write was rejected because it targets another task or repository. Writes are limited to this task; use `ha task show` to inspect other tasks.",
     "self-approval":
       "Execution write was rejected because it requires human approval or access administration. Use the corresponding human review or access command.",
+    "read-only-allowlist":
+      "This read-only dispatch may only run the allowlisted ledger queries " +
+      "(ha work list/show, ha task list/show, ha agenda, ha runtime status, ha schedule list/runs); " +
+      "the daemon rejected this command outside that allowlist.",
     expired: "Execution credential is expired.",
     revoked: "Execution credential is revoked.",
     authentication: "Execution credential authentication was rejected.",
@@ -148,10 +163,16 @@ function validPrincipal(value: unknown): value is RuntimeExecutionPrincipal {
   )
     return false;
   return (
-    ["personId", "repoId", "runtimeSessionId", "dispatchId", "taskId", "executionId"].every(
+    ["personId", "repoId", "runtimeSessionId", "dispatchId"].every(
       (key) => typeof p[key] === "string" && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p[key]),
     ) &&
-    (p.role === "implementation" || p.role === "reviewer") &&
+    (p.role === "implementation" || p.role === "reviewer" || p.role === "read-only") &&
+    (p.role === "read-only"
+      ? p.taskId === null && p.executionId === null
+      : typeof p.taskId === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p.taskId) &&
+        typeof p.executionId === "string" &&
+        /^[A-Za-z0-9][A-Za-z0-9._:-]*$/u.test(p.executionId)) &&
     (p.reviewTaskId === undefined || typeof p.reviewTaskId === "string") &&
     typeof p.expiresAt === "string" &&
     Date.parse(p.expiresAt) <= Date.now() + runtimeExecutionLifetimeMs

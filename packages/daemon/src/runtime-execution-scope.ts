@@ -58,8 +58,30 @@ const selfApprovalActions = new Set([
 
 const repositoryWriteActions = new Set(["entity-pin", "entity-unpin", "settings-update"]);
 
+/**
+ * The read-only dispatch's ledger surface, enforced here by the daemon — never by prompt
+ * discipline. The bundled ask-agent declaration mirrors this list in its prompt for usability;
+ * this set is the authority.
+ */
+const readOnlyLedgerQueries = new Set([
+  "work-list",
+  "work-show",
+  "task-list",
+  "task-show",
+  "agenda",
+  "runtime-status",
+  "schedule-list",
+  "schedule-runs",
+]);
+
 export function requireExecutionActionScope(p: RuntimeExecutionPrincipal, action: RepoTaskAction): void {
   const commandClass = commandClassForAction(action.kind);
+  // The read-only dispatch holds no task lease, so every non-allowlisted action — read or
+  // write — fails as one allowlist rejection instead of falling into task-binding logic.
+  if (p.role === "read-only") {
+    if (commandClass === "repo-read" && readOnlyLedgerQueries.has(action.kind)) return;
+    throw executionCredentialRejected("read-only-allowlist");
+  }
   // CH2 (dec_CF96A3C910B31D2D7498F32DDD): reads are repository-view operations and
   // remain available throughout a dispatch; only writes are task-bound below.
   if (commandClass === "repo-read") return;
@@ -84,6 +106,10 @@ export function requireCurrentExecutionScope(input: {
 }): void {
   const p = input.binding.executionPrincipal;
   if (!p) return;
+  // A read-only dispatch owns no ledger writes at all — its session settles through the
+  // spawner's own binding — so the writer turn rejects before any lease or task lookup runs.
+  if (p.role === "read-only") throw executionCredentialRejected("read-only-allowlist");
+  if (p.taskId === null || p.executionId === null) throw executionCredentialRejected();
   const ingress =
     input.action.kind === "runtime-run" && isJsonObject(input.action.executionRuntimeIngress)
       ? input.action.executionRuntimeIngress

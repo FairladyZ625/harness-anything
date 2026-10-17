@@ -147,6 +147,11 @@ export function createAgentActionCatalog(
             explain: "The Agent exists at the canonical projection cut before deletion.",
           },
           {
+            ref: "agent/system-bundled",
+            failureCode: "agent_system_builtin",
+            explain: "The Agent is not a system-bundled declaration shipped with Harness.",
+          },
+          {
             ref: "agent/entity-revision",
             failureCode: "revision_conflict",
             explain: "expectedVersion matches the latest Agent entity revision.",
@@ -192,6 +197,11 @@ export function createAgentActionCatalog(
             ref: "agent/entity-present",
             failureCode: "agent_not_found",
             explain: "The Agent exists at the canonical projection cut before retirement.",
+          },
+          {
+            ref: "agent/system-bundled",
+            failureCode: "agent_system_builtin",
+            explain: "The Agent is not a system-bundled declaration shipped with Harness.",
           },
           {
             ref: "agent/lifecycle",

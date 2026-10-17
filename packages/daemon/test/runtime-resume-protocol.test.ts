@@ -60,18 +60,64 @@ test("an archived resume source is rejected when the canonical projection record
     writer.appendProviderBinding("provider-session", "2026-09-29T00:00:01.000Z");
     archiveDispatchStream(rootDir, dispatchId);
 
+    // Resume follows the chain to the resuming child before admitting; the child has no local
+    // stream in this fixture, so the rejection names the leaf the conversation continues at.
     assert.throws(
       () =>
         admitRuntimeResume(rootDir, dispatchId, () => ({
-          readRuntimeDispatchByResumeSource: () =>
-            ({
-              event: { payload: { dispatchId: resumedDispatchId, resumedFromDispatchId: dispatchId } },
-            }) as unknown as RuntimeDispatchProjectionRow,
+          readRuntimeDispatchByResumeSource: (source: string) =>
+            source === dispatchId
+              ? ({
+                  event: { payload: { dispatchId: resumedDispatchId, resumedFromDispatchId: dispatchId } },
+                } as unknown as RuntimeDispatchProjectionRow)
+              : null,
         })),
       (error: unknown) =>
-        error instanceof Error &&
-        error.message === `Dispatch ${dispatchId} was already resumed as ${resumedDispatchId}.`,
+        error instanceof Error && error.message === `Dispatch ${resumedDispatchId} has no provider session to resume.`,
     );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("resuming a conversation follows its resume chain to the current leaf", () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-resume-chain-")),
+    first = "dispatch_0123456789abcdef01234567",
+    second = "dispatch_0123456789abcdef99999999",
+    third = "dispatch_0123456789abcdef88888888";
+  try {
+    for (const [dispatchId, resumedFrom] of [
+      [first, undefined],
+      [second, first],
+      [third, second],
+    ] as const)
+      openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        ...(resumedFrom ? { resumedFromDispatchId: resumedFrom } : {}),
+        runtimeSessionId: `runtime-${dispatchId}`,
+        instanceId: "instance-1",
+        agentId: "ask-agent",
+        startedAt: "2026-10-17T00:00:00.000Z",
+      }).appendProviderBinding(`provider-${dispatchId}`, "2026-10-17T00:00:01.000Z");
+
+    // The caller keeps naming the first dispatch (the ask session id); admission lands on the
+    // leaf and returns the leaf's stream, so the new round continues the leaf's provider session.
+    const links = new Map([
+      [first, second],
+      [second, third],
+    ]);
+    const resumed = admitRuntimeResume(rootDir, first, () => ({
+      readRuntimeDispatchByResumeSource: (source: string) =>
+        links.has(source)
+          ? ({
+              event: { payload: { dispatchId: links.get(source)!, resumedFromDispatchId: source } },
+            } as unknown as RuntimeDispatchProjectionRow)
+          : null,
+    }));
+    assert.equal(resumed?.header.dispatchId, third);
+    assert.equal(resumed?.providerSessionId, `provider-${third}`);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
