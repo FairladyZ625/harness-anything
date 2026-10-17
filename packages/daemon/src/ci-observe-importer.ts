@@ -1,5 +1,6 @@
 import {
   localGitObjectRefStore,
+  consumeKnownError,
   type CiObserveProgress,
   type ScheduleV1,
   type WriteReceiptDraft,
@@ -112,6 +113,7 @@ export async function reconcileCiOccurrence(input: {
       try {
         await accept({ ...fetched, runs: [run] });
       } catch (error) {
+        consumeKnownError(error);
         if (cellErrorCode(error) === "invalid_result") {
           pending.delete(`${run.databaseId}.${run.summary.attempt}`);
           if (!unavailable.some((target) => target.runId === run.databaseId && target.attempt === run.summary.attempt))
