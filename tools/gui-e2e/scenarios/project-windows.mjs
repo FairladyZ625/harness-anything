@@ -12,7 +12,12 @@ import { bridgeReady, nav } from "./helpers.mjs";
 //   ④ 同项目两窗并存(⌘⇧N 的产物状态,CEO 2026-10-17 裁定):窗口 1 在本窗内切到第二
 //     项目(headless 无焦点,菜单无法带种子,等价走切换器行点击),随后再点「在新窗口
 //     打开」同一项目仍不建第三窗;
-//   ⑤ darwin 真菜单:evaluate 里点应用菜单「新建窗口」,必须总是新增一窗。
+//   ⑤ 同项目两窗导航历史各自持有(task_48399f09c1673b4be25faed452):窗口 1 停看板、
+//     窗口 2 停产物页,窗口 1 切走再切回仍停自己的看板(修前:读到他窗写入的共享
+//     localStorage 键,跳去产物页),后退互不影响;关掉窗口 2 后重开的新窗口恢复
+//     最后关闭窗口(窗口 2)的位置——运行期栈在 sessionStorage(Electron 每窗独立),
+//     关闭时写回 localStorage 兜底;
+//   ⑥ darwin 真菜单:evaluate 里点应用菜单「新建窗口」,必须总是新增一窗。
 // 第二个仓在本场景内经 daemon.repo.bootstrap 自建(permit 在 lanes.mjs keycloakSetup
 // 里登记);新窗口的 renderer console 错误单独收集——driver 只监听首个窗口。
 // 坑:headless 运行里全部窗口必须保持隐藏(driver.assertBackground),新窗口的
@@ -22,6 +27,10 @@ import { bridgeReady, nav } from "./helpers.mjs";
 const SWITCHER_TITLE = /快速切换项目|Quickly switch projects/u;
 const SECOND_REPO_ID = "gui-e2e-windows";
 const SECOND_PROJECT_NAME = "repo-window";
+// 主夹具仓:lanes.mjs 写死 repoId「gui-e2e-catalog」(行内第二行的精确文本),displayName
+// 由 rootDir 派生成「repo」(头部触发按钮显示的名字)。
+const MAIN_REPO_ID = "gui-e2e-catalog";
+const MAIN_PROJECT_NAME = "repo";
 
 async function openSwitcher(page) {
   await page.getByTitle(SWITCHER_TITLE).click();
@@ -145,7 +154,72 @@ export default {
       fullPage: true,
     });
 
-    // ⑤ darwin 真菜单「新建窗口」:headless 下聚焦为空 → 种子 null,但必须总是新增一窗
+    // ⑤ 同项目两窗导航历史各自持有:窗口 1 → 看板,窗口 2 → 产物页。
+    await nav(page, /^(?:看板|Board)$/u, "board-header-summary");
+    await nav(secondPage, /^(?:产物|Artifacts)$/u, "artifacts-view");
+    // 机制实测:Electron 每 BrowserWindow 的 sessionStorage 独立,同键各自持有自己的栈顶。
+    const sessionTopView = (target) =>
+      target.evaluate(() => {
+        const raw = globalThis.sessionStorage.getItem("harness-view-history:gui-e2e-windows");
+        if (raw === null) return null;
+        const history = JSON.parse(raw).history;
+        return history.entries[history.index].view;
+      });
+    assert.equal(await sessionTopView(page), "board");
+    assert.equal(await sessionTopView(secondPage), "artifacts");
+    // 窗口 1 切走再切回:仍停自己的看板(修前重读共享键会跳去窗口 2 的产物页)。
+    const awayPanel = await openSwitcher(page);
+    await awayPanel.getByText(MAIN_REPO_ID, { exact: true }).click();
+    await headerShowsProject(page, MAIN_PROJECT_NAME);
+    const returnPanel = await openSwitcher(page);
+    await returnPanel.getByText(SECOND_PROJECT_NAME, { exact: true }).click();
+    await headerShowsProject(page, SECOND_PROJECT_NAME);
+    await page.getByTestId("board-header-summary").waitFor({ timeout: 10_000 });
+    // 后退互不影响:窗口 1 退回自己的总览,窗口 2 原地不动。
+    await page
+      .getByTestId("nav-history-bar")
+      .getByRole("button", { name: /(?:后退|Back)/u })
+      .click();
+    await page.getByTestId("overview-view").waitFor({ timeout: 10_000 });
+    await secondPage.getByTestId("artifacts-view").waitFor({ timeout: 10_000 });
+    await page.screenshot({ path: path.join(runRoot, "project-windows-history-window-1-back.png"), fullPage: true });
+    await secondPage.screenshot({
+      path: path.join(runRoot, "project-windows-history-window-2-unaffected.png"),
+      fullPage: true,
+    });
+
+    // 重开恢复「最后关闭的同项目窗口」:窗口 1 先切回主项目(标题随之区分),再关掉停
+    // 产物页的窗口 2——BrowserWindow.close() 走正常关闭序列,renderer 的 pagehide 写回
+    // 在这里落地(Playwright 的 page.close() 不保证经过 unload)——然后「在新窗口打开」
+    // 第二项目 → 新窗恢复产物页,不是窗口 1 的看板/总览。
+    assert.deepEqual(secondConsole, [], `second window renderer errors: ${secondConsole.join("\n")}`);
+    const leavePanel = await openSwitcher(page);
+    await leavePanel.getByText(MAIN_REPO_ID, { exact: true }).click();
+    await headerShowsProject(page, MAIN_PROJECT_NAME);
+    const secondClosed = secondPage.waitForEvent("close", { timeout: 10_000 });
+    await app.evaluate(({ BrowserWindow }, expectedTitle) => {
+      const matches = BrowserWindow.getAllWindows().filter((window) => window.title === expectedTitle);
+      if (matches.length !== 1) throw new Error(`expected exactly one window titled ${expectedTitle}`);
+      matches[0].close();
+    }, `${SECOND_PROJECT_NAME} — Harness Anything`);
+    await secondClosed;
+    const reopenPanel = await openSwitcher(page);
+    const reopenConsole = [];
+    const [reopenedPage] = await Promise.all([
+      app.waitForEvent("window"),
+      reopenPanel.getByTestId(`quick-switcher-open-window-${SECOND_REPO_ID}`).click(),
+    ]);
+    reopenedPage.on("pageerror", (error) => reopenConsole.push(error.message));
+    await bridgeReady(reopenedPage);
+    await headerShowsProject(reopenedPage, SECOND_PROJECT_NAME);
+    await reopenedPage.getByTestId("artifacts-view").waitFor({ timeout: 15_000 });
+    assert.deepEqual(reopenConsole, [], `reopened window renderer errors: ${reopenConsole.join("\n")}`);
+    await reopenedPage.screenshot({
+      path: path.join(runRoot, "project-windows-history-reopened-last-closed.png"),
+      fullPage: true,
+    });
+
+    // ⑥ darwin 真菜单「新建窗口」:headless 下聚焦为空 → 种子 null,但必须总是新增一窗
     //    (修复前菜单会把当前项目交给去重的 openProjectWindow,什么都开不出来)。
     if (process.platform === "darwin") {
       const [thirdPage] = await Promise.all([

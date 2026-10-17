@@ -330,9 +330,9 @@ function OverviewHistoryHarness(props: Partial<Parameters<typeof OverviewView>[0
 }
 
 /** 每个用例一个干净 client:上一例的 error 态不能泄进下一例的读面;导航栈同理,
- *  localStorage 里 probe-repo 的历史键随挂载清空(否则上一例的层条目会泄进下一例)。 */
+ *  会话里 probe-repo 的历史键随挂载清空(否则上一例的层条目会泄进下一例)。 */
 export function mountOverview(props: Partial<Parameters<typeof OverviewView>[0]> = {}): HTMLElement {
-  window.localStorage.removeItem("harness-view-history:probe-repo");
+  window.sessionStorage.removeItem("harness-view-history:probe-repo");
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const container = document.createElement("div");
   document.body.append(container);

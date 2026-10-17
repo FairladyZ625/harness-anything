@@ -175,9 +175,9 @@ const pressThenClick = (button: HTMLButtonElement) => {
   button.click();
 };
 /** 栈指针实测值:viewHistoryStorage 持久化的 history.index(证据协议的 dump 路径)。
- * 介质是 localStorage(切仓位置跨重启保留后从 sessionStorage 迁移)。 */
+ * 运行期介质是 sessionStorage(本窗独立;task_48399f09c1673b4be25faed452)。 */
 const shellHistory = () => {
-  const raw = window.localStorage.getItem(`harness-view-history:${SHELL_PROJECT}`);
+  const raw = window.sessionStorage.getItem(`harness-view-history:${SHELL_PROJECT}`);
   expect(raw).toBeTruthy();
   return (JSON.parse(raw!) as { history: ViewHistoryState }).history;
 };
