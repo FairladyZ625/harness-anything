@@ -800,6 +800,7 @@ type SqliteQuery = (
   sql: string,
   values?: readonly (string | number | null)[],
 ) => Record<string, import("node:sqlite").SQLOutputValue>[];
+type OpenProgress = (progress: { readonly applied: number; readonly total: number }) => void;
 
 function assertMetadata(query: SqliteQuery, repoId: string, generation: number): void {
   const metadata = readMetadata(query);
@@ -937,10 +938,7 @@ function updateEventQueryWatermark(query: SqliteQuery, revision: number): void {
     [revision],
   );
 }
-function backfillEventQueryRefs(
-  query: SqliteQuery,
-  onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
-): void {
+function backfillEventQueryRefs(query: SqliteQuery, onProgress?: OpenProgress): void {
   const indexed = Number(query("SELECT revision FROM event_query_meta WHERE singleton=1").at(0)?.revision ?? 0),
     head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
   if (indexed > head) throw new TaskEventStoreError("invalid_store", "event query index is ahead of the ledger");
@@ -961,10 +959,7 @@ function backfillEventQueryRefs(
   updateEventQueryWatermark(query, head);
   onProgress?.({ applied: total, total });
 }
-function backfillDocumentHeads(
-  query: SqliteQuery,
-  onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
-): void {
+function backfillDocumentHeads(query: SqliteQuery, onProgress?: OpenProgress): void {
   const indexed = Number(query("SELECT revision FROM document_head_meta WHERE singleton=1").at(0)?.revision ?? 0),
     head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
   if (indexed > head) throw new TaskEventStoreError("invalid_store", "document head index is ahead of the ledger");
