@@ -68,7 +68,7 @@ function parseEdgeJoin(
     undefined,
     json,
     {
-      kind: "edge-join",
+      kind: "rbac-bootstrap",
       operation: "edge-join-consume",
       link,
       observedSpkiSha256: flags.one.get("--observed-spki-sha256"),
