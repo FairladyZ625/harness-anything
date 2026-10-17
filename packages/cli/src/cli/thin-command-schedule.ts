@@ -210,7 +210,7 @@ export function renderScheduleRuns(receipt: Record<string, unknown>): string | n
           run.outcome,
           run.nodeId ?? "none",
           run.durationMs === null ? "none" : `${run.durationMs}ms`,
-          run.reportRef ?? run.missedReason ?? "none",
+          run.detail ?? run.reportRef ?? run.missedReason ?? "none",
         ].join("\t"),
       )
       .join("\n");

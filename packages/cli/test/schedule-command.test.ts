@@ -259,6 +259,46 @@ test("Schedule runs human renderer uses the occurrence projection", () => {
   );
 });
 
+test("Schedule runs human renderer exposes failed occurrence detail", () => {
+  assert.equal(
+    renderScheduleRuns({
+      command: "schedule-runs",
+      evidence: JSON.stringify({
+        schema: "schedule-runs/v1",
+        ok: true,
+        status: "ready",
+        scheduleId: "daily",
+        runs: [
+          {
+            occurrenceId: "occurrence-failed",
+            kind: "manual",
+            scheduledFor: "2026-08-27T18:30:00.000Z",
+            claimedAt: "2026-08-27T18:30:01.000Z",
+            endedAt: "2026-08-27T18:30:03.000Z",
+            nodeId: "local",
+            claimFence: "claim-failed",
+            outcome: "failed",
+            durationMs: 2_000,
+            reportRef: null,
+            reportText: null,
+            detail: "invalid_result: invalid CI diagnostics",
+            missedReason: null,
+            dispatchId: null,
+            runtimeSessionId: null,
+            attemptIndex: 0,
+            outputs: { facts: [], decisions: [], tasks: [] },
+          },
+        ],
+        totals: { runs: 1, missed: 0, failed: 1 },
+        truncated: false,
+        watermark: 4,
+        sourceRevision: 4,
+      }),
+    }),
+    "occurrence-failed\t2026-08-27T18:30:00.000Z\tfailed\tlocal\t2000ms\tinvalid_result: invalid CI diagnostics",
+  );
+});
+
 test("Schedule show, update, and delete expose closed structured packet inputs", () => {
   for (const [verb, packet] of [
     ["show", "show.json"],
