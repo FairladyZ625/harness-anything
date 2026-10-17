@@ -432,7 +432,8 @@ export class OidcSessionService {
   /** Public metadata carried by new edge invitations; contains no secret or session token. */
   async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
     const authority = await this.#loginAuthority();
-    return { url: authority.url, realm: authority.realm, clientId: authority.clientId };
+    // An invitation travels to another machine, so it names the listener every node can reach.
+    return { url: authority.browserUrl ?? authority.url, realm: authority.realm, clientId: authority.clientId };
   }
 
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
