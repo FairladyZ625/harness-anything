@@ -5,7 +5,6 @@ import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { AgendaSuccess } from "../src/renderer/api-client.ts";
-import { harnessClient } from "../src/renderer/api-client.ts";
 import { agentRuntimeClient } from "../src/renderer/agent-runtime-client.ts";
 import type {
   AgendaAnsweredRow,
@@ -13,7 +12,6 @@ import type {
   AgendaDecisionRow,
   AgendaExecutionRow,
   AgendaTaskRow,
-  ObserveTailRead,
 } from "../src/api/renderer-dto.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
@@ -156,17 +154,6 @@ const groupOf = (patch: Partial<AgentRuntimeSessionGroupsResult["groups"][number
   ...patch,
 });
 
-const eventsPage = (items: readonly unknown[]): ObserveTailRead =>
-  ({ status: "ready", items, done: true, cursor: "events:9", sourceCursor: "events:9" }) as unknown as ObserveTailRead;
-
-const completedEvent = (taskId: string, at: string) => ({
-  eventId: `evt_${taskId}`,
-  type: "task_completed",
-  occurredAt: at,
-  taskId,
-  payload: { title: `完成 ${taskId}` },
-});
-
 const mounted: { root: Root; container: HTMLElement }[] = [];
 
 beforeAll(() => {
@@ -194,13 +181,6 @@ beforeEach(() => {
           reason: "等待上游凭据",
         },
       }),
-    ]),
-  );
-  vi.spyOn(harnessClient, "tailObservability").mockImplementation(async () =>
-    eventsPage([
-      completedEvent("task_done_1", "2026-10-17T08:00:00.000Z"),
-      completedEvent("task_done_2", "2026-10-17T06:30:00.000Z"),
-      { eventId: "evt_noise", type: "task_progress_appended", occurredAt: AT, taskId: "task_x", payload: {} },
     ]),
   );
 });
