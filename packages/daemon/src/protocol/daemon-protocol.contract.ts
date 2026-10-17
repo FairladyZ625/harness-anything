@@ -9,7 +9,6 @@ import {
   runtimeInstanceAuthMethods,
   runtimeInstanceMethods,
 } from "./daemon-protocol-gui-actions.ts";
-import { accessAdminOperations } from "../access-admin-contract.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 import type { DaemonSessionEnvironment } from "./daemon-protocol-identifiers.ts";
 import { optionalEnum, shape, type RpcEnumRule, type RpcShape } from "./daemon-protocol-gui-types.ts";
@@ -48,6 +47,43 @@ export {
   taskStatusWords,
 };
 export { builtInRuntimeProviderInputDeclaration } from "./daemon-protocol-commands-runtime-config.ts";
+
+export const accessAdminOperations = Object.freeze([
+  "group-list",
+  "group-create",
+  "group-update",
+  "group-delete",
+  "grant",
+  "revoke",
+  "grant-list",
+  "permission-request-create",
+  "permission-request-list",
+  "permission-request-decide",
+  "permission-request-withdraw",
+  "effective-permissions",
+  "receipt-list",
+  "team-list",
+  "team-create",
+  "team-update",
+  "team-delete",
+  "team-member-add",
+  "team-member-remove",
+  "node-list",
+  "node-register",
+  "node-unregister",
+  "edge-join-create",
+  "edge-join-consume",
+  "edge-join-status",
+  "device-list",
+  "device-rename",
+  "device-pause",
+  "device-resume",
+  "device-remove",
+  "device-logout-all",
+  "receipt-reconcile",
+  "session-lifetime",
+  "session-lifetime-set",
+] as const);
 
 export const currentDaemonProtocolVersion = Object.freeze({ major: 1, minor: 0 }) satisfies ContractVersion;
 

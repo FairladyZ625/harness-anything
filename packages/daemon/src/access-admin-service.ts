@@ -25,12 +25,7 @@ import type { OidcSessionService } from "./oidc-session-service.ts";
 import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 import { createEdgeJoinStore } from "./fleet/edge-join.ts";
-export {
-  accessAdminOperations,
-  type AccessAdminOperation,
-  type AccessAdminPorts,
-  type AccessAdminRequest,
-} from "./access-admin-contract.ts";
+export { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
 type Expectation =
   | { readonly kind: "team"; readonly teamId: string; readonly version: string }

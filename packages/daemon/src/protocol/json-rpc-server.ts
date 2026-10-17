@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { accessAdminOperations } from "./daemon-protocol.contract.ts";
 import { executionCredentialRejected } from "../runtime-execution-credential.ts";
 import { localDefaultBinding } from "../daemon-host-binding.ts";
 import type { DaemonHost } from "../daemon-host.ts";
@@ -254,7 +255,6 @@ export function createJsonRpcProtocolServer(options: {
     if (remoteRepoId && remoteProxy?.route(remoteRepoId)) {
       try {
         if (method === "daemon.rbac.manage") {
-          const { accessAdminOperations } = await import("../access-admin-service.ts");
           const permitted = [
             "login",
             "login-poll",
