@@ -121,6 +121,7 @@
     "packages/daemon/src/worktree-setup.ts",
     "packages/daemon/src/writer-epoch.ts",
     "packages/gui/src/main/artifact-open-ipc.ts",
+    "packages/gui/src/main/desktop-first-run.ts",
     "packages/gui/src/main/local-doc-ipc.ts",
     "packages/kernel/src/daemon/registry.ts",
     "packages/kernel/src/local/local-layout-file-system.ts",
