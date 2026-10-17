@@ -99,6 +99,7 @@ export default {
         }));
       await Promise.all(requests.map(({ peer, notice }) => reportFleetDeviceLogin(peer, notice)));
       await page.getByTestId("sidebar-account").click();
+      await page.getByRole("tab", { name: /服务与会话|Service & session/u }).click();
       await page.getByTestId("device-login-node-one").waitFor();
       await page.getByTestId("device-login-node-two").waitFor();
       assert.equal((await page.evaluate(() => window.harness.auth.status())).deviceLoginRequests.length, 2);
