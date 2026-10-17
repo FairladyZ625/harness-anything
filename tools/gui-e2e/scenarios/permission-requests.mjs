@@ -45,7 +45,7 @@ export default {
     const result = await promisify(execFile)(
       process.execPath,
       [
-        path.resolve("packages/cli/src/index.ts"),
+        path.resolve(import.meta.dirname, "../../../packages/cli/src/index.ts"),
         "--root",
         fixture.rootDir,
         "--json",
@@ -95,7 +95,8 @@ export default {
       client.close();
     }
     await page.getByRole("button", { name: /^(?:账号与访问控制|Identity & access)$/u }).click();
-    await page.getByRole("tab", { name: "Permission requests", exact: true }).click();
+    // 双语标签:隔离夹具按 daemon 设置渲染 zh-CN,en-US 只在显式切语言后出现。
+    await page.getByRole("tab", { name: /^(?:Permission requests|权限申请)$/u }).click();
     await page.getByTestId(`permission-request-decide-${request.requestId}`).click();
     assert.match(await page.getByTestId("permission-request-confirm").textContent(), /Confirm version 1/u);
     assert.equal((await evaluate()).outcome, "denied");
@@ -104,12 +105,12 @@ export default {
     await page.getByTestId("permission-request-confirm").waitFor({ state: "detached" });
     assert.equal((await evaluate()).outcome, "allowed");
     const form = page.getByTestId("permission-request-create");
-    await form.getByLabel("Resource", { exact: true }).fill(fixture.repoId);
-    await form.getByLabel("Reason", { exact: true }).fill("Inspect repository");
-    await form.getByRole("button", { name: "Request access", exact: true }).click();
+    await form.getByLabel(/^(?:Resource|作用域)$/u).fill(fixture.repoId);
+    await form.getByLabel(/^(?:Reason|申请理由)$/u).fill("Inspect repository");
+    await form.getByRole("button", { name: /^(?:Request access|提交申请)$/u }).click();
     await page
       .getByTestId("permission-requests")
-      .getByText(/person-gui requests/u)
+      .getByText(/person-gui (?:requests|申请了)/u)
       .waitFor();
     for (const width of [1440, 1120]) {
       await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0].setSize(size, 900), width);

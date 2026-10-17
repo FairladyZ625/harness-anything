@@ -584,6 +584,8 @@ export default {
             executionId,
             return: true,
             reason: "Continue the isolated layout fixture round",
+            // 9ceab8bb1 起 return 必须显式选续派模式;夹具只要返工状态转移。
+            workerMode: "none",
           },
           { kind: "task-start", taskId, executionId: `execution-layout-${taskId}-${index}` },
         ]) {

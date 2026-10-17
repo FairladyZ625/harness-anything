@@ -64,7 +64,9 @@ export default {
     await fixture.resumeDaemon();
     const cliEnv = { ...process.env, ...fixture.env, HARNESS_DAEMON_ENDPOINT: fixture.endpoint };
     delete cliEnv.HARNESS_EXECUTION_CREDENTIAL;
-    const cliPath = path.resolve("packages/cli/src/index.ts");
+    // Resolve from this module, not cwd: the gate entry runs with cwd=packages/gui while the
+    // CLI entry runs from the repo root, and both must reach the same interpreter path.
+    const cliPath = path.resolve(import.meta.dirname, "../../../packages/cli/src/index.ts");
     const readCli = async (fetch) => {
       const args = [
         cliPath,
