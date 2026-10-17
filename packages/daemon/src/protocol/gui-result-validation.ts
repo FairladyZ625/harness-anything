@@ -154,6 +154,7 @@ const resultValidators = {
   "repo.tasks.runtimeContext.read": validateTaskRuntimeContextRead,
   "repo.tasks.wip": validateDaemonTaskWip,
   "repo.works.index": validateDaemonWorkIndex,
+  "repo.works.briefs.read": validateDaemonWorkBriefs,
   "repo.projection.read": validateDaemonUseCaseProjection,
   "repo.entity.actions.explain": validateEntityActionExplanationSet,
   "repo.entity.kinds.read": validateEntityKindCatalog,
@@ -247,6 +248,65 @@ export function validateDaemonWorkIndex(value: unknown): readonly string[] {
     Number.isSafeInteger(value.sourceRevision) &&
     Array.isArray(value.warnings);
   return valid ? [] : [validationError("work-index", "result", value, "must be a valid work index")];
+}
+
+export function validateDaemonWorkBriefs(value: unknown): readonly string[] {
+  if (!isJsonObject(value)) return [validationError("work-briefs", "result", value, "must be an object")];
+  const askKinds = ["question", "acceptance", "consent", "reopen"],
+    buckets = ["waiting", "stuck", "running", "unclear", "done"],
+    partKinds = ["ask", "blocked", "executing", "review", "planned", "delivered", "retired"];
+  const refTimeStringOrNull = (item: unknown) => item === null || typeof item === "string";
+  const drawerTask = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    typeof item.status === "string" &&
+    typeof item.updatedAt === "string";
+  const ask = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.relationId === "string" &&
+    typeof item.sourceRef === "string" &&
+    typeof item.title === "string" &&
+    typeof item.question === "string" &&
+    askKinds.includes(String(item.askKind));
+  const part = (item: unknown) =>
+    isJsonObject(item) &&
+    partKinds.includes(String(item.kind)) &&
+    (item.kind === "planned" || typeof item.title === "string");
+  const pull = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.branch === "string" &&
+    (item.prNumber === null || typeof item.prNumber === "number") &&
+    (item.pass === null || typeof item.pass === "boolean") &&
+    typeof item.occurredAt === "string";
+  const brief = (item: unknown) =>
+    isJsonObject(item) &&
+    typeof item.taskId === "string" &&
+    typeof item.title === "string" &&
+    buckets.includes(String(item.bucket)) &&
+    typeof item.lastActivityAt === "string" &&
+    refTimeStringOrNull(item.deliveredAt) &&
+    Array.isArray(item.sentenceParts) &&
+    item.sentenceParts.every(part) &&
+    Array.isArray(item.asks) &&
+    item.asks.every(ask) &&
+    Array.isArray(item.openTasks) &&
+    item.openTasks.every(drawerTask) &&
+    Array.isArray(item.deliveredTasks) &&
+    item.deliveredTasks.every(drawerTask) &&
+    Array.isArray(item.pullRequests) &&
+    item.pullRequests.every(pull);
+  const valid =
+    value.schema === "daemon.work-briefs/v1" &&
+    value.ok === true &&
+    (value.status === "ready" || value.status === "pending") &&
+    Array.isArray(value.briefs) &&
+    value.briefs.every(brief) &&
+    Number.isSafeInteger(value.watermark) &&
+    Number.isSafeInteger(value.sourceRevision) &&
+    Array.isArray(value.warnings);
+  return valid ? [] : [validationError("work-briefs", "result", value, "must be a valid work briefs read")];
 }
 
 export function validateDaemonTaskWip(value: unknown): readonly string[] {

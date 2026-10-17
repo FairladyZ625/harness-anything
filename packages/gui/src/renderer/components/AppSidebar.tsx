@@ -28,7 +28,7 @@ export interface AppSidebarProps {
   readonly repos: readonly SystemRepoRow[];
   readonly activeRepoId: string | null;
   readonly view: ViewId;
-  /** 重构区当前页(dec_C612E69B):非 null 时主区在重构页,对应导航项点亮。 */
+  /** 重构区当前打开的页面(dec_C612E69B7C7E3480A5F9D2CAD3);null = 重构区未开。 */
   readonly redesignView: RedesignViewId | null;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
@@ -275,7 +275,7 @@ export function AppSidebar({
       {/* 导航滚动区:侧栏唯一纵向滚动容器;窗口够高时不出现滚动条。 */}
       <div data-testid="app-sidebar-scroll" className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {navGroups.map((group, groupIndex) => (
-          <div key={group.id}>
+          <div key={group.id} data-testid={group.id === "redesign" ? "sidebar-redesign-group" : undefined}>
             <div
               className={`px-3 font-mono ui-meta uppercase tracking-wide text-text-faint
                 ${groupIndex === 0 ? "pt-1 pb-1" : "pt-3 pb-1"}`}

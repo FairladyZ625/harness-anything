@@ -6,6 +6,7 @@ import type { TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
+import { myAsksViewEntry } from "./views/my-asks/my-asks-view-entry.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
@@ -75,9 +76,7 @@ import { TerminalRoute } from "./views/TerminalRoute.tsx";
 import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
-import { useViewHistory } from "./navigation/useViewHistory.ts";
-import { useLocationRestore } from "./navigation/useLocationRestore.ts";
-import { initialLocation } from "./navigation/viewHistoryStorage.ts";
+import { useAppLocation } from "./navigation/useAppLocation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
@@ -194,12 +193,8 @@ function AppShell() {
   // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
   // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
   // 它在三元读取之前解析:读哪个切面由「现在挂载的是哪个界面」决定。
-  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } = useViewHistory(
-    projectId,
-    initialLocation(),
-  );
-  // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
-  useLocationRestore(location, document.body);
+  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } =
+    useAppLocation(projectId);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
   useOverviewArtifacts(activeRepoId);
@@ -404,8 +399,8 @@ function AppShell() {
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
 
-  // 重构区路由(dec_C612E69B):重构页暂由 App 级状态承载,不进全局历史栈;
-  // 从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
+  // 重构区路由(dec_C612E69B):重构页(今天/你交代的事)暂由 App 级状态承载,不进
+  // 全局历史栈;从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
   const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
 
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
@@ -613,6 +608,8 @@ function AppShell() {
                 })
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
+              ) : redesignView !== null ? (
+                myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}

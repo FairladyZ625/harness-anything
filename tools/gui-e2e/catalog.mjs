@@ -52,6 +52,7 @@ import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
 import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
 import previewDrawerSingle from "./scenarios/preview-drawer-single.mjs";
 import overlayGlass from "./scenarios/overlay-glass.mjs";
+import redesignMyAsks from "./scenarios/redesign-my-asks.mjs";
 
 export const catalog = [
   taskReturnChoice,
@@ -72,6 +73,7 @@ export const catalog = [
   navigationHistory,
   previewDrawerSingle,
   overlayGlass,
+  redesignMyAsks,
   projectSwitchRestore,
   projectWindows,
   overview,
