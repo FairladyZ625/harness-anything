@@ -46,7 +46,6 @@ const filters: EgoFilters = {
   axes: defaultAxisFilter(),
   kinds: defaultKindFilter(),
   types: new Set(["decision", "task", "fact"]),
-  flowMode: "focus",
 };
 
 function layoutFrom(

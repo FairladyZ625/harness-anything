@@ -159,10 +159,8 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     const view = renderView({ data });
     const lagLink = view.host.querySelector('g.fleet-link[data-node="cc90-ubuntu"]');
     expect(lagLink!.getAttribute("data-state")).toBe("lag");
-    expect(lagLink!.querySelector(".fleet-link-flow")).not.toBeNull();
     const unsyncedLink = view.host.querySelector('g.fleet-link[data-node="edge-unsynced"]');
     expect(unsyncedLink!.getAttribute("data-state")).toBe("unsynced");
-    expect(unsyncedLink!.querySelector(".fleet-link-flow")).toBeNull();
     // 无副本行(ghost)没有 daemon link:连线层按 absent 给灰虚线,节点卡同步标注。
     const ghost = {
       ...data.nodes[1]!,
@@ -241,10 +239,10 @@ describe("舰队拓扑视觉重做(task_16c20131)", () => {
     expect(view.nodeCard("cc90-ubuntu")!.textContent).toContain("cut 163/164");
   });
 
-  it("第 3 轮:fresh/lag 连线携带粒子列车层,absent/unsynced 不携带", () => {
+  it("连线不携带流光/粒子装饰层(2026-10-18 二轮删除,状态语义由静态颜色/线型承担)", () => {
     const view = renderView();
-    expect(view.host.querySelectorAll(".fleet-link-particles")).toHaveLength(1);
-    expect(view.host.querySelector('g.fleet-link[data-state="lag"] .fleet-link-particles')).not.toBeNull();
+    expect(view.host.querySelectorAll(".fleet-link-flow")).toHaveLength(0);
+    expect(view.host.querySelectorAll(".fleet-link-particles")).toHaveLength(0);
   });
 
   it("执行中的节点带执行标记,事件行带进入动效类", () => {

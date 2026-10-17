@@ -5,7 +5,6 @@ import {
   Bandaids,
   CaretDown,
   CaretRight,
-  WaveSine,
   GitBranch,
   CircleHalf,
   Crosshair,
@@ -18,7 +17,7 @@ import {
   KIND_LABEL,
   type SemanticAxis,
 } from "../graph/constants";
-import { RELATION_KIND_ORDER, kindsByAxis, type FlowAnimMode } from "../graph/relationVisual";
+import { RELATION_KIND_ORDER, kindsByAxis } from "../graph/relationVisual";
 import {
   TASK_STATUS_FILTER_OPTIONS,
   DECISION_STATE_FILTER_OPTIONS,
@@ -82,8 +81,6 @@ interface Props {
    * 多半不在场,分层意义小,隐藏;聚光灯 / 全域下保留。默认 true。
    */
   showDensity?: boolean;
-  flowMode: FlowAnimMode;
-  onFlowModeChange: (mode: FlowAnimMode) => void;
 }
 
 function decisionStateLabel(state: DecisionState | typeof OTHER_STATUS_BUCKET): string {
@@ -106,16 +103,12 @@ function taskStatusLabel(status: SnapshotStatus | typeof OTHER_STATUS_BUCKET): s
   return STATUS_META[status]?.label ?? status;
 }
 
-const FLOW_MODES: ReadonlyArray<FlowAnimMode> = ["focus", "all", "off"];
-
 export function GraphFilterPanel({
   filters,
   setFilters,
   entityTypeOptions,
   showEntityTypes = true,
   showDensity = true,
-  flowMode,
-  onFlowModeChange,
 }: Props) {
   const toggleType = (entityType: EntityType) =>
     setFilters((prev) => {
@@ -203,16 +196,6 @@ export function GraphFilterPanel({
     statusOff;
 
   const byAxis = kindsByAxis();
-  const cycleFlow = () => {
-    const i = FLOW_MODES.indexOf(flowMode);
-    onFlowModeChange(FLOW_MODES[(i + 1) % FLOW_MODES.length]!);
-  };
-  const flowLabel =
-    flowMode === "off"
-      ? t("components.graphFilterPanel.flowOff")
-      : flowMode === "all"
-        ? t("components.graphFilterPanel.flowAll")
-        : t("components.graphFilterPanel.flowFocus");
 
   return (
     <div data-testid="graph-filter-panel" className="relative pointer-events-auto inline-flex flex-col">
@@ -228,7 +211,7 @@ export function GraphFilterPanel({
               : t("components.graphFilterPanel.expandFilterPanel")
           }
           className={`ui-control flex flex-1 items-center gap-2 px-2 py-1 text-left hover:bg-surface-raised ${
-            open ? "rounded-t-sm" : "rounded-l-sm"
+            open ? "rounded-t-sm" : "rounded-sm"
           }`}
         >
           {open ? (
@@ -241,17 +224,6 @@ export function GraphFilterPanel({
           {narrowed > 0 && (
             <span className="rounded-full bg-accent px-1.5 py-0.5 font-mono ui-micro text-accent-fg">{narrowed}</span>
           )}
-        </button>
-        <button
-          type="button"
-          onClick={cycleFlow}
-          title={t("components.graphFilterPanel.flowToggleHint")}
-          className={`ui-control flex items-center gap-1 border-l border-border px-2 py-1 ui-micro font-mono text-text-muted hover:bg-surface-raised hover:text-text ${
-            open ? "rounded-tr-sm" : "rounded-r-sm"
-          }`}
-        >
-          <WaveSine weight="bold" className="ui-meta" />
-          <span>{flowLabel}</span>
         </button>
       </div>
 

@@ -31,7 +31,7 @@ import { mergeEgoSession, readEgoSessionFor } from "../graph/egoSession";
 import { applyTerritoryDensity, factHostTaskIds, isFactVisibleWithHost, partitionForSkel } from "../graph/territory";
 import { NO_WORK_TITLE } from "../graph/territoryProgress";
 import { layoutTerritory } from "../graph/territoryLayout";
-import { defaultKindFilter, defaultAxisFilter, type FlowAnimMode } from "../graph/relationVisual";
+import { defaultKindFilter, defaultAxisFilter } from "../graph/relationVisual";
 import {
   defaultEntityStatusFilter,
   taskPassesStatusFilter,
@@ -142,7 +142,6 @@ function GraphViewInner({
   // 折叠语义与老版同源:默认折叠(只显每块前 N 个热点 chip),expandedZones 是
   // 用户手动展开的 zone 集。上千实体的真实数据下,折叠态保证首屏可读。
   const [expandedZones, setExpandedZones] = useState<Set<string>>(() => new Set());
-  const [flowMode, setFlowMode] = useState<FlowAnimMode>("focus");
   // 聚焦铺开跳数(task_b4258de1):默认父 1 / 子 1,步进器在聚光灯工具条上。
   // 住在页面级 state,所以同一 session 里换焦点实体时保留;可见集由画布重铺。
   // 详情页返回(同焦点会话)时从 egoSession 接续上次的预算,与焦点/铺开/展开/视口
@@ -487,8 +486,6 @@ function GraphViewInner({
       entityTypeOptions={entityKinds}
       showEntityTypes={viewMode === "spotlight" || skel === "unified"}
       showDensity
-      flowMode={flowMode}
-      onFlowModeChange={setFlowMode}
     />
   );
 
@@ -650,7 +647,6 @@ function GraphViewInner({
               axes: filters.axes,
               kinds: filters.kinds,
               types: entityKinds.length === 0 ? null : filters.types,
-              flowMode,
               statusFilter: filters.entityStatus,
             }}
             hops={hops}

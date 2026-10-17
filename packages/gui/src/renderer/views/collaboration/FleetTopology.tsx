@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import { t } from "../../i18n/index.tsx";
 import type { FleetOverviewLink, FleetOverviewNode, FleetOverviewRead } from "../../../api/renderer-dto.ts";
 import { StatusTag } from "../../components/primitives/StatusTag.tsx";
@@ -7,12 +7,13 @@ import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } fro
 
 /**
  * 舰队拓扑画布(协作页视觉重做,task_16c20131):SVG 连线层在底、绝对定位的玻璃
- * 节点卡在上。状态即光——连线与节点外圈用状态色发光(fresh=绿稳定、lag=琥珀、
- * unsynced=红且暗、无副本=灰虚线),中心是持续呼吸的能量核心(径向光晕+细环),
- * 执行中节点扫描环;流光是沿中心→边缘方向推进的虚线光束,速度随 lag 加快。
- * 动画全部走 CSS/SVG(transform/opacity/stroke-dashoffset),hover/选择只在进出时
- * 改一次容器属性,不在动画帧里触发 React 重渲染;`prefers-reduced-motion` 由全局
- * CSS 关停,静态状态色保留。
+ * 节点卡在上。状态即光——连线与节点外圈用状态色(fresh=绿稳定、lag=琥珀、
+ * unsynced=红且暗、无副本=灰虚线),中心是静态能量核心(径向光晕+细环)。
+ * 循环动效只留执行中节点的扫描环(transform/opacity);连线流光/粒子列车与
+ * 中心呼吸曾用 stroke-dashoffset/大面积 opacity 循环,2026-10-18 二轮按
+ * 「循环动效只留点/图标级功能指示」口径删除(task_5c651ff17b698ff2bce7e6affa),
+ * 状态语义全部由静态颜色/线型承担;hover/选择只在进出时改一次容器属性,
+ * 不在动画帧里触发 React 重渲染;`prefers-reduced-motion` 由全局 CSS 关停。
  */
 
 /** 连线视觉状态:daemon links 可能一节点多行,取最差一行做节点级通道;无行 = absent。 */
@@ -31,12 +32,6 @@ function linkStateOf(links: readonly FleetOverviewLink[]): LinkVisualState {
     (worst, link) => (LINK_STATE_RANK[link.state] > LINK_STATE_RANK[worst] ? link.state : worst),
     "fresh",
   );
-}
-
-/** 流光速度映射 lag:落后越多越急促;fresh 稳定慢速。 */
-function flowDurationOf(state: LinkVisualState, lagRevisions: number | null): string {
-  if (state === "lag") return `${Math.max(1.2, 2.6 - 0.35 * (lagRevisions ?? 1)).toFixed(2)}s`;
-  return "2.8s";
 }
 
 export function FleetTopology({
@@ -134,7 +129,7 @@ export function FleetTopology({
           </defs>
           {core === null ? null : (
             <g data-testid="collaboration-core" className="fleet-core">
-              <circle className="fleet-core-halo" cx={core.cx} cy={core.cy} r={170} fill="url(#fleet-core-glow)" />
+              <circle cx={core.cx} cy={core.cy} r={170} fill="url(#fleet-core-glow)" />
               <circle className="fleet-core-ring" cx={core.cx} cy={core.cy} r={122} />
               <circle className="fleet-core-ring fleet-core-ring--outer" cx={core.cx} cy={core.cy} r={158} />
             </g>
@@ -147,12 +142,6 @@ export function FleetTopology({
             const path = layout.narrow
               ? spinePath(layout.spineX, centerPlacement, placement)
               : curvePath(centerPlacement, placement);
-            const style: CSSProperties = {
-              "--fleet-flow-duration": flowDurationOf(
-                state,
-                nodeLinks[0]?.lagRevisions ?? node.replica?.lagRevisions ?? null,
-              ),
-            } as CSSProperties;
             return (
               <g
                 key={node.nodeId}
@@ -160,11 +149,8 @@ export function FleetTopology({
                 data-node={node.nodeId}
                 data-state={state}
                 data-dim={dim(node.nodeId) ? "on" : undefined}
-                style={style}
               >
                 <path className="fleet-link-base" d={path} />
-                {state === "fresh" || state === "lag" ? <path className="fleet-link-flow" d={path} /> : null}
-                {state === "fresh" || state === "lag" ? <path className="fleet-link-particles" d={path} /> : null}
               </g>
             );
           })}

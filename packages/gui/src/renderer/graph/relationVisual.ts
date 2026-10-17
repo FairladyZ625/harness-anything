@@ -2,12 +2,11 @@ import type { RelationKind, RelationEdge } from "../model/types";
 import { KIND_AXIS, type SemanticAxis } from "./constants";
 
 /**
- * 关系类型视觉词表 + 筛选/动画纯函数。
+ * 关系类型视觉词表 + 筛选纯函数。
  * 色按语义轴走 CSS 变量;类型间差异用线型(dash)+ 线宽 + 端点形态表达。
- * 动画克制:默认仅 focus(选中/悬停/邻接)边流动,全局开关兜底。
+ * 边的「方向流」虚线行进动画(stroke-dashoffset 循环)已按业主口径②删除
+ * (2026-10-18 二轮,task_5c651ff17b698ff2bce7e6affa):方向语义由箭头端点承担。
  */
-
-export type FlowAnimMode = "off" | "focus" | "all";
 
 export interface RelationVisual {
   dasharray: string | undefined;
@@ -83,16 +82,6 @@ export function defaultAxisFilter(): Record<SemanticAxis, boolean> {
 /** 边是否通过关系类型筛选。kinds 空集 = 全部隐藏。 */
 export function edgePassesKindFilter(edge: Pick<RelationEdge, "kind">, kinds: ReadonlySet<string>): boolean {
   return kinds.has(edge.kind);
-}
-
-/** 是否应对该边开流动动画。 */
-export function shouldAnimateEdge(
-  mode: FlowAnimMode,
-  opts: { selected: boolean; hovered: boolean; adjacent: boolean },
-): boolean {
-  if (mode === "off") return false;
-  if (mode === "all") return true;
-  return opts.selected || opts.hovered || opts.adjacent;
 }
 
 /** 按轴分组的 kind 列表(筛选 UI / 图例用)。 */

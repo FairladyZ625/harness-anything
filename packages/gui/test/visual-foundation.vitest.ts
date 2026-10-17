@@ -78,9 +78,14 @@ describe("visual foundation: sharp radius tokens (2-4px)", () => {
 });
 
 describe("visual foundation: glass layer tokens", () => {
-  it("composes .glass from blur/saturate/stroke/inner-highlight tokens", () => {
+  it("composes .glass from translucent surface/stroke/inner-highlight tokens without live blur", () => {
     const glass = blockBody(/\.glass\s*\{/u);
-    expect(glass).toMatch(/backdrop-filter:\s*blur\(var\(--glass-blur\)\)\s*saturate\(var\(--glass-saturate\)\)/u);
+    // 2026-10-18 二轮(task_5c651ff17b698ff2bce7e6affa):大面积面板档去掉活体
+    // backdrop-filter——面板内容里只要有任一循环动画(状态点/扫描环等功能指示),
+    // 合成器每帧重跑全尺寸模糊(同机差分:动画开+模糊 28% vs 动画关 1.1%);毛玻璃
+    // 折射留给瞬态/小面积档(.glass-scrim/.glass-liquid/.glass-sub)。
+    expect(glass).not.toMatch(/backdrop-filter/u);
+    expect(glass).toMatch(/background:\s*var\(--color-glass\)/u);
     // A2 细边:玻璃描边宽走发丝线 token(Retina 上 0.5px),颜色仍是独立描边色。
     expect(glass).toMatch(/border:\s*var\(--hairline-width\) solid var\(--color-glass-border\)/u);
     expect(glass).toMatch(/inset 0 1px 0 var\(--color-glass-highlight\)/u);
@@ -148,10 +153,15 @@ describe("visual foundation: reduced motion", () => {
     expect(reduced).toMatch(/transition:\s*none\s*!important/u);
   });
 
-  it("preserves heartbeat telemetry animations without leaving frozen artifacts", () => {
+  it("re-enables no loop animation under prefers-reduced-motion (2026-10-18 二轮:系统偏好必须被尊重)", () => {
     const reduced = blockBody(/@media\s*\(prefers-reduced-motion:\s*reduce\)\s*\{/u);
-    expect(reduced).toMatch(/\.live-row::after\s*\{[^}]*animation:[^}]*live-wave-sweep[^}]*!important/u);
-    expect(reduced).toMatch(/\.seg-active-shimmer::after\s*\{[^}]*animation:[^}]*live-wave-sweep[^}]*!important/u);
+    // 旧的 live-row/shimmer/aurora !important 强开例外已随装饰性循环动效一起删除;
+    // 块内除「animation: none」全局关停与 A4 滚动渐隐(滚动位置指示器,无自主运动)
+    // 外,不得再出现任何 animation 强开——出现即视为对减少动态偏好的破坏。
+    const forced = [...reduced.matchAll(/animation:\s*([^;]*!important)/gu)]
+      .map((m) => (m[1] ?? "").trim())
+      .filter((value) => !value.startsWith("none") && !value.includes("scroll-fade"));
+    expect(forced).toEqual([]);
   });
 
   it("disables micro-heartbeat animations under prefers-reduced-motion", () => {
