@@ -529,7 +529,14 @@ export function decisionMachineDigest(value: DecisionDocumentState): `sha256:${s
 }
 export function decisionReviewContentDigest(value: DecisionDocumentState, documentBody: string): `sha256:${string}` {
   const prose = documentBody.startsWith("---\n") ? decisionDocumentProse(documentBody) : documentBody,
-    reviewable = { ...value, relations: value.relations.filter(({ type }) => type !== "awaits") };
+    // A dispatched review adjudicates the decision content and the evidence behind its claims.
+    // Downstream relations (derives/relates/awaits) are causal-graph bookkeeping: adding or
+    // retiring them after dispatch must not invalidate the pinned review, while any change to
+    // an evidence edge (evidenced-by/refuted-by) changes the reviewed object itself.
+    reviewable = {
+      ...value,
+      relations: value.relations.filter(({ type }) => type === "evidenced-by" || type === "refuted-by"),
+    };
   return `sha256:${sha256Text(
     stableStringify({
       schema: "decision-review-content/v1",
