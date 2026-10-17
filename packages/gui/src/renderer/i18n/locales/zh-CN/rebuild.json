@@ -389,5 +389,7 @@
   "devices.logoutAll": "登出所有设备",
   "devices.save": "保存名称",
   "devices.name": "设备名称",
-  "devices.confirmation": "后续请求将按新设备状态处理。暂停或移除会撤销该设备会话；恢复需要重新批准。在跑设备可能仍在停止中。已移除的设备 ID 不可复用。"
+  "devices.confirmation": "后续请求将按新设备状态处理。暂停或移除会撤销该设备会话；恢复需要重新批准。在跑设备可能仍在停止中。已移除的设备 ID 不可复用。",
+"shell.nav.redesignGroup": "重构 · 试用",
+  "shell.nav.homeOverview": "主页"
 }

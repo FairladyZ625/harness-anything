@@ -1,3 +1,4 @@
+import type { DaemonHomeOverviewResult } from "@harness-anything/daemon/protocol";
 import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
 import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
 import { repositoryReadFrame } from "./repository-read-frame.ts";
@@ -271,6 +272,9 @@ export type {
 } from "./api-client-catalog.ts";
 
 export const harnessClient = {
+  async getHomeOverview(): Promise<DaemonHomeOverviewResult> {
+    return (await invoke("daemon.gui.home.read", {}, "getHomeOverview")) as DaemonHomeOverviewResult;
+  },
   async getSystemStatus(): Promise<SystemStatusSuccess> {
     return readSystemStatus(await invoke("daemon.gui.system.read", {}, "getSystemStatus"));
   },

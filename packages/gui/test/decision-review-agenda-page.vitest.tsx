@@ -16,7 +16,7 @@ import type {
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { decisionAgendaRows } from "../src/renderer/model/decision-review.ts";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
-import { NAV_GROUPS, navLabel } from "../src/renderer/navigation/navConfig.tsx";
+import { NAV_GROUPS, navLabelOf } from "../src/renderer/navigation/navConfig.tsx";
 import { entityDetailTargetOf } from "../src/renderer/navigation/entityRoutes.ts";
 
 /**
@@ -197,13 +197,13 @@ describe("议程页(标准 §2.4 列表页)", () => {
   it("侧栏只有一个总览入口(dec_DC3A1BB9 CH1)", () => {
     const ids = NAV_GROUPS.flatMap((group) => group.items.map(({ id }) => id));
     expect(ids.filter((id) => id.startsWith("overview"))).toEqual(["overview"]);
-    expect(ids.map(navLabel).filter((label) => label.startsWith("总览"))).toEqual(["总览"]);
+    expect(ids.map(navLabelOf).filter((label) => label.startsWith("总览"))).toEqual(["总览"]);
   });
 
   it("左侧导航在「工作」之后有「议程」一项", () => {
     const items = NAV_GROUPS.find((group) => group.id === "workspace")!.items.map(({ id }) => id);
     expect(items.indexOf("agenda")).toBe(items.indexOf("work") + 1);
-    expect(navLabel("agenda")).toBe("议程");
+    expect(navLabelOf("agenda")).toBe("议程");
   });
 
   it("筛选按钮带计数且默认「需要关注」,不默认展示全量;空组不渲染", () => {

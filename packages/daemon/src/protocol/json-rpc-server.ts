@@ -582,6 +582,13 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, protocolFailure(method, error));
       }
     }
+    if (method === "daemon.gui.home.read") {
+      try {
+        return reply(method, parseDaemonGuiReadResult(method, await options.host.home(options.authContext)));
+      } catch (error) {
+        return reply(method, protocolFailure(method, error));
+      }
+    }
     if (method === "daemon.gui.control.receipt") {
       try {
         return reply(

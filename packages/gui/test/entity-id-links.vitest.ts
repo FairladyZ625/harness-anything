@@ -47,7 +47,7 @@ import { harnessClient } from "../src/renderer/api-client.ts";
 import { squadRunsClient } from "../src/renderer/squad-run-client.ts";
 import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
+import { NAV_GROUPS, isRedesignViewId } from "../src/renderer/navigation/navConfig.tsx";
 import type { ViewId } from "../src/renderer/navigation/viewHistory.ts";
 import type { SystemRepoRow } from "../src/renderer/api-client.ts";
 import {
@@ -844,9 +844,12 @@ const VIEW_RENDERERS = {
   identityAccess: () => createElement(IdentityAccessView),
 } satisfies Record<ViewId, () => ReturnType<typeof createElement>>;
 
-const navViewIds: readonly ViewId[] = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId }[] }) =>
+const navViewIds = NAV_GROUPS.flatMap((group: { items: readonly { id: ViewId | "homeOverview" }[] }) =>
   group.items.map((item) => item.id),
 );
+// dec_C612E69B7C7E3480A5F9D2CAD3:重构区页面(homeOverview)挂独立「重构」组,由 App 级
+// 状态承载,不在 ViewId 渲染映射内;覆盖断言只约束旧 ViewId 导航面。
+const navClassicViewIds: readonly ViewId[] = navViewIds.filter((id): id is ViewId => !isRedesignViewId(id));
 
 /**
  * 风化视图的 coverage 夹具(freshnessCoverage / FRESHNESS_COVERAGE_ROWS)与 Token
@@ -860,9 +863,9 @@ describe("G10 entity-id-links 行为判据:视图渲染出的实体 ID 必须可
     // 「在映射里但没渲染」的键在这里被导航面一致性断言拦下。
     const declared = new Set(Object.keys(VIEW_RENDERERS));
     expect([...declared].sort()).toEqual(
-      [...navViewIds, "home", "decisionDetail", "factDetail", "daemonObserve", "browser"].sort(),
+      [...navClassicViewIds, "home", "decisionDetail", "factDetail", "daemonObserve", "browser"].sort(),
     );
-    for (const id of navViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
+    for (const id of navClassicViewIds) expect(declared.has(id), `导航面 view ${id} 缺渲染入口`).toBe(true);
   });
 
   it.each(Object.keys(VIEW_RENDERERS))("视图 %s:fixture 实体宇宙渲染后无死 ID", async (viewId) => {
