@@ -6,6 +6,7 @@ import {
   spawn,
   type ChildProcess,
 } from "node:child_process";
+import { terminateRuntimePid } from "./runtime-spawn-process.ts";
 import { closeDaemonOutputFd, openDaemonOutputFd } from "./lifecycle-log.ts";
 
 /** POSIX terminal fallback declared at the process-capability boundary. */
@@ -156,6 +157,10 @@ function launchProcessText(
         ...(options.windowsVerbatimArguments === undefined
           ? {}
           : { windowsVerbatimArguments: options.windowsVerbatimArguments }),
+        // Provider commands may launch helpers that inherit stdout/stderr. Put the
+        // process in its own group so a timeout can terminate the whole tree and
+        // release the pipe on which the caller waits for `close`.
+        ...(options.timeoutMs === undefined || process.platform === "win32" ? {} : { detached: true }),
         encoding: "utf8",
         windowsHide: true,
       },
@@ -173,12 +178,24 @@ function launchProcessText(
             stderr,
           });
         if (error && child.exitCode === null && child.signalCode === null) {
-          child.once("close", settle);
+          child.once("close", () => {
+            if (timeout !== null) clearTimeout(timeout);
+            settle();
+          });
           return;
         }
+        if (timeout !== null) clearTimeout(timeout);
         settle();
       },
     );
+    const timeout =
+      options.timeoutMs === undefined || process.platform === "win32"
+        ? null
+        : setTimeout(() => {
+            if (child.pid === undefined) return;
+            terminateRuntimePid(child.pid);
+          }, options.timeoutMs);
+    timeout?.unref();
     child.stdin?.end(input);
   });
 }
