@@ -96,6 +96,8 @@ export function parseDeclarationsInKeyframe(body: string): { property: string; v
  * 1. box-shadow: 重度光栅化绘制，导致 backdrop-filter 缓存每帧失效
  * 2. filter / backdrop-filter: 高开销卷积着色器计算
  * 3. 布局属性 (width, height, top, bottom, left, right, margin*, padding*): 触发布局回流
+ * 4. stroke-dashoffset (2026-10-18 二轮, task_5c651ff17b698ff2bce7e6affa): SVG 描边
+ *    每帧重绘,非合成器属性。业主口径②:保留下来的循环动效只能动 transform/opacity。
  */
 export const PROHIBITED_ANIMATED_PROPERTIES = new Set([
   "box-shadow",
@@ -103,6 +105,8 @@ export const PROHIBITED_ANIMATED_PROPERTIES = new Set([
   "-webkit-filter",
   "backdrop-filter",
   "-webkit-backdrop-filter",
+  "stroke-dashoffset",
+  "-webkit-stroke-dashoffset",
   "width",
   "min-width",
   "max-width",
@@ -254,7 +258,7 @@ describe("GUI render hygiene: infinite animation keyframes safety", () => {
   const keyframes = extractKeyframes(clean);
   const infiniteKeyframes = findInfiniteKeyframeNames(clean, keyframes);
 
-  it("ensures all infinite @keyframes use compositor-only properties (transform, opacity, stroke-dashoffset)", () => {
+  it("ensures all infinite @keyframes use compositor-only properties (transform, opacity)", () => {
     const failures: { name: string; violations: KeyframePropertyViolation[] }[] = [];
 
     for (const kf of keyframes) {
@@ -455,6 +459,24 @@ describe("GUI render hygiene: diagnostic negative and positive controls", () => 
     expect(report).toContain("🚨 [GUI RENDER HYGIENE GATE FAILURE]");
     expect(report).toContain("为什么这会造成严重的性能灾难");
     expect(report).toContain("静态光晕 + 合成器 transform / opacity");
+  });
+
+  it("detects animated stroke-dashoffset as a violation (2026-10-18 二轮:循环动效只动 transform/opacity)", () => {
+    const badCss = `
+      .flow-beam {
+        animation: dash-march 3s linear infinite;
+      }
+      @keyframes dash-march {
+        to { stroke-dashoffset: -96; }
+      }
+    `;
+    const keyframes = extractKeyframes(badCss);
+    const infinite = findInfiniteKeyframeNames(badCss, keyframes);
+    expect(infinite.has("dash-march")).toBe(true);
+
+    const decls = parseDeclarationsInKeyframe(keyframes[0]?.body ?? "");
+    const violations = decls.filter((d) => PROHIBITED_ANIMATED_PROPERTIES.has(d.property));
+    expect(violations.map((v) => v.property)).toEqual(["stroke-dashoffset"]);
   });
 
   it("passes compliant keyframe using only transform and opacity", () => {

@@ -72,7 +72,6 @@ const filters: EgoFilters = {
   axes: defaultAxisFilter(),
   kinds: defaultKindFilter(),
   types: new Set(["decision", "task", "fact"]),
-  flowMode: "focus",
 };
 
 /** 真实台账形态:decision 的出边锚在 claim 上(decision/<id>/C1),入边锚在裸 decision 上。 */

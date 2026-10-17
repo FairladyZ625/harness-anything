@@ -5,7 +5,7 @@ import { parseEndpoint, endpointToNodeId, type EntityKind } from "./endpoint";
 import { entityKindVisual } from "./kindVisuals";
 import { governedEntityLabel, governedEntitySub, type GovernedEntityRow } from "./governedEntities";
 import { axisForKind, AXIS_COLOR_VAR, type SemanticAxis } from "./constants";
-import { visualForKind, type FlowAnimMode } from "./relationVisual";
+import { visualForKind } from "./relationVisual";
 import { scheduleTargetEdges, type AgentNodeRow, type ScheduleNodeRow } from "./runtimeEntities";
 import { STATUS_META } from "../components/badges";
 
@@ -87,7 +87,6 @@ export interface EgoFilters {
   kinds: ReadonlySet<RelationKind>;
   /** 选中的实体种类;null = 不按种类筛(调用方没有已注册 kind 清单时的诚实缺省)。 */
   types: ReadonlySet<string> | null;
-  flowMode: FlowAnimMode;
 }
 
 /** fact 归一 ref(fact/<anchor>),与边端点键空间对齐。 */
@@ -509,14 +508,12 @@ export function layoutEgoCanvas(input: EgoCanvasInput): EgoCanvasLayout {
     seen.add(dedupe);
     const visual = visualForKind(edge.kind);
     const color = AXIS_COLOR_VAR[axis];
-    const touchesFocus = source === focusId || target === focusId;
     edges.push({
       id: `e_${key}`,
       source,
       target,
       type: "interactive",
       data: { ...edge, axis },
-      animated: filters.flowMode === "all" || (filters.flowMode === "focus" && touchesFocus),
       style: {
         stroke: color,
         strokeWidth: visual.strokeWidth,

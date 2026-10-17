@@ -33,7 +33,7 @@ const input = {
   focusId: "0",
   graph,
   relations: [],
-  filters: { axes, kinds: defaultKindFilter(), types: null, flowMode: "off" as const },
+  filters: { axes, kinds: defaultKindFilter(), types: null },
   shown: bfsShownFromFocus(graph, "0", { up: 1, down: 1 }, axes),
   expanded: new Set(["0"]),
 };
@@ -166,8 +166,6 @@ function Filters() {
   return createElement(GraphFilterPanel, {
     filters,
     setFilters,
-    flowMode: "focus",
-    onFlowModeChange: () => {},
     entityTypeOptions: ["task", "decision", "fact", "custom-kind"].map((kind) => ({ kind, label: kind })),
   });
 }

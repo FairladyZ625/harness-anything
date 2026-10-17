@@ -29,7 +29,7 @@ import { useColorMode, minimapMaskColor } from "./colorMode";
 import { EGO_DEFAULT_HOPS, useEgoCanvas } from "./useEgoCanvas";
 import type { AgentNodeRow, ScheduleNodeRow } from "./runtimeEntities";
 import type { GovernedEntityRow } from "./governedEntities";
-import { defaultAxisFilter, defaultKindFilter, edgePassesKindFilter, type FlowAnimMode } from "./relationVisual";
+import { defaultAxisFilter, defaultKindFilter, edgePassesKindFilter } from "./relationVisual";
 import {
   defaultEntityStatusFilter,
   isEntityStatusFilterNarrowed,
@@ -61,7 +61,6 @@ export interface EgoNeighborhoodFilters {
   kinds: ReadonlySet<RelationKind>;
   /** 选中的实体种类;null = 不按种类筛。清单来自已注册 kind 读面,本文件不持有副本。 */
   types: ReadonlySet<string> | null;
-  flowMode: FlowAnimMode;
   /** 实体状态筛选(聚光灯灰化口径);缺省 = 全选不筛。 */
   statusFilter?: EntityStatusFilterState;
 }
@@ -71,7 +70,6 @@ export function defaultNeighborhoodFilters(): EgoNeighborhoodFilters {
     axes: defaultAxisFilter(),
     kinds: defaultKindFilter(),
     types: null,
-    flowMode: "focus",
   };
 }
 
@@ -209,7 +207,6 @@ function EgoNeighborhoodInner({
               axes: filters.axes,
               kinds: filters.kinds,
               types: filters.types,
-              flowMode: motion.enabled && !motion.reduced ? filters.flowMode : "off",
             },
             shown: canvas.shown,
             expanded: canvas.expanded,
@@ -219,8 +216,6 @@ function EgoNeighborhoodInner({
     [
       canvas.focusId,
       cardHeightCap,
-      motion.enabled,
-      motion.reduced,
       canvas.graph,
       canvas.shown,
       canvas.expanded,
@@ -228,7 +223,6 @@ function EgoNeighborhoodInner({
       filters.axes,
       filters.kinds,
       filters.types,
-      filters.flowMode,
     ],
   );
 
