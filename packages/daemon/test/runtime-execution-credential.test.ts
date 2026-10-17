@@ -592,6 +592,10 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
     "schedule-runs",
   ])
     assert.doesNotThrow(() => requireExecutionActionScope(p, { kind }));
+  // Methods with their own server branch (agenda, the runtime overview) resolve through the
+  // protocol registry in the request precheck — the entry that broke the allowlisted CLI reads.
+  for (const method of ["repo.agenda.read", "repo.agentRuntime.overview"])
+    assert.doesNotThrow(() => requireExecutionRequestScope(p, method, { repo: { repoId: p.repoId }, payload: {} }));
   for (const action of [
     { kind: "task-ci", taskId: "task-any" },
     { kind: "decision-show", decisionId: "dec_any" },
