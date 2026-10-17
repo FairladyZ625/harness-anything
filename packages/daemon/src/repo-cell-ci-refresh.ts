@@ -31,7 +31,7 @@ export async function importSubmittedCutCiWitness(input: {
   // A cut without a hosted CI witness requirement has nothing to import — and observe pull's
   // witness contract rejects gateless tasks, so asking would only fail the occurrence's drain.
   const target = submittedGithubActionsRequirement(input.context.projection.read(input.taskId).snapshot);
-  if (!target || githubActionsGateResult(target.requirement, target.execution) === "pass") return null;
+  if (!target) return null;
   // An occurrence that settled on a failure answers with its own receipt (outcome applied,
   // code schedule_builtin_failed); report that as the import's warning instead of a phantom step.
   const asResult = (receipt: WriteReceipt): { readonly receipt?: WriteReceipt; readonly warning?: string } =>
@@ -57,6 +57,9 @@ export async function importSubmittedCutCiWitness(input: {
         delivery,
         `refs/remotes/origin/${witness.kind === "github-actions" ? witness.adapterOptions.branch : "main"}`,
       );
+  // A landed cut with a passing frozen witness needs no provider read. An unlanded cut still
+  // imports its task-branch run for reviewers even when another witness already passed the gate.
+  if (landed && githubActionsGateResult(target.requirement, target.execution) === "pass") return null;
   try {
     return asResult(
       await input.refreshCi(
@@ -97,7 +100,9 @@ export function makeCiRefreshQueue(input: {
       { readonly resolve: (receipt: WriteReceipt) => void; readonly reject: (error: unknown) => void }
     >();
   let ciRefresh: Promise<WriteReceipt> | null = null;
-  const recordedWitnessReceipt = (taskId: string): WriteReceipt | null => {
+  const recordedWitnessReceipt = (action: RepoTaskAction): WriteReceipt | null => {
+    if (action.observeBranch === true || typeof action.taskId !== "string") return null;
+    const taskId = action.taskId;
     const target = submittedGithubActionsRequirement(context.projection.read(taskId).snapshot);
     if (!target) return null;
     if (githubActionsGateResult(target.requirement, target.execution) !== "pass") return null;
@@ -111,7 +116,7 @@ export function makeCiRefreshQueue(input: {
   };
   const refreshCi = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     if (typeof action.taskId === "string") {
-      const recorded = recordedWitnessReceipt(action.taskId);
+      const recorded = recordedWitnessReceipt(action);
       if (recorded) return recorded;
     }
     const schedule = context.projection.getEntity("schedule", builtinCiObserveScheduleId)?.value as
@@ -222,7 +227,7 @@ export function makeCiRefreshQueue(input: {
         // Drain-time re-check: a witness the previous occurrence recorded after this pull queued
         // answers the pull from the ledger — the same recorded-verdict check the re-derivation
         // pass applies to durable submissions.
-        const recorded = recordedWitnessReceipt(request.taskId);
+        const recorded = recordedWitnessReceipt(request);
         if (!recorded) return [request];
         ciWaiters.get(request.taskId)?.resolve(recorded);
         ciWaiters.delete(request.taskId);
