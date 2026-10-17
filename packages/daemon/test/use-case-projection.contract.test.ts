@@ -83,13 +83,17 @@ test("the folded per-store reads are gone and the net read count fell", () => {
   // groups graph territory, board lanes and work lists by the daemon's work rule (dec_5F7E74F1).
   // task_8ce646d94 then added repo.fleet.overview.read: the Collaboration page's fleet topology in
   // one host-owned aggregate (nodes, replica channels, per-node leases/dispatches, event window).
+  // task_9569401085 (dec_C612E69B7C7E3480A5F9D2CAD3) then added daemon.gui.home.read: the redesign
+  // Home's cross-repository overview in one daemon-side aggregate, so the GUI never fans out one
+  // read per repository.
   assert.equal(
     daemonGuiReadMethods.length,
-    43,
+    44,
     "31 array entries minus 3 folded plus 1 unified plus 3 entity reads plus 1 vertical " +
       "declaration read plus 1 artifact read plus 1 task WIP read plus 1 single-task completion read " +
       "plus 1 token usage aggregate read plus 1 token usage member detail read plus 1 workspace scope read " +
-      "plus 1 work index read plus 1 claimable read plus 1 assignment directory read plus 1 fleet overview read (S8 CH4)",
+      "plus 1 work index read plus 1 claimable read plus 1 assignment directory read plus 1 fleet overview read " +
+      "plus 1 cross-repository home overview read (S8 CH4)",
   );
 });
 
