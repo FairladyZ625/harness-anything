@@ -347,16 +347,7 @@ export function livingDeliverableProtocol(
   taskClass?: string,
   taskId?: string,
 ): string | null {
-  if (taskClass === "work")
-    return [
-      "# Work Page Maintenance Protocol",
-      "- 工作负责人（人或受委托 CEO session）维护 artifacts/explainer.html；子任务 worker 从不写工作页。",
-      "- 每轮末更新 #now 的一句话现状，并追加一条工作根 progress：",
-      `  ha task progress append ${taskId} --text <本轮进展与证据>`,
-      "- 新增 awaits 时在 #asks 写背景、建议、后果；关系写权限不随文档权限授予。",
-      "- #board 由 W2 从台账推导，不手写；#risks 写风险，#next 写下一步；#timeline 来自工作根 progress，按中心接受顺序展示。",
-      "- 工作页叙述经中心单写队列与 doc sync 版本围栏，不写 scratch 巡检日志。",
-    ].join("\n");
+  if (taskClass === "work") return null;
   if (profileId === "lightweight") return null;
   return [
     "# Living Deliverable Protocol",

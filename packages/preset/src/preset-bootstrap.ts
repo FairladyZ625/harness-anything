@@ -237,17 +237,15 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
         "invalid_scaffold",
         `Preset script ${script.relativePath} collides with a scaffold document path.`,
       );
-  const explainerBody =
-    input.taskClass === "work" ? WORK_EXPLAINER_TEMPLATE(input.title) : LIVING_EXPLAINER_TEMPLATE(input.title);
   const explainer =
-    metadata.profileId === "lightweight"
+    metadata.profileId === "lightweight" || input.taskClass === "work"
       ? null
       : {
           slot: "task.explainer",
           relativePath: "artifacts/explainer.html",
           path: `${packagePath}/artifacts/explainer.html`,
-          body: explainerBody,
-          contentSha256: sha256Text(explainerBody),
+          body: LIVING_EXPLAINER_TEMPLATE(input.title),
+          contentSha256: sha256Text(LIVING_EXPLAINER_TEMPLATE(input.title)),
           mediaType: "text/html" as const,
           owner: "doc-sync" as const,
           requiredAnchors: [],

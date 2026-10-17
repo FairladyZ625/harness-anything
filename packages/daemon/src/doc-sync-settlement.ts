@@ -277,6 +277,28 @@ export function admissionRejection(
   lease: ReturnType<TaskProjection["currentLeaseForExecution"]>,
   delegatedTaskId?: string,
 ): { readonly code: string; readonly detail: DocSyncReceiptDetail } | null {
+  const derivedExplainers = intent.changes.filter((change) => {
+    if (!change.path.endsWith("/artifacts/explainer.html")) return false;
+    const taskId = input.projection.taskIdForDocumentPath(change.path);
+    return taskId !== null && input.projection.read(taskId).snapshot.task?.taskClass === "work";
+  });
+  if (derivedExplainers.length)
+    return {
+      code: "derived_document_read_only",
+      detail: detail(
+        intent,
+        input.store.currentCut(),
+        "derived_document_read_only",
+        lease,
+        derivedExplainers.map((change) =>
+          touch(
+            change.path,
+            "daemon-derived",
+            "Work explainers are rendered from the current work projection and cannot be written.",
+          ),
+        ),
+      ),
+    };
   if (input.taskDocumentChannel === "task-command") {
     const outside = intent.changes.filter(
       (change) => input.projection.taskIdForDocumentPath(change.path) !== input.taskId,

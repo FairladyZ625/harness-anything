@@ -108,6 +108,26 @@ export function runDocAction(input: Input): DocSettlementReceipt | Promise<DocSe
   if (input.action.kind === "doc-materialize") return runDocMaterialize(input);
   if (input.action.kind === "doc-retire") return runDocRetire(input);
   if (input.action.kind !== "doc-submit") return readAction(input);
+  if (Array.isArray(input.action.paths)) {
+    const derived = input.action.paths.find((candidate) => {
+      if (typeof candidate !== "string" || !candidate.endsWith("/artifacts/explainer.html")) return false;
+      const taskId = input.projection.taskIdForDocumentPath(candidate);
+      if (typeof taskId === "string") return input.projection.read(taskId).snapshot.task?.taskClass === "work";
+      return (
+        input.projection
+          .readTaskIndex?.({ activePackagesOnly: true })
+          .rows.some(
+            (row) =>
+              row.taskClass === "work" && row.packagePath !== null && candidate.startsWith(`${row.packagePath}/`),
+          ) ?? false
+      );
+    });
+    if (derived)
+      throw docSyncError(
+        "derived_document_read_only",
+        "Work explainers are rendered from the current work projection and cannot be written.",
+      );
+  }
   const scan = localProseSource(input.binding.source) ? scannerSubmit(input) : null;
   if (scan && isScopelessSubmit(input.action)) return scopeRequiredRejection(input, scan);
   if (scan) {
