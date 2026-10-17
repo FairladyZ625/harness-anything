@@ -108,18 +108,27 @@ export async function reconcileCiOccurrence(input: {
     }
   };
   const acceptFetched = async (fetched: CiObservationFetch): Promise<boolean> => {
-    return accept(fetched).then(
-      () => true,
-      (error) => {
-        if (cellErrorCode(error) !== "gate_run_stale") throw error;
-        for (const run of fetched.runs) {
+    for (const run of fetched.runs) {
+      try {
+        await accept({ ...fetched, runs: [run] });
+      } catch (error) {
+        if (cellErrorCode(error) === "invalid_result") {
           pending.delete(`${run.databaseId}.${run.summary.attempt}`);
           if (!unavailable.some((target) => target.runId === run.databaseId && target.attempt === run.summary.attempt))
-            unavailable.push({ runId: run.databaseId, attempt: run.summary.attempt, reason: "gate-run-stale" });
+            unavailable.push({
+              runId: run.databaseId,
+              attempt: run.summary.attempt,
+              reason: `CI run import rejected: ${error instanceof Error ? error.message : String(error)}`,
+            });
+          continue;
         }
-        return false;
-      },
-    );
+        if (cellErrorCode(error) !== "gate_run_stale") throw error;
+        pending.delete(`${run.databaseId}.${run.summary.attempt}`);
+        if (!unavailable.some((target) => target.runId === run.databaseId && target.attempt === run.summary.attempt))
+          unavailable.push({ runId: run.databaseId, attempt: run.summary.attempt, reason: "gate-run-stale" });
+      }
+    }
+    return true;
   };
   const retain = (target: Target) => {
     // Diagnostic history is bounded; the canonical submitted-task demand is re-derived above.

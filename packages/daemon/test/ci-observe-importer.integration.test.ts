@@ -334,6 +334,7 @@ async function fixture(
     current: () => ScheduleV1;
     seedPending: (count: number) => void;
     request: (runId: number) => void;
+    requestMany: (runIds: readonly number[]) => void;
     returnDuringOccurrence: (taskId: string) => void;
     crash: (point: "before-accept" | "after-accept" | null) => void;
   }) => Promise<void>,
@@ -416,6 +417,7 @@ async function fixture(
           };
         },
         request: (runId) => requests.push({ kind: "ci-observe-pull", runs: [runId], attempts: { [runId]: 1 } }),
+        requestMany: (runIds) => requests.push({ kind: "ci-observe-pull", runs: [...runIds], attempts: Object.fromEntries(runIds.map((runId) => [runId, 1])) }),
         crash: (point) => {
           crash = point;
         },
@@ -499,6 +501,22 @@ test("a diagnostics-invalid run is isolated and does not block the next valid ru
       .read()
       .events.filter((event) => event.schema === "ci-run-observation/v4")
       .filter((event) => event.payload.scope === "job")
+      .map((event) => event.payload.run.runId.split(".")[0]);
+    assert.deepEqual([...new Set(importedRunIds)], ["2"]);
+  });
+});
+
+test("a multi-run request isolates one invalid result and accepts its sibling", async () => {
+  await fixture(async ({ run, state, store, current, requestMany }) => {
+    state.badDiagnosticsRun = 1;
+    requestMany([1, 2]);
+    const result = await run();
+    assert.equal(result.outcome, "succeeded");
+    assert.deepEqual(current().status.ciObserve?.unavailable, [
+      { runId: 1, attempt: 1, reason: "CI run import rejected: invalid CI diagnostics: fileOutcomes[0]" },
+    ]);
+    const importedRunIds = store.read().events
+      .filter((event) => event.schema === "ci-run-observation/v4" && event.payload.scope === "job")
       .map((event) => event.payload.run.runId.split(".")[0]);
     assert.deepEqual([...new Set(importedRunIds)], ["2"]);
   });
