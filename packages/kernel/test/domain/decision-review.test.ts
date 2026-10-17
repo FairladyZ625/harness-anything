@@ -77,11 +77,11 @@ test("Decision review digest includes accepted prose but excludes review history
   assert.notEqual(decisionReviewContentDigest(current, document("Changed proposal body")), digest);
 });
 
-test("Decision review digest excludes awaits bookkeeping but retains substantive relations", () => {
+test("Decision review digest excludes downstream relations but retains claim evidence edges", () => {
   const current = decision(),
     digest = decisionReviewContentDigest(current, document()),
-    awaits = {
-      relation_id: "rel_awaits",
+    edge = (overrides: Record<string, unknown>) => ({
+      relation_id: "rel_edge",
       source: `decision/${current.decisionId}`,
       target: "person/person-owner",
       type: "awaits" as const,
@@ -90,16 +90,41 @@ test("Decision review digest excludes awaits bookkeeping but retains substantive
       origin: "authored" as const,
       state: "active" as const,
       rationale: "consent: Review requested changes.",
-    },
-    evidence = {
-      ...awaits,
+      ...overrides,
+    }),
+    awaits = edge({}),
+    derives = edge({
+      relation_id: "rel_derives",
+      source: `decision/${current.decisionId}/CH1`,
+      target: "task/task_0123456789ABCDEFGHJKMNPQRS",
+      type: "derives" as const,
+      rationale: "Implementation spawned from the chosen option.",
+    }),
+    relates = edge({
+      relation_id: "rel_relates",
+      target: "decision/dec_0123456789ABCDEFGHJKMNPQRS",
+      type: "relates" as const,
+      rationale: "Later found related.",
+    }),
+    evidence = edge({
       relation_id: "rel_evidence",
       target: "fact/F-12345678",
       type: "evidenced-by" as const,
       rationale: "Evidence for the proposal.",
-    };
-  assert.equal(decisionReviewContentDigest({ ...current, relations: [awaits] }, document()), digest);
+    }),
+    refutation = edge({
+      relation_id: "rel_refutation",
+      target: "fact/F-12345678",
+      type: "refuted-by" as const,
+      rationale: "The fact contradicts the proposal.",
+    });
+  assert.equal(
+    decisionReviewContentDigest({ ...current, relations: [awaits, derives, relates] }, document()),
+    digest,
+    "post-dispatch derives/relates/awaits edges must not invalidate a pinned review",
+  );
   assert.notEqual(decisionReviewContentDigest({ ...current, relations: [evidence] }, document()), digest);
+  assert.notEqual(decisionReviewContentDigest({ ...current, relations: [refutation] }, document()), digest);
 });
 
 test("approved review must match the current Decision content", () => {
