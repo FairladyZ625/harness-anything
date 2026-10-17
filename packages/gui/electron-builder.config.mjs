@@ -1,7 +1,14 @@
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 const outputDir = process.env.HARNESS_GUI_BUILDER_OUTPUT ?? "../../dist/gui-local-mac-arm64";
 const cliPackage = JSON.parse(readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"));
+const entitlementsPath = resolve(dirname(fileURLToPath(import.meta.url)), "build-resources/entitlements.mac.plist");
+const entitlementsInheritPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "build-resources/entitlements.mac.inherit.plist",
+);
 
 /** @type {import("electron-builder").Configuration} */
 const config = {
@@ -11,7 +18,7 @@ const config = {
   asar: false,
   nativeModules: { npmRebuild: false },
   compression: "normal",
-  forceCodeSigning: false,
+  forceCodeSigning: true,
   directories: {
     app: "../..",
     output: outputDir,
@@ -51,7 +58,10 @@ const config = {
       { target: "zip", arch: ["arm64"] },
     ],
     category: "public.app-category.developer-tools",
-    sign: { identity: null },
+    hardenedRuntime: true,
+    entitlements: entitlementsPath,
+    entitlementsInherit: entitlementsInheritPath,
+    notarize: true,
     artifactName: "Harness-Anything-${version}-${arch}.${ext}",
   },
   win: {
