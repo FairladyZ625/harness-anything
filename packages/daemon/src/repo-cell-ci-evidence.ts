@@ -147,20 +147,29 @@ export function githubActionsWitnessEvidence(
       !workflows.includes(verification.workflow)
     )
       continue;
-    if (
-      !localGitObjectRefStore.hasCommit(root, submitted) ||
-      !verification ||
-      (publicCut
-        ? (verification.source !== "github-actions" && verification.source !== "gitlab-pipeline") ||
-          event.payload.run.branch !== options.branch
-        : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication")
-    )
-      throw cell.cellCodedError(
+    const brokenProof = () =>
+      cell.cellCodedError(
         "invalid_proof",
         publicCut
           ? `Public delivery requires a verified ${workflows.join(" or ")} ${verification?.source === "gitlab-pipeline" ? "GitLab" : "GitHub"} ${options.branch} run.`
           : "Private delivery requires a verified ledger-publication observation for its authored cut.",
       );
+    if (!localGitObjectRefStore.hasCommit(root, submitted)) throw brokenProof();
+    if (verification == null) {
+      // Unverified off-branch observations are diagnostic measurements by contract — task-branch
+      // runs import without verification and never witness a delivery, so they must not fail a
+      // claim a verified witness run can still answer. An unverified run ON the witness branch
+      // itself is a broken proof and still rejects.
+      if (!publicCut || event.payload.run.branch === options.branch) throw brokenProof();
+      continue;
+    }
+    if (
+      publicCut
+        ? (verification.source !== "github-actions" && verification.source !== "gitlab-pipeline") ||
+          event.payload.run.branch !== options.branch
+        : verification.source !== "write-coordinator" || verification.workflow !== "ledger-publication"
+    )
+      throw brokenProof();
     if (verification.conclusion === "cancelled" || verification.conclusion === "skipped") continue;
     const result: CompletionEvidenceResult = verification.conclusion === "success" ? "pass" : "fail";
     if (!completionEvidenceResults.includes(result)) return null;

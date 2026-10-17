@@ -345,7 +345,8 @@ test("executor declaration and completion context refusals name projection rebui
     assert.equal(currentRun?.state, "running");
     assert.deepEqual((retry as Record<string, unknown>).next, [
       {
-        action: "Run ha ci observe pull --task task-projection-exits to import the workflow witness.",
+        action:
+          "Wait for the center CI observer to import the workflow witness; ha task ci task-projection-exits reports its progress.",
         reason: `Gate run ${currentRun!.runId} is running.`,
         authority: "person-owner",
         readCut: { revision: submittedRevision, iteration: 0, executionId },
