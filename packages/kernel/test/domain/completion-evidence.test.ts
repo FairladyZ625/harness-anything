@@ -95,6 +95,22 @@ test("a receipt with an unsupported provenance source cannot become a verified f
   assert.match(judgment.reason ?? "", /provenance source/u);
 });
 
+// The delivery predicate speaks the submit boundary's vocabulary: a commit cut or at least one
+// frozen artifact is a delivery; a valid prose-only no-diff submission is not.
+test("submissionCarriesDelivery accepts a commit or artifact cut and refuses prose-only", async () => {
+  const { submissionCarriesDelivery } = await import("../../src/domain/execution.ts");
+  assert.equal(submissionCarriesDelivery(execution.submission), true);
+  assert.equal(
+    submissionCarriesDelivery({
+      ...execution.submission,
+      commitSha: null,
+      artifacts: [{ path: "tasks/t/artifacts/report.md", revision: 7, blobSha256: "a".repeat(64) }],
+    }),
+    true,
+  );
+  assert.equal(submissionCarriesDelivery({ ...execution.submission, commitSha: null, artifacts: [] }), false);
+});
+
 test("artifact evidence binds ledger revisions and only commit cuts carry code gates", async () => {
   const { gateResults } = await import("../../src/domain/closeout-readiness.ts");
   const { validateSubmissionV1 } = await import("../../src/domain/execution.ts");

@@ -9,6 +9,7 @@ import {
   readSessionGroupDispatches,
   readTaskDispatches,
   readTaskDispatchSession,
+  taskDispatchesOutcome,
   taskDispatchRowsSettled,
 } from "../src/dispatch-read.ts";
 
@@ -211,6 +212,50 @@ test("normal exit with a result is stopped rather than unknown", () => {
     ).rows()[0]?.status,
     "stopped",
   );
+});
+
+// A delivered submission outranks the settlement-time "stopped" verdict: the submit boundary
+// freezes what the delivery actually was — a commit cut or frozen artifacts — so a document-only
+// task never renders "stopped without a delivery" once its execution submitted.
+test("a stopped dispatch whose execution delivered is read back succeeded", () => {
+  for (const submission of [
+    { commitSha: null, artifacts: [{ path: "artifacts/report.md", revision: 42, blobSha256: "a".repeat(64) }] },
+    { commitSha: "b".repeat(40), artifacts: [] },
+  ] as const) {
+    const f = fixture(
+      session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+    );
+    const projection = {
+      ...f.projection,
+      read: () => ({
+        snapshot: { task: { taskId }, executions: [{ executionId: "execution-1", submission }] },
+        packagePath: "tasks/task-1",
+      }),
+    } as unknown as TaskProjection;
+    const rows = readTaskDispatches({ projection, taskId }).dispatches;
+    assert.equal(rows[0]?.status, "succeeded");
+    assert.equal(taskDispatchesOutcome(rows, new Map()).outcome, "succeeded");
+  }
+});
+
+// The negative half: no submission, a prose-only no-diff submission, or another execution's
+// submission never witnesses this round.
+test("a stopped dispatch without its own carrying submission stays stopped", () => {
+  for (const executions of [
+    [],
+    [{ executionId: "execution-1", submission: null }],
+    [{ executionId: "execution-1", submission: { commitSha: null, artifacts: [] } }],
+    [{ executionId: "other-execution", submission: { commitSha: "b".repeat(40), artifacts: [] } }],
+  ] as const) {
+    const f = fixture(
+      session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+    );
+    const projection = {
+      ...f.projection,
+      read: () => ({ snapshot: { task: { taskId }, executions }, packagePath: "tasks/task-1" }),
+    } as unknown as TaskProjection;
+    assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, "stopped");
+  }
 });
 
 test("stopped dispatch is shown as blocked only from a structured task state", () => {

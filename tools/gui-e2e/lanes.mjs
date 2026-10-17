@@ -22,6 +22,7 @@ import {
 } from "../../packages/gui/test-support/triadic-ledger.mjs";
 import { seedScheduleRuntimeOrder } from "./scenarios/schedule-run-history.mjs";
 import { seedGuiE2eRuntimeSessions, seedGuiE2eSessionTasks } from "./scenarios/sessions-grouping.mjs";
+import { seedGuiE2eDeliverySessions, seedGuiE2eDeliveryTasks } from "./scenarios/sessions-delivery-status.support.mjs";
 import { seedGuiE2eCollaborationTasks, seedGuiE2eCollaborationLeases } from "./scenarios/collaboration-view.mjs";
 import { warmDaemonProjection } from "../e2e-probe.mjs";
 
@@ -136,6 +137,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
   process.env.TMPDIR = "/tmp";
   let fixture;
   let sessionTaskPackages;
+  let deliveryTaskPackages;
   try {
     // Provider scenarios need a machine catalog, not synthetic task executions.
     fixture = await startGuiResidentDaemonFixture(
@@ -172,6 +174,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
             // 事件与派工归档仍在停机窗口里种(sessions-grouping 场景自持)。
             beforeStop: async (endpoint, repoId) => {
               sessionTaskPackages = await seedGuiE2eSessionTasks(endpoint, repoId);
+              deliveryTaskPackages = await seedGuiE2eDeliveryTasks(endpoint, repoId);
               await seedGuiE2eCollaborationTasks(endpoint, repoId);
             },
             beforeRestart: async (rootDir, repoId, writerFence) => {
@@ -179,6 +182,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
               await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
               await seedSupersedeChain(rootDir, repoId, writerFence);
               await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
+              await seedGuiE2eDeliverySessions(rootDir, repoId, writerFence, deliveryTaskPackages);
               await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
             },
           },
@@ -211,6 +215,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
   }
   driver.runRoot = runRoot;
   driver.fixture = fixture;
+  if (deliveryTaskPackages) fixture.packagePaths = deliveryTaskPackages;
   return {
     driver,
     async close() {
