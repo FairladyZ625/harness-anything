@@ -286,6 +286,38 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 For a view-only repository, use the `remote-proxy` registration shown above.
 There is no compatibility path for a v1 registry.
 
+## Fleet center LAN reachability and edge self-service
+
+Use the center listener for a real edge connection. The bind address must be an IP assigned to the center host, the advertised hostname must be present in the certificate SAN, and the port must be reachable from the edge firewall. Keep the private key owner-readable (mode `0600`). Configure the listener through the managed service so the daemon checks the certificate and reports a port failure before the listener is accepted:
+
+```bash
+ha bootstrap --operation listener
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+```
+
+Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections, which resume only after the edge trusts the new certificate and runs `ha daemon fleet edge sync` again.
+
+The supported edge path is an invitation link. A signed-in center administrator creates one, and the edge owner consumes it once; the link carries the center URL and certificate pin, never a machine credential:
+
+```bash
+ha bootstrap --operation edge-join-create --center-url https://center.example.test:8443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
+ha daemon fleet edge sync --host center.example.test --port 8443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+```
+
+The edge command must use the certificate authority (and `--servername` when the certificate name differs from the DNS name). A wrong SAN, closed port, expired link, wrong signed-in person, or changed pin is reported as a failed receipt; fix that named condition and retry. Credentials are written by the local daemon and are not placed in the invitation URL.
+
+### Install, upgrade, and development rescue
+
+Install the CLI and daemon from the same candidate checkout as described in [Install](start/en/01-install.md). Upgrade the managed center authority with the existing command, then restart the daemon-managed services and re-read the listener version before changing it:
+
+```bash
+ha bootstrap --operation upgrade --backup-dir /var/backups/harness-rbac
+ha bootstrap --operation listener
+```
+
+For development diagnosis only, an operator may forward the listener or local daemon endpoint through an SSH tunnel. The tunnel is a temporary rescue path; production edge access still uses the configured listener, certificate SAN, invitation pin, and edge sync flow.
+
 ## Fleet center and edges
 
 `remote-center` and `remote-edge` are for the existing Fleet topology, not for

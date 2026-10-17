@@ -247,6 +247,38 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 
 纯展示仓库使用上面的 `remote-proxy` 注册命令。v1 registry 没有兼容路径。
 
+## Fleet 中心局域网可达与边缘自助接入
+
+真实 edge 连接使用中心 listener。绑定地址必须是中心主机上的 IP，广告 hostname 必须出现在证书 SAN 中，端口必须能从 edge 的防火墙到达。私钥保持 owner-only（权限 `0600`）。通过 managed service 配置 listener，daemon 会检查证书并在接受配置前报告端口失败：
+
+```bash
+ha bootstrap --operation listener
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+```
+
+每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，edge 信任新证书并再次运行 `ha daemon fleet edge sync` 后才会恢复。
+
+受支持的 edge 路径是邀请链接。中心管理员登录后创建链接，edge 所有人登录并消费一次；链接只携带中心 URL 与证书 pin，不携带机器凭据：
+
+```bash
+ha bootstrap --operation edge-join-create --center-url https://center.example.test:8443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
+ha daemon fleet edge sync --host center.example.test --port 8443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+```
+
+edge 命令必须使用证书 CA；证书名与 DNS 名不同的时候加 `--servername`。SAN 错误、端口关闭、链接过期、登录人不匹配或 pin 改变都会在 receipt 中明确报告；修复对应条件后重试。凭据由本机 daemon 写入，不放进邀请 URL。
+
+### 安装、升级与开发救援
+
+按[安装说明](start/zh/01-install.md)从同一候选 checkout 安装 CLI 与 daemon。使用已有命令升级 managed center authority，然后重启 daemon 管理的服务，并在再次改 listener 前重新读取版本：
+
+```bash
+ha bootstrap --operation upgrade --backup-dir /var/backups/harness-rbac
+ha bootstrap --operation listener
+```
+
+只有开发诊断可以通过 SSH 隧道转发 listener 或本地 daemon endpoint。隧道是临时救援路径；生产 edge 访问仍使用已配置的 listener、证书 SAN、邀请 pin 与 edge sync 流程。
+
 ## Fleet 中心与边缘
 
 `remote-center` 和 `remote-edge` 用于既有 Fleet 拓扑，不用于纯展示。部署流程依赖具体环境，
