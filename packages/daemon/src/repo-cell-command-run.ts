@@ -54,7 +54,11 @@ export function makeRepoCellCommandRunner(
   context: RepoCellApiContext & {
     readonly refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
   },
-) {
+): (
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  signal?: AbortSignal,
+) => Promise<WriteReceipt | SquadControlResult> {
   let settlingRecovery: string | null = null;
   const run = async (
     action: RepoTaskAction,
