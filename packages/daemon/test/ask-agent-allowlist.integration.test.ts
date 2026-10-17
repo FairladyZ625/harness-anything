@@ -144,16 +144,19 @@ test(
       const response = await spawnCli(["--root", root, "--json", ...args], { ...process.env, ...env });
       return response;
     };
+    // The thin CLI answers receipts on stdout whatever the outcome; assert on the receipt, not
+    // the exit status.
+    const receipt = (response: { readonly stdout: string }) =>
+      JSON.parse(response.stdout.slice(response.stdout.indexOf("{"))) as { readonly ok: boolean };
     const agenda = await cli(["agenda"]);
-    assert.equal(agenda.status, 0, `allowlisted agenda read failed: ${agenda.stderr}${agenda.stdout}`);
+    assert.equal(receipt(agenda).ok, true, `allowlisted agenda read failed: ${agenda.stderr}${agenda.stdout}`);
     const workList = await cli(["work", "list"]);
-    assert.equal(workList.status, 0, `allowlisted work list failed: ${workList.stderr}${workList.stdout}`);
+    assert.equal(receipt(workList).ok, true, `allowlisted work list failed: ${workList.stderr}${workList.stdout}`);
     for (const [label, response] of [
       ["outside allowlist read", await cli(["agent", "list"])],
       ["outside allowlist write", await cli(["agent", "install", "--source", path.join(parent, "nope")])],
-      ["ledger write", await cli(["settings-update", "--runtime-allowed-instance", "codex-other"])],
+      ["ledger write", await cli(["settings", "update", "--runtime-allowed-instance", "codex-other"])],
     ]) {
-      assert.notEqual(response.status, 0, `${label} unexpectedly succeeded`);
       assert.match(
         `${response.stdout}${response.stderr}`,
         /execution_credential_rejected/u,
