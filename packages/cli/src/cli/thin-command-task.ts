@@ -164,13 +164,21 @@ function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): Thin
   if (!parsed.ok) return parsed;
   const action = parsed.command.action as Readonly<Record<string, unknown>>;
   if (action.return !== true) return parsed;
-  if (action.workerMode === undefined)
-    return rejected(
-      "missing_field",
-      "A returned cut needs exactly one worker mode: --worker-mode resume --message <text>, --worker-mode fresh --message <text>, or --worker-mode none.",
-      json,
-    );
-  if (action.workerMode === "none")
+  // Collect every missing parameter in one pass: the owner triaging a return must see the whole
+  // gap at once, not one rejection per retry. --note-file counts as the note; the daemon client
+  // inlines its text before the adjudication reaches the kernel.
+  const mode = action.workerMode,
+    missing = [
+      ...(mode === undefined ? ["--worker-mode resume|fresh|none"] : []),
+      ...((typeof action.reason === "string" && action.reason.trim()) || typeof action.noteFile === "string"
+        ? []
+        : ["--note <the owner's rework instruction>"]),
+      ...(mode !== "none" && !(typeof action.followUp === "string" && action.followUp.trim())
+        ? ["--message <the worker's continuation directive>"]
+        : []),
+    ];
+  if (missing.length > 0) return rejected("missing_field", `A returned cut requires ${missing.join(", ")}.`, json);
+  if (mode === "none")
     return action.followUp === undefined
       ? parsed
       : rejected(
@@ -178,9 +186,7 @@ function requireWorkerContinuation(parsed: ThinParseResult, json: boolean): Thin
           "--worker-mode none dispatches no worker, so it takes no --message; put the owner's note in --note.",
           json,
         );
-  return typeof action.followUp === "string" && action.followUp.trim().length > 0
-    ? parsed
-    : rejected("missing_field", "A returned cut needs --message <text> for the worker.", json);
+  return parsed;
 }
 
 function parseTaskArtifactAdd(
