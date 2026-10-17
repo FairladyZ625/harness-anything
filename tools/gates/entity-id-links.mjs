@@ -23,12 +23,12 @@
  * 不变量内(没有详情页可去),由 artifacts 报告记录该语义边界。
  */
 
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { writeCiGateResult } from "../ci-gate-result.mjs";
 import ts from "typescript";
-import { repoRoot } from "./git.mjs";
+import { listWorktreeFiles, repoRoot } from "./git.mjs";
 
 export const ENTITY_KINDS = Object.freeze(["task", "decision", "fact", "agent", "squad", "provider", "session"]);
 export const CANONICAL_REF_HEAD = new RegExp(`^(?:${ENTITY_KINDS.join("|")})/`, "u");
@@ -42,15 +42,8 @@ const ACTIVATABLE_INTRINSICS = new Set(["button", "a"]);
 const ACTIVATABLE_PROPS = new Set(["onClick", "onDoubleClick", "onActivate", "onPointerDown"]);
 const SANCTIONED_COMPONENTS = new Set([LINK_PRIMITIVE_NAME]);
 
-function walkRendererFiles(rootDir, dir = RENDERER_ROOT, out = []) {
-  const absolute = path.join(rootDir, dir);
-  for (const entry of readdirSync(absolute, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
-    const child = path.join(absolute, entry.name);
-    const rel = path.relative(rootDir, child).split(path.sep).join("/");
-    if (entry.isDirectory()) walkRendererFiles(rootDir, rel, out);
-    else if (/\.(?:ts|tsx)$/u.test(entry.name)) out.push(rel);
-  }
-  return out;
+function walkRendererFiles(rootDir) {
+  return listWorktreeFiles(rootDir, [RENDERER_ROOT]).filter((file) => /\.(?:ts|tsx)$/u.test(file));
 }
 
 /** 祖先优先遍历(typescript 公共 API 只有 forEachChild;descendant 遍历自己写)。 */

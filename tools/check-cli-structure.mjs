@@ -1,10 +1,13 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
 const violations = [];
-const cliFiles = listTsFilesRecursive("packages/cli/src");
+const cliFiles = listWorktreeFiles(root, ["packages/cli/src"]).filter(
+  (file) => file.endsWith(".ts") && !file.endsWith(".d.ts"),
+);
 const workspacePackages = readWorkspacePackages();
 const allowedStaticGraph = new Set([
   "packages/daemon/src/offline-storage-command.ts",
@@ -244,24 +247,15 @@ function resolveSourceImport(fromFile, specifier) {
 
 function readWorkspacePackages(relativeDir = "packages") {
   const result = new Map();
-  for (const directory of listDirectoriesRecursive(relativeDir)) {
-    const manifestPath = path.join(root, directory, "package.json");
-    if (!existsSync(manifestPath)) continue;
-    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
-    if (typeof manifest.name === "string") result.set(manifest.name, { directory, exports: manifest.exports });
+  for (const manifestPath of listWorktreeFiles(root, [relativeDir]).filter((file) => file.endsWith("/package.json"))) {
+    const manifest = JSON.parse(readFileSync(path.join(root, manifestPath), "utf8"));
+    if (typeof manifest.name === "string")
+      result.set(manifest.name, {
+        directory: manifestPath.slice(0, -"/package.json".length),
+        exports: manifest.exports,
+      });
   }
   return result;
-}
-
-function listDirectoriesRecursive(relativeDir) {
-  const absolute = path.join(root, relativeDir);
-  if (!existsSync(absolute)) return [];
-  return [
-    relativeDir,
-    ...readdirSync(absolute, { withFileTypes: true })
-      .filter((entry) => entry.isDirectory())
-      .flatMap((entry) => listDirectoriesRecursive(`${relativeDir}/${entry.name}`)),
-  ];
 }
 
 function workspacePackageName(specifier) {
@@ -301,18 +295,6 @@ function exportTarget(value) {
   if (typeof value === "string") return value;
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   return exportTarget(value.default ?? value.import ?? value.types);
-}
-
-function listTsFilesRecursive(relativeDir) {
-  const absolute = path.join(root, relativeDir);
-  if (!existsSync(absolute)) return [];
-  return readdirSync(absolute, { withFileTypes: true })
-    .flatMap((entry) => {
-      const relativePath = `${relativeDir}/${entry.name}`;
-      if (entry.isDirectory()) return listTsFilesRecursive(relativePath);
-      return entry.isFile() && entry.name.endsWith(".ts") && !entry.name.endsWith(".d.ts") ? [relativePath] : [];
-    })
-    .sort();
 }
 
 function checkFileLines(files, limit, label) {

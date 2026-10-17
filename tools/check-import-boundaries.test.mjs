@@ -637,6 +637,9 @@ test("generated package manifests cannot replace source package import resolutio
       "import { feature } from '@harness-anything/application';\nexport const result = feature;\n",
     );
     assert.equal(runChecker(root).status, 0);
+    // Pack copies stay invisible to the gate through .gitignore, the sole ignore
+    // authority since directory enumeration moved into git.
+    writeFileSync(path.join(root, ".gitignore"), "packages/gui/build-resources/\n");
     for (const name of ["application", "adapter-local"]) {
       const staged = path.join(root, "packages/gui/build-resources/app-node_modules/@harness-anything", name);
       mkdirSync(staged, { recursive: true });
@@ -662,6 +665,12 @@ test("generated package manifests cannot replace source package import resolutio
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-import-boundary-"));
+  // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: root });
   for (const [packageRoot, name] of [
     ["packages/application", "@harness-anything/application"],
     ["packages/adapters/local", "@harness-anything/adapter-local"],

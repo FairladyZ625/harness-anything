@@ -10,8 +10,20 @@ import { fileURLToPath } from "node:url";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = path.join(repoRoot, "tools/check-integrity-single-source.mjs");
 
+// The gate enumerates through git, so fixture roots must be repositories; the
+// local excludesFile pin keeps the host user's global ignores out of the test.
+function makeGateRoot(prefix) {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    execFileSync("git", args, { cwd: root });
+  return root;
+}
+
 test("integrity single-source check rejects duplicate stable hash helpers", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-integrity-single-source-"));
+  const root = makeGateRoot("ha-integrity-single-source-");
   mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
   writeFileSync(
     path.join(root, "packages/kernel/src/projection/bad.ts"),
@@ -26,7 +38,7 @@ test("integrity single-source check rejects duplicate stable hash helpers", () =
 });
 
 test("integrity single-source check rejects duplicate frontmatter scalar helpers", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-integrity-single-source-"));
+  const root = makeGateRoot("ha-integrity-single-source-");
   mkdirSync(path.join(root, "packages/adapters/local/src"), { recursive: true });
   writeFileSync(
     path.join(root, "packages/adapters/local/src/bad.ts"),
@@ -41,7 +53,7 @@ test("integrity single-source check rejects duplicate frontmatter scalar helpers
 });
 
 test("integrity single-source check accepts imports and unrelated byte hashes", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-integrity-single-source-"));
+  const root = makeGateRoot("ha-integrity-single-source-");
   mkdirSync(path.join(root, "packages/kernel/src/integrity"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/markdown"), { recursive: true });
   mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
@@ -67,18 +79,13 @@ test("integrity single-source check accepts imports and unrelated byte hashes", 
 });
 
 import { spawnSync as runGate } from "node:child_process";
-import {
-  mkdtempSync as makeGateRoot,
-  mkdirSync as makeGateDir,
-  writeFileSync as writeGateFile,
-  rmSync as removeGateRoot,
-} from "node:fs";
+import { mkdirSync as makeGateDir, writeFileSync as writeGateFile, rmSync as removeGateRoot } from "node:fs";
 
 const requiredScanRoots = ["packages"];
 for (const omitted of requiredScanRoots) {
   for (const state of ["missing", "empty", "excluded-only"]) {
     test(`check-integrity-single-source rejects ${state} required scan root ${omitted}`, () => {
-      const root = makeGateRoot(path.join(tmpdir(), "ha-gate-discovery-"));
+      const root = makeGateRoot("ha-gate-discovery-");
       try {
         for (const scanRoot of requiredScanRoots) {
           if (scanRoot === omitted && state === "missing") continue;
@@ -87,6 +94,7 @@ for (const omitted of requiredScanRoots) {
           if (scanRoot === omitted && state === "excluded-only") {
             makeGateDir(path.join(root, scanRoot, "dist"), { recursive: true });
             writeGateFile(path.join(root, scanRoot, "dist/ignored.ts"), "export const ignored = true;\n");
+            writeGateFile(path.join(root, ".gitignore"), "dist/\n");
           }
         }
         const result = runGate(

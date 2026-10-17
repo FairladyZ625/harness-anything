@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { entryPairs, entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 import { hasContractEvidence, missingEventStoreEvidence } from "./implementation-contract-evidence.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs|html)$/;
@@ -87,38 +88,6 @@ function relative(file) {
   return path.relative(root, file).split(path.sep).join("/");
 }
 
-async function walk(dir) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
-  const files = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (
-        entry.name === "node_modules" ||
-        entry.name === "dist" ||
-        entry.name === "out" ||
-        entry.name === "build-resources"
-      )
-        continue;
-      files.push(...(await walk(full)));
-    } else if (entry.name.endsWith(".d.ts")) {
-      if (/\/src\//.test(relative(full))) {
-        record(`${relative(full)}: declaration artifacts must be emitted to dist/ by tsc -b, never live in src/`);
-      }
-    } else if (sourceFile.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
 const rootPackage = readJson("package.json");
 const cliPackage = readJson("packages/cli/package.json");
 const rootTsconfig = readJson("tsconfig.json");
@@ -157,7 +126,14 @@ for (const tsconfigPath of workspaceTsconfigs) {
   }
 }
 
-const files = await walk(path.join(root, "packages"));
+const scannedFiles = listWorktreeFiles(root, ["packages"]);
+for (const rel of scannedFiles.filter((file) => file.endsWith(".d.ts"))) {
+  if (/\/src\//.test(rel))
+    record(`${rel}: declaration artifacts must be emitted to dist/ by tsc -b, never live in src/`);
+}
+const files = scannedFiles
+  .filter((file) => sourceFile.test(file) && !file.endsWith(".d.ts"))
+  .map((file) => path.join(root, file));
 const portablePathPath = path.join(root, "packages/kernel/src/layout/portable-path.ts");
 if (!existsSync(portablePathPath)) {
   record("kernel layout must expose a portable path contract at packages/kernel/src/layout/portable-path.ts");

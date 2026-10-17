@@ -1,9 +1,9 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
-const sourceRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
 const violations = [];
 const importPattern =
@@ -30,57 +30,15 @@ const fleetWriteClientNames = new Set([
   "runFleetScheduleCommandClient",
 ]);
 const fleetWritePort = "packages/daemon/src/fleet-edge-write.ts";
-const workspacePackages = await loadWorkspacePackages(path.join(root, "packages"));
+const workspacePackages = await loadWorkspacePackages("packages");
 const workspacePackagesByName = new Map(
   workspacePackages.map((workspacePackage) => [workspacePackage.name, workspacePackage]),
 );
 
-async function walk(dir) {
-  let entries;
-  try {
-    entries = await readdir(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
-  const files = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (
-        entry.name === "node_modules" ||
-        entry.name === "dist" ||
-        entry.name === "out" ||
-        entry.name === "build-resources"
-      )
-        continue;
-      files.push(...(await walk(full)));
-    } else if (sourceFile.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
 async function loadWorkspacePackages(packagesRoot) {
-  const packageFiles = [];
-  async function discover(dir) {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch (error) {
-      if (error?.code === "ENOENT") return;
-      throw error;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory() && !["node_modules", "dist", "out", "build-resources"].includes(entry.name))
-        await discover(full);
-      else if (entry.name === "package.json") packageFiles.push(full);
-    }
-  }
-  await discover(packagesRoot);
+  const packageFiles = listWorktreeFiles(root, [packagesRoot])
+    .filter((file) => path.posix.basename(file) === "package.json")
+    .map((file) => path.join(root, file));
   const packages = [];
   for (const packageFile of packageFiles) {
     const packageJson = JSON.parse(await readFile(packageFile, "utf8"));
@@ -333,10 +291,14 @@ async function checkOrphanPackageModules(packageFiles, importEdges) {
   }
 }
 
-const packageSourceFiles = (await Promise.all(sourceRoots.map((sourceRoot) => walk(sourceRoot)))).flat();
+const packageSourceFiles = listWorktreeFiles(root, ["packages"])
+  .filter((file) => sourceFile.test(file))
+  .map((file) => path.join(root, file));
 if (packageSourceFiles.length === 0)
   throw new Error("check-import-boundaries: required scan root packages has no source files");
-const toolSourceFiles = await walk(path.join(root, "tools"));
+const toolSourceFiles = listWorktreeFiles(root, ["tools"])
+  .filter((file) => sourceFile.test(file))
+  .map((file) => path.join(root, file));
 const knownImportFiles = new Set([...packageSourceFiles, ...toolSourceFiles].map(relative));
 const importEdges = await collectImportEdges([...packageSourceFiles, ...toolSourceFiles], knownImportFiles);
 

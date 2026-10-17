@@ -1,7 +1,8 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
+import { listWorktreeFiles } from "./git.mjs";
 
 export function readText(rootDir, relativePath) {
   return readFileSync(path.join(rootDir, relativePath), "utf8");
@@ -73,24 +74,14 @@ export function directObjectStringProperties(arrayExpression, propertyName) {
 }
 
 export function walkTypeScriptFiles(rootDir, relativeRoot) {
-  const start = path.join(rootDir, relativeRoot);
-  const files = [];
-  walk(start);
-  return files.sort();
-
-  function walk(directory) {
-    if (!existsSync(directory)) return;
-    const entries = readdirSync(directory, { withFileTypes: true });
-    for (const entry of entries) {
-      const absolute = path.join(directory, entry.name);
-      if (entry.isDirectory()) {
-        if (!["dist", "node_modules", "test", "tests", "fixtures"].includes(entry.name)) walk(absolute);
-        continue;
-      }
-      if (!/\.tsx?$/u.test(entry.name) || /\.(?:test|spec)\.tsx?$/u.test(entry.name)) continue;
-      files.push(path.relative(rootDir, absolute).split(path.sep).join("/"));
-    }
-  }
+  // test/tests/fixtures and *.test/*.spec stay rule-excluded the way the old
+  // walker skipped them; ignore authority moved to .gitignore.
+  return listWorktreeFiles(rootDir, [relativeRoot]).filter(
+    (file) =>
+      /\.tsx?$/u.test(file) &&
+      !/\.(?:test|spec)\.tsx?$/u.test(file) &&
+      !/(?:^|\/)(?:test|tests|fixtures)\//u.test(file),
+  );
 }
 
 export function parseCommonArgs(argv, { allowBase = false, allowFixture = false } = {}) {

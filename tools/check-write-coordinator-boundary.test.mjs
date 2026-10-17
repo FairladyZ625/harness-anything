@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -79,6 +80,12 @@ test("W3 write authority rejects thin CLI domain imports by workspace package id
 function withFixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "w3-write-authority-"));
   try {
+    // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+    for (const args of [
+      ["init", "--quiet"],
+      ["config", "core.excludesFile", "/dev/null"],
+    ])
+      execFileSync("git", args, { cwd: root });
     write(
       root,
       "packages/daemon/src/repo-cell.ts",

@@ -219,6 +219,12 @@ test("daemon transport graph rejects even a kernel leaf import reachable from th
 
 async function fixture() {
   const root = await mkdtemp(path.join(os.tmpdir(), "harness-thin-cli-structure-"));
+  // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: root });
   write(
     root,
     "packages/cli/package.json",

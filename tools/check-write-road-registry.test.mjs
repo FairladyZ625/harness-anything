@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -190,6 +191,12 @@ test("write-road declarations cannot lose their inventory or their thin CLI cons
 function withFixture(run) {
   const root = mkdtempSync(path.join(tmpdir(), "w3-write-roads-"));
   try {
+    // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+    for (const args of [
+      ["init", "--quiet"],
+      ["config", "core.excludesFile", "/dev/null"],
+    ])
+      execFileSync("git", args, { cwd: root });
     write(
       root,
       "packages/kernel/src/domain/action-declaration.ts",

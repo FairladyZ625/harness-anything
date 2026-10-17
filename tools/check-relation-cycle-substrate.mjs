@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
 const canonicalPath = "packages/kernel/src/projection/relation-graph-projection.ts";
@@ -19,10 +20,9 @@ if (canonicalDefinitions !== 1) {
   );
 }
 
-for (const file of walkRoots(["packages", "tools"])) {
-  const rel = relative(file);
+for (const rel of listWorktreeFiles(root, ["packages", "tools"]).filter((file) => sourceFilePattern.test(file))) {
   if (rel === canonicalPath || isTestOrFixturePath(rel)) continue;
-  const text = readFileSync(file, "utf8");
+  const text = readFileSync(path.join(root, rel), "utf8");
   if (!hasEntityRelationCycleResponsibility(text)) continue;
   if (!looksLikeCycleImplementation(text)) continue;
   if (text.includes(canonicalFunction)) continue;
@@ -55,38 +55,8 @@ function looksLikeCycleImplementation(text) {
   );
 }
 
-function walkRoots(roots) {
-  return roots.flatMap((name) => walk(path.join(root, name)));
-}
-
-function walk(dir) {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
-  const files = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
-      files.push(...walk(full));
-    } else if (sourceFilePattern.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
 function readText(rel) {
   return readFileSync(path.join(root, rel), "utf8");
-}
-
-function relative(file) {
-  return path.relative(root, file).split(path.sep).join("/");
 }
 
 function isTestOrFixturePath(rel) {
