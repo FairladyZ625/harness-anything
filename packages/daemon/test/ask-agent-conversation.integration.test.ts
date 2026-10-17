@@ -1,12 +1,12 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, watch } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader, makeTaskProjection, type AgentDefinitionSnapshot } from "@harness-anything/kernel";
-import { readDispatchStream } from "../src/dispatch-stream.ts";
+import { type AgentDefinitionSnapshot } from "@harness-anything/kernel";
+import { dispatchStreamPath, readDispatchStream } from "../src/dispatch-stream.ts";
 import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
@@ -125,17 +125,22 @@ test(
       },
     });
     try {
-      const projection = () =>
-        makeTaskProjection({ rootDir: root, eventStore: makeTaskEventReader({ rootDir: root, repoId }) });
-      const awaitSettled = async (runtimeSessionId: string): Promise<void> => {
-        for (let attempt = 0; attempt < 500; attempt += 1) {
-          const read = projection(),
-            session = read.readRuntimeSessions().find((row) => row.runtimeSessionId === runtimeSessionId);
-          read.close();
-          if (session && session.liveness === "exited" && session.outcome !== null) return;
-          await new Promise((resolve) => setTimeout(resolve, 20));
+      // Settlement is observed from the daemon's own durable write — the dispatch stream's
+      // terminal record — with the file watcher as the trigger; no wall-clock timer schedules
+      // the observation (testing standard, dec_9B75595FC45E01DDFD0938FE95).
+      const awaitSettled = async (dispatchId: string): Promise<void> => {
+        const settled = () => readDispatchStream(root, dispatchId)?.terminalOutcome != null;
+        if (settled()) return;
+        const terminal = Promise.withResolvers<void>();
+        const watcher = watch(path.dirname(dispatchStreamPath(root, dispatchId)), () => {
+          if (settled()) terminal.resolve();
+        });
+        try {
+          if (settled()) return;
+          await terminal.promise;
+        } finally {
+          watcher.close();
         }
-        throw new Error(`runtime ${runtimeSessionId} did not settle`);
       };
 
       // Round one: the ordinary runtime spawn; the ask agent resolves from the bundled layer.
@@ -149,7 +154,7 @@ test(
         binding,
       )) as { readonly dispatchId: string; readonly runtimeSessionId: string };
       const firstId = String(first.dispatchId);
-      await awaitSettled(String(first.runtimeSessionId));
+      await awaitSettled(firstId);
       const firstStream = readDispatchStream(root, firstId);
       assert.ok(firstStream, "round-one dispatch stream exists");
       assert.equal(firstStream.providerSessionId, providerSession);
@@ -163,7 +168,7 @@ test(
         binding,
       )) as { readonly dispatchId: string; readonly runtimeSessionId: string };
       const secondId = String(second.dispatchId);
-      await awaitSettled(String(second.runtimeSessionId));
+      await awaitSettled(secondId);
       const secondStream = readDispatchStream(root, secondId);
       assert.ok(secondStream, "round-two dispatch stream exists");
       assert.equal(secondStream.providerSessionId, providerSession);
@@ -176,7 +181,7 @@ test(
         { dispatchId: firstId, prompt: "第三问：还在吗", dispatchKey: "ask-round-3" },
         binding,
       )) as { readonly dispatchId: string; readonly runtimeSessionId: string };
-      await awaitSettled(String(third.runtimeSessionId));
+      await awaitSettled(String(third.dispatchId));
       const thirdStream = readDispatchStream(root, String(third.dispatchId));
       assert.ok(thirdStream, "round-three dispatch stream exists");
       assert.equal(thirdStream.providerSessionId, providerSession);
