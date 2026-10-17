@@ -268,6 +268,18 @@ test("missing process evidence remains unknown regardless of the loss descriptio
   }
 });
 
+test("a signaled provider exit with code zero is never classified as success", () => {
+  const result = classifyRuntimeExit(
+    active({
+      providerOutcome: "succeeded",
+      finalText: "truncated before completion",
+      lossReason: "provider process terminated by SIGTERM",
+    }),
+    0,
+  );
+  assert.deepEqual(pick(result), { outcome: "stopped", classification: "worker_stop" });
+});
+
 test("observed provider fault takes precedence over a later runtime loss", () => {
   const result = classifyRuntimeExit(
     active({

@@ -590,7 +590,11 @@ function observeDispatchProcess(
           emitExit(null, String(record.reason));
           return;
         } else if (record?.kind === "process_exit") {
-          emitExit(Number.isInteger(record.exitCode) ? Number(record.exitCode) : null);
+          const signal = typeof record.signal === "string" ? record.signal : null;
+          emitExit(
+            Number.isInteger(record.exitCode) ? Number(record.exitCode) : null,
+            signal ? `provider process terminated by ${signal}` : undefined,
+          );
           return;
         }
       }
