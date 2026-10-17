@@ -1589,3 +1589,20 @@ test("gate rerun projects the declared Task action and rejects missing identity"
   });
   assert.equal(parseThinCommand(args.slice(0, 3)).ok, false);
 });
+
+test("task create and work create payloads pass the repo.task.create wire shape", () => {
+  for (const argv of [
+    ["task", "create", "--title", "parity"],
+    ["work", "create", "--title", "parity"],
+  ]) {
+    const parsed = parseThinCommand(argv, "/repo");
+    assert.equal(parsed.ok, true, argv.join(" "));
+    if (!parsed.ok) continue;
+    const { kind: _kind, ...payload } = parsed.command.action;
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: parsed.command.method, params: { repo: { repoId: "parity" }, payload } }),
+      [],
+      argv.join(" "),
+    );
+  }
+});

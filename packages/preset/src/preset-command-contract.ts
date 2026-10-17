@@ -528,7 +528,10 @@ export const presetMethods = Object.freeze([
                     : "string?",
           ]),
         ]),
-        fields = { ...(command.id === "task-create" ? taskCreateRpcFields : derived), executor: "json?" as const };
+        fields = {
+          ...(command.id === "task-create" ? { ...taskCreateRpcFields, requirePlan: "boolean?" as const } : derived),
+          executor: "json?" as const,
+        };
       return {
         id: command.method,
         phase: command.phase,
