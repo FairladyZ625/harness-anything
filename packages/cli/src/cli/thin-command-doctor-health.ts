@@ -134,11 +134,7 @@ export function renderDoctorHealth(
 }
 
 function resolvePath(value: string): string {
-  try {
-    return realpathSync(value);
-  } catch {
-    return path.resolve(value.replace(/^~(?=[\\/])/u, os.homedir()));
-  }
+  return existsSync(value) ? realpathSync(value) : path.resolve(value.replace(/^~(?=[\\/])/u, os.homedir()));
 }
 
 function isDoctorCheck(value: unknown): value is DoctorCheck {
