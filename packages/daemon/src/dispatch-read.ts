@@ -1,7 +1,6 @@
 import {
   consumeKnownError,
   runtimeSessionOutcomeFromEvidence,
-  submissionCarriesDelivery,
   type AgentRuntimeEventV1,
   type RuntimeSession,
   type TaskProjectionQueries,
@@ -426,18 +425,15 @@ function isClassification(value: unknown): value is NonNullable<TaskDispatchRow[
   return value === "provider_fault" || value === "provider_quota" || value === "worker_stop" || value === "gate_red";
 }
 
-/** A stopped round whose own execution carries an accepted delivery is not "stopped without a
- * delivery": the submit boundary freezes the submission into the execution record — a commit cut
- * or frozen artifacts, whatever the preset declared — and that record outranks the settlement-time
- * snapshot that failed to witness it. Attribution is per executionId, so another execution's
- * submission never speaks for this round. */
+/** A stopped round whose own execution has an accepted submission is delivered. The submit
+ * boundary is the sole delivery decision; attribution is per executionId. */
 function taskExecutionDelivered(projection: DispatchQueries, dispatch: DispatchEvent): boolean {
   const { taskId, executionId } = dispatch.payload;
   if (!taskId || !executionId) return false;
   const submission = projection
     .read(taskId)
     .snapshot.executions?.find((execution) => execution.executionId === executionId)?.submission;
-  return submission != null && submissionCarriesDelivery(submission);
+  return submission != null;
 }
 
 /** CH2 (dec_614F7BBB18C8687E7EFC72173D): current task state alone cannot

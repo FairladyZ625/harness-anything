@@ -219,7 +219,6 @@ export {
   executionAnnotationKinds,
   isNativeCommitSha,
   isNativeExecution,
-  submissionCarriesDelivery,
   submissionDigest,
 } from "./domain/execution.ts";
 export {

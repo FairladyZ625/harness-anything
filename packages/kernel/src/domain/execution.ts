@@ -208,12 +208,6 @@ export function validSubmissionDelivery(value: Record<string, unknown>): boolean
   // A no-diff submission delivers its frozen closeout prose without a code or artifact cut.
   return (Array.isArray(value.artifacts) && value.artifacts.length === 0) || validArtifactAnchors(value.artifacts);
 }
-/** Whether a submission carries a delivery at all, in the submit boundary's own vocabulary:
- * a public commit cut, or at least one frozen artifact. A prose-only no-diff submission is a
- * valid submission yet delivers no runtime cut, so it stays undelivered here. */
-export function submissionCarriesDelivery(value: SubmissionDelivery): boolean {
-  return value.commitSha !== null || value.artifacts.length > 0;
-}
 export function validExecutionDeliveryBaseline(value: unknown): value is ExecutionDeliveryBaseline {
   return (
     isRecord(value) &&

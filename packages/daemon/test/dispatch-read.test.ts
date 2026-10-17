@@ -238,13 +238,11 @@ test("a stopped dispatch whose execution delivered is read back succeeded", () =
   }
 });
 
-// The negative half: no submission, a prose-only no-diff submission, or another execution's
-// submission never witnesses this round.
-test("a stopped dispatch without its own carrying submission stays stopped", () => {
+// No submission, or another execution's submission, never witnesses this round.
+test("a stopped dispatch without its own accepted submission stays stopped", () => {
   for (const executions of [
     [],
     [{ executionId: "execution-1", submission: null }],
-    [{ executionId: "execution-1", submission: { commitSha: null, artifacts: [] } }],
     [{ executionId: "other-execution", submission: { commitSha: "b".repeat(40), artifacts: [] } }],
   ] as const) {
     const f = fixture(
@@ -256,6 +254,25 @@ test("a stopped dispatch without its own carrying submission stays stopped", () 
     } as unknown as TaskProjection;
     assert.equal(readTaskDispatches({ projection, taskId }).dispatches[0]?.status, "stopped");
   }
+});
+
+test("a stopped dispatch with the same empty-cut accepted submission is read back succeeded", () => {
+  const f = fixture(
+    session("exited", "stopped", { exitCode: 0, resultRef: "artifact:runtime-result/sha256/" + "a".repeat(64) }),
+  );
+  const projection = {
+    ...f.projection,
+    read: () => ({
+      snapshot: {
+        task: { taskId },
+        executions: [{ executionId: "execution-1", submission: { commitSha: null, artifacts: [] } }],
+      },
+      packagePath: "tasks/task-1",
+    }),
+  } as unknown as TaskProjection;
+  const rows = readTaskDispatches({ projection, taskId }).dispatches;
+  assert.equal(rows[0]?.status, "succeeded");
+  assert.equal(taskDispatchesOutcome(rows, new Map()).outcome, "succeeded");
 });
 
 test("stopped dispatch is shown as blocked only from a structured task state", () => {
