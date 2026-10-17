@@ -35,6 +35,9 @@ export async function runGuiE2E(options = {}) {
       // fixture makes task-start reuse another scenario's active execution.
       const scenarioRoot = path.join(laneRoot, scenario.id);
       mkdirSync(scenarioRoot, { recursive: true, mode: 0o700 });
+      // durationMs only covers the scenario body; the nightly report also needs to know
+      // how much wall time each per-scenario lane fixture and teardown costs.
+      const setupStartedAt = Date.now();
       const active = await openLane({
         lane,
         workspaceRoot,
@@ -43,10 +46,18 @@ export async function runGuiE2E(options = {}) {
         startDriver: startGuiDriver,
         runtimeInstance: scenario.runtimeInstance,
       });
+      const setupMs = Date.now() - setupStartedAt;
+      let result = null;
       try {
-        results.push(await runScenario(active.driver, { ...scenario, lane }, { shots: options.shots }));
+        result = await runScenario(active.driver, { ...scenario, lane }, { shots: options.shots });
+        results.push(result);
       } finally {
+        const teardownStartedAt = Date.now();
         await active.close();
+        if (result) {
+          result.setupMs = setupMs;
+          result.teardownMs = Date.now() - teardownStartedAt;
+        }
       }
     }
   }
@@ -61,6 +72,9 @@ export async function runGuiE2E(options = {}) {
     taskId: null,
     deduplicated: null,
   };
+  // Persisted for every run, healthy or failed: the nightly schedule reports per-scenario
+  // timings from this file instead of relying on the runner capturing stdout.
+  writeFileSync(path.join(runRoot, "result.json"), `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
   if (failed)
     writeFileSync(path.join(runRoot, "failure.json"), `${JSON.stringify(result, null, 2)}\n`, { mode: 0o600 });
   return { result, runRoot };
