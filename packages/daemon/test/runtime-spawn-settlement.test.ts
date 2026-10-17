@@ -771,6 +771,25 @@ test("terminal settlement keeps a clean task exit unknown without its execution 
   assert.equal(git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`), "");
 });
 
+test("terminal settlement accepts an already submitted commitless task delivery", async (context) => {
+  const fixture = workerGitFixture(context, "settle-commitless-submission", { reachableRemote: true, delivery: false }),
+    runtime = workerSettlementRuntime(fixture, { finalText: "analysis complete", publicationOwner: "commander" }),
+    outcomes: Record<string, unknown>[] = [],
+    settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
+      if (type === "runtime_session_outcome_observed") outcomes.push(payload);
+      return {};
+    });
+  await publishExit(
+    {
+      ...settleContext,
+      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], false, true),
+    },
+    runtime,
+    0,
+  );
+  assert.equal(outcomes[0]?.outcome, "succeeded");
+});
+
 test("terminal settlement accepts a center-accepted task-package artifact", async (context) => {
   const fixture = workerGitFixture(context, "settle-artifact-delivery", { reachableRemote: true }),
     runtime = workerSettlementRuntime(fixture, { finalText: "artifact delivered", publicationOwner: "commander" }),
@@ -1357,6 +1376,7 @@ function deliveryProjection(
   artifacts: readonly Record<string, unknown>[] = [],
   reviews: readonly Record<string, unknown>[] = [],
   closeoutRecorded = false,
+  submissionPresent = false,
 ) {
   return {
     read: () => ({
@@ -1367,7 +1387,8 @@ function deliveryProjection(
         executions: [
           {
             executionId: "execution-owner",
-            submission: commitSha === null && artifacts.length === 0 ? null : { commitSha, artifacts },
+            submission:
+              commitSha === null && artifacts.length === 0 && !submissionPresent ? null : { commitSha, artifacts },
           },
         ],
       },
