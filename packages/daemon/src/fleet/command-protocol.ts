@@ -636,7 +636,7 @@ const schemas: Readonly<Record<string, Check>> = {
     personId: id,
     credential: text,
     repoId: id,
-    harnessYaml: text,
+    harnessYaml: bodyText,
   }),
   "fleet.device.sessions.revoke/v1": shape(common),
   "fleet.device.sessions.revoked/v1": shape(reply),

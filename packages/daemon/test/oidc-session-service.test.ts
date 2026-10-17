@@ -126,6 +126,19 @@ test("under a listener the browser signs in at its hostname while the daemon kee
   assert.deepEqual([...new Set(requests.map((request) => new URL(request.url).origin))], ["http://127.0.0.1:8080"]);
 });
 
+test("an invitation names the listener other machines can reach, not the center's loopback", async (t) => {
+  const { service, root } = fixture(1_000, {}, t);
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      url: "http://127.0.0.1:8080",
+      realm: "harness",
+      listener: { hostname: "center.example.test", port: 8443 },
+    }),
+  );
+  assert.equal((await service.interactiveAuthority()).url, "https://center.example.test:8443");
+});
+
 test("a session in use outlives its access token without signing in again", async (t) => {
   const active = fixture(1_000, {}, t);
   await signIn(active);

@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
+import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 import { admitEdgeJoin } from "../src/fleet/edge-join-admission.ts";
 import {
   createEdgeJoinStore,
@@ -159,4 +160,22 @@ test("pre-session admission binds the invite person and serializes same-person c
     }),
     { code: "person_mismatch" },
   );
+});
+
+test("the join result carries a real-size harness.yaml across the wire", () => {
+  const harnessYaml = `schema: harness-anything/v1\n${"# layout note\n".repeat(90)}`;
+  assert.ok(harnessYaml.length > 1000);
+  const frame = parseFleetFrame(
+    JSON.stringify({
+      schema: "fleet.edge.join.result/v1",
+      messageId: "m1_edge-join",
+      inReplyTo: "m1",
+      nodeId: "edge-a",
+      personId: "person_a",
+      credential: "credential",
+      repoId: "canonical",
+      harnessYaml,
+    }),
+  );
+  assert.equal(frame.schema === "fleet.edge.join.result/v1" && frame.harnessYaml, harnessYaml);
 });
