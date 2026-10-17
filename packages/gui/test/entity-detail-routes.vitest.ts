@@ -135,7 +135,7 @@ describe("detail views in the view history stack (W4)", () => {
     state = pushLocation(state, loc({ view: "decisionDetail", focusedEntityRef: "decision/dec_1" }));
     state = pushLocation(state, loc({ view: "factDetail", focusedEntityRef: "fact/F-ABCDEFGH" }));
     writeViewHistory(shim, "proj-a", state);
-    const restored = readViewHistory(shim, "proj-a");
+    const restored = readViewHistory(shim, { getItem: () => null }, "proj-a");
     expect(currentLocation(restored)).toMatchObject({ view: "factDetail" });
     expect(canGoBack(restored)).toBe(true);
     // 详情视图跳转链可逐级回撤。

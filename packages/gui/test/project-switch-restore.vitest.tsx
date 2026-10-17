@@ -75,6 +75,65 @@ afterEach(async () => {
   latest = null;
 });
 
+/**
+ * 同项目双窗口(task_48399f09c1673b4be25faed452):两个窗口的运行期栈在各窗内存里
+ * 本就互不可见,互相覆盖只发生在共享存储的「读」时刻。happy-dom 只有一个 window,
+ * 另一窗口在**存储边界**忠实模拟:它对共享 localStorage 的最后一次写、它关闭时的
+ * 写回,都直接落键;本窗口的行为(切仓重读、pagehide 写回)全部走真实 hook。
+ */
+function otherWindowStack(view: "graph" | "agenda"): string {
+  return JSON.stringify({
+    schema: "gui-view-history/v1",
+    history: {
+      entries: [initialLocation(), { ...initialLocation(), view }],
+      index: 1,
+    },
+  });
+}
+
+describe("同项目双窗口各自持有栈(task_48399f09c1673b4be25faed452)", () => {
+  it("另一窗口覆盖共享键后,本窗口切走再切回仍持有自己的栈", async () => {
+    const h = await mountProbe();
+    act(() => h().gotoBoard());
+    act(() => h().drillTask("t1"));
+    // 窗口 2 同停 proj-a:它导航过,共享键被它最后一次写覆盖(它停在 graph)。
+    window.localStorage.setItem("harness-view-history:proj-a", otherWindowStack("graph"));
+    await act(async () => h().openProject("proj-b"));
+    await act(async () => h().openProject("proj-a"));
+    expect(h().location.view).toBe("board");
+    expect(h().location.selectedId).toBe("t1");
+    expect(h().canBack).toBe(true);
+  });
+
+  it("重开窗口恢复最后关闭的同项目窗口:后关闭者的写回覆盖先关闭者", async () => {
+    const h = await mountProbe();
+    act(() => h().gotoBoard());
+    // 窗口 B 先关闭:它的写回先落 localStorage(它停在 graph)。
+    window.localStorage.setItem("harness-view-history:proj-a", otherWindowStack("graph"));
+    // 本窗口(A)随后关闭:pagehide 把 A 的会话栈写回,覆盖 B 的。
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    await act(async () => {
+      for (const root of mounted.splice(0)) root.unmount();
+    });
+    document.body.replaceChildren();
+    // 重开的新窗口:会话存储为空,从 localStorage 兜底恢复 → 最后关闭的 A 的位置。
+    window.sessionStorage.clear();
+    const reopened = await mountProbe();
+    expect(reopened().location.view).toBe("board");
+    // 反向关窗顺序:A 先关,B 后关 → 重开恢复 B(最后关闭者)的位置。
+    act(() => reopened().gotoBoard());
+    act(() => window.dispatchEvent(new Event("pagehide")));
+    await act(async () => {
+      for (const root of mounted.splice(0)) root.unmount();
+    });
+    document.body.replaceChildren();
+    window.sessionStorage.clear();
+    window.localStorage.setItem("harness-view-history:proj-a", otherWindowStack("agenda"));
+    const reopenedAgain = await mountProbe();
+    expect(reopenedAgain().location.view).toBe("agenda");
+  });
+});
+
 describe("切仓恢复位置(业主 2026-10-11)", () => {
   it("项目 A 下钻任务 → 切到 B → 切回 A,回到该任务页面且后退仍可用", async () => {
     const h = await mountProbe();
@@ -95,15 +154,16 @@ describe("切仓恢复位置(业主 2026-10-11)", () => {
     expect(h().canBack).toBe(true);
   });
 
-  it("重启(会话存储清空)后位置仍恢复:历史栈存 localStorage 而非 sessionStorage", async () => {
+  it("重启(窗口关闭写回 + 会话清空)后位置仍恢复:localStorage 兜底", async () => {
     const h = await mountProbe();
     act(() => h().gotoBoard());
     act(() => h().drillTask("t1"));
+    // 窗口关闭(pagehide)先把会话栈写回 localStorage,重启才会话清空。
+    act(() => window.dispatchEvent(new Event("pagehide")));
     await act(async () => {
       for (const root of mounted.splice(0)) root.unmount();
     });
     document.body.replaceChildren();
-    // 重启 = 会话存储丢失,本地偏好保留。
     window.sessionStorage.clear();
     const h2 = await mountProbe();
     expect(h2().location.view).toBe("board");

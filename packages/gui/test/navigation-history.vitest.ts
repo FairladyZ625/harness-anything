@@ -109,7 +109,34 @@ import {
   pushLocation,
   type AppLocation,
 } from "../src/renderer/navigation/viewHistory.ts";
-import { initialLocation, readViewHistory, writeViewHistory } from "../src/renderer/navigation/viewHistoryStorage.ts";
+import {
+  handoffViewHistory,
+  initialLocation,
+  readViewHistory,
+  writeViewHistory,
+} from "../src/renderer/navigation/viewHistoryStorage.ts";
+
+/** 两级介质各一个 shim:session 模拟本窗会话(可枚举),local 模拟跨重启兜底。 */
+function makeLocal() {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    raw: store,
+  };
+}
+function makeSession() {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => void store.set(key, value),
+    get length() {
+      return store.size;
+    },
+    key: (index: number) => Array.from(store.keys())[index] ?? null,
+    raw: store,
+  };
+}
 
 function loc(patch: Partial<AppLocation>): AppLocation {
   return { ...initialLocation(), ...patch };
@@ -143,22 +170,19 @@ describe("view navigation history (HISTORY-002)", () => {
   });
 
   it("persists the schedules view and narrows unknown stored view ids", () => {
-    const storage = new Map<string, string>();
-    const shim = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => void storage.set(key, value),
-    };
-    // Reload closure: schedule focus survives a reload through the persisted stack.
+    const session = makeSession();
+    const local = makeLocal();
+    // Reload closure: schedule focus survives through the window's session stack.
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "schedules", focusedEntityRef: "schedule/heartbeat-probe" }));
-    writeViewHistory(shim, "proj-schedules", state);
-    const restored = readViewHistory(shim, "proj-schedules");
+    writeViewHistory(session, "proj-schedules", state);
+    const restored = readViewHistory(session, local, "proj-schedules");
     expect(currentLocation(restored).view).toBe("schedules");
     expect(currentLocation(restored).focusedEntityRef).toBe("schedule/heartbeat-probe");
     expect(viewCanBack(restored)).toBe(true);
     // Narrowing closure: a stored view id that is not in the closed ViewId set falls
     // back to the clean initial stack instead of rendering an unknown view.
-    storage.set(
+    local.raw.set(
       "harness-view-history:proj-stale",
       JSON.stringify({
         schema: "gui-view-history/v1",
@@ -177,21 +201,18 @@ describe("view navigation history (HISTORY-002)", () => {
         },
       }),
     );
-    expect(currentLocation(readViewHistory(shim, "proj-stale")).view).toBe("overview");
-    expect(viewCanBack(readViewHistory(shim, "proj-stale"))).toBe(false);
+    expect(currentLocation(readViewHistory(session, local, "proj-stale")).view).toBe("overview");
+    expect(viewCanBack(readViewHistory(session, local, "proj-stale"))).toBe(false);
   });
 
-  it("persists the terminal first-class view across reload and returns to the previous view on back", () => {
-    const storage = new Map<string, string>();
-    const shim = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => void storage.set(key, value),
-    };
-    // W0:Ctrl+` 压栈进入终端页;离开走 goBack 回上一视图,位置经 localStorage 复原。
+  it("persists the terminal first-class view and returns to the previous view on back", () => {
+    const session = makeSession();
+    const local = makeLocal();
+    // W0:Ctrl+` 压栈进入终端页;离开走 goBack 回上一视图,位置经会话栈复原。
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "terminal" }));
-    writeViewHistory(shim, "proj-terminal", state);
-    const restored = readViewHistory(shim, "proj-terminal");
+    writeViewHistory(session, "proj-terminal", state);
+    const restored = readViewHistory(session, local, "proj-terminal");
     expect(currentLocation(restored).view).toBe("terminal");
     expect(viewCanBack(restored)).toBe(true);
     state = viewGoBack(restored);
@@ -199,13 +220,10 @@ describe("view navigation history (HISTORY-002)", () => {
   });
 
   it("loads a stored stack that predates the removed module grouping, dropping only the module bits", () => {
-    const storage = new Map<string, string>();
-    const shim = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => void storage.set(key, value),
-    };
+    const session = makeSession();
+    const local = makeLocal();
     const legacyFilters = { ...initialLocation().taskFilters, query: "keep-me", module: "gui" };
-    storage.set(
+    local.raw.set(
       "harness-view-history:proj-legacy",
       JSON.stringify({
         schema: "gui-view-history/v1",
@@ -229,7 +247,7 @@ describe("view navigation history (HISTORY-002)", () => {
         },
       }),
     );
-    const restored = readViewHistory(shim, "proj-legacy");
+    const restored = readViewHistory(session, local, "proj-legacy");
     expect(restored.entries).toHaveLength(3);
     expect(restored.index).toBe(2);
     for (const entry of restored.entries) {
@@ -241,7 +259,7 @@ describe("view navigation history (HISTORY-002)", () => {
     expect(restored.entries[1]!.drill).toBeNull();
     expect(currentLocation(restored).drill).toEqual({ lane: "root-1", status: "active", groupBy: "root" });
     // 未知的 groupBy 仍然按坏存储回退干净初始栈。
-    storage.set(
+    local.raw.set(
       "harness-view-history:proj-bad-drill",
       JSON.stringify({
         schema: "gui-view-history/v1",
@@ -251,28 +269,25 @@ describe("view navigation history (HISTORY-002)", () => {
         },
       }),
     );
-    expect(currentLocation(readViewHistory(shim, "proj-bad-drill")).view).toBe("overview");
+    expect(currentLocation(readViewHistory(session, local, "proj-bad-drill")).view).toBe("overview");
   });
 
   it("persists per project and rejects corrupted storage", () => {
-    const storage = new Map<string, string>();
-    const shim = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => void storage.set(key, value),
-    };
+    const session = makeSession();
+    const local = makeLocal();
     let state = createViewHistory(loc({ view: "board" }));
     state = pushLocation(state, loc({ view: "graph" }));
-    writeViewHistory(shim, "proj-a", state);
-    const restored = readViewHistory(shim, "proj-a");
+    writeViewHistory(session, "proj-a", state);
+    const restored = readViewHistory(session, local, "proj-a");
     expect(currentLocation(restored).view).toBe("graph");
     expect(viewCanBack(restored)).toBe(true);
     // 其他项目互不污染。
-    expect(currentLocation(readViewHistory(shim, "proj-b")).view).toBe("overview");
+    expect(currentLocation(readViewHistory(session, local, "proj-b")).view).toBe("overview");
     // 坏存储回退干净初始栈。
-    storage.set("harness-view-history:proj-c", "{not json");
-    expect(viewCanBack(readViewHistory(shim, "proj-c"))).toBe(false);
+    local.raw.set("harness-view-history:proj-c", "{not json");
+    expect(viewCanBack(readViewHistory(session, local, "proj-c"))).toBe(false);
     // 篡改后的栈(schema 头伪造)同样回退。
-    storage.set(
+    local.raw.set(
       "harness-view-history:proj-d",
       JSON.stringify({
         schema: "gui-view-history/v1",
@@ -291,30 +306,27 @@ describe("view navigation history (HISTORY-002)", () => {
         },
       }),
     );
-    expect(currentLocation(readViewHistory(shim, "proj-d")).view).toBe("overview");
+    expect(currentLocation(readViewHistory(session, local, "proj-d")).view).toBe("overview");
   });
 
   it("round-trips the overview in-page layers and rejects a stored layer key outside the closed set", () => {
     // 总览页内层(产物二级页/放大层)是后加的 AppLocation 字段:旧存储没有它们照样可读
-    // (缺省 = 层关着);带层条目经 localStorage 往返原样还原;键不在放大层枚举里按坏
+    // (缺省 = 层关着);带层条目经会话栈往返原样还原;键不在放大层枚举里按坏
     // 存储回退干净初始栈,不猜收敛。
-    const storage = new Map<string, string>();
-    const shim = {
-      getItem: (key: string) => storage.get(key) ?? null,
-      setItem: (key: string, value: string) => void storage.set(key, value),
-    };
+    const session = makeSession();
+    const local = makeLocal();
     let state = createViewHistory(loc({ view: "overview" }));
     state = pushLocation(state, loc({ view: "overview", overviewArtifactId: "task_a/artifacts/reports/r-0.html" }));
     state = pushLocation(state, loc({ view: "overview", overviewFocus: { key: "wip", selectedId: "task_w1" } }));
-    writeViewHistory(shim, "proj-overview-layers", state);
-    const restored = readViewHistory(shim, "proj-overview-layers");
+    writeViewHistory(session, "proj-overview-layers", state);
+    const restored = readViewHistory(session, local, "proj-overview-layers");
     expect(currentLocation(restored).overviewFocus).toEqual({ key: "wip", selectedId: "task_w1" });
     expect(viewCanBack(restored)).toBe(true);
     expect(currentLocation(viewGoBack(restored)).overviewArtifactId).toBe("task_a/artifacts/reports/r-0.html");
     expect(currentLocation(viewGoBack(viewGoBack(restored))).overviewArtifactId ?? null).toBeNull();
     expect(currentLocation(viewGoBack(viewGoBack(restored))).overviewFocus ?? null).toBeNull();
     // 旧存储(无层字段)仍可读:缺省解释为层关着。
-    storage.set(
+    local.raw.set(
       "harness-view-history:proj-prelayers",
       JSON.stringify({
         schema: "gui-view-history/v1",
@@ -333,12 +345,12 @@ describe("view navigation history (HISTORY-002)", () => {
         },
       }),
     );
-    const preLayers = currentLocation(readViewHistory(shim, "proj-prelayers"));
+    const preLayers = currentLocation(readViewHistory(session, local, "proj-prelayers"));
     expect(preLayers.view).toBe("overview");
     expect(preLayers.overviewArtifactId ?? null).toBeNull();
     expect(preLayers.overviewFocus ?? null).toBeNull();
     // 坏层键(不在 wip/review/followups/pinned/ci 里)回退干净初始栈。
-    storage.set(
+    local.raw.set(
       "harness-view-history:proj-bad-focus",
       JSON.stringify({
         schema: "gui-view-history/v1",
@@ -353,8 +365,69 @@ describe("view navigation history (HISTORY-002)", () => {
         },
       }),
     );
-    expect(currentLocation(readViewHistory(shim, "proj-bad-focus")).view).toBe("overview");
-    expect(currentLocation(readViewHistory(shim, "proj-bad-focus")).overviewFocus ?? null).toBeNull();
+    expect(currentLocation(readViewHistory(session, local, "proj-bad-focus")).view).toBe("overview");
+    expect(currentLocation(readViewHistory(session, local, "proj-bad-focus")).overviewFocus ?? null).toBeNull();
+  });
+});
+
+describe("两级介质:同项目双窗口互不覆盖(task_48399f09c1673b4be25faed452)", () => {
+  it("运行期写只落本窗会话,不动 localStorage;读序会话优先", () => {
+    const session = makeSession();
+    const local = makeLocal();
+    let state = createViewHistory(loc({ view: "overview" }));
+    state = pushLocation(state, loc({ view: "board" }));
+    writeViewHistory(session, "proj-a", state);
+    expect(local.raw.has("harness-view-history:proj-a")).toBe(false);
+    // 他窗留在 localStorage 的栈不会进入本窗读结果:会话优先。
+    local.raw.set(
+      "harness-view-history:proj-a",
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: { entries: [initialLocation(), { ...initialLocation(), view: "graph" }], index: 1 },
+      }),
+    );
+    expect(currentLocation(readViewHistory(session, local, "proj-a")).view).toBe("board");
+    // 重开窗口(会话为空)才从 localStorage 兜底恢复他窗/上次关闭的栈。
+    expect(currentLocation(readViewHistory(makeSession(), local, "proj-a")).view).toBe("graph");
+  });
+
+  it("会话里的坏存储退到 localStorage 兜底;两级都坏才落干净初始栈", () => {
+    const session = makeSession();
+    const local = makeLocal();
+    session.raw.set("harness-view-history:proj-a", "{not json");
+    local.raw.set(
+      "harness-view-history:proj-a",
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: { entries: [initialLocation(), { ...initialLocation(), view: "agenda" }], index: 1 },
+      }),
+    );
+    expect(currentLocation(readViewHistory(session, local, "proj-a")).view).toBe("agenda");
+    local.raw.set("harness-view-history:proj-a", "{also not json");
+    expect(currentLocation(readViewHistory(session, local, "proj-a")).view).toBe("overview");
+    expect(viewCanBack(readViewHistory(session, local, "proj-a"))).toBe(false);
+  });
+
+  it("关闭写回:只复制本窗会话里的历史键,后关闭者覆盖先关闭者", () => {
+    const windowA = makeSession();
+    const windowB = makeSession();
+    const local = makeLocal();
+    let stateA = createViewHistory(loc({ view: "overview" }));
+    stateA = pushLocation(stateA, loc({ view: "board" }));
+    writeViewHistory(windowA, "proj-a", stateA);
+    let stateB = createViewHistory(loc({ view: "overview" }));
+    stateB = pushLocation(stateB, loc({ view: "graph" }));
+    writeViewHistory(windowB, "proj-a", stateB);
+    // 会话里可能有别的键(其他偏好共用 sessionStorage):不带前缀的不动。
+    windowA.setItem("unrelated-pref", "keep");
+    windowA.setItem("harness-view-history:proj-other", JSON.stringify({ untouched: true }));
+    // A 先关,B 后关:localStorage 最终是 B 的栈(最后关闭的同项目窗口)。
+    handoffViewHistory(windowA, local);
+    expect(currentLocation(readViewHistory(makeSession(), local, "proj-a")).view).toBe("board");
+    handoffViewHistory(windowB, local);
+    expect(currentLocation(readViewHistory(makeSession(), local, "proj-a")).view).toBe("graph");
+    expect(local.raw.get("unrelated-pref")).toBeUndefined();
+    expect(currentLocation(readViewHistory(makeSession(), local, "proj-other")).view).toBe("overview");
   });
 });
 

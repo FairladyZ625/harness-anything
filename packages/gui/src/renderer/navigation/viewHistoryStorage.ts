@@ -14,10 +14,16 @@ import type { LaneGroupBy } from "../views/SwimlaneBoard.tsx";
 import { isRendererRecord } from "../result-validation.ts";
 
 /**
- * 视图导航历史的 localStorage 持久化。按 projectId 分键:切仓各自恢复自己的栈,
- * 栈顶即该项目上次停留的位置(业主 2026-10-11:切回项目直接回到那里,跨重启保留);
+ * 视图导航历史的持久化(task_48399f09c1673b4be25faed452:同项目双窗口各自持有栈)。
+ * 按 projectId 分键,两级介质:
+ *
+ * - 运行期栈写 sessionStorage——Electron 每个 BrowserWindow 独立,同项目两窗互不覆盖,
+ *   窗口内切走再切回读到的也是本窗自己的栈。
+ * - 窗口关闭(pagehide)时把本窗会话里的各项目栈写回 localStorage;重开的新窗口
+ *   会话为空,兜底恢复「最后关闭的同项目窗口」关闭时的位置(跨重启同理)。
+ *
  * 属单观看者的本地便利状态,不进台账。解析失败(含存储里的 ViewId 已随页面撤销)
- * 一律回退到干净初始栈,绝不让坏存储挡住导航。
+ * 按介质逐级回退,全坏才落干净初始栈,绝不让坏存储挡住导航。
  */
 
 const VIEW_HISTORY_SCHEMA = "gui-view-history/v1";
@@ -26,6 +32,12 @@ const STORAGE_PREFIX = "harness-view-history";
 export interface ViewHistoryStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
+}
+
+/** 会话介质的枚举能力(真实 Storage 自带):关闭写回要遍历本窗持有的全部项目栈。 */
+export interface ViewHistorySessionStorage extends ViewHistoryStorage {
+  readonly length: number;
+  key(index: number): string | null;
 }
 
 // 恢复白名单必须始终覆盖整个 ViewId 联合:漏一个 id,对应视图的存储位置就会被
@@ -199,29 +211,59 @@ export function initialLocation(filters?: TaskFilters): AppLocation {
   };
 }
 
-export function readViewHistory(
+function readStoredViewHistory(
   storage: Pick<ViewHistoryStorage, "getItem">,
   projectId: string,
-  fallback: AppLocation = initialLocation(),
-): ViewHistoryState {
+): ViewHistoryState | null {
   const raw = storage.getItem(storageKey(projectId));
-  if (!raw) return createViewHistory(fallback);
+  if (!raw) return null;
   try {
-    return restoreStoredViewHistory(JSON.parse(raw)) ?? createViewHistory(fallback);
-  } catch {
-    return createViewHistory(fallback);
+    return restoreStoredViewHistory(JSON.parse(raw));
+  } catch (cause) {
+    // 坏存储按「该介质没有可用栈」处理,继续逐级兜底;失败被显式消费(不静默吞)。
+    consumeKnownError(cause);
+    return null;
   }
 }
 
+/** 读序:本窗会话栈优先(同项目他窗写不进来);会话为空(重开/重启)兜底 localStorage。 */
+export function readViewHistory(
+  session: Pick<ViewHistoryStorage, "getItem">,
+  local: Pick<ViewHistoryStorage, "getItem">,
+  projectId: string,
+  fallback: AppLocation = initialLocation(),
+): ViewHistoryState {
+  return (
+    readStoredViewHistory(session, projectId) ?? readStoredViewHistory(local, projectId) ?? createViewHistory(fallback)
+  );
+}
+
+/** 运行期写只落本窗会话介质;localStorage 只经 handoffViewHistory 写入。 */
 export function writeViewHistory(
-  storage: Pick<ViewHistoryStorage, "setItem">,
+  session: Pick<ViewHistoryStorage, "setItem">,
   projectId: string,
   history: ViewHistoryState,
 ): void {
   try {
-    storage.setItem(storageKey(projectId), JSON.stringify({ schema: VIEW_HISTORY_SCHEMA, history }));
+    session.setItem(storageKey(projectId), JSON.stringify({ schema: VIEW_HISTORY_SCHEMA, history }));
   } catch (cause) {
     // 导航在存储不可用/写满时必须继续工作;失败被显式消费(不静默吞)。
     consumeKnownError(cause);
+  }
+}
+
+/** 窗口关闭时把本窗会话里的各项目栈写回 localStorage:后关的覆盖先关的,
+ * 重开窗口恢复「最后关闭的同项目窗口」的位置。 */
+export function handoffViewHistory(session: ViewHistorySessionStorage, local: ViewHistoryStorage): void {
+  for (let index = 0; index < session.length; index += 1) {
+    const key = session.key(index);
+    if (key === null || !key.startsWith(`${STORAGE_PREFIX}:`)) continue;
+    const value = session.getItem(key);
+    if (value === null) continue;
+    try {
+      local.setItem(key, value);
+    } catch (cause) {
+      consumeKnownError(cause);
+    }
   }
 }
