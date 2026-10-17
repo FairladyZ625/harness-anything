@@ -544,6 +544,95 @@ test("configured Agents are rejected by the center dispatch gate", () => {
   );
 });
 
+test("inspect and list answer a stored declaration the current schema rejects with the field-level issue", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-agent-invalid-declaration-"));
+  initRepo(rootDir);
+  const open = () =>
+    openRepoCell({
+      repoId: workspaceId("agent-invalid-declaration"),
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "agent-invalid-declaration-test",
+    });
+  let cell = await open();
+  try {
+    const created = await cell.run(
+      { kind: "agent-install", declaration, expectedVersion: 0, idempotencyKey: "invalid-declaration-install" },
+      binding,
+    );
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    const squad = await cell.run(
+      {
+        kind: "squad-install",
+        declaration: {
+          schema: "squad-declaration/v1",
+          id: "schema-shifted-squad",
+          name: "Schema Shifted Squad",
+          leader: declaration.id,
+          workers: [declaration.id],
+          leaderTurnBudget: 4,
+          roster: "# Schema Shifted Squad\n\nUnified Agent leads.",
+        },
+        expectedVersion: 0,
+        idempotencyKey: "invalid-declaration-squad-install",
+      },
+      binding,
+    );
+    assert.equal(squad.outcome, "applied", JSON.stringify(squad));
+    await waitForFixturePublication(cell, squad.opId, binding);
+    await cell.close();
+    // A declaration the current schema rejects, as left by a schema change that retired a field.
+    const stale = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite"));
+    stale.exec("UPDATE entity_projection SET value_json = json_set(value_json, '$.fallback', 'retired') ");
+    stale.close();
+    cell = await open();
+
+    const inspected = await cell.run({ kind: "agent-inspect", agentId: declaration.id }, binding);
+    assert.equal(inspected.outcome, "op_rejected", JSON.stringify(inspected));
+    assert.equal(inspected.code, "agent_declaration_invalid");
+    assert.match(String(inspected.rejectionExplanation), /field "fallback" is unknown; remove it/u);
+    assert.match(
+      String(inspected.rejectionExplanation),
+      /ha agent install --source harness\/agents\/unified-agent\.json/u,
+    );
+    assert.deepEqual(inspected.unmetCriteria, [
+      {
+        ref: "agent/declaration-schema",
+        failureCode: "agent_declaration_invalid",
+        explain: "The stored Agent declaration satisfies agent-declaration/v1 at the canonical cut.",
+      },
+    ]);
+
+    const listed = await cell.run({ kind: "agent-list" }, binding);
+    assert.equal(listed.outcome, "applied", JSON.stringify(listed));
+    const row = JSON.parse(String(listed.evidence)).agents[0];
+    assert.equal(row.state, "invalid", JSON.stringify(row));
+    assert.equal(row.error.hint, inspected.rejectionExplanation);
+    assert.match(
+      renderEvidencePayload(JSON.parse(String(listed.evidence))),
+      /unified-agent\tuser\tinvalid.*field "fallback" is unknown; remove it/u,
+    );
+
+    const inspectedSquad = await cell.run({ kind: "squad-inspect", squadId: "schema-shifted-squad" }, binding);
+    assert.equal(inspectedSquad.outcome, "op_rejected", JSON.stringify(inspectedSquad));
+    assert.equal(inspectedSquad.code, "squad_declaration_invalid");
+    assert.match(String(inspectedSquad.rejectionExplanation), /field "fallback" is unknown; remove it/u);
+    assert.match(
+      String(inspectedSquad.rejectionExplanation),
+      /ha squad install --source harness\/squads\/schema-shifted-squad\.json/u,
+    );
+    assert.deepEqual(inspectedSquad.unmetCriteria, [
+      {
+        ref: "squad/declaration-schema",
+        failureCode: "squad_declaration_invalid",
+        explain: "The stored Squad declaration satisfies squad-declaration/v1 at the canonical cut.",
+      },
+    ]);
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("Agent deletion reports a dispatch header reference even without taskId", () => {
   const entityStore = {
     get: () => ({

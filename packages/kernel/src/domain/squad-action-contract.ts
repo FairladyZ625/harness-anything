@@ -228,6 +228,11 @@ const declarations: readonly SquadActionDeclaration[] = Object.freeze([
     criteria: Object.freeze([
       criterion("squad/entity-present", "squad_not_found", "The requested Squad exists at the canonical cut."),
       criterion(
+        "squad/declaration-schema",
+        "squad_declaration_invalid",
+        "The stored Squad declaration satisfies squad-declaration/v1 at the canonical cut.",
+      ),
+      criterion(
         "squad/member-declarations",
         "squad_agent_not_found",
         "Every leader and worker named by the Squad has an installed Agent declaration.",
@@ -320,6 +325,11 @@ const declarations: readonly SquadActionDeclaration[] = Object.freeze([
     criteria: Object.freeze([
       criterion("squad/run-id", "invalid_squad_run_id", "The supplied Squad run handle has canonical syntax."),
       criterion("squad/run-present", "squad_run_not_found", "The requested Squad run state exists."),
+      criterion(
+        "squad/run-owner",
+        "execution_scope_mismatch",
+        "The Squad run's control state lives on this node; the owner node cancels it.",
+      ),
       criterion(
         "squad/cancellation-complete",
         "squad_cancel_incomplete",

@@ -199,6 +199,7 @@ function evaluateCriterion(
   if (
     criterionRef === "squad/run-id" ||
     criterionRef === "squad/run-present" ||
+    criterionRef === "squad/run-owner" ||
     criterionRef === "squad/cancellation-complete"
   )
     return {

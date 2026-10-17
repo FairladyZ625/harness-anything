@@ -278,6 +278,11 @@ export function createAgentActionCatalog(
             failureCode: "agent_not_found",
             explain: "The requested Agent exists at the canonical cut.",
           },
+          {
+            ref: "agent/declaration-schema",
+            failureCode: "agent_declaration_invalid",
+            explain: "The stored Agent declaration satisfies agent-declaration/v1 at the canonical cut.",
+          },
         ]),
         concurrency: readConcurrency,
         effects: Object.freeze([]),
