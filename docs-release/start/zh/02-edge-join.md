@@ -3,6 +3,12 @@
 在干净的 macOS 或 Linux 机器上准备 Git、Node.js 24+ 与 curl，再运行源码安装命令：
 
 ```bash
+git --version
+node --version  # 必须为 v24 或更高版本
+curl --version
+```
+
+```bash
 curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/scripts/install-source.sh | bash
 ```
 
