@@ -139,6 +139,7 @@ function launchProcessText(
   options: {
     readonly timeoutMs?: number;
     readonly windowsVerbatimArguments?: boolean;
+    readonly maxBuffer?: number;
   },
 ): Promise<ProcessTextOutcome> {
   return new Promise((resolve) => {
@@ -157,6 +158,7 @@ function launchProcessText(
         ...(options.windowsVerbatimArguments === undefined
           ? {}
           : { windowsVerbatimArguments: options.windowsVerbatimArguments }),
+        ...(options.maxBuffer === undefined ? {} : { maxBuffer: options.maxBuffer }),
         // Provider commands may launch helpers that inherit stdout/stderr. Put the
         // process in its own group so a timeout can terminate the whole tree and
         // release the pipe on which the caller waits for `close`.
@@ -210,6 +212,7 @@ export function runProcessTextAsync(
   options: {
     readonly timeoutMs?: number;
     readonly windowsVerbatimArguments?: boolean;
+    readonly maxBuffer?: number;
   } = {},
 ): Promise<string> {
   return launchProcessText(command, args, cwd, env, input, signal, options).then((outcome) => {
