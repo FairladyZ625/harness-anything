@@ -5,22 +5,25 @@ import path from "node:path";
 import {
   ciRunObservationWritePlan,
   consumeKnownError,
-  isNativeCommitSha,
   validateCurrentCiRunObservationEvent,
   type CiRunObservationEventV4,
   type CiRunDetail,
   type CiObservationIdentity,
   ciDetailMeasurement,
   canonicalizeContractValue,
-  type FrozenGateRequirement,
   type TaskProjection,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { ciWitnessCommit, strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { ciFailureDetail } from "./ci-failure-detail.ts";
+import {
+  selectTaskWitnessRun,
+  taskWitnessContract,
+  taskWitnessSummary,
+  type TaskWitness,
+} from "./ci-task-witness-run.ts";
 import {
   listTaskBranchRuns,
   listCiArtifacts,
@@ -81,10 +84,17 @@ type FetchedCiRun = {
   readonly provenanceIssues?: readonly CiProvenanceIssue[];
   readonly provider?: "github-actions" | "gitlab-pipeline";
 };
+export type CiRunUnavailable = {
+  readonly runId: number;
+  readonly attempt: number;
+  readonly reason: string;
+};
+type FetchedCiRunOutcome = { fetched: FetchedCiRun | null } | { failure: unknown; runId: number; attempt: number };
 export const preparedCiObservation = Symbol("preparedCiObservation");
 export type CiObservationFetch = {
   readonly requestedRuns: number;
   readonly runs: readonly FetchedCiRun[];
+  readonly unavailable?: readonly CiRunUnavailable[];
   /** --task: the delivery and the run its frozen contract judges, reported with the run's conclusion. */
   readonly witness?: { readonly taskId: string; readonly delivery: string; readonly databaseId: number };
 };
@@ -96,10 +106,6 @@ export type CiProvenanceIssue = {
   readonly expected: string;
   readonly actual: string;
 };
-type GithubActionsOptions = Extract<
-  FrozenGateRequirement["witness"],
-  { readonly kind: "github-actions" }
->["adapterOptions"];
 export async function fetchCiObservations(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings" | "input"> & {
     readonly projection?: Pick<TaskProjection, "read" | "readRuntimeDispatch">;
@@ -187,7 +193,8 @@ export async function fetchCiObservations(
             ? selectCiBranchRuns(listed, taskId!, limit)
             : selectCiObservationRuns(listed, limit));
     const fetchResults = await Promise.all(
-      runs.map(async (run): Promise<{ fetched: FetchedCiRun | null } | { failure: unknown }> => {
+      runs.map(async (run): Promise<FetchedCiRunOutcome> => {
+        let runAttempt = (action.attempts as Readonly<Record<string, number>> | undefined)?.[run.databaseId] ?? 1;
         try {
           const fixedAttempt = (action.attempts as Readonly<Record<string, number>> | undefined)?.[run.databaseId];
           const fixed =
@@ -231,6 +238,7 @@ export async function fetchCiObservations(
                   { cwd: cell.rootDir },
                 ),
               ) as CiRunSummary);
+          runAttempt = summary.attempt;
           const { status: runLifecycleState } = summary;
           const expectedBranch = observeBranch ? taskId : "main";
           if (summary.headBranch !== expectedBranch || runLifecycleState !== "completed") {
@@ -443,12 +451,26 @@ export async function fetchCiObservations(
             },
           };
         } catch (failure) {
-          return { failure };
+          return { failure, runId: run.databaseId, attempt: runAttempt };
         }
       }),
     );
-    const failedFetch = fetchResults.find((result) => "failure" in result);
-    if (failedFetch && "failure" in failedFetch) throw failedFetch.failure;
+    const unavailable: CiRunUnavailable[] = [];
+    for (const result of fetchResults) {
+      if (!("failure" in result)) continue;
+      const detail = result.failure instanceof SyntaxError ? result.failure.message : String(result.failure);
+      if (
+        result.failure instanceof SyntaxError ||
+        (result.failure &&
+          typeof result.failure === "object" &&
+          "code" in result.failure &&
+          result.failure.code === "invalid_result")
+      ) {
+        unavailable.push({ runId: result.runId, attempt: result.attempt, reason: `CI run import rejected: ${detail}` });
+        continue;
+      }
+      throw result.failure;
+    }
     const fetched = fetchResults.flatMap((result) =>
       "fetched" in result && result.fetched !== null ? [result.fetched] : [],
     );
@@ -456,6 +478,7 @@ export async function fetchCiObservations(
     return {
       requestedRuns: namedRuns?.length ?? (witnessRun ? 1 : limit),
       runs: fetched,
+      ...(unavailable.length ? { unavailable } : {}),
       ...(witness && witnessRun
         ? { witness: { taskId: witness.taskId, delivery: witness.delivery, databaseId: witnessRun.databaseId } }
         : {}),
@@ -609,6 +632,7 @@ export function ingestCiObservations(
   fetched: CiObservationFetch,
 ): WriteReceipt {
   const eventRefs: string[] = [];
+  const unavailable: CiRunUnavailable[] = [];
   let imported = 0,
     duplicate = 0,
     lastRevision = cell.store.readHead()?.revision ?? 0;
@@ -711,6 +735,50 @@ export function ingestCiObservations(
         payload: { ...payloads[0]!.payload, scope: "attempt", verification: null, attemptInventory },
         body: null,
       });
+    for (const { payload } of payloads) {
+      const digest = createHash("sha256")
+        .update(
+          JSON.stringify([
+            identity.provider,
+            repositoryId,
+            databaseId === 0 ? identity.databaseRunId : databaseId,
+            summary.attempt,
+            payload.scope,
+            payload.identity.jobExecutionId,
+            ...(payload.scope === "attempt" ? [payload.attemptInventory] : []),
+          ]),
+        )
+        .digest("hex");
+      const existing = cell.store.readEvent(`ci-observation-${digest}`);
+      if (
+        existing &&
+        JSON.stringify(canonicalizeContractValue(existing.payload)) !==
+          JSON.stringify(canonicalizeContractValue(payload))
+      )
+        throw cell.cellCodedError("op_conflict", "CI observation identity has conflicting content.");
+    }
+    const validationErrors = payloads.flatMap(({ payload }) => {
+      const candidate: CiRunObservationEventV4 = {
+        schema: "ci-run-observation/v4",
+        eventId: "event-validation",
+        workspaceRevision: 1,
+        opId: "ci-observation-validation",
+        type: "ci_run_observed",
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: cell.now(),
+        payload,
+      };
+      return validateCurrentCiRunObservationEvent(candidate);
+    });
+    if (validationErrors.length) {
+      unavailable.push({
+        runId: databaseId,
+        attempt: summary.attempt,
+        reason: `CI run import rejected: ${validationErrors.join("; ")}`,
+      });
+      continue;
+    }
     for (const { payload, body } of payloads) {
       const digest = createHash("sha256")
         .update(
@@ -748,8 +816,6 @@ export function ingestCiObservations(
         occurredAt: cell.now(),
         payload,
       };
-      const errors = validateCurrentCiRunObservationEvent(event);
-      if (errors.length) throw cell.cellCodedError("invalid_result", errors.join("; "));
       const ref = payload.detailRef,
         plan = ciRunObservationWritePlan(event);
       const appended = cell.store.append({
@@ -776,6 +842,7 @@ export function ingestCiObservations(
       duplicate,
       requestedRuns: fetched.requestedRuns,
       eventRefs,
+      ...(unavailable.length ? { unavailable } : {}),
     }),
     visibility: "center",
     proof: {
@@ -796,152 +863,6 @@ export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: n
     .filter((run) => run.headBranch === "main")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.databaseId - left.databaseId)
     .slice(0, limit);
-}
-type TaskWitness = {
-  readonly taskId: string;
-  readonly delivery: string;
-  readonly options: GithubActionsOptions;
-  readonly instanceId?: string;
-};
-function taskWitnessContract(
-  cell: {
-    readonly rootDir: string;
-    readonly cellCodedError: RepoCellOperationalContext["cellCodedError"];
-    readonly projection?: Pick<TaskProjection, "read" | "readRuntimeDispatch">;
-  },
-  taskId: string,
-): TaskWitness {
-  const snapshot = cell.projection?.read(taskId).snapshot,
-    execution = snapshot?.executions.find(
-      (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
-    ),
-    submission = execution?.submission,
-    delivery = submission?.commitSha;
-  if (!isNativeCommitSha(delivery))
-    throw cell.cellCodedError(
-      "ci_witness_delivery_unresolved",
-      `Task ${taskId} has no submitted execution with a delivery commit. ` +
-        `next: submit the task delivery, then run ha ci observe pull --task ${taskId} to import its CI witness.`,
-    );
-  if (strandedDelivery(cell.rootDir, submission))
-    throw cell.cellCodedError(
-      "ci_witness_not_found",
-      `No CI run can ever cover delivery ${delivery} of ${taskId}: the commit is gone or its changes ` +
-        "landed under another commit. next: the task owner returns the cut with " +
-        `ha task adjudicate ${taskId} --return --review-id <review-id> --note <reason>, then resubmits the landed commit.`,
-    );
-  const witness = submission!.completionContract.gates.find(
-    (requirement) => requirement.witness.kind === "github-actions" || requirement.witness.kind === "gitlab-pipeline",
-  )?.witness;
-  if (witness?.kind !== "github-actions" && witness?.kind !== "gitlab-pipeline")
-    throw cell.cellCodedError(
-      "invalid_command",
-      `Task ${taskId} has no hosted CI gate in its completion contract; no CI run witnesses it.`,
-    );
-  const executorId = (
-    execution as { readonly actor?: { readonly executor?: { readonly id?: string } | null } } | undefined
-  )?.actor?.executor?.id;
-  const runtimeSessionId = executorId?.startsWith("runtime-session:")
-    ? executorId.slice("runtime-session:".length)
-    : undefined;
-  const instanceId = runtimeSessionId
-    ? cell.projection?.readRuntimeDispatch(runtimeSessionId)?.payload.instanceId
-    : undefined;
-  return {
-    taskId,
-    delivery: ciWitnessCommit(execution!) ?? delivery,
-    options: witness.adapterOptions,
-    ...(typeof instanceId === "string" ? { instanceId } : {}),
-  };
-}
-async function selectTaskWitnessRun(
-  cell: { readonly rootDir: string; readonly cellCodedError: RepoCellOperationalContext["cellCodedError"] },
-  { taskId, delivery, options }: TaskWitness,
-  workflows: readonly string[],
-  runGh: RunGh,
-): Promise<Pick<CiWorkflowRun, "databaseId">> {
-  const cwd = cell.rootDir,
-    workflowPaths = new Set(workflows.map((workflow) => `.github/workflows/${workflow}.yml`)),
-    heads =
-      options.coverage === "exact"
-        ? [delivery]
-        : firstParentHistory(
-            JSON.parse(
-              await runGh(
-                "gh",
-                [
-                  "api",
-                  "repos/:owner/:repo/commits?sha=main&per_page=100",
-                  "--jq",
-                  "[.[] | {sha, parents: [.parents[].sha]}]",
-                ],
-                { cwd },
-              ),
-            ) as readonly { readonly sha: string; readonly parents: readonly string[] }[],
-          );
-  let pending: { readonly databaseId: number; readonly status: string } | undefined;
-  for (const head of heads) {
-    if (options.coverage !== "exact" && !(await coversCommit(runGh, cwd, delivery, head))) break;
-    type WitnessRunEntry = Pick<CiRunListEntry, "databaseId" | "headBranch" | "event" | "status" | "conclusion"> & {
-      readonly path: string;
-    };
-    const response = JSON.parse(
-        await runGh(
-          "gh",
-          [
-            "api",
-            `repos/:owner/:repo/actions/runs?head_sha=${head}&per_page=100`,
-            "--jq",
-            "[.workflow_runs[] | {databaseId: .id, path, headBranch: .head_branch, event, status, conclusion}]",
-          ],
-          { cwd },
-        ),
-      ) as readonly WitnessRunEntry[] | { readonly workflow_runs: readonly WitnessRunEntry[] },
-      entries: readonly WitnessRunEntry[] = Array.isArray(response)
-        ? response
-        : (response as { readonly workflow_runs: readonly WitnessRunEntry[] }).workflow_runs,
-      runs = entries
-        .filter((run) => run.headBranch === "main" && run.event === options.event && workflowPaths.has(run.path))
-        .sort((left, right) => right.databaseId - left.databaseId);
-    const verdict = runs.find(
-      (run) => run.status === "completed" && run.conclusion !== "cancelled" && run.conclusion !== "skipped",
-    );
-    if (verdict) return { databaseId: verdict.databaseId };
-    pending ??= runs.find((run) => run.status !== "completed");
-  }
-  if (pending)
-    throw cell.cellCodedError(
-      "ci_witness_not_found",
-      `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
-        `next: run ${pending.databaseId} is ${pending.status}; retry after it concludes.`,
-    );
-  throw cell.cellCodedError(
-    "ci_witness_not_found",
-    `No completed main CI run covers delivery ${delivery} of ${taskId}. ` +
-      "next: no covering run exists yet; retry after the next main run completes.",
-  );
-}
-function firstParentHistory(page: readonly { readonly sha: string; readonly parents: readonly string[] }[]): string[] {
-  const parents = new Map(page.map((commit) => [commit.sha, commit.parents[0]]));
-  const chain: string[] = [];
-  for (let sha: string | undefined = page[0]?.sha; sha !== undefined && parents.has(sha); sha = parents.get(sha))
-    chain.push(sha);
-  return chain;
-}
-function taskWitnessSummary({ witness, runs }: CiObservationFetch): string {
-  const run = witness && runs.find((candidate) => candidate.databaseId === witness.databaseId);
-  return run
-    ? `${witness.taskId} CI witness: run ${run.databaseId} (${run.summary.workflowName}) concluded ` +
-        `${run.summary.conclusion} on ${run.summary.headSha}, covering delivery ${witness.delivery}.\n`
-    : "";
-}
-async function coversCommit(runGh: RunGh, cwd: string, base: string, head: string): Promise<boolean> {
-  const compare = JSON.parse(
-    await runGh("gh", ["api", `repos/:owner/:repo/compare/${base}...${head}`, "--jq", "{status: .status}"], { cwd }),
-  ) as {
-    readonly status?: string;
-  };
-  return compare.status === "ahead" || compare.status === "identical";
 }
 const ghRateLimitText = /rate limit|HTTP 429/iu;
 const ghRateLimitResetText = /(?:reset in|try again in) ((?:[0-9]+[a-z]+)+)/iu;

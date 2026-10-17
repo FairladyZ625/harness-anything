@@ -55,6 +55,7 @@ function provider() {
     latestAttempt: 1,
     artifacts: true,
     badProvenanceRun: null as number | null,
+    badDiagnosticsRun: null as number | null,
     extraJob: false,
     artifactsOnSecondPage: false,
     archiveMissing: false,
@@ -201,7 +202,15 @@ function provider() {
               runner: "github-actions",
             },
             gates: [],
-            detail: { schema: "ci-run-detail/v1", tests: [], fileOutcomes: [], diagnostics: [] },
+            detail: {
+              schema: "ci-run-detail/v1",
+              tests: [],
+              fileOutcomes:
+                Number(runId) === state.badDiagnosticsRun
+                  ? [{ file: "tools/bad.test.mjs", outcome: "timeout", reason: "" }]
+                  : [],
+              diagnostics: [],
+            },
             measurementCoverage: {
               status: "complete",
               missingReason: null,
@@ -467,6 +476,24 @@ test("a provenance-invalid run is recorded and does not block the next valid run
         attempt: 1,
         reason: "CI artifact rejected: ci-observation-1-1-fast; job expected exactly one matching job, actual 0",
       },
+    ]);
+    const importedRunIds = store
+      .read()
+      .events.filter((event) => event.schema === "ci-run-observation/v4")
+      .filter((event) => event.payload.scope === "job")
+      .map((event) => event.payload.run.runId.split(".")[0]);
+    assert.deepEqual([...new Set(importedRunIds)], ["2"]);
+  });
+});
+
+test("a diagnostics-invalid run is isolated and does not block the next valid run", async () => {
+  await fixture(async ({ run, state, store, current }) => {
+    state.runs = 2;
+    state.badDiagnosticsRun = 1;
+    const result = await run();
+    assert.equal(result.outcome, "succeeded");
+    assert.deepEqual(current().status.ciObserve?.unavailable, [
+      { runId: 1, attempt: 1, reason: "CI run import rejected: invalid CI diagnostics: fileOutcomes[0]" },
     ]);
     const importedRunIds = store
       .read()

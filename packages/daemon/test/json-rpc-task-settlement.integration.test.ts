@@ -979,7 +979,7 @@ test(
   },
 );
 test(
-  "CI refresh records its failed occurrence without borrowing a workflow acceptance",
+  "CI refresh isolates an invalid run without borrowing a workflow acceptance",
   { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
   async () => {
     const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-partial-")),
@@ -990,7 +990,7 @@ test(
     try {
       initRepo(rootDir);
       // Run 1 has a workflow verdict; run 2 has a v2 job artifact with an invalid gate.
-      // Fetch succeeds for both, then admission rejects the later job after workflow receipts exist.
+      // The invalid run is rejected whole and listed as unavailable; the valid run is still imported.
       writeFileSync(
         path.join(ghBin, "gh"),
         `#!/usr/bin/env node
@@ -1051,16 +1051,27 @@ if (group === 'run' && verb === 'download') {
       await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
       const pulled = await cell.run({ kind: "ci-observe-pull", runs: [1, 2] }, repoWriteBinding);
       assert.equal(pulled.outcome, "applied", JSON.stringify(pulled));
-      assert.equal(pulled.code, "schedule_builtin_failed", JSON.stringify(pulled));
-      assert.doesNotMatch(String(pulled.opId), /^ci-observation-/u, JSON.stringify(pulled));
+      assert.notEqual(pulled.code, "schedule_builtin_failed", JSON.stringify(pulled));
       const occurrence = (await cell.run(
         { kind: "schedule-show", scheduleId: "builtin-ci-observe" },
         repoWriteBinding,
       )) as unknown as {
-        schedule: { status: { lastRun: { outcome: string; detail: string } } };
+        schedule: {
+          status: {
+            lastRun: { outcome: string; detail: string };
+            ciObserve?: { unavailable?: readonly { runId: number; attempt: number; reason: string }[] };
+          };
+        };
       };
-      assert.equal(occurrence.schedule.status.lastRun.outcome, "failed");
-      assert.match(occurrence.schedule.status.lastRun.detail, /invalid CI gates/u);
+      // An invalid run is isolated: the scan settles and the rejected run is listed with its reason.
+      assert.equal(occurrence.schedule.status.lastRun.outcome, "succeeded", JSON.stringify(occurrence.schedule.status));
+      const rejected = occurrence.schedule.status.ciObserve?.unavailable ?? [];
+      assert.deepEqual(
+        rejected.map((entry) => [entry.runId, entry.attempt]),
+        [[2, 1]],
+        JSON.stringify(rejected),
+      );
+      assert.match(rejected[0]!.reason, /invalid CI gates/u);
       const observed = makeTaskEventReader({ repoId, rootDir })
         .read()
         .events.flatMap((event) =>
@@ -1069,7 +1080,7 @@ if (group === 'run' && verb === 'download') {
             ? [event.payload.run.runId]
             : [],
         );
-      assert.deepEqual(observed, ["1.1", "2.1"], "accepted workflows stay recorded while the later job is rejected");
+      assert.deepEqual(observed, ["1.1"], "the valid run is recorded while the invalid run is rejected whole");
       const inventories = makeTaskEventReader({ repoId, rootDir })
         .read()
         .events.flatMap((event) =>
