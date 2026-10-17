@@ -1359,6 +1359,7 @@ function workerSettlementContext(
       remote: { archive: async () => ({ outcome: "applied" }) },
       // This node holds a projection; `requiredRuntimeProjection` below is the read every test steers.
       projection: () => deliveryProjection(null),
+      remote: { archive: async () => ({ outcome: "applied" }) },
     },
     resultMediaType: "text/markdown",
     runtimeResultText: () => resultText,
@@ -1367,6 +1368,7 @@ function workerSettlementContext(
     prepareDaemonGitEnvironment: async () => ({}),
     requiredRuntimeProjection: () =>
       deliveryProjection(submittedCommitSha ?? git(fixture.worker, "rev-parse", "HEAD").trim()),
+    requiredRuntimeStore: () => ({}) as never,
     publishRuntimeEvent,
   } as unknown as RuntimeSpawnerContext;
 }
