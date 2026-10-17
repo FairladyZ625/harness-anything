@@ -123,7 +123,6 @@ test("ha edge join exposes the typed invitation consume action", () => {
     kind: "rbac-bootstrap",
     operation: "edge-join-consume",
     link: "harness-edge://join/token",
-    observedSpkiSha256: "sha256:pin",
   });
 });
 

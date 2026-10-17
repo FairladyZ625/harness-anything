@@ -60,7 +60,7 @@ function parseEdgeJoin(
 ): ThinParseResult {
   const link = args[2];
   if (!nonEmpty(link) || link.startsWith("--"))
-    return rejected("missing_field", "Use ha edge join <invite-link> --observed-spki-sha256 <pin>.", json);
+    return rejected("missing_field", "Use ha edge join <invite-link>.", json);
   const flags = readFlags("edge-join", args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
   return accepted(
@@ -71,7 +71,6 @@ function parseEdgeJoin(
       kind: "rbac-bootstrap",
       operation: "edge-join-consume",
       link,
-      observedSpkiSha256: flags.one.get("--observed-spki-sha256"),
       ...(flags.one.get("--login-person-id") ? { loginPersonId: flags.one.get("--login-person-id") } : {}),
     },
     method,

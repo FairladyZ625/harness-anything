@@ -220,6 +220,24 @@ export async function serve(
     try {
       frame = parseFleetFrame(line);
       if (nodeId === null) {
+        if (frame.schema === "fleet.edge.join/v1") {
+          if (!options.edgeJoin) throw new FleetFault("edge_join_unavailable", "Edge join is unavailable.");
+          const admitted = await options.edgeJoin({
+            inviteToken: frame.inviteToken,
+            nodeId: frame.nodeId,
+            accessToken: frame.accessToken,
+          });
+          await enqueue(
+            immediate({
+              schema: "fleet.edge.join.result/v1",
+              messageId: mid(frame.messageId, "edge-join"),
+              inReplyTo: frame.messageId,
+              ...admitted,
+            }),
+          );
+          socket.end();
+          return;
+        }
         if (frame.schema !== "fleet.session.hello/v1")
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         // The connection joins its node's session set before authentication resolves, so an
