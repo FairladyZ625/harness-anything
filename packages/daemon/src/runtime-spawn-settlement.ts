@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { AgentRuntimeEventV1, CanonicalEventStore, RuntimeResultClaim } from "@harness-anything/kernel";
-import { consumeKnownError, submissionCarriesDelivery } from "@harness-anything/kernel";
+import { consumeKnownError } from "@harness-anything/kernel";
 import {
   archiveDispatchStream,
   readDispatchStream,
@@ -517,12 +517,11 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
     submission = snapshot.executions.find(
       (execution) => execution.executionId === active.task?.executionId,
     )?.submission;
-  // The submission itself is the delivery witness in the submit boundary's own vocabulary — a
-  // commit cut or a frozen artifact. The preset's declared output shape is not: an empty public
-  // manifest legitimately submits artifacts-only (repo-cell-submit), which the shape requirement
-  // contradicted into "stopped without a delivery".
+  // Submission is the accepted delivery witness. The submit boundary already validates the
+  // preset contract and durably records the accepted submission; settlement must not derive its
+  // meaning again from outputShape or require a commitSha.
   if (!submission) return false;
-  return submissionCarriesDelivery(submission);
+  return true;
 }
 
 export function runtimeResultText(
