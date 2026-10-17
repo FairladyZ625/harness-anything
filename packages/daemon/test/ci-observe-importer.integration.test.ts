@@ -54,6 +54,7 @@ function provider() {
     downloaded: [] as string[],
     latestAttempt: 1,
     artifacts: true,
+    badProvenanceRun: null as number | null,
     extraJob: false,
     artifactsOnSecondPage: false,
     archiveMissing: false,
@@ -188,7 +189,7 @@ function provider() {
               databaseRunId: runId,
               runAttempt: attempt,
               jobKey: JSON.stringify([name, {}]),
-              jobName: name,
+              jobName: Number(runId) === state.badProvenanceRun ? "wrong-job" : name,
             },
             run: {
               runId: `${runId}.${attempt}`,
@@ -450,6 +451,29 @@ test("reconciliation reads only the newest main page and its latest attempt", as
     assert.ok(state.seen.some((value) => value.endsWith(".2")));
     assert.equal(store.readHead()!.revision, revision + 60);
     assert.equal(current().status.ciObserve!.pending.length, 0);
+  });
+});
+
+test("a provenance-invalid run is recorded and does not block the next valid run", async () => {
+  await fixture(async ({ run, state, store, current }) => {
+    state.runs = 2;
+    state.badProvenanceRun = 1;
+    const result = await run();
+    assert.equal(result.outcome, "succeeded");
+    assert.match(result.detail ?? "", /0 target\(s\) failed/u);
+    assert.deepEqual(current().status.ciObserve?.unavailable, [
+      {
+        runId: 1,
+        attempt: 1,
+        reason: "CI artifact rejected: ci-observation-1-1-fast; job expected exactly one matching job, actual 0",
+      },
+    ]);
+    const importedRunIds = store
+      .read()
+      .events.filter((event) => event.schema === "ci-run-observation/v4")
+      .filter((event) => event.payload.scope === "job")
+      .map((event) => event.payload.run.runId.split(".")[0]);
+    assert.deepEqual([...new Set(importedRunIds)], ["2"]);
   });
 });
 
