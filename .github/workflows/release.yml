@@ -46,7 +46,7 @@ jobs:
       - run: node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui
 
   publish-npm:
-    needs: validate
+    needs: build-app
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -111,7 +111,7 @@ jobs:
           if-no-files-found: error
 
   github-release:
-    needs: [validate, publish-npm, build-app]
+    needs: [validate, publish-npm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
