@@ -395,8 +395,6 @@ function AppShell() {
   }, [activeRepo, projectTasks, systemQuery.data, systemQuery.isError, tasksQuery.data]);
 
   // 切仓策略(业主 2026-10-11:切回项目直接回到它上次停留的位置):useViewHistory
-  // 切仓时自己重读目标仓的栈,栈顶即上次位置、跨重启保留;显式目标(管理页活动
-  // 链接/跨仓实体导航)经 pending intent 在重读落地后推栈。
   const { openProject, goto } = useProjectSwitch({
     projectId,
     navigate,
