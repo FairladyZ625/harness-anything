@@ -31,6 +31,7 @@ function row(overrides: Partial<TaskSnapshotProjectionRow> = {}): TaskSnapshotPr
     taskId,
     workspaceRevision: 1,
     createdAt: "2026-08-11T23:59:00.000Z",
+    completedAt: null,
     updatedAt: "2026-08-12T00:00:00.000Z",
     snapshot: {
       revision: 1,

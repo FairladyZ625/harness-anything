@@ -28,6 +28,7 @@ const row = {
   generation: "v1",
   workspaceRevision: 1,
   createdAt: null,
+  completedAt: null,
   updatedAt: "2026-08-25T00:00:00.000Z",
   snapshot: {
     revision: 1,
@@ -82,6 +83,11 @@ const list = {
 
 test("task snapshot protocol accepts audited code-doc repoints", () => {
   assert.deepEqual(validateDaemonTaskSnapshotList(list), []);
+});
+
+test("task snapshot protocol requires the completedAt projection field", () => {
+  const { completedAt: _completedAt, ...rowWithoutCompletedAt } = row;
+  assert.notDeepEqual(validateDaemonTaskSnapshotList({ ...list, rows: [rowWithoutCompletedAt] }), []);
 });
 
 test("task snapshot protocol isolates a malformed field with its source row identity", () => {
