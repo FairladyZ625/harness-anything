@@ -874,8 +874,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
         signal: controller.signal,
-        onConfirmed: async () => {
-          applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull");
+        onConfirmed: async (changedPaths) => {
+          applyFleetMirrorCut(viewRoot, config.repoId, rootDir, "pull", { changedPaths });
           await edgeRuntimeFor({
             ...config,
             caPath,

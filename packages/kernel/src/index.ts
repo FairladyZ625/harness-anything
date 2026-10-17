@@ -5,6 +5,8 @@ export {
   convertLegacyGeneration,
   createImmutableLegacyGenerationSnapshot,
   legacyGenerationSnapshotPath,
+  canonicalDocumentClaims,
+  canonicalDocumentRetirements,
 } from "./composition/index.ts";
 export {
   compareRuntimeActivity,

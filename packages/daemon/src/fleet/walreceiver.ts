@@ -2,6 +2,8 @@ import { mkdir, open, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import {
+  canonicalDocumentClaims,
+  canonicalDocumentRetirements,
   makeTaskEventReader,
   makeTaskProjection,
   openReplicaStore,
@@ -62,6 +64,7 @@ export interface ReplicationTarget {
   /** Runs the common projection catchUp; resolves only once that position is queryable. */
   readonly project: (position: ReplicationPosition) => Promise<void>;
   readonly updatePosition?: (position: ReplicationPosition) => void;
+  readonly changedPaths?: (paths: readonly string[]) => void;
   readonly reset?: () => Promise<void>;
   readonly revoke?: () => Promise<void>;
 }
@@ -144,6 +147,12 @@ export async function runWalReceiver(input: {
         chunks.push(bytes);
       });
       const commit = parseReplicationCommit(Buffer.concat(chunks));
+      const changedPaths = new Set<string>();
+      for (const row of commit.events) {
+        const event = JSON.parse(row.eventJson) as import("@harness-anything/kernel").PersistedCanonicalEventV1;
+        for (const claim of canonicalDocumentClaims(event)) changedPaths.add(claim.path);
+        for (const retirement of canonicalDocumentRetirements(event)) changedPaths.add(retirement.path);
+      }
       let staged = 0;
       for (;;) {
         const object = await peer.receive(signal);
@@ -174,6 +183,7 @@ export async function runWalReceiver(input: {
       }
       target.apply(commit);
       await target.project(commit.position);
+      target.changedPaths?.([...changedPaths]);
       target.updatePosition?.(commit.position);
     } else if (frame.type === "replica.progress") {
       const position = target.position();

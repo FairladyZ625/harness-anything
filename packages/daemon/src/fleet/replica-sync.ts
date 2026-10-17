@@ -9,7 +9,7 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
    * run in flight plus one queued. The receiver never waits for it, so work that itself waits for a
    * later replicated commit cannot block the stream that applies that commit.
    */
-  readonly onConfirmed?: () => void | Promise<void>;
+  readonly onConfirmed?: (changedPaths?: readonly string[]) => void | Promise<void>;
   readonly onConfirmedFailure?: (error: unknown) => void;
   readonly onFailure?: (error: unknown) => void;
 }
@@ -151,7 +151,8 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   streams.set(key, stream);
   let failures = 0,
     confirming = false,
-    confirmAgain = false;
+    confirmAgain = false,
+    pendingChangedPaths = new Set<string>();
   const confirm = (): void => {
     if (!options.onConfirmed) return;
     if (confirming) {
@@ -163,7 +164,9 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       do {
         confirmAgain = false;
         try {
-          await options.onConfirmed!();
+          const changedPaths = pendingChangedPaths;
+          pendingChangedPaths = new Set();
+          await options.onConfirmed!([...changedPaths]);
         } catch (error) {
           consumeKnownError(error);
           (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
@@ -181,8 +184,9 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       const attempt = await runSyncAttempt({
         ...options,
         signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
-        onApplied: async (position) => {
+        onApplied: async (position, changedPaths) => {
           failures = 0;
+          for (const path of changedPaths ?? []) pendingChangedPaths.add(path);
           observe(null);
           settle(key, position.sequence);
           settleReady(key, true);

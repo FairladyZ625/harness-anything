@@ -90,7 +90,10 @@ export interface FleetReplicaStreamOptions extends FleetPeerOptions {
    */
   readonly idleTimeoutMs?: number;
   /** Called with each position the replica acknowledged as durably applied and queryable. */
-  readonly onApplied?: (position: import("@harness-anything/kernel").ReplicationPosition) => void | Promise<void>;
+  readonly onApplied?: (
+    position: import("@harness-anything/kernel").ReplicationPosition,
+    changedPaths?: readonly string[],
+  ) => void | Promise<void>;
 }
 export interface FleetEdgeView {
   readonly current: (repoId: string, viewId: string) => Readonly<Record<string, unknown>> | null;
@@ -151,6 +154,7 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
     for (const waiter of waiters.splice(0)) waiter.reject(closed);
   });
   let opened: ReturnType<typeof openWalReceiverGeneration> | null = null;
+  let pendingChangedPaths = new Set<string>();
   try {
     // The center admits a replica on the node owner's signed-in session; the hello is the only
     // frame of this conversation that can carry it.
@@ -228,6 +232,9 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       },
       updatePosition: (position: import("@harness-anything/kernel").ReplicationPosition) =>
         updateReplicaGenerationPosition(viewRoot, position),
+      changedPaths: (paths: readonly string[]) => {
+        pendingChangedPaths = new Set([...pendingChangedPaths, ...paths]);
+      },
       reset: async () => {
         const prior = opened;
         opened = null;
@@ -242,7 +249,11 @@ export async function runFleetReplicaStream(options: FleetReplicaStreamOptions):
       send: async (frame) => {
         if (closed) throw closed;
         const flushed = socket.write(serializeReplicationFrame(frame));
-        if (frame.type === "replica.ack") await options.onApplied?.(frame.applied);
+        if (frame.type === "replica.ack") {
+          const changedPaths = pendingChangedPaths;
+          pendingChangedPaths = new Set();
+          await options.onApplied?.(frame.applied, changedPaths.size === 0 ? undefined : [...changedPaths]);
+        }
         if (!flushed) await Promise.race([once(socket, "drain"), once(socket, "close")]);
       },
       receive: async (receiveSignal) => {
