@@ -31,21 +31,17 @@ import {
   type ReplicationPosition,
   type ReplicationCommit,
 } from "./replication-log.ts";
-
 export const SQLITE_LEDGER_GENERATION = 3;
-
 export interface SqliteWriterFence {
   readonly repoId: string;
   readonly holder: string;
   readonly epoch: number;
 }
-
 export interface SqliteLedgerMetadata {
   readonly repoId: string;
   readonly generation: number;
   readonly revision: number;
 }
-
 export interface SqliteEventRow {
   readonly revision: number;
   readonly opId: string;
@@ -54,26 +50,23 @@ export interface SqliteEventRow {
   readonly recordedAt: string;
   readonly digest: `sha256:${string}`;
 }
-
+type SqliteRow = Record<string, import("node:sqlite").SQLOutputValue>;
 /** The identity SQLite already durably stores for an event, without re-reading or re-serializing its body. */
 export interface SqliteEventIdentity {
   readonly revision: number;
   readonly opId: string;
   readonly eventDigest: `sha256:${string}`;
 }
-
 export interface SqliteDocumentHead {
   readonly sha256: string;
   readonly size: number;
   readonly nodeKind: "file" | "symbolic-link";
 }
-
 export interface SqliteCommandIntent {
   readonly opId: string;
   readonly intentDigest: `sha256:${string}`;
   readonly summary: string;
 }
-
 export interface SqliteCommandOutcome {
   readonly opId: string;
   readonly status: "accepted_durable" | "rejected";
@@ -85,7 +78,6 @@ export interface SqliteCommandOutcome {
   readonly recordedAt: string;
   readonly memberOpIds: readonly string[];
 }
-
 export type SqliteLedgerRevisionDifference = {
   readonly revision: number;
   readonly kind: "missing_in_sqlite" | "unexpected_in_sqlite" | "event_mismatch";
@@ -95,7 +87,6 @@ export type SqliteLedgerRevisionDifference = {
   readonly sqliteDigest: `sha256:${string}` | null;
   readonly sqliteStoredDigest: string | null;
 };
-
 export interface SqliteLedgerReconciliation {
   readonly schema: "sqlite-ledger-reconciliation/v1";
   readonly repoId: string;
@@ -118,7 +109,6 @@ export interface SqliteLedgerReconciliation {
     readonly unexpectedInSqlite: readonly string[];
   };
 }
-
 export interface SqliteEventStore {
   readonly replicationPosition: () => ReplicationPosition;
   readonly pruneReplicationLog: (throughSequence: number) => void;
@@ -195,11 +185,9 @@ export interface SqliteEventStore {
   }) => readonly CanonicalEventV1[];
   readonly close: () => void;
 }
-
 export function sqliteLedgerPath(input: HarnessLayoutInput, generation = SQLITE_LEDGER_GENERATION): string {
   return path.join(resolveHarnessLayout(input).localRoot, "store", "generations", String(generation), "ledger.sqlite");
 }
-
 export interface GenerationTwoActivationV2 {
   readonly schema: "generation-activation/v2";
   readonly repoId: string;
@@ -207,15 +195,12 @@ export interface GenerationTwoActivationV2 {
   readonly importedPrefixRevision: number;
   readonly generation: 2;
 }
-
 export function generationTwoActivationPath(input: HarnessLayoutInput): string {
   return `${sqliteLedgerPath(input, 2)}.activation.json`;
 }
-
 export function generationActivationCertificatePath(input: HarnessLayoutInput): string {
   return `${sqliteLedgerPath(input, 1)}.activation.json`;
 }
-
 export function preflightCanonicalGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId: string;
@@ -251,14 +236,12 @@ export function preflightCanonicalGeneration(input: {
     store.close();
   }
 }
-
 export function activateEmptyCanonicalGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId: string;
 }): void {
   activateEmptyGenerationThree(input);
 }
-
 /** Online attachment has exactly one accepted format. Old generations are offline inputs. */
 export function resolveActiveGeneration(input: {
   readonly rootInput: HarnessLayoutInput;
@@ -266,7 +249,6 @@ export function resolveActiveGeneration(input: {
 }): 3 {
   return selectGenerationThree(input);
 }
-
 export function readGenerationTwoActivation(input: {
   readonly rootInput: HarnessLayoutInput;
   readonly repoId?: string;
@@ -288,7 +270,6 @@ export function readGenerationTwoActivation(input: {
     throw new TaskEventStoreError("invalid_store", "generation 2 activation names a missing ledger");
   return certificate;
 }
-
 /** Writer-side depth check; the ledger must still carry the imported prefix the certificate names. */
 export function preflightGenerationTwoActivation(input: {
   readonly rootInput: HarnessLayoutInput;
@@ -418,8 +399,20 @@ export function openSqliteEventStore(options: {
   };
   if (!options.readOnly)
     transaction(() => {
-      backfillDocumentHeads(query, options.onOpenProgress);
-      backfillEventQueryRefs(query, options.onOpenProgress);
+      const iterate: SqliteRowIterator = function* (sql, values = []) {
+        let afterRevision = Number(values[0]);
+        for (;;) {
+          const rows = query(`${sql.replace("SELECT event_json", "SELECT revision, event_json")} LIMIT 256`, [
+            afterRevision,
+          ]);
+          if (rows.length === 0) return;
+          yield* rows;
+          afterRevision = Number(rows.at(-1)!.revision);
+          if (rows.length < 256) return;
+        }
+      };
+      backfillDocumentHeads(query, iterate, options.onOpenProgress);
+      backfillEventQueryRefs(query, iterate, options.onOpenProgress);
     });
   if (!options.readOnly) ensureEventQueryIndexes(query);
   // All lease mutations share the store's transaction and the same repository ownership boundary.
@@ -793,18 +786,17 @@ function ensureEventQueryIndexes(query: SqliteQuery): void {
   query("CREATE INDEX IF NOT EXISTS event_query_entity_ref ON event_query_entity(ref, revision DESC)");
   query("CREATE INDEX IF NOT EXISTS event_query_entity_id ON event_query_entity(entity_id, revision DESC)");
 }
-
 type SqliteQuery = (
   sql: string,
   values?: readonly (string | number | null)[],
 ) => Record<string, import("node:sqlite").SQLOutputValue>[];
 type OpenProgress = (progress: { readonly applied: number; readonly total: number }) => void;
+type SqliteRowIterator = (sql: string, values?: readonly (string | number | null)[]) => Iterable<SqliteRow>;
 function assertMetadata(query: SqliteQuery, repoId: string, generation: number): void {
   const metadata = readMetadata(query);
   if (metadata.repoId !== repoId || metadata.generation !== generation)
     throw new TaskEventStoreError("repo_mismatch", "SQLite ledger belongs to another repository or generation");
 }
-
 function readEvent(
   query: SqliteQuery,
   column: "op_id" | "revision" | "json_extract(event_json, '$.eventId')",
@@ -814,7 +806,6 @@ function readEvent(
   const row = query(`SELECT event_json FROM event WHERE ${column}=? ${suffix}`, [value]).at(0);
   return row ? (JSON.parse(String(row.event_json)) as CanonicalEventV1) : null;
 }
-
 function queryEvents(
   query: SqliteQuery,
   input: {
@@ -865,7 +856,6 @@ function queryEvents(
     values,
   ).map((row) => JSON.parse(String(row.event_json)) as CanonicalEventV1);
 }
-
 function readEventIdentity(
   query: SqliteQuery,
   column: "op_id" | "revision",
@@ -876,7 +866,6 @@ function readEventIdentity(
     ? { revision: Number(row.revision), opId: String(row.op_id), eventDigest: String(row.digest) as `sha256:${string}` }
     : null;
 }
-
 function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
   if (event.schema !== "task-event/v1") return;
   if (event.type === "execution_started") replayClaim(db, event);
@@ -888,7 +877,6 @@ function applyDerivedGuards(db: DatabaseSync, event: CanonicalEventV1): void {
   )
     replayRelease(db, event.taskId, event.payload.execution.executionId, event.workspaceRevision);
 }
-
 function applyDocumentHeads(query: SqliteQuery, event: CanonicalEventV1, updateWatermark = true): void {
   const upsert = (values: readonly (string | number | null)[]) =>
     query(
@@ -909,7 +897,6 @@ function applyDocumentHeads(query: SqliteQuery, event: CanonicalEventV1, updateW
     upsert([retirement.path, null, null, null, event.workspaceRevision]);
   if (updateWatermark) updateDocumentHeadWatermark(query, event.workspaceRevision);
 }
-
 function updateDocumentHeadWatermark(query: SqliteQuery, revision: number): void {
   query(
     "INSERT INTO document_head_meta(singleton, revision) VALUES (1, ?) " +
@@ -917,7 +904,6 @@ function updateDocumentHeadWatermark(query: SqliteQuery, revision: number): void
     [revision],
   );
 }
-
 function applyEventQueryRefs(query: SqliteQuery, event: CanonicalEventV1, updateWatermark = true): void {
   for (const ref of canonicalEventEntityRefs(event))
     query("INSERT OR IGNORE INTO event_query_entity(revision, ref, entity_id) VALUES (?, ?, ?)", [
@@ -927,7 +913,6 @@ function applyEventQueryRefs(query: SqliteQuery, event: CanonicalEventV1, update
     ]);
   if (updateWatermark) updateEventQueryWatermark(query, event.workspaceRevision);
 }
-
 function updateEventQueryWatermark(query: SqliteQuery, revision: number): void {
   query(
     "INSERT INTO event_query_meta(singleton, revision) VALUES (1, ?) " +
@@ -935,47 +920,49 @@ function updateEventQueryWatermark(query: SqliteQuery, revision: number): void {
     [revision],
   );
 }
-function backfillEventQueryRefs(query: SqliteQuery, onProgress?: OpenProgress): void {
+function backfillEventQueryRefs(query: SqliteQuery, iterate: SqliteRowIterator, onProgress?: OpenProgress): void {
   const indexed = Number(query("SELECT revision FROM event_query_meta WHERE singleton=1").at(0)?.revision ?? 0),
     head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
   if (indexed > head) throw new TaskEventStoreError("invalid_store", "event query index is ahead of the ledger");
   if (indexed === head) return;
-  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]),
-    total = head - indexed;
-  for (const [offset, row] of rows.entries()) {
+  const total = head - indexed;
+  let count = 0,
+    lastRevision = indexed;
+  for (const row of iterate("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed])) {
     applyEventQueryRefs(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
-    if ((offset + 1) % 256 === 0) onProgress?.({ applied: offset + 1, total });
+    count += 1;
+    lastRevision = Number(JSON.parse(String(row.event_json)).workspaceRevision);
+    if (count % 256 === 0) onProgress?.({ applied: count, total });
   }
-  const lastRevision =
-    rows.length === 0 ? indexed : Number(JSON.parse(String(rows.at(-1)!.event_json)).workspaceRevision);
   if (lastRevision !== head)
     throw new TaskEventStoreError(
       "invalid_store",
       `event query backfill ended at revision ${lastRevision}, expected ${head}`,
     );
   updateEventQueryWatermark(query, head);
-  onProgress?.({ applied: total, total });
+  onProgress?.({ applied: count, total });
 }
-function backfillDocumentHeads(query: SqliteQuery, onProgress?: OpenProgress): void {
+function backfillDocumentHeads(query: SqliteQuery, iterate: SqliteRowIterator, onProgress?: OpenProgress): void {
   const indexed = Number(query("SELECT revision FROM document_head_meta WHERE singleton=1").at(0)?.revision ?? 0),
     head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
   if (indexed > head) throw new TaskEventStoreError("invalid_store", "document head index is ahead of the ledger");
   if (indexed === head) return;
-  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]),
-    total = head - indexed;
-  for (const [offset, row] of rows.entries()) {
+  const total = head - indexed;
+  let count = 0,
+    lastRevision = indexed;
+  for (const row of iterate("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed])) {
     applyDocumentHeads(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
-    if ((offset + 1) % 256 === 0) onProgress?.({ applied: offset + 1, total });
+    count += 1;
+    lastRevision = Number(JSON.parse(String(row.event_json)).workspaceRevision);
+    if (count % 256 === 0) onProgress?.({ applied: count, total });
   }
-  const lastRevision =
-    rows.length === 0 ? indexed : Number(JSON.parse(String(rows.at(-1)!.event_json)).workspaceRevision);
   if (lastRevision !== head)
     throw new TaskEventStoreError(
       "invalid_store",
       `document head backfill ended at revision ${lastRevision}, expected ${head}`,
     );
   updateDocumentHeadWatermark(query, head);
-  onProgress?.({ applied: total, total });
+  onProgress?.({ applied: count, total });
 }
 function readDocumentHead(query: SqliteQuery, documentPath: string): SqliteDocumentHead | "retired" | undefined {
   const row = query("SELECT sha256, size, node_kind FROM document_head WHERE path=?", [documentPath]).at(0);
