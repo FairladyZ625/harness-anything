@@ -590,6 +590,82 @@ test("agenda lists awaits addressed to the reader first and moves the held task 
   );
 });
 
+test("awaits anchored on terminal sources leave both queues while open sources stay", () => {
+  const awaitsEdge = (relationId: string, sourceRef: string, personId: string, rationale: string) => ({
+      ...eventEdge,
+      relationId,
+      sourceRef,
+      targetRef: `person/${personId}`,
+      relationType: "awaits" as const,
+      targetObservedVersion: null,
+      currentTargetVersion: null,
+      rationale,
+      ownerRef: sourceRef,
+    }),
+    edges = [
+      // active asks:终态源(cancelled task、in_effect decision)与开放源(planned、proposed)对照。
+      awaitsEdge("rel_ask_cancelled", "task/task_cancelled_src", "owner", "acceptance: 已取消任务上的验收"),
+      awaitsEdge("rel_ask_in_effect", "decision/dec_in_effect", "owner", "consent: 已生效决策的同意"),
+      awaitsEdge("rel_ask_open", "task/task_open_src", "owner", "acceptance: 开放任务验收"),
+      awaitsEdge("rel_ask_proposed", "decision/dec_proposed", "owner", "consent: 待裁决策同意"),
+      // answered(retired):源实体在答复之前就已终态且答复后再无写入——快照里 19 条滞留的形状。
+      {
+        ...awaitsEdge("rel_answered_done", "task/task_done_src", "owner", "consent: 已答复的终态任务"),
+        state: "retired" as const,
+      },
+      {
+        ...awaitsEdge("rel_answered_rejected", "decision/dec_rejected", "owner", "question: 已答复的已驳回决策"),
+        state: "retired" as const,
+      },
+      {
+        ...awaitsEdge("rel_answered_open", "task/task_planned_src", "owner", "question: 已答复的开放任务"),
+        state: "retired" as const,
+      },
+      {
+        ...awaitsEdge("rel_answered_proposed", "decision/dec_proposed_b", "owner", "reopen: 已答复的待裁决策"),
+        state: "retired" as const,
+      },
+    ],
+    stub = projectionStub({
+      edges,
+      taskRows: [
+        protocolTaskRow("task_cancelled_src", [], { status: "cancelled" }),
+        protocolTaskRow("task_open_src", [], { status: "planned" }),
+        protocolTaskRow("task_done_src", [], { status: "done" }),
+        protocolTaskRow("task_planned_src", [], { status: "planned" }),
+      ],
+      decisions: {
+        dec_in_effect: { state: "in_effect", proposerPersonId: "person-owner" },
+        dec_proposed: { state: "proposed", proposerPersonId: "person-owner" },
+        dec_rejected: { state: "rejected", proposerPersonId: "person-owner" },
+        dec_proposed_b: { state: "proposed", proposerPersonId: "person-owner" },
+      },
+    }),
+    readModel = (principalId: string) =>
+      makeTaskQueryReadModel({
+        rootDir: canonicalRoot(process.cwd()),
+        projection: stub,
+        readPinnedEntities: () => [],
+        judgments: {
+          closeout: (() => ({ readiness: "missing", blocker: "execution", gates: [] })) as never,
+          blocking: (() => []) as never,
+        },
+      }).agenda({ principalId });
+
+  // 终态源的 active 提问不再等读者处理;开放源照常。
+  assert.deepEqual(
+    readModel("owner").awaitingYou.map(({ sourceRef }) => sourceRef),
+    ["task/task_open_src", "decision/dec_proposed"],
+  );
+  // 答复后源实体已终态的,没有跟进对象,不进「已答复待跟进」;planned/proposed 源照常等下一次写入。
+  assert.deepEqual(
+    readModel("person-owner").answeredForYou.map(({ sourceRef }) => sourceRef),
+    ["task/task_planned_src", "decision/dec_proposed_b"],
+  );
+  assert.deepEqual(validateDaemonAgenda(readModel("person-owner")), []);
+  assert.match(readModel("person-owner").summary, /已答复，待你跟进 \(2\)/u);
+});
+
 test("agenda counts a cut as reviewed only by an approval of its current submission with no undisposed disagreement", () => {
   const commitSha = "c".repeat(40),
     submission = (claim: string) => ({
@@ -808,13 +884,15 @@ function projectionStub(
     readonly decisionCalls?: string[][];
     readonly childCounts?: Readonly<Record<string, number>>;
     readonly decisionAgenda?: readonly unknown[];
+    readonly decisions?: Readonly<Record<string, { readonly state: string; readonly proposerPersonId: string }>>;
   } = {},
 ): TaskProjection {
   const cut = options.cut ?? readyCut,
     decisionCut = options.decisionCut ?? cut,
     edges = options.edges ?? [eventEdge],
     taskRows = options.taskRows ?? [],
-    decisionAgendaRows = options.decisionAgenda ?? [];
+    decisionAgendaRows = options.decisionAgenda ?? [],
+    decisions = options.decisions ?? {};
   return {
     readTaskIndex: () => ({
       ...cut,
@@ -957,7 +1035,16 @@ function projectionStub(
       };
     },
     listDecisions: () => ({ ...decisionCut, decisions: [] }),
-    readDecision: () => ({ ...decisionCut, decision: null }),
+    readDecision: (decisionId: string) => ({
+      ...decisionCut,
+      decision: decisions[decisionId]
+        ? {
+            decisionId,
+            state: decisions[decisionId]!.state,
+            proposer: { principal: { personId: decisions[decisionId]!.proposerPersonId } },
+          }
+        : null,
+    }),
     readRuntimeSession: () => null,
     listDecisionAgendaPage: (query) => ({
       ...decisionCut,
@@ -975,7 +1062,7 @@ function protocolTaskRow(
   taskId: string,
   codeDocWitnesses: readonly unknown[] = [],
   patch: {
-    readonly status?: "planned" | "active" | "blocked" | "submitted" | "in_review";
+    readonly status?: "planned" | "active" | "blocked" | "submitted" | "in_review" | "done" | "cancelled";
     readonly taskClass?: "standard" | "work";
   } = {},
 ) {
