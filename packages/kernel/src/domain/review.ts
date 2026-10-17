@@ -234,17 +234,22 @@ export function consentedApprovedReviewForExecution(
   dispositions: readonly ReviewDispositionV1[] = [],
 ): ConsentedApprovedReview | undefined {
   if (!execution.submission || !execution.submittedAt) return undefined;
-  const approved = new Map(
-      settledApprovedReviewsForExecution(reviews, execution, dispositions).map((review) => [review.reviewId, review]),
-    ),
+  const currentReviews = reviewsForExecution(reviews, execution),
     currentSubmissionDigest = submissionDigest(execution.submission),
     submittedAt = Date.parse(execution.submittedAt);
   for (let index = consents.length - 1; index >= 0; index -= 1) {
     const consent = consents[index]!;
     if (consent.executionId !== execution.executionId || Date.parse(consent.consentedAt) < submittedAt) continue;
-    const review = approved.get(consent.reviewId);
+    const review = currentReviews.find((value) => value.reviewId === consent.reviewId);
     if (
       review &&
+      reviewConsentConflicts({
+        selectedReview: review,
+        allowSelectedChangesRequested: true,
+        reviews: currentReviews,
+        dispositions,
+        currentSubmissionDigest,
+      }).length === 0 &&
       (consent.submissionDigest === currentSubmissionDigest || consent.submissionDigest === undefined) &&
       consent.reviewDigest === reviewDigest(review) &&
       consent.contentDigest === review.contentDigest
