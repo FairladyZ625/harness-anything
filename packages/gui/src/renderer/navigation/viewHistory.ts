@@ -58,7 +58,7 @@ export interface DrillState {
 
 /**
  * 总览页放大层(执行与下钻各名单的 FocusLayer)在 AppLocation 里的形状:开层推栈、
- * 层内换选中原地改、关层弹栈(与任务预览抽屉同一条推栈路径,业主 2026-10-11 全局导航)。
+ * 层内换选中原地改、关层弹栈(任务预览抽屉同一契约,业主 2026-10-11 全局导航)。
  */
 export interface OverviewFocusLocation {
   key: DrillFocusKey;
@@ -144,4 +144,17 @@ export function patchCurrent(state: ViewHistoryState, fields: Partial<AppLocatio
   const entries = state.entries.slice();
   entries[state.index] = next;
   return { entries, index: state.index };
+}
+
+/**
+ * 关闭预览抽屉(业主 2026-10-17:连点多行只有一个抽屉,一次关闭回列表)。抽屉层内
+ * 换卡走 patchCurrent 原地改,一层只占一条历史条目,弹一次栈即回到开抽屉前的位置;
+ * 旧存储里逐次推栈攒下的连续预览条目同属一层,一次越过、不逐个回放。无处可退
+ * (栈底恢复的孤立抽屉条目)原地清 previewId;抽屉关着时是 no-op。
+ */
+export function closePreview(state: ViewHistoryState): ViewHistoryState {
+  if (currentLocation(state).previewId === null) return state;
+  let index = state.index;
+  while (index > 0 && state.entries[index - 1]!.previewId !== null) index--;
+  return index > 0 ? { ...state, index: index - 1 } : patchCurrent(state, { previewId: null });
 }

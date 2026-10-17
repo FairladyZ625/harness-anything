@@ -116,6 +116,7 @@ async function mountNavigation() {
     api = useEntityNavigation({
       navigate,
       updateLocation,
+      previewId: null,
       activeRepoId: "p",
       enabledRepoIds: ["p"],
       openInRepo: () => undefined,
@@ -184,7 +185,7 @@ describe("every task exit goes through the shared judgement", () => {
     act(() => nav.api().openTaskDetail("child"));
     act(() => nav.api().openTaskPreview("child"));
     expect(nav.navigate).toHaveBeenCalledWith({ selectedId: "child", previewId: null, focusedEntityRef: "task/child" });
-    // 预览抽屉与详情同一条推栈路径(2026-10-11 统一导航历史)。
+    // 预览抽屉关着时开预览推栈一次(2026-10-17 起层内换卡原地替换,见全局历史测试)。
     expect(nav.navigate).toHaveBeenLastCalledWith({ selectedId: null, previewId: "child" });
   });
 

@@ -7,7 +7,7 @@ import { useViewHistory } from "../src/renderer/navigation/useViewHistory.ts";
 import { useEntityNavigation } from "../src/renderer/navigation/useEntityNavigation.ts";
 import { useAppShortcuts } from "../src/renderer/navigation/useAppShortcuts.ts";
 import { initialLocation } from "../src/renderer/navigation/viewHistoryStorage.ts";
-import type { AppLocation } from "../src/renderer/navigation/viewHistory.ts";
+import type { AppLocation, ViewHistoryState } from "../src/renderer/navigation/viewHistory.ts";
 import type { AppCommandApi, AppNavigationCommand } from "../src/api/app-command-contract.ts";
 import { Drawer } from "../src/renderer/components/primitives/Drawer.tsx";
 import { NavigationHistoryBar } from "../src/renderer/components/NavigationHistoryBar.tsx";
@@ -18,6 +18,10 @@ import { NavigationHistoryBar } from "../src/renderer/components/NavigationHisto
  * 走主要页面与下钻路径,断言后退/前进回到正确位置。包含业主实例
  * 「任务 → 会话 → 后退回任务」与鼠标侧键(3/4)、Cmd+[/]、主进程 app-command
  * 三条触发路径落同一对 back()/forward()。
+ *
+ * 预览抽屉单层语义(业主 2026-10-17「点了之后右边只有一个……要关掉好几次」):
+ * 开抽屉推栈一次、层内换卡原地替换当前条目、关闭(X/Esc/点外面)一次回列表;
+ * 旧存储逐次推栈攒下的连续预览条目也一次越过,不逐个回放。
  */
 
 interface Harness {
@@ -46,6 +50,7 @@ function Probe() {
   const nav = useEntityNavigation({
     navigate,
     updateLocation,
+    previewId: location.previewId,
     activeRepoId: "proj-nav",
     enabledRepoIds: ["proj-nav"],
     openInRepo: () => undefined,
@@ -90,24 +95,36 @@ const sideBack = () => sideButton(3);
 const sideForward = () => sideButton(4);
 
 // F-9280B707 的最小 App 壳:真实 Drawer(非模态外压关闭)+ 真实顶栏按钮 + 侧键监听,
-// 接线与 App.tsx 同一接法(onClose 同 App 的 canBack ? back() : 清 previewId)。
+// 导航面挂真实 useViewHistory + useEntityNavigation(onClose 同 App 的 closePreview)。
 // 只挂导航面,不挂数据读面:抽屉开 = 当前条目 previewId 非空。
 const SHELL_PROJECT = "proj-nav-shell";
 
 interface ShellHarness {
   readonly location: AppLocation;
+  readonly canForward: boolean;
   gotoBoard: () => void;
   openTaskDetail: (id: string) => void;
   openTaskPreview: (id: string) => void;
+  forward: () => void;
 }
 
 let shellLatest: ShellHarness | null = null;
 
 function PreviewShell() {
-  const { location, navigate, updateLocation, back, forward, canBack, canForward } = useViewHistory(
+  const { location, navigate, updateLocation, back, forward, canBack, canForward, closePreview } = useViewHistory(
     SHELL_PROJECT,
     initialLocation(),
   );
+  const nav = useEntityNavigation({
+    navigate,
+    updateLocation,
+    previewId: location.previewId,
+    activeRepoId: SHELL_PROJECT,
+    enabledRepoIds: [SHELL_PROJECT],
+    openInRepo: () => undefined,
+    onRepoUnavailable: () => undefined,
+    isWorkRoot: () => false,
+  });
   useAppShortcuts({
     onTogglePalette: () => undefined,
     onToggleTerminal: () => undefined,
@@ -116,10 +133,12 @@ function PreviewShell() {
   });
   shellLatest = {
     location,
+    canForward,
     gotoBoard: () =>
       navigate({ view: "board", focusedEntityRef: null, selectedId: null, previewId: null, drill: null }),
-    openTaskDetail: (id) => navigate({ selectedId: id, previewId: null }),
-    openTaskPreview: (id) => navigate({ selectedId: null, previewId: id }),
+    openTaskDetail: nav.openTaskDetail,
+    openTaskPreview: nav.openTaskPreview,
+    forward,
   };
   return createElement(
     "div",
@@ -129,7 +148,7 @@ function PreviewShell() {
       open: location.previewId !== null,
       modal: false,
       ariaLabel: "task preview",
-      onClose: () => (canBack ? back() : updateLocation({ previewId: null })),
+      onClose: closePreview,
       children: createElement("p", null, "preview body"),
     }),
   );
@@ -157,11 +176,13 @@ const pressThenClick = (button: HTMLButtonElement) => {
 };
 /** 栈指针实测值:viewHistoryStorage 持久化的 history.index(证据协议的 dump 路径)。
  * 介质是 localStorage(切仓位置跨重启保留后从 sessionStorage 迁移)。 */
-const shellHistoryIndex = () => {
+const shellHistory = () => {
   const raw = window.localStorage.getItem(`harness-view-history:${SHELL_PROJECT}`);
   expect(raw).toBeTruthy();
-  return (JSON.parse(raw!) as { history: { index: number } }).history.index;
+  return (JSON.parse(raw!) as { history: ViewHistoryState }).history;
 };
+const shellHistoryIndex = () => shellHistory().index;
+const shellHistoryEntries = () => shellHistory().entries;
 const key = (k: string, metaKey = true) =>
   window.dispatchEvent(new KeyboardEvent("keydown", { key: k, metaKey, bubbles: true }));
 
@@ -247,10 +268,55 @@ describe("全局导航历史:主要页面与下钻共用一个栈(业主 2026-10
     expect(h().location.view).toBe("board");
     act(() => h().forward());
     expect(h().location.previewId).toBe("t2");
-    // 抽屉里再点开另一个预览:各自占一条目,逐层退回。
+    // 抽屉里再点开另一个预览:原地替换当前条目、不推栈,后退一次即回列表
+    // (业主 2026-10-17:只有一个抽屉,不再逐层回放看过的预览)。
     act(() => h().openTaskPreview("t3"));
+    expect(h().location.previewId).toBe("t3");
     act(() => sideBack());
+    expect(h().location.previewId).toBeNull();
+    expect(h().location.view).toBe("board");
+  });
+
+  it("连点三行只有一个抽屉条目:一次 Esc 回列表,后退栈里没有中间预览(业主 2026-10-17)", async () => {
+    const h = await mountPreviewShell();
+    act(() => h().gotoBoard());
+    act(() => h().openTaskPreview("t1"));
+    act(() => h().openTaskPreview("t2"));
+    act(() => h().openTaskPreview("t3"));
+    expect(h().location.previewId).toBe("t3");
+    // 连点三行只在栈上留下一条预览条目(后两次换卡原地替换)。
+    const previews = shellHistoryEntries().filter((entry) => entry.previewId !== null);
+    expect(previews).toHaveLength(1);
+    expect(previews[0]!.previewId).toBe("t3");
+    // 一次 Esc(X 键/点外面同一 onClose 出口)即回看板列表;前进重开最后那张卡。
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(h().location.view).toBe("board");
+    expect(h().location.previewId).toBeNull();
+    expect(shellHistoryIndex()).toBe(1);
+    expect(h().canForward).toBe(true);
+    act(() => h().forward());
+    expect(h().location.previewId).toBe("t3");
+  });
+
+  it("旧存储连点攒下的连续预览条目:换卡原地替换,一次关闭越过整段回列表", async () => {
+    const entry = (previewId: string | null): AppLocation => ({ ...initialLocation(), view: "board", previewId });
+    window.localStorage.setItem(
+      `harness-view-history:${SHELL_PROJECT}`,
+      JSON.stringify({
+        schema: "gui-view-history/v1",
+        history: { entries: [entry(null), entry("t1"), entry("t2")], index: 2 },
+      }),
+    );
+    const h = await mountPreviewShell();
+    // 旧栈顶带抽屉恢复:抽屉开着,栈里还压着两条旧预览条目。
     expect(h().location.previewId).toBe("t2");
+    act(() => h().openTaskPreview("t3"));
+    expect(h().location.previewId).toBe("t3");
+    act(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })));
+    expect(h().location.view).toBe("board");
+    expect(h().location.previewId).toBeNull();
+    // 一次关闭越过 t2/t1 整段旧预览条目,直回列表,不逐个回放。
+    expect(shellHistoryIndex()).toBe(0);
   });
 
   it("小队编排下钻(squadrun/<id>)推栈:后退回上一位置,前进重开(评审 F2)", async () => {

@@ -98,6 +98,7 @@ describe("navigation history reducer (HISTORY-001)", () => {
 // ---- 视图级后退/前进历史(REQ-GUI-01;移植老 main 线 navigationHistory) ----
 
 import {
+  closePreview,
   createViewHistory,
   currentLocation,
   canGoBack as viewCanBack,
@@ -354,5 +355,53 @@ describe("view navigation history (HISTORY-002)", () => {
     );
     expect(currentLocation(readViewHistory(shim, "proj-bad-focus")).view).toBe("overview");
     expect(currentLocation(readViewHistory(shim, "proj-bad-focus")).overviewFocus ?? null).toBeNull();
+  });
+});
+
+describe("preview drawer close (HISTORY-003, 业主 2026-10-17 单抽屉)", () => {
+  it("pops the single drawer entry back to the list in one close", () => {
+    // 新语义下连点换卡走 patchCurrent,一层只占一条:普通 goBack 即回列表。
+    let state = createViewHistory(loc({ view: "board" }));
+    state = pushLocation(state, loc({ view: "board", previewId: "t1" }));
+    state = patchCurrent(state, { previewId: "t3" });
+    state = closePreview(state);
+    expect(currentLocation(state).view).toBe("board");
+    expect(currentLocation(state).previewId).toBeNull();
+    expect(viewCanBack(state)).toBe(false);
+  });
+
+  it("collapses consecutive legacy preview entries without replaying them", () => {
+    // 旧代码逐次推栈攒下的连续预览条目同属一层:一次关闭越过整段,直回列表。
+    let state = createViewHistory(loc({ view: "board" }));
+    state = pushLocation(state, loc({ view: "board", previewId: "t1" }));
+    state = pushLocation(state, loc({ view: "board", previewId: "t2" }));
+    state = closePreview(state);
+    expect(currentLocation(state).view).toBe("board");
+    expect(currentLocation(state).previewId).toBeNull();
+    // 中间预览不在后退可达范围里:条目还躺在 forward 分支,但指针已越过整段。
+    expect(viewCanForward(state)).toBe(true);
+    expect(currentLocation(viewGoForward(state)).previewId).toBe("t1");
+  });
+
+  it("keeps the position below the drawer when it is not a preview", () => {
+    // 抽屉下方压着详情页时,关闭只弹预览这一层,回详情页。
+    let state = createViewHistory(loc({ view: "board" }));
+    state = pushLocation(state, loc({ view: "board", selectedId: "t9" }));
+    state = pushLocation(state, loc({ view: "board", previewId: "t1" }));
+    state = closePreview(state);
+    expect(currentLocation(state).selectedId).toBe("t9");
+    expect(currentLocation(state).previewId).toBeNull();
+  });
+
+  it("clears an orphan bottom drawer entry in place and is a no-op when the drawer is closed", () => {
+    // 栈底恢复的孤立抽屉条目无处可退:原地清 previewId。
+    let orphan = createViewHistory(loc({ view: "board", previewId: "t1" }));
+    orphan = closePreview(orphan);
+    expect(orphan.entries).toHaveLength(1);
+    expect(currentLocation(orphan).previewId).toBeNull();
+    // 抽屉关着时调用是 no-op,不吃历史条目。
+    let closed = createViewHistory(loc({ view: "board" }));
+    closed = pushLocation(closed, loc({ view: "graph" }));
+    expect(closePreview(closed)).toBe(closed);
   });
 });

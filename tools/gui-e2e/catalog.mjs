@@ -48,6 +48,7 @@ import taskDetailExplainerDefault from "./scenarios/task-detail-explainer-defaul
 import edgeReadFreshness from "./scenarios/edge-read-freshness.mjs";
 import tokenUsageCosts from "./scenarios/token-usage-costs.mjs";
 import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
+import previewDrawerSingle from "./scenarios/preview-drawer-single.mjs";
 
 export const catalog = [
   taskReturnChoice,
@@ -65,6 +66,7 @@ export const catalog = [
   externalKeycloak,
   shellNavigation,
   navigationHistory,
+  previewDrawerSingle,
   projectSwitchRestore,
   projectWindows,
   overview,
