@@ -32,13 +32,16 @@ export interface DeliveredRow {
 function deliverySummary(row: TaskSnapshotProjectionRow): string {
   const executions = [...(row.snapshot.executions ?? [])].sort((left, right) => right.iteration - left.iteration);
   for (const execution of executions) {
-    const submission = "archivedSubmission" in execution ? execution.archivedSubmission : execution.submission;
+    const archived = "archivedSubmission" in execution,
+      submission = archived ? execution.archivedSubmission : execution.submission;
     if (submission === null || submission === undefined) continue;
     const claim = typeof submission.completionClaim === "string" ? submission.completionClaim.trim() : "";
     if (claim.length > 0) return claim;
     const deliverable = submission.deliverables?.find((value) => typeof value === "string" && value.trim().length > 0);
     if (deliverable !== undefined) return deliverable.trim();
-    const output = submission.outputs?.find((value) => typeof value === "string" && value.trim().length > 0);
+    const output = archived
+      ? undefined
+      : execution.submission?.outputs.find((value) => typeof value === "string" && value.trim().length > 0);
     if (output !== undefined) return output.trim();
   }
   return row.snapshot.task?.title ?? row.taskId;
