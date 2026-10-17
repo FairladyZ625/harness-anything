@@ -1069,6 +1069,29 @@ test("document head backfill rejects a ledger whose declared tail event is missi
   );
 });
 
+test("ledger open reports progress while rebuilding historical indexes", (t) => {
+  const databasePath = scratch("backfill-progress", t),
+    store = openSqliteEventStore({ repoId, databasePath });
+  for (let revision = 1; revision <= 512; revision += 1) {
+    const event = eventAt(revision);
+    store.appendCommand({ fence, intent: intentFor(event), events: [event] });
+  }
+  store.close();
+  const db = new DatabaseSync(databasePath);
+  db.exec(
+    "DELETE FROM document_head_meta; DELETE FROM document_head; DELETE FROM event_query_meta; DELETE FROM event_query_entity",
+  );
+  db.close();
+  const progress: { applied: number; total: number }[] = [],
+    reopened = openSqliteEventStore({ repoId, databasePath, onOpenProgress: (value) => progress.push(value) });
+  try {
+    assert.ok(progress.length >= 2);
+    assert.ok(progress.some(({ applied }) => applied >= 256));
+  } finally {
+    reopened.close();
+  }
+});
+
 test("indexed event queries find sparse matches without decoding unrelated rows", (t) => {
   const store = openSqliteEventStore({ repoId, databasePath: scratch("event-query", t) });
   try {

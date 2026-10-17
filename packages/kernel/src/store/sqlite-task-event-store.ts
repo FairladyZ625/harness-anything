@@ -79,6 +79,7 @@ export interface SqliteTaskEventStoreOptions {
   readonly mutable?: boolean;
   readonly generation?: 1 | 2 | 3;
   readonly killpoint?: (point: import("./task-event-store-types.ts").EventPublicationKillpoint) => void;
+  readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }
 
 export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): SqliteCanonicalEventStore {
@@ -90,6 +91,7 @@ export function makeSqliteTaskEventStore(options: SqliteTaskEventStoreOptions): 
     rootInput: input,
     readOnly: options.mutable === false,
     generation: options.generation,
+    onOpenProgress: options.onOpenProgress,
   });
   let resolvedLedger: ReturnType<typeof resolveLedgerGitLayout> | null = null;
   const ledger = () => (resolvedLedger ??= resolveLedgerGitLayout(input));

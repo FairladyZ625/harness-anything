@@ -364,6 +364,7 @@ export function openSqliteEventStore(options: {
   readonly readOnly?: boolean;
   /** Offline generation conversion only; ordinary writers cannot backfill acceptance time. */
   readonly conversionSourceGeneration?: 1 | 2;
+  readonly onOpenProgress?: (progress: { readonly applied: number; readonly total: number }) => void;
 }): SqliteEventStore {
   if (!options.readOnly && options.repoId === undefined)
     throw new TaskEventStoreError("repo_mismatch", "mutable SQLite ledger opening requires repoId");
@@ -417,8 +418,8 @@ export function openSqliteEventStore(options: {
   };
   if (!options.readOnly)
     transaction(() => {
-      backfillDocumentHeads(query);
-      backfillEventQueryRefs(query);
+      backfillDocumentHeads(query, options.onOpenProgress);
+      backfillEventQueryRefs(query, options.onOpenProgress);
     });
   if (!options.readOnly) ensureEventQueryIndexes(query);
   // All lease mutations share the store's transaction and the same repository ownership boundary.
@@ -936,14 +937,20 @@ function updateEventQueryWatermark(query: SqliteQuery, revision: number): void {
     [revision],
   );
 }
-
-function backfillEventQueryRefs(query: SqliteQuery): void {
+function backfillEventQueryRefs(
+  query: SqliteQuery,
+  onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
+): void {
   const indexed = Number(query("SELECT revision FROM event_query_meta WHERE singleton=1").at(0)?.revision ?? 0),
     head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
   if (indexed > head) throw new TaskEventStoreError("invalid_store", "event query index is ahead of the ledger");
   if (indexed === head) return;
-  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]);
-  for (const row of rows) applyEventQueryRefs(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]),
+    total = head - indexed;
+  for (const [offset, row] of rows.entries()) {
+    applyEventQueryRefs(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+    if ((offset + 1) % 256 === 0) onProgress?.({ applied: offset + 1, total });
+  }
   const lastRevision =
     rows.length === 0 ? indexed : Number(JSON.parse(String(rows.at(-1)!.event_json)).workspaceRevision);
   if (lastRevision !== head)
@@ -952,15 +959,22 @@ function backfillEventQueryRefs(query: SqliteQuery): void {
       `event query backfill ended at revision ${lastRevision}, expected ${head}`,
     );
   updateEventQueryWatermark(query, head);
+  onProgress?.({ applied: total, total });
 }
-
-function backfillDocumentHeads(query: SqliteQuery): void {
+function backfillDocumentHeads(
+  query: SqliteQuery,
+  onProgress?: (progress: { readonly applied: number; readonly total: number }) => void,
+): void {
   const indexed = Number(query("SELECT revision FROM document_head_meta WHERE singleton=1").at(0)?.revision ?? 0),
     head = Number(query("SELECT revision FROM ledger_meta WHERE singleton=1").at(0)!.revision);
   if (indexed > head) throw new TaskEventStoreError("invalid_store", "document head index is ahead of the ledger");
   if (indexed === head) return;
-  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]);
-  for (const row of rows) applyDocumentHeads(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+  const rows = query("SELECT event_json FROM event WHERE revision>? ORDER BY revision", [indexed]),
+    total = head - indexed;
+  for (const [offset, row] of rows.entries()) {
+    applyDocumentHeads(query, JSON.parse(String(row.event_json)) as CanonicalEventV1, false);
+    if ((offset + 1) % 256 === 0) onProgress?.({ applied: offset + 1, total });
+  }
   const lastRevision =
     rows.length === 0 ? indexed : Number(JSON.parse(String(rows.at(-1)!.event_json)).workspaceRevision);
   if (lastRevision !== head)
@@ -969,8 +983,8 @@ function backfillDocumentHeads(query: SqliteQuery): void {
       `document head backfill ended at revision ${lastRevision}, expected ${head}`,
     );
   updateDocumentHeadWatermark(query, head);
+  onProgress?.({ applied: total, total });
 }
-
 function readDocumentHead(query: SqliteQuery, documentPath: string): SqliteDocumentHead | "retired" | undefined {
   const row = query("SELECT sha256, size, node_kind FROM document_head WHERE path=?", [documentPath]).at(0);
   if (!row) return undefined;

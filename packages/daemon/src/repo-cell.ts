@@ -95,6 +95,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     configureLedgerMaintenance(ledgerRoot);
     installLedgerCommitGuard(ledgerRoot);
   }
+  let openProgressSequence = 0;
   const store = makeTaskEventStore({
     repoId: context.input.repoId,
     rootDir: context.rootDir,
@@ -102,6 +103,13 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     activationPreflight: activateEmptyCanonicalGeneration,
     killpoint: context.input.killpoint,
     onMaterializationHealthChange: context.input.onMaterializationHealthChange,
+    onOpenProgress: (progress) =>
+      context.input.onOpenProgress?.({
+        phase: "recovering",
+        applied: ++openProgressSequence,
+        total: progress.total,
+        watermark: null,
+      }),
     writerFence: () => {
       const fence = context.activeWriterEpochFenceDescriptor;
       if (!fence) throw new Error("writer epoch fence is unavailable for SQLite acceptance");
