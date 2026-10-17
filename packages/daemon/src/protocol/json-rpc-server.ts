@@ -180,6 +180,8 @@ export function createJsonRpcProtocolServer(options: {
     // Build drift is a daemon lifecycle signal, not an opt-in client diagnostic. Long-lived
     // GUI/read connections perform their hello once and then issue ordinary requests, so waiting
     // for reportStaleBuild on hello can leave a superseded daemon serving indefinitely.
+    // The runtime callback is idempotent; observing it per request keeps long-lived connections
+    // covered without adding a timer or another lifecycle state machine here.
     if (options.buildObserver?.status().drifted) options.onBuildDriftObserved?.();
     // The parked-wait predicate is the same one that parks the reply in one(): direct methods
     // resolve to no action here, so this is the only place their wait classification is set.
