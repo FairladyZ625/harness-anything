@@ -35,7 +35,12 @@ export async function joinFleetEdge(
     throw Object.assign(new Error("The invitation carries no center sign-in; ask for a new invitation."), {
       code: "edge_join_invalid",
     });
-  const authority = { url: link.loginUrl, realm: link.loginRealm, clientId: link.loginClientId },
+  const authority = {
+      url: link.loginUrl,
+      realm: link.loginRealm,
+      clientId: link.loginClientId,
+      ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
+    },
     session = await ports.session();
   // A session for another Keycloak would be rejected by the center; sign in to the invitation's.
   if (!session || session.authority.url !== authority.url || session.authority.realm !== authority.realm)
