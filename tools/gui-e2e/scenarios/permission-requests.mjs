@@ -13,6 +13,10 @@ export default {
   lane: "isolated",
   description: "Task-bound CLI self-request reaches the GUI and takes effect only after exact-version approval.",
   async run({ page, app, fixture, shot }) {
+    // The applicant (person-ada) must be distinct from the signed-in approver.
+    // Grant the GUI identity the fleet-scoped decision action used by the
+    // daemon list query; repository-scoped grants do not authorize this read.
+    fixture.keycloak.permit("person-gui", "@fleet", ["permission-request-decide"]);
     const resource = `${fixture.repoId}:task/task-gui-smoke`,
       center = { url: keycloakUrl, realm: keycloakRealm, clientId: "harness-center", accessToken: "center-token" },
       credential = await issueRuntimeExecutionCredential(
@@ -98,7 +102,7 @@ export default {
     // 双语标签:隔离夹具按 daemon 设置渲染 zh-CN,en-US 只在显式切语言后出现。
     await page.getByRole("tab", { name: /^(?:Permission requests|权限申请)$/u }).click();
     await page.getByTestId(`permission-request-decide-${request.requestId}`).click();
-    assert.match(await page.getByTestId("permission-request-confirm").textContent(), /Confirm version 1/u);
+    assert.match(await page.getByTestId("permission-request-confirm").textContent(), /Confirm version 1|确认版本 1/u);
     assert.equal((await evaluate()).outcome, "denied");
     await shot("permission-exact-version");
     await page.getByTestId("permission-request-approve").click();
