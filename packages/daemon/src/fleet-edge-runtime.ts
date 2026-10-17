@@ -33,13 +33,13 @@ import { readBundledAgentDeclaration } from "@harness-anything/preset";
 import type { PreparedRuntimeLaunch, RuntimeInstanceSummary, RuntimeLaunchRequest } from "./agent-runtime-instances.ts";
 import {
   readFleetRepositoryMetadataClient,
-  runFleetRuntimeArchiveClient,
+  runFleetEdgeRuntimeArchiveClient,
   runFleetRuntimeEventClient,
   awaitFleetRuntimeSessionsClient,
   runFleetScheduleCommandClient,
   runFleetTaskCommandClient,
   type FleetPeerOptions,
-} from "./fleet/peer.ts";
+} from "./fleet-edge-write.ts";
 import { applyFleetMirrorCut, locateFleetMirrorView } from "./fleet-edge-mirror.ts";
 import { transitionDocumentReadinessContract } from "./transition-document-access.ts";
 import { validateAgentRuntimeOverview, type AgentRuntimeOverviewResult } from "./agent-runtime-contract.ts";
@@ -464,7 +464,7 @@ export function openFleetEdgeRuntime(input: {
           nodeId: request.nodeId,
           timeoutMs: centerWriteWaitMs,
           write: () =>
-            runFleetRuntimeArchiveClient({
+            runFleetEdgeRuntimeArchiveClient({
               ...writePeer,
               repoId: request.repoId,
               archive: archive as unknown as Readonly<Record<string, unknown>>,

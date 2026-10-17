@@ -1,6 +1,7 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
+import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -322,6 +323,7 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
     const executionId = options.executionId ?? null;
     const center = await session.request({
       schema: "fleet.doc.submit/v1",
+      opId: randomUUID(),
       ...(options.executionCredential ? { executionCredential: options.executionCredential } : {}),
       ...(options.taskId ? { taskId: options.taskId } : {}),
       messageId: session.messageId(),
@@ -345,7 +347,10 @@ export async function runFleetWriteClient(options: FleetWriteClientOptions): Pro
 // Stage claim bytes for a task transition bundle without submitting: the
 // descriptors ride the fleet task command frame instead of a doc submit.
 export async function runFleetUploadClient(
-  options: FleetPeerOptions & { readonly changes: readonly FleetEdgeChange[] },
+  options: FleetPeerOptions & {
+    readonly changes: readonly FleetEdgeChange[];
+    readonly operationIds?: readonly string[];
+  },
 ): Promise<readonly FleetDescriptor[]> {
   const session = await openPeer(options);
   try {
@@ -355,7 +360,10 @@ export async function runFleetUploadClient(
       repoId: options.repoId,
     });
     const descriptors: FleetDescriptor[] = [];
-    for (const input of options.changes) descriptors.push(await uploadFleetChange(session, options.repoId, input));
+    for (const [index, input] of options.changes.entries())
+      descriptors.push(
+        await uploadFleetChange(session, options.repoId, input, options.operationIds?.[index] ?? randomUUID()),
+      );
     return descriptors;
   } finally {
     session.close();
@@ -441,7 +449,11 @@ export async function runFleetRuntimeEventClient(
   }
 }
 export async function runFleetRuntimeArchiveClient(
-  options: FleetPeerOptions & { readonly repoId: string; readonly archive: Readonly<Record<string, unknown>> },
+  options: FleetPeerOptions & {
+    readonly repoId: string;
+    readonly archive: Readonly<Record<string, unknown>>;
+    readonly opId?: string;
+  },
 ): Promise<Extract<FleetFrameV1, { schema: "fleet.runtime.archive.result/v1" }>> {
   const session = await openPeer(options);
   try {
@@ -456,6 +468,7 @@ export async function runFleetRuntimeArchiveClient(
       messageId: session.messageId(),
       writerEpoch: assigned.writerEpoch,
       repoId: options.repoId,
+      opId: options.opId ?? randomUUID(),
       archive: options.archive,
     });
     if (response.schema !== "fleet.runtime.archive.result/v1") throw new Error("runtime archive result expected");

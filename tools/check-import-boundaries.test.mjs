@@ -10,6 +10,79 @@ import test from "node:test";
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const checkerPath = path.join(repoRoot, "tools/check-import-boundaries.mjs");
 
+test("Fleet center write frames must use the one center write entry", () => {
+  const root = makeFixtureRoot();
+  try {
+    const centerPath = path.join(root, "packages/daemon/src/fleet/center-listener.ts");
+    mkdirSync(path.dirname(centerPath), { recursive: true });
+    writeFileSync(
+      centerPath,
+      [
+        'if (frame.schema === "fleet.doc.submit/v1") { return runFleetCenterWrite(frame, async () => { return options.host.run(); }); }',
+        'if (frame.schema === "fleet.task.command/v1") { return runFleetCenterWrite(frame, async () => { return options.host.run(); }); }',
+        'if (frame.schema === "fleet.schedule.command/v1") { return runFleetCenterWrite(frame, async () => { return options.host.run(); }); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+        'if (frame.schema === "fleet.runtime.archive/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+        'if (frame.schema === "fleet.upload.begin/v1") { return runFleetCenterWrite(frame, async () => { return persist(); }); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(frame, async () => { return appendFileSync(); }); }',
+        'if (frame.schema === "fleet.upload.finish/v1") { return runFleetCenterWrite(frame, async () => { return renameSync(); }); }',
+      ].join("\n"),
+    );
+    const valid = runChecker(root);
+    assert.equal(valid.status, 0, valid.stderr);
+
+    writeFileSync(
+      centerPath,
+      readFileSync(centerPath, "utf8").replace(
+        "return runFleetCenterWrite(frame, async () => { return options.host.run(); });",
+        "return options.host.run();",
+      ),
+    );
+    const bypass = runChecker(root);
+    assert.notEqual(bypass.status, 0);
+    assert.match(bypass.stderr, /fleet\.doc\.submit\/v1 must use its center write entry/u);
+
+    writeFileSync(
+      centerPath,
+      readFileSync(centerPath, "utf8").replace(
+        'if (frame.schema === "fleet.runtime.event/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+        'if (frame.schema === "fleet.runtime.event/v1") { return options.host.runtimeIngress(); }',
+      ),
+    );
+    const runtimeBypass = runChecker(root);
+    assert.notEqual(runtimeBypass.status, 0);
+    assert.match(runtimeBypass.stderr, /fleet\.runtime\.event\/v1 must use its center write entry/u);
+
+    const restored = readFileSync(centerPath, "utf8").replace(
+      'if (frame.schema === "fleet.runtime.event/v1") { return options.host.runtimeIngress(); }',
+      'if (frame.schema === "fleet.runtime.event/v1") { return runFleetCenterWrite(frame, async () => { return options.host.runtimeIngress(); }); }',
+    );
+    writeFileSync(
+      centerPath,
+      restored.replace(
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(frame, async () => { return appendFileSync(); }); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { return appendFileSync(); }',
+      ),
+    );
+    const uploadBypass = runChecker(root);
+    assert.notEqual(uploadBypass.status, 0);
+    assert.match(uploadBypass.stderr, /fleet\.upload\.chunk\/v1 must use its center write entry/u);
+
+    writeFileSync(
+      centerPath,
+      restored.replace(
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(frame, async () => { return appendFileSync(); }); }',
+        'if (frame.schema === "fleet.upload.chunk/v1") { return runFleetCenterWrite(async () => { return appendFileSync(); }); }',
+      ),
+    );
+    const malformedEntry = runChecker(root);
+    assert.notEqual(malformedEntry.status, 0);
+    assert.match(malformedEntry.stderr, /fleet\.upload\.chunk\/v1 must call the center write entry with its frame/u);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("import boundary check rejects application imports from adapters", () => {
   const root = makeFixtureRoot();
   try {

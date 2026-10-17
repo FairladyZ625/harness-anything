@@ -235,10 +235,12 @@ export async function serve(
             if (set.size === 0) sessions.delete(helloNodeId);
           }
         });
-        if (
-          !isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion) ||
-          !(await options.authenticate(frame.nodeId, frame.credential))
-        )
+        if (!isContractVersionCompatible(frame.protocolVersion, currentFleetProtocolVersion))
+          throw new FleetFault(
+            "protocol_version_unsupported",
+            `Fleet protocol ${frame.protocolVersion} is incompatible with center ${currentFleetProtocolVersion}; upgrade the edge node to the same version as the center.`,
+          );
+        if (!(await options.authenticate(frame.nodeId, frame.credential)))
           throw new FleetFault("authentication_failed", "Machine credential was rejected.");
         nodeId = frame.nodeId;
         accessToken = frame.accessToken;

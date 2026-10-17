@@ -32,9 +32,10 @@ import {
   FleetRemoteError,
   readFleetRepositoryMetadataClient,
   runFleetTaskCommandClient,
-  runFleetUploadClient,
+  runFleetEdgeUploadClient,
   runFleetWriteClient,
-} from "./fleet/peer.ts";
+} from "./fleet-edge-write.ts";
+export { fleetEdgeBackoffMs } from "./fleet-edge-write.ts";
 import type { FleetDescriptor } from "./fleet/command-protocol.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
 import {
@@ -47,13 +48,11 @@ import {
   type FleetStagedConflict,
 } from "./fleet-edge-mirror.ts";
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
-import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
+import { runFleetEdgeTaskCommand, runFleetEdgeWrite } from "./fleet-edge-write.ts";
 
 import { prepareEdgeTaskDelivery, type FleetDeliveryTask } from "./fleet-task-delivery.ts";
 import { readEdgeRepository } from "./fleet-edge-task-read.ts";
 
-const BACKOFF_MIN_MS = 250,
-  BACKOFF_MAX_MS = 30_000;
 export interface FleetEdgeTaskRequest {
   readonly payload: {
     readonly host: string;
@@ -331,7 +330,7 @@ export async function runFleetEdgeTask(
       const file = typeof source === "string" ? path.resolve(workspaceRoot!, source) : null;
       if (file && statSync(file).size > RAW_ARTIFACT_MAX_BYTES)
         throw new FleetEdgeTaskError("artifact_too_large", "Artifact exceeds the content object limit.");
-      [artifact] = await runFleetUploadClient({
+      [artifact] = await runFleetEdgeUploadClient({
         ...peer,
         timeoutMs: 60_000,
         changes: [{ path: String(target.destination), body: file ? readFileSync(file) : Buffer.from(String(content)) }],
@@ -341,13 +340,14 @@ export async function runFleetEdgeTask(
     const bundle = readOnly || artifact ? null : await attachTaskDocs();
     const commandTimeoutMs = waitMs + 30_000 + (bundle === null ? 0 : 60_000),
       deadline = Date.now() + commandTimeoutMs;
-    let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>> | null = null,
-      attempt = 0;
-    while (result === null) {
-      const remaining = Math.max(1, deadline - Date.now());
-      try {
-        const write = () =>
-          runFleetTaskCommandClient({
+    let result: Awaited<ReturnType<typeof runFleetTaskCommandClient>>;
+    try {
+      result = await runFleetEdgeTaskCommand({
+        timeoutMs: commandTimeoutMs,
+        readOnly,
+        write: async () => {
+          const remaining = Math.max(1, deadline - Date.now());
+          return runFleetTaskCommandClient({
             ...peer,
             opId,
             repoId: payload.repoId,
@@ -359,43 +359,48 @@ export async function runFleetEdgeTask(
             docChanges: bundle === null ? undefined : bundle.docChanges,
             mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
           });
-        const next = readOnly
-          ? await write()
-          : await runFleetEdgeWrite({
-              viewRoot: payload.viewRoot,
-              repoId: payload.repoId,
-              nodeId: payload.nodeId,
-              timeoutMs: Math.max(1, deadline - Date.now()),
-              write,
-            });
-        if (Date.now() < deadline && transientResult(next)) {
-          await sleep(fleetEdgeBackoffMs(attempt++));
-          continue;
-        }
-        result = next;
-      } catch (error) {
-        if (Date.now() >= deadline) throw error;
-        if (!retryable(error)) {
-          const code =
-            error instanceof FleetRemoteError
-              ? error.code
-              : error instanceof FleetEdgeTaskError
-                ? error.code
-                : "fleet_task_rejected";
-          return {
-            schema: "command-receipt/v2",
-            ok: false,
-            command: action.kind,
-            outcome: "op_rejected",
-            opId: `fleet:${opId}`,
-            canonicalOutcome: "op_rejected",
-            code,
-            error: { code, message: error instanceof Error ? error.message : String(error) },
-          } as Record<string, unknown>;
-        }
-        consumeKnownError(error);
-        await sleep(fleetEdgeBackoffMs(attempt++));
-      }
+        },
+        settle: async () => {
+          const remaining = Math.max(1, deadline - Date.now());
+          return runFleetEdgeWrite({
+            viewRoot: payload.viewRoot,
+            repoId: payload.repoId,
+            nodeId: payload.nodeId,
+            timeoutMs: Math.max(1, deadline - Date.now()),
+            write: () =>
+              runFleetTaskCommandClient({
+                ...peer,
+                opId,
+                repoId: payload.repoId,
+                taskId,
+                action,
+                ...(artifact ? { artifact } : {}),
+                waitMs,
+                timeoutMs: remaining + 10_000,
+                docChanges: bundle === null ? undefined : bundle.docChanges,
+                mirrorBaseCut: bundle === null ? undefined : bundle.mirrorBaseCut,
+              }),
+          });
+        },
+      });
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+      const code =
+        error instanceof FleetRemoteError
+          ? error.code
+          : error instanceof FleetEdgeTaskError
+            ? error.code
+            : "fleet_task_rejected";
+      return {
+        schema: "command-receipt/v2",
+        ok: false,
+        command: action.kind,
+        outcome: "op_rejected",
+        opId: `fleet:${opId}`,
+        canonicalOutcome: "op_rejected",
+        code,
+        error: { code, message: error instanceof Error ? error.message : String(error) },
+      } as Record<string, unknown>;
     }
     const applied = result.outcome === "applied";
     const conflictCode =
@@ -516,7 +521,7 @@ export async function runFleetEdgeTask(
       action.kind === "task-review-execution" ? change.path === reportPath : change.path.startsWith(`${packagePath}/`),
     );
     if (candidates.length === 0) return null;
-    const descriptors = await runFleetUploadClient({
+    const descriptors = await runFleetEdgeUploadClient({
       ...peer,
       timeoutMs: 60_000,
       changes: candidates.map((change) => ({
@@ -537,38 +542,3 @@ export async function runFleetEdgeTask(
   }
 }
 const FLEET_DOC_CONFLICT_CODES = Object.freeze(["mirror_behind_center", "base_blob_changed"]);
-function transientResult(result: Awaited<ReturnType<typeof runFleetTaskCommandClient>>): boolean {
-  return (
-    result.outcome === "op_rejected" &&
-    ["center_closing", "client_disconnected", "lease_state_unavailable", "op_in_flight"].includes(result.code ?? "")
-  );
-}
-function retryable(error: unknown): boolean {
-  if (error instanceof FleetRemoteError) return error.retryable;
-  if (error instanceof FleetEdgeTaskError) return false;
-  const code =
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    typeof (error as { readonly code?: unknown }).code === "string"
-      ? (error as { readonly code: string }).code
-      : null;
-  if (code && ["ECONNRESET", "ECONNREFUSED", "EPIPE", "ETIMEDOUT", "ERR_TLS"].some((value) => code.includes(value)))
-    return true;
-  return (
-    error instanceof Error &&
-    /Fleet response timeout|Fleet connection closed|Fleet stream ended mid-frame|session ready expected|task result expected|daemon closed/u.test(
-      error.message,
-    )
-  );
-}
-/** Full-jitter retry delay shared by every edge loop that waits on the center: 1 ms up to a 250 ms–30 s ceiling. */
-export function fleetEdgeBackoffMs(attempt: number): number {
-  const ceiling = Math.min(BACKOFF_MAX_MS, BACKOFF_MIN_MS * 2 ** attempt);
-  return Math.floor(Math.random() * ceiling) + 1;
-}
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms).unref?.();
-  });
-}

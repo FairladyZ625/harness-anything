@@ -256,6 +256,36 @@ function withFixture(run) {
               authority: "packages/kernel/src/projection/rebuildable-task-projection.ts",
               evidence: ["packages/kernel/src/projection/rebuildable-task-projection.ts"],
             },
+            {
+              id: "fleet.edge-write",
+              actions: [
+                "fleet.doc.submit/v1",
+                "fleet.task.command/v1",
+                "fleet.schedule.command/v1",
+                "fleet.runtime.event/v1",
+                "fleet.runtime.archive/v1",
+                "fleet.upload.begin/v1",
+                "fleet.upload.chunk/v1",
+                "fleet.upload.finish/v1",
+              ],
+              authority: "packages/daemon/src/fleet-edge-write.ts",
+              evidence: ["packages/daemon/src/fleet-edge-write.ts"],
+            },
+            {
+              id: "fleet.center-write",
+              actions: [
+                "fleet.doc.submit/v1",
+                "fleet.task.command/v1",
+                "fleet.schedule.command/v1",
+                "fleet.runtime.event/v1",
+                "fleet.runtime.archive/v1",
+                "fleet.upload.begin/v1",
+                "fleet.upload.chunk/v1",
+                "fleet.upload.finish/v1",
+              ],
+              authority: "packages/daemon/src/fleet/center-listener.ts",
+              evidence: ["packages/daemon/src/fleet/center-listener.ts"],
+            },
           ],
           physicalWriteFiles: ["packages/daemon/src/repo-cell.ts"],
         },
@@ -267,6 +297,8 @@ function withFixture(run) {
       "packages/daemon/src/daemon-host.ts",
       "packages/daemon/src/runtime.ts",
       "packages/kernel/src/projection/rebuildable-task-projection.ts",
+      "packages/daemon/src/fleet-edge-write.ts",
+      "packages/daemon/src/fleet/center-listener.ts",
     ])
       write(root, file, "export {};\n");
     run(root);

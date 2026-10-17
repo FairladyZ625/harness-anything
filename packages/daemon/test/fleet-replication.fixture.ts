@@ -250,6 +250,7 @@ export async function fleetReplicationFixture(
         },
         begun = await peer.request({
           schema: "fleet.upload.begin/v1",
+          opId: "op-upload-test",
           messageId: "begin",
           repoId: replicationRepoId,
           content: blob,
@@ -260,6 +261,7 @@ export async function fleetReplicationFixture(
         const slice = body.subarray(offset, offset + 64 * 1024);
         await peer.request({
           schema: "fleet.upload.chunk/v1",
+          opId: "op-upload-test",
           messageId: `chunk-${offset}`,
           uploadId,
           offset,
@@ -269,12 +271,14 @@ export async function fleetReplicationFixture(
       }
       const finished = await peer.request({
         schema: "fleet.upload.finish/v1",
+        opId: "op-upload-test",
         messageId: "finish",
         uploadId,
       });
       if (finished.schema !== "fleet.upload.result/v1") throw new Error(JSON.stringify(finished));
       const submitted = await peer.request({
         schema: "fleet.doc.submit/v1",
+        opId: "op-fleet-test",
         messageId: "submit",
         repoId: replicationRepoId,
         executionId: null,
