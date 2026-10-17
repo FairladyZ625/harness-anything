@@ -280,12 +280,13 @@ export function readProjectedDocument(
     worktreeBytes = binary ? (worktree?.bytes ?? null) : null,
     selectedBytes =
       worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null) ? worktreeBytes : inline;
+  const renderedWorkExplainer = workExplainer ? renderWorkExplainer(projection, taskId) : null;
   return {
     ok: true as const,
     status: read.status,
     taskId,
     path: requested,
-    body: workExplainer ? renderWorkExplainer(projection, taskId) : (document?.body ?? ""),
+    body: renderedWorkExplainer ?? document?.body ?? "",
     blobSha256: document?.blobSha256 ?? null,
     /** `binary` = raw artifact bytes: `body` is empty because there is no text, not because the file is. */
     contentKind: binary ? ("binary" as const) : ("text" as const),
@@ -295,7 +296,7 @@ export function readProjectedDocument(
         ? mediaTypeForBinaryPath(requested, document?.mediaType ?? worktree?.mediaType ?? null)
         : (document?.mediaType ?? worktree?.mediaType ?? null),
     size: workExplainer
-      ? Buffer.byteLength(renderWorkExplainer(projection, taskId))
+      ? Buffer.byteLength(renderedWorkExplainer!)
       : document === null
         ? (worktree?.size ?? null)
         : Number(document.size),
@@ -307,8 +308,8 @@ export function readProjectedDocument(
     // Live worktree view (task_e5defe69): the GUI file surface must show what is on disk
     // now, not only the committed projection — an edited-but-unsynced plan is real work
     // and must be visible and explicitly marked as not yet committed.
-    worktreeBody: worktree?.body ?? null,
-    uncommitted: worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null),
+    worktreeBody: renderedWorkExplainer ?? worktree?.body ?? null,
+    uncommitted: workExplainer ? false : worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };
