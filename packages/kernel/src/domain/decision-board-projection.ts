@@ -31,7 +31,7 @@ export function decisionClaimsOpen(state: DecisionState): boolean {
  * waiting for the source's next write would wait forever, exactly like a task past done/cancelled.
  * `in_effect` counts as settled for the same purpose: the judgment is out even though supersede
  * and retire remain possible. */
-export const terminalDecisionStates = [
+const terminalDecisionStates = [
   "in_effect",
   "rejected",
   "deferred",

@@ -7,7 +7,6 @@ import {
   decisionCapabilityReasons,
   decisionClaimsOpen,
   isTerminalDecisionState,
-  terminalDecisionStates,
 } from "../../src/domain/decision-board-projection.ts";
 import { decisionStates, decisionTransitionDefinitions } from "../../src/domain/decision-event.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
@@ -80,10 +79,6 @@ test("a decision is follow-up terminal in every state except proposed", () => {
   assert.deepEqual(
     decisionStates.filter((state) => isTerminalDecisionState(state)),
     ["in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
-  );
-  assert.deepEqual(
-    [...terminalDecisionStates].sort(),
-    [...decisionStates.filter((state) => state !== "proposed")].sort(),
   );
   assert.equal(isTerminalDecisionState("proposed"), false);
   assert.equal(isTerminalDecisionState("deferred"), true, "deferred has no outgoing transition and must be terminal");
