@@ -55,7 +55,7 @@ export function readAction(input: Input): WriteReceipt {
     throw docSyncError("invalid_command", `${input.action.kind} requires valid doc-sync paths`);
   }
   const principal = input.binding.executionPrincipal;
-  if (principal?.role === "reviewer") {
+  if (principal?.role === "reviewer" && principal.taskId !== null && principal.executionId !== null) {
     const task = input.projection.read(principal.taskId),
       execution = task.snapshot.executions.find((entry) => entry.executionId === principal.executionId),
       requested = paths[0],

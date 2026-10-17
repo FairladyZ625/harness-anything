@@ -13,6 +13,7 @@ import {
 import {
   type AgentDeclarationReader,
   agentDeclarationInvalidError,
+  assertBundledAgentLifecycleOpen,
   readAgentDeclaration,
   storedAgentDeclarationOutcome,
 } from "./agent-declaration-resolution.ts";
@@ -576,6 +577,25 @@ export function prepareAgentEntityInstall(input: {
 type AgentState = "configured" | "active" | "retired";
 type ProjectedAgentLifecycle = import("./agent-declaration-resolution.ts").ProjectedAgentDeclaration;
 
+/** A retire prepare: replay follows its recorded event; a new retirement of a system-bundled
+ *  id names that semantic instead of a generic not-found. */
+export function prepareAgentEntityRetire(input: {
+  readonly action: Readonly<Record<string, unknown>>;
+  readonly replayed: unknown;
+}): void {
+  const replayed = input.replayed as { readonly schema?: unknown; readonly type?: unknown } | null;
+  if (replayed?.schema === "entity-event/v1" && replayed.type === "agent_retired") return;
+  try {
+    assertBundledAgentLifecycleOpen(String(input.action.agentId ?? ""));
+  } catch (error) {
+    throw attributeEntityActionCriterion(
+      error instanceof Error ? error : Object.assign(new Error(String(error)), { cause: error }),
+      "retire",
+      "agent/system-bundled",
+    );
+  }
+}
+
 export function assertAgentDispatchable(agent: ProjectedAgentLifecycle): AgentState {
   const state = agent.lifecycleState ?? "active";
   if (state === "active") return state;
@@ -599,6 +619,17 @@ export function prepareAgentEntityDelete(input: {
     entityId = requiredEntityText(input.action[idField], idField),
     expectedVersion = input.action.expectedVersion,
     reason = requiredEntityText(input.action.reason, "reason");
+  if (kind === "agent") {
+    try {
+      assertBundledAgentLifecycleOpen(entityId);
+    } catch (error) {
+      throw attributeEntityActionCriterion(
+        error instanceof Error ? error : Object.assign(new Error(String(error)), { cause: error }),
+        "delete",
+        "agent/system-bundled",
+      );
+    }
+  }
   if (!Number.isSafeInteger(expectedVersion) || Number(expectedVersion) < 1)
     throw entityError("invalid_command", "expectedVersion must be a positive Entity revision for deletion.");
   const current = input.entityStore.get(kind, entityId);
