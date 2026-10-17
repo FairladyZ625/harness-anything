@@ -164,6 +164,7 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       do {
         confirmAgain = false;
         try {
+          // An empty set is a durable eventless ACK; the mirror can advance its marker without rescanning.
           const changedPaths = pendingChangedPaths;
           pendingChangedPaths = new Set();
           await options.onConfirmed!([...changedPaths]);
