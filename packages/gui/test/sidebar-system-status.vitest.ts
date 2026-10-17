@@ -14,7 +14,7 @@ import {
 } from "../src/renderer/components/sidebar/SystemStatusPanel.tsx";
 import { deriveRuntimeHealth } from "../src/renderer/model/runtime-health.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
-import { NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
+import { NAV_GROUPS, REDESIGN_NAV_GROUPS } from "../src/renderer/navigation/navConfig.tsx";
 
 /**
  * 2026-08-31 泽宇反馈两条缺陷的回归面:
@@ -111,6 +111,7 @@ function sidebarMarkup() {
         activeRepoId: "repo",
         view: "overview",
         hasSelection: false,
+        redesignView: null,
         inboxCount: 0,
         projectSwitcherOpen: false,
         onProjectSwitcherToggle: () => undefined,
@@ -152,8 +153,9 @@ describe("sidebar scrolling structure (short-window overlap fix)", () => {
 
     const scrollStart = markupText.indexOf('data-testid="app-sidebar-scroll"');
     const navs = [...markupText.matchAll(/<nav[\s>]/gu)].map((found) => found.index ?? -1);
-    // 每个分组各渲染一个 nav,且全部开在滚动容器之内 → 都能被滚到,而不是固定溢出。
-    expect(navs).toHaveLength(NAV_GROUPS.length);
+    // 每个分组各渲染一个 nav(旧四组 + 重构区,dec_C612E69B7C7E3480A5F9D2CAD3 CH1),
+    // 且全部开在滚动容器之内 → 都能被滚到,而不是固定溢出。
+    expect(navs).toHaveLength(NAV_GROUPS.length + REDESIGN_NAV_GROUPS.length);
     for (const at of navs) expect(at).toBeGreaterThan(scrollStart);
   });
 

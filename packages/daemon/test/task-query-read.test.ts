@@ -1072,6 +1072,7 @@ function protocolTaskRow(
     generation: "v1",
     workspaceRevision: 7,
     createdAt: null,
+    completedAt: null,
     updatedAt: "2026-08-30T00:00:00.000Z",
     snapshot: {
       revision: 7,
@@ -1159,6 +1160,7 @@ function taskRowWithoutDisposition() {
     generation: "v1",
     workspaceRevision: 7,
     createdAt: null,
+    completedAt: null,
     updatedAt: "2026-08-30T00:00:00.000Z",
     snapshot: {
       revision: 7,

@@ -45,6 +45,7 @@ function parseArgs(argv) {
     show: false,
     settleMs: DEFAULT_PAGE_SETTLE_MS,
     windowSize: { width: 1440, height: 900 },
+    theme: null,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -53,7 +54,12 @@ function parseArgs(argv) {
     else if (arg === "--show") options.show = true;
     else if (arg === "--out") options.out = value();
     else if (arg === "--settle-ms") options.settleMs = Number(value());
-    else if (arg === "--window-size") {
+    else if (arg === "--theme") {
+      // 亮/暗成对截图(验收协议):写进本次运行自有的临时 profile,不动任何台账。
+      const theme = value();
+      if (theme !== "dark" && theme !== "light") throw new Error("--theme 只接受 dark|light");
+      options.theme = theme;
+    } else if (arg === "--window-size") {
       const match = /^(\d+)x(\d+)$/u.exec(value() ?? "");
       if (!match) throw new Error("--window-size 需要 WxH 形式,如 2000x1200");
       options.windowSize = { width: Number(match[1]), height: Number(match[2]) };
@@ -165,6 +171,12 @@ async function main(argv) {
       BrowserWindow.getAllWindows()[0].setSize(size.width, size.height);
     }, options.windowSize);
     await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
+    if (options.theme !== null) {
+      // 渲染层在装载时读 localStorage 的 harness-theme;写入后重载一次让它生效。
+      await page.evaluate((mode) => globalThis.localStorage.setItem("harness-theme", mode), options.theme);
+      await page.reload();
+      await page.getByTestId("app-sidebar").waitFor({ timeout: 30_000 });
+    }
     const project = await openProject(driver, options.project);
     if (project !== options.project) {
       throw new Error(`切换后侧栏显示的项目是「${project}」,不是「${options.project}」`);
