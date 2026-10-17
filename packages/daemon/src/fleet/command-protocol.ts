@@ -32,6 +32,7 @@ export interface FleetLoginAuthority {
   readonly url: string;
   readonly realm: string;
   readonly clientId: string;
+  readonly certificate?: string;
 }
 export type FleetTaskAction = Readonly<Record<string, unknown>> & { readonly kind: FleetTaskCommandKind };
 // Closed per-kind action surface: every field of a fleet task command must be
@@ -296,6 +297,13 @@ const shape =
     record(value) &&
     Object.keys(value).length === Object.keys(fields).length &&
     Object.entries(fields).every(([key, check]) => Object.hasOwn(value, key) && check(value[key]));
+const loginAuthority: Check = (value) =>
+  record(value) &&
+  (Object.keys(value).length === 3 || Object.keys(value).length === 4) &&
+  typeof value.url === "string" &&
+  typeof value.realm === "string" &&
+  typeof value.clientId === "string" &&
+  (Object.keys(value).length === 3 || (Object.hasOwn(value, "certificate") && typeof value.certificate === "string"));
 const array =
   (check: Check, maximum = FLEET_PAGE_ROWS): Check =>
   (value) =>
@@ -650,7 +658,7 @@ const schemas: Readonly<Record<string, Check>> = {
       sessionId: id,
       maxFrameBytes: one(FLEET_FRAME_BYTES),
       chunkBytes: one(FLEET_CHUNK_BYTES),
-      loginAuthority: nullable(shape({ url: text, realm: text, clientId: text })),
+      loginAuthority: nullable(loginAuthority),
     },
     ["schema", "messageId", "inReplyTo", "sessionId", "maxFrameBytes", "chunkBytes"],
   ),

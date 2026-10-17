@@ -23,6 +23,8 @@ test("edge join invitation is typed, pin checked, person bound, and single use",
   });
   const encoded = encodeEdgeJoinLink(link);
   assert.deepEqual(decodeEdgeJoinLink(encoded), link);
+  const oldLink = `harness-edge://join/${Buffer.from(JSON.stringify({ ...link, version: 1 })).toString("base64url")}`;
+  assert.throws(() => decodeEdgeJoinLink(oldLink), { code: "invalid_link" });
   assert.equal(store.status(link.inviteId).status, "pending");
   assert.throws(
     () => store.consume({ link: encoded, loginPersonId: "person-a", observedSpkiSha256: "sha256:wrong" }),

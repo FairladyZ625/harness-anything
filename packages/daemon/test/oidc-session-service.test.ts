@@ -109,14 +109,22 @@ test("PKCE login validates state, keeps tokens daemon-side, and binds the Keyclo
 
 test("under a listener the browser signs in at its hostname while the daemon keeps to loopback", async (t) => {
   const { service, requests, root } = fixture(1_000, {}, t);
+  writeFileSync(path.join(root, "rbac", "listener.pem"), "public listener certificate");
   writeFileSync(
     path.join(root, "rbac", "config.json"),
     JSON.stringify({
       url: "http://127.0.0.1:8080",
       realm: "harness",
-      listener: { hostname: "center.example.test", port: 8443 },
+      listener: {
+        hostname: "center.example.test",
+        port: 8443,
+        certificateFile: path.join(root, "rbac", "listener.pem"),
+        certificateKeyFile: path.join(root, "rbac", "listener-key.pem"),
+        address: "127.0.0.1",
+      },
     }),
   );
+  assert.equal(service.discovery("node-one")?.certificate, "public listener certificate");
   const begun = await service.begin("http://127.0.0.1:43123/callback"),
     authorizationUrl = new URL(String(begun.authorizationUrl));
   assert.equal(authorizationUrl.origin, "https://center.example.test:8443");

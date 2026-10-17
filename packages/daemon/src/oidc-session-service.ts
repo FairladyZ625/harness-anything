@@ -9,6 +9,7 @@ import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
+import { Agent } from "undici";
 
 interface RbacConfig {
   readonly url: string;
@@ -32,6 +33,7 @@ export interface OidcLoginAuthority {
   readonly clientId: string;
   readonly clientSecret?: string;
   readonly browserUrl?: string;
+  readonly certificate?: string;
 }
 
 export interface DeviceLoginRequest {
@@ -67,7 +69,12 @@ interface StoredSession {
   readonly roles: readonly string[];
   readonly loginTarget?: string;
   /** The Keycloak issuer this session was issued by; binding a request reads it instead of asking the center. */
-  readonly authority?: { readonly url: string; readonly realm: string };
+  readonly authority?: {
+    readonly url: string;
+    readonly realm: string;
+    readonly clientId?: string;
+    readonly certificate?: string;
+  };
 }
 
 /** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
@@ -191,7 +198,8 @@ export class OidcSessionService {
   async beginDevice(loginTarget?: string, authorityOverride?: OidcLoginAuthority): Promise<Record<string, unknown>> {
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
-      response = await this.#ports.fetch(
+      response = await this.#fetchAuthority(
+        authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
         {
           method: "POST",
@@ -302,7 +310,8 @@ export class OidcSessionService {
         throw coded("oidc_device_expired", "Device authorization expired; start login again.");
       }
       if (this.#ports.now() < pending.nextPollAt) return { ok: true, pending: true, interval: pending.interval };
-      const response = await this.#ports.fetch(
+      const response = await this.#fetchAuthority(
+        pending.authority,
         `${pending.authority.url}/realms/${encodeURIComponent(pending.authority.realm)}/protocol/openid-connect/token`,
         {
           method: "POST",
@@ -430,10 +439,21 @@ export class OidcSessionService {
   }
 
   /** Public metadata carried by new edge invitations; contains no secret or session token. */
-  async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
+  async interactiveAuthority(): Promise<{
+    readonly url: string;
+    readonly realm: string;
+    readonly clientId: string;
+    readonly certificate?: string;
+  }> {
     const authority = await this.#loginAuthority();
-    // An invitation travels to another machine, so it names the listener every node can reach.
-    return { url: authority.browserUrl ?? authority.url, realm: authority.realm, clientId: authority.clientId };
+    // An invitation travels to another machine, so it names the listener every node can reach;
+    // the pinned certificate belongs to that same listener.
+    return {
+      url: authority.browserUrl ?? authority.url,
+      realm: authority.realm,
+      clientId: authority.clientId,
+      ...(authority.certificate ? { certificate: authority.certificate } : {}),
+    };
   }
 
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
@@ -530,7 +550,12 @@ export class OidcSessionService {
     const config = this.#config(),
       url = config.listener ? managedRbacListenerUrl(config.listener) : config.url;
     if (new URL(url).protocol !== "https:") return null;
-    return { url, realm: config.realm, clientId: `harness-node-${nodeId}` };
+    return {
+      url,
+      realm: config.realm,
+      clientId: `harness-node-${nodeId}`,
+      ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
+    };
   }
 
   async requireRole(role: string): Promise<StoredSession> {
@@ -542,7 +567,8 @@ export class OidcSessionService {
     const session = await this.#live();
     if (!session) throw coded("authentication_required", "Sign in with Keycloak first.");
     const authority = session.authority ?? (await this.#loginAuthority(session.loginTarget)),
-      response = await this.#ports.fetch(
+      response = await this.#fetchAuthority(
+        authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
         {
           headers: { authorization: `Bearer ${session.accessToken}` },
@@ -788,7 +814,28 @@ export class OidcSessionService {
       realm: config.realm,
       clientId: "harness-gui",
       ...(config.listener ? { browserUrl: managedRbacListenerUrl(config.listener) } : {}),
+      ...(config.listener ? { certificate: readFileSync(config.listener.certificateFile, "utf8") } : {}),
     };
+  }
+
+  async #fetchAuthority(
+    authority: Pick<OidcLoginAuthority, "url" | "realm" | "certificate">,
+    input: string | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    if (!authority.certificate) return this.#ports.fetch(input, init);
+    const dispatcher = new Agent({ connect: { ca: authority.certificate } });
+    try {
+      const response = await this.#ports.fetch(input, { ...init, dispatcher } as RequestInit & { dispatcher: Agent }),
+        body = await response.arrayBuffer();
+      return new Response([204, 205, 304].includes(response.status) ? null : body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      });
+    } finally {
+      await dispatcher.close();
+    }
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
@@ -824,9 +871,13 @@ export class OidcSessionService {
       authority =
         edge && session.authority
           ? { ...session.authority, clientId: `harness-node-${edge.nodeId}`, clientSecret: edge.credential }
-          : await this.#loginAuthority(session.loginTarget),
-      response = await this.#ports
-        .fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`, {
+          : session.authority?.clientId
+            ? (session.authority as OidcLoginAuthority)
+            : await this.#loginAuthority(session.loginTarget),
+      response = await this.#fetchAuthority(
+        authority,
+        `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`,
+        {
           method: "POST",
           headers: { "content-type": "application/x-www-form-urlencoded" },
           body: new URLSearchParams({
@@ -834,8 +885,8 @@ export class OidcSessionService {
             ...clientFields(authority),
             refresh_token: session.refreshToken,
           }),
-        })
-        .catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
+        },
+      ).catch((error: unknown) => unavailable("Keycloak could not be reached to renew the session.", error));
     if (generation !== this.#loginGeneration) return { session: undefined };
     if (response instanceof Error)
       return {
@@ -884,7 +935,12 @@ export class OidcSessionService {
           : now + requiredNumber(tokens.refresh_expires_in, "refresh_expires_in") * 1_000,
       roles: realmRoles(decodeJwtPayload(accessToken)),
       ...(identity.loginTarget ? { loginTarget: identity.loginTarget } : {}),
-      authority: { url: authority.url, realm: authority.realm },
+      authority: {
+        url: authority.url,
+        realm: authority.realm,
+        clientId: authority.clientId,
+        ...(authority.certificate ? { certificate: authority.certificate } : {}),
+      },
     };
   }
 
