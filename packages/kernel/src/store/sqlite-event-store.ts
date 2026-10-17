@@ -713,7 +713,6 @@ export function migrateEventsToSqlite(input: {
   }
   return { migrated: revision - existingRevision, revision };
 }
-
 function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, generation: number): void {
   /* @gate-identity check-bypass-write-boundary/bypass-write-116 */ db.exec(`
     CREATE TABLE IF NOT EXISTS ledger_meta (
@@ -790,7 +789,6 @@ function createSchema(db: DatabaseSync, query: SqliteQuery, repoId: string, gene
       "SQLite ledger metadata belongs to another repository or generation",
     );
 }
-
 function ensureEventQueryIndexes(query: SqliteQuery): void {
   query("CREATE INDEX IF NOT EXISTS event_query_entity_ref ON event_query_entity(ref, revision DESC)");
   query("CREATE INDEX IF NOT EXISTS event_query_entity_id ON event_query_entity(entity_id, revision DESC)");
@@ -801,7 +799,6 @@ type SqliteQuery = (
   values?: readonly (string | number | null)[],
 ) => Record<string, import("node:sqlite").SQLOutputValue>[];
 type OpenProgress = (progress: { readonly applied: number; readonly total: number }) => void;
-
 function assertMetadata(query: SqliteQuery, repoId: string, generation: number): void {
   const metadata = readMetadata(query);
   if (metadata.repoId !== repoId || metadata.generation !== generation)
