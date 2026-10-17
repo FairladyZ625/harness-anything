@@ -308,7 +308,7 @@ Read the listener again after a change and use the returned version for the next
 The supported edge path is an invitation link. A signed-in center administrator creates one, and the edge owner consumes it once; the link carries the center URL and certificate pin, never a machine credential:
 
 ```bash
-ha bootstrap --operation edge-join-create --center-url https://center.example.test:8443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
 ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
 ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
 ```

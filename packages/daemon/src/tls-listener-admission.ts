@@ -24,7 +24,7 @@ export function mapListenerBindError(error: unknown): Error {
   const code = typeof error === "object" && error !== null && "code" in error ? String(error.code) : undefined;
   if (code === "EADDRINUSE" || code === "EADDRNOTAVAIL" || code === "EACCES") {
     const message = error instanceof Error ? error.message : String(error);
-    return Object.assign(new Error(`Fleet TLS listener could not bind (${code}): ${message}`), { code });
+    return Object.assign(new Error(`TLS listener could not bind (${code}): ${message}`), { code });
   }
   return error instanceof Error ? error : new Error(String(error));
 }

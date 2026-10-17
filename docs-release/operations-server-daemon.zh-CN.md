@@ -269,7 +269,7 @@ ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/
 受支持的 edge 路径是邀请链接。中心管理员登录后创建链接，edge 所有人登录并消费一次；链接只携带中心 URL 与证书 pin，不携带机器凭据：
 
 ```bash
-ha bootstrap --operation edge-join-create --center-url https://center.example.test:8443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
 ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
 ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
 ```
