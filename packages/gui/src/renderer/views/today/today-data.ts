@@ -29,6 +29,21 @@ export interface DeliveredRow {
   readonly summary: string | null;
 }
 
+function deliverySummary(row: TaskSnapshotProjectionRow): string {
+  const executions = [...(row.snapshot.executions ?? [])].sort((left, right) => right.iteration - left.iteration);
+  for (const execution of executions) {
+    const submission = "archivedSubmission" in execution ? execution.archivedSubmission : execution.submission;
+    if (submission === null || submission === undefined) continue;
+    const claim = typeof submission.completionClaim === "string" ? submission.completionClaim.trim() : "";
+    if (claim.length > 0) return claim;
+    const deliverable = submission.deliverables?.find((value) => typeof value === "string" && value.trim().length > 0);
+    if (deliverable !== undefined) return deliverable.trim();
+    const output = submission.outputs?.find((value) => typeof value === "string" && value.trim().length > 0);
+    if (output !== undefined) return output.trim();
+  }
+  return row.snapshot.task?.title ?? row.taskId;
+}
+
 export function deliveredRows(rows: readonly TaskSnapshotProjectionRow[], now = Date.now()): readonly DeliveredRow[] {
   const since = now - 24 * 60 * 60 * 1000;
   return rows
@@ -41,7 +56,7 @@ export function deliveredRows(rows: readonly TaskSnapshotProjectionRow[], now = 
           taskId: row.taskId,
           at: completedAt,
           title: row.snapshot.task.title,
-          summary: "任务已完成",
+          summary: deliverySummary(row),
         },
       ];
     })
