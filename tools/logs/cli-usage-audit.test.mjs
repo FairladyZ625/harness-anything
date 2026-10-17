@@ -1,10 +1,16 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { auditCliUsage, buildCommandDenominator, loadJsonl } from "./cli-usage-audit.mjs";
+import {
+  auditCliUsage,
+  buildCommandDenominator,
+  discoverConnLogFiles,
+  loadJsonl,
+  summarizeCommandUsage,
+} from "./cli-usage-audit.mjs";
 
 const command = (id, actionKind = id, phase = "W3") => ({
   id,
@@ -228,4 +234,80 @@ test("loader records malformed lines and explicit unreadable files", (t) => {
   );
   const report = auditCliUsage({ commands: [command("read", "read")], requestRecords: records });
   assert.equal(report.observation.logIntegrity.complete, false);
+});
+
+const connRow = (at, command, overrides = {}) => ({
+  schema: "daemon-conn-log/v1",
+  at,
+  atMs: Date.parse(at),
+  event: "request",
+  command,
+  ok: true,
+  code: null,
+  durationMs: 1,
+  ...overrides,
+});
+
+test("command usage summarizes calls, error rate, and the agent/person split per source", () => {
+  const usage = summarizeCommandUsage([
+    connRow("2026-10-18T00:00:00.000Z", "agenda", { actor: "runtime-session:runtime_1" }),
+    connRow("2026-10-18T00:00:01.000Z", "agenda", { actor: "runtime-session:runtime_1" }),
+    connRow("2026-10-18T00:00:02.000Z", "agenda", { actor: null, ok: false, code: "repo_warming" }),
+    connRow("2026-10-18T00:00:03.000Z", "repo.tasks.list"),
+  ]);
+  assert.deepEqual(
+    usage.map((row) => [row.command, row.calls, row.errors, row.errorRate]),
+    [
+      ["agenda", 3, 1, 0.333],
+      ["repo.tasks.list", 1, 0, 0],
+    ],
+  );
+  const agenda = usage[0];
+  assert.equal(agenda.agentCalls, 2);
+  assert.equal(agenda.personCalls, 1);
+  assert.equal(agenda.unknownActorCalls, 0);
+  assert.deepEqual(agenda.topErrorCodes, [{ code: "repo_warming", count: 1 }]);
+  // A record from before attribution existed names no actor: unknown, not person.
+  assert.equal(usage[1].unknownActorCalls, 1);
+  assert.equal(usage[1].personCalls, 0);
+});
+
+test("the report carries both sources and legacy request rows fall back to the declared executor", () => {
+  const report = auditCliUsage({
+    commands: [command("read", "read")],
+    requestRecords: [
+      row("2026-10-17T00:00:00.000Z", "read", { executor: { kind: "agent", id: "legacy-worker" } }),
+      row("2026-10-17T00:00:01.000Z", "read", { actor: "runtime-session:runtime_2" }),
+    ],
+    connRecords: [connRow("2026-10-17T00:00:02.000Z", "read", { actor: null })],
+    nowMs: Date.parse("2026-10-18T00:00:00.000Z"),
+  });
+  assert.deepEqual(
+    report.commandUsage.repoRequestLog.map(({ command, calls, agentCalls, personCalls }) => [
+      command,
+      calls,
+      agentCalls,
+      personCalls,
+    ]),
+    [["read", 2, 2, 0]],
+  );
+  assert.deepEqual(
+    report.commandUsage.daemonConnLog.map(({ command, calls, personCalls }) => [command, calls, personCalls]),
+    [["read", 1, 1]],
+  );
+});
+
+test("conn log discovery finds day files and size generations under the user root", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cli-audit-conn-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const logs = path.join(root, "logs");
+  mkdirSync(logs);
+  writeFileSync(path.join(logs, "daemon-default-conn-20261017.jsonl"), "\n");
+  writeFileSync(path.join(logs, "daemon-default-conn-20261017.jsonl.2"), "\n");
+  writeFileSync(path.join(logs, "daemon-default.log"), "\n");
+  assert.deepEqual(
+    discoverConnLogFiles(root).map((file) => path.basename(file)),
+    ["daemon-default-conn-20261017.jsonl", "daemon-default-conn-20261017.jsonl.2"],
+  );
+  assert.deepEqual(discoverConnLogFiles(path.join(root, "absent")), []);
 });

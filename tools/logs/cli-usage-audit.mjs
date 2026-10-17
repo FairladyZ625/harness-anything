@@ -1,10 +1,12 @@
 #!/usr/bin/env node
 import { readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { requestWindowMetrics } from "../../packages/cli/src/daemon/metrics-summary.ts";
 
 const REQUEST_SCHEMA = "daemon-request-log/v1";
+const CONN_SCHEMA = "daemon-conn-log/v1";
 const DEFAULT_SLOW_MS = 5_000;
 const DAY_MS = 86_400_000;
 
@@ -68,8 +70,68 @@ export function discoverRequestLogFiles(repoRoot) {
     .map((name) => path.join(directory, name));
 }
 
+// The daemon connection log is the only sink that covers every client (CLI and GUI), every
+// repository, and the daemon-scoped methods that never bind a repo — the command-retirement
+// sweep needs it next to the repo-scoped requests.jsonl.
+export function discoverConnLogFiles(userRoot) {
+  const directory = path.join(userRoot, "logs");
+  let names;
+  try {
+    names = readdirSync(directory);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => /^daemon-[A-Za-z0-9_.-]+-conn-\d{8}\.jsonl(?:\.\d+)?$/u.test(name))
+    .sort()
+    .map((name) => path.join(directory, name));
+}
+
 function generation(name) {
   return name === "requests.jsonl" ? 0 : Number(name.slice("requests.jsonl.".length));
+}
+
+// One row per command key: call count, error rate, and the agent/person split. Records written
+// before attribution existed carry no actor at all — that is an unknown, not a person.
+export function summarizeCommandUsage(records) {
+  const byCommand = new Map();
+  for (const record of records) {
+    const command = record.command ?? "<unknown>";
+    const entry = byCommand.get(command) ?? {
+      command,
+      calls: 0,
+      errors: 0,
+      agentCalls: 0,
+      personCalls: 0,
+      unknownActorCalls: 0,
+      errorCodes: new Map(),
+    };
+    entry.calls += 1;
+    if (record.actor !== null && record.actor !== undefined) entry.agentCalls += 1;
+    else if (record.actor === null) entry.personCalls += 1;
+    else entry.unknownActorCalls += 1;
+    if (record.ok !== true) {
+      entry.errors += 1;
+      const code = record.code ?? "<none>";
+      entry.errorCodes.set(code, (entry.errorCodes.get(code) ?? 0) + 1);
+    }
+    byCommand.set(command, entry);
+  }
+  return [...byCommand.values()]
+    .map((entry) => ({
+      command: entry.command,
+      calls: entry.calls,
+      errors: entry.errors,
+      errorRate: entry.calls ? Math.round((entry.errors / entry.calls) * 1000) / 1000 : 0,
+      agentCalls: entry.agentCalls,
+      personCalls: entry.personCalls,
+      unknownActorCalls: entry.unknownActorCalls,
+      topErrorCodes: [...entry.errorCodes.entries()]
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 3)
+        .map(([code, count]) => ({ code, count })),
+    }))
+    .sort((left, right) => right.calls - left.calls || left.command.localeCompare(right.command));
 }
 
 export function buildCommandDenominator(commands, options = {}) {
@@ -101,6 +163,7 @@ export function auditCliUsage({
   events = [],
   sourceRoot = null,
   logRoot = null,
+  connRecords = [],
 }) {
   const sorted = [...requestRecords].sort((left, right) => left.atMs - right.atMs);
   const firstObservedAt = sorted[0]?.atMs ?? null;
@@ -177,6 +240,19 @@ export function auditCliUsage({
     },
     windows,
     denominator,
+    commandUsage: {
+      note:
+        "Per command key: calls, errors, errorRate, and the agent/person split. repoRequestLog covers one " +
+        "repository's requests.jsonl; daemonConnLog covers every client and repository through the daemon " +
+        "connection log. Records written before attribution existed land in unknownActorCalls.",
+      repoRequestLog: summarizeCommandUsage(
+        sorted.map((record) => ({
+          ...record,
+          actor: record.actor ?? (record.executor?.kind === "agent" ? record.executor.id : undefined),
+        })),
+      ),
+      daemonConnLog: summarizeCommandUsage(connRecords),
+    },
     failures,
     zeroObservation: denominator
       .filter((row) => row.status === "unobserved-needs-review")
@@ -405,6 +481,10 @@ async function main(argv) {
     const files = requestRecords.loadIssues.unreadableFiles.map(({ file }) => file).join(", ");
     throw new Error(`request log input unreadable: ${files}`);
   }
+  const connFiles = options.connFiles.length
+    ? options.connFiles
+    : discoverConnLogFiles(options.userRoot ?? path.join(homedir(), ".harness"));
+  const connRecords = loadJsonl(connFiles, CONN_SCHEMA).filter((record) => record.event === "request");
   const report = auditCliUsage({
     commands: buildCommandDenominator(commands),
     requestRecords,
@@ -414,6 +494,7 @@ async function main(argv) {
     events,
     sourceRoot: rootDir,
     logRoot: requestFiles.length ? path.dirname(path.resolve(requestFiles[0])) : null,
+    connRecords,
   });
   const output = JSON.stringify(report, null, 2) + "\n";
   if (options.out) writeFileSync(path.resolve(options.out), output, "utf8");
@@ -427,6 +508,8 @@ function parseArgs(argv) {
     files: [],
     receiptFiles: [],
     eventFiles: [],
+    connFiles: [],
+    userRoot: null,
     slowMs: DEFAULT_SLOW_MS,
     out: null,
     now: null,
@@ -439,6 +522,12 @@ function parseArgs(argv) {
       index += 1;
     } else if (flag === "--file") {
       options.files.push(requireValue(value, flag));
+      index += 1;
+    } else if (flag === "--conn-file") {
+      options.connFiles.push(requireValue(value, flag));
+      index += 1;
+    } else if (flag === "--user-root") {
+      options.userRoot = requireValue(value, flag);
       index += 1;
     } else if (flag === "--receipt-file") {
       options.receiptFiles.push(requireValue(value, flag));
@@ -468,7 +557,11 @@ function requireValue(value, flag) {
   return value;
 }
 function usage() {
-  return "usage: node tools/logs/cli-usage-audit.mjs [--root <repo>] [--file <requests.jsonl>]... [--receipt-file <json>]... [--event-file <json>]... [--now <ISO>] [--slow-ms 5000] [--out <report.json>]";
+  return (
+    "usage: node tools/logs/cli-usage-audit.mjs [--root <repo>] [--file <requests.jsonl>]... " +
+    "[--user-root <dir>] [--conn-file <daemon-conn.jsonl>]... [--receipt-file <json>]... " +
+    "[--event-file <json>]... [--now <ISO>] [--slow-ms 5000] [--out <report.json>]"
+  );
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {

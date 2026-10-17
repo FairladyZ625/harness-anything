@@ -10,7 +10,6 @@ import { consumeKnownError } from "@harness-anything/kernel";
 // past a pending-line cap new records are dropped instead of queued.
 export const DAEMON_CONN_LOG_SCHEMA = Object.freeze({ id: "daemon-conn-log/v1" });
 const defaultMaxBytes = 8 * 1024 * 1024;
-const defaultKeptGenerations = 1;
 const defaultKeptDays = 7;
 // Backstop for a wedged disk: an observability line may be lost; request handling may not stall.
 const maxPendingLines = 10_000;
@@ -19,7 +18,6 @@ export interface DaemonConnLogOptions {
   readonly userRoot: string;
   readonly daemonId: string;
   readonly maxBytes?: number;
-  readonly keptGenerations?: number;
   readonly keptDays?: number;
   readonly now?: () => Date;
   readonly onFailure?: (error: unknown) => void;
@@ -33,6 +31,8 @@ export interface DaemonTrafficLogEntry {
   readonly method: string | null;
   /** Protocol command/action id when the request resolves one; method remains the transport fallback. */
   readonly command?: string | null;
+  /** Resolved caller identity (agent id) when the connection or action declared one; null for persons. */
+  readonly actor?: string | null;
   /** True for requests whose completion is intentionally deferred or polled by the caller. */
   readonly wait?: boolean;
   readonly startedAt: number;
@@ -64,7 +64,6 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
   const logDir = path.join(options.userRoot, "logs"),
     stem = daemonConnLogFileStem(options.daemonId),
     maxBytes = options.maxBytes ?? defaultMaxBytes,
-    keptGenerations = options.keptGenerations ?? defaultKeptGenerations,
     keptDays = options.keptDays ?? defaultKeptDays,
     now = options.now ?? (() => new Date()),
     pid = process.pid;
@@ -145,6 +144,7 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         transport: entry.transport,
         method: entry.method,
         command: entry.command ?? entry.method,
+        actor: entry.actor ?? null,
         ...(entry.wait === true ? { wait: true } : {}),
         at: new Date(entry.startedAt).toISOString(),
         frameReceivedAt: new Date(frameReceivedAt).toISOString(),
@@ -183,14 +183,12 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
         bytes = (await handle.stat()).size;
       }
       if (bytes + Buffer.byteLength(line) > maxBytes) {
+        // Shift the generation chain and keep writing to the base file: readers (observe.tail
+        // live cursors) follow the base as the live file. Nothing is deleted within the day —
+        // size rotation used to drop the oldest generation, which deleted live records whenever
+        // one day's traffic exceeded maxBytes × kept generations (research 3: 2026-10-16).
         await closeHandle();
-        if (keptGenerations < 1) await rm(fileBase, { force: true });
-        else {
-          await rm(`${fileBase}.${keptGenerations}`, { force: true });
-          for (let index = keptGenerations - 1; index >= 1; index -= 1)
-            await renameIfExists(`${fileBase}.${index}`, `${fileBase}.${index + 1}`);
-          await renameIfExists(fileBase, `${fileBase}.1`);
-        }
+        await shiftDayGenerations(day);
         handle = await open(fileBase, "a");
         bytes = 0;
       }
@@ -204,6 +202,20 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
       }
       await closeHandle();
     }
+  }
+  async function shiftDayGenerations(day: string): Promise<void> {
+    const base = path.join(logDir, `${stem}${day}.jsonl`),
+      pattern = new RegExp(`^${escapeRegExp(stem)}${day}\\.jsonl\\.(\\d+)$`, "u");
+    let names: string[];
+    try {
+      names = await readdir(logDir);
+    } catch (error) {
+      consumeKnownError(error);
+      return;
+    }
+    const highest = names.reduce((max, name) => Math.max(max, Number(pattern.exec(name)?.[1] ?? 0)), 0);
+    for (let index = highest; index >= 1; index -= 1) await renameIfExists(`${base}.${index}`, `${base}.${index + 1}`);
+    await renameIfExists(base, `${base}.1`);
   }
   async function closeHandle(): Promise<void> {
     if (!handle) return;
@@ -232,14 +244,6 @@ export function openDaemonConnLog(options: DaemonConnLogOptions): DaemonConnLog 
       if (day !== undefined && !keep.includes(day)) await rm(path.join(logDir, name), { force: true });
     }
   }
-  async function renameIfExists(from: string, to: string): Promise<void> {
-    try {
-      await rename(from, to);
-    } catch (error) {
-      if (!isConnFileMissing(error)) throw error;
-      consumeKnownError(error);
-    }
-  }
 }
 
 function seqOf(conn: string): number | null {
@@ -254,6 +258,14 @@ function dayStamp(at: Date): string {
 }
 function safeConnRuntimeId(value: string): string {
   return value.replace(/[^A-Za-z0-9_.-]/gu, "-");
+}
+async function renameIfExists(from: string, to: string): Promise<void> {
+  try {
+    await rename(from, to);
+  } catch (error) {
+    if (!isConnFileMissing(error)) throw error;
+    consumeKnownError(error);
+  }
 }
 function isConnFileMissing(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "ENOENT";

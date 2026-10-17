@@ -2,6 +2,8 @@ import { daemonProtocolCommands } from "@harness-anything/daemon/internal/protoc
 import type { SafePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 
 export interface ThinCommand {
+  /** The declared CLI command id (route id); the daemon logs it as the invocation's command key. */
+  readonly id?: string;
   readonly rootDir: SafePath;
   readonly repoId?: string;
   readonly json: boolean;

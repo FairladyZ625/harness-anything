@@ -103,6 +103,9 @@ export const daemonProtocolMethods = Object.freeze([
       sessionEnvironment: "json?",
       executionCredential: "string?",
       reportStaleBuild: "boolean?",
+      // The CLI dedicates one connection per invocation; it names the command that connection
+      // serves so the request logs can key traffic by CLI command instead of transport method.
+      invokingCommand: "string?",
     }),
   },
   {
@@ -584,6 +587,7 @@ type DaemonRpcParamOverrides = {
     readonly executionCredential?: string;
     /** A receipt-rendering caller asks the daemon to begin its cooperative build drain. */
     readonly reportStaleBuild?: boolean;
+    readonly invokingCommand?: string;
   };
   readonly "daemon.fleet.task.run": { readonly payload: DaemonFleetTaskPayload };
   readonly "daemon.fleet.doc.sync": { readonly payload: DaemonFleetDocSyncPayload };
@@ -776,6 +780,7 @@ export {
   actionForDaemonMethod,
   commandClassForAction,
   commandDescriptorForAction,
+  commandIdForDaemonMethod,
   daemonProtocolCommands,
   resolveThinCliCommand,
   thinCliCommands,

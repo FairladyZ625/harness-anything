@@ -195,7 +195,7 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
       userRoot,
       daemonId,
       maxBytes: 1,
-      keptGenerations: 1,
+      keptDays: 1,
       now: at("2026-08-26T05:00:00.000Z"),
     });
     connLog.connectionOpened("gap-connection-1", "unix-socket");
@@ -211,7 +211,7 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
       userRoot,
       daemonId,
       maxBytes: 1,
-      keptGenerations: 1,
+      keptDays: 1,
       now: at("2026-08-26T05:00:00.000Z"),
     });
     connLog.connectionOpened("gap-connection-2", "unix-socket");
@@ -229,14 +229,26 @@ test("observe.tail follows a conn-log file identity across rotation and reports 
       ["c-1", "c-1"],
     );
 
+    // Retention is age-based now: same-day size rotation never deletes, so the cursor's file
+    // leaves the retention window only when its day ages out of keptDays. Day pruning runs when
+    // a newer day's file already exists, so the aged day needs one further write to disappear.
     connLog = openDaemonConnLog({
       userRoot,
       daemonId,
       maxBytes: 1,
-      keptGenerations: 1,
-      now: at("2026-08-26T05:00:00.000Z"),
+      keptDays: 1,
+      now: at("2026-08-28T05:00:00.000Z"),
     });
     connLog.connectionOpened("gap-connection-3", "unix-socket");
+    await connLog.settle();
+    connLog = openDaemonConnLog({
+      userRoot,
+      daemonId,
+      maxBytes: 1,
+      keptDays: 1,
+      now: at("2026-08-28T05:00:00.000Z"),
+    });
+    connLog.connectionOpened("gap-connection-4", "unix-socket");
     await connLog.settle();
     const afterRetention = await cell.observeTail(
       { kind: "daemon-log", direction: "follow", cursor: beforeRetention.liveCursor },
