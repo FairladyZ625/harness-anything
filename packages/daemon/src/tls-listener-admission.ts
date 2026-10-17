@@ -4,6 +4,9 @@ import { isIP } from "node:net";
 export function validateCertificateNames(cert: Buffer, names: readonly string[]): void {
   const certificate = new X509Certificate(cert);
   for (const name of names) {
+    // A wildcard bind listens on every interface; edges reach it by a concrete name the certificate must
+    // carry, which the listen address cannot tell.
+    if (name === "0.0.0.0" || name === "::") continue;
     const covered =
       isIP(name) === 0 ? certificate.checkHost(name) !== undefined : certificate.checkIP(name) !== undefined;
     if (!covered) {

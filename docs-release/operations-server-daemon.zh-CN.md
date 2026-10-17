@@ -271,7 +271,7 @@ ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/
 ```bash
 ha bootstrap --operation edge-join-create --center-url https://center.example.test:8443 --node-id <node-id> --spki-sha256 <sha256-pin>
 ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
-ha daemon fleet edge sync --host center.example.test --port 8443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
 ```
 
 edge 命令必须使用证书 CA；证书名与 DNS 名不同时加 `--servername`。证书未覆盖请求的 server name 时，TLS 主机名校验会拒绝连接；端口关闭会导致连接失败；链接过期、登录人不匹配或 pin 改变会由加入准入拒绝。凭据由本机 daemon 写入，不放进邀请 URL。

@@ -75,6 +75,7 @@ test("TLS listener admission requires every configured SAN name", (t) => {
   );
   const cert = readFileSync(certPath);
   assert.doesNotThrow(() => validateCertificateNames(cert, ["192.168.1.20", "center.example.test"]));
+  assert.doesNotThrow(() => validateCertificateNames(cert, ["0.0.0.0", "::"]), "a wildcard bind names no address");
   assert.throws(
     () => validateCertificateNames(cert, ["192.168.1.21"]),
     (error: unknown) =>
