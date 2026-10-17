@@ -26,12 +26,12 @@ export const MOTION_DURATION = {
   focusScrim: 0.35,
   /** FocusLayer 原位放大/收回。 */
   focusGrow: 0.42,
-  /** 页面/页签切换的轻量上浮入场。 */
-  entryRise: 0.16,
-  /** 切换入场区域依次错开。 */
-  entryStagger: 0.025,
-  /** 切换入场错开封顶(与 entryRise 合计 ≤280ms)。 */
-  entryMaxDelay: 0.1,
+  /** 页面/页签切换的轻量上浮入场(业主体感 2026-10-17:0.16s 一闪而过,放慢到看得见不拖沓)。 */
+  entryRise: 0.26,
+  /** 切换入场区域依次错开(与 entryRise 同比例放慢)。 */
+  entryStagger: 0.04,
+  /** 切换入场错开封顶(与 entryRise 合计 ≤0.42s)。 */
+  entryMaxDelay: 0.16,
   /** SegCtl 选中背景滑动指示(切换档上沿)。 */
   controlSlide: 0.18,
   /** 「减少动态效果」下保留的纯淡入,不位移。 */

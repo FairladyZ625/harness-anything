@@ -10,6 +10,9 @@ import {
   type MotionPreference,
 } from "../src/renderer/motion-config.tsx";
 import { PageEntryBoundary, TabPanel } from "../src/renderer/components/primitives/EntryBoundary.tsx";
+import { pageEntryIdentity } from "../src/renderer/components/primitives/page-entry-identity.ts";
+import { DEFAULT_TASK_FILTERS } from "../src/renderer/model/taskFilters.ts";
+import type { AppLocation } from "../src/renderer/navigation/viewHistory.ts";
 import { MOTION_DURATION } from "../src/renderer/motion-tokens.ts";
 
 const probe = vi.hoisted(() => ({ animate: vi.fn(() => ({ complete: vi.fn() })), reduced: false }));
@@ -96,9 +99,11 @@ it("caps region staggering and animates a region-free panel only once", () => {
   render("second", "overview", 0, 12);
   const calls = probe.animate.mock.calls as unknown as [HTMLElement, object, { duration: number; delay: number }][];
   expect(calls[0]?.[1]).toEqual({ opacity: [0, 1], y: [7, 0] });
-  expect(calls[1]?.[2].delay).toBe(0.025);
-  expect(calls.at(-1)?.[2].delay).toBe(0.1);
-  expect(MOTION_DURATION.entryRise + MOTION_DURATION.entryMaxDelay).toBeLessThanOrEqual(0.28);
+  expect(calls[0]?.[2].duration).toBe(MOTION_DURATION.entryRise);
+  expect(calls[1]?.[2].delay).toBe(MOTION_DURATION.entryStagger);
+  expect(calls.at(-1)?.[2].delay).toBe(MOTION_DURATION.entryMaxDelay);
+  // 入场整体(时长+封顶)不拖沓的上界;档位区间断言在 motion-tokens.vitest.ts。
+  expect(MOTION_DURATION.entryRise + MOTION_DURATION.entryMaxDelay).toBeLessThanOrEqual(0.45);
   probe.animate.mockClear();
   render("third", "overview", 0, 0);
   expect(probe.animate).toHaveBeenCalledTimes(1);
@@ -119,6 +124,39 @@ it("follows reduced motion, supports always on, and disables entrance when off",
   probe.animate.mockClear();
   switchPreference("off");
   render("fourth");
+  expect(probe.animate).not.toHaveBeenCalled();
+});
+
+it("does not replay page entry when a task preview drawer opens or switches (previewId-only change)", () => {
+  // App.tsx 的真实形态:边界吃 pageEntryIdentity(projectId, location)。任务预览抽屉
+  // 只改 previewId(打开 task-a、切到 task-b),页面没换,内容区入场不得重播
+  // (业主 2026-10-17 反馈的存量问题;identity 从不含 previewId,这里把契约钉成测试)。
+  const baseLocation: AppLocation = {
+    view: "board",
+    selectedId: null,
+    previewId: null,
+    focusedEntityRef: null,
+    taskFilters: DEFAULT_TASK_FILTERS,
+    drill: null,
+  };
+  const renderLocation = (patch: Partial<AppLocation>) => {
+    const location = { ...baseLocation, ...patch };
+    act(() =>
+      root.render(
+        <AppMotionConfig>
+          <PageEntryBoundary identity={pageEntryIdentity("project", location)}>
+            <section data-entry-region>Board</section>
+          </PageEntryBoundary>
+        </AppMotionConfig>,
+      ),
+    );
+  };
+  renderLocation({});
+  renderLocation({ view: "agenda" });
+  expect(probe.animate).toHaveBeenCalledTimes(1);
+  probe.animate.mockClear();
+  renderLocation({ view: "agenda", previewId: "task-a" });
+  renderLocation({ view: "agenda", previewId: "task-b" });
   expect(probe.animate).not.toHaveBeenCalled();
 });
 

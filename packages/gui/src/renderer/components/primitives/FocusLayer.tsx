@@ -5,6 +5,7 @@ import { X } from "@phosphor-icons/react";
 import { t } from "../../i18n/index.tsx";
 import { TONE_COLOR, type StatusTone } from "./StatusTag";
 import { isImeComposingEvent } from "./ime-composition.ts";
+import { useEntryMotion } from "../../motion-config.tsx";
 import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 
 /**
@@ -50,6 +51,10 @@ export function FocusLayer({
 }) {
   const listRef = useRef<HTMLDivElement>(null);
   const keyboardSelection = useRef<string | null>(null);
+  // 压暗层是纯 opacity:减弱动效下 motion 库只瞬时化位移/布局,opacity 仍按原时长播,
+  // 必须显式接 reducedFade(§6 ≤120ms 纯淡入);偏好「关」时不播(与 Modal 同一契约)。
+  // 原位放大是布局动画,库在减弱动效下自动瞬时,无需分支。
+  const { enabled, reduced } = useEntryMotion();
   // Only an explicit key move follows the selection. Query refreshes and user scrolling
   // must not pull the list back to a previously selected row.
   useLayoutEffect(() => {
@@ -94,10 +99,13 @@ export function FocusLayer({
         <motion.div
           key="focus-scrim"
           className="glass-scrim fixed inset-0 z-10"
-          initial={{ opacity: 0 }}
+          initial={enabled ? { opacity: 0 } : false}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: MOTION_DURATION.focusScrim, ease: MOTION_EASE.out }}
+          exit={enabled ? { opacity: 0 } : undefined}
+          transition={{
+            duration: reduced ? MOTION_DURATION.reducedFade : MOTION_DURATION.focusScrim,
+            ease: MOTION_EASE.out,
+          }}
           onClick={onClose}
         />
       )}
