@@ -188,8 +188,8 @@ export class OidcSessionService {
       throw coded("oidc_login_superseded", "A newer login or logout superseded this sign-in attempt.");
   }
 
-  async beginDevice(loginTarget?: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget, true),
+  async beginDevice(loginTarget?: string, authorityOverride?: OidcLoginAuthority): Promise<Record<string, unknown>> {
+    const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
       response = await this.#ports.fetch(
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,

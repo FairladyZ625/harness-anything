@@ -117,8 +117,8 @@ test("ha edge join exposes the typed invitation consume action", () => {
   if (!parsed.ok) return;
   assert.equal(parsed.command.method, "daemon.rbac.manage");
   assert.deepEqual(parsed.command.action, {
-    kind: "rbac-bootstrap",
-    operation: "edge-join-consume",
+    kind: "edge-join",
+    operation: "edge-join",
     link: "harness-edge://join/token",
   });
 });

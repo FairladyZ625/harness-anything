@@ -68,10 +68,11 @@ function parseEdgeJoin(
     undefined,
     json,
     {
-      kind: "rbac-bootstrap",
-      operation: "edge-join-consume",
+      kind: "edge-join",
+      operation: "edge-join",
       link,
-      ...(flags.one.get("--login-person-id") ? { loginPersonId: flags.one.get("--login-person-id") } : {}),
+      ...(flags.one.get("--repo-id") ? { repoId: flags.one.get("--repo-id") } : {}),
+      ...(flags.one.get("--root") ? { workspaceRoot: path.resolve(flags.one.get("--root")!) } : {}),
     },
     method,
   );

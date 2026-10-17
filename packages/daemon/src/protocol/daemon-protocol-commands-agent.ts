@@ -445,8 +445,11 @@ export const agentProtocolCommands = Object.freeze([
     positional: "link",
     summary: "Consume an edge invitation after TLS pin verification and signed-in device approval.",
     method: "daemon.rbac.manage",
-    actionKind: "rbac-bootstrap",
-    inputs: [cliInput("--login-person-id", "single", false, { code: "invalid_field" }, { field: "loginPersonId" })],
+    actionKind: "edge-join",
+    inputs: [
+      cliInput("--repo-id", "single", false, { code: "invalid_field" }, { field: "repoId" }),
+      cliInput("--root", "single", false, { code: "invalid_field" }, { field: "workspaceRoot" }),
+    ],
   }),
   defineHostAdminCommand({
     id: "rbac-bootstrap",

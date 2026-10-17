@@ -53,6 +53,7 @@ type ManagedRbacOperation =
   | "login"
   | "login-poll"
   | "device-approval"
+  | "edge-join"
   | "session"
   | "logout"
   | "bootstrap-status"
@@ -69,6 +70,9 @@ export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly realm?: string;
   readonly clientId?: string;
   readonly clientSecret?: string;
+  readonly loginUrl?: string;
+  readonly loginRealm?: string;
+  readonly loginClientId?: string;
   readonly backupDir?: string;
   readonly redirectUri?: string;
   readonly code?: string;

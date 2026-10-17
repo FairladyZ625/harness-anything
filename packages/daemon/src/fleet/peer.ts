@@ -1,6 +1,7 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
+import { createHash, X509Certificate } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
@@ -749,6 +750,65 @@ export async function requestFleetEdgeJoin(
     return response;
   } finally {
     peer.close();
+  }
+}
+
+/** Joins before a CA file exists: pin the presented SPKI, then use that certificate as the CA. */
+export async function requestFleetEdgeJoinPinned(options: {
+  readonly hostname: string;
+  readonly port: number;
+  readonly servername?: string;
+  readonly nodeId: string;
+  readonly inviteToken: string;
+  readonly accessToken: string;
+  readonly spkiSha256: string;
+  readonly timeoutMs?: number;
+}): Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }> & { readonly certificate: string }> {
+  const socket = await new Promise<TLSSocket>((resolve, reject) => {
+    const candidate = connect(
+      {
+        host: options.hostname,
+        port: options.port,
+        servername: options.servername ?? options.hostname,
+        rejectUnauthorized: false,
+      },
+      () => resolve(candidate),
+    );
+    candidate.once("error", reject);
+  });
+  try {
+    const peer = socket.getPeerCertificate(true);
+    if (!peer.raw)
+      throw Object.assign(new Error("The center did not present a certificate."), { code: "pin_mismatch" });
+    const pin = `sha256:${createHash("sha256")
+      .update(new X509Certificate(peer.raw).publicKey.export({ type: "spki", format: "der" }))
+      .digest("base64")}`;
+    if (pin !== options.spkiSha256)
+      throw Object.assign(new Error("The center certificate fingerprint does not match the invitation."), {
+        code: "pin_mismatch",
+      });
+    const response = await new Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }>>(
+      (resolve, reject) => {
+        const peerState = peerFor(socket, options.timeoutMs ?? 10_000);
+        const messageId = `${options.nodeId}_${Date.now().toString(36)}`;
+        socket.write(
+          serializeFleetFrame({
+            schema: "fleet.edge.join/v1",
+            messageId,
+            nodeId: options.nodeId,
+            inviteToken: options.inviteToken,
+            accessToken: options.accessToken,
+          }),
+        );
+        peerState.next(options.timeoutMs ?? 10_000).then((frame) => {
+          if (frame.schema !== "fleet.edge.join.result/v1") reject(new Error("edge join result expected"));
+          else resolve(frame);
+        }, reject);
+      },
+    );
+    return { ...response, certificate: new X509Certificate(peer.raw).raw.toString("base64") };
+  } finally {
+    socket.destroy();
   }
 }
 export async function reportFleetDeviceLogin(

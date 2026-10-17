@@ -155,6 +155,7 @@ export const daemonProtocolMethods = Object.freeze([
         "listener",
         "listener-set",
         "edge-join-consume",
+        "edge-join",
         "edge-join-status",
       ] as const),
       mode: optionalEnum(["managed", "external"] as const),
@@ -202,6 +203,7 @@ export const daemonProtocolMethods = Object.freeze([
       link: "string?",
       loginPersonId: "string?",
       observedSpkiSha256: "string?",
+      workspaceRoot: "string?",
     }),
   },
   {

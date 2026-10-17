@@ -27,6 +27,8 @@ import {
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { decodeEdgeJoinLink } from "./fleet/edge-join.ts";
+import { requestFleetEdgeJoinPinned } from "./fleet/peer.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
@@ -750,6 +752,22 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     manageRbac: (request, auth) => {
       localOnly(auth);
       return (async () => {
+        if (request.operation === "edge-join") {
+          const link = decodeEdgeJoinLink(String(request.link ?? "")),
+            authority = await oidc.bind({ transportKind: "unix-socket" }),
+            parsed = new URL(link.centerUrl),
+            port = Number(parsed.port || 443),
+            result = await requestFleetEdgeJoinPinned({
+              hostname: parsed.hostname,
+              port,
+              servername: parsed.hostname,
+              nodeId: link.nodeId,
+              inviteToken: link.token,
+              accessToken: authority.oidcPrincipal?.accessToken ?? "",
+              spkiSha256: link.spkiSha256,
+            });
+          return { ok: true, command: "edge-join", ...result, host: parsed.hostname, port, nodeId: link.nodeId };
+        }
         if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
         const loginTarget =
           request.rootDir ??
@@ -767,7 +785,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return oidc
             .bindingHealth(loginTarget)
             .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
-        if (request.operation === "login") return oidc.beginDevice(loginTarget);
+        if (request.operation === "login")
+          return oidc.beginDevice(
+            loginTarget,
+            request.loginUrl && request.loginRealm && request.loginClientId
+              ? { url: request.loginUrl, realm: request.loginRealm, clientId: request.loginClientId }
+              : undefined,
+          );
         if (request.operation === "login-poll") return oidc.pollDevice();
         if (request.operation === "login-begin") {
           if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
