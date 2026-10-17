@@ -6,6 +6,7 @@ import { DesktopFirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { AppMotionConfig } from "./motion-config.tsx";
 import { I18nProvider } from "./i18n/index.tsx";
 import { FactArchiveVisibilityProvider } from "./fact-archive-preferences.tsx";
+import { IdleMotionGate } from "./idle-motion-gate.tsx";
 import { rendererQueryDefaults } from "./query-pacing.ts";
 import { applyWindowChromePlatformMarker } from "./platform.ts";
 import "./styles.css";
@@ -26,7 +27,9 @@ createRoot(root).render(
         <DesktopFirstRunGuide />
         <QueryClientProvider client={queryClient}>
           <FactArchiveVisibilityProvider>
-            <App />
+            <IdleMotionGate>
+              <App />
+            </IdleMotionGate>
           </FactArchiveVisibilityProvider>
         </QueryClientProvider>
       </I18nProvider>
