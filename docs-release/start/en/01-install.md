@@ -112,4 +112,4 @@ Repository `harness/` ledgers are not removed automatically.
   run `ha gui` again from an operator shell. The existing GUI will not respawn it.
 - **Provider not detected** — install its CLI, ensure it is on your shell `PATH`, then refresh Provider discovery.
 
-Next: **[Your first loop](02-first-loop.md)**
+Next: **[Install and join an edge](02-edge-join.md)**, then [your first loop](02-first-loop.md).

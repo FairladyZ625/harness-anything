@@ -53,6 +53,7 @@ type ManagedRbacOperation =
   | "login"
   | "login-poll"
   | "device-approval"
+  | "edge-join"
   | "session"
   | "logout"
   | "bootstrap-status"
@@ -63,12 +64,17 @@ type ManagedRbacOperation =
 export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly repoId?: string;
   readonly rootDir?: string;
+  /** edge-join: where the remote-edge mirror lives; defaults to ~/harness-edge/<repoId>. */
+  readonly workspaceRoot?: string;
   readonly operation?: ManagedRbacOperation;
   readonly mode?: "managed" | "external";
   readonly url?: string;
   readonly realm?: string;
   readonly clientId?: string;
   readonly clientSecret?: string;
+  readonly loginUrl?: string;
+  readonly loginRealm?: string;
+  readonly loginClientId?: string;
   readonly backupDir?: string;
   readonly redirectUri?: string;
   readonly code?: string;

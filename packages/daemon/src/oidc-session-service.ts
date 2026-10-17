@@ -188,8 +188,8 @@ export class OidcSessionService {
       throw coded("oidc_login_superseded", "A newer login or logout superseded this sign-in attempt.");
   }
 
-  async beginDevice(loginTarget?: string): Promise<Record<string, unknown>> {
-    const authority = await this.#loginAuthority(loginTarget, true),
+  async beginDevice(loginTarget?: string, authorityOverride?: OidcLoginAuthority): Promise<Record<string, unknown>> {
+    const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
       response = await this.#ports.fetch(
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
@@ -429,6 +429,12 @@ export class OidcSessionService {
     return { ok: true, required: await this.#bootstrapRequired(await this.#centerToken()) };
   }
 
+  /** Public metadata carried by new edge invitations; contains no secret or session token. */
+  async interactiveAuthority(): Promise<{ readonly url: string; readonly realm: string; readonly clientId: string }> {
+    const authority = await this.#loginAuthority();
+    return { url: authority.url, realm: authority.realm, clientId: authority.clientId };
+  }
+
   /** Whether a Keycloak authority exists at all; without one no request can ever authorize, so callers guide to ha bootstrap. */
   configured(): boolean {
     return existsSync(path.join(this.#rbacRoot, "config.json"));
@@ -463,6 +469,7 @@ export class OidcSessionService {
           adminAccessToken,
           fetch: this.#ports.fetch,
           now: this.#ports.now(),
+          ...(auth.humanClientId ? { expectedAzp: auth.humanClientId } : {}),
         });
         if (bound.nodePrincipal!.personId === auth.nodePrincipal!.personId) return bound;
         const adapter = new KeycloakPolicyAdapter(

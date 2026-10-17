@@ -462,6 +462,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-submit",
     ],
     doctor: ["doctor", "doctor-health"],
+    edge: ["edge-join"],
     entity: ["entity-archive", "entity-delete", "entity-get", "entity-import", "entity-list", "entity-update"],
     event: ["event-list", "event-show"],
     explain: ["explain"],
