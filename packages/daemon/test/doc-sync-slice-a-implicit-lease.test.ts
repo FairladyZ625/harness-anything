@@ -16,7 +16,7 @@ import { openBootstrappedRepoCell as openRepoCell } from "./repo-settings.fixtur
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 
-import { initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
+import { initNestedLedgerRepo, initRepo, ownerBinding, rows, write } from "./doc-sync-slice-a.fixtures.ts";
 test("a selection submit accepts two authored paths with identical content", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-identical-content-"));
   initRepo(rootDir);
@@ -132,6 +132,11 @@ test("a selection submit applies eligible prose and reports an unrelated deletio
     assert.match(
       String(submitted.summary),
       /doc-submit: applied[\s\S]*context\/eligible\.md[\s\S]*blocked \(not submitted[\s\S]*context\/deleted\.md\tdeletion\ttask=-\trequiredRoute=deletion_forbidden\tcanonical document is missing from the worktree/u,
+    );
+    // An applied submit that skipped the deletion names the same retire exit as a refused one.
+    assert.ok(
+      String(submitted.summary).includes("ha doc retire --path context/deleted.md --reason"),
+      JSON.stringify(submitted.summary),
     );
     const event = makeTaskEventReader({ repoId, rootDir }).readEvent(String(submitted.opId));
     assert.equal(event?.schema, "doc-event/v1");
@@ -496,6 +501,102 @@ test("a runtime actor with a lapsed lease is told the release and re-enter recov
       };
     assert.ok(["applied", "pending"].includes(String(released.outcome)), JSON.stringify(released));
     assert.ok(["applied", "pending"].includes(String(reentered.outcome)), JSON.stringify(reentered));
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// The 2026-10-17 friction (task_1e83c547): a worker deleting an already-registered duplicate
+// got `deletion_forbidden: canonical document is missing from the worktree` with no exit named.
+// The refusal must carry the executable retire command, and that command must actually work.
+test("a submit whose only candidate is a deleted canonical document names the retire exit", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-deletion-exit-"));
+  initRepo(rootDir);
+  const repoId = workspaceId("deletion-exit"),
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "deletion-exit-daemon",
+    }),
+    binding = ownerBinding,
+    logical = "context/retire-exit.md";
+  try {
+    write(rootDir, logical, "# Duplicate\n");
+    const initial = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    assert.equal(initial.outcome, "applied", JSON.stringify(initial));
+    await waitForWorktree(cell, initial, binding);
+    rmSync(path.join(rootDir, "harness", logical));
+    const rejected = (await cell.run({ kind: "doc-submit", paths: [logical] }, binding)) as {
+      readonly outcome?: string;
+      readonly code?: string;
+      readonly summary?: string;
+      readonly rejectionExplanation?: string;
+    };
+    assert.equal(rejected.outcome, "op_rejected");
+    assert.equal(rejected.code, "deletion_forbidden");
+    const retireCommand = `ha doc retire --path ${logical} --reason`;
+    assert.ok((rejected.summary ?? "").includes(retireCommand), JSON.stringify(rejected.summary));
+    // rejectionExplanation is the field the CLI hint chain promotes; it must carry the same exit.
+    assert.ok(
+      (rejected.rejectionExplanation ?? "").includes(retireCommand),
+      JSON.stringify(rejected.rejectionExplanation),
+    );
+    const status = (await cell.run({ kind: "doc-status", paths: [logical] }, binding)) as {
+      readonly summary?: string;
+    };
+    assert.ok((status.summary ?? "").includes(retireCommand), JSON.stringify(status.summary));
+    // The named exit is real: running it retires the document and clears the deletion row.
+    const retired = await cell.run(
+      { kind: "doc-retire", paths: [logical], reason: "duplicate of the registered original" },
+      binding,
+    );
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    await waitForWorktree(cell, retired, binding);
+    const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
+    assert.equal(shown.code, "document_not_found");
+  } finally {
+    await cell.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+// doc status/sync accept repo-relative selections (harness/…); retire must accept the same
+// spelling. The nested layout is the dogfood shape: the ledger prefix is empty there, so the
+// strip rides the product-visible authored-root prefix.
+test("doc retire accepts the product-root path spelling in the nested ledger layout", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-retire-spelling-"));
+  initNestedLedgerRepo(rootDir);
+  const repoId = workspaceId("retire-spelling"),
+    cell = await openRepoCell({
+      repoId,
+      rootDir: canonicalRoot(rootDir),
+      ownerId: "retire-spelling-daemon",
+    }),
+    binding = ownerBinding,
+    logical = "context/spelled.md";
+  try {
+    write(rootDir, logical, "# Spelled\n");
+    const submitted = await cell.run({ kind: "doc-submit", paths: [logical] }, binding);
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    await waitForWorktree(cell, submitted, binding);
+    rmSync(path.join(rootDir, "harness", logical));
+    const retired = (await cell.run(
+      { kind: "doc-retire", paths: [`harness/${logical}`], reason: "superseded duplicate" },
+      binding,
+    )) as { readonly outcome?: string; readonly evidence?: string };
+    assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    await waitForWorktree(cell, retired, binding);
+    assert.match(retired.evidence ?? "", /^doc-retirement:/u);
+    const receipt = JSON.parse((retired.evidence ?? "").slice("doc-retirement:".length)) as {
+      readonly retirements: readonly { readonly path: string }[];
+    };
+    assert.deepEqual(
+      receipt.retirements.map((row) => row.path),
+      [logical],
+    );
+    const shown = await cell.run({ kind: "doc-show", path: logical }, binding);
+    assert.equal(shown.code, "document_not_found");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

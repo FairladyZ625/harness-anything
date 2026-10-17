@@ -25,7 +25,7 @@ import {
   type WriteSource,
 } from "@harness-anything/kernel";
 import { nodeIntent, scannerSubmit } from "./doc-sync-adjudication.ts";
-import { intentFromScan, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
+import { intentFromScan, normalizeSelectedDocPath, resolveDocExecutionBinding } from "./doc-sync-candidate-scanner.ts";
 import type { AuthoredCandidateInventoryV1, DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import { claimBytes, directPaths } from "./doc-sync-details.ts";
 import {
@@ -292,7 +292,11 @@ export function runDocRetire(input: Input): DocSettlementReceipt {
   const reason = requiredDocSyncText(input.action.reason, "reason").trim();
   let targets: ReturnType<typeof documentPath>[];
   try {
-    targets = (rawPaths as readonly string[]).map((item) => documentPath(requiredDocSyncText(item, "path")));
+    // Same spelling rule as doc status/sync selections: a repo-relative harness/… path and the
+    // ledger-prefixed form both name the same canonical document.
+    targets = (rawPaths as readonly string[]).map((item) =>
+      documentPath(normalizeSelectedDocPath(input.rootDir, requiredDocSyncText(item, "path"))),
+    );
   } catch {
     throw docSyncError("invalid_command", "doc retire requires valid doc-sync paths");
   }
