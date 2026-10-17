@@ -121,7 +121,14 @@ export async function readTaskCi(
   if (!principal)
     throw context.cellCodedError("actor_unauthorized", "Task CI requires a bound worker or reviewer dispatch.");
   requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
-  if (typeof context.projection.readCiRunObservations === "function" && context.store)
+  // The center observation copy can answer CI only after a submitted delivery exists. Before
+  // that point the provider-backed path remains authoritative: it enforces the dispatch's
+  // current hosting credential and therefore preserves the honest failure for an ended login.
+  if (
+    typeof context.projection.readCiRunObservations === "function" &&
+    context.store &&
+    hasSubmittedDelivery(context.projection, principal.taskId)
+  )
     return readTaskCiFromObservations(context, principal.taskId, action);
   const instanceId = context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId;
   let hosting: HostingProvider;
@@ -275,6 +282,20 @@ export async function readTaskCi(
   } finally {
     cache.inFlight.delete(cacheKey);
   }
+}
+
+function hasSubmittedDelivery(projection: Pick<RepoCellApiContext["projection"], "read">, taskId: string): boolean {
+  const snapshot = projection.read(taskId).snapshot as {
+    readonly task?: { readonly iteration?: number } | null;
+    readonly executions?: readonly {
+      readonly iteration?: number;
+      readonly submission?: { readonly commitSha?: string | null } | null;
+    }[];
+  };
+  const execution = snapshot.executions?.find(
+    (candidate) => candidate.iteration === snapshot.task?.iteration && candidate.submission !== null,
+  );
+  return typeof execution?.submission?.commitSha === "string" && execution.submission.commitSha.length > 0;
 }
 
 function makeTaskCiReceipt(
