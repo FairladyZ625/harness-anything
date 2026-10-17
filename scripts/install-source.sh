@@ -24,14 +24,25 @@ cd "$install_root"
 npm ci
 npm run build -w @harness-anything/daemon
 npm run build -w @harness-anything/cli
+(npm run build -w @harness-anything/gui)
 (cd packages/cli && npm link)
 
 if [ "$(uname -s)" = Linux ] && [ -f node_modules/electron/dist/chrome-sandbox ]; then
-  chmod 4755 node_modules/electron/dist/chrome-sandbox
+  sandbox_path="$install_root/node_modules/electron/dist/chrome-sandbox"
+  if [ "$(id -u)" -eq 0 ]; then
+    chown root:root "$sandbox_path"
+    chmod 4755 "$sandbox_path"
+  elif command -v sudo >/dev/null; then
+    printf '%s\n' 'Electron chrome-sandbox needs root ownership on Linux; requesting sudo.'
+    sudo chown root:root "$sandbox_path"
+    sudo chmod 4755 "$sandbox_path"
+  else
+    printf '%s\n' "Warning: run 'sudo chown root:root $sandbox_path && sudo chmod 4755 $sandbox_path' before launching ha gui." >&2
+  fi
 fi
 
 printf '\nInstalled source CLI at %s\n' "$install_root"
-printf 'Run: ha edge join <invite-link> --observed-spki-sha256 <pin>\n'
+printf 'Run: ha edge join <invite-link>\n'
 if [ "${XDG_SESSION_TYPE:-}" = wayland ]; then
   printf 'Wayland session detected. Launch the GUI with: ELECTRON_OZONE_PLATFORM_HINT=auto ha gui\n'
 fi
