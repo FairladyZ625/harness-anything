@@ -112,10 +112,7 @@ test("ha bootstrap exposes the center invitation and edge consume operations on 
 });
 
 test("ha edge join exposes the typed invitation consume action", () => {
-  const parsed = parseThinCommand(
-    ["edge", "join", "harness-edge://join/token", "--observed-spki-sha256", "sha256:pin"],
-    "/edge",
-  );
+  const parsed = parseThinCommand(["edge", "join", "harness-edge://join/token"], "/edge");
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
   assert.equal(parsed.command.method, "daemon.rbac.manage");
