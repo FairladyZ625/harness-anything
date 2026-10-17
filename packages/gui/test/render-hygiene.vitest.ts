@@ -281,6 +281,96 @@ describe("GUI render hygiene: infinite animation keyframes safety", () => {
   });
 });
 
+/**
+ * 空闲在场门控覆盖检查(task_5c651ff17b698ff2bce7e6affa):
+ * 合成器友好的 infinite 动画本身仍是「只要有任一动画在跑,合成器就持续产帧、
+ * .glass backdrop-filter 每帧重模糊」——实测空闲 gpu-process 17% vs 全停 0.3%。
+ * 因此类级约束是:styles.css 里每一个声明 infinite 动画的选择器,都必须出现在
+ * html[data-motion="idle"] 的暂停规则里;新加的永续动画若逃出门控,这里红。
+ */
+export interface FlatRule {
+  selectors: string[];
+  declarations: string;
+}
+
+/** 平铺解析顶层规则块(@media 内层规则同样按平铺块捕获;@keyframes 体不含 infinite 声明)。 */
+export function extractFlatRules(cleanCss: string): FlatRule[] {
+  const rules: FlatRule[] = [];
+  const regex = /([^{}]+)\{([^{}]*)\}/g;
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(cleanCss)) !== null) {
+    const selectorText = (match[1] ?? "").trim();
+    // @media/@supports/@keyframes 头与关键帧内部选择器(0%/to)不参与「谁声明了动画」判定。
+    if (
+      selectorText.startsWith("@") ||
+      /^[\d.]+%(?:\s*,\s*[\d.]+%)*$/.test(selectorText) ||
+      selectorText === "to" ||
+      selectorText === "from"
+    ) {
+      continue;
+    }
+    rules.push({
+      selectors: selectorText
+        .split(",")
+        .map((s) => s.replace(/\s+/g, " ").trim())
+        .filter(Boolean),
+      declarations: match[2] ?? "",
+    });
+  }
+  return rules;
+}
+
+export const IDLE_GATE_PREFIX = 'html[data-motion="idle"] ';
+
+/** 门控规则覆盖的选择器集合(剥掉 html[data-motion="idle"] 前缀后的裸选择器)。 */
+export function gatedSelectors(cleanCss: string): Set<string> {
+  const gate = extractFlatRules(cleanCss).find((rule) =>
+    /animation-play-state\s*:\s*paused\s*!important/.test(rule.declarations),
+  );
+  return new Set((gate?.selectors ?? []).map((s) => s.replace(IDLE_GATE_PREFIX, "")));
+}
+
+/** 声明了 infinite 动画的选择器集合(含 prefers-reduced-motion 块里的 re-enable 规则)。 */
+export function infiniteAnimationSelectors(cleanCss: string): Set<string> {
+  const selectors = new Set<string>();
+  for (const rule of extractFlatRules(cleanCss)) {
+    if (!/\binfinite\b/.test(rule.declarations)) continue;
+    for (const selector of rule.selectors) selectors.add(selector);
+  }
+  return selectors;
+}
+
+describe("GUI render hygiene: idle presence gate coverage", () => {
+  const clean = stripComments(styles);
+
+  it("pauses every selector that declares an infinite animation while the user is idle", () => {
+    const gated = gatedSelectors(clean);
+    const infinite = infiniteAnimationSelectors(clean);
+    if (infinite.size === 0)
+      expect.unreachable("styles.css declares no infinite animation; the gate contract went stale");
+    const escaped = [...infinite].filter((selector) => !gated.has(selector));
+    if (escaped.length > 0) {
+      expect.unreachable(
+        `[GUI RENDER HYGIENE GATE FAILURE] 以下选择器声明了 infinite 动画但未被 html[data-motion="idle"] 暂停规则覆盖(空闲时 gpu-process 会被它持续拉高):\n${escaped
+          .map((s) => `  - ${s}`)
+          .join("\n")}\n把它们加进 styles.css 的 idle 暂停规则选择器列表(一次性入场动画不要加)。`,
+      );
+    }
+  });
+
+  it("detects an ungated infinite animation as a violation (negative control)", () => {
+    const badCss = `
+      .heartbeat-dot {
+        animation: some-breathe 2s infinite;
+      }
+    `;
+    const gated = gatedSelectors(badCss);
+    const infinite = infiniteAnimationSelectors(badCss);
+    expect(infinite.has(".heartbeat-dot")).toBe(true);
+    expect(gated.has(".heartbeat-dot")).toBe(false);
+  });
+});
+
 describe("GUI render hygiene: ambient backdrop (.aurora) zero-cost diffusion", () => {
   const clean = stripComments(styles);
 
