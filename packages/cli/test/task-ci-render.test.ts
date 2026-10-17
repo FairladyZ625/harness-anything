@@ -96,8 +96,9 @@ test("an unreachable log and a markerless failure each render their honest reaso
       errors: [],
       excerpt: "##[error]Process completed with exit code 1.",
       truncated: false,
-      logUrl: "https://jobs/21",
+      logUrl: "",
     }),
   );
   assert.match(markerless.text, /assertion: ##\[error\]Process completed with exit code 1\./u);
+  assert.equal(markerless.text.includes("full log:"), false);
 });

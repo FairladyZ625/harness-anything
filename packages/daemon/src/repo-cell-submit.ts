@@ -29,7 +29,7 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
-import { readTaskCi } from "./task-ci-read.ts";
+import { formatTaskCiFailure, readTaskCi } from "./task-ci-read.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -555,6 +555,7 @@ export async function submitTask(
           revision: fresh.snapshot.revision,
           evidence: `Task CI for ${submission.commitSha} is ${ci.ci.conclusion}; the submitted lifecycle cut remains durable while the provider settles.`,
         }) as WriteReceiptDraft;
+      const failureDetail = formatTaskCiFailure(ci.ci);
       return {
         ...cell.rejected(
           cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
@@ -562,7 +563,7 @@ export async function submitTask(
         ),
         rejectionExplanation: `Task CI must be green for ${submission.commitSha}; observed ${ci.ci.headSha} with ${ci.ci.conclusion}${
           ci.ci.notStarted ? `: ${ci.ci.notStarted.detail}` : ""
-        }.`,
+        }.${failureDetail ? `\n${failureDetail}` : ""}`,
         next: [
           completionGuidance(
             fresh.snapshot,

@@ -17,16 +17,26 @@ import {
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
-import { runProcessTextAsync } from "./process-port.ts";
 import { ciWitnessCommit, strandedDelivery } from "./repo-cell-ci-evidence.ts";
 import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/kernel";
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
+import { ciFailureDetail } from "./ci-failure-detail.ts";
+import {
+  listCiArtifacts,
+  listTaskBranchRuns,
+  runCiProviderCommand,
+  scrubCiProviderLog,
+  selectCiBranchRuns,
+  type CiRunListEntry,
+  type CiWorkflowRun,
+  type RunGh,
+} from "./ci-observation-provider.ts";
+export type { RunGh } from "./ci-observation-provider.ts";
 import {
   detectHostingProvider,
   hostingCredentialConfigurationAdvice,
   type HostingProvider,
 } from "./hosting-provider.ts";
-
 type CiRunArtifact = {
   readonly schema: "ci-run-artifact/v2";
   readonly run: CiRunObservationEventV4["payload"]["run"];
@@ -48,13 +58,6 @@ type PreparedCiJob = {
   readonly body: string;
   readonly sha256: string;
   readonly measurement: ReturnType<typeof ciDetailMeasurement>;
-};
-type CiWorkflowRun = { readonly databaseId: number; readonly headBranch: string; readonly createdAt: string };
-type CiRunListEntry = CiWorkflowRun & {
-  readonly headSha: string;
-  readonly status: string;
-  readonly conclusion: string | null;
-  readonly event: string;
 };
 type CiRunSummary = {
   readonly workflowName: string;
@@ -122,6 +125,7 @@ export async function fetchCiObservations(
   const limit = Number(action.limit ?? 20),
     namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null,
     taskId = typeof action.taskId === "string" ? action.taskId : null,
+    observeBranch = taskId !== null && action.observeBranch === true,
     workflows = cell.settings.read().ci.workflows;
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100)
     throw cell.cellCodedError("invalid_command", "CI observation pull limit must be 1..100.");
@@ -131,7 +135,7 @@ export async function fetchCiObservations(
     throw cell.cellCodedError("invalid_command", "Use --run <run-id> or --task <task-id>, not both.");
   if (namedRuns && (namedRuns.length > 100 || namedRuns.some((id) => !Number.isSafeInteger(id) || id < 1)))
     throw cell.cellCodedError("invalid_command", "CI observation pull accepts 1..100 positive --run ids.");
-  const witness = taskId === null ? null : taskWitnessContract(cell, taskId);
+  const witness = taskId === null || observeBranch ? null : taskWitnessContract(cell, taskId);
   if (hosting?.kind === "gitlab" && "apiBaseUrl" in hosting)
     return fetchGitLabCiObservations(cell, action, hosting, witness, limit, namedRuns);
   if (!hosting) return { requestedRuns: namedRuns?.length ?? limit, runs: [] };
@@ -141,31 +145,34 @@ export async function fetchCiObservations(
     .slice(0, 20);
   const temporaryRoot = mkdtempSync(path.join(tmpdir(), `ha-ci-observe-${owner}-`));
   try {
+    const branchRuns = observeBranch ? await listTaskBranchRuns(runGh, cell.rootDir, taskId!) : [];
     const listed =
         namedRuns === null && witness === null
-          ? (
-              await Promise.all(
-                workflows.map(
-                  async (workflow) =>
-                    JSON.parse(
-                      await runGh(
-                        "gh",
-                        [
-                          "run",
-                          "list",
-                          "--workflow",
-                          `${workflow}.yml`,
-                          "--limit",
-                          String(limit),
-                          "--json",
-                          "databaseId,headBranch,headSha,createdAt,status,conclusion,event",
-                        ],
-                        { cwd: cell.rootDir },
-                      ),
-                    ) as readonly CiRunListEntry[],
-                ),
-              )
-            ).flat()
+          ? observeBranch
+            ? branchRuns
+            : (
+                await Promise.all(
+                  workflows.map(
+                    async (workflow) =>
+                      JSON.parse(
+                        await runGh(
+                          "gh",
+                          [
+                            "run",
+                            "list",
+                            "--workflow",
+                            `${workflow}.yml`,
+                            "--limit",
+                            String(limit),
+                            "--json",
+                            "databaseId,headBranch,headSha,createdAt,status,conclusion,event",
+                          ],
+                          { cwd: cell.rootDir },
+                        ),
+                      ) as readonly CiRunListEntry[],
+                  ),
+                )
+              ).flat()
           : [],
       witnessRun =
         witness === null
@@ -173,7 +180,11 @@ export async function fetchCiObservations(
           : await selectTaskWitnessRun(cell, witness, witness.options.workflows ?? workflows, runGh),
       runs: readonly Pick<CiWorkflowRun, "databaseId">[] =
         namedRuns?.map((databaseId) => ({ databaseId })) ??
-        (witnessRun ? [witnessRun] : selectCiObservationRuns(listed, limit));
+        (witnessRun
+          ? [witnessRun]
+          : observeBranch
+            ? selectCiBranchRuns(listed, taskId!, limit)
+            : selectCiObservationRuns(listed, limit));
     const fetchResults = await Promise.all(
       runs.map(async (run): Promise<{ fetched: FetchedCiRun | null } | { failure: unknown }> => {
         try {
@@ -221,7 +232,8 @@ export async function fetchCiObservations(
               ) as CiRunSummary);
           const { status: runLifecycleState } = summary;
           // Publish immutable observations only for main runs that have a final conclusion.
-          if (summary.headBranch !== "main" || runLifecycleState !== "completed") {
+          const expectedBranch = observeBranch ? taskId : "main";
+          if (summary.headBranch !== expectedBranch || runLifecycleState !== "completed") {
             if (namedRuns && fixedAttempt === undefined)
               throw cell.cellCodedError(
                 "invalid_command",
@@ -278,7 +290,13 @@ export async function fetchCiObservations(
               artifact.producer.runAttempt === summary.attempt,
           );
           const jobs: PreparedCiJob[] = [];
-          let apiJobs: readonly { readonly id: number; readonly name: string; readonly conclusion?: string | null }[];
+          let apiJobs: readonly {
+            readonly id: number;
+            readonly name: string;
+            readonly status?: string;
+            readonly conclusion?: string | null;
+            readonly html_url?: string;
+          }[];
           {
             // gh --slurp keeps every paginated page in one JSON array, avoiding concatenated
             // transport JSON; gh rejects --jq/--template alongside --slurp, so the pages
@@ -299,7 +317,9 @@ export async function fetchCiObservations(
                 readonly jobs: readonly {
                   readonly id: number;
                   readonly name: string;
+                  readonly status?: string;
                   readonly conclusion?: string | null;
+                  readonly html_url?: string;
                 }[];
               }[]
             ).flatMap((page) => page.jobs);
@@ -323,6 +343,52 @@ export async function fetchCiObservations(
                 body,
                 sha256: createHash("sha256").update(body).digest("hex"),
                 measurement: ciDetailMeasurement(artifact.detail),
+              });
+            }
+            for (const job of apiJobs) {
+              if (job.conclusion !== "failure" || jobs.some((prepared) => prepared.jobExecutionId === String(job.id)))
+                continue;
+              const log = await runGh(
+                "gh",
+                ["api", "--allow-escape-sequences", `repos/:owner/:repo/actions/jobs/${job.id}/logs`],
+                { cwd: cell.rootDir },
+              );
+              const detail = ciFailureDetail(scrubCiProviderLog(log)),
+                body = JSON.stringify(detail),
+                artifact: CiRunArtifact = {
+                  schema: "ci-run-artifact/v2",
+                  run: {
+                    runId: `${run.databaseId}.${summary.attempt}`,
+                    sha: attempt.head_sha,
+                    branch: attempt.head_branch,
+                    prNumber: null,
+                    job: job.name,
+                    wallclockMs: 0,
+                    runner: "github-actions",
+                  },
+                  producer: {
+                    repositoryId: attempt.repository.full_name,
+                    workflow: attempt.path,
+                    databaseRunId: String(run.databaseId),
+                    runAttempt: summary.attempt,
+                    jobKey: String(job.id),
+                    jobName: job.name,
+                  },
+                  detail,
+                  gates: [],
+                  measurementCoverage: {
+                    status: detail.tests.length ? "partial" : "unknown",
+                    missingReason: "derived from bounded provider log",
+                    startedFileCount: null,
+                    completedFileCount: null,
+                  },
+                };
+              jobs.push({
+                artifact,
+                jobExecutionId: String(job.id),
+                body,
+                sha256: createHash("sha256").update(body).digest("hex"),
+                measurement: ciDetailMeasurement(detail),
               });
             }
           }
@@ -428,7 +494,8 @@ async function fetchGitLabCiObservations(
       `/pipelines?sha=${encodeURIComponent(witness.delivery)}&ref=${encodeURIComponent(witness.options.branch)}&per_page=100`,
     );
   } else {
-    pipelines = await request<readonly Pipeline[]>(`/pipelines?ref=main&per_page=${limit}`);
+    const ref = action.observeBranch === true && typeof action.taskId === "string" ? action.taskId : "main";
+    pipelines = await request<readonly Pipeline[]>(`/pipelines?ref=${encodeURIComponent(ref)}&per_page=${limit}`);
   }
   const selected = [...pipelines]
     .filter((pipeline) => !witness || pipeline.ref === witness.options.branch)
@@ -447,23 +514,7 @@ async function fetchGitLabCiObservations(
             job.status === "failed"
               ? (await request<string>(`/jobs/${job.id}/trace`)).replaceAll(token, "[REDACTED]")
               : "";
-          const detail = {
-            schema: "ci-run-detail/v1" as const,
-            tests: [],
-            fileOutcomes: [],
-            diagnostics: trace
-              ? [
-                  {
-                    provider: "gitlab-pipeline",
-                    pipelineId: pipeline.id,
-                    jobId: job.id,
-                    jobName: job.name,
-                    status: job.status,
-                    trace: trace.slice(0, 8192),
-                  },
-                ]
-              : [],
-          };
+          const detail = trace ? ciFailureDetail(scrubCiProviderLog(trace, [token])) : ciFailureDetail("");
           const body = JSON.stringify(detail),
             sha256 = createHash("sha256").update(body).digest("hex");
           const artifact: CiRunArtifact = {
@@ -488,8 +539,8 @@ async function fetchGitLabCiObservations(
             detail,
             gates: [],
             measurementCoverage: {
-              status: "no-test-artifact",
-              missingReason: null,
+              status: detail.tests.length ? "partial" : "unknown",
+              missingReason: trace ? "derived from bounded provider log" : null,
               startedFileCount: null,
               completedFileCount: null,
             },
@@ -571,6 +622,9 @@ export function ingestCiObservations(
       wallclockMs: 0,
       runner: databaseId === 0 ? "write-coordinator" : provider,
     };
+    // Task-branch runs are diagnostic measurements, not completion witnesses. The v4
+    // verification contract intentionally accepts GitHub provider verification only for main;
+    // leave this workflow observation unverified while retaining its job detail for task-ci.
     const verification: CiRunObservationEventV4["payload"]["verification"] =
       databaseId === 0
         ? {
@@ -581,15 +635,17 @@ export function ingestCiObservations(
             headSha: summary.headSha,
             conclusion: summary.conclusion,
           }
-        : {
-            source: provider,
-            workflow: summary.workflowName,
-            runId: String(databaseId),
-            attempt: summary.attempt,
-            headSha: summary.headSha,
-            conclusion: summary.conclusion,
-            event: summary.event,
-          };
+        : summary.headBranch === "main"
+          ? {
+              source: provider,
+              workflow: summary.workflowName,
+              runId: String(databaseId),
+              attempt: summary.attempt,
+              headSha: summary.headSha,
+              conclusion: summary.conclusion,
+              event: summary.event,
+            }
+          : null;
     const payloads: { readonly payload: CiRunObservationEventV4["payload"]; readonly body: string | null }[] = [
       {
         payload: {
@@ -974,28 +1030,9 @@ function privateLedgerRuns(cell: Pick<RepoCellOperationalContext, "rootDir">): r
   return [];
 }
 
-export type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
-export interface CiArtifactMetadata {
-  readonly id: number;
-  readonly name: string;
-  readonly expired: boolean;
-}
-
-export const runCiProviderCommand: RunGh = (command, args, options) =>
-  runProcessTextAsync(command, args, options.cwd, undefined, undefined, undefined, { timeoutMs: 30_000 });
-
-export async function listCiArtifacts(gh: RunGh, cwd: string, runId: number): Promise<readonly CiArtifactMetadata[]> {
-  const pages = JSON.parse(
-    await gh(
-      "gh",
-      ["api", "--paginate", "--slurp", `repos/:owner/:repo/actions/runs/${runId}/artifacts?per_page=100`],
-      { cwd },
-    ),
-  ) as readonly {
-    readonly artifacts: readonly CiArtifactMetadata[];
-  }[];
-  return pages.flatMap((page) => page.artifacts);
-}
+export type { CiArtifactMetadata } from "./ci-observation-provider.ts";
+export { listCiArtifacts } from "./ci-observation-provider.ts";
+export { runCiProviderCommand } from "./ci-observation-provider.ts";
 
 // Unaccepted preparation belongs to a repository/run/attempt, not an occurrence claim.
 // Retain completed units after a provider interruption; acceptance still uses the current fence.

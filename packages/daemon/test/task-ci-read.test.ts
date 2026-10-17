@@ -1,7 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { readTaskCi, extractJobFailure } from "../src/task-ci-read.ts";
+import { formatTaskCiFailure, readTaskCi, extractJobFailure } from "../src/task-ci-read.ts";
 import { commandDescriptorForAction } from "../src/protocol/daemon-protocol-commands.ts";
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -112,6 +112,10 @@ for (const role of ["implementation", "reviewer"] as const)
     assert.equal(JSON.stringify(receipt).includes(secret), false);
     assert.match(JSON.stringify(receipt), /REDACTED/u);
     assert.equal(gh.calls.filter((args) => args[0] === "api" && args.at(-1)!.includes("/logs")).length, 1);
+    assert.deepEqual(
+      gh.calls.find((args) => args[0] === "api" && args.at(-1)!.includes("/logs")),
+      ["api", "--allow-escape-sequences", "repos/owner/repo/actions/jobs/21/logs"],
+    );
     assert.equal(f.credentialReads(), 1);
   });
 
@@ -368,6 +372,20 @@ test("a log without runner markers falls back to a short error excerpt, not a gu
   assert.equal(result.truncated, false);
 });
 
+test("an unstructured provider trace keeps a bounded scrubbed excerpt", () => {
+  const result = extractJobFailure("failed test\n[REDACTED]\n");
+  assert.deepEqual(result.tests, []);
+  assert.deepEqual(result.testFiles, []);
+  assert.equal(result.excerpt, "failed test\n[REDACTED]\n");
+  assert.equal(result.truncated, false);
+});
+
+test("a blank provider trace does not create a fallback diagnostic", () => {
+  const result = extractJobFailure("\n  \n");
+  assert.equal(result.excerpt, "");
+  assert.equal(result.truncated, false);
+});
+
 test("only non-pass file outcomes count, across the runner's whole vocabulary", () => {
   const result = extractJobFailure(
     "[node-test-file] pass tools/a.test.mjs\n" +
@@ -518,4 +536,176 @@ test("jobs for each latest workflow run are read concurrently and keep newest-fi
     ],
   );
   assert.equal(receipt.ci.conclusion, "success");
+});
+
+test("task CI reads bounded failure detail from the center observation cut without provider credentials", async () => {
+  const f = fixture(),
+    detailSha = "c".repeat(64),
+    passingDetailSha = "d".repeat(64),
+    detail = {
+      schema: "ci-run-detail/v1",
+      tests: [],
+      fileOutcomes: [],
+      diagnostics: [
+        {
+          kind: "ci-failure-excerpt",
+          excerpt: "Error: gate failed\nerror TS2322: type mismatch",
+        },
+      ],
+    },
+    event = {
+      schema: "ci-observation/read-v1",
+      eventId: "event-task-ci",
+      workspaceRevision: 7,
+      opId: "ci-observation-task-ci",
+      type: "ci_run_observed",
+      actor: f.binding.actor,
+      source: f.binding.source,
+      occurredAt: "2026-10-12T00:00:00Z",
+      payload: {
+        scope: "job",
+        identity: {
+          provider: "github-actions",
+          repositoryId: "owner/repo",
+          workflow: "rewrite-ci",
+          workflowPath: ".github/workflows/rewrite-ci.yml",
+          workflowId: "11",
+          databaseRunId: "2",
+          runAttempt: 1,
+          jobExecutionId: "21",
+          jobKey: "21",
+        },
+        run: {
+          runId: "2.1",
+          sha,
+          branch: "task-ci",
+          prNumber: null,
+          job: "fast-contract",
+          wallclockMs: 0,
+          runner: "github-actions",
+        },
+        verification: null,
+        gates: [],
+        measurementCoverage: {
+          status: "unknown",
+          missingReason: "derived from bounded provider log",
+          startedFileCount: null,
+          completedFileCount: null,
+        },
+        testSummary: null,
+        failedTests: [],
+        fileOutcomes: [],
+        shardDurations: [],
+        detailRef: {
+          schema: "ci-run-detail/v1",
+          sha256: detailSha,
+          mediaType: "application/json",
+          encoding: "identity",
+          encodedBytes: 1,
+          decodedBytes: 1,
+        },
+      },
+    };
+  const passingEvent = {
+    ...event,
+    eventId: "event-task-ci-passing",
+    workspaceRevision: 6,
+    opId: "ci-observation-task-ci-passing",
+    payload: {
+      ...event.payload,
+      identity: { ...event.payload.identity, databaseRunId: "3", jobExecutionId: "22", jobKey: "22" },
+      run: { ...event.payload.run, runId: "3.1", job: "contract" },
+      detailRef: {
+        ...event.payload.detailRef,
+        sha256: passingDetailSha,
+      },
+    },
+  };
+  Object.assign(f.context.projection, {
+    read: () => ({
+      snapshot: {
+        task: { iteration: 1 },
+        executions: [{ iteration: 1, submission: { commitSha: sha } }],
+      },
+    }),
+    readCiRunObservations: () => ({ status: "ready", events: [event, passingEvent], watermark: 7, sourceRevision: 7 }),
+  });
+  Object.assign(f.context, {
+    store: {
+      readContentBlob: (digest: string) =>
+        digest === detailSha
+          ? Buffer.from(JSON.stringify(detail))
+          : digest === passingDetailSha
+            ? Buffer.from(JSON.stringify({ schema: "ci-run-detail/v1", tests: [], fileOutcomes: [], diagnostics: [] }))
+            : null,
+    },
+  });
+  const receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, async () => {
+    throw new Error("provider must not be called for center task CI reads");
+  });
+  assert.equal(receipt.ci.headSha, sha);
+  assert.equal(receipt.ci.conclusion, "failure");
+  assert.equal(receipt.ci.runs[0]!.jobs[0]!.failure?.excerpt, detail.diagnostics[0]!.excerpt);
+  assert.equal(receipt.ci.runs[1]!.jobs[0]!.failure, null);
+  assert.equal(f.credentialReads(), 0);
+});
+
+test("task CI reports pending while the center observation cut is not ready", async () => {
+  const f = fixture();
+  Object.assign(f.context.projection, {
+    read: () => ({
+      snapshot: {
+        task: { iteration: 1 },
+        executions: [{ iteration: 1, submission: { commitSha: sha } }],
+      },
+    }),
+    readCiRunObservations: () => ({ status: "pending", events: [], watermark: 0, sourceRevision: 7 }),
+  });
+  Object.assign(f.context, { store: { readContentBlob: () => null } });
+  const receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, async () => {
+    throw new Error("provider must not be called for a pending center cut");
+  });
+  assert.equal(receipt.ci.conclusion, "pending");
+  assert.equal(f.credentialReads(), 0);
+});
+
+test("submit-facing CI rejection detail names failed jobs and errors", () => {
+  const detail = formatTaskCiFailure({
+    schema: "task-ci/v2",
+    taskId: "task-ci",
+    branch: "task-ci",
+    headSha: sha,
+    conclusion: "failure",
+    checks: [],
+    runs: [
+      {
+        id: 91,
+        attempt: 1,
+        event: "push",
+        status: "completed",
+        conclusion: "failure",
+        url: "",
+        jobs: [
+          {
+            id: 910,
+            name: "fast-contract",
+            status: "completed",
+            conclusion: "failure",
+            url: "",
+            failure: {
+              testFiles: [],
+              tests: ["branch test fails"],
+              errors: [{ test: "branch test fails", firstLine: "Error: expected 1, got 2", frames: [] }],
+              excerpt: "",
+              truncated: false,
+              logUrl: "",
+            },
+          },
+        ],
+      },
+    ],
+  });
+  assert.match(detail, /failed job fast-contract/u);
+  assert.match(detail, /failed tests: branch test fails/u);
+  assert.match(detail, /error: Error: expected 1, got 2/u);
 });
