@@ -60,6 +60,8 @@ test("center start uses the signed-in person's authority repository permission w
       "/CN=localhost",
       "-days",
       "1",
+      "-addext",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
     ],
     { stdio: "ignore" },
   );

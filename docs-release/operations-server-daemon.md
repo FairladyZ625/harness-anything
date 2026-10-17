@@ -286,6 +286,46 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 For a view-only repository, use the `remote-proxy` registration shown above.
 There is no compatibility path for a v1 registry.
 
+## Fleet center LAN reachability and edge self-service
+
+There are two separate HTTPS entrances. `listener-set` configures the managed Keycloak login service; it is the browser/token issuer. The Fleet TLS listener is the edge synchronization service and is configured with `daemon fleet center start`. Do not use one command's address as the other's configuration.
+
+For the login service, the bind address must be an IP assigned to the center host and `--hostname` must be present in the certificate SAN. Keep the private key owner-readable (mode `0600`):
+
+```bash
+ha bootstrap --operation listener
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+```
+
+For edge synchronization, bind the Fleet listener to the LAN address and include that address in the certificate SAN. The daemon validates the certificate SAN before opening the listener; bind failures such as an occupied, unavailable, or permission-denied address are returned with their error code:
+
+```bash
+ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
+```
+
+Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections, which resume only after the edge trusts the new certificate and runs `ha daemon fleet edge sync` again.
+
+The supported edge path is an invitation link. A signed-in center administrator creates one, and the edge owner consumes it once; the link carries the center URL and certificate pin, never a machine credential:
+
+```bash
+ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
+ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+```
+
+The edge command must use the certificate authority (and `--servername` when the certificate name differs from the DNS name). TLS hostname verification rejects a certificate that does not cover the requested server name. A closed port fails the connection; an expired link, wrong signed-in person, or changed pin is rejected by join admission. Credentials are written by the local daemon and are not placed in the invitation URL.
+
+### Install, upgrade, and development rescue
+
+Install the CLI and daemon from the same candidate checkout as described in [Install](start/en/01-install.md). Upgrade the managed center authority with the existing command, then restart the daemon-managed services and re-read the listener version before changing it:
+
+```bash
+ha bootstrap --operation upgrade --backup-dir /var/backups/harness-rbac
+ha bootstrap --operation listener
+```
+
+For development diagnosis only, an operator may forward the listener or local daemon endpoint through an SSH tunnel. The tunnel is a temporary rescue path; production edge access still uses the configured listener, certificate SAN, invitation pin, and edge sync flow.
+
 ## Fleet center and edges
 
 `remote-center` and `remote-edge` are for the existing Fleet topology, not for

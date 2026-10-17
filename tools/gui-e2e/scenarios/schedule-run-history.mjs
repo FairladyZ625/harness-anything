@@ -96,6 +96,9 @@ export default {
     // 9. 新建表单弹层(Modal S6):未传 footer 的对话框不再渲染空 footer 带;取消回列表。
     //    (详情页的「编辑」是内联表单,Modal 形态挂在列表页的「新建」。)
     await page.getByTestId("schedule-detail-back").click();
+    // The detail back action pops the app history stack; this scenario entered
+    // the schedule via direct sidebar navigation, so return via the sidebar too.
+    await page.getByRole("button", { name: /^(?:定时计划|Schedules)$/u }).click();
     await page.getByTestId("schedules-view").waitFor();
     await page.getByTestId("schedule-action-create").click();
     const dialog = page.getByTestId("schedule-form-dialog");
@@ -120,6 +123,7 @@ export default {
     assert.match(await page.getByTestId("schedule-detail").innerText(), /Saved without local instances/u);
     await shot("schedule-saved-without-instances");
     await page.getByTestId("schedule-detail-back").click();
+    await page.getByRole("button", { name: /^(?:定时计划|Schedules)$/u }).click();
     await page.getByTestId("schedules-view").waitFor();
   },
 };
