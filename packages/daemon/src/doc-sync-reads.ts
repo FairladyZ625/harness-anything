@@ -11,6 +11,7 @@ import {
   resolveHarnessLayout,
   worktreeDocumentMediaType,
   sha256Bytes,
+  sha256Text,
   stableStringify,
   type DocEventV1,
   type DocSyncReceiptDetail,
@@ -30,6 +31,7 @@ import {
 import { scanReceipt, scopeTouches } from "./doc-sync-settlement.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { readSubmissionArtifact, submissionArtifactPath } from "./submission-artifacts.ts";
+import { renderWorkExplainer } from "./work-read.ts";
 
 export function readAction(input: Input): WriteReceipt {
   if (input.action.kind !== "doc-show") return scanReceipt(input, scannerRead(input));
@@ -262,6 +264,7 @@ export function readProjectedDocument(
   const logical = documentPath(`${packagePath}/${requested}`),
     read = projection.readDocument(logical),
     document = read.document,
+    workExplainer = requested === "artifacts/explainer.html" && task.snapshot.task?.taskClass === "work",
     // What the accepted policy says this document is, and — before anything is accepted — what the
     // path itself claims. A reader must never have to infer "not text" from an empty body.
     binary =
@@ -277,19 +280,26 @@ export function readProjectedDocument(
     worktreeBytes = binary ? (worktree?.bytes ?? null) : null,
     selectedBytes =
       worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null) ? worktreeBytes : inline;
+  const renderedWorkExplainer = workExplainer ? renderWorkExplainer(projection, taskId) : null;
   return {
     ok: true as const,
     status: read.status,
     taskId,
     path: requested,
-    body: document?.body ?? "",
+    body: renderedWorkExplainer ?? document?.body ?? "",
     blobSha256: document?.blobSha256 ?? null,
     /** `binary` = raw artifact bytes: `body` is empty because there is no text, not because the file is. */
     contentKind: binary ? ("binary" as const) : ("text" as const),
-    mediaType: binary
-      ? mediaTypeForBinaryPath(requested, document?.mediaType ?? worktree?.mediaType ?? null)
-      : (document?.mediaType ?? worktree?.mediaType ?? null),
-    size: document === null ? (worktree?.size ?? null) : Number(document.size),
+    mediaType: workExplainer
+      ? "text/html"
+      : binary
+        ? mediaTypeForBinaryPath(requested, document?.mediaType ?? worktree?.mediaType ?? null)
+        : (document?.mediaType ?? worktree?.mediaType ?? null),
+    size: workExplainer
+      ? Buffer.byteLength(renderedWorkExplainer!)
+      : document === null
+        ? (worktree?.size ?? null)
+        : Number(document.size),
     /** Canonical content-object bytes, base64. Null for text, for an unreadable object, and above the
      * inline ceiling — in which case `repositoryPath` is the route to the same bytes. */
     bytes: selectedBytes === null ? null : Buffer.from(selectedBytes).toString("base64"),
@@ -298,8 +308,8 @@ export function readProjectedDocument(
     // Live worktree view (task_e5defe69): the GUI file surface must show what is on disk
     // now, not only the committed projection — an edited-but-unsynced plan is real work
     // and must be visible and explicitly marked as not yet committed.
-    worktreeBody: worktree?.body ?? null,
-    uncommitted: worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null),
+    worktreeBody: renderedWorkExplainer ?? worktree?.body ?? null,
+    uncommitted: workExplainer ? false : worktree !== null && worktree.blobSha256 !== (document?.blobSha256 ?? null),
     watermark: read.watermark,
     sourceRevision: read.sourceRevision,
   };
@@ -331,8 +341,22 @@ export function listProjectedTaskDocuments(
     worktree = worktreeDocumentIndex(taskPackageWorktreeRoot(rootDir, packagePath), packagePath),
     worktreeByPath = new Map(worktree.map((row) => [row.path, row])),
     documents = [
+      ...(task.snapshot.task?.taskClass === "work"
+        ? [
+            {
+              path: "artifacts/explainer.html",
+              blobSha256: sha256Text(renderWorkExplainer(projection, taskId)),
+              size: Buffer.byteLength(renderWorkExplainer(projection, taskId)),
+              mediaType: "text/html",
+              uncommitted: false,
+            },
+          ]
+        : []),
       ...basis.documents
         .filter((row) => row.path.startsWith(prefix))
+        .filter(
+          (row) => !(task.snapshot.task?.taskClass === "work" && row.path === `${prefix}artifacts/explainer.html`),
+        )
         .map((row) => {
           const relative = row.path.slice(prefix.length),
             live = worktreeByPath.get(relative);
@@ -344,7 +368,11 @@ export function listProjectedTaskDocuments(
             uncommitted: live !== undefined && live.blobSha256 !== row.blobSha256,
           };
         }),
-      ...worktree.filter((row) => !basis.documents.some((projected) => projected.path === `${prefix}${row.path}`)),
+      ...worktree.filter(
+        (row) =>
+          !(task.snapshot.task?.taskClass === "work" && row.path === "artifacts/explainer.html") &&
+          !basis.documents.some((projected) => projected.path === `${prefix}${row.path}`),
+      ),
     ].sort((left, right) => left.path.localeCompare(right.path));
   return {
     ok: true,

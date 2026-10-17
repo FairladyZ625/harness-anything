@@ -342,21 +342,8 @@ export function taskQueryGuidance(taskId: string): string {
  * materializes none, so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2).
  * Non-task dispatches never see it.
  */
-export function livingDeliverableProtocol(
-  profileId: string | null | undefined,
-  taskClass?: string,
-  taskId?: string,
-): string | null {
-  if (taskClass === "work")
-    return [
-      "# Work Page Maintenance Protocol",
-      "- 工作负责人（人或受委托 CEO session）维护 artifacts/explainer.html；子任务 worker 从不写工作页。",
-      "- 每轮末更新 #now 的一句话现状，并追加一条工作根 progress：",
-      `  ha task progress append ${taskId} --text <本轮进展与证据>`,
-      "- 新增 awaits 时在 #asks 写背景、建议、后果；关系写权限不随文档权限授予。",
-      "- #board 由 W2 从台账推导，不手写；#risks 写风险，#next 写下一步；#timeline 来自工作根 progress，按中心接受顺序展示。",
-      "- 工作页叙述经中心单写队列与 doc sync 版本围栏，不写 scratch 巡检日志。",
-    ].join("\n");
+export function livingDeliverableProtocol(profileId: string | null | undefined, taskClass?: string): string | null {
+  if (taskClass === "work") return null;
   if (profileId === "lightweight") return null;
   return [
     "# Living Deliverable Protocol",
@@ -406,7 +393,7 @@ export function explicitPromptMission(
   prBodyPath: string | null = null,
   taskClass?: string,
 ): string {
-  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass, taskId ?? undefined),
+  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass),
     prProtocol = taskId === null ? null : prBodyDeliveryProtocol(prBodyPath);
   return [
     ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
@@ -448,7 +435,7 @@ export function deriveTaskMission(
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
-    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass, taskId),
+    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
     prProtocol = prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
     priorIteration = snapshot.task && snapshot.task.iteration > 0 ? snapshot.task.iteration - 1 : null,
     returnDocument =

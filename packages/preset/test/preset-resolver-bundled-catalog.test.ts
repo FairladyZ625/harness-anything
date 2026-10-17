@@ -372,7 +372,7 @@ for (const sample of [
       assert.deepEqual(preview.snapshot.profile.completionGateIds, sample.gates);
       assert.equal(
         sample.addedPath === null
-          ? preview.documents.length === 6
+          ? preview.documents.length === (sample.taskClass === "work" ? 5 : 6)
           : preview.documents.some(({ relativePath }) => relativePath === sample.addedPath),
         true,
       );

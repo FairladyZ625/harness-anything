@@ -234,14 +234,17 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       opId: "op-work",
     });
     assert.equal(work.event.payload.task.taskClass, "work");
-    const workExplainer = work.documents.find(({ slot }) => slot === "task.explainer")!.body;
-    for (const section of ["now", "asks", "board", "risks", "next", "timeline"])
-      assert.ok(workExplainer.includes(`id="${section}"`), `work section ${section}`);
-    assert.match(workExplainer, /W2/u);
-    assert.match(workExplainer, /工作根 progress/u);
+    assert.equal(
+      work.documents.some(({ slot }) => slot === "task.explainer"),
+      false,
+    );
+    assert.equal(
+      work.event.payload.initialDocumentClaims.some(({ path: documentPath }) =>
+        documentPath.endsWith("/artifacts/explainer.html"),
+      ),
+      false,
+    );
     assert.doesNotMatch(explainer, /id="board"/u);
-    writeFileSync(path.join(rootDir, "work-explainer.html"), workExplainer);
-
     assert.throws(
       () =>
         compileTaskPackage({
@@ -274,7 +277,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     );
 
     assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
-    assert.equal(work.event.payload.initialDocumentClaims.length, 6);
+    assert.equal(work.event.payload.initialDocumentClaims.length, 5);
     assert.equal(
       work.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
       false,

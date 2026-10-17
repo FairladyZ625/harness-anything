@@ -36,10 +36,7 @@ export default {
     // intentionally retained so the user can retry. Once acknowledged the row
     // has no actions.
     const removedText = await a.innerText();
-    assert.equal(
-      await a.getByTestId("device-remove-device-a").count(),
-      /待生效|Pending/u.test(removedText) ? 1 : 0,
-    );
+    assert.equal(await a.getByTestId("device-remove-device-a").count(), /待生效|Pending/u.test(removedText) ? 1 : 0);
     await page.getByTestId("devices-logout-all").click();
     await page.getByTestId("device-confirm").click();
     await page

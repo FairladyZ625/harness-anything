@@ -142,6 +142,38 @@ export function workShowFromProjection(projection: TaskProjection, input: { read
   };
 }
 
+/** Render the owner-facing work page from the same projection cut as work show. */
+export function renderWorkExplainer(projection: TaskProjection, taskId: string): string {
+  const payload = workShowFromProjection(projection, { taskId }),
+    root = payload.root,
+    open = payload.openTasks,
+    goal = payload.goal ?? "No goal has been recorded in task_plan.md.",
+    groups = payload.groups,
+    counts = payload.counts;
+  return `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(root.title)} | Work</title><style>body{margin:0;padding:24px;background:#faf7f0;color:#3d3833;font:16px/1.55 system-ui,sans-serif}main{max-width:1100px;margin:auto}header,section{border-top:1px solid #d8d0c4;padding:20px 0}h1{font-size:2rem;margin:0}h2{font-size:1.2rem}table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:8px;border-bottom:1px solid #d8d0c4}small{color:#746e65}</style></head><body><main><header><h1>${escapeHtml(root.title)}</h1><p>${escapeHtml(workStatusSentence(root.status, counts, open.length))}</p><small>${escapeHtml(root.taskId)} · ${root.status} · ${payload.sourceRevision}</small></header><section id="goal"><h2>Goal</h2><p>${escapeHtml(goal)}</p></section><section id="board"><h2>Task groups</h2>${groups.length ? `<ul>${groups.map((row) => `<li>${escapeHtml(row.taskId)} · ${escapeHtml(row.status)} · ${escapeHtml(row.title)}</li>`).join("")}</ul>` : "<p>No task groups.</p>"}</section><section id="open-tasks"><h2>Open tasks (${open.length})</h2>${open.length ? `<ul>${open.map((row) => `<li>${escapeHtml(row.taskId)} · ${escapeHtml(row.status)} · ${escapeHtml(row.title)}</li>`).join("")}</ul>` : "<p>No open tasks.</p>"}</section><section id="counts"><h2>Leaf task counts</h2><table><tbody>${Object.entries(
+    counts,
+  )
+    .map(([status, count]) => `<tr><th>${escapeHtml(status)}</th><td>${count}</td></tr>`)
+    .join(
+      "",
+    )}</tbody></table></section><footer><small>Generated from the daemon work projection at revision ${payload.sourceRevision}.</small></footer></main></body></html>`;
+}
+
+function workStatusSentence(
+  status: TaskIndexProjectionRow["status"],
+  counts: WorkspaceScopeStatusCounts,
+  openCount: number,
+): string {
+  return `${status}: ${openCount} open tasks; ${counts.done} done, ${counts.blocked} blocked, ${counts.executing} executing.`;
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(
+    /[&<>"']/gu,
+    (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]!,
+  );
+}
+
 export function renderWorkPayload(payload: unknown): string | null {
   if (payload === null || typeof payload !== "object") return null;
   const record = payload as Record<string, unknown>;
