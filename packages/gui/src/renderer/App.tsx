@@ -392,7 +392,6 @@ function AppShell() {
     navigate,
     switchProject: setActiveRepoId,
     leaveProject: async () => {
-      // 终端页(若挂载)随切仓卸载,卸载清理自会停流并 detach 全部附件。
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
