@@ -36,6 +36,7 @@ function projectionRow(index: number, status = "done"): TaskListSuccess["rows"][
   return {
     taskId,
     createdAt: null,
+    completedAt: null,
     updatedAt: "2026-08-24T00:00:00.000Z",
     generation: "v1",
     snapshot: { task: { schema: "task/v2", taskId, title: `Task ${index}`, pinned: false, status } },

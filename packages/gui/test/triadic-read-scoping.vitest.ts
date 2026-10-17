@@ -24,6 +24,7 @@ function taskRow(taskId: string) {
     generation: "v1",
     workspaceRevision: 1,
     createdAt: AT,
+    completedAt: null,
     updatedAt: AT,
     packagePath: `tasks/${taskId}-probe`,
     coordinationStatus: "planned",
