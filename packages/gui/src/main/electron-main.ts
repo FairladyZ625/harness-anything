@@ -12,6 +12,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell 
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLoginWebviewSecurity } from "./login-webview-security.ts";
@@ -55,6 +56,8 @@ import {
   windowBackgroundColor,
 } from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
+import { DESKTOP_FIRST_RUN_UPDATED_CHANNEL, type DesktopSetupFailure } from "../api/first-run-contract.ts";
+import { desktopRuntimePaths, desktopFirstRunReport, runDesktopSetup } from "./desktop-first-run.ts";
 
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
@@ -380,6 +383,13 @@ export async function startGuiApp(): Promise<void> {
   );
   // Settings → 仓库与连接(PLT-EdgeGUI-W3):连接/仓库 admin 全部经本机 daemon RPC,GUI 零远程 transport。
   registerConnectionAdminIpc(ipcMain, { request: requestDaemonAdminRpc }, trustPolicy);
+  // 首启安装失败不再挡住窗口(评审 2026-10-17):每一步的失败记成 setupFailures,由引导屏
+  // 以「哪一步/为什么/怎么办」显示;窗口与 IPC 永远先于安装步骤存在。
+  let desktopSetupFailures: readonly DesktopSetupFailure[] = [];
+  const desktopStatusReport = async (): Promise<unknown> => ({
+    ...(await desktopFirstRunReport({ runtime: desktopRuntimePaths(process.resourcesPath, app.getAppPath()) })),
+    setupFailures: desktopSetupFailures,
+  });
   registerFirstRunIpcHandlers(
     ipcMain,
     {
@@ -391,6 +401,11 @@ export async function startGuiApp(): Promise<void> {
         return selected.canceled ? null : (selected.filePaths[0] ?? null);
       },
       bootstrap: (input) => bootstrapLocalRepository(input),
+      desktopStatus: () => desktopStatusReport(),
+      desktopSetup: async () => {
+        desktopSetupFailures = await prepareDesktopFirstRun();
+        return desktopStatusReport();
+      },
     },
     trustPolicy,
   );
@@ -400,6 +415,10 @@ export async function startGuiApp(): Promise<void> {
   projectWindows.newWindow(null);
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
+  });
+  // 窗口与 IPC 就绪后才跑首启安装;失败只进引导屏,任何一步出错都不会让 App 无窗口退出。
+  void prepareDesktopFirstRun().then((failures) => {
+    desktopSetupFailures = failures;
   });
 }
 
@@ -439,4 +458,15 @@ if (app.isPackaged || process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.te
   startGuiApp().catch((err) => {
     console.error("[FATAL] startGuiApp failed:", err);
   });
+}
+
+/** Install the user-owned CLI shim, PATH entry, and daemon service, then tell open windows to
+ *  refresh their guide screen. Per-step failures are returned, never thrown. */
+async function prepareDesktopFirstRun(): Promise<readonly DesktopSetupFailure[]> {
+  const runtime = desktopRuntimePaths(process.resourcesPath, app.getAppPath());
+  if (!existsSync(runtime.node) || !existsSync(runtime.cli) || !existsSync(runtime.daemon)) return [];
+  const failures = await runDesktopSetup({ runtime });
+  for (const browserWindow of BrowserWindow.getAllWindows())
+    if (!browserWindow.isDestroyed()) browserWindow.webContents.send(DESKTOP_FIRST_RUN_UPDATED_CHANNEL, null);
+  return failures;
 }
