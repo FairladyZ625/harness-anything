@@ -250,8 +250,8 @@ const todayElement = (patch: Partial<Parameters<typeof TodayView>[0]> = {}) =>
     agenda: seeded,
     agendaError: null,
     titles: new Map([
-      ["task_done_1", "刚交付的任务一"],
-      ["task_done_2", "刚交付的任务二"],
+      ["task/task_done_1", "刚交付的任务一"],
+      ["task/task_done_2", "刚交付的任务二"],
     ]),
     tasks: [
       { taskId: "task_done_1", snapshot: { task: { status: "done", title: "刚交付的任务一" } } },
@@ -306,6 +306,24 @@ describe("今天:三块区域与数字", () => {
       Date.parse("2026-10-17T09:00:00.000Z"),
     );
     expect(delivered.map(({ taskId }) => taskId)).toEqual(["task_recent_done"]);
+  });
+
+  it("老 daemon 的行缺 completedAt 字段(undefined)时不成「刚交付」行", () => {
+    // 老 daemon(origin/main 构建)下发的行没有 completedAt 键;没有权威完成时间
+    // 就不列(不在 GUI 里用 updatedAt 推断),也不能让 undefined 溜过 null 检查。
+    const rows = [
+      { taskId: "task_done_no_field", snapshot: { task: { status: "done", title: "缺字段" } } },
+      {
+        taskId: "task_done_real",
+        completedAt: "2026-10-17T08:00:00.000Z",
+        snapshot: { task: { status: "done", title: "有字段" } },
+      },
+    ];
+    const delivered = deliveredRows(
+      rows as unknown as TaskSnapshotProjectionRow[],
+      Date.parse("2026-10-17T09:00:00.000Z"),
+    );
+    expect(delivered.map(({ taskId }) => taskId)).toEqual(["task_done_real"]);
   });
 
   it("三块各一个数;等你处理的计数与议程页「需要关注」同数(两页同源)", async () => {
@@ -398,8 +416,8 @@ describe("今天:三块区域与数字", () => {
     const { container } = await mountToday(
       todayElement({
         titles: new Map([
-          ["task_done_1", "真实标题一"],
-          ["task_done_2", "真实标题二"],
+          ["task/task_done_1", "真实标题一"],
+          ["task/task_done_2", "真实标题二"],
         ]),
         tasks: [
           {
@@ -421,6 +439,33 @@ describe("今天:三块区域与数字", () => {
     expect(rows[1]!.textContent).toContain("真实标题二");
     expect(rows[1]!.textContent).not.toContain("真实标题一");
     expect(container.textContent).not.toContain("通用完成标题");
+  });
+
+  it("快照标题为空的完成行靠标题索引显示真实标题,不落「已完成的任务」占位", async () => {
+    const { container } = await mountToday(
+      todayElement({
+        titles: new Map([
+          ["task/task_done_1", "索引里的真实标题一"],
+          ["task/task_done_2", "索引里的真实标题二"],
+        ]),
+        tasks: [
+          {
+            taskId: "task_done_1",
+            completedAt: "2026-10-17T08:00:00.000Z",
+            snapshot: { task: { status: "done", title: "" } },
+          },
+          {
+            taskId: "task_done_2",
+            completedAt: "2026-10-17T06:30:00.000Z",
+            snapshot: { task: { status: "done", title: "" } },
+          },
+        ] as unknown as TaskSnapshotProjectionRow[],
+      }),
+    );
+    const rows = [...container.querySelectorAll('[data-testid^="today-delivered-row-"]')];
+    expect(rows[0]!.textContent).toContain("索引里的真实标题一");
+    expect(rows[1]!.textContent).toContain("索引里的真实标题二");
+    expect(container.textContent).not.toContain("已完成的任务");
   });
 });
 
@@ -453,7 +498,7 @@ describe("今天:行上的首要动作与下钻", () => {
     const opened: string[] = [];
     const { container } = await mountToday(
       todayElement({
-        titles: new Map([["task_done_1", "刚交付的任务一"]]),
+        titles: new Map([["task/task_done_1", "刚交付的任务一"]]),
         onOpenTask: (taskId) => opened.push(taskId),
       }),
     );

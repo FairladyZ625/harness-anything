@@ -220,7 +220,7 @@ export function TodayView({
                   <div key={row.key} data-testid={`today-delivered-row-${row.taskId}`}>
                     <DenseRow
                       tag={<StatusTag tone="done" label={t("views.today.deliveredKind")} />}
-                      title={titles.get(row.taskId) || row.title || t("views.today.deliveredUntitled")}
+                      title={titles.get(`task/${row.taskId}`) || row.title || t("views.today.deliveredUntitled")}
                       reason={row.summary ?? undefined}
                       hoverTitle={row.taskId}
                       time={<RowTime at={row.at} />}

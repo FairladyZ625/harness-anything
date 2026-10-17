@@ -1012,7 +1012,9 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
     !isRendererRecord(value) ||
     typeof value.taskId !== "string" ||
     (value.createdAt !== null && typeof value.createdAt !== "string") ||
-    (value.completedAt !== null && typeof value.completedAt !== "string") ||
+    // 老 daemon 下发的行没有 completedAt 字段(undefined):按「无完成时间」放行,
+    // 不让整个任务列表读失败(GUI 是 attach-only,新 GUI 会挂到旧构建 daemon)。
+    (value.completedAt != null && typeof value.completedAt !== "string") ||
     typeof value.updatedAt !== "string" ||
     (value.generation !== "v0" && value.generation !== "v1") ||
     !isRendererRecord(value.snapshot)

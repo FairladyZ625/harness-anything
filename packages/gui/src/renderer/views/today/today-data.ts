@@ -51,8 +51,17 @@ export function deliveredRows(rows: readonly TaskSnapshotProjectionRow[], now = 
   const since = now - 24 * 60 * 60 * 1000;
   return rows
     .flatMap((row) => {
-      const completedAt = row.completedAt;
-      if (row.snapshot.task?.status !== "done" || completedAt === null || Date.parse(completedAt) < since) return [];
+      // 老 daemon 的行不带 completedAt(字段缺失即 undefined):没有权威完成时间就不成
+      // 「刚交付」行,不在 GUI 里用 updatedAt 推断(任务书续跑三)。
+      const completedAt = typeof row.completedAt === "string" ? row.completedAt : null,
+        completedMs = completedAt === null ? Number.NaN : Date.parse(completedAt);
+      if (
+        row.snapshot.task?.status !== "done" ||
+        completedAt === null ||
+        !Number.isFinite(completedMs) ||
+        completedMs < since
+      )
+        return [];
       return [
         {
           key: row.taskId,
