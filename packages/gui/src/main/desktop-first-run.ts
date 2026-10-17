@@ -37,7 +37,17 @@ export function desktopRuntimePaths(
   return {
     node: runtime,
     cli: path.join(appRoot, "packages", "cli", "dist", "cli", "src", "index.js"),
-    daemon: path.join(resourcesPath, "app", "node_modules", "@harness-anything", "daemon", "dist", "bin.js"),
+    daemon: path.join(
+      resourcesPath,
+      "app",
+      "node_modules",
+      "@harness-anything",
+      "daemon",
+      "dist",
+      "daemon",
+      "src",
+      "bin.js",
+    ),
   };
 }
 
