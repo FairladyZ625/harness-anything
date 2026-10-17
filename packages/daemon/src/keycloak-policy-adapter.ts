@@ -554,6 +554,16 @@ export class KeycloakPolicyAdapter {
     });
   }
 
+  /** Rotate an existing node secret while preserving its owner and registration metadata. */
+  async rotateNodeCredential(adminAccessToken: string, node: KeycloakNode, secret: string): Promise<void> {
+    const current = await this.#nodeClient(adminAccessToken, node.nodeId);
+    if (!current) throw new Error(`Keycloak has no client for node ${node.nodeId}; it was removed.`);
+    await this.#request(adminAccessToken, `/clients/${current.id}`, {
+      method: "PUT",
+      body: JSON.stringify({ ...nodeClientBody(this.#config, node), secret }),
+    });
+  }
+
   /** Keep a disabled tombstone: removing a device never makes its id available for registration. */
   async deleteNode(adminAccessToken: string, nodeId: string): Promise<void> {
     const current = await this.#nodeClient(adminAccessToken, nodeId);

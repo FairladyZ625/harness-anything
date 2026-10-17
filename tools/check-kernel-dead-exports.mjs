@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { entryValues, loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
 const kernelEntry = "packages/kernel/src/index.ts";
@@ -81,9 +82,11 @@ function currentUtcDate() {
 }
 
 function collectConsumedKernelNames() {
-  const files = [...walk(path.join(root, "packages")), ...walk(path.join(root, "tools"))].filter(
-    (file) => !isTestOrFixturePath(relative(file)) && !relative(file).startsWith("packages/kernel/src/"),
-  );
+  const files = listWorktreeFiles(root, ["packages", "tools"])
+    .filter(
+      (rel) => sourceFilePattern.test(rel) && !isTestOrFixturePath(rel) && !rel.startsWith("packages/kernel/src/"),
+    )
+    .map((rel) => path.join(root, rel));
   const consumed = new Set();
 
   for (const file of files) {
@@ -100,32 +103,6 @@ function collectConsumedKernelNames() {
     }
   }
   return consumed;
-}
-
-function walk(dir) {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-
-  const files = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
-      files.push(...walk(full));
-    } else if (sourceFilePattern.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
-function relative(file) {
-  return path.relative(root, file).split(path.sep).join("/");
 }
 
 function isTestOrFixturePath(rel) {

@@ -10,6 +10,9 @@ export interface EdgeJoinInviteLink {
   readonly spkiSha256: string;
   readonly expiresAt: string;
   readonly token: string;
+  readonly loginUrl?: string;
+  readonly loginRealm?: string;
+  readonly loginClientId?: string;
 }
 export interface EdgeJoinInviteRecord extends EdgeJoinInviteLink {
   readonly createdAt: string;
@@ -33,6 +36,7 @@ export interface ConsumeEdgeJoinOptions {
   readonly link: string | EdgeJoinInviteLink;
   readonly loginPersonId: string;
   readonly observedSpkiSha256: string;
+  readonly allowSamePersonRetry?: boolean;
 }
 
 const LINK_PREFIX = "harness-edge://join/";
@@ -95,6 +99,9 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         spkiSha256: input.spkiSha256,
         expiresAt: new Date(Date.parse(createdAt) + input.ttlMs).toISOString(),
         token: token(),
+        ...(input.loginUrl ? { loginUrl: input.loginUrl } : {}),
+        ...(input.loginRealm ? { loginRealm: input.loginRealm } : {}),
+        ...(input.loginClientId ? { loginClientId: input.loginClientId } : {}),
       };
       records.set(link.inviteId, { ...link, createdAt, consumedAt: null });
       options.onChange?.(records.get(link.inviteId)!);
@@ -108,10 +115,12 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
       if (record.spkiSha256 !== input.observedSpkiSha256)
         throw new EdgeJoinError("pin_mismatch", "The center certificate fingerprint does not match the invitation.");
       if (status(record) === "expired") throw new EdgeJoinError("expired", "The edge join invitation has expired.");
-      if (status(record) === "consumed")
-        throw new EdgeJoinError("already_consumed", "The edge join invitation was already consumed.");
       if (record.personId !== input.loginPersonId)
         throw new EdgeJoinError("person_mismatch", "The signed-in person does not match the invitation.");
+      if (status(record) === "consumed") {
+        if (input.allowSamePersonRetry) return clone(record);
+        throw new EdgeJoinError("already_consumed", "The edge join invitation was already consumed.");
+      }
       const consumed = { ...record, consumedAt: now() };
       records.set(record.inviteId, consumed);
       options.onChange?.(consumed);
@@ -128,6 +137,10 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         expiresAt: record.expiresAt,
         consumedAt: record.consumedAt,
       };
+    },
+    findByToken(tokenValue: string): EdgeJoinInviteRecord | undefined {
+      for (const record of records.values()) if (record.token === tokenValue) return clone(record);
+      return undefined;
     },
   };
 }

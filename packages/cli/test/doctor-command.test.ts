@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { doctorInvocation, extractDoctorCommands, runDoctor } from "../src/cli/thin-command-doctor.ts";
-import { renderDoctorHealth } from "../src/cli/thin-command-doctor-health.ts";
+import { detectCliSource, renderDoctorHealth } from "../src/cli/thin-command-doctor-health.ts";
 import { emit, main } from "../src/index.ts";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -153,6 +153,15 @@ test("ha doctor defaults to health mode and keeps commands mode explicit", () =>
   assert.ok(commands.ok);
   if (commands.ok) assert.equal(commands.mode, "commands");
   assert.equal(doctorInvocation(["doctor", "bogus"]).ok, false);
+});
+
+test("doctor identifies an App entry and preserves another PATH candidate", () => {
+  const report = detectCliSource(
+    { PATH: "/usr/local/bin:/Users/test/Library/Application Support/Harness Anything/bin" },
+    ["node", "/Applications/Harness Anything.app/Contents/Resources/app/packages/cli/dist/cli/src/index.js"],
+  );
+  assert.equal(report.source, "app");
+  assert.equal(report.other, null);
 });
 
 test("ha doctor commands exits 0 with the ok line on a clean fixture and 1 with findings", async () => {

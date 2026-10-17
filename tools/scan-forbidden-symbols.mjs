@@ -1,9 +1,9 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { loadGateAllowlist, patternEntries } from "./gate-allowlists/load-gate-allowlist.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
-const scannedRoots = [path.join(root, "packages")];
 const sourceFile = /\.(?:ts|mts|js|mjs)$/;
 const allowlist = loadGateAllowlist("scan-forbidden-symbols", {
   requiredSections: ["forbiddenSymbols"],
@@ -11,43 +11,14 @@ const allowlist = loadGateAllowlist("scan-forbidden-symbols", {
 const forbidden = patternEntries(allowlist.forbiddenSymbols);
 const violations = [];
 
-async function walk(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-
-  const files = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (
-        entry.name === "node_modules" ||
-        entry.name === "dist" ||
-        entry.name === "out" ||
-        entry.name === "build-resources"
-      )
-        continue;
-      files.push(...(await walk(full)));
-    } else if (sourceFile.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
-}
-
-function relative(file) {
-  return path.relative(root, file).split(path.sep).join("/");
-}
-
-for (const sourceRoot of scannedRoots) {
-  const files = await walk(sourceRoot);
-  if (files.length === 0) throw new Error("scan-forbidden-symbols: required scan root packages has no source files");
-  for (const file of files) {
-    const text = await readFile(file, "utf8");
-    const filePath = relative(file);
-    for (const { label, pattern, includePathPattern } of forbidden) {
-      if (includePathPattern && !includePathPattern.test(filePath)) continue;
-      if (pattern.test(text)) {
-        violations.push(`${filePath}: forbidden symbol ${label}`);
-      }
+const files = listWorktreeFiles(root, ["packages"]).filter((file) => sourceFile.test(file));
+if (files.length === 0) throw new Error("scan-forbidden-symbols: required scan root packages has no source files");
+for (const filePath of files) {
+  const text = await readFile(path.join(root, filePath), "utf8");
+  for (const { label, pattern, includePathPattern } of forbidden) {
+    if (includePathPattern && !includePathPattern.test(filePath)) continue;
+    if (pattern.test(text)) {
+      violations.push(`${filePath}: forbidden symbol ${label}`);
     }
   }
 }

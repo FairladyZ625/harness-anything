@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { loadGateAllowlist } from "./gate-allowlists/load-gate-allowlist.mjs";
 import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const gateId = "check-bypass-write-boundary";
 
@@ -232,13 +233,8 @@ function visit(node, fn) {
 }
 
 function walkTypeScriptFiles(root, relRoot) {
-  const absRoot = path.join(root, relRoot);
-  if (!existsSync(absRoot)) throw new Error(`required scan root is missing: ${relRoot}`);
-  return ts.sys
-    .readDirectory(absRoot, [".ts"], undefined, undefined)
-    .filter((entry) => statSync(entry).isFile() && !entry.endsWith(".d.ts"))
-    .map((entry) => path.relative(root, entry).split(path.sep).join("/"))
-    .sort();
+  if (!existsSync(path.join(root, relRoot))) throw new Error(`required scan root is missing: ${relRoot}`);
+  return listWorktreeFiles(root, [relRoot]).filter((entry) => entry.endsWith(".ts") && !entry.endsWith(".d.ts"));
 }
 
 function main() {

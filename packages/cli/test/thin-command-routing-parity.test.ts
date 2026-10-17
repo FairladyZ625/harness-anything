@@ -462,6 +462,7 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "doc-sync-submit",
     ],
     doctor: ["doctor", "doctor-health"],
+    edge: ["edge-join"],
     entity: ["entity-archive", "entity-delete", "entity-get", "entity-import", "entity-list", "entity-update"],
     event: ["event-list", "event-show"],
     explain: ["explain"],
@@ -972,7 +973,17 @@ test("work create, list, and show route to the task-create and work read actions
   assert.equal(parseThinCommand(["work", "show"]).ok, false);
   assert.equal(parseThinCommand(["task", "create", "--title", "slice", "--parent", "task-root"]).ok, false);
   assert.equal(parseThinCommand(["subtask", "create", "--parent", "task-root", "--title", "slice"]).ok, false);
-  const work = parseThinCommand(["work", "create", "--title", "Release 2", "--locale", "zh-CN", "--dry-run"]),
+  const work = parseThinCommand([
+      "work",
+      "create",
+      "--title",
+      "Release 2",
+      "--locale",
+      "zh-CN",
+      "--plan-file",
+      "work-plan.md",
+      "--dry-run",
+    ]),
     member = parseThinCommand(["task", "create", "--work", "task-root", "--title", "slice one"]),
     list = parseThinCommand(["work", "list", "--all", "--limit", "5"]),
     show = parseThinCommand(["work", "show", "task-root"]);
@@ -985,6 +996,8 @@ test("work create, list, and show route to the task-create and work read actions
       locale: "zh-CN",
       presetId: "create-work",
       taskClass: "work",
+      planFile: "work-plan.md",
+      requirePlan: true,
       dryRun: true,
     });
   }

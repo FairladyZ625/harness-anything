@@ -516,12 +516,12 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
     snapshot = projection.read(active.task.taskId).snapshot,
     submission = snapshot.executions.find(
       (execution) => execution.executionId === active.task?.executionId,
-    )?.submission,
-    outputShape = taskOutputShape(snapshot.task, presetSnapshotReader(projection));
+    )?.submission;
+  // Submission is the accepted delivery witness. The submit boundary already validates the
+  // preset contract and durably records the accepted submission; settlement must not derive its
+  // meaning again from outputShape or require a commitSha.
   if (!submission) return false;
-  if (outputShape === "repository-diff") return submission.commitSha !== null;
-  if (outputShape === "task-package-artifact") return (submission.artifacts?.length ?? 0) > 0;
-  return false;
+  return true;
 }
 
 export function runtimeResultText(

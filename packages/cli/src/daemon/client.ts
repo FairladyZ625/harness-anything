@@ -175,7 +175,12 @@ export async function runCommandThroughDaemon(
         socketPath,
         daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
       );
-    const receipt = await request();
+    let receipt = await request();
+    if (params.operation === "edge-join" && receipt.pending === true) {
+      const signedIn = await awaitDeviceLogin(receipt, request, onPhase);
+      if (signedIn.ok === false || signedIn.pending === true) return signedIn;
+      receipt = await request();
+    }
     if (command.action.kind !== "rbac-bootstrap" || params.operation !== "login" || receipt.ok === false)
       return receipt;
     return awaitDeviceLogin(receipt, request, onPhase);

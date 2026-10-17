@@ -2,8 +2,9 @@ import { existsSync, readFileSync, statSync } from "node:fs";
 import path from "node:path";
 import { lookup } from "node:dns/promises";
 import { createSecureContext } from "node:tls";
+import { readDaemonRegistry } from "@harness-anything/kernel";
 import { listenFleetTls, type FleetTlsCenter } from "./fleet/center.ts";
-import type { FleetCenterOptions } from "./fleet/center-types.ts";
+import type { EdgeJoinAdmission, FleetCenterOptions } from "./fleet/center-types.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import type { KeycloakCenterAuthority } from "./transport/auth-context.ts";
 import { readReplicaGeneration, revokeReplicaView } from "./fleet/replica-generation.ts";
@@ -13,6 +14,7 @@ import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -45,7 +47,11 @@ export interface FleetCenterAdmissionRequest {
   readonly nodes: Pick<
     FleetCenterOptions,
     "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice" | "revokeDeviceSessions"
-  >;
+  > & {
+    readonly edgeJoin?: (
+      input: Parameters<NonNullable<FleetCenterOptions["edgeJoin"]>>[0],
+    ) => Promise<Omit<EdgeJoinAdmission, "repoId" | "harnessYaml">>;
+  };
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {
     readonly port: number;
@@ -83,7 +89,9 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
   const key = material(request.keyPath, "--key"),
     cert = material(request.certPath, "--cert");
   createSecureContext({ key, cert });
-  await lookup(request.bind ?? "127.0.0.1");
+  const bind = request.bind ?? "127.0.0.1";
+  await lookup(bind);
+  validateCertificateNames(cert, [bind]);
   return {
     host: input.host,
     buildDraining: input.buildDraining,
@@ -96,13 +104,40 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
     hostname: request.bind,
     port: request.port,
     replicaDiskQuotaBytes: request.quotaBytes,
-    ...input.nodes,
+    ...withoutEdgeJoin(input.nodes),
+    ...(input.nodes.edgeJoin ? { edgeJoin: edgeJoinFor(input, input.nodes.edgeJoin) } : {}),
+  };
+}
+function withoutEdgeJoin<T extends { readonly edgeJoin?: unknown }>(nodes: T): Omit<T, "edgeJoin"> {
+  const { edgeJoin: _edgeJoin, ...rest } = nodes;
+  return rest;
+}
+/** An edge joins the authority repository; its layout file is public and lets the edge register the mirror. */
+function edgeJoinFor(
+  input: FleetCenterAdmissionRequest,
+  admit: NonNullable<FleetCenterAdmissionRequest["nodes"]["edgeJoin"]>,
+): NonNullable<FleetCenterOptions["edgeJoin"]> {
+  return async (join) => {
+    const admitted = await admit(join),
+      authority = readDaemonRegistry({ userRoot: input.userRoot }).repos.find(
+        (repo) => repo.repoId === input.payload.repoId && repo.canonicalRoot !== null,
+      );
+    if (!authority?.canonicalRoot) throw new Error("Fleet center authority repository is not registered.");
+    return {
+      ...admitted,
+      repoId: input.payload.repoId,
+      harnessYaml: readFileSync(path.join(authority.canonicalRoot, "harness", "harness.yaml"), "utf8"),
+    };
   };
 }
 export async function startFleetCenterAdmission(
   options: FleetCenterOptions,
 ): Promise<{ readonly center: FleetTlsCenter; readonly stateRoot: string }> {
-  return { center: await listenFleetTls(options), stateRoot: options.stateRoot };
+  try {
+    return { center: await listenFleetTls(options), stateRoot: options.stateRoot };
+  } catch (error) {
+    throw mapListenerBindError(error);
+  }
 }
 export interface FleetEdgeSyncRequest {
   readonly payload: {

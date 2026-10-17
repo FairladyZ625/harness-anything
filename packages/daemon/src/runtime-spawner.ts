@@ -742,6 +742,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         installationOpId,
         binding,
       );
+      // The predecessor's fallback link must land before this dispatch becomes readable: the
+      // event below projects the successor row, and no read may see that row while the
+      // predecessor stream still says scheduled. A publish that fails after the link settles
+      // exhausted in the continuation's catch instead of dangling on an unpublished dispatch.
+      onDispatched?.(newDispatchId, runtimeSessionId);
       requested = await publishRuntimeEvent(
         "runtime_dispatch_requested",
         runtimeDispatchRequestedPayload(
@@ -788,7 +793,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           executionId: taskBinding?.executionId ?? null,
         },
       );
-      onDispatched?.(newDispatchId, runtimeSessionId);
     } catch (error) {
       await cleanupFailedLaunch(error);
       throw error;

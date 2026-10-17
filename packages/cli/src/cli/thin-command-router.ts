@@ -37,6 +37,10 @@ function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>):
 
 // Routes whose argv shape needs a dedicated parser, keyed by command id.
 const dedicatedRouteParsers = new Map<string, RoutedParser>([
+  [
+    "edge-join",
+    (route, args, rootDir, _repoId, json, inputs) => parseEdgeJoin(args, rootDir, json, inputs, route.method),
+  ],
   ["rbac-bootstrap", (_route, args, rootDir, _repoId, json, inputs) => parseRbacBootstrap(args, rootDir, json, inputs)],
   [
     "repo-bootstrap",
@@ -46,6 +50,33 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["work-show", parseWorkRead],
   ["agent-retire", parseAgentRetire],
 ]);
+
+function parseEdgeJoin(
+  args: readonly string[],
+  rootDir: SafePath,
+  json: boolean,
+  inputs: ThinCliInputDirectory,
+  method: string,
+): ThinParseResult {
+  const link = args[2];
+  if (!nonEmpty(link) || link.startsWith("--"))
+    return rejected("missing_field", "Use ha edge join <invite-link>.", json);
+  const flags = readFlags("edge-join", args.slice(3), inputs);
+  if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
+  return accepted(
+    rootDir,
+    undefined,
+    json,
+    {
+      kind: "rbac-bootstrap",
+      operation: "edge-join",
+      link,
+      ...(flags.one.get("--repo-id") ? { repoId: flags.one.get("--repo-id") } : {}),
+      ...(flags.one.get("--root") ? { workspaceRoot: path.resolve(flags.one.get("--root")!) } : {}),
+    },
+    method,
+  );
+}
 
 function parseRbacBootstrap(
   args: readonly string[],

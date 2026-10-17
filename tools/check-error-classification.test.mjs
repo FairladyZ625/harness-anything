@@ -1,5 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -56,8 +57,20 @@ test("error classification gate allows typed error classification", () => {
   });
 });
 
+// The gate enumerates through git, so fixture roots must be repositories; the
+// local excludesFile pin keeps the host user's global ignores out of the test.
+function makeGateRoot(prefix) {
+  const rootDir = mkdtempSync(path.join(tmpdir(), prefix));
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    execFileSync("git", args, { cwd: rootDir });
+  return rootDir;
+}
+
 function withTempRoot(fn) {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-error-gate-"));
+  const rootDir = makeGateRoot("ha-error-gate-");
   try {
     fn(rootDir);
   } finally {
@@ -66,18 +79,13 @@ function withTempRoot(fn) {
 }
 
 import { spawnSync as runGate } from "node:child_process";
-import {
-  mkdtempSync as makeGateRoot,
-  mkdirSync as makeGateDir,
-  writeFileSync as writeGateFile,
-  rmSync as removeGateRoot,
-} from "node:fs";
+import { mkdirSync as makeGateDir, writeFileSync as writeGateFile, rmSync as removeGateRoot } from "node:fs";
 
 const requiredScanRoots = ["packages/cli/src", "packages/kernel/src", "packages/adapters"];
 for (const omitted of requiredScanRoots) {
   for (const state of ["missing", "empty", "excluded-only"]) {
     test(`check-error-classification rejects ${state} required scan root ${omitted}`, () => {
-      const root = makeGateRoot(path.join(tmpdir(), "ha-gate-discovery-"));
+      const root = makeGateRoot("ha-gate-discovery-");
       try {
         for (const scanRoot of requiredScanRoots) {
           if (scanRoot === omitted && state === "missing") continue;
@@ -86,6 +94,7 @@ for (const omitted of requiredScanRoots) {
           if (scanRoot === omitted && state === "excluded-only") {
             makeGateDir(path.join(root, scanRoot, "dist"), { recursive: true });
             writeGateFile(path.join(root, scanRoot, "dist/ignored.ts"), "export const ignored = true;\n");
+            writeGateFile(path.join(root, ".gitignore"), "dist/\n");
           }
         }
         const result = runGate(

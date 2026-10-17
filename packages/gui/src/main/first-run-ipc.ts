@@ -4,6 +4,8 @@ import type { IpcMainInvokeEvent } from "electron";
 import {
   FIRST_RUN_BOOTSTRAP_CHANNEL,
   FIRST_RUN_CHOOSE_CHANNEL,
+  DESKTOP_FIRST_RUN_STATUS_CHANNEL,
+  DESKTOP_FIRST_RUN_SETUP_CHANNEL,
   type FirstRunBootstrapInput,
 } from "../api/first-run-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
@@ -19,6 +21,8 @@ interface FirstRunRegistrar {
 export interface FirstRunServices {
   readonly chooseRepository: () => Promise<string | null>;
   readonly bootstrap: (input: FirstRunBootstrapInput) => Promise<unknown>;
+  readonly desktopStatus?: () => Promise<unknown>;
+  readonly desktopSetup?: () => Promise<unknown>;
 }
 
 export function registerFirstRunIpcHandlers(
@@ -32,6 +36,18 @@ export function registerFirstRunIpcHandlers(
       throw new Error("First-run directory selection does not accept a payload.");
     return services.chooseRepository();
   });
+  if (services.desktopStatus)
+    registrar.handle(DESKTOP_FIRST_RUN_STATUS_CHANNEL, async (event, payload) => {
+      assertTrustedIpcSender(event, trustPolicy);
+      if (payload !== null && payload !== undefined) throw new Error("Desktop status does not accept a payload.");
+      return services.desktopStatus!();
+    });
+  if (services.desktopSetup)
+    registrar.handle(DESKTOP_FIRST_RUN_SETUP_CHANNEL, async (event, payload) => {
+      assertTrustedIpcSender(event, trustPolicy);
+      if (payload !== null && payload !== undefined) throw new Error("Desktop setup does not accept a payload.");
+      return services.desktopSetup!();
+    });
   registrar.handle(FIRST_RUN_BOOTSTRAP_CHANNEL, async (event, payload) => {
     assertTrustedIpcSender(event, trustPolicy);
     return services.bootstrap(validateFirstRunBootstrapInput(payload));

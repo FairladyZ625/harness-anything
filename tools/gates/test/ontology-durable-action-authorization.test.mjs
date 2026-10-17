@@ -5,13 +5,25 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { auditDurableActionAuthorization, main } from "../ontology-durable-action-authorization.mjs";
-import { captureGate, writeRepoFile } from "./helpers.mjs";
+import { captureGate, runGit, writeRepoFile } from "./helpers.mjs";
 
 const repoRoot = path.resolve(import.meta.dirname, "../../..");
 
+// The gate enumerates through git, so fixture roots must be repositories; the
+// local excludesFile pin keeps the host user's global ignores out of the test.
+function makeGateRoot(prefix) {
+  const rootDir = mkdtempSync(path.join(tmpdir(), prefix));
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    runGit(rootDir, args);
+  return rootDir;
+}
+
 test("G0-2 reports the base advisory and names an action whose AuthorizationPort call is removed", (t) => {
   assert.equal(captureGate(() => main(["--root", repoRoot])).code, 0);
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ontology-action-authorization-"));
+  const rootDir = makeGateRoot("ontology-action-authorization-");
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const actionFixture = path.join(rootDir, "durable-actions.json");
   writeRepoFile(rootDir, "durable-actions.json", '["durable-write"]\n');
@@ -64,7 +76,7 @@ const retiredHostKinds = [
 
 // Independent production snapshots: mutate the implementation, never the checker's expectations.
 function hostSnapshot(t) {
-  const root = mkdtempSync(path.join(tmpdir(), "ontology-host-authorization-"));
+  const root = makeGateRoot("ontology-host-authorization-");
   t.after(() => rmSync(root, { recursive: true, force: true }));
   for (const directory of ["packages/daemon/src", "packages/application/src"])
     cpSync(path.join(repoRoot, directory), path.join(root, directory), { recursive: true });

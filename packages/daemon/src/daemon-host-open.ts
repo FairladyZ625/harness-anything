@@ -27,6 +27,7 @@ import {
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { joinFleetEdge } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
@@ -632,6 +633,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
     };
   };
+  const accessAdminRef: { current: AccessAdminService | null } = { current: null };
   const hostContext: DaemonHostApiContext = {
     remoteProxy,
     cells,
@@ -644,6 +646,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakCenter,
     keycloakSession,
     oidc,
+    get accessAdmin() {
+      return accessAdminRef.current!;
+    },
     writerEpochFence,
     writerEpochLease,
     writerEpochHighWatermark,
@@ -714,13 +719,14 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
-  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot),
-    // A node removal settles in the access-admin queue; the fleet center owns that node's
-    // live TLS sessions, so the settled cut is handed from one to the other here.
-    accessAdmin = new AccessAdminService(oidc, input.userRoot, {
-      onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
-    }),
-    lifecycle = createDaemonHostLifecycleApi(hostContext);
+  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot);
+  // A node removal settles in the access-admin queue; the fleet center owns the node's
+  // live TLS sessions, so the settled cut is handed from one to the other here.
+  const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
+    onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
+  });
+  accessAdminRef.current = accessAdmin;
+  const lifecycle = createDaemonHostLifecycleApi(hostContext);
   // The resume failure is recorded, not surfaced: a center that cannot come back still fails
   // every consultation honestly through oidc.center(), without a second error shape.
   rbacResumed = managedRbac.resume().catch((error: unknown) =>
@@ -745,6 +751,20 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     manageRbac: (request, auth) => {
       localOnly(auth);
       return (async () => {
+        if (request.operation === "edge-join")
+          return joinFleetEdge(
+            {
+              link: String(request.link ?? ""),
+              ...(request.workspaceRoot ? { workspaceRoot: request.workspaceRoot } : {}),
+            },
+            {
+              session: async () => (await oidc.bind(auth)).oidcPrincipal,
+              beginLogin: (authority) => oidc.beginDevice(undefined, authority),
+              register: (rootDir, repoId) =>
+                host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
+              sync: (payload) => host.fleet.edgeSync(payload, auth),
+            },
+          );
         if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));
         const loginTarget =
           request.rootDir ??
@@ -762,7 +782,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
           return oidc
             .bindingHealth(loginTarget)
             .then((health) => (request.operation === "bootstrap-status" ? { ...health, required: false } : health));
-        if (request.operation === "login") return oidc.beginDevice(loginTarget);
+        if (request.operation === "login")
+          return oidc.beginDevice(
+            loginTarget,
+            request.loginUrl && request.loginRealm && request.loginClientId
+              ? { url: request.loginUrl, realm: request.loginRealm, clientId: request.loginClientId }
+              : undefined,
+          );
         if (request.operation === "login-poll") return oidc.pollDevice();
         if (request.operation === "login-begin") {
           if (!request.redirectUri) throw hostCodedError("oidc_redirect_required", "Login requires redirectUri.");
@@ -933,6 +959,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             revokeDeviceSessions: (nodeId) => oidc.revokeDeviceSessions(nodeId),
             deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),
             verifyHuman: (auth) => oidc.bind(auth),
+            edgeJoin: (input) =>
+              accessAdmin.admitEdgeJoin({
+                inviteToken: input.inviteToken,
+                nodeId: input.nodeId,
+                accessToken: input.accessToken ?? "",
+              }),
           },
         }),
       );

@@ -312,6 +312,7 @@ export const presetCommands = Object.freeze([
           "--slug",
           "--locale",
           "--idempotency-key",
+          "--plan-file",
           "--dry-run",
         ].includes(name),
       ),

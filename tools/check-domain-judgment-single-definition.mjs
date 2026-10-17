@@ -4,9 +4,10 @@
  * Authority: dec_399F48E3547D831F1199F51E84 CH1 and the DDD blueprint;
  * dec_6B963E9B83AE4AC73FB0A61E81 CH2 for the projected fact `invalidated` field.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const judgments = Object.freeze([
   {
@@ -73,16 +74,21 @@ const requiredConsumers = new Map([
 
 export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
   const findings = [],
-    files = walk(root, path.join(root, "packages"));
+    files = listWorktreeFiles(root, ["packages"]).filter(
+      (rel) =>
+        /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(rel) &&
+        !/(?:^|\/)(?:test|tests|fixtures)\//u.test(rel) &&
+        !/\.(?:test|spec|vitest)\.[cm]?[jt]sx?$/u.test(rel),
+    );
   for (const judgment of judgments) {
     const definition =
         judgment.declaration === "function"
           ? new RegExp(`(?:export\\s+)?function\\s+${judgment.symbol}\\s*\\(`, "gu")
           : new RegExp(`(?:export\\s+)?const\\s+${judgment.symbol}(?:\\s*:[^=]+)?\\s*=`, "gu"),
       hits = [];
-    for (const file of files) {
-      const count = [...readFileSync(file, "utf8").matchAll(definition)].length;
-      for (let index = 0; index < count; index += 1) hits.push(relative(root, file));
+    for (const rel of files) {
+      const count = [...readFileSync(path.join(root, rel), "utf8").matchAll(definition)].length;
+      for (let index = 0; index < count; index += 1) hits.push(rel);
     }
     if (hits.length !== 1 || hits[0] !== judgment.canonical)
       findings.push(
@@ -96,8 +102,8 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
     if (!body.includes(call)) findings.push(`${file}: must consume named domain judgment ${call.slice(0, -1)}`);
   }
   const projectionBodies = files
-    .filter((file) => /packages\/kernel\/src\/projection\//u.test(relative(root, file)))
-    .map((file) => [relative(root, file), readFileSync(file, "utf8")]);
+    .filter((file) => /packages\/kernel\/src\/projection\//u.test(file))
+    .map((file) => [file, readFileSync(path.join(root, file), "utf8")]);
   for (const [file, body] of projectionBodies) {
     if (/(?:EXISTS|NOT\s+EXISTS)[\s\S]{0,240}supersedes-fact/iu.test(body))
       findings.push(`${file}: SQL infers Fact liveness instead of calling factLiveness`);
@@ -105,8 +111,8 @@ export function checkDomainJudgmentSingleDefinition(root = process.cwd()) {
       findings.push(`${file}: carries a second Decision coverage algorithm`);
   }
   const guiBodies = files
-    .filter((file) => /^packages\/gui\//u.test(relative(root, file)))
-    .map((file) => [relative(root, file), readFileSync(file, "utf8")]);
+    .filter((file) => /^packages\/gui\//u.test(file))
+    .map((file) => [file, readFileSync(path.join(root, file), "utf8")]);
   const taskAdapter = read(root, "packages/gui/src/renderer/task-adapter.ts"),
     triadic = read(root, "packages/gui/src/renderer/triadic-data.ts"),
     guiTriadic = read(root, "packages/gui/src/renderer/model/triadic.ts");
@@ -143,31 +149,6 @@ function read(root, rel) {
     return "";
   }
 }
-function relative(root, file) {
-  return path.relative(root, file).split(path.sep).join("/");
-}
-function walk(root, dir) {
-  const files = [];
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return files;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!["node_modules", "dist", "out"].includes(entry.name)) files.push(...walk(root, full));
-    } else if (
-      /\.(?:ts|tsx|mts|js|jsx|mjs)$/u.test(entry.name) &&
-      !/(?:^|\/)(?:test|tests|fixtures)\//u.test(relative(root, full)) &&
-      !/\.(?:test|spec|vitest)\.[cm]?[jt]sx?$/u.test(entry.name)
-    )
-      files.push(full);
-  }
-  return files;
-}
-
 async function main() {
   const findings = checkDomainJudgmentSingleDefinition();
   if (findings.length) {

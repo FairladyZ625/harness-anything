@@ -66,7 +66,10 @@ export function taskCreateAction(rootDir: string, action: RepoTaskAction): RepoT
   const fromFile = typeof action.fromFile === "string",
     jsonInput = typeof action.jsonInput === "string";
   const unsupported = Object.keys(action).filter(
-    (field) => !["kind", "fromFile", "jsonInput", "dryRun", "planFile", "plan", ...taskCreateFields].includes(field),
+    (field) =>
+      !["kind", "fromFile", "jsonInput", "dryRun", "planFile", "plan", "requirePlan", ...taskCreateFields].includes(
+        field,
+      ),
   );
   if (unsupported.length)
     throw cellCodedError("invalid_command", `Remove unsupported task create fields: ${unsupported.join(", ")}.`);

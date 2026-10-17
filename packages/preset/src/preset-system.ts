@@ -285,6 +285,7 @@ function taskPackageFields(
   | "slug"
   | "surfaces"
   | "reviewReturnBudget"
+  | "requirePlan"
   | "plan"
 > {
   const reviewReturnBudget = optionalReviewReturnBudget(action.reviewReturnBudget);
@@ -299,6 +300,7 @@ function taskPackageFields(
     ...(optionalActionText(action.slug) ? { slug: optionalActionText(action.slug)! } : {}),
     ...(Array.isArray(action.surfaces) ? { surfaces: action.surfaces.map((value) => required(value, "surface")) } : {}),
     ...(reviewReturnBudget === undefined ? {} : { reviewReturnBudget }),
+    ...(action.requirePlan === true ? { requirePlan: true } : {}),
     ...(optionalActionText(action.plan) ? { plan: optionalActionText(action.plan)! } : {}),
   };
 }

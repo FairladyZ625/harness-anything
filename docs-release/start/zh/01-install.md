@@ -107,4 +107,4 @@ checkout。只有明确要删除 daemon registry 与 cache state 时才删除 `~
   operator shell 重新运行 `ha gui`；已经打开的 GUI 不会 respawn daemon。
 - **未检测到 Provider**——安装对应 CLI，确认它在 shell `PATH` 上，再刷新 Provider discovery。
 
-下一步：**[你的第一个循环](02-first-loop.md)**
+下一步：**[安装并加入边缘节点](02-edge-join.md)**，然后阅读[你的第一个循环](02-first-loop.md)。

@@ -46,7 +46,7 @@ export function parseTaskCreate(
       ...(id ? { createMode: modes[0] } : {}),
       ...forwarded,
       // `ha work create` is task-create fixed to the create-work preset and the declared work class.
-      ...(route.id === "work-create" ? { presetId: "create-work", taskClass: "work" } : {}),
+      ...(route.id === "work-create" ? { presetId: "create-work", taskClass: "work", requirePlan: true } : {}),
       ...(f.many.get("--surface")?.length ? { surfaces: f.many.get("--surface") } : {}),
       ...(f.booleans.has("--dry-run") ? { dryRun: true } : {}),
     },

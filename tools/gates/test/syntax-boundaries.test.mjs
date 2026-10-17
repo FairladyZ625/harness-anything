@@ -14,6 +14,12 @@ const repoRoot = path.resolve(import.meta.dirname, "../../..");
 function fixture(t) {
   const root = mkdtempSync(path.join(tmpdir(), "syntax-boundary-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
+  // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: root });
   mkdirSync(path.join(root, "packages/example/src"), { recursive: true });
   mkdirSync(path.join(root, "tools/gate-allowlists"), { recursive: true });
   return root;

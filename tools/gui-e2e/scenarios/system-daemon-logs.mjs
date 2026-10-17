@@ -29,15 +29,17 @@ export default {
     const now = Date.now(),
       at = new Date(now - 30_000).toISOString();
     const samples = [
-      { method: "repo.agentRuntime.sessions.await", durationMs: 1_067_342, code: "provider_exit" },
+      { method: "repo.agentRuntime.sessions.await", durationMs: 1_067_342, code: "provider_exit", wait: true },
       { method: "repo.task.run", durationMs: 22_049, code: null },
-      { method: "repo.task.run", durationMs: 12_023, code: null },
+      { method: "repo.task.run", durationMs: 12_023, code: null, wait: true },
     ].map((sample) => ({
       schema: "daemon-conn-log/v1",
       daemonId: fixture.daemonId,
       event: "request",
+      command: sample.method,
       at,
       ok: true,
+      wait: false,
       ...sample,
     }));
     await page.getByRole("button", { name: /^(?:Daemon 状态|Daemon status)$/u }).click();

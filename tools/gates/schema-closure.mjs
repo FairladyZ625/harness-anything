@@ -1,11 +1,10 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { checkDerivedContracts, loadContracts, discoverContractFiles } from "./derived-contracts.mjs";
-import { repoRoot } from "./git.mjs";
+import { listWorktreeFiles, repoRoot } from "./git.mjs";
 
 const SOURCE_FILE = /\.(?:c|m)?js$|\.(?:d\.)?tsx?$/u;
-const IGNORED_DIRECTORIES = new Set([".git", "coverage", "dist", "fixtures", "node_modules", "test", "tests"]);
 const LEGACY_READER_MARKER = ["@legacy", "reader"].join("-");
 
 function splitReference(reference) {
@@ -34,27 +33,19 @@ async function loadExport(rootDir, reference, facet, schemaId, errors) {
   return module[parsed.name];
 }
 
-function legacyReaders(directory, rootDir, found) {
-  if (!existsSync(directory)) return;
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-    const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) legacyReaders(fullPath, rootDir, found);
-    else if (entry.isFile() && SOURCE_FILE.test(entry.name) && readFileSync(fullPath, "utf8").includes(LEGACY_READER_MARKER)) {
-      found.push(path.relative(rootDir, fullPath).split(path.sep).join("/"));
-    }
-  }
-}
-
 export function findLegacyReaders(rootDir) {
-  const found = [];
-  for (const directory of ["packages", "src", "tools/gates"]) legacyReaders(path.join(rootDir, directory), rootDir, found);
-  return found.sort();
+  // fixtures/test/tests stay rule-excluded the way the old walker skipped them;
+  // ignore authority moved to .gitignore with the shared enumeration port.
+  return listWorktreeFiles(rootDir, ["packages", "src", "tools/gates"])
+    .filter((file) => SOURCE_FILE.test(file) && !/(?:^|\/)(?:fixtures|test|tests)\//u.test(file))
+    .filter((file) => readFileSync(path.join(rootDir, file), "utf8").includes(LEGACY_READER_MARKER))
+    .sort();
 }
 
 export async function validateSchemaClosure(rootDir, contracts) {
   const errors = [];
-  for (const file of findLegacyReaders(rootDir)) errors.push(`${file}: ${LEGACY_READER_MARKER} is forbidden on the rebuild line`);
+  for (const file of findLegacyReaders(rootDir))
+    errors.push(`${file}: ${LEGACY_READER_MARKER} is forbidden on the rebuild line`);
   for (const contract of contracts) {
     for (const schema of contract.declaration.schemas ?? []) {
       const schemaId = `${contract.file}:${schema.id ?? "<unnamed>"}`;
@@ -63,10 +54,14 @@ export async function validateSchemaClosure(rootDir, contracts) {
       const parser = await loadExport(rootDir, schema.parser, "parser", schemaId, errors);
       const writer = await loadExport(rootDir, schema.writer, "writer", schemaId, errors);
       const errorType = await loadExport(rootDir, schema.error, "error", schemaId, errors);
-      if (schemaValue !== undefined && (schemaValue === null || typeof schemaValue !== "object")) errors.push(`${schemaId}: schema export must be an object`);
-      if (parser !== undefined && typeof parser !== "function") errors.push(`${schemaId}: parser export must be a function`);
-      if (writer !== undefined && typeof writer !== "function") errors.push(`${schemaId}: writer export must be a function`);
-      if (errorType !== undefined && typeof errorType !== "function") errors.push(`${schemaId}: error export must be a constructor`);
+      if (schemaValue !== undefined && (schemaValue === null || typeof schemaValue !== "object"))
+        errors.push(`${schemaId}: schema export must be an object`);
+      if (parser !== undefined && typeof parser !== "function")
+        errors.push(`${schemaId}: parser export must be a function`);
+      if (writer !== undefined && typeof writer !== "function")
+        errors.push(`${schemaId}: writer export must be a function`);
+      if (errorType !== undefined && typeof errorType !== "function")
+        errors.push(`${schemaId}: error export must be a constructor`);
       if (!Array.isArray(schema.negativeFixtures) || schema.negativeFixtures.length === 0) {
         errors.push(`${schemaId}: at least one negative fixture is required`);
       } else {
@@ -77,7 +72,8 @@ export async function validateSchemaClosure(rootDir, contracts) {
           } else if (typeof parser === "function") {
             const parsed = JSON.parse(readFileSync(fixturePath, "utf8"));
             const result = parser(parsed);
-            if (!Array.isArray(result) || result.length === 0) errors.push(`${schemaId}: negative fixture was accepted: ${fixture}`);
+            if (!Array.isArray(result) || result.length === 0)
+              errors.push(`${schemaId}: negative fixture was accepted: ${fixture}`);
           }
         }
       }

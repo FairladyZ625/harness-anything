@@ -110,7 +110,9 @@ function witnessCommand(
   if (sourceKind === "command")
     return `ha task witness-rerun ${taskId} --execution-id ${executionId} --gate ${gateId} --run-id <current-run-id> --reason <reason>`;
   if (sourceKind === "github-actions" || sourceKind === "gitlab-pipeline")
-    return `Run ha ci observe pull --task ${taskId} to import the workflow witness.`;
+    return (
+      `Wait for the center CI observer to import the workflow witness; ` + `ha task ci ${taskId} reports its progress.`
+    );
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
 }
 

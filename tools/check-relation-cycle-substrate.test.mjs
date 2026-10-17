@@ -21,23 +21,27 @@ test("relation cycle substrate check rejects a second relation-edge DFS implemen
   try {
     writeCanonicalDetector(root);
     mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
-    writeFileSync(path.join(root, "packages/cli/src/commands/relation-cycle.ts"), [
-      "import type { RelationGraphEdgeRow } from '@harness-anything/kernel';",
-      "export function detectRelationCycleAgain(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
-      "  const visiting = new Set<string>();",
-      "  const visited = new Set<string>();",
-      "  const stack = [];",
-      "  function visit(ref: string) {",
-      "    if (visiting.has(ref)) return stack;",
-      "    if (visited.has(ref)) return null;",
-      "    visiting.add(ref);",
-      "    for (const edge of edges) { if (edge.sourceRef === ref) visit(edge.targetRef); }",
-      "    visited.add(ref);",
-      "    return null;",
-      "  }",
-      "  return visit(edges[0]?.sourceRef ?? '');",
-      "}"
-    ].join("\n"), "utf8");
+    writeFileSync(
+      path.join(root, "packages/cli/src/commands/relation-cycle.ts"),
+      [
+        "import type { RelationGraphEdgeRow } from '@harness-anything/kernel';",
+        "export function detectRelationCycleAgain(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
+        "  const visiting = new Set<string>();",
+        "  const visited = new Set<string>();",
+        "  const stack = [];",
+        "  function visit(ref: string) {",
+        "    if (visiting.has(ref)) return stack;",
+        "    if (visited.has(ref)) return null;",
+        "    visiting.add(ref);",
+        "    for (const edge of edges) { if (edge.sourceRef === ref) visit(edge.targetRef); }",
+        "    visited.add(ref);",
+        "    return null;",
+        "  }",
+        "  return visit(edges[0]?.sourceRef ?? '');",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
 
     const result = runChecker(root);
     assert.notEqual(result.status, 0);
@@ -53,12 +57,16 @@ test("relation cycle substrate check allows wrappers that delegate to the canoni
   try {
     writeCanonicalDetector(root);
     mkdirSync(path.join(root, "packages/cli/src/commands"), { recursive: true });
-    writeFileSync(path.join(root, "packages/cli/src/commands/relation-cycle.ts"), [
-      "import { detectRelationGraphCycles, type RelationGraphEdgeRow } from '@harness-anything/kernel';",
-      "export function detectPendingRelationCycle(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
-      "  return detectRelationGraphCycles(edges)[0] ?? null;",
-      "}"
-    ].join("\n"), "utf8");
+    writeFileSync(
+      path.join(root, "packages/cli/src/commands/relation-cycle.ts"),
+      [
+        "import { detectRelationGraphCycles, type RelationGraphEdgeRow } from '@harness-anything/kernel';",
+        "export function detectPendingRelationCycle(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
+        "  return detectRelationGraphCycles(edges)[0] ?? null;",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
 
     const result = runChecker(root);
     assert.equal(result.status, 0, result.stderr);
@@ -69,24 +77,32 @@ test("relation cycle substrate check allows wrappers that delegate to the canoni
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-f8b-cycle-"));
+  // The gate enumerates through git, so the fixture must be a repository; the
+  // excludesFile pin keeps the host user's global ignores out of the test.
+  spawnSync("git", ["init", "--quiet"], { cwd: root });
+  spawnSync("git", ["config", "core.excludesFile", "/dev/null"], { cwd: root });
   mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });
   mkdirSync(path.join(root, "tools"), { recursive: true });
   return root;
 }
 
 function writeCanonicalDetector(root) {
-  writeFileSync(path.join(root, "packages/kernel/src/projection/relation-graph-projection.ts"), [
-    "export interface RelationGraphEdgeRow { readonly sourceRef: string; readonly targetRef: string; readonly relationType: string; readonly state: string; }",
-    "export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
-    "  return edges.length > 0 ? [] : [];",
-    "}"
-  ].join("\n"), "utf8");
+  writeFileSync(
+    path.join(root, "packages/kernel/src/projection/relation-graph-projection.ts"),
+    [
+      "export interface RelationGraphEdgeRow { readonly sourceRef: string; readonly targetRef: string; readonly relationType: string; readonly state: string; }",
+      "export function detectRelationGraphCycles(edges: ReadonlyArray<RelationGraphEdgeRow>) {",
+      "  return edges.length > 0 ? [] : [];",
+      "}",
+    ].join("\n"),
+    "utf8",
+  );
 }
 
 function runChecker(root) {
   return spawnSync(process.execPath, [checkerPath], {
     cwd: root,
     encoding: "utf8",
-    env: process.env
+    env: process.env,
   });
 }

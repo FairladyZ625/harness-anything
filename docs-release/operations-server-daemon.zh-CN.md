@@ -247,6 +247,46 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 
 纯展示仓库使用上面的 `remote-proxy` 注册命令。v1 registry 没有兼容路径。
 
+## Fleet 中心局域网可达与边缘自助接入
+
+这里有两个独立的 HTTPS 入口。`listener-set` 配置 managed Keycloak 登录服务，负责浏览器登录和 token issuer；Fleet TLS listener 是 edge 同步服务，通过 `daemon fleet center start` 配置。不要把一个命令的地址当成另一个命令的配置。
+
+登录服务的绑定地址必须是中心主机上的 IP，`--hostname` 必须出现在证书 SAN 中。私钥保持 owner-only（权限 `0600`）：
+
+```bash
+ha bootstrap --operation listener
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+```
+
+边缘同步服务把 Fleet listener 绑定到局域网地址，并把该地址加入证书 SAN。daemon 在打开 listener 前校验证书 SAN；地址已占用、不可用或权限不足时，回执会返回对应错误码：
+
+```bash
+ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
+```
+
+每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，edge 信任新证书并再次运行 `ha daemon fleet edge sync` 后才会恢复。
+
+受支持的 edge 路径是邀请链接。中心管理员登录后创建链接，edge 所有人登录并消费一次；链接只携带中心 URL 与证书 pin，不携带机器凭据：
+
+```bash
+ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
+ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+```
+
+edge 命令必须使用证书 CA；证书名与 DNS 名不同时加 `--servername`。证书未覆盖请求的 server name 时，TLS 主机名校验会拒绝连接；端口关闭会导致连接失败；链接过期、登录人不匹配或 pin 改变会由加入准入拒绝。凭据由本机 daemon 写入，不放进邀请 URL。
+
+### 安装、升级与开发救援
+
+按[安装说明](start/zh/01-install.md)从同一候选 checkout 安装 CLI 与 daemon。使用已有命令升级 managed center authority，然后重启 daemon 管理的服务，并在再次改 listener 前重新读取版本：
+
+```bash
+ha bootstrap --operation upgrade --backup-dir /var/backups/harness-rbac
+ha bootstrap --operation listener
+```
+
+只有开发诊断可以通过 SSH 隧道转发 listener 或本地 daemon endpoint。隧道是临时救援路径；生产 edge 访问仍使用已配置的 listener、证书 SAN、邀请 pin 与 edge sync 流程。
+
 ## Fleet 中心与边缘
 
 `remote-center` 和 `remote-edge` 用于既有 Fleet 拓扑，不用于纯展示。部署流程依赖具体环境，

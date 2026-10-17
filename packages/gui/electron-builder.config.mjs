@@ -1,4 +1,7 @@
+import { readFileSync } from "node:fs";
+
 const outputDir = process.env.HARNESS_GUI_BUILDER_OUTPUT ?? "../../dist/gui-local-mac-arm64";
+const cliPackage = JSON.parse(readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"));
 
 /** @type {import("electron-builder").Configuration} */
 const config = {
@@ -15,7 +18,7 @@ const config = {
   },
   extraMetadata: {
     name: "harness-anything-gui",
-    version: "0.0.1",
+    version: cliPackage.version,
     main: "packages/gui/dist-electron/electron-main.js",
   },
   files: [

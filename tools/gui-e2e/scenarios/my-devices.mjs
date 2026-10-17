@@ -32,7 +32,11 @@ export default {
     await page.getByTestId("device-remove-device-a").click();
     await page.getByTestId("device-confirm").click();
     await a.filter({ hasText: /已移除|Removed/u }).waitFor();
-    assert.equal(await a.getByRole("button").count(), 0);
+    // Revocation remains pending briefly; while pending the remove action is
+    // intentionally retained so the user can retry. Once acknowledged the row
+    // has no actions.
+    const removedText = await a.innerText();
+    assert.equal(await a.getByTestId("device-remove-device-a").count(), /待生效|Pending/u.test(removedText) ? 1 : 0);
     await page.getByTestId("devices-logout-all").click();
     await page.getByTestId("device-confirm").click();
     await page
@@ -62,7 +66,7 @@ export default {
     await page.getByTestId("device-toggle-device-b").press("Enter");
     await page.getByTestId("device-confirmation").waitFor();
     await page.keyboard.press("Escape");
-    assert.equal(await page.getByTestId("device-confirmation").count(), 0);
+    await page.getByTestId("device-confirmation").waitFor({ state: "hidden" });
     await page.getByTestId("device-rename-device-b").click();
     const record = fixture.keycloak.nodeClients.get("harness-node-device-b");
     const device = JSON.parse(record.attributes.harness_device);

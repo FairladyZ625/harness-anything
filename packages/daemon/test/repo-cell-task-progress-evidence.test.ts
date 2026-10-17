@@ -335,6 +335,13 @@ test("unverified latest observation rejects and latest real red never falls back
     observation(current.submission!.commitSha),
   ]);
   assert.throws(() => ci(unverified.cell, current), { code: "invalid_proof" });
+  // The same unverified observation on a task branch is an imported diagnostic measurement, not
+  // a broken proof: it must not shadow or reject the verified main witness behind it.
+  const branchMeasurement = fixture(publicRoot, current, [
+    observation(current.submission!.commitSha, 2, null, "rewrite-ci", "task-delivery", "push", 300),
+    observation(current.submission!.commitSha),
+  ]);
+  assert.equal(ci(branchMeasurement.cell, current)?.result, "pass");
   const red = fixture(publicRoot, current, [
     observation(current.submission!.commitSha, 2, "failure"),
     observation(current.submission!.commitSha),

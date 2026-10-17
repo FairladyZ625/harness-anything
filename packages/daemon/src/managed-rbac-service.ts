@@ -29,6 +29,7 @@ import {
   sessionLifetimeBounds,
   sessionLifetimeRealmSettings,
 } from "./keycloak-session-lifetime.ts";
+import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -52,6 +53,7 @@ type ManagedRbacOperation =
   | "login"
   | "login-poll"
   | "device-approval"
+  | "edge-join"
   | "session"
   | "logout"
   | "bootstrap-status"
@@ -62,12 +64,17 @@ type ManagedRbacOperation =
 export interface ManagedRbacRequest extends AccessAdminRequest {
   readonly repoId?: string;
   readonly rootDir?: string;
+  /** edge-join: where the remote-edge mirror lives; defaults to ~/harness-edge/<repoId>. */
+  readonly workspaceRoot?: string;
   readonly operation?: ManagedRbacOperation;
   readonly mode?: "managed" | "external";
   readonly url?: string;
   readonly realm?: string;
   readonly clientId?: string;
   readonly clientSecret?: string;
+  readonly loginUrl?: string;
+  readonly loginRealm?: string;
+  readonly loginClientId?: string;
   readonly backupDir?: string;
   readonly redirectUri?: string;
   readonly code?: string;
@@ -257,12 +264,15 @@ export class ManagedRbacService {
         await this.start();
         await this.#waitUntilReady();
       };
-    if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    if (listener) {
+      requirePrivateKeyFile(listener.certificateKeyFile);
+      validateCertificateNames(readFileSync(listener.certificateFile), [listener.address, listener.hostname]);
+    }
     try {
       await apply(listener ? { ...loopback, listener } : loopback);
     } catch (error) {
       await apply(config);
-      throw error;
+      throw mapListenerBindError(error);
     }
     return {
       ok: true,

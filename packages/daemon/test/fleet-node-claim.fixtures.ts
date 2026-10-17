@@ -89,7 +89,11 @@ export async function fleetNodeClaimFixture(
   });
   const hosts: DaemonHost[] = [],
     centers: FleetTlsCenter[] = [];
-  const openCenter = async (host: DaemonHost, port?: number): Promise<FleetTlsCenter> => {
+  const openCenter = async (
+    host: DaemonHost,
+    port?: number,
+    extra: Pick<Parameters<typeof listenFleetTls>[0], "edgeJoin"> = {},
+  ): Promise<FleetTlsCenter> => {
     const center = await listenFleetTls({
       host,
       stateRoot,
@@ -103,6 +107,7 @@ export async function fleetNodeClaimFixture(
       verifyHuman: verifyHuman ?? owners.verifyHuman,
       ...(loginAuthority ? { loginAuthority } : {}),
       ...(revokeDeviceSessions ? { revokeDeviceSessions } : {}),
+      ...extra,
     });
     centers.push(center);
     return center;

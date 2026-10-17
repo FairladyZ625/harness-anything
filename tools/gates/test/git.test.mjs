@@ -1,7 +1,9 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { rmSync, symlinkSync } from "node:fs";
+import path from "node:path";
 import test from "node:test";
-import { changedFiles, git, pullRequestBase } from "../git.mjs";
+import { changedFiles, git, listWorktreeFiles, pullRequestBase } from "../git.mjs";
 import { commitAll, makeRepo, writeRepoFile } from "./helpers.mjs";
 
 test("changedFiles measures the head from its merge base when the target branch advances", () => {
@@ -37,4 +39,30 @@ test("pullRequestBase without origin/main fails closed with a fix", () => {
 
   assert.throws(() => pullRequestBase(rootDir), /git merge-base origin\/main HEAD` failed/u);
   assert.throws(() => pullRequestBase(rootDir), /git fetch origin main/u);
+});
+
+test("listWorktreeFiles enumerates tracked and untracked files but never gitignored or deleted entries", () => {
+  const { rootDir } = makeRepo({ "packages/cli/src/index.ts": "export {};\n" });
+  writeRepoFile(rootDir, ".gitignore", "packages/gui/build-resources/\n");
+  commitAll(rootDir, "ignore rule");
+  writeRepoFile(rootDir, "packages/gui/src/new.ts", "export {};\n");
+  writeRepoFile(rootDir, "packages/gui/build-resources/app-node_modules/daemon/package.json", "{}\n");
+
+  const files = listWorktreeFiles(rootDir, ["packages"]);
+  assert.ok(files.includes("packages/cli/src/index.ts"));
+  assert.ok(files.includes("packages/gui/src/new.ts"));
+  assert.ok(!files.some((file) => file.includes("build-resources")), files.join("\n"));
+
+  // A tracked file deleted without git rm stays in the index; it is not a worktree file.
+  rmSync(path.join(rootDir, "packages/cli/src/index.ts"));
+  assert.ok(!listWorktreeFiles(rootDir, ["packages"]).includes("packages/cli/src/index.ts"));
+});
+
+test("listWorktreeFiles skips symlinks the way Dirent-based walkers did", () => {
+  const { rootDir } = makeRepo({ "real.ts": "export {};\n" });
+  symlinkSync("real.ts", path.join(rootDir, "linked.ts"));
+
+  const files = listWorktreeFiles(rootDir);
+  assert.ok(files.includes("real.ts"));
+  assert.ok(!files.includes("linked.ts"));
 });

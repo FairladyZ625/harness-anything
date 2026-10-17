@@ -1,5 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
+import { execFileSync as runGitInit } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,10 +14,22 @@ import {
 
 const repoRoot = path.resolve(import.meta.dirname, "..");
 
+// The gate enumerates through git, so fixture roots must be repositories; the
+// local excludesFile pin keeps the host user's global ignores out of the test.
+function makeGateRoot(prefix) {
+  const root = mkdtempSync(path.join(tmpdir(), prefix));
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    runGitInit("git", args, { cwd: root });
+  return root;
+}
+
 // S8's two exact registrations do not authorize another path or a second constructor.
 for (const eventType of ["task_assigned", "task_unassigned", "task_completion_generation_retired"]) {
   test(`${eventType} registration rejects duplicate and unregistered constructors`, () => {
-    const root = mkdtempSync(path.join(tmpdir(), "ha-assignment-entry-"));
+    const root = makeGateRoot("ha-assignment-entry-");
     try {
       const allowed = path.join(
         root,
@@ -57,7 +70,7 @@ test("task event aggregate-entry gate accepts the repository allowlist", () => {
 });
 
 test("positive control: a task_* construction site outside the allowlist fails", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-task-event-entry-"));
+  const root = makeGateRoot("ha-task-event-entry-");
   try {
     const sourceDir = path.join(root, "packages/rogue/src");
     mkdirSync(sourceDir, { recursive: true });
@@ -82,18 +95,13 @@ test("positive control: a task_* construction site outside the allowlist fails",
 });
 
 import { spawnSync as runGate } from "node:child_process";
-import {
-  mkdtempSync as makeGateRoot,
-  mkdirSync as makeGateDir,
-  writeFileSync as writeGateFile,
-  rmSync as removeGateRoot,
-} from "node:fs";
+import { mkdirSync as makeGateDir, writeFileSync as writeGateFile, rmSync as removeGateRoot } from "node:fs";
 
 const requiredScanRoots = ["packages"];
 for (const omitted of requiredScanRoots) {
   for (const state of ["missing", "empty", "excluded-only"]) {
     test(`check-task-event-aggregate-entry rejects ${state} required scan root ${omitted}`, () => {
-      const root = makeGateRoot(path.join(tmpdir(), "ha-gate-discovery-"));
+      const root = makeGateRoot("ha-gate-discovery-");
       try {
         for (const scanRoot of requiredScanRoots) {
           if (scanRoot === omitted && state === "missing") continue;
@@ -102,6 +110,7 @@ for (const omitted of requiredScanRoots) {
           if (scanRoot === omitted && state === "excluded-only") {
             makeGateDir(path.join(root, scanRoot, "dist"), { recursive: true });
             writeGateFile(path.join(root, scanRoot, "dist/ignored.ts"), "export const ignored = true;\n");
+            writeGateFile(path.join(root, ".gitignore"), "dist/\n");
           }
         }
         const result = runGate(
@@ -120,7 +129,7 @@ for (const omitted of requiredScanRoots) {
 const repoRootForDiscovery = path.resolve(import.meta.dirname, "..");
 
 test("zero constructors are legal when production source discovery is intact", () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-task-event-clean-"));
+  const root = makeGateRoot("ha-task-event-clean-");
   try {
     mkdirSync(path.join(root, "packages/clean/src"), { recursive: true });
     writeFileSync(path.join(root, "packages/clean/src/good.ts"), "export const ok = true;\n");

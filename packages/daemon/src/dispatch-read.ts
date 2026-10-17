@@ -368,9 +368,11 @@ function canonicalDispatchRow(
     endedAt: outcomeEvent?.payload.endedAt ?? (outcome !== null ? (session?.lastObservedAt ?? event.occurredAt) : null),
     outcome,
     status:
-      outcome === "stopped" && taskHasStructuredBlock(projection, event)
-        ? "blocked"
-        : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
+      outcome === "stopped" && taskExecutionDelivered(projection, event)
+        ? "succeeded"
+        : outcome === "stopped" && taskHasStructuredBlock(projection, event)
+          ? "blocked"
+          : (outcome ?? (session?.liveness === "live" ? "running" : "unknown")),
     resultRef,
     exitCode,
     ...(documentPath && document ? { dispatchPath: documentPath } : {}),
@@ -421,6 +423,17 @@ function isOutcome(value: unknown): value is NonNullable<TaskDispatchRow["outcom
 }
 function isClassification(value: unknown): value is NonNullable<TaskDispatchRow["classification"]> {
   return value === "provider_fault" || value === "provider_quota" || value === "worker_stop" || value === "gate_red";
+}
+
+/** A stopped round whose own execution has an accepted submission is delivered. The submit
+ * boundary is the sole delivery decision; attribution is per executionId. */
+function taskExecutionDelivered(projection: DispatchQueries, dispatch: DispatchEvent): boolean {
+  const { taskId, executionId } = dispatch.payload;
+  if (!taskId || !executionId) return false;
+  const submission = projection
+    .read(taskId)
+    .snapshot.executions?.find((execution) => execution.executionId === executionId)?.submission;
+  return submission != null;
 }
 
 /** CH2 (dec_614F7BBB18C8687E7EFC72173D): current task state alone cannot

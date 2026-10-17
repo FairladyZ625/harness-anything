@@ -1,7 +1,8 @@
 import { execFile } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { promisify } from "node:util";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const root = process.cwd();
 const sourceFile = /\.(?:ts|tsx|mts|js|jsx|mjs)$/;
@@ -41,11 +42,9 @@ for (let i = 0; i < renameRecords.length; i += 3) {
   renameSources.set(renameRecords[i + 2], renameRecords[i + 1]);
 }
 // Tracked plus untracked-but-not-ignored files: gitignored build output never counts.
-const files = (await git(["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", "packages", "tools"]))
-  .split("\0")
+const files = listWorktreeFiles(root, ["packages", "tools"])
   .filter((file) => sourceFile.test(file) && !file.endsWith(".d.ts"))
-  .map((file) => path.join(root, file))
-  .filter((filePath) => existsSync(filePath));
+  .map((file) => path.join(root, file));
 
 for (const filePath of files) {
   const body = readFileSync(filePath, "utf8");
