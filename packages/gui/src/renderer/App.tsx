@@ -7,6 +7,7 @@ import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
+import { todayViewEntry } from "./views/today/today-view-entry.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -73,9 +74,8 @@ import { TerminalRoute } from "./views/TerminalRoute.tsx";
 import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
-import { useViewHistory } from "./navigation/useViewHistory.ts";
-import { useLocationRestore } from "./navigation/useLocationRestore.ts";
-import { initialLocation } from "./navigation/viewHistoryStorage.ts";
+import { useAppLocation } from "./navigation/useAppLocation.ts";
+import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
@@ -187,17 +187,8 @@ function AppShell() {
     else await taskActions.adjudicateTask(task, decision, reason, reviewId);
   };
   const decisionActions = useDecisionActions(projectId);
-  // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
-  // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
-  // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
-  // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
-  // 它在三元读取之前解析:读哪个切面由「现在挂载的是哪个界面」决定。
-  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } = useViewHistory(
-    projectId,
-    initialLocation(),
-  );
-  // 回退保真(G10):导航栈恢复应用位置;这里在它旁边恢复 DOM 层的滚动与焦点。
-  useLocationRestore(location, document.body);
+  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } =
+    useAppLocation(projectId);
   const { view, selectedId, previewId, focusedEntityRef, taskFilters, drill } = location;
   const taskWipQuery = useTaskWipQuery(activeRepoId, view === "board" || view === "overview");
   useOverviewArtifacts(activeRepoId);
@@ -416,6 +407,7 @@ function AppShell() {
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
+  const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
 
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
   const {
@@ -561,6 +553,7 @@ function AppShell() {
           activeRepoId={activeRepoId}
           view={view}
           hasSelection={selected !== null}
+          redesignView={redesignView}
           poolBadgeCount={poolBadgeCount}
           projectSwitcherOpen={projectSwitcherOpen}
           onProjectSwitcherToggle={() => setProjectSwitcherOpen((open) => !open)}
@@ -574,7 +567,7 @@ function AppShell() {
           }}
           pinnedRepoIds={pinnedRepoIds}
           onToggleProjectPin={toggleProjectPin}
-          onNavigate={goto}
+          onNavigate={gotoNav}
           pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
           )}
@@ -614,6 +607,16 @@ function AppShell() {
                 })
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
+              ) : redesignView !== null ? (
+                todayViewEntry(
+                  projectId,
+                  agendaQuery.data,
+                  agendaQuery.error instanceof Error ? agendaQuery.error.message : null,
+                  taskTitles,
+                  navigateToEntity,
+                  openTaskDetail,
+                  gotoNav,
+                )
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}

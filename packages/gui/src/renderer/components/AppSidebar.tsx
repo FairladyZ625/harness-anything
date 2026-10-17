@@ -5,7 +5,14 @@ import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
-import { NAV_GROUPS, navLabel } from "../navigation/navConfig.tsx";
+import {
+  NAV_GROUPS,
+  navLabel,
+  REDESIGN_NAV_GROUPS,
+  redesignNavLabel,
+  type NavViewId,
+  type RedesignViewId,
+} from "../navigation/navConfig.tsx";
 import { NavButton, ThemeToggle } from "./shell-chrome.tsx";
 import { QuickSwitcher } from "./sidebar/QuickSwitcher.tsx";
 import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemStatusPanel.tsx";
@@ -24,6 +31,8 @@ export interface AppSidebarProps {
   readonly view: ViewId;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
+  /** 重构区当前打开的页面(dec_C612E69B7C7E3480A5F9D2CAD3);null = 重构区未开。 */
+  readonly redesignView: RedesignViewId | null;
   /** 待办签发总池的待办角标(决策待裁 + 门禁待签 + 收口待同意 + 阻断待特批)。 */
   readonly poolBadgeCount: number | undefined;
   readonly projectSwitcherOpen: boolean;
@@ -35,7 +44,7 @@ export interface AppSidebarProps {
   /** 置顶的 repoId(与项目管理页同一条顺序,App 唯一实例下传)。 */
   readonly pinnedRepoIds: ReadonlyArray<string>;
   readonly onToggleProjectPin: (repoId: string) => void;
-  readonly onNavigate: (view: ViewId) => void;
+  readonly onNavigate: (view: NavViewId) => void;
   /** 全部置顶任务(App 从议程读面取);侧栏只展示其中的工作根,其余在总览置顶区。 */
   readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
   /** 置顶项的打开位:App 按「根任务即工作」分流到工作页或任务详情。 */
@@ -66,6 +75,7 @@ export function AppSidebar({
   activeRepoId,
   view,
   hasSelection,
+  redesignView,
   poolBadgeCount,
   projectSwitcherOpen,
   onProjectSwitcherToggle,
@@ -282,6 +292,32 @@ export function AppSidebar({
                   icon={item.icon}
                   label={navLabel(item.id)}
                   badge={item.id === "decisionPool" ? poolBadgeCount : undefined}
+                />
+              ))}
+            </nav>
+          </div>
+        ))}
+        {/* 重构区(dec_C612E69B7C7E3480A5F9D2CAD3):新页面与旧页面并存试用,组头带
+            「试用」小标;旧四组与旧导航项原样不动。 */}
+        {REDESIGN_NAV_GROUPS.map((group) => (
+          <div key={group.id} data-testid="sidebar-redesign-group">
+            <div className="flex items-center gap-1.5 px-3 pt-3 pb-1">
+              <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">{t(group.labelKey)}</span>
+              <span
+                title={t("shell.nav.trialTagTitle")}
+                className="rounded-xs border border-border px-1 py-px font-mono text-[10px] leading-none text-text-faint"
+              >
+                {t("shell.nav.trialTag")}
+              </span>
+            </div>
+            <nav className="flex gap-1 overflow-x-auto px-2 pb-1 md:flex-col md:gap-0.5 md:overflow-visible md:pb-0">
+              {group.items.map((item) => (
+                <NavButton
+                  key={item.id}
+                  active={redesignView === item.id && !hasSelection}
+                  onClick={() => onNavigate(item.id)}
+                  icon={item.icon}
+                  label={redesignNavLabel(item.id)}
                 />
               ))}
             </nav>

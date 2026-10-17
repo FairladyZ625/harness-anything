@@ -389,5 +389,9 @@
   "devices.logoutAll": "Sign out all devices",
   "devices.save": "Save name",
   "devices.name": "Device name",
-  "devices.confirmation": "Further requests will use the new device state. Pausing or removing revokes this device’s sessions; resuming requires approval again. A running device may still be stopping. Removed device IDs cannot be reused."
+  "devices.confirmation": "Further requests will use the new device state. Pausing or removing revokes this device’s sessions; resuming requires approval again. A running device may still be stopping. Removed device IDs cannot be reused.",
+  "shell.nav.redesignGroup": "Redesign",
+  "shell.nav.today": "Today",
+  "shell.nav.trialTag": "trial",
+  "shell.nav.trialTagTitle": "Redesign zone: new pages are built here from scratch and trial alongside the old ones; they replace the old pages once they feel right"
 }

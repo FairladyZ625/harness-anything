@@ -18,6 +18,7 @@ import {
   ListChecks,
   IdentificationCard,
   UsersThree,
+  SunHorizon,
 } from "@phosphor-icons/react";
 import { t, type MessageKey } from "../i18n/index.tsx";
 import type { ViewId } from "./viewHistory.ts";
@@ -70,6 +71,25 @@ const NAV_LABEL_KEY: Record<ViewId, MessageKey> = {
 };
 
 export const navLabel = (id: ViewId): string => t(NAV_LABEL_KEY[id]);
+
+/**
+ * 重构区视图 id(dec_C612E69B7C7E3480A5F9D2CAD3):新页面从头实现、与旧页面并存试用。
+ * 这一版不进 ViewId 联合——viewHistory.ts 正被 task_48399f09 改(本任务禁区),
+ * viewHistoryStorage 的恢复白名单也不认识新 id;路由先由 App 级状态承载,窗口
+ * 历史任务合入后再把 today 纳入 ViewId 与白名单转正。
+ */
+export type RedesignViewId = "today";
+
+/** 侧栏导航能导航到的全集:旧 ViewId + 重构区页面。 */
+export type NavViewId = ViewId | RedesignViewId;
+
+export const isRedesignViewId = (id: NavViewId): id is RedesignViewId => id === "today";
+
+const REDESIGN_LABEL_KEY: Readonly<Record<RedesignViewId, MessageKey>> = {
+  today: "shell.nav.today",
+};
+
+export const redesignNavLabel = (id: RedesignViewId): string => t(REDESIGN_LABEL_KEY[id]);
 
 export interface NavGroup {
   readonly id: string;
@@ -132,5 +152,28 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { id: "settings", icon: <GearSix weight="duotone" /> },
       { id: "identityAccess", icon: <IdentificationCard weight="duotone" /> },
     ],
+  },
+];
+
+/**
+ * 重构区侧栏组(dec_C612E69B7C7E3480A5F9D2CAD3 CH1):在现有四组之外新增,新设计的
+ * 页面以 tab 形式在这里从头实现(第一个是「今天」),不改、不删旧页面与旧导航项。
+ * 独立于 NAV_GROUPS 常量:旧四组的「导航面 = 旧页面全集」语义与既有断言原样保留,
+ * 侧栏把两组常量并列渲染。
+ */
+export interface RedesignNavGroup {
+  readonly id: string;
+  readonly labelKey: MessageKey;
+  readonly items: readonly {
+    readonly id: RedesignViewId;
+    readonly icon: React.ReactNode;
+  }[];
+}
+
+export const REDESIGN_NAV_GROUPS: readonly RedesignNavGroup[] = [
+  {
+    id: "redesign",
+    labelKey: "shell.nav.redesignGroup",
+    items: [{ id: "today", icon: <SunHorizon weight="duotone" /> }],
   },
 ];
