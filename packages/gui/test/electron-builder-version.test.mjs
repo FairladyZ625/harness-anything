@@ -20,3 +20,14 @@ test("macOS packaging requires hardened runtime signing and notarization", () =>
   assert.match(config.mac.entitlementsInherit, /entitlements\.mac\.inherit\.plist$/u);
   assert.equal("identity" in config.mac, false);
 });
+
+test("macOS signing entitlements keep the Electron runtime capabilities minimal", () => {
+  const entitlements = readFileSync(config.mac.entitlements, "utf8");
+  const inheritedEntitlements = readFileSync(config.mac.entitlementsInherit, "utf8");
+
+  for (const document of [entitlements, inheritedEntitlements]) {
+    assert.match(document, /com\.apple\.security\.cs\.allow-jit/u);
+    assert.match(document, /com\.apple\.security\.cs\.allow-unsigned-executable-memory/u);
+    assert.doesNotMatch(document, /disable-library-validation|camera|microphone|apple-events/u);
+  }
+});
