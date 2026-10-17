@@ -1,6 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { AnimatePresence, motion } from "motion/react";
 import { isImeComposingEvent } from "./ime-composition.ts";
+import { useEntryMotion } from "../../motion-config.tsx";
 import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 
 /**
@@ -44,6 +45,10 @@ export function Drawer({
   readonly children: ReactNode;
 }) {
   const panelRef = useRef<HTMLElement | null>(null);
+  // 压暗层是纯 opacity:减弱动效下 motion 库只瞬时化位移/布局,opacity 仍按原时长播,
+  // 必须显式接 reducedFade(§6 ≤120ms 纯淡入);偏好「关」时不播(与 Modal 同一契约)。
+  // 面板滑入是 x 位移,库在减弱动效下自动瞬时,无需分支。
+  const { enabled, reduced } = useEntryMotion();
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -73,10 +78,13 @@ export function Drawer({
         <motion.div
           key="drawer-scrim"
           className="glass-scrim fixed inset-0 z-10"
-          initial={{ opacity: 0 }}
+          initial={enabled ? { opacity: 0 } : false}
           animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: MOTION_DURATION.overlayRise, ease: MOTION_EASE.out }}
+          exit={enabled ? { opacity: 0 } : undefined}
+          transition={{
+            duration: reduced ? MOTION_DURATION.reducedFade : MOTION_DURATION.overlayRise,
+            ease: MOTION_EASE.out,
+          }}
           onClick={onClose}
         />
       )}

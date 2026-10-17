@@ -51,3 +51,17 @@ it("keeps identity through filters, previews and entity sublocations", () => {
     identity({ view: "sessions", focusedEntityRef: "session/a" }),
   );
 });
+it("keeps identity when a task preview drawer opens or switches on the views that host it", () => {
+  // 任务预览抽屉(全局 previewId)的承载面:看板卡片、工作页任务列表、详情页旁路。
+  // 打开(null→task-a)与抽屉内切换(task-a→task-b)都是「页面没换」,不得重播入场
+  // (业主 2026-10-17 反馈;身份只由「页面是谁」决定,不含 previewId)。
+  for (const view of ["board", "agenda", "workspace", "overview"] as const) {
+    const closed = identity({ view, scopeRootTaskId: view === "workspace" ? "work-a" : null });
+    expect(identity({ view, scopeRootTaskId: view === "workspace" ? "work-a" : null, previewId: "task-a" })).toBe(
+      closed,
+    );
+    expect(identity({ view, scopeRootTaskId: view === "workspace" ? "work-a" : null, previewId: "task-b" })).toBe(
+      closed,
+    );
+  }
+});
