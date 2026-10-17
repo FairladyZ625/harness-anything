@@ -722,37 +722,6 @@ export async function openPeer(options: Omit<FleetPeerOptions, "repoId">) {
   }
 }
 
-/** Performs the pre-session edge.join admission and returns the one-use machine credential. */
-export async function requestFleetEdgeJoin(
-  options: Pick<FleetPeerOptions, "hostname" | "port" | "ca" | "servername" | "timeoutMs"> & {
-    readonly nodeId: string;
-    readonly inviteToken: string;
-    readonly accessToken: string;
-  },
-): Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }>> {
-  const socket = await peerSocket({ ...options, nodeId: options.nodeId, credential: "edge-join" }),
-    peer = peerFor(socket, options.timeoutMs ?? 10_000),
-    messageId = `${options.nodeId}_${Date.now().toString(36)}`;
-  try {
-    const response = await (async () => {
-      socket.write(
-        serializeFleetFrame({
-          schema: "fleet.edge.join/v1",
-          messageId,
-          nodeId: options.nodeId,
-          inviteToken: options.inviteToken,
-          accessToken: options.accessToken,
-        }),
-      );
-      return await peer.next(options.timeoutMs ?? 10_000);
-    })();
-    if (response.schema !== "fleet.edge.join.result/v1") throw new Error("edge join result expected");
-    return response;
-  } finally {
-    peer.close();
-  }
-}
-
 /** Joins before a CA file exists: pin the presented SPKI, then use that certificate as the CA. */
 export async function requestFleetEdgeJoinPinned(options: {
   readonly hostname: string;
@@ -801,8 +770,9 @@ export async function requestFleetEdgeJoinPinned(options: {
           }),
         );
         peerState.next(options.timeoutMs ?? 10_000).then((frame) => {
-          if (frame.schema !== "fleet.edge.join.result/v1") reject(new Error("edge join result expected"));
-          else resolve(frame);
+          if (frame.schema === "fleet.edge.join.result/v1") resolve(frame);
+          else if (frame.schema === "fleet.error/v1") reject(new FleetRemoteError(frame));
+          else reject(new Error("edge join result expected"));
         }, reject);
       },
     );

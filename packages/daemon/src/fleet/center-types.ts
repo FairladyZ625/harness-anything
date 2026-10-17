@@ -39,14 +39,15 @@ export interface FleetCenterOptions {
   /** The person a node acts for, re-read for every frame so a re-registration applies to the next one. */
   readonly nodeOwner: (nodeId: string) => string | null | Promise<string | null>;
   readonly loginAuthority?: (nodeId: string) => FleetLoginAuthority | null | Promise<FleetLoginAuthority | null>;
-  /** One unauthenticated admission frame used only by edge join; the callback validates the human token. */
+  /**
+   * One unauthenticated admission frame used only by edge join; the callback validates the human token. The
+   * admission names the repository the edge mirrors and its layout file, so a fresh edge needs nothing else.
+   */
   readonly edgeJoin?: (input: {
     readonly inviteToken: string;
     readonly nodeId: string;
     readonly accessToken?: string;
-  }) =>
-    | { readonly nodeId: string; readonly personId: string; readonly credential: string }
-    | Promise<{ readonly nodeId: string; readonly personId: string; readonly credential: string }>;
+  }) => EdgeJoinAdmission | Promise<EdgeJoinAdmission>;
   readonly revokeDeviceSessions?: (nodeId: string) => Promise<void>;
   readonly deviceLoginNotice?: (nodeId: string, personId: string, notice: FleetDeviceLoginNotice) => void;
   readonly verifyHuman?: (auth: DaemonAuthenticationContext) => Promise<DaemonAuthenticationContext>;
@@ -145,4 +146,12 @@ export class FleetFault extends Error {
     this.retryable = retryable;
     this.resumeOffset = resumeOffset;
   }
+}
+
+export interface EdgeJoinAdmission {
+  readonly nodeId: string;
+  readonly personId: string;
+  readonly credential: string;
+  readonly repoId: string;
+  readonly harnessYaml: string;
 }

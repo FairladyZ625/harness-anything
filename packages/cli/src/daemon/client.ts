@@ -170,16 +170,23 @@ export async function runCommandThroughDaemon(
               socketPath,
             },
             command.action.kind === "repo-bootstrap" ? "daemon.repo.bootstrap" : "daemon.rbac.manage",
-            command.action.kind === "rbac-bootstrap"
-              ? (paramsOverride ?? (params as JsonObject))
-              : { rootDir: command.rootDir, ...params },
+            // A device-login poll replaces the request; edge join resumes with its own params once signed in.
+            paramsOverride ??
+              (command.action.kind === "rbac-bootstrap"
+                ? (params as JsonObject)
+                : { rootDir: command.rootDir, ...params }),
             75,
           ),
         () => cliDaemonServeLaunch(userRoot, daemonId),
         socketPath,
         daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
       );
-    const receipt = await request();
+    let receipt = await request();
+    if (command.action.kind === "edge-join" && receipt.pending === true) {
+      const signedIn = await awaitDeviceLogin(receipt, request, onPhase);
+      if (signedIn.ok === false || signedIn.pending === true) return signedIn;
+      receipt = await request();
+    }
     if (command.action.kind !== "rbac-bootstrap" || params.operation !== "login" || receipt.ok === false)
       return receipt;
     return awaitDeviceLogin(receipt, request, onPhase);
