@@ -232,12 +232,13 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
       );
     return action;
   }
-  const descriptor = actionDescriptorByMethod.get(method);
+  const descriptor = actionDescriptorByMethod.get(method) ?? protocolCommandByMethod.get(method);
   if (!descriptor)
     throw new DaemonProtocolContractError("unsupported_command", `No action descriptor exists for ${method}.`);
   // A GUI action may pin the closed parts of its action the renderer cannot say
   // (repo.task.pin's pinned-only amend patch); the declared payload is spread last,
-  // so the ingress stays the only writer of those fields.
+  // so the ingress stays the only writer of those fields. Protocol commands without an
+  // actionKind resolve to their command id — the read-only allowlist names those ids.
   const command = presetCommandByMethod.get(method),
     defaults =
       "actionDefaults" in descriptor
@@ -245,11 +246,17 @@ export function actionForDaemonMethod(method: string, payload: JsonObject): Json
         : command && "actionDefaults" in command
           ? command.actionDefaults
           : {};
-  return { ...defaults, kind: descriptor.actionKind, ...payload };
+  return { ...defaults, kind: "actionKind" in descriptor ? descriptor.actionKind : descriptor.id, ...payload };
 }
 
 const commandDescriptorByActionKind: ReadonlyMap<string, (typeof daemonProtocolCommands)[number]> = new Map(
     [...daemonProtocolCommands].reverse().map((entry) => ["actionKind" in entry ? entry.actionKind : entry.id, entry]),
+  ),
+  // Methods with their own server branch (agenda, the runtime overview) never travel the
+  // contracted command family, but the execution-scope precheck resolves every method through
+  // actionForDaemonMethod; the protocol registry answers those before the precheck rejects them.
+  protocolCommandByMethod: ReadonlyMap<string, (typeof daemonProtocolCommands)[number]> = new Map(
+    daemonProtocolCommands.map((entry) => [entry.method, entry]),
   ),
   presetMethodByActionKind: ReadonlyMap<string, (typeof presetMethods)[number]> = new Map(
     presetMethods.map((entry) => [entry.actionKind, entry]),

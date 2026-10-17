@@ -23,33 +23,43 @@ export function admitRuntimeResume(
   dispatchId: string | undefined,
   projection: (() => Pick<TaskProjection, "readRuntimeDispatchByResumeSource">) | null,
 ) {
-  const resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
+  let resumed = dispatchId ? readDispatchStream(rootDir, dispatchId) : null;
   if (!dispatchId) return resumed;
   if (readHandoffCheckpoint(rootDir, dispatchId))
     throw runtimeSpawnError(
       "runtime_handoff_source_exported",
       "This dispatch was exported; use the target handoff claim action.",
     );
+  // A taskless conversation dispatch that already has a resume child continues at the current
+  // leaf: following the resumedFromDispatchId chain lets the caller keep naming the first
+  // dispatch (the ask session id) while each round links to the round it continues. Task-bound
+  // resumes keep the single-consumption contract: the source resumes once, later rounds name it.
+  const leaf = resumed?.header.taskId == null ? resumeChainLeaf(dispatchId, projection) : dispatchId;
+  if (leaf !== dispatchId) {
+    if (readHandoffCheckpoint(rootDir, leaf))
+      throw runtimeSpawnError(
+        "runtime_handoff_source_exported",
+        "This dispatch was exported; use the target handoff claim action.",
+      );
+    resumed = readDispatchStream(rootDir, leaf);
+  }
   // On an edge the center checks consumption atomically when accepting the dispatch.
-  const resumedDispatch = projection?.().readRuntimeDispatchByResumeSource(dispatchId);
+  const resumedDispatch = projection?.().readRuntimeDispatchByResumeSource(leaf);
   const admission = runtimeResumeAdmission({
-    dispatchId,
+    dispatchId: leaf,
     agentId: resumed?.header.agentId ?? null,
     providerSessionId: resumed?.providerSessionId ?? null,
     resumedDispatches: resumedDispatchesBySource(resumedDispatch ? [resumedDispatch.event.payload] : []),
   });
   if (!admission.resumable && admission.reason === "missing_provider_session")
-    throw runtimeSpawnError(
-      "runtime_dispatch_not_resumable",
-      `Dispatch ${dispatchId} has no provider session to resume.`,
-    );
+    throw runtimeSpawnError("runtime_dispatch_not_resumable", `Dispatch ${leaf} has no provider session to resume.`);
   if (!admission.resumable && admission.reason === "already_resumed")
     throw runtimeSpawnError(
       "runtime_dispatch_already_resumed",
-      `Dispatch ${dispatchId} was already resumed as ${admission.resumedDispatchId}.`,
+      `Dispatch ${leaf} was already resumed as ${admission.resumedDispatchId}.`,
       {
         kind: "validation",
-        entity: dispatchId,
+        entity: leaf,
         field: "dispatchId",
         actual: admission.resumedDispatchId,
         expectation:
@@ -58,6 +68,21 @@ export function admitRuntimeResume(
       },
     );
   return resumed;
+}
+
+/** The last dispatch of a resume chain, or the id itself when nothing resumed it yet. */
+function resumeChainLeaf(
+  dispatchId: string,
+  projection: (() => Pick<TaskProjection, "readRuntimeDispatchByResumeSource">) | null,
+): string {
+  const seen = new Set<string>([dispatchId]);
+  let current = dispatchId;
+  for (;;) {
+    const child = projection?.().readRuntimeDispatchByResumeSource(current)?.event.payload.dispatchId;
+    if (!child || seen.has(child)) return current;
+    seen.add(child);
+    current = child;
+  }
 }
 
 export type RuntimeResumeAdmission =
@@ -260,7 +285,11 @@ export function resolveRuntimeResume(
           input.rootDir,
           requestedDispatchId,
           input.remote ? null : () => requiredRuntimeProjection(input),
-        );
+        ),
+    // admitRuntimeResume follows a resume chain to its current leaf, so the recorded
+    // resumedFromDispatchId names the round the new dispatch actually continues — the chain
+    // stays linear even when the caller keeps passing the first dispatch of the conversation.
+    effectiveResumeSourceId = resumed?.header.dispatchId ?? requestedDispatchId;
   const inherited = handoff
     ? {
         taskId: handoff.taskId,
@@ -278,7 +307,7 @@ export function resolveRuntimeResume(
     (typeof payload.handoffEnabled !== "boolean" || requestedDispatchId || payload.providerSessionId !== undefined)
   )
     throw runtimeSpawnError("runtime_handoff_ineligible", "Opt in only when creating a new task-bound session.");
-  return { requestedDispatchId, resumed, inherited, handoffEnabled };
+  return { requestedDispatchId: effectiveResumeSourceId, resumed, inherited, handoffEnabled };
 }
 
 /** Handoff opt-in and native version admission belong to the same resume boundary. */
