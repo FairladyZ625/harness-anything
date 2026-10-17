@@ -317,6 +317,14 @@ for (const mode of ["resume", "fresh"] as const)
         "resume selects the lease-holding worker, never a newer reviewer or read-only observer",
       );
       assert.match(prompts[3], /Correct the parser edge case/u);
+      // The re-dispatched worker answers the latest owner return: its mission carries the managed
+      // returns/iteration-0.md verbatim, while the first dispatch and the reviewer carry none.
+      assert.match(prompts[3], /# Owner rework instruction/u);
+      assert.match(prompts[3], /# Owner return for iteration 0/u);
+      assert.match(prompts[3], /## Rework instruction/u);
+      assert.match(prompts[3], /Small revision\./u);
+      assert.doesNotMatch(prompts[0], /# Owner rework instruction/u);
+      assert.doesNotMatch(prompts[1], /# Owner rework instruction/u);
       if (mode === "fresh") {
         assert.match(prompts[3], /Previous worker conclusion: change the parser/u);
         assert.match(prompts[3], /Parser fixture passes/u);

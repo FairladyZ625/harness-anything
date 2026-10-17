@@ -38,6 +38,7 @@ test(
     const created = await fixture.createTask("node-one", "task-rework", "Review rework", "docs-task");
     const config = fixture.channel("node-one");
     let launches = 0;
+    const launchedPrompts: string[] = [];
     const runtime = openFleetEdgeRuntime({
       readBinding: () => fixture.owners.binding("node-one"),
       request: { ...config, method: "repo.agentRuntime.spawn", action: {} },
@@ -48,8 +49,9 @@ test(
         endpoint: path.join(fixture.root, "edge.sock"),
       },
       ports: scheduleRuntimePorts(),
-      launch: () => {
+      launch: (prepared) => {
         launches += 1;
+        launchedPrompts.push(prepared.prompt);
         return {
           pid: 91200 + launches,
           onOutput: () => undefined,
@@ -141,6 +143,23 @@ test(
         assert.equal(boundExecution(result.dispatchId), executionId);
         reviewers.push(String(result.runtimeSessionId));
       }
+      if (iteration === 1) {
+        // A promptless edge dispatch derives its mission from the mirrored package: the managed
+        // owner return of the finished iteration rides verbatim, mirroring the local paths.
+        const derived = await runtime.run("repo.agentRuntime.spawn", {
+          taskId: created.taskId,
+          role: "reviewer",
+          runtimeInstanceId: definition.instanceId,
+          cwd: { scope: "repo-root" },
+          dispatchKey: `derived-mission-${iteration}`,
+        });
+        assert.equal(derived.outcome, "applied", JSON.stringify(derived));
+        const mission = launchedPrompts.at(-1)!;
+        assert.match(mission, /# Owner rework instruction/u);
+        assert.match(mission, /# Owner return for iteration 0/u);
+        assert.match(mission, /Revise the delivery\./u);
+        assert.doesNotMatch(launchedPrompts[0]!, /# Owner rework instruction/u);
+      }
       if (iteration > 0) {
         await waitLivenessPublished(reviewers);
         const before = ledgerRevision(fixture),
@@ -165,6 +184,6 @@ test(
     }
     // No held implementation lease remains after submission.
     await assert.rejects(spawn("implementation", undefined, "implementation"), { code: "execution_missing" });
-    assert.equal(launches, 6);
+    assert.equal(launches, 7);
   },
 );

@@ -267,6 +267,10 @@ export interface RemoteRuntimePersistence {
      * cut; null when the task has no causal neighborhood. The block is also
      * embedded in the mission so task-bound remote spawns carry it verbatim. */
     readonly causalContext: string | null;
+    /** The mirrored managed rework record (`returns/iteration-N.md`) of the iteration a
+     * re-dispatched worker answers; null on a first dispatch. Re-dispatched missions carry
+     * it verbatim; the mirrored document stays the single storage of the instruction. */
+    readonly ownerReturnBody: string | null;
     /** The worktree binding the center derived for this task; null when it is closed or changes no repository files. */
     readonly worktree: TaskWorktreeBindingV1 | null;
   }>;
