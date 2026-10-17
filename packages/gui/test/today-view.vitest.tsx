@@ -349,8 +349,49 @@ describe("今天:三块区域与数字", () => {
     expect(rows[1]!.textContent).toContain("刚交付的任务二");
     expect(rows[0]!.textContent).not.toContain("task_done_1");
     expect(rows[1]!.textContent).toContain("交付了任务二的真实摘要");
-    expect(rows[0]!.textContent).toContain("任务已完成，等你看一眼。");
-    expect(rows[1]!.textContent).not.toContain("任务已完成");
+    expect(rows[0]!.textContent).not.toContain("任务已完成");
+    expect(rows[0]!.querySelector(".text-text-faint")).toBeNull();
+  });
+
+  it("刚交付行分别显示各自摘要,摘要为空时不显示占位文本", async () => {
+    const { container } = await mountToday(
+      todayElement({
+        tasks: [
+          {
+            taskId: "task_done_1",
+            completedAt: "2026-10-17T08:00:00.000Z",
+            snapshot: {
+              task: { status: "done", title: "刚交付的任务一" },
+              executions: [
+                {
+                  iteration: 1,
+                  submission: { completionClaim: "方案摘要一", deliverables: [], outputs: [] },
+                },
+              ],
+            },
+          },
+          {
+            taskId: "task_done_2",
+            completedAt: "2026-10-17T06:30:00.000Z",
+            snapshot: {
+              task: { status: "done", title: "刚交付的任务二" },
+              executions: [
+                {
+                  iteration: 1,
+                  submission: { completionClaim: "方案摘要二", deliverables: [], outputs: [] },
+                },
+              ],
+            },
+          },
+        ] as unknown as TaskSnapshotProjectionRow[],
+      }),
+    );
+    const rows = [...container.querySelectorAll('[data-testid^="today-delivered-row-"]')];
+    expect(rows).toHaveLength(2);
+    expect(rows[0]!.textContent).toContain("方案摘要一");
+    expect(rows[0]!.textContent).not.toContain("方案摘要二");
+    expect(rows[1]!.textContent).toContain("方案摘要二");
+    expect(rows[1]!.textContent).not.toContain("方案摘要一");
   });
 });
 

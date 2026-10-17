@@ -1916,7 +1916,6 @@
   "views.today.deliveredMore": "还有 {count} 件",
   "views.today.deliveredKind": "完成了",
   "views.today.deliveredUntitled": "已完成的任务",
-  "views.today.deliveredReason": "任务已完成，等你看一眼。",
   "views.today.readError": "读取失败：{message}",
   "views.today.loading": "正在读取…"
 }

@@ -221,7 +221,7 @@ export function TodayView({
                     <DenseRow
                       tag={<StatusTag tone="done" label={t("views.today.deliveredKind")} />}
                       title={row.title || titles.get(row.taskId) || t("views.today.deliveredUntitled")}
-                      reason={row.summary ?? t("views.today.deliveredReason")}
+                      reason={row.summary ?? undefined}
                       hoverTitle={row.taskId}
                       time={<RowTime at={row.at} />}
                       onClick={() => onOpenTask(row.taskId)}
