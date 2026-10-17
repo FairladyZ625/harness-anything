@@ -194,10 +194,18 @@ test("artifact producer is bound to the specific attempt/job API before v4 CAS a
       });
     };
     wrong = true;
-    await assert.rejects(
-      fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner),
-      /ambiguous or mismatched/,
-    );
+    const rejected = await fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner);
+    assert.equal(rejected.runs[0]?.jobs.length, 0);
+    assert.deepEqual(rejected.runs[0]?.provenanceIssues, [
+      {
+        runId: 123,
+        attempt: 2,
+        artifactName: "ci-observation-123-2-fast-contract",
+        field: "job",
+        expected: "exactly one matching job",
+        actual: "0",
+      },
+    ]);
     assert.equal(store.readHead(), null);
     wrong = false;
     const fetched = await fetchCiObservations(cell as never, { kind: "ci-observe-pull", runs: [123] }, runner);

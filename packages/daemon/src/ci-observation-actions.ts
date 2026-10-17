@@ -22,8 +22,8 @@ import { localGitObjectRefStore, resolveHarnessLayout } from "@harness-anything/
 import type { RepoCellActionContext, RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { ciFailureDetail } from "./ci-failure-detail.ts";
 import {
-  listCiArtifacts,
   listTaskBranchRuns,
+  listCiArtifacts,
   runCiProviderCommand,
   scrubCiProviderLog,
   selectCiBranchRuns,
@@ -37,7 +37,7 @@ import {
   hostingCredentialConfigurationAdvice,
   type HostingProvider,
 } from "./hosting-provider.ts";
-type CiRunArtifact = {
+export type CiRunArtifact = {
   readonly schema: "ci-run-artifact/v2";
   readonly run: CiRunObservationEventV4["payload"]["run"];
   readonly producer: {
@@ -51,6 +51,7 @@ type CiRunArtifact = {
   readonly detail: CiRunDetail;
   readonly gates: CiRunObservationEventV4["payload"]["gates"];
   readonly measurementCoverage: CiRunObservationEventV4["payload"]["measurementCoverage"];
+  readonly artifactName?: string;
 };
 type PreparedCiJob = {
   readonly artifact: CiRunArtifact;
@@ -77,23 +78,28 @@ type FetchedCiRun = {
   readonly jobs: readonly PreparedCiJob[];
   readonly artifactUnavailable?: boolean;
   readonly attemptInventory?: NonNullable<CiRunObservationEventV4["payload"]["attemptInventory"]>;
+  readonly provenanceIssues?: readonly CiProvenanceIssue[];
   readonly provider?: "github-actions" | "gitlab-pipeline";
 };
 export const preparedCiObservation = Symbol("preparedCiObservation");
-
 export type CiObservationFetch = {
   readonly requestedRuns: number;
   readonly runs: readonly FetchedCiRun[];
   /** --task: the delivery and the run its frozen contract judges, reported with the run's conclusion. */
   readonly witness?: { readonly taskId: string; readonly delivery: string; readonly databaseId: number };
 };
+export type CiProvenanceIssue = {
+  readonly runId: number;
+  readonly attempt: number;
+  readonly artifactName: string;
+  readonly field: string;
+  readonly expected: string;
+  readonly actual: string;
+};
 type GithubActionsOptions = Extract<
   FrozenGateRequirement["witness"],
   { readonly kind: "github-actions" }
 >["adapterOptions"];
-
-// Every gh call finishes before the pull enters the repository write queue: GitHub can stall
-// until the provider deadline, and the queue waits only on the event appends in ingestCiObservations.
 export async function fetchCiObservations(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings" | "input"> & {
     readonly projection?: Pick<TaskProjection, "read" | "readRuntimeDispatch">;
@@ -102,8 +108,6 @@ export async function fetchCiObservations(
   ghRunner: RunGh = runCiProviderCommand,
   hostingProvider?: "github" | "gitlab" | null,
 ): Promise<CiObservationFetch> {
-  // Injected runners are the public test seam and intentionally run against temporary
-  // repositories without remotes. Production always identifies the provider from origin.
   const hosting =
     hostingProvider !== undefined
       ? hostingProvider === null
@@ -112,9 +116,6 @@ export async function fetchCiObservations(
       : ghRunner === runCiProviderCommand
         ? await detectHostingProvider(cell.rootDir)
         : ({ kind: "github" } as const);
-  // GitHub rate limits surface as gh 403 stderr; classifying them here reports rate_limited with
-  // the reset hint, so callers wait instead of retrying a raw service_rejected dump that deepens
-  // the limit.
   const runGh: RunGh = async (command, args, options) => {
     try {
       return await ghRunner(command, args, options);
@@ -231,7 +232,6 @@ export async function fetchCiObservations(
                 ),
               ) as CiRunSummary);
           const { status: runLifecycleState } = summary;
-          // Publish immutable observations only for main runs that have a final conclusion.
           const expectedBranch = observeBranch ? taskId : "main";
           if (summary.headBranch !== expectedBranch || runLifecycleState !== "completed") {
             if (namedRuns && fixedAttempt === undefined)
@@ -298,9 +298,6 @@ export async function fetchCiObservations(
             readonly html_url?: string;
           }[];
           {
-            // gh --slurp keeps every paginated page in one JSON array, avoiding concatenated
-            // transport JSON; gh rejects --jq/--template alongside --slurp, so the pages
-            // flatten here instead of in a jq program.
             apiJobs = (
               JSON.parse(
                 await runGh(
@@ -323,19 +320,32 @@ export async function fetchCiObservations(
                 }[];
               }[]
             ).flatMap((page) => page.jobs);
+            const provenanceIssues: CiProvenanceIssue[] = [];
             for (const artifact of artifacts) {
               const matching = apiJobs.filter((job) => job.name === artifact.producer.jobName);
-              if (
-                matching.length !== 1 ||
-                artifact.producer.repositoryId !== attempt.repository.full_name ||
-                artifact.producer.workflow !== attempt.path ||
-                artifact.run.sha !== attempt.head_sha ||
-                artifact.run.runId !== `${run.databaseId}.${summary.attempt}`
-              )
-                throw cell.cellCodedError(
-                  "invalid_result",
-                  "CI artifact has ambiguous or mismatched attempt/job provenance.",
-                );
+              const checks: readonly [string, string, string][] = [
+                [
+                  "job",
+                  "exactly one matching job",
+                  matching.length === 1 ? "exactly one matching job" : String(matching.length),
+                ],
+                ["repository", attempt.repository.full_name, artifact.producer.repositoryId],
+                ["workflow", attempt.path, artifact.producer.workflow],
+                ["sha", attempt.head_sha, artifact.run.sha],
+                ["runId", `${run.databaseId}.${summary.attempt}`, artifact.run.runId],
+              ];
+              const mismatch = checks.find(([, expected, actual]) => expected !== actual);
+              if (mismatch) {
+                provenanceIssues.push({
+                  runId: run.databaseId,
+                  attempt: summary.attempt,
+                  artifactName: artifact.artifactName ?? artifact.producer.jobName,
+                  field: mismatch[0],
+                  expected: mismatch[1],
+                  actual: mismatch[2],
+                });
+                continue;
+              }
               const body = JSON.stringify(artifact.detail);
               jobs.push({
                 artifact,
@@ -345,6 +355,18 @@ export async function fetchCiObservations(
                 measurement: ciDetailMeasurement(artifact.detail),
               });
             }
+            if (provenanceIssues.length)
+              return {
+                fetched: {
+                  databaseId: run.databaseId,
+                  summary,
+                  repositoryId: attempt.repository.full_name,
+                  workflowPath: attempt.path,
+                  workflowId: String(attempt.workflow_id),
+                  jobs: [],
+                  provenanceIssues,
+                },
+              };
             for (const job of apiJobs) {
               if (job.conclusion !== "failure" || jobs.some((prepared) => prepared.jobExecutionId === String(job.id)))
                 continue;
@@ -442,7 +464,6 @@ export async function fetchCiObservations(
     rmSync(temporaryRoot, { recursive: true, force: true });
   }
 }
-
 async function fetchGitLabCiObservations(
   cell: Pick<RepoCellOperationalContext, "rootDir" | "cellCodedError" | "settings" | "input">,
   action: RepoTaskAction,
@@ -582,7 +603,6 @@ async function fetchGitLabCiObservations(
       : {}),
   };
 }
-
 export function ingestCiObservations(
   cell: RepoCellActionContext,
   binding: RepoCellBinding,
@@ -622,9 +642,6 @@ export function ingestCiObservations(
       wallclockMs: 0,
       runner: databaseId === 0 ? "write-coordinator" : provider,
     };
-    // Task-branch runs are diagnostic measurements, not completion witnesses. The v4
-    // verification contract intentionally accepts GitHub provider verification only for main;
-    // leave this workflow observation unverified while retaining its job detail for task-ci.
     const verification: CiRunObservationEventV4["payload"]["verification"] =
       databaseId === 0
         ? {
@@ -774,23 +791,18 @@ export function ingestCiObservations(
       eventRefs.join("\n"),
   } as WriteReceipt;
 }
-
 export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: number): readonly CiWorkflowRun[] {
   return runs
     .filter((run) => run.headBranch === "main")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.databaseId - left.databaseId)
     .slice(0, limit);
 }
-
 type TaskWitness = {
   readonly taskId: string;
   readonly delivery: string;
   readonly options: GithubActionsOptions;
   readonly instanceId?: string;
 };
-
-// --task resolves the submitted execution's delivery commit and the github-actions options its
-// completion contract froze.
 function taskWitnessContract(
   cell: {
     readonly rootDir: string;
@@ -842,13 +854,6 @@ function taskWitnessContract(
     ...(typeof instanceId === "string" ? { instanceId } : {}),
   };
 }
-
-// Selects the run the frozen contract judges, exactly as completion does: completed main runs of
-// the frozen event, newest run first, the first covering run whose conclusion is a verdict
-// (cancelled/skipped carry none). A red verdict is imported and reported, never skipped for an
-// older green. Runs are looked up per head commit along main's first-parent history, newest first:
-// GitHub's branch-filtered run listing intermittently serves a days-old page, while head_sha
-// lookups stayed current (F-6AFABACF, F-50599A2B).
 async function selectTaskWitnessRun(
   cell: { readonly rootDir: string; readonly cellCodedError: RepoCellOperationalContext["cellCodedError"] },
   { taskId, delivery, options }: TaskWitness,
@@ -876,7 +881,6 @@ async function selectTaskWitnessRun(
           );
   let pending: { readonly databaseId: number; readonly status: string } | undefined;
   for (const head of heads) {
-    // Main's first-parent history is linear: once a head does not contain the delivery, no older one does.
     if (options.coverage !== "exact" && !(await coversCommit(runGh, cwd, delivery, head))) break;
     type WitnessRunEntry = Pick<CiRunListEntry, "databaseId" | "headBranch" | "event" | "status" | "conclusion"> & {
       readonly path: string;
@@ -917,8 +921,6 @@ async function selectTaskWitnessRun(
       "next: no covering run exists yet; retry after the next main run completes.",
   );
 }
-
-// Main's push runs sit on its first-parent chain; the page lists the tip first.
 function firstParentHistory(page: readonly { readonly sha: string; readonly parents: readonly string[] }[]): string[] {
   const parents = new Map(page.map((commit) => [commit.sha, commit.parents[0]]));
   const chain: string[] = [];
@@ -926,7 +928,6 @@ function firstParentHistory(page: readonly { readonly sha: string; readonly pare
     chain.push(sha);
   return chain;
 }
-
 function taskWitnessSummary({ witness, runs }: CiObservationFetch): string {
   const run = witness && runs.find((candidate) => candidate.databaseId === witness.databaseId);
   return run
@@ -934,9 +935,6 @@ function taskWitnessSummary({ witness, runs }: CiObservationFetch): string {
         `${run.summary.conclusion} on ${run.summary.headSha}, covering delivery ${witness.delivery}.\n`
     : "";
 }
-
-// A main run covers the delivery when the delivery commit is an ancestor of the run head:
-// GitHub compare reports "ahead"/"identical" only when base is contained in head's history.
 async function coversCommit(runGh: RunGh, cwd: string, base: string, head: string): Promise<boolean> {
   const compare = JSON.parse(
     await runGh("gh", ["api", `repos/:owner/:repo/compare/${base}...${head}`, "--jq", "{status: .status}"], { cwd }),
@@ -945,10 +943,8 @@ async function coversCommit(runGh: RunGh, cwd: string, base: string, head: strin
   };
   return compare.status === "ahead" || compare.status === "identical";
 }
-
 const ghRateLimitText = /rate limit|HTTP 429/iu;
 const ghRateLimitResetText = /(?:reset in|try again in) ((?:[0-9]+[a-z]+)+)/iu;
-
 function ghFailureDetail(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error),
     stderr =
@@ -957,9 +953,6 @@ function ghFailureDetail(error: unknown): string {
         : "";
   return `${message}\n${stderr}`;
 }
-
-// Non-rate-limit gh failures pass through untouched; rate limits rethrow as rate_limited with
-// the reset hint parsed out of gh's stderr so the receipt names a wait, not a retry.
 function rethrowGhFailureAsRateLimit(cell: Pick<RepoCellOperationalContext, "cellCodedError">, error: unknown): never {
   const detail = ghFailureDetail(error);
   if (!ghRateLimitText.test(detail)) throw error;
@@ -970,43 +963,15 @@ function rethrowGhFailureAsRateLimit(cell: Pick<RepoCellOperationalContext, "cel
       "next: the center CI Schedule resumes reconciliation after the reset.",
   );
 }
-
-function readArtifacts(root: string): readonly CiRunArtifact[] {
-  return walk(root)
-    .filter((file) => file.endsWith(".json"))
-    .map((file) => JSON.parse(readFileSync(file, "utf8")))
-    .filter(
-      (value) =>
-        value?.schema === "ci-run-artifact/v2" &&
-        value.run &&
-        value.producer &&
-        value.detail?.schema === "ci-run-detail/v1" &&
-        Array.isArray(value.detail.tests) &&
-        Array.isArray(value.gates),
-    );
-}
-
-function walk(root: string): readonly string[] {
-  if (!existsSync(root)) return [];
-  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
-    const target = path.join(root, entry.name);
-    return entry.isDirectory() ? walk(target) : [target];
-  });
-}
-
 /** Prepare the existing private-ledger witness; the occurrence owns its acceptance too. */
 export function privateLedgerCiObservations(cell: Pick<RepoCellOperationalContext, "rootDir">): CiObservationFetch {
   return { requestedRuns: 0, runs: privateLedgerRuns(cell) };
 }
-
 function privateLedgerRuns(cell: Pick<RepoCellOperationalContext, "rootDir">): readonly FetchedCiRun[] {
   const authoredRoot = resolveHarnessLayout(cell.rootDir).authoredRoot;
   if (existsSync(authoredRoot)) {
     const branch = localGitObjectRefStore.currentBranch(authoredRoot),
       sha = branch ? localGitObjectRefStore.resolveCommit(authoredRoot, `refs/heads/${branch}`) : null;
-    // A ledger commit that is also in the public repository belongs to the
-    // GitHub observation path; synthesize only for private-ledger commits. `git rev-parse`
-    // echoes any 40-hex string back, so existence must be asked with `cat-file -e`.
     if (branch && sha && !localGitObjectRefStore.hasCommit(cell.rootDir, sha))
       return [
         {
@@ -1029,15 +994,10 @@ function privateLedgerRuns(cell: Pick<RepoCellOperationalContext, "rootDir">): r
   }
   return [];
 }
-
 export type { CiArtifactMetadata } from "./ci-observation-provider.ts";
 export { listCiArtifacts } from "./ci-observation-provider.ts";
 export { runCiProviderCommand } from "./ci-observation-provider.ts";
-
-// Unaccepted preparation belongs to a repository/run/attempt, not an occurrence claim.
-// Retain completed units after a provider interruption; acceptance still uses the current fence.
 const partialCiDownloads = new Map<string, Map<number, readonly CiRunArtifact[]>>();
-
 async function downloadCiArtifacts(
   gh: RunGh,
   cwd: string,
@@ -1059,7 +1019,12 @@ async function downloadCiArtifacts(
       partialCiDownloads.set(key, completed);
     }
     partialCiDownloads.delete(key);
-    return { artifacts: artifacts.flatMap((artifact) => completed.get(artifact.id)!), unavailable: false };
+    return {
+      artifacts: artifacts.flatMap((artifact) =>
+        completed.get(artifact.id)!.map((entry) => ({ ...entry, artifactName: artifact.name })),
+      ),
+      unavailable: false,
+    };
   } catch (error) {
     if (isTransientCiProviderFailure(error)) throw error;
     partialCiDownloads.delete(key);
@@ -1069,7 +1034,27 @@ async function downloadCiArtifacts(
     return { artifacts: [], unavailable: true };
   }
 }
-
+function readArtifacts(root: string): readonly CiRunArtifact[] {
+  return walk(root)
+    .filter((file) => file.endsWith(".json"))
+    .map((file) => JSON.parse(readFileSync(file, "utf8")))
+    .filter(
+      (value) =>
+        value?.schema === "ci-run-artifact/v2" &&
+        value.run &&
+        value.producer &&
+        value.detail?.schema === "ci-run-detail/v1" &&
+        Array.isArray(value.detail.tests) &&
+        Array.isArray(value.gates),
+    );
+}
+function walk(root: string): readonly string[] {
+  if (!existsSync(root)) return [];
+  return readdirSync(root, { withFileTypes: true }).flatMap((entry) => {
+    const target = path.join(root, entry.name);
+    return entry.isDirectory() ? walk(target) : [target];
+  });
+}
 function isFatalCiProviderFailure(error: unknown): boolean {
   return (
     error instanceof TypeError ||
@@ -1080,7 +1065,6 @@ function isFatalCiProviderFailure(error: unknown): boolean {
     )
   );
 }
-
 /** Only provider transport failures are resumable; authority and local IO fail closed. */
 export function isTransientCiProviderFailure(error: unknown): boolean {
   return (

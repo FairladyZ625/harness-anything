@@ -87,6 +87,16 @@ export async function reconcileCiOccurrence(input: {
           reason: "provider-artifact-unavailable",
         });
     }
+    for (const run of fetched.runs) {
+      for (const issue of run.provenanceIssues ?? []) {
+        pending.delete(`${issue.runId}.${issue.attempt}`);
+        unavailable.push({
+          runId: issue.runId,
+          attempt: issue.attempt,
+          reason: `CI artifact rejected: ${issue.artifactName}; ${issue.field} expected ${issue.expected}, actual ${issue.actual}`,
+        });
+      }
+    }
   };
   const acceptFetched = async (fetched: CiObservationFetch): Promise<boolean> => {
     return accept(fetched).then(
@@ -144,7 +154,7 @@ export async function reconcileCiOccurrence(input: {
       retain(target);
       return;
     }
-    if (run.artifactUnavailable) return;
+    if (run.artifactUnavailable || run.provenanceIssues?.length) return;
     if (run.attemptInventory && run.attemptInventory.missingArtifactJobIds.length === 0) pending.delete(key(target));
     else {
       // Provider expiry is authoritative; an absent artifact remains pending for a later occurrence.
