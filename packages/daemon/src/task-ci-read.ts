@@ -132,7 +132,9 @@ export async function readTaskCi(
     hasSubmittedDelivery(context.projection, observedTaskId)
   )
     return readTaskCiFromObservations(context, observedTaskId, action);
-  if (!principal)
+  // The read-only tier (taskId null) was already refused by requireCurrentExecutionScope above;
+  // this recheck keeps the narrowing so the provider path below can treat taskId as a branch name.
+  if (!principal || principal.taskId === null || principal.executionId === null)
     throw context.cellCodedError(
       "actor_unauthorized",
       "Task CI requires a bound worker or reviewer dispatch; a submitted cut is readable without one.",
