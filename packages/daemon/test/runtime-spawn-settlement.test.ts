@@ -775,6 +775,14 @@ test("terminal settlement accepts an already submitted commitless task delivery"
   const fixture = workerGitFixture(context, "settle-commitless-submission", { reachableRemote: true, delivery: false }),
     runtime = workerSettlementRuntime(fixture, { finalText: "analysis complete", publicationOwner: "commander" }),
     outcomes: Record<string, unknown>[] = [],
+    remoteArchive = { archive: async () => ({ outcome: "applied" }) },
+    localInput = {
+      ...workerSettlementContext(fixture, async () => ({})).input,
+      get remote() {
+        return this.remoteReads++ === 0 ? undefined : remoteArchive;
+      },
+      remoteReads: 0,
+    },
     settleContext = workerSettlementContext(fixture, async (type, payload = {}) => {
       if (type === "runtime_session_outcome_observed") outcomes.push(payload);
       return {};
@@ -782,7 +790,7 @@ test("terminal settlement accepts an already submitted commitless task delivery"
   await publishExit(
     {
       ...settleContext,
-      input: { ...settleContext.input, remote: undefined },
+      input: localInput,
       requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], false, true),
     },
     runtime,
