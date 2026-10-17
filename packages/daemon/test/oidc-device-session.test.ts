@@ -1,6 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -74,4 +74,61 @@ test("Device login without verification_uri_complete keeps secrets private and b
   assert.deepEqual(await service.logout(), { ok: true, authenticated: false });
   assert.equal(calls.at(-1)?.url.endsWith("/revoke"), true);
   assert.equal((await service.status()).authenticated, false);
+});
+
+test("invited login authority supplies a request-scoped TLS CA", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-ca-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "rbac"));
+  writeFileSync(
+    path.join(root, "rbac/config.json"),
+    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }),
+  );
+  let dispatcher: unknown,
+    now = 0,
+    tokenRequests = 0;
+  const certificate = "-----BEGIN CERTIFICATE-----\\npublic-test-ca\\n-----END CERTIFICATE-----\\n";
+  const service = new OidcSessionService(root, {
+    now: () => now,
+    fetch: (async (input, init) => {
+      dispatcher = (init as RequestInit & { dispatcher?: unknown }).dispatcher;
+      if (String(input).endsWith("/auth/device"))
+        return Response.json({
+          device_code: "private-device",
+          user_code: "ABCD-EFGH",
+          verification_uri: "https://identity.example.test/realms/harness/device",
+          expires_in: 600,
+          interval: 5,
+        });
+      if (String(input).endsWith("/userinfo"))
+        return Response.json({ sub: "person-one", harness_person_id: "person-one" });
+      tokenRequests++;
+      return Response.json({
+        access_token: "x.e30.x",
+        refresh_token: `refresh-${tokenRequests}`,
+        expires_in: 60,
+        refresh_expires_in: 600,
+      });
+    }) as typeof fetch,
+  });
+  const authority = {
+    url: "https://identity.example.test",
+    realm: "harness",
+    clientId: "harness-node-one",
+    certificate,
+  };
+  await service.beginDevice(undefined, authority);
+  assert.ok(dispatcher, "the authority certificate is supplied through a request-scoped TLS dispatcher");
+  now = 5_000;
+  await service.pollDevice();
+  const issued = JSON.parse(readFileSync(path.join(root, "rbac/oidc-session.json"), "utf8"));
+  assert.deepEqual(issued.authority, {
+    url: authority.url,
+    realm: authority.realm,
+    clientId: authority.clientId,
+    certificate,
+  });
+  now = 36_000;
+  await service.status();
+  assert.equal(tokenRequests, 2, "the refresh request uses the persisted invited authority");
 });

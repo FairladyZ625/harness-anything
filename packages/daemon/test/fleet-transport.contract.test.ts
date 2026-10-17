@@ -217,6 +217,12 @@ const frames = [
     sessionId: "s1",
     maxFrameBytes: FLEET_FRAME_BYTES,
     chunkBytes: FLEET_CHUNK_BYTES,
+    loginAuthority: {
+      url: "https://center.example.test:8443",
+      realm: "harness",
+      clientId: "harness-node-one",
+      certificate: "public listener certificate",
+    },
   },
   { schema: "fleet.repo.metadata.get/v1", messageId: "m3", repoId: "a1" },
   {
