@@ -125,7 +125,7 @@ published npm release:
 npm run harness:smoke-cli-package
 ```
 
-The smoke builds and packs the CLI workspace, installs the tarball in a temporary
+The smoke builds and packs the CLI workspace, installs the package archive in a temporary
 consumer project, and exercises JSON CLI commands.
 
 ### GUI build

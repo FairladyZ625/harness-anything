@@ -1,0 +1,144 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "v* tag to rehearse"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.event_name == 'workflow_dispatch' && inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.context.outputs.tag }}
+      version: ${{ steps.context.outputs.version }}
+      npm_tag: ${{ steps.context.outputs.npm_tag }}
+      prerelease: ${{ steps.context.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: context
+        env:
+          INPUT_TAG: ${{ inputs.release_tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          [[ "$INPUT_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "release tag must be v<semver>" >&2; exit 1; }
+          version="${INPUT_TAG#v}"
+          echo "tag=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          if [[ "$version" == *-* ]]; then echo "npm_tag=next" >> "$GITHUB_OUTPUT"; echo "prerelease=true" >> "$GITHUB_OUTPUT"; else echo "npm_tag=latest" >> "$GITHUB_OUTPUT"; echo "prerelease=false" >> "$GITHUB_OUTPUT"; fi
+      - run: node tools/check-release-version.mjs "${{ steps.context.outputs.tag }}"
+      - run: npm ci
+      - run: node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui
+
+  publish-npm:
+    needs: validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm ci
+      - name: Require npm credentials
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: test -n "$NPM_TOKEN" || { echo "NPM_TOKEN secret is required for release" >&2; exit 1; }
+      - name: Publish all public workspaces
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TAG: ${{ needs.validate.outputs.npm_tag }}
+        run: |
+          set -euo pipefail
+          for workspace in @harness-anything/kernel @harness-anything/application @harness-anything/preset @harness-anything/cli @harness-anything/daemon @harness-anything/gui; do
+            npm publish --workspace "$workspace" --access public --tag "$NPM_TAG" --provenance
+          done
+
+  build-app:
+    needs: validate
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - os: macos-14
+            platform: macos-arm64
+            args: "--mac --arm64"
+          - os: windows-latest
+            platform: windows-x64
+            args: "--win --x64"
+          - os: ubuntu-latest
+            platform: linux-x64
+            args: "--linux AppImage deb --x64"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Build desktop installer
+        working-directory: packages/gui
+        env:
+          HARNESS_GUI_BUILDER_OUTPUT: ../../dist/release/${{ matrix.platform }}
+          # Signing/notarization task supplies these secrets and may replace this hook.
+          CSC_LINK: ${{ secrets.MACOS_CERTIFICATE_BASE64 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: npm run package:prepare && npx electron-builder --config electron-builder.config.mjs ${{ matrix.args }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gui-${{ matrix.platform }}
+          path: dist/release/${{ matrix.platform }}/
+          if-no-files-found: error
+
+  github-release:
+    needs: [validate, publish-npm, build-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: gui-*
+          path: dist/release
+          merge-multiple: true
+      - name: Checksums and release notes
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        run: |
+          set -euo pipefail
+          find dist/release -type f -print0 | sort -z | xargs -0 sha256sum > dist/release/SHA256SUMS.txt
+          cat > release-notes.md <<EOF
+          # Harness Anything ${VERSION}
+
+          npm packages and desktop installers are published from the same tag.
+          macOS is arm64 only; Windows is x64 NSIS and unsigned (SmartScreen may appear); Linux is x64 AppImage and deb.
+          App auto-update feed integration is supplied by the automatic-update task; this workflow's artifacts are its input.
+          EOF
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.validate.outputs.tag }}
+          PRERELEASE: ${{ needs.validate.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+          args=(--title "Harness Anything ${TAG#v}" --notes-file release-notes.md --target "$GITHUB_SHA")
+          [[ "$PRERELEASE" == "true" ]] && args+=(--prerelease)
+          gh release create "$TAG" "${args[@]}" dist/release/*

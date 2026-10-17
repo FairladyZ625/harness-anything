@@ -41,6 +41,8 @@
     "quickstart:demo": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs",
     "quickstart:demo:fail-closed": "npm -w @harness-anything/cli run build && node scripts/quickstart-demo.mjs --break-step fact-record",
     "release:demo:record": "bash scripts/record-macos-v1-demo.sh",
+    "release:version": "node tools/release-version.mjs",
+    "release:check-version": "node tools/check-release-version.mjs",
     "check:pr": "npm run typecheck && npm run lint && npm run test:fast && npm run test:contract && npm run test:integration && npm run test:gui && node tools/run-manifest-gates.mjs --package-surface checkPr --exclude typecheck,lint,test-fast,test-contract,test-integration,test-gui",
     "check:local": "node tools/run-local-check.mjs",
     "check:local:derived-contracts": "node tools/gates/derived-contracts.mjs --check",

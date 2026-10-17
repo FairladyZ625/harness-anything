@@ -106,7 +106,7 @@ package smoke 会验证当前 package artifact 路径，但不声明已经有公
 npm run harness:smoke-cli-package
 ```
 
-这条 smoke 会构建并打包 CLI workspace，把 tarball 安装到临时 consumer project，并执行 JSON CLI 命令。
+这条 smoke 会构建并打包 CLI workspace，把 package archive 安装到临时 consumer project，并执行 JSON CLI 命令。
 
 ### GUI build
 

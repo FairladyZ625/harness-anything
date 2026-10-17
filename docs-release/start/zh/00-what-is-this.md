@@ -17,7 +17,7 @@ gate，就等于一定被绕过。
 
 ## 先看 30 秒证明
 
-0.0.1 CLI 候选版可以从本地 npm tarball 安装。今天最快的路径仍是源码 checkout smoke demo：
+0.0.1 CLI 候选版可以从本地 npm package archive 安装。今天最快的路径仍是源码 checkout smoke demo：
 
 ```bash
 git clone https://github.com/FairladyZ625/harness-anything
@@ -31,7 +31,7 @@ fact，并渲染 relation graph。承重步骤如果拿不出证据，会 fail c
 是静默放行。
 
 等 package 正式发布到 registry 后，可安装 scoped package 并直接运行不带参数的 `ha init`。在那之前，
-请使用本地 tarball 或上面的源码路径。
+请使用本地 package archive 或上面的源码路径。
 
 ## 什么会落到磁盘上
 

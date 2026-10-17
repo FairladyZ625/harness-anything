@@ -1,7 +1,25 @@
 # Install
 
-The 0.0.1 CLI candidate runs from an npm package with Node.js 24 or newer. The supported desktop entry remains the
-source-installed `ha gui`; launching a packaged Electron executable directly is not a supported production path.
+The CLI and daemon are published npm packages for Node.js 24 or newer. The desktop App is downloaded from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
+
+## Install CLI and daemon
+
+```bash
+npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest
+ha --version
+```
+
+Preview releases use the `next` channel:
+
+```bash
+npm install --global @harness-anything/cli@next @harness-anything/daemon@next
+```
+
+## Install the desktop App
+
+Download the asset matching the npm version from [GitHub Releases](https://github.com/FairladyZ625/harness-anything/releases).
+macOS is Apple Silicon arm64 only (dmg/zip); Windows is x64 NSIS and may show SmartScreen; Linux is x64 AppImage or deb.
+AppImage receives automatic updates; deb users update manually.
 
 ## Requirements
 
@@ -9,107 +27,11 @@ source-installed `ha gui`; launching a packaged Electron executable directly is 
 - `git`.
 - An existing git repository you can initialize or one already registered with the local daemon.
 
-## Install the npm CLI candidate
-
-From a Harness Anything checkout, build and install the scoped package locally:
-
-```bash
-npm ci
-npm pack --workspace @harness-anything/daemon
-npm pack --workspace @harness-anything/cli
-npm install --global ./harness-anything-daemon-*.tgz ./harness-anything-cli-*.tgz
-ha --version
-```
-
-The candidate is validated with `npm publish --dry-run`; this task does not claim a registry publication.
-
-`ha init` needs no arguments in the usual case. It derives the repository id from the current directory and the owner
-identity from `git config user.name`; explicit values override those defaults.
-
-## Install the source CLI and GUI
-
-```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
-npm run build -w @harness-anything/cli
-(cd packages/cli && npm link)
-ha --version
-```
-
-The global link keeps `ha` anchored to this canonical checkout. Do not point it at a feature worktree: worktrees are
-repository contexts, not daemon or GUI installation owners.
-
-## Launch the Electron GUI
-
-From the repository you want to open:
-
-```bash
-ha gui
-```
-
-Or select it explicitly from any directory:
-
-```bash
-ha gui --root /path/to/repository
-```
-
-`ha gui` rebuilds the renderer and preload from the canonical installation, obtains the default daemon through the
-same canonical-only CLI autostart path used by other `ha` commands, and then launches Electron detached. The selected
-directory only determines repository context. Closing Electron never stops the daemon, and an open GUI never restarts
-a daemon that an operator stopped.
-
-`npm run dev:electron` is a package-local hot-reload tool for GUI contributors. It is not a user launch command.
-
 ## Complete first run
 
-The first-run wizard uses three steps:
-
-1. Choose your git repository, set its repository id, and enter the owner identity recorded in the local ledger.
-   Select **Initialize repository**. This creates `harness/` and registers the repository with the daemon that the CLI
-   acquired before Electron started.
-2. In **Provider**, add a detected Claude, Codex, or AGY installation and choose its model. You may continue and
-   configure it later.
-3. In **Agent · Squad**, optionally create repository-specific Agents and Squads. The closeout reviewer is bundled and
-   uses a compatible configured runtime instance and that instance's default model. Installing an Agent with the same
-   id pins a repository-local override. Choose **Finish setup** when the GUI is ready for normal use.
-
-Harness Anything writes daemon state under `~/.harness` by default. Repository ledger files stay in the selected
-repository. No application server is used.
-
-## Install the npm CLI without the GUI
-
-When published, the standalone CLI package requires Node.js 24 or newer:
-
-```bash
-npm install --global @harness-anything/cli@0.0.1
-ha --version
-```
-
-The standalone CLI package does not contain the source GUI workspace. Use the source installation above for `ha gui`.
-`ha` and `harness-anything` are aliases for the same command.
-
-## Source demo
-
-```bash
-npm run quickstart:demo
-```
-
-The demo creates a throwaway project and exercises the CLI lifecycle without changing your selected repository.
+`ha init` derives the repository id from the current directory and the owner identity from `git config user.name`.
+Harness Anything writes daemon state under `~/.harness` by default and keeps repository ledgers in the selected repository.
 
 ## Uninstall
 
-Quit the GUI, run `npm unlink --global @harness-anything/cli` from `packages/cli`, and remove the source checkout when
-you no longer need it. Remove `~/.harness` only if you intentionally want to delete daemon registry and cache state.
-Repository `harness/` ledgers are not removed automatically.
-
-## Troubleshooting
-
-- **`ha: command not found`** — rerun `npm link` from `packages/cli` and confirm npm's global bin directory is on
-  `PATH`.
-- **GUI build failed** — run `npm ci` in the canonical checkout, then retry `ha gui`.
-- **Daemon unavailable** — run `ha daemon status`. If an operator intentionally stopped it, close the old window and
-  run `ha gui` again from an operator shell. The existing GUI will not respawn it.
-- **Provider not detected** — install its CLI, ensure it is on your shell `PATH`, then refresh Provider discovery.
-
-Next: **[Install and join an edge](02-edge-join.md)**, then [your first loop](02-first-loop.md).
+Run `npm uninstall --global @harness-anything/cli @harness-anything/daemon`. Remove `~/.harness` only if you intentionally want to delete daemon registry and cache state.

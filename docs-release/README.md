@@ -64,9 +64,7 @@ ADR-0027 D7).
 Install the 0.0.1 CLI candidate from a checkout with:
 
 ```bash
-npm pack --workspace @harness-anything/daemon
-npm pack --workspace @harness-anything/cli
-npm install --global ./harness-anything-daemon-*.tgz ./harness-anything-cli-*.tgz
+npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest
 ha --help
 ```
 
