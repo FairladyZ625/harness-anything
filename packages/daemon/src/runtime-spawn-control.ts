@@ -109,12 +109,26 @@ export async function steerRuntime(
     prompt = requiredRuntimeSpawnText(payload.prompt, "prompt");
   if ((typeof runtimeSessionIdInput === "string") === (typeof dispatchIdInput === "string"))
     throw runtimeSpawnError("invalid_runtime_steer", "Specify exactly one runtime session id or dispatch id.");
-  const header = readDispatchStreamHeaders(context.input.rootDir).find((entry) =>
+  const headers = readDispatchStreamHeaders(context.input.rootDir);
+  let header = headers.find((entry) =>
     typeof dispatchIdInput === "string"
       ? entry.dispatchId === dispatchIdInput
       : entry.runtimeSessionId === runtimeSessionIdInput,
   );
   if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
+  if (typeof dispatchIdInput === "string") {
+    // A conversation addressed by its first dispatch steers the current leaf round: an earlier
+    // round's process has exited by the time a later round runs, and only the leaf can be live.
+    const seen = new Set([header.dispatchId]);
+    let current = header;
+    for (;;) {
+      const child = headers.find((entry) => entry.resumedFromDispatchId === current.dispatchId);
+      if (!child || seen.has(child.dispatchId)) break;
+      seen.add(child.dispatchId);
+      current = child;
+    }
+    header = current;
+  }
   const runtimeSessionId = header.runtimeSessionId;
   if (!header?.binding || !ownedByRuntimeSpawner(header.binding, context.input.runtimeNode))
     throw runtimeSpawnError("execution_scope_mismatch", "This runtime is owned by another node.");

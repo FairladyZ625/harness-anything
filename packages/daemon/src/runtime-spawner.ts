@@ -306,12 +306,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    const daemonRoute = taskId || trustedSchedule || reviewerBinding ? input.runtimeDaemonRoute : undefined;
-    if ((taskId || trustedSchedule || reviewerBinding) && !daemonRoute)
-      throw runtimeSpawnError(
-        "runtime_preconditions_unavailable",
-        "Task-bound and scheduled runtime spawn require a sealed daemon route before dispatch.",
-      );
     const causalContext =
         remoteTask === null
           ? taskId === null
@@ -347,6 +341,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         targetAgentId,
       );
     if (agent) assertAgentDispatchable(agent);
+    // A dispatch of an agent that DECLARES read-only (the bundled ask-agent surface) is
+    // daemon-bound like a task dispatch: it gets the daemon route and, in prepareBoundRuntimeLaunch,
+    // an allowlist-only execution credential — without one it would reach the daemon unauthenticated
+    // through its relay. Instance-configured modes and per-dispatch overrides change only the
+    // sandbox; they do not make a dispatch daemon-bound.
+    const unboundReadOnlyAgent =
+        !taskId && !trustedSchedule && !reviewerBinding && agent !== null && agent.permissionMode === "read-only",
+      daemonRoute =
+        taskId || trustedSchedule || reviewerBinding || unboundReadOnlyAgent ? input.runtimeDaemonRoute : undefined;
+    if ((taskId || trustedSchedule || reviewerBinding || unboundReadOnlyAgent) && !daemonRoute)
+      throw runtimeSpawnError(
+        "runtime_preconditions_unavailable",
+        "Task-bound, scheduled, and read-only agent runtime spawn require a sealed daemon route before dispatch.",
+      );
     const selection = await prepareRuntimeInstance(
         {
           requested:
@@ -697,6 +705,23 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 taskId,
                 executionId: taskBinding!.executionId,
                 role: reviewerBinding ? "reviewer" : "implementation",
+              },
+            }
+          : {}),
+        // An unbound read-only agent dispatch (the ask-agent surface) gets the daemon route and
+        // an allowlist-only credential instead of reaching the daemon unauthenticated through its
+        // relay. Edge repos keep today's behavior; their credential path requires a task lease.
+        ...(unboundReadOnlyAgent && !input.remote
+          ? {
+              execution: {
+                repoId: input.repoId,
+                personId: activeBinding.actor.principal.personId,
+                source: activeBinding.source,
+                runtimeSessionId,
+                dispatchId: newDispatchId,
+                taskId: null,
+                executionId: null,
+                role: "read-only" as const,
               },
             }
           : {}),

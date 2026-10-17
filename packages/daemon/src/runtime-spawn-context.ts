@@ -110,7 +110,7 @@ export async function prepareBoundRuntimeLaunch(args: {
   readonly execution?: Omit<RuntimeExecutionPrincipal, "expiresAt">;
 }): Promise<PreparedRuntimeLaunch> {
   const { input, prepared, daemonRoute, callbackRelay, taskId, trustedSchedule } = args;
-  if (!(taskId || trustedSchedule || args.reviewerBinding) || !daemonRoute) return prepared;
+  if (!(taskId || trustedSchedule || args.reviewerBinding || args.execution) || !daemonRoute) return prepared;
   const remote =
     args.execution && input.remote ? input.remote.executionCredential(args.execution.runtimeSessionId) : undefined;
   const expiresAt = remote?.expiresAt ?? new Date(Date.parse(input.now()) + runtimeExecutionLifetimeMs).toISOString(),

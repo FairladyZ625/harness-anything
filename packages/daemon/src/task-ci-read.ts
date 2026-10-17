@@ -118,7 +118,9 @@ export async function readTaskCi(
   provider: RunProvider = runProvider,
 ): Promise<WriteReceiptDraft & { readonly ci: TaskCiReport }> {
   const principal = binding.executionPrincipal;
-  if (!principal)
+  // A read-only dispatch (the ask-agent surface) holds no task lease; by the principal
+  // invariant its taskId is null, so one nullability check covers both shape and role.
+  if (!principal || principal.taskId === null || principal.executionId === null)
     throw context.cellCodedError("actor_unauthorized", "Task CI requires a bound worker or reviewer dispatch.");
   requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
   // The center observation copy can answer CI only after a submitted delivery exists. Before

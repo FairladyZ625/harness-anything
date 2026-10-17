@@ -23,6 +23,7 @@ import { ledgerWriteCommandTopology } from "@harness-anything/preset/internal/pr
 import {
   prepareAgentEntityDelete,
   prepareAgentEntityInstall,
+  prepareAgentEntityRetire,
   readAgentDeclaration,
   resolveSquadDispatch,
 } from "./agent-entities.ts";
@@ -765,6 +766,8 @@ export async function openRepoWriterCell(
     agentActionRuntime = makeAgentActionRuntime(runtimeContext),
     squadActionRuntime = makeSquadActionRuntime(runtimeContext),
     prepareAgentAction: EntityActionCatalogPreparer = (contract, action, _binding, opId) => {
+      if (contract.target.kind === "agent" && contract.id === "retire")
+        prepareAgentEntityRetire({ action, replayed: store.readEvent(opId) });
       if (contract.id === "delete") {
         const existing = store.readEvent(opId);
         if (

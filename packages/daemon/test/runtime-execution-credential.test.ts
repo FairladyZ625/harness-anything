@@ -546,6 +546,87 @@ test("implementers read the preset catalog and their own documents without gaini
   });
 });
 
+const readOnlyPrincipal = () => ({
+  personId: "person-ask",
+  repoId: "repo",
+  runtimeSessionId: "runtime-ask",
+  dispatchId: "dispatch-ask",
+  taskId: null,
+  executionId: null,
+  role: "read-only" as const,
+  source: "local" as const,
+  expiresAt: new Date(Date.now() + runtimeExecutionLifetimeMs - 1000).toISOString(),
+});
+
+test("a read-only dispatch principal authenticates with a null task lease", async () => {
+  const realm = fakeKeycloak(),
+    p = readOnlyPrincipal(),
+    credential = await issueRuntimeExecutionCredential(center, p, realm.fetch);
+  assert.deepEqual(await authenticateRuntimeExecutionCredential(center, credential, realm.fetch), p);
+  // The null-task invariant is part of validity: a read-only label over a task lease, or a
+  // lease-less implementation label, is not a shape the center ever answers for.
+  await assert.rejects(
+    authenticateRuntimeExecutionCredential(
+      center,
+      await issueRuntimeExecutionCredential(
+        center,
+        { ...p, dispatchId: "dispatch-smuggled", taskId: "task-smuggled" } as never,
+        realm.fetch,
+      ),
+      realm.fetch,
+    ),
+    { code: "execution_credential_rejected" },
+  );
+});
+
+test("the read-only dispatch admits only its allowlisted ledger queries and no writes", () => {
+  const p = readOnlyPrincipal();
+  for (const kind of [
+    "work-list",
+    "work-show",
+    "task-list",
+    "task-show",
+    "agenda",
+    "runtime-status",
+    "schedule-list",
+    "schedule-runs",
+  ])
+    assert.doesNotThrow(() => requireExecutionActionScope(p, { kind }));
+  for (const action of [
+    { kind: "task-ci", taskId: "task-any" },
+    { kind: "decision-show", decisionId: "dec_any" },
+    { kind: "doc-show", path: "tasks/x/y.md" },
+    { kind: "event-list" },
+    { kind: "task-create", title: "x" },
+    { kind: "task-progress-append", taskId: "task-any" },
+    { kind: "runtime-steer", runtimeSessionId: "runtime-any" },
+    { kind: "settings-update" },
+  ])
+    assert.throws(() => requireExecutionActionScope(p, action as never), {
+      code: "execution_credential_rejected",
+      message: /allowlisted ledger queries/u,
+    });
+  assert.throws(
+    () => requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
+    { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },
+  );
+  // The read-only dispatch owns no writer turn at all: settlement flows through the spawner.
+  assert.throws(
+    () =>
+      requireCurrentExecutionScope({
+        action: { kind: "work-list" },
+        binding: {
+          executionPrincipal: p,
+          actor: { principal: { personId: p.personId }, executor: null },
+          source: "local",
+        },
+        projection: {} as never,
+        now: new Date().toISOString(),
+      }),
+    { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },
+  );
+});
+
 test("execution credentials keep validator sources inside the dispatched repository", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-preset-source-scope-"));
   try {

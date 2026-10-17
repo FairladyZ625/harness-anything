@@ -58,6 +58,22 @@ export function isAgentDeclarationInvalid(error: unknown): boolean {
   );
 }
 
+/**
+ * A bundled id is a system agent: its lifecycle is closed. Retire and delete must name that
+ * semantic instead of a generic not-found — the agent stays dispatchable forever, while editing
+ * (install an overriding copy) stays open, which is how model changes reach it.
+ */
+export function assertBundledAgentLifecycleOpen(agentId: string): void {
+  if (readBundledAgentDeclaration(agentId) === null) return;
+  throw Object.assign(
+    new Error(
+      `Agent ${agentId} is a system-bundled agent shipped with Harness; it cannot be retired or deleted. ` +
+        "Edit the declaration and install the override to change its model or instructions.",
+    ),
+    { code: "agent_system_builtin" },
+  );
+}
+
 export type AgentDeclarationInvalid = Error & { readonly code: typeof agentDeclarationInvalidCode };
 
 export type StoredAgentDeclarationOutcome<T> =
