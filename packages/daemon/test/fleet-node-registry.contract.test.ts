@@ -1,10 +1,12 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { keycloakNodeRegistry, prepareFleetCenterAdmission } from "../src/fleet-center-admission.ts";
+import { validateCertificateNames } from "../src/tls-listener-admission.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl } from "./keycloak.fixtures.ts";
 
 test("the node registry asks Keycloak who a node is and whether its credential is its own", async () => {
@@ -42,5 +44,43 @@ test("fleet center admission rejects unreadable TLS material before opening a li
       },
     }),
     /Fleet TLS --key .* could not be read/,
+  );
+});
+
+test("TLS listener admission requires every configured SAN name", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "fleet-san-")),
+    keyPath = path.join(root, "tls.key"),
+    certPath = path.join(root, "tls.crt");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyPath,
+      "-out",
+      certPath,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:center.example.test,IP:192.168.1.20",
+    ],
+    { stdio: "ignore" },
+  );
+  const cert = readFileSync(certPath);
+  assert.doesNotThrow(() => validateCertificateNames(cert, ["192.168.1.20", "center.example.test"]));
+  assert.throws(
+    () => validateCertificateNames(cert, ["192.168.1.21"]),
+    (error: unknown) =>
+      error instanceof Error &&
+      "code" in error &&
+      error.code === "cert_san_mismatch" &&
+      error.message.includes("192.168.1.21"),
   );
 });

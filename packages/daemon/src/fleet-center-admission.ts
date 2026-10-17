@@ -13,6 +13,7 @@ import { applyFleetMirrorCut, withFleetMirrorLock } from "./fleet-edge-mirror.ts
 import { reclaimEdgeTaskWorktrees } from "./fleet-edge-worktree-reclaim.ts";
 import type { WriterEpochLease } from "./writer-epoch.ts";
 import { readFleetEdgeConfig, writeFleetEdgeConfig } from "./client/fleet-edge-config.ts";
+import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 /** The center's node registry: Keycloak verifies the machine credential and names the node's owner. */
 export function keycloakNodeRegistry(
   center: KeycloakCenterAuthority,
@@ -83,7 +84,9 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
   const key = material(request.keyPath, "--key"),
     cert = material(request.certPath, "--cert");
   createSecureContext({ key, cert });
-  await lookup(request.bind ?? "127.0.0.1");
+  const bind = request.bind ?? "127.0.0.1";
+  await lookup(bind);
+  validateCertificateNames(cert, [bind]);
   return {
     host: input.host,
     buildDraining: input.buildDraining,
@@ -102,7 +105,11 @@ export async function prepareFleetCenterAdmission(input: FleetCenterAdmissionReq
 export async function startFleetCenterAdmission(
   options: FleetCenterOptions,
 ): Promise<{ readonly center: FleetTlsCenter; readonly stateRoot: string }> {
-  return { center: await listenFleetTls(options), stateRoot: options.stateRoot };
+  try {
+    return { center: await listenFleetTls(options), stateRoot: options.stateRoot };
+  } catch (error) {
+    throw mapListenerBindError(error);
+  }
 }
 export interface FleetEdgeSyncRequest {
   readonly payload: {

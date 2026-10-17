@@ -249,11 +249,19 @@ ha daemon repo register --repo-id <id> --root /path/to/workspace --mode local
 
 ## Fleet 中心局域网可达与边缘自助接入
 
-真实 edge 连接使用中心 listener。绑定地址必须是中心主机上的 IP，广告 hostname 必须出现在证书 SAN 中，端口必须能从 edge 的防火墙到达。私钥保持 owner-only（权限 `0600`）。通过 managed service 配置 listener，daemon 会检查证书并在接受配置前报告端口失败：
+这里有两个独立的 HTTPS 入口。`listener-set` 配置 managed Keycloak 登录服务，负责浏览器登录和 token issuer；Fleet TLS listener 是 edge 同步服务，通过 `daemon fleet center start` 配置。不要把一个命令的地址当成另一个命令的配置。
+
+登录服务的绑定地址必须是中心主机上的 IP，`--hostname` 必须出现在证书 SAN 中。私钥保持 owner-only（权限 `0600`）：
 
 ```bash
 ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
+```
+
+边缘同步服务把 Fleet listener 绑定到局域网地址，并把该地址加入证书 SAN。daemon 在打开 listener 前校验证书 SAN；地址已占用、不可用或权限不足时，回执会返回对应错误码：
+
+```bash
+ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
 ```
 
 每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，edge 信任新证书并再次运行 `ha daemon fleet edge sync` 后才会恢复。
@@ -266,7 +274,7 @@ ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --
 ha daemon fleet edge sync --host center.example.test --port 8443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
 ```
 
-edge 命令必须使用证书 CA；证书名与 DNS 名不同的时候加 `--servername`。SAN 错误、端口关闭、链接过期、登录人不匹配或 pin 改变都会在 receipt 中明确报告；修复对应条件后重试。凭据由本机 daemon 写入，不放进邀请 URL。
+edge 命令必须使用证书 CA；证书名与 DNS 名不同时加 `--servername`。证书未覆盖请求的 server name 时，TLS 主机名校验会拒绝连接；端口关闭会导致连接失败；链接过期、登录人不匹配或 pin 改变会由加入准入拒绝。凭据由本机 daemon 写入，不放进邀请 URL。
 
 ### 安装、升级与开发救援
 
