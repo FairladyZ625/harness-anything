@@ -29,7 +29,7 @@ export interface DeliveredRow {
   readonly summary: string | null;
 }
 
-function deliverySummary(row: TaskSnapshotProjectionRow): string {
+function deliverySummary(row: TaskSnapshotProjectionRow): string | null {
   const executions = [...(row.snapshot.executions ?? [])].sort((left, right) => right.iteration - left.iteration);
   for (const execution of executions) {
     const archived = "archivedSubmission" in execution,
@@ -44,7 +44,7 @@ function deliverySummary(row: TaskSnapshotProjectionRow): string {
       : execution.submission?.outputs.find((value) => typeof value === "string" && value.trim().length > 0);
     if (output !== undefined) return output.trim();
   }
-  return row.snapshot.task?.title ?? row.taskId;
+  return null;
 }
 
 export function deliveredRows(rows: readonly TaskSnapshotProjectionRow[], now = Date.now()): readonly DeliveredRow[] {

@@ -349,6 +349,7 @@ describe("今天:三块区域与数字", () => {
     expect(rows[1]!.textContent).toContain("刚交付的任务二");
     expect(rows[0]!.textContent).not.toContain("task_done_1");
     expect(rows[1]!.textContent).toContain("交付了任务二的真实摘要");
+    expect(rows[0]!.textContent).toContain("任务已完成，等你看一眼。");
     expect(rows[1]!.textContent).not.toContain("任务已完成");
   });
 });
