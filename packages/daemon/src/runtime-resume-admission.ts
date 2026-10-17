@@ -30,10 +30,11 @@ export function admitRuntimeResume(
       "runtime_handoff_source_exported",
       "This dispatch was exported; use the target handoff claim action.",
     );
-  // A conversation dispatch that already has a resume child continues at the current leaf:
-  // following the resumedFromDispatchId chain lets the caller keep naming the first dispatch
-  // (the ask session id) while each new round links to the round it actually continues.
-  const leaf = resumeChainLeaf(dispatchId, projection);
+  // A taskless conversation dispatch that already has a resume child continues at the current
+  // leaf: following the resumedFromDispatchId chain lets the caller keep naming the first
+  // dispatch (the ask session id) while each round links to the round it continues. Task-bound
+  // resumes keep the single-consumption contract: the source resumes once, later rounds name it.
+  const leaf = resumed?.header.taskId == null ? resumeChainLeaf(dispatchId, projection) : dispatchId;
   if (leaf !== dispatchId) {
     if (readHandoffCheckpoint(rootDir, leaf))
       throw runtimeSpawnError(

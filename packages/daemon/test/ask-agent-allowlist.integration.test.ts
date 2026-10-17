@@ -1,12 +1,11 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { deriveBasePolicyGroups, effectivePolicyGroupScopes } from "@harness-anything/kernel";
-import { openRepoCell } from "../src/repo-cell-open.ts";
 import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { startDaemon } from "../src/runtime.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
@@ -47,27 +46,31 @@ test(
       path.join(parent, "codex.mjs"),
       `
     import fs from "node:fs";
+    import path from "node:path";
     if (process.argv[2] === "login" && process.argv[3] === "status") process.exit(0);
     fs.readFileSync(0, "utf8");
     const emit = (value) => console.log(JSON.stringify(value));
     emit({ type: "thread.started", thread_id: "provider-ask-session" });
-    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_TASK_BOUND"];
-    fs.writeFileSync(${JSON.stringify(envPath)} + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))));
-    fs.renameSync(${JSON.stringify(envPath)} + ".tmp", ${JSON.stringify(envPath)});
-    emit({ type: "item.completed", item: { id: "message", type: "agent_message", text: "问一句就答。" } });
-    emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_REPO_ID", "HARNESS_DAEMON_RELAY"];
+    const envPath = ${JSON.stringify(envPath)};
+    fs.writeFileSync(envPath + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))));
+    fs.renameSync(envPath + ".tmp", envPath);
+    // The runtime's relay socket lives only while this worker host process does: stay alive
+    // until the test releases the turn, so the real CLI inside the sandbox can reach the daemon.
+    const finishPath = ${JSON.stringify(path.join(parent, "ask-finish"))};
+    const finish = () => { if (!fs.existsSync(finishPath)) return;
+      watcher.close();
+      emit({ type: "item.completed", item: { id: "message", type: "agent_message", text: "问一句就答。" } });
+      emit({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } });
+    };
+    const watcher = fs.watch(${JSON.stringify(parent)}, finish);
+    finish();
   `,
     );
-    const opened = Promise.withResolvers<Awaited<ReturnType<typeof openRepoCell>>>();
     const daemon = await startDaemon({
       daemonId,
       userRoot,
       buildSupersessionEnabled: false,
-      openCell: (input) => {
-        const opening = openRepoCell(input);
-        opened.resolve(opening);
-        return opening;
-      },
       runtimeDiscover: () => [
         {
           installationId: "codex-fixture",
@@ -90,7 +93,6 @@ test(
           payload: method === "repo.task.run" || method === "repo.task.read" ? { action } : payload,
         });
       };
-    await opened.promise;
     const instance = await rpc("daemon.runtimeInstance.create", {
       payload: {
         instanceId: "codex-ask",
@@ -159,5 +161,7 @@ test(
       );
       assert.match(`${response.stdout}${response.stderr}`, /allowlisted ledger queries/u);
     }
+    // Release the provider turn so the runtime settles and the test daemon can stop cleanly.
+    writeFileSync(path.join(parent, "ask-finish"), "");
   },
 );
