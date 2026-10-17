@@ -177,10 +177,27 @@ function inspectSquad(cell: RepoCellRuntimeContext, squadId: string): object {
       "squad/entity-present",
       ["Run ha squad list and choose an existing Squad id."],
     );
-  const squad = parseSquadDeclarationV1(row.value),
-    missing = [...new Set([squad.leader, ...squad.workers])]
-      .map((agentId) => unavailableMember(cell, agentId))
-      .filter((entry): entry is { readonly agentId: string; readonly hint: string } => entry !== null);
+  let squad: SquadDeclarationV1;
+  try {
+    squad = parseSquadDeclarationV1(row.value);
+  } catch (error) {
+    // An installed declaration whose stored shape the current schema rejects is a reinstall need
+    // for that squad; the inspect read answers with the command, not the raw contract message.
+    if ((error as { readonly code?: unknown }).code !== "invalid_entity_contract") throw error;
+    const reason = error instanceof Error ? error.message : String(error);
+    throw cellCriterionError(
+      "squad_declaration_invalid",
+      `Squad ${squadId} is installed, but its stored declaration no longer satisfies ` +
+        `squad-declaration/v1 (${reason}). Rewrite harness/squads/${squadId}.json with the current ` +
+        `declaration shape, then run ha squad install --source harness/squads/${squadId}.json.`,
+      "inspect",
+      "squad/declaration-schema",
+      [`Rewrite harness/squads/${squadId}.json, then run ha squad install --source harness/squads/${squadId}.json.`],
+    );
+  }
+  const missing = [...new Set([squad.leader, ...squad.workers])]
+    .map((agentId) => unavailableMember(cell, agentId))
+    .filter((entry): entry is { readonly agentId: string; readonly hint: string } => entry !== null);
   if (missing.length)
     throw cellCriterionError(
       "squad_agent_not_found",

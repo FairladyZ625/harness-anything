@@ -63,6 +63,7 @@ function renderEvidenceRow(row: object, named: boolean): string {
   const agent = row as {
     readonly schema?: string;
     readonly retirement?: { readonly retiredAt: string; readonly reason: string; readonly successor?: string };
+    readonly error?: { readonly hint?: unknown };
   };
   if (agent.schema === "agent-declaration/v1" && agent.retirement)
     scalars.push(
@@ -70,6 +71,8 @@ function renderEvidenceRow(row: object, named: boolean): string {
       `reason=${agent.retirement.reason}`,
       `retiredAt=${agent.retirement.retiredAt}`,
     );
+  // A degraded row keeps its reason in error.hint; the scalar pass above cannot carry an object.
+  if (typeof agent.error?.hint === "string" && agent.error.hint) scalars.push(agent.error.hint);
   return scalars.join(named ? "  " : "\t");
 }
 
