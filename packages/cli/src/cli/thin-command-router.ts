@@ -68,7 +68,7 @@ function parseEdgeJoin(
     undefined,
     json,
     {
-      kind: "edge-join",
+      kind: "rbac-bootstrap",
       operation: "edge-join",
       link,
       ...(flags.one.get("--repo-id") ? { repoId: flags.one.get("--repo-id") } : {}),

@@ -1,12 +1,12 @@
 // `ha edge join <link>` on a fresh machine: sign in to the center's Keycloak, exchange the invitation for
 // a machine credential, register the workspace as a remote-edge mirror and run its first sync. The
 // credential reaches only fleet-edge.json (written by the edge sync); the receipt never carries it.
-import { execFileSync } from "node:child_process";
 import { X509Certificate } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
+import { writeFileDurably } from "../durable-file.ts";
+import { runProcessTextAsync } from "../process-port.ts";
 import type { JsonObject } from "../protocol/json-rpc-types.ts";
 import type { OidcLoginAuthority } from "../oidc-session-service.ts";
 import { decodeEdgeJoinLink } from "./edge-join.ts";
@@ -55,9 +55,9 @@ export async function joinFleetEdge(
       request.workspaceRoot ?? path.join(ports.homeDir ?? homedir(), "harness-edge", admitted.repoId),
     ),
     caPath = path.join(root, "fleet-center-ca.pem");
-  prepareWorkspace(root, admitted.harnessYaml);
+  await prepareWorkspace(root, admitted.harnessYaml);
   // The pinned certificate is public; it becomes the trust anchor every later connection verifies against.
-  writeFileSync(caPath, new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString());
+  writeFileDurably(caPath, new X509Certificate(Buffer.from(admitted.certificate, "base64")).toString());
   await ports.register(root, admitted.repoId);
   const synced = await ports.sync({
     repoId: admitted.repoId,
@@ -86,25 +86,15 @@ export async function joinFleetEdge(
 }
 
 /** A remote-edge registration needs the center's layout file inside a Git repository with a branch. */
-function prepareWorkspace(root: string, harnessYaml: string): void {
+async function prepareWorkspace(root: string, harnessYaml: string): Promise<void> {
   const layout = path.join(root, "harness", "harness.yaml");
-  if (!existsSync(layout)) {
-    mkdirSync(path.dirname(layout), { recursive: true });
-    writeFileSync(layout, harnessYaml);
-  }
-  const git = (args: readonly string[]) => execFileSync("git", args, { stdio: "ignore", windowsHide: true });
-  try {
-    git(["-C", root, "rev-parse", "--show-toplevel"]);
-    return;
-  } catch (error) {
-    // Not a Git checkout yet: the edge mirror gets its own repository.
-    consumeKnownError(error);
-  }
-  git(["init", "-q", "-b", "main", root]);
-  git(["-C", root, "add", "harness/harness.yaml"]);
-  git([
-    "-C",
-    root,
+  if (!existsSync(layout)) writeFileDurably(layout, harnessYaml);
+  // An existing checkout keeps its own repository; a fresh workspace gets one for the edge mirror.
+  if (existsSync(path.join(root, ".git"))) return;
+  const git = (...args: readonly string[]) => runProcessTextAsync("git", ["-C", root, ...args]);
+  await git("init", "-q", "-b", "main");
+  await git("add", "harness/harness.yaml");
+  await git(
     "-c",
     "user.name=Harness Edge",
     "-c",
@@ -112,5 +102,5 @@ function prepareWorkspace(root: string, harnessYaml: string): void {
     "commit",
     "-qm",
     "Harness edge workspace",
-  ]);
+  );
 }

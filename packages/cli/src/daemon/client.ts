@@ -149,11 +149,7 @@ export async function runCommandThroughDaemon(
         ...rest,
       )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show";
-  if (
-    command.action.kind === "repo-bootstrap" ||
-    command.action.kind === "rbac-bootstrap" ||
-    command.action.kind === "edge-join"
-  ) {
+  if (command.action.kind === "repo-bootstrap" || command.action.kind === "rbac-bootstrap") {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
@@ -169,12 +165,10 @@ export async function runCommandThroughDaemon(
               daemonId,
               socketPath,
             },
-            command.action.kind === "repo-bootstrap" ? "daemon.repo.bootstrap" : "daemon.rbac.manage",
-            // A device-login poll replaces the request; edge join resumes with its own params once signed in.
-            paramsOverride ??
-              (command.action.kind === "rbac-bootstrap"
-                ? (params as JsonObject)
-                : { rootDir: command.rootDir, ...params }),
+            command.action.kind === "rbac-bootstrap" ? "daemon.rbac.manage" : "daemon.repo.bootstrap",
+            command.action.kind === "rbac-bootstrap"
+              ? (paramsOverride ?? (params as JsonObject))
+              : { rootDir: command.rootDir, ...params },
             75,
           ),
         () => cliDaemonServeLaunch(userRoot, daemonId),
@@ -182,7 +176,7 @@ export async function runCommandThroughDaemon(
         daemonAutostartOptions(command, autostart, env, userRoot, daemonId, "operation"),
       );
     let receipt = await request();
-    if (command.action.kind === "edge-join" && receipt.pending === true) {
+    if (params.operation === "edge-join" && receipt.pending === true) {
       const signedIn = await awaitDeviceLogin(receipt, request, onPhase);
       if (signedIn.ok === false || signedIn.pending === true) return signedIn;
       receipt = await request();
