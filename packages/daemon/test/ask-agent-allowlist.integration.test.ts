@@ -51,7 +51,7 @@ test(
     fs.readFileSync(0, "utf8");
     const emit = (value) => console.log(JSON.stringify(value));
     emit({ type: "thread.started", thread_id: "provider-ask-session" });
-    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_REPO_ID", "HARNESS_DAEMON_RELAY"];
+    const keys = ["HARNESS_EXECUTION_CREDENTIAL", "HARNESS_EXECUTION_EXPIRES_AT", "HARNESS_TASK_BOUND", "HARNESS_DAEMON_ENDPOINT", "HARNESS_DAEMON_USER_ROOT", "HARNESS_DAEMON_ID", "HARNESS_DAEMON_REPO_ID", "HARNESS_DAEMON_RELAY", "HARNESS_ACTOR"];
     const envPath = ${JSON.stringify(envPath)};
     fs.writeFileSync(envPath + ".tmp", JSON.stringify(Object.fromEntries(keys.map(k => [k, process.env[k]]))));
     fs.renameSync(envPath + ".tmp", envPath);
