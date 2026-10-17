@@ -31,7 +31,7 @@ export async function importSubmittedCutCiWitness(input: {
   // A cut without a hosted CI witness requirement has nothing to import — and observe pull's
   // witness contract rejects gateless tasks, so asking would only fail the occurrence's drain.
   const target = submittedGithubActionsRequirement(input.context.projection.read(input.taskId).snapshot);
-  if (!target || githubActionsGateResult(target.requirement, target.execution) === "pass") return null;
+  if (!target) return null;
   // An occurrence that settled on a failure answers with its own receipt (outcome applied,
   // code schedule_builtin_failed); report that as the import's warning instead of a phantom step.
   const asResult = (receipt: WriteReceipt): { readonly receipt?: WriteReceipt; readonly warning?: string } =>
@@ -57,6 +57,9 @@ export async function importSubmittedCutCiWitness(input: {
         delivery,
         `refs/remotes/origin/${witness.kind === "github-actions" ? witness.adapterOptions.branch : "main"}`,
       );
+  // A landed cut with a passing frozen witness needs no provider read. An unlanded cut still
+  // imports its task-branch run for reviewers even when another witness already passed the gate.
+  if (landed && githubActionsGateResult(target.requirement, target.execution) === "pass") return null;
   try {
     return asResult(
       await input.refreshCi(

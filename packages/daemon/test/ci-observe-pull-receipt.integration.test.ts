@@ -40,6 +40,7 @@ async function submittedTaskFixture(
     readonly show: () => Promise<ScheduleV1>;
     readonly advance: () => void;
   }) => Promise<void>,
+  mode: "local" | "remote-center" = "local",
 ): Promise<void> {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-receipt-")),
     rootDir = path.join(parent, "repo"),
@@ -94,6 +95,7 @@ else throw new Error('unexpected provider call ' + args.join(' '));
     repoId: workspaceId("ci-pull-receipt"),
     rootDir: canonicalRoot(rootDir),
     ownerId: "pull-receipt",
+    mode,
   });
   try {
     await seedBuiltinSchedules({ cell, binding });
@@ -350,7 +352,7 @@ test("forwarding a landed cut imports its CI witness; the reviewer reads green w
   });
 });
 
-test("forwarding a review cut imports the task branch's CI, not a witness walk the local repo already rules out", async () => {
+test("forwarding a review cut on the remote center imports branch CI for the owner CLI reviewer", async () => {
   await submittedTaskFixture(async ({ cell, taskId, calls, releaseWitness, releaseScan }) => {
     releaseWitness();
     releaseScan();
@@ -372,10 +374,48 @@ test("forwarding a review cut imports the task branch's CI, not a witness walk t
       "the forward's queued request is the branch pull; only the occurrence's re-derivation may walk the witness afterwards",
     );
     const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
-      ci: { conclusion: string };
+      ci: { conclusion: string; runs: readonly { id: number }[] };
     };
     assert.equal(ci.ci.conclusion, "success", JSON.stringify(ci.ci));
-  });
+    assert.ok(
+      ci.ci.runs.some((run) => run.id === 9),
+      JSON.stringify(ci.ci.runs),
+    );
+  }, "remote-center");
+});
+
+test("owner forward imports branch CI through the command runner", async () => {
+  await submittedTaskFixture(async ({ cell, taskId, releaseWitness, releaseScan }) => {
+    releaseWitness();
+    releaseScan();
+    const occurrence = await cell.run(
+      {
+        kind: "schedule-run-now",
+        scheduleId: builtinCiObserveScheduleId,
+        idempotencyKey: "record-main-witness-before-forward",
+      },
+      binding,
+    );
+    assert.equal(occurrence.outcome, "applied", JSON.stringify(occurrence));
+    const shown = await cell.run({ kind: "task-show", taskId }, binding);
+    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+    const task = JSON.parse(String(shown.evidence)) as TaskLifecycleSnapshot;
+    const executionId = task.executions.at(-1)?.executionId;
+    assert.ok(executionId, JSON.stringify(task));
+    const forwarded = await cell.run(
+      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward for CI regression." },
+      binding,
+    );
+    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+    const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
+      ci: { conclusion: string; runs: readonly { id: number }[] };
+    };
+    assert.equal(ci.ci.conclusion, "success", JSON.stringify(ci.ci));
+    assert.ok(
+      ci.ci.runs.some((run) => run.id === 9),
+      JSON.stringify(ci.ci.runs),
+    );
+  }, "remote-center");
 });
 
 test("a failed import lands as a warning on the standing forward; the cut reads pending, never not_started", async () => {
