@@ -56,7 +56,7 @@ export async function seedGuiE2eDeliveryTasks(endpoint, repoId) {
 }
 
 /** 停机窗口里 append 两个 stopped 轮次(生产 runtime-spawner 同形的事件序列)。 */
-export async function seedGuiE2eDeliverySessions(rootDir, repoId, writerFence, taskPackages) {
+export async function seedGuiE2eDeliverySessions(rootDir, repoId, writerFence) {
   const store = makeTaskEventStore({ rootDir, repoId, writerFence: () => writerFence }),
     projection = makeTaskProjection({ rootDir, eventStore: store }),
     actor = { principal: { personId: "person-gui" }, executor: null };

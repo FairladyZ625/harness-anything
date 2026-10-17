@@ -182,7 +182,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
               await seedScheduleRuntimeOrder(rootDir, repoId, writerFence);
               await seedSupersedeChain(rootDir, repoId, writerFence);
               await seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, sessionTaskPackages);
-              await seedGuiE2eDeliverySessions(rootDir, repoId, writerFence, deliveryTaskPackages);
+              await seedGuiE2eDeliverySessions(rootDir, repoId, writerFence);
               await seedGuiE2eCollaborationLeases(rootDir, repoId, writerFence);
             },
           },
