@@ -158,44 +158,22 @@ That is what *self-evolving* means here: not magic, and not autonomous churn.
 Each completed loop leaves the system better equipped for the next one. Your
 repository gets the same compounding mechanism.
 
-## Run the demo
+## Install and run
 
-The CLI candidate installs from two local npm tarballs, the daemon and the CLI
-that depends on it, and requires Node.js 24+. From a checkout, run:
-
-```bash
-git clone https://github.com/FairladyZ625/harness-anything
-cd harness-anything
-npm ci
-npm pack --workspace @harness-anything/daemon
-npm pack --workspace @harness-anything/cli
-npm install --global ./harness-anything-daemon-*.tgz ./harness-anything-cli-*.tgz
-npm run quickstart:demo
-```
-
-The CLI candidate is validated with `npm publish --dry-run`; no registry
-publication is claimed by this release. `ha init` uses the current directory
-and local git `user.name` when its identity flags are omitted.
-
-The demo builds the CLI, creates a throwaway project, runs a real task loop, and
-shows the records that remain after the agent work is over.
-
-To use the Electron GUI from this source installation, link the built CLI once,
-then launch it from the repository you want to open:
+Install the CLI and daemon from npm (Node.js 24+):
 
 ```bash
-npm run build -w @harness-anything/cli
-(cd packages/cli && npm link)
-ha gui
+npm install --global @harness-anything/cli@latest @harness-anything/daemon@latest
+ha init
 ```
 
-`ha gui` is the production GUI entry. It builds the renderer, obtains the
-default daemon through the CLI, and detaches Electron; closing the window never
-stops the daemon. The package-local `npm run dev:electron` script is only a
-contributor hot-reload tool.
+For preview releases use the `next` channel: `npm install --global @harness-anything/cli@next @harness-anything/daemon@next`.
 
-Ready to use it on a project? Continue with the
-[Start guide](./docs-release/start/en/00-what-is-this.md).
+Download the matching desktop App from the [GitHub Releases page](https://github.com/FairladyZ625/harness-anything/releases).
+macOS releases are Apple Silicon arm64 only (dmg/zip); Windows releases are x64 NSIS and may show SmartScreen;
+Linux releases include x64 AppImage (automatic updates) and deb (manual upgrades). The npm and App versions always match.
+
+Contributors can use the source setup in [the contributor guide](./docs-release/contributing/en/01-local-setup.md).
 
 ## Breaking change: existing repositories must migrate
 

@@ -19,7 +19,7 @@ bypassed; no gate means 100% bypass.
 
 ## See the 30-second proof first
 
-The 0.0.1 CLI candidate is installable from a local npm tarball. The fastest
+The 0.0.1 CLI candidate is installable from a local npm package archive. The fastest
 path today is the source checkout smoke demo:
 
 ```bash
@@ -34,7 +34,7 @@ records a queryable fact, and renders a relation graph. A load-bearing step that
 cannot produce evidence fails closed instead of quietly passing.
 
 After a registry publication, install the scoped package and run `ha init` with
-no arguments. Until then, use the local tarball or source checkout path above.
+no arguments. Until then, use the local package archive or source checkout path above.
 
 ## What lands on disk
 
