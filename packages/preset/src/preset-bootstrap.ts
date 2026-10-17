@@ -50,6 +50,8 @@ export interface CompileTaskPackageInput extends PresetResolverOptions {
   readonly reviewReturnBudget?: number;
   /** Authored task_plan.md body written in the same create transaction, replacing the scaffold body. */
   readonly plan?: string;
+  /** Work-create CLI requires authored plan content before materializing the work root. */
+  readonly requirePlan?: boolean;
 }
 export interface CompileTaskBootstrapInput extends CompileTaskPackageInput {
   readonly actor: ActorIdentity;
@@ -186,17 +188,15 @@ export function compileTaskPackage(input: CompileTaskPackageInput): CompiledTask
       surfaces: [...(input.surfaces ?? [])],
       fromLegacyId: null,
     },
-    planBody = typeof input.plan === "string" && input.plan.trim() ? input.plan : null,
+    authoredPlan = typeof input.plan === "string" && input.plan.trim() ? input.plan : null,
     planScaffoldBody =
-      planBody === null
-        ? null
-        : (resolved.documents.find(({ slot }) => slot === "task.plan")?.body.replaceAll("{{title}}", input.title) ??
-          null);
+      resolved.documents.find(({ slot }) => slot === "task.plan")?.body.replaceAll("{{title}}", input.title) ?? null,
+    planBody = authoredPlan ?? (input.requirePlan ? planScaffoldBody : null);
   if (planBody !== null && planScaffoldBody !== null)
     assertTransitionDocumentReady("task.plan", planBody, transitionDocumentContract(planScaffoldBody));
   const prose = resolved.documents.map((document): CompiledTaskDocument => {
       const scaffoldBody = document.body.replaceAll("{{title}}", input.title),
-        body = document.slot === "task.plan" && planBody !== null ? planBody : scaffoldBody;
+        body = document.slot === "task.plan" && authoredPlan !== null ? authoredPlan : scaffoldBody;
       return {
         slot: document.slot,
         relativePath: document.path,

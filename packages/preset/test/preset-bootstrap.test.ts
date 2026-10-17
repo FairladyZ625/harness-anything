@@ -242,6 +242,37 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
     assert.doesNotMatch(explainer, /id="board"/u);
     writeFileSync(path.join(rootDir, "work-explainer.html"), workExplainer);
 
+    assert.throws(
+      () =>
+        compileTaskPackage({
+          ...common,
+          taskId: "task-work-missing-mission",
+          title: "Work without Mission",
+          presetId: "create-work",
+          taskClass: "work",
+          requirePlan: true,
+        }),
+      (error: unknown) => {
+        assert.ok(error instanceof Error && "code" in error && error.code === "plan_placeholder");
+        assert.match(error.message, /Mission/u);
+        return true;
+      },
+    );
+    const workPlan = workPlanWithMission();
+    const authoredWorkPlan = compileTaskPackage({
+      ...common,
+      taskId: "task-work-authored-mission",
+      title: "Work with Mission",
+      presetId: "create-work",
+      taskClass: "work",
+      requirePlan: true,
+      plan: workPlan,
+    });
+    assert.equal(
+      authoredWorkPlan.documents.find(({ relativePath }) => relativePath === "task_plan.md")?.body,
+      workPlan,
+    );
+
     assert.equal(work.snapshot.templates[0]!.templateRef, "template://planning/work-task-plan@1");
     assert.equal(work.event.payload.initialDocumentClaims.length, 6);
     assert.equal(
@@ -618,4 +649,8 @@ function git(rootDir: string, ...args: readonly string[]): string {
   return execFileSync("git", ["-C", rootDir, ...args], {
     encoding: "utf8",
   }).trim();
+}
+
+function workPlanWithMission(): string {
+  return `# Work\n\n## Mission\n\nDeliver an authored and verifiable work goal.\n\n## Usage Questions\n\n- Which users need this?\n\n## Wave Decomposition\n\n- Implement the first wave.\n\n## Exit Criteria\n\n- Verify the authored outcome.\n\n## Context\n\nRelevant repository context.\n\n## Required Reading\n\n- Read the owning source.\n\n## Entry Conditions\n\nReady to begin.\n\n## Dependencies\n\nNone.\n\n## Execution Surface\n\nCLI and preset compiler.\n\n## PR/merge Operations\n\nFollow repository delivery.\n\n## Constraints\n\nPreserve shared validation.\n\n## Checkpoint\n\nReview the implementation.\n\n## Implementation Plan\n\n1. Implement and verify.\n\n## Deliverable Contract\n\nA tested implementation.\n\n## Evidence Protocol\n\nRecord test evidence.\n\n## Verification\n\nRun the owning tests.\n`;
 }
