@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 
 /**
  * 空闲在场门控(task_5c651ff17b698ff2bce7e6affa,GUI 空闲 GPU 高占用)。
@@ -44,4 +44,10 @@ export function useIdleMotionGate(idleAfterMs: number = MOTION_IDLE_AFTER_MS) {
       delete root.dataset.motion;
     };
   }, [idleAfterMs]);
+}
+
+/** 挂在渲染树根部(main.tsx 包 <App/>):App.tsx 已在复杂度门上限,门控不进它。 */
+export function IdleMotionGate({ children }: { readonly children: ReactNode }) {
+  useIdleMotionGate();
+  return children;
 }

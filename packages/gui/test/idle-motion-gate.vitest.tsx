@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { MOTION_IDLE_AFTER_MS, useIdleMotionGate } from "../src/renderer/idle-motion-gate.ts";
+import { MOTION_IDLE_AFTER_MS, useIdleMotionGate } from "../src/renderer/idle-motion-gate.tsx";
 
 // 空闲在场门控(task_5c651ff17b698ff2bce7e6affa):60s 无输入或窗口隐藏 →
 // html[data-motion="idle"](styles.css 据此暂停全部 infinite 动画);任何输入同帧恢复。

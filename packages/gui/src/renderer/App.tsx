@@ -32,7 +32,6 @@ import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
-import { useIdleMotionGate } from "./idle-motion-gate.ts";
 import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
@@ -1081,7 +1080,6 @@ function AppShell() {
 }
 
 export function App() {
-  useIdleMotionGate();
   return (
     <>
       {/* S2 视觉基础:环境光给玻璃层提供可折射的背景,#liquid 供放大层折射引用,
