@@ -342,11 +342,7 @@ export function taskQueryGuidance(taskId: string): string {
  * materializes none, so their missions carry no protocol (dec_64C2E7741F1827DADC27941FCA CH2).
  * Non-task dispatches never see it.
  */
-export function livingDeliverableProtocol(
-  profileId: string | null | undefined,
-  taskClass?: string,
-  taskId?: string,
-): string | null {
+export function livingDeliverableProtocol(profileId: string | null | undefined, taskClass?: string): string | null {
   if (taskClass === "work") return null;
   if (profileId === "lightweight") return null;
   return [
@@ -397,7 +393,7 @@ export function explicitPromptMission(
   prBodyPath: string | null = null,
   taskClass?: string,
 ): string {
-  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass, taskId ?? undefined),
+  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass),
     prProtocol = taskId === null ? null : prBodyDeliveryProtocol(prBodyPath);
   return [
     ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
@@ -439,7 +435,7 @@ export function deriveTaskMission(
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
-    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass, taskId),
+    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
     prProtocol = prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
     priorIteration = snapshot.task && snapshot.task.iteration > 0 ? snapshot.task.iteration - 1 : null,
     returnDocument =
