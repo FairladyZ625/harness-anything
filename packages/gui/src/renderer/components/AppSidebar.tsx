@@ -305,7 +305,7 @@ export function AppSidebar({
               <span className="font-mono ui-meta uppercase tracking-wide text-text-faint">{t(group.labelKey)}</span>
               <span
                 title={t("shell.nav.trialTagTitle")}
-                className="rounded-xs border border-border px-1 py-px font-mono text-[10px] leading-none text-text-faint"
+                className="rounded-xs border border-border px-1 py-px font-mono ui-micro leading-none text-text-faint"
               >
                 {t("shell.nav.trialTag")}
               </span>
