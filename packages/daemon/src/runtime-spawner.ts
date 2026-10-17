@@ -689,6 +689,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
         callbackRelay,
         cliBinDir: daemonCliBinDirectory(),
         runtimeActor,
+        runtimeInstanceId,
         taskId,
         trustedSchedule,
         reviewerBinding: Boolean(reviewerBinding),

@@ -42,15 +42,17 @@ const providerGitCredentialEnvironment = new Set([
   "SSH_AUTH_SOCK",
 ]);
 
-/**
- * Provider processes retain their own authentication environment, while Git gets no host
- * credential sources. Settlement invokes the daemon-side push path with its own environment.
- */
+/** Provider processes receive only the task-bound hosting credential supplied by the daemon. */
 export function runtimeWorkerProviderEnvironment(
   source: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
+  hostingCredentialEnvironment: NodeJS.ProcessEnv = {},
 ): NodeJS.ProcessEnv {
   const environment = { ...source };
+  const workerGithubToken = environment.HARNESS_WORKER_GITHUB_TOKEN,
+    workerGitlabToken = environment.HARNESS_WORKER_GITLAB_TOKEN;
+  delete environment.HARNESS_WORKER_GITHUB_TOKEN;
+  delete environment.HARNESS_WORKER_GITLAB_TOKEN;
   for (const name of providerGitCredentialEnvironment) delete environment[name];
   for (const name of Object.keys(environment)) {
     if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)) delete environment[name];
@@ -63,9 +65,21 @@ export function runtimeWorkerProviderEnvironment(
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "credential.helper",
-    GIT_CONFIG_VALUE_0: "",
+    GIT_CONFIG_VALUE_0: "!gh auth git-credential",
     GIT_SSH_COMMAND: `ssh -F ${nullDevice} -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none -o IdentityFile=${nullDevice}`,
     GIT_TERMINAL_PROMPT: "0",
+    ...(hostingCredentialEnvironment.GH_TOKEN || workerGithubToken
+      ? {
+          GH_TOKEN: hostingCredentialEnvironment.GH_TOKEN ?? workerGithubToken,
+          HARNESS_GITHUB_TOKEN: hostingCredentialEnvironment.GH_TOKEN ?? workerGithubToken,
+        }
+      : {}),
+    ...(hostingCredentialEnvironment.GITLAB_TOKEN || workerGitlabToken
+      ? {
+          GITLAB_TOKEN: hostingCredentialEnvironment.GITLAB_TOKEN ?? workerGitlabToken,
+          HARNESS_GITLAB_TOKEN: hostingCredentialEnvironment.GITLAB_TOKEN ?? workerGitlabToken,
+        }
+      : {}),
   };
 }
 

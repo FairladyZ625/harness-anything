@@ -9,7 +9,7 @@ import { openDispatchStream, readDispatchStream } from "../src/dispatch-stream.t
 import { launchNative } from "../src/runtime-spawn-process.ts";
 import { runtimeWorkerProviderEnvironment } from "../src/runtime-worker-host.ts";
 
-test("provider environment excludes host Git and SSH credentials", () => {
+test("provider environment excludes host credentials and accepts task-bound hosting credentials", () => {
   const source: NodeJS.ProcessEnv = {
     ...process.env,
     HOME: "/operator/home",
@@ -34,13 +34,13 @@ test("provider environment excludes host Git and SSH credentials", () => {
     GIT_CONFIG_VALUE_0: "osxkeychain",
   };
 
-  const environment = runtimeWorkerProviderEnvironment(source, process.platform);
+  const environment = runtimeWorkerProviderEnvironment(source, process.platform, {
+    GH_TOKEN: "task-github-token",
+  });
   assert.equal(environment.HOME, source.HOME);
   assert.equal(environment.CODEX_HOME, source.CODEX_HOME);
   assert.equal(environment.OPENAI_API_KEY, source.OPENAI_API_KEY);
   for (const name of [
-    "GH_TOKEN",
-    "HARNESS_GITHUB_TOKEN",
     "GIT_ASKPASS",
     "GIT_ASKPASS_REQUIRE",
     "GIT_SSH",
@@ -52,16 +52,31 @@ test("provider environment excludes host Git and SSH credentials", () => {
     "GIT_CONFIG_PARAMETERS",
   ])
     assert.equal(environment[name], undefined, `${name} must not reach the provider`);
+  assert.equal(environment.GH_TOKEN, "task-github-token");
+  assert.equal(environment.HARNESS_GITHUB_TOKEN, "task-github-token");
   const nullDevice = process.platform === "win32" ? "NUL" : "/dev/null";
   assert.equal(environment.GIT_CONFIG_GLOBAL, nullDevice);
   assert.equal(environment.GIT_CONFIG_SYSTEM, nullDevice);
   assert.equal(environment.GIT_CONFIG_NOSYSTEM, "1");
   assert.equal(environment.GIT_CONFIG_COUNT, "1");
   assert.equal(environment.GIT_CONFIG_KEY_0, "credential.helper");
-  assert.equal(environment.GIT_CONFIG_VALUE_0, "");
+  assert.equal(environment.GIT_CONFIG_VALUE_0, "!gh auth git-credential");
   assert.match(environment.GIT_SSH_COMMAND ?? "", /BatchMode=yes/u);
   assert.match(environment.GIT_SSH_COMMAND ?? "", /IdentityAgent=none/u);
   assert.equal(environment.GIT_TERMINAL_PROMPT, "0");
+});
+
+test("worker marker injects provider token while an unconfigured worker has none", () => {
+  const configured = runtimeWorkerProviderEnvironment(
+    { HARNESS_WORKER_GITHUB_TOKEN: "fake-worker-token" },
+    process.platform,
+  );
+  assert.equal(configured.GH_TOKEN, "fake-worker-token");
+  assert.equal(configured.HARNESS_GITHUB_TOKEN, "fake-worker-token");
+  assert.equal(configured.HARNESS_WORKER_GITHUB_TOKEN, undefined);
+  const unconfigured = runtimeWorkerProviderEnvironment({}, process.platform);
+  assert.equal(unconfigured.GH_TOKEN, undefined);
+  assert.equal(unconfigured.GITLAB_TOKEN, undefined);
 });
 
 test(

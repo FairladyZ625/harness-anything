@@ -96,6 +96,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
           taskBoundLaunches += 1;
           assert.equal(prepared.env.GH_TOKEN, undefined);
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
+          assert.equal(prepared.env.HARNESS_WORKER_GITHUB_TOKEN, secret);
           assert.equal(prepared.env.GIT_ASKPASS, undefined);
           assert.equal(prepared.env.GIT_AUTHOR_NAME, undefined);
           assert.equal(prepared.env.GIT_AUTHOR_EMAIL, undefined);
@@ -117,6 +118,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
         } else {
           assert.equal(prepared.env.GH_TOKEN, undefined);
           assert.equal(prepared.env.HARNESS_GITHUB_TOKEN, undefined);
+          assert.equal(prepared.env.HARNESS_WORKER_GITHUB_TOKEN, undefined);
           assert.equal(prepared.env.GIT_ASKPASS, undefined);
           assert.equal(prepared.env.GIT_AUTHOR_NAME, undefined);
           assert.equal(prepared.env.GIT_AUTHOR_EMAIL, undefined);

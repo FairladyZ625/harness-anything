@@ -19,6 +19,7 @@ import type { requiredRuntimeProjection, requiredRuntimeStore } from "./runtime-
 import type { runtimeSpawnError } from "./runtime-spawn-errors.ts";
 import type { parseProviderFrame } from "./runtime-spawn-provider-frames.ts";
 import type { isStructuredSuccessResult } from "./runtime-spawn-provider-frames.ts";
+import { detectHostingProvider } from "./hosting-provider.ts";
 
 type RuntimeEventMap = {
   [Event in AgentRuntimeEventV1 as Event["type"]]: Event;
@@ -35,10 +36,18 @@ export function runtimeEventHasType<T extends RuntimeEventType>(
 }
 
 export async function prepareTaskWorkerGitEnvironment(
-  _input: RuntimeSpawnerInput,
-  _instanceId: string,
+  input: RuntimeSpawnerInput,
+  instanceId: string,
 ): Promise<NodeJS.ProcessEnv | undefined> {
-  return undefined;
+  if (!input.prepareDaemonGitEnvironment) return undefined;
+  const hosting = await detectHostingProvider(input.rootDir, undefined, true),
+    environment = (await input.prepareDaemonGitEnvironment(instanceId, hosting?.kind ?? "github")) ?? undefined;
+  if (!environment) return undefined;
+  const provider = hosting?.kind ?? "github",
+    secret = provider === "github" ? environment.GH_TOKEN : environment.GITLAB_TOKEN;
+  return secret
+    ? { [provider === "github" ? "HARNESS_WORKER_GITHUB_TOKEN" : "HARNESS_WORKER_GITLAB_TOKEN"]: secret }
+    : undefined;
 }
 
 export interface RuntimeEventPublication<T extends RuntimeEventType> {
@@ -104,6 +113,7 @@ export async function prepareBoundRuntimeLaunch(args: {
   readonly callbackRelay?: RuntimeCallbackRelay;
   readonly cliBinDir?: string;
   readonly runtimeActor: string;
+  readonly runtimeInstanceId: string;
   readonly taskId: string | null;
   readonly trustedSchedule?: TrustedScheduleRuntime;
   readonly reviewerBinding: boolean;
@@ -119,6 +129,7 @@ export async function prepareBoundRuntimeLaunch(args: {
       (args.execution && input.keycloakCenter
         ? await issueRuntimeExecutionCredential(await input.keycloakCenter(), { ...args.execution, expiresAt })
         : undefined);
+  const workerGitEnvironment = await prepareTaskWorkerGitEnvironment(input, args.runtimeInstanceId);
   return {
     ...prepared,
     env: {
@@ -139,6 +150,7 @@ export async function prepareBoundRuntimeLaunch(args: {
       HARNESS_ACTOR: args.runtimeActor,
       HARNESS_EXECUTION_CREDENTIAL: credential,
       HARNESS_EXECUTION_EXPIRES_AT: credential ? expiresAt : undefined,
+      ...(workerGitEnvironment ?? {}),
       ...(taskId ? { HARNESS_TASK_BOUND: "1" } : {}),
       ...(trustedSchedule
         ? {
