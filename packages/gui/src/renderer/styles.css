@@ -554,6 +554,36 @@ html[data-theme="light"] .glass-sub {
   }
 }
 
+/*
+ * 空闲在场门控(task_5c651ff17b698ff2bce7e6affa,GUI 空闲 GPU 高占用):
+ * 60s 无用户输入或窗口隐藏时 useIdleMotionGate 挂 html[data-motion="idle"],
+ * 此处把全部 infinite 循环动画统一 paused——空闲时合成器不再产帧,glass 的
+ * backdrop-filter 也就不再每帧重模糊(实测空闲 gpu-process 16–19% → ~0.3%);
+ * 任何输入同帧恢复运行。视觉语义不变:在场用户看到的一切照旧,只是无人看时
+ * 不再自转。
+ * 只列 infinite 循环:入场/闪烁/成长等一次性动画不进来,空闲期间到达的新内容
+ * 仍能完整播完入场,不会冻结在 from 帧。不用 :is() 归并:伪元素参数在 forgiving
+ * 解析下会被静默丢弃(.aurora::after 实测漏网),显式平铺每个选择器。html 侧
+ * 属性选择器配伪元素共 (0,2,2),高于上面 prefers-reduced-motion 块里 (0,1,1) 的
+ * re-enable 覆盖——「减少动态」用户空闲时同样归零,回到该媒体查询本来的契约。
+ */
+html[data-motion="idle"] .aurora::after,
+html[data-motion="idle"] .aurora i,
+html[data-motion="idle"] .live-row::before,
+html[data-motion="idle"] .live-row::after,
+html[data-motion="idle"] .seg-active-shimmer::after,
+html[data-motion="idle"] .status-tag-active,
+html[data-motion="idle"] .live-dot-pulse,
+html[data-motion="idle"] .rt-pulse,
+html[data-motion="idle"] .fleet-core-halo,
+html[data-motion="idle"] .fleet-core-ring,
+html[data-motion="idle"] .fleet-node[data-executing="on"]::after,
+html[data-motion="idle"] .fleet-link[data-state="absent"] .fleet-link-base,
+html[data-motion="idle"] .fleet-link .fleet-link-flow,
+html[data-motion="idle"] .fleet-link .fleet-link-particles {
+  animation-play-state: paused !important;
+}
+
 html,
 body {
   background: var(--color-bg);
