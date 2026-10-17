@@ -111,6 +111,22 @@ test("ha bootstrap exposes the center invitation and edge consume operations on 
   if (consumed.ok) assert.equal(consumed.command.method, "daemon.rbac.manage");
 });
 
+test("ha edge join exposes the typed invitation consume action", () => {
+  const parsed = parseThinCommand(
+    ["edge", "join", "harness-edge://join/token", "--observed-spki-sha256", "sha256:pin"],
+    "/edge",
+  );
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.method, "daemon.rbac.manage");
+  assert.deepEqual(parsed.command.action, {
+    kind: "edge-join",
+    operation: "edge-join-consume",
+    link: "harness-edge://join/token",
+    observedSpkiSha256: "sha256:pin",
+  });
+});
+
 test("ha bootstrap parses one external Keycloak through the same command", () => {
   const parsed = parseThinCommand(
     [

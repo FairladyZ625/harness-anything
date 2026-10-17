@@ -149,7 +149,11 @@ export async function runCommandThroughDaemon(
         ...rest,
       )) as typeof rpc.requestLocalDaemonJsonRpcForTarget),
     autostart = options.autostart ?? command.action.kind !== "receipt-show";
-  if (command.action.kind === "repo-bootstrap" || command.action.kind === "rbac-bootstrap") {
+  if (
+    command.action.kind === "repo-bootstrap" ||
+    command.action.kind === "rbac-bootstrap" ||
+    command.action.kind === "edge-join"
+  ) {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
@@ -165,7 +169,7 @@ export async function runCommandThroughDaemon(
               daemonId,
               socketPath,
             },
-            command.action.kind === "rbac-bootstrap" ? "daemon.rbac.manage" : "daemon.repo.bootstrap",
+            command.action.kind === "repo-bootstrap" ? "daemon.repo.bootstrap" : "daemon.rbac.manage",
             command.action.kind === "rbac-bootstrap"
               ? (paramsOverride ?? (params as JsonObject))
               : { rootDir: command.rootDir, ...params },

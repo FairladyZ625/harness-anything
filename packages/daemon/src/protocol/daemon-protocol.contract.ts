@@ -154,6 +154,8 @@ export const daemonProtocolMethods = Object.freeze([
         "session-lifetime-set",
         "listener",
         "listener-set",
+        "edge-join-consume",
+        "edge-join-status",
       ] as const),
       mode: optionalEnum(["managed", "external"] as const),
       repoId: "string?",
