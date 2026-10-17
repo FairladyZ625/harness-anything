@@ -2,15 +2,28 @@ import { t } from "../i18n/index.tsx";
 import { useEffect, useState } from "react";
 import { guiHostBridge } from "../gui-transport.ts";
 
+type DesktopSetupFailureView = {
+  readonly step: "terminal-command" | "shell-path" | "background-service";
+  readonly reason: string;
+  readonly hint: string;
+};
+
 type DesktopStatus = {
   readonly node?: { readonly available: boolean; readonly version: string | null; readonly path: string };
   readonly path?: { readonly includesShim: boolean; readonly shellRc: string };
   readonly npmHa?: string | null;
   readonly daemon?: { readonly reachable: boolean; readonly serviceInstalled: boolean };
   readonly shim?: { readonly installed: boolean; readonly preservedExistingHa: boolean; readonly path: string };
+  readonly setupFailures?: readonly DesktopSetupFailureView[];
 };
 
 const DESKTOP_FIRST_RUN_DONE = "harness.desktop-first-run.done";
+
+const desktopStepLabels: Record<DesktopSetupFailureView["step"], string> = {
+  "terminal-command": "终端命令",
+  "shell-path": "PATH",
+  "background-service": "后台服务",
+};
 
 /** The app's first-launch system setup is a startup surface, not a sidebar view. */
 export function DesktopFirstRunGuide() {
@@ -21,11 +34,17 @@ export function DesktopFirstRunGuide() {
   useEffect(() => {
     if (!bridge || dismissed) return;
     let active = true;
-    void bridge.desktopStatus?.().then((value) => {
-      if (active) setStatus((value ?? null) as DesktopStatus | null);
-    });
+    const refresh = () => {
+      void bridge.desktopStatus?.().then((value) => {
+        if (active) setStatus((value ?? null) as DesktopStatus | null);
+      });
+    };
+    // 先订阅再拉取:主进程后台安装完成的推送不会落在首份状态与订阅之间。
+    const unsubscribe = bridge.onDesktopFirstRunUpdated?.(refresh);
+    refresh();
     return () => {
       active = false;
+      unsubscribe?.();
     };
   }, [bridge, dismissed]);
   if (!bridge || dismissed || status === null) return null;
@@ -60,6 +79,7 @@ export function DesktopFirstRunGuide() {
       status.daemon?.reachable ? "daemon 正在运行" : "已安装，等待启动",
     ],
   ] as const;
+  const failures = status.setupFailures ?? [];
   return (
     <div
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/45 p-6"
@@ -86,6 +106,22 @@ export function DesktopFirstRunGuide() {
             </div>
           ))}
         </div>
+        {failures.length > 0 ? (
+          <div className="mt-3 grid gap-2" data-testid="first-run-setup-failures">
+            {failures.map((failure) => (
+              <div
+                key={failure.step}
+                className="rounded-lg border border-danger/40 bg-danger/10 px-4 py-3"
+                role="alert"
+              >
+                <p className="text-sm font-medium text-danger">
+                  {desktopStepLabels[failure.step]}设置失败：{failure.reason}
+                </p>
+                <p className="mt-1 text-xs leading-5 text-text-muted">{failure.hint}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {status.npmHa ? <p className="mt-4 text-xs text-text-muted">检测到另一份 ha：{status.npmHa}</p> : null}
         <p className="mt-4 text-xs text-text-muted">如果刚刚修改了 PATH，请关闭并重新打开终端。</p>
         <div className="mt-6 flex justify-end gap-2">

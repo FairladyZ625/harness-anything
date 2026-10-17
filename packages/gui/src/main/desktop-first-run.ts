@@ -1,17 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync, chmodSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { execFileSync } from "node:child_process";
-import {
-  daemonServiceCommands,
-  daemonServiceUnit,
-  daemonServiceUnitContent,
-  runDaemonServiceCommand,
-} from "@harness-anything/daemon/internal/client/daemon-service";
+import { execFile, execFileSync } from "node:child_process";
 import { daemonSocketProbe } from "@harness-anything/daemon/internal/daemon-singleton";
-import { daemonStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log";
-import { writeDaemonServiceUnit } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { daemonServiceUnit } from "@harness-anything/daemon/internal/client/daemon-service";
 import { daemonUserRoot, daemonIdFromEnv, localUserDaemonEndpoint } from "@harness-anything/daemon/client";
+import type { DesktopSetupFailure } from "../api/first-run-contract.ts";
 
 export interface DesktopRuntimePaths {
   readonly node: string;
@@ -104,32 +98,105 @@ export function detectNpmHa(env: NodeJS.ProcessEnv = process.env): string | null
   return null;
 }
 
-export async function installDesktopService(input: {
+/** The daemon-service step runs the packaged CLI's own `daemon service install`: one implementation
+ *  owns the unit write/load orchestration (including the not-loaded guard around bootout) and the
+ *  wait for the daemon to answer, so the App never carries a second copy of it. */
+export interface DesktopServiceInstallRun {
+  readonly exitCode: number | null;
+  readonly stdout: string;
+  readonly stderr: string;
+  readonly error: string | null;
+}
+
+export async function runDesktopSetup(input: {
   readonly runtime: DesktopRuntimePaths;
-  readonly userRoot?: string;
-  readonly daemonId?: string;
   readonly home?: string;
-}): Promise<{ readonly installed: boolean; readonly unitPath: string | null }> {
-  const userRoot = input.userRoot ?? daemonUserRoot();
-  const daemonId = input.daemonId ?? daemonIdFromEnv();
-  const unit = daemonServiceUnit({ userRoot, daemonId }, process.platform, input.home ?? os.homedir());
-  if (!unit) return { installed: false, unitPath: null };
-  const content = daemonServiceUnitContent(unit, {
-    userRoot,
-    daemonId,
-    execPath: input.runtime.node,
-    entry: input.runtime.daemon,
-    searchPath: process.env.PATH ?? "",
-    extraCaCerts: process.env.NODE_EXTRA_CA_CERTS,
-  });
-  const changed = !existsSync(unit.unitPath) || readFileSync(unit.unitPath, "utf8") !== content;
-  if (changed) {
-    if (existsSync(unit.unitPath)) await runDaemonServiceCommand(daemonServiceCommands(unit).unload);
-    writeDaemonServiceUnit(unit, content, daemonStdioLogPath(userRoot, daemonId));
+  readonly runServiceInstall?: (runtime: DesktopRuntimePaths) => Promise<DesktopServiceInstallRun>;
+}): Promise<readonly DesktopSetupFailure[]> {
+  const home = input.home ?? os.homedir();
+  const failures: DesktopSetupFailure[] = [];
+  const attempt = (failure: DesktopSetupFailure | null): void => {
+    if (failure !== null) failures.push(failure);
+  };
+  attempt(
+    setupStep(
+      "terminal-command",
+      `确认 ${path.dirname(desktopShimPath(home))} 目录可以写入后，点「重新检查并完成」重试`,
+      () => ensureShim(input.runtime, home),
+    ),
+  );
+  attempt(
+    setupStep("shell-path", `确认 ${shellRcPath(home)} 可以写入后，点「重新检查并完成」重试`, () =>
+      ensureShellPath(home),
+    ),
+  );
+  attempt(await serviceInstallFailure(input.runServiceInstall ?? runCliServiceInstall, input.runtime));
+  return failures;
+}
+
+function setupStep(step: DesktopSetupFailure["step"], hint: string, action: () => void): DesktopSetupFailure | null {
+  try {
+    action();
+  } catch (cause) {
+    return { step, reason: cause instanceof Error ? cause.message : String(cause), hint };
   }
-  if (unit.manager === "systemd" || changed)
-    for (const command of daemonServiceCommands(unit).load) await runDaemonServiceCommand(command);
-  return { installed: true, unitPath: unit.unitPath };
+  return null;
+}
+
+async function serviceInstallFailure(
+  run: (runtime: DesktopRuntimePaths) => Promise<DesktopServiceInstallRun>,
+  runtime: DesktopRuntimePaths,
+): Promise<DesktopSetupFailure | null> {
+  const result = await run(runtime);
+  if (result.exitCode === 0) return null;
+  return {
+    step: "background-service",
+    reason: serviceInstallReason(result),
+    hint: "在终端运行 ha daemon service install 查看完整原因后重试",
+  };
+}
+
+function serviceInstallReason(result: DesktopServiceInstallRun): string {
+  if (result.error !== null) return result.error;
+  for (const line of result.stdout.split(/\r?\n/u).reverse()) {
+    const receipt = parseReceiptLine(line);
+    if (receipt.ok && typeof receipt.record.hint === "string" && receipt.record.hint !== "") return receipt.record.hint;
+  }
+  return result.stderr.trim() !== "" ? result.stderr.trim() : `安装命令退出码 ${String(result.exitCode)}`;
+}
+
+type ReceiptLine = { readonly ok: true; readonly record: Record<string, unknown> } | { readonly ok: false };
+
+function parseReceiptLine(line: string): ReceiptLine {
+  if (line.trim() === "") return { ok: false };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    // stdout in --json mode carries exactly the receipt line; one that does not parse is not it.
+    return { ok: false };
+  }
+  return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed) && "ok" in parsed
+    ? { ok: true, record: parsed as Record<string, unknown> }
+    : { ok: false };
+}
+
+function runCliServiceInstall(runtime: DesktopRuntimePaths): Promise<DesktopServiceInstallRun> {
+  return new Promise((resolve) => {
+    execFile(
+      runtime.node,
+      [runtime.cli, "daemon", "service", "install", "--json"],
+      { encoding: "utf8", windowsHide: true, timeout: 120_000 },
+      (error, stdout, stderr) => {
+        resolve({
+          exitCode: typeof error?.code === "number" ? error.code : error === null ? 0 : null,
+          stdout: stdout ?? "",
+          stderr: stderr ?? "",
+          error: error !== null && typeof error.code !== "number" ? error.message : null,
+        });
+      },
+    );
+  });
 }
 
 export async function desktopFirstRunReport(input: {

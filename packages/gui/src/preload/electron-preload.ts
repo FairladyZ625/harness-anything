@@ -22,6 +22,7 @@ import {
   FIRST_RUN_CHOOSE_CHANNEL,
   DESKTOP_FIRST_RUN_STATUS_CHANNEL,
   DESKTOP_FIRST_RUN_SETUP_CHANNEL,
+  DESKTOP_FIRST_RUN_UPDATED_CHANNEL,
   type FirstRunApi,
 } from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
@@ -97,6 +98,12 @@ const exposedHarnessApi = {
   firstRun: {
     desktopStatus: () => invoke(DESKTOP_FIRST_RUN_STATUS_CHANNEL, null),
     desktopSetup: () => invoke(DESKTOP_FIRST_RUN_SETUP_CHANNEL, null),
+    // 首启安装在主进程后台完成后推送;引导屏收到后重新拉取状态(含逐步失败)。
+    onDesktopFirstRunUpdated: (listener) => {
+      const subscription = () => listener();
+      ipcRenderer.on(DESKTOP_FIRST_RUN_UPDATED_CHANNEL, subscription);
+      return () => ipcRenderer.removeListener(DESKTOP_FIRST_RUN_UPDATED_CHANNEL, subscription);
+    },
     chooseRepository: () => invoke(FIRST_RUN_CHOOSE_CHANNEL, null),
     bootstrap: (input) => invoke(FIRST_RUN_BOOTSTRAP_CHANNEL, input),
   } satisfies FirstRunApi,
