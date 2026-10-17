@@ -101,7 +101,8 @@ import {
   type PersistentWriterEpoch,
   type WriterEpochLease,
 } from "./writer-epoch.ts";
-import { AccessAdminService, accessAdminOperations } from "./access-admin-service.ts";
+import { AccessAdminService } from "./access-admin-service.ts";
+import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";

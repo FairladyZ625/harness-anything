@@ -1,41 +1,7 @@
 import type { managedRbacReceiptJournal } from "./managed-rbac-service.ts";
 
-export const accessAdminOperations = Object.freeze([
-  "group-list",
-  "group-create",
-  "group-update",
-  "group-delete",
-  "grant",
-  "revoke",
-  "grant-list",
-  "permission-request-create",
-  "permission-request-list",
-  "permission-request-decide",
-  "permission-request-withdraw",
-  "effective-permissions",
-  "receipt-list",
-  "team-list",
-  "team-create",
-  "team-update",
-  "team-delete",
-  "team-member-add",
-  "team-member-remove",
-  "node-list",
-  "node-register",
-  "node-unregister",
-  "edge-join-create",
-  "edge-join-consume",
-  "edge-join-status",
-  "device-list",
-  "device-rename",
-  "device-pause",
-  "device-resume",
-  "device-remove",
-  "device-logout-all",
-  "receipt-reconcile",
-  "session-lifetime",
-  "session-lifetime-set",
-] as const);
+import type { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
+
 export type AccessAdminOperation = (typeof accessAdminOperations)[number];
 
 export interface AccessAdminRequest {
