@@ -60,20 +60,19 @@ test("an archived resume source is rejected when the canonical projection record
     writer.appendProviderBinding("provider-session", "2026-09-29T00:00:01.000Z");
     archiveDispatchStream(rootDir, dispatchId);
 
-    // Resume follows the chain to the resuming child before admitting; the child has no local
-    // stream in this fixture, so the rejection names the leaf the conversation continues at.
+    // Task-bound resumes keep the single-consumption contract; the chain-following test below
+    // covers the taskless conversation surface.
     assert.throws(
       () =>
         admitRuntimeResume(rootDir, dispatchId, () => ({
-          readRuntimeDispatchByResumeSource: (source: string) =>
-            source === dispatchId
-              ? ({
-                  event: { payload: { dispatchId: resumedDispatchId, resumedFromDispatchId: dispatchId } },
-                } as unknown as RuntimeDispatchProjectionRow)
-              : null,
+          readRuntimeDispatchByResumeSource: () =>
+            ({
+              event: { payload: { dispatchId: resumedDispatchId, resumedFromDispatchId: dispatchId } },
+            }) as unknown as RuntimeDispatchProjectionRow,
         })),
       (error: unknown) =>
-        error instanceof Error && error.message === `Dispatch ${resumedDispatchId} has no provider session to resume.`,
+        error instanceof Error &&
+        error.message === `Dispatch ${dispatchId} was already resumed as ${resumedDispatchId}.`,
     );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });

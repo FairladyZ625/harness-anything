@@ -116,9 +116,10 @@ export async function steerRuntime(
       : entry.runtimeSessionId === runtimeSessionIdInput,
   );
   if (!header) throw runtimeSpawnError("runtime_not_running", "Runtime dispatch was not found.");
-  if (typeof dispatchIdInput === "string") {
-    // A conversation addressed by its first dispatch steers the current leaf round: an earlier
-    // round's process has exited by the time a later round runs, and only the leaf can be live.
+  if (typeof dispatchIdInput === "string" && header.taskId === null) {
+    // A taskless conversation addressed by its first dispatch steers the current leaf round:
+    // an earlier round's process has exited by the time a later round runs, and only the leaf
+    // can be live. Task-bound dispatches keep direct addressing.
     const seen = new Set([header.dispatchId]);
     let current = header;
     for (;;) {
