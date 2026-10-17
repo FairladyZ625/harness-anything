@@ -4,9 +4,8 @@ import { createRealizedTaskPlanFixture } from "../../fixtures/task-plan.mjs";
 import { nav } from "./helpers.mjs";
 
 // The WIP drill is a tab with an inline list (2026-10-07 rework): every counted task is visible
-// on the region itself; clicking a row opens the focus layer with that row selected. Dialog
-// detachment precedes the region's return to a settled state — wait for actual projection
-// transforms to settle before measuring.
+// on the region itself and clicking a row navigates directly to task detail. Wait for actual
+// projection transforms to settle before measuring after returning to the overview.
 export async function settledWipGeometry(page) {
   await page.waitForFunction(() => {
     const drill = globalThis.document.querySelector('[data-testid="overview-region-drill"]');
@@ -67,8 +66,7 @@ export default {
   lane: "isolated",
   description:
     "The WIP drill tab shows the daemon occupancy and lists every counted task inline on the region " +
-    "(attention order, in-region scroll); clicking a row opens the focus layer with that row selected, " +
-    "keeps arrow-key navigation inside the filtered visible set, and navigates a row to task detail.",
+    "(attention order, in-region scroll); clicking a row navigates directly to that task's detail.",
   async run({ page, fixture, shot }) {
     const started = await requestDaemonJsonRpcAt(
       fixture.endpoint,
@@ -156,73 +154,10 @@ export default {
       "the inline drill list must show every counted task",
     );
 
-    // 点行 → 放大层开着且选中的就是被点的那行(名单在层里,分组/搜索接管过滤)。
+    // 点行直接进入对应任务详情；当前产品路由不打开 focus dialog。
     const pickedId = inlineIds[0];
     await drill.locator(`[data-drill-row="${pickedId}"]`).getByRole("button").first().click();
-    const dialog = page.locator('[role="dialog"]');
-    await dialog.waitFor();
-    const list = dialog.getByTestId("overview-task-wip-list");
-    await list.waitFor();
-    await page.waitForFunction(
-      (id) =>
-        globalThis.document
-          .querySelector("[data-focus-list] [data-dense-row][data-selected]")
-          ?.getAttribute("title") === id,
-      pickedId,
-      { timeout: 10_000 },
-    );
-
-    // 放大层名单与 daemon 快照逐 ID 一致(顺序按状态重排,不比顺序)。
-    await page.waitForFunction(
-      ({ ids }) => {
-        const rows = [...globalThis.document.querySelectorAll("[data-focus-list] [data-dense-row]")];
-        const actual = rows
-          .map((row) => {
-            const title = row.querySelector("button[title*='task/']")?.getAttribute("title") ?? "";
-            return title.slice(title.lastIndexOf("task/") + "task/".length);
-          })
-          .sort();
-        return rows.length > 0 && JSON.stringify(actual) === JSON.stringify(ids);
-      },
-      { ids: snapshot.counted.map((entry) => entry.taskId).sort() },
-      { timeout: 10_000 },
-    );
-
-    // 入口开放大层落选首行;放大层过滤后 ↑↓ 只在可见集合移动(隐藏的行不可被键盘选中)。
-    const selectionStateOf = () =>
-      dialog.locator("[data-focus-list] [data-dense-row]").evaluateAll((rows) =>
-        rows.map((row) => ({
-          selected: row.hasAttribute("data-selected"),
-          id: (() => {
-            const title = row.querySelector("button[title*='task/']")?.getAttribute("title") ?? "";
-            return title.slice(title.lastIndexOf("task/") + "task/".length);
-          })(),
-        })),
-      );
-    let visible = await selectionStateOf();
-    assert.equal(visible.filter(({ selected }) => selected).length, 1, "exactly one selected row after opening");
-    assert.equal(visible[0]?.selected, true, "opening from the entry selects the first row");
-
-    // 搜索把首行藏起,选中收敛到首个可见行;↓ 只在可见集合移动。
-    await dialog.getByTestId("overview-task-wip-search").fill("占位导航");
-    visible = await selectionStateOf();
-    let visibleIds = visible.map(({ id }) => id);
-    assert.deepEqual(visibleIds, ["task-wip-nav-a", "task-wip-nav-b"], "search must hide the non-matching row");
-    await dialog.getByTestId("overview-task-wip-search").fill("导航甲");
-    visible = await selectionStateOf();
-    visibleIds = visible.map(({ id }) => id);
-    assert.deepEqual(visibleIds, ["task-wip-nav-a"], "narrowing search must leave one visible row");
-    assert.equal(visible[0]?.selected, true, "selection must clamp to the first visible row when hidden");
-    await dialog.getByTestId("overview-task-wip-search").fill("占位导航");
-    await page.keyboard.press("ArrowDown");
-    const keyed = (await selectionStateOf()).filter(({ selected }) => selected).map(({ id }) => id);
-    assert.deepEqual(keyed, ["task-wip-nav-b"], "arrow key must move to the next visible row");
-    assert.notEqual(keyed[0], "task-gui-smoke", "a row hidden by the filter must not be selectable via keyboard");
-
-    // 行点击 → 详情「打开任务」→ 真实任务详情;从详情页头的「总览」返回路径回到总览,
-    // 再量紧凑入口的几何(侧栏也有同名「总览」按钮,nav helper 的严格定位会撞二义)。
-    await dialog.getByTestId("overview-task-wip-search").fill("导航甲");
-    await dialog.getByRole("button", { name: /打开任务|Open task/u }).click();
+    // 行入口直接打开真实任务详情；从详情页头返回总览后继续验证紧凑入口几何。
     await page.getByTestId("task-detail-view").waitFor();
     await shot("overview-wip-task-detail");
 

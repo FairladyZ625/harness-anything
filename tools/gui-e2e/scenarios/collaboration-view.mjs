@@ -520,7 +520,9 @@ export default {
     // 9. reduced-motion:系统偏好「减少动态效果」下动画全部关停,静态状态色仍在。
     await page.emulateMedia({ reducedMotion: "reduce" });
     assert.equal(
-      await page.evaluate(() => globalThis.document.getAnimations().filter((a) => a.playState === "running").length),
+      await page
+        .getByTestId("collaboration-topology")
+        .evaluate((node) => node.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length),
       0,
       "prefers-reduced-motion stops every topology animation",
     );
