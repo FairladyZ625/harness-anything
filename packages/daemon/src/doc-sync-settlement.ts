@@ -10,7 +10,7 @@ import {
 import type { DocIntentChannel } from "./doc-sync-adjudication.ts";
 import { publicScan, type DocCandidateScan } from "./doc-sync-candidate-scanner.ts";
 import type { DocSettlementReceipt, Input } from "./doc-sync-command-actions.ts";
-import { detail, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
+import { detail, formatShellCommand, holder, isTaskPackagePath, touch } from "./doc-sync-details.ts";
 import { localProseSource, proof, rejectDocSyncAction } from "./doc-sync-files.ts";
 
 export function scanReceipt(input: Input, scan: DocCandidateScan): DocSettlementReceipt {
@@ -62,6 +62,7 @@ function statusSummary(scan: DocCandidateScan): string {
     ...(blocked.length
       ? ["blocked:", ...blocked.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}`)]
       : []),
+    ...retireNextLines(blocked.filter((row) => row.state === "deletion")),
     `eligible: ${eligible}`,
     `inapplicable: ${inapplicable}`,
   ].join("\n");
@@ -235,26 +236,40 @@ export function submitSummary(
       : ["(none)"]),
     "inapplicable:",
     ...(inapplicable.length ? inapplicable.map((row) => `${row.path}\t${row.reason}`) : ["(none)"]),
+    ...retireNextLines(blocked.filter((row) => row.state === "deletion")),
   ].join("\n");
+}
+
+// A receipt that reports a canonical document missing from the worktree must name its one exit:
+// retirement at the center. `requiredRoute=deletion_forbidden` is a rejection code, not a route,
+// so without these lines the receipt points at nothing the operator can run.
+function retireNextLines(deletions: readonly { readonly path: string }[]): string[] {
+  return deletions.length === 0
+    ? []
+    : [
+        "next: a canonical document deleted from the worktree is retired at the center, not synced:",
+        ...deletions.map((row) =>
+          formatShellCommand("ha", ["doc", "retire", "--path", row.path, "--reason", "<why the document is gone>"]),
+        ),
+      ];
 }
 
 export function scanRejectionSummary(code: string, scan: DocCandidateScan): string {
   const blocked = scan.rows.filter(
-    (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
-  );
-  const next =
-    code === "lease_conflict"
-      ? scan.frozenTaskIds.length > 0
-        ? "next: the submitted cut on " +
-          scan.frozenTaskIds.join(", ") +
-          " is frozen — doc-sync task package files BEFORE ha task submit; if artifacts must still land, " +
-          "the owner returns the cut with ha task adjudicate <task-id> --return and the work is resubmitted with them"
-        : scan.lease
-          ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
-            "submit through the lease holder or use the repository prose channel"
-          : "next: submit through the repository prose channel or acquire the task lease"
-      : "next: use the required route shown for each blocked path; these documents are daemon-managed. Then rerun " +
-        "ha doc sync --submit with --task <task-id> or --path <path>";
+      (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
+    ),
+    deletions = blocked.filter((row) => row.state === "deletion"),
+    next = [
+      ...(code === "lease_conflict"
+        ? [leaseRecoveryNext(scan)]
+        : blocked.length > deletions.length
+          ? [
+              "next: use the required route shown for each blocked path; these documents are daemon-managed. Then rerun " +
+                "ha doc sync --submit with --task <task-id> or --path <path>",
+            ]
+          : []),
+      ...retireNextLines(deletions),
+    ].join("\n");
   return [
     `doc-submit: op_rejected (${code})`,
     "blocked:",
@@ -265,6 +280,18 @@ export function scanRejectionSummary(code: string, scan: DocCandidateScan): stri
     ),
     next,
   ].join("\n");
+}
+
+function leaseRecoveryNext(scan: DocCandidateScan): string {
+  return scan.frozenTaskIds.length > 0
+    ? "next: the submitted cut on " +
+        scan.frozenTaskIds.join(", ") +
+        " is frozen — doc-sync task package files BEFORE ha task submit; if artifacts must still land, " +
+        "the owner returns the cut with ha task adjudicate <task-id> --return and the work is resubmitted with them"
+    : scan.lease
+      ? `next: lease held by ${scan.lease.actor.principal.personId} (${scan.lease.executionId}); ` +
+        "submit through the lease holder or use the repository prose channel"
+      : "next: submit through the repository prose channel or acquire the task lease";
 }
 
 export function admissionRejection(

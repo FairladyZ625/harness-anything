@@ -114,9 +114,7 @@ export function scanDocCandidates(input: {
     // enumerated on purpose so scanOne blocks them with an actionable reason
     // instead of the submit silently dropping them.
     enumerationScope = taskPrefix ?? "",
-    selected = input.selection?.map((value) =>
-      documentPath(normalizeSelectedPath(ledger.authoredPrefix, sourcePrefix, value)),
-    ),
+    selected = input.selection?.map((value) => documentPath(normalizeSelectedDocPath(input.rootDir, value))),
     inventoryByPath = new Map(input.inventory?.rows.map((row) => [row.path, row] as const) ?? []),
     conflictsByPath = localDocConflictsByPath(layout),
     candidates = selected?.length
@@ -463,9 +461,19 @@ export function validateSelectedDocPaths(selected: readonly string[], scan: DocC
   if (missing[0]) throw docSyncError("document_not_found", blockedCandidateNextAction(missing[0]));
 }
 
-// Both the ledger Git prefix and the product-visible authored-root prefix are accepted: the
-// authored root is its own Git repository in the nested layout, so the ledger prefix is empty
-// there while users still spell selection paths relative to the product root.
+// The single spelling rule for doc-selection paths, shared by doc status/sync selections and
+// ha doc retire: both the ledger Git prefix and the product-visible authored-root prefix are
+// accepted — the authored root is its own Git repository in the nested layout, so the ledger
+// prefix is empty there while users still spell selection paths relative to the product root.
+export function normalizeSelectedDocPath(rootDir: string, value: string): string {
+  const layout = resolveHarnessLayout(rootDir);
+  return normalizeSelectedPath(
+    resolveLedgerGitLayout(rootDir).authoredPrefix,
+    relative(rootDir, layout.authoredRoot),
+    value,
+  );
+}
+
 function normalizeSelectedPath(authoredPrefix: string, sourcePrefix: string, value: string): string {
   for (const prefix of [authoredPrefix, sourcePrefix])
     if (prefix && value.startsWith(`${prefix}/`)) return value.slice(prefix.length + 1);
