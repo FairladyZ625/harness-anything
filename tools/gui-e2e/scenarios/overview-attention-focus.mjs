@@ -209,6 +209,8 @@ export default {
           executionId: rework.executionId,
           return: true,
           reason: "attention focus fixture: machine rework round",
+          // 9ceab8bb1 起 return 必须显式选续派模式;夹具只要返工状态转移。
+          workerMode: "none",
         },
       });
       assert.equal(returned.ok, true, `task-adjudicate return: ${JSON.stringify(returned).slice(0, 300)}`);

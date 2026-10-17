@@ -50,8 +50,9 @@ export default {
       },
       {
         rootDir: fixture.rootDir,
-        bridge: path.resolve("packages/gui/src/main/local-composition-root.ts"),
-        protocol: path.resolve("packages/daemon/src/protocol/index.ts"),
+        // Module-relative: the gate entry runs with cwd=packages/gui (see ci-observations.mjs).
+        bridge: path.resolve(import.meta.dirname, "../../../packages/gui/src/main/local-composition-root.ts"),
+        protocol: path.resolve(import.meta.dirname, "../../../packages/daemon/src/protocol/index.ts"),
       },
     );
     try {
