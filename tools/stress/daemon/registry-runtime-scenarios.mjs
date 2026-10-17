@@ -298,6 +298,10 @@ async function runLiveBuildDrain(root) {
     await waitAttached(endpoint, repoId);
     const originalPid = readDaemonPid(userRoot, daemonId);
     writeFileSync(marker, "build-b\n");
+    // A long-lived GUI connection does not opt into the hello diagnostic flag. The ordinary
+    // status request must still arm build supersession before the following write settles.
+    const observed = await rpc(endpoint, "daemon.status");
+    assert.equal(observed.build.diskBuildId, "build-b");
     const receipt = await requestDaemonJsonRpcAt(
       endpoint,
       "repo.task.create",
@@ -305,11 +309,10 @@ async function runLiveBuildDrain(root) {
       2_000,
       5_000,
       undefined,
-      true,
+      false,
     );
     assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
-    const drifted = receipt.daemonBuild;
-    assert.equal(drifted.liveRuntimeSessions, 1);
+    assert.equal(receipt.daemonBuild, undefined, "ordinary requests do not need the stale-build diagnostic payload");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(readDaemonPid(userRoot, daemonId), originalPid, "live runtime must retain the drifted daemon");
     lifecycle?.({

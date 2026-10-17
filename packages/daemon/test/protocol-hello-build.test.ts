@@ -42,9 +42,10 @@ test("protocol.hello answers with the daemon's build stamp", async () => {
 });
 
 test("protocol.hello reports a drifted build and keeps serving while work drains", async () => {
-  let shutdowns = 0;
+  let shutdowns = 0,
+    driftObservations = 0;
   const server = createJsonRpcProtocolServer({
-    host: {} as never,
+    host: { status: () => ({ summary: "daemon status", repos: [] }) } as never,
     build: { commit: "loaded" },
     buildObserver: {
       status: () => ({
@@ -59,6 +60,9 @@ test("protocol.hello reports a drifted build and keeps serving while work drains
     emit: async () => undefined,
     requestShutdown: () => {
       shutdowns += 1;
+    },
+    onBuildDriftObserved: () => {
+      driftObservations += 1;
     },
     buildDrainStatus: () => ({ liveRuntimeSessions: 2, pendingWrites: 1, attachingRepositories: 1 }),
   });
@@ -88,6 +92,10 @@ test("protocol.hello reports a drifted build and keeps serving while work drains
     assert.equal(warning.code, "daemon_build_stale");
     assert.equal(warning.liveRuntimeSessions, 2);
     assert.equal(warning.pendingWrites, 1);
+    assert.equal(driftObservations, 1, "hello observes drift even without the optional diagnostic flag");
+    const status = await server.handle({ jsonrpc: "2.0", id: 2, method: "daemon.status", params: {} });
+    assert.equal((status as { readonly result: { readonly ok: boolean } }).result.ok, true);
+    assert.equal(driftObservations, 2, "ordinary requests observe drift on long-lived connections");
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(shutdowns, 0, "the handshake must never stop a daemon with work still in flight");
   } finally {

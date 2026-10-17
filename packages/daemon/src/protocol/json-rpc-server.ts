@@ -177,6 +177,10 @@ export function createJsonRpcProtocolServer(options: {
     if (!parsed.ok) return reply(request.method, invalidParamsReceipt(request.method, parsed.errors));
     const call = parsed.call,
       { method, params } = call;
+    // Build drift is a daemon lifecycle signal, not an opt-in client diagnostic. Long-lived
+    // GUI/read connections perform their hello once and then issue ordinary requests, so waiting
+    // for reportStaleBuild on hello can leave a superseded daemon serving indefinitely.
+    if (options.buildObserver?.status().drifted) options.onBuildDriftObserved?.();
     // The parked-wait predicate is the same one that parks the reply in one(): direct methods
     // resolve to no action here, so this is the only place their wait classification is set.
     observed = { ...observed, repoId: repoIdFromParams(params), wait: isDaemonParkedWaitMethod(method) };
@@ -197,7 +201,6 @@ export function createJsonRpcProtocolServer(options: {
       executionCredential = params.executionCredential;
       Reflect.deleteProperty(options.authContext, "executionPrincipal");
       const warning = daemonBuildStaleNotice(options.buildObserver, options.buildDrainStatus);
-      if (warning && params.reportStaleBuild) options.onBuildDriftObserved?.();
       handshaken = true;
       return reply(method, {
         ok: true,
