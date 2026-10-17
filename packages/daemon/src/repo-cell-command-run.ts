@@ -34,6 +34,7 @@ import {
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
+import { importSubmittedCutCiWitness } from "./repo-cell-ci-refresh.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
 import { readTaskCi } from "./task-ci-read.ts";
@@ -53,7 +54,11 @@ export function makeRepoCellCommandRunner(
   context: RepoCellApiContext & {
     readonly refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
   },
-) {
+): (
+  action: RepoTaskAction,
+  binding: RepoCellBinding,
+  signal?: AbortSignal,
+) => Promise<WriteReceipt | SquadControlResult> {
   let settlingRecovery: string | null = null;
   const run = async (
     action: RepoTaskAction,
@@ -384,6 +389,14 @@ export function makeRepoCellCommandRunner(
   };
   return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
     const receipt = await run(action, binding, signal);
+    const forwardSettled =
+      action.kind === "task-adjudicate" &&
+      action.forward === true &&
+      typeof action.taskId === "string" &&
+      !isSquadControlCommand(action.kind) &&
+      "outcome" in receipt &&
+      (receipt.outcome === "applied" ||
+        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"));
     if (
       (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
       typeof action.taskId === "string" &&
@@ -394,12 +407,34 @@ export function makeRepoCellCommandRunner(
     ) {
       const warnings = await runCompletionSources(
         context,
-        action.taskId,
+        action.taskId as string,
         binding,
         action.kind === "task-witness-rerun" ? `gate-${receipt.opId}` : undefined,
       );
       if (warnings.length)
         return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings] };
+    }
+    if (forwardSettled) {
+      // The forwarded cut's CI witness imports through the same refreshCi the manual pull uses,
+      // after the durable forward and its review dispatch settled: no human has to remember the
+      // pull, and the reviewer reads the cut's real CI state instead of not_started. A failed
+      // import lands as a warning — the center cadence and the manual pull remain the recovery.
+      const imported = await importSubmittedCutCiWitness({
+        context,
+        refreshCi: context.refreshCi,
+        taskId: action.taskId as string,
+        binding,
+      });
+      if (imported?.receipt)
+        return {
+          ...receipt,
+          steps: [
+            ...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []),
+            imported.receipt as unknown as WriteReceipt,
+          ],
+        };
+      if (imported?.warning)
+        return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), imported.warning] };
     }
     return receipt;
   };

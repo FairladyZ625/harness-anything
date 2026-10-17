@@ -36,6 +36,7 @@ async function submittedTaskFixture(
     readonly calls: () => string[];
     readonly releaseWitness: () => void;
     readonly releaseScan: () => void;
+    readonly breakProvider: () => void;
     readonly show: () => Promise<ScheduleV1>;
     readonly advance: () => void;
   }) => Promise<void>,
@@ -72,12 +73,13 @@ const waitFor = async (file) => { while (!fs.existsSync(file)) await sleep(10); 
 (async () => {
 const api = args.find(a => a.startsWith('repos/')) ?? '';
 const delivery = fs.readFileSync(${JSON.stringify(deliveryFile)}, 'utf8').trim();
-const metadata = (runId) => ({name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:delivery,headSha:delivery,head_branch:'main',headBranch:'main',status:'completed',conclusion:'success',run_attempt:1,attempt:1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/pull-receipt'},id:runId});
+const metadata = (runId) => ({name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:delivery,headSha:delivery,head_branch:runId===9?'task-pull-receipt':'main',headBranch:runId===9?'task-pull-receipt':'main',status:'completed',conclusion:'success',run_attempt:1,attempt:1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/pull-receipt'},id:runId});
 if (api.includes('/workflows/')) { await waitFor(${JSON.stringify(scanHold)}); process.stdout.write(JSON.stringify({workflow_runs: []})); }
+else if (api.includes('?branch=')) process.stdout.write(JSON.stringify([{workflow_runs:[{id:9,path:'.github/workflows/rewrite-ci.yml',head_branch:'task-pull-receipt',head_sha:delivery,event:'push',status:'completed',conclusion:'success'}]}]));
 else if (api.includes('head_sha=')) { await waitFor(${JSON.stringify(witnessHold)}); process.stdout.write(JSON.stringify([{databaseId:7, path:'.github/workflows/rewrite-ci.yml', headBranch:'main', event:'push', status:'completed', conclusion:'success'}])); }
 else if (api.includes('/jobs')) process.stdout.write(JSON.stringify([{jobs:[]}]));
 else if (api.includes('/artifacts')) process.stdout.write(JSON.stringify([{artifacts:[]}]));
-else if (api.includes('/attempts/')) process.stdout.write(JSON.stringify(metadata(7)));
+else if (api.includes('/attempts/')) process.stdout.write(JSON.stringify(metadata(Number(/runs\\/([0-9]+)\\/attempts/u.exec(api)?.[1] ?? 7))));
 else if (args[1] === 'view') process.stdout.write(JSON.stringify(metadata(Number(args[2]))));
 else if (args[1] === 'list') process.stdout.write('[]');
 else throw new Error('unexpected provider call ' + args.join(' '));
@@ -129,6 +131,12 @@ else throw new Error('unexpected provider call ' + args.join(' '));
       calls: () => readFileSync(callsLog, "utf8").split("\n").filter(Boolean),
       releaseWitness: () => writeFileSync(witnessHold, "released"),
       releaseScan: () => writeFileSync(scanHold, "released"),
+      breakProvider: () =>
+        writeFileSync(
+          path.join(bin, "gh"),
+          `#!/usr/bin/env node\nprocess.stderr.write('provider offline'); process.exit(1);\n`,
+          { mode: 0o755 },
+        ),
       show: async () =>
         (
           (await cell.run({ kind: "schedule-show", scheduleId: builtinCiObserveScheduleId }, binding)) as unknown as {
@@ -306,3 +314,83 @@ for (const trigger of ["ci-observe-pull", "schedule-run-now", "task-complete"] a
     });
   });
 }
+
+const forward = {
+  kind: "task-adjudicate",
+  executionId: "pull-receipt-execution",
+  forward: true,
+  reason: "Forward for review.",
+} as const;
+
+test("forwarding a landed cut imports its CI witness; the reviewer reads green without a manual pull", async () => {
+  await submittedTaskFixture(async ({ cell, rootDir, taskId, delivery, calls, releaseWitness, releaseScan }) => {
+    releaseWitness();
+    releaseScan();
+    git(rootDir, "update-ref", "refs/remotes/origin/main", delivery);
+    const receipt = (await cell.run({ ...forward, taskId }, binding)) as unknown as {
+      outcome: string;
+      steps?: readonly { readonly outcome?: string; readonly code?: string }[];
+    };
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.ok(
+      (receipt.steps ?? []).some((step) => ["applied", "no_changes"].includes(String(step.outcome)) && !step.code),
+      `the forward receipt records the import step: ${JSON.stringify(receipt.steps ?? [])}`,
+    );
+    assert.ok(
+      calls().some((line) => line.includes("head_sha=")),
+      "the forward itself walked the witness",
+    );
+    const snapshot = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence));
+    assert.equal(snapshot.executions[0].gateRuns.at(-1).state, "completed");
+    assert.equal(snapshot.executions[0].gateRuns.at(-1).result, "pass");
+    const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
+      ci: { conclusion: string };
+    };
+    assert.equal(ci.ci.conclusion, "success", JSON.stringify(ci.ci));
+  });
+});
+
+test("forwarding a review cut imports the task branch's CI, not a witness walk the local repo already rules out", async () => {
+  await submittedTaskFixture(async ({ cell, taskId, calls, releaseWitness, releaseScan }) => {
+    releaseWitness();
+    releaseScan();
+    const receipt = (await cell.run({ ...forward, taskId }, binding)) as unknown as {
+      outcome: string;
+      steps?: readonly { readonly outcome?: string; readonly code?: string }[];
+    };
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.ok(
+      (receipt.steps ?? []).some((step) => ["applied", "no_changes"].includes(String(step.outcome)) && !step.code),
+      `the forward receipt records the branch import step: ${JSON.stringify(receipt.steps ?? [])}`,
+    );
+    const walked = calls(),
+      branchPull = walked.findIndex((line) => line.includes("branch=task-pull-receipt")),
+      witnessWalk = walked.findIndex((line) => line.includes("head_sha="));
+    assert.ok(branchPull >= 0, "the forward imported the task branch's runs");
+    assert.ok(
+      witnessWalk < 0 || branchPull < witnessWalk,
+      "the forward's queued request is the branch pull; only the occurrence's re-derivation may walk the witness afterwards",
+    );
+    const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
+      ci: { conclusion: string };
+    };
+    assert.equal(ci.ci.conclusion, "success", JSON.stringify(ci.ci));
+  });
+});
+
+test("a failed import lands as a warning on the standing forward; the cut reads pending, never not_started", async () => {
+  await submittedTaskFixture(async ({ cell, taskId, breakProvider }) => {
+    breakProvider();
+    const receipt = (await cell.run({ ...forward, taskId }, binding)) as unknown as {
+      outcome: string;
+      warnings?: readonly string[];
+    };
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.ok((receipt.warnings ?? []).length > 0, `the import failure surfaces: ${JSON.stringify(receipt)}`);
+    const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
+      ci: { conclusion: string; notStarted?: unknown };
+    };
+    assert.equal(ci.ci.conclusion, "pending", JSON.stringify(ci.ci));
+    assert.equal(ci.ci.notStarted, undefined);
+  });
+});

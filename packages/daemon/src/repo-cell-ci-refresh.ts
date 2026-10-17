@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
-import type { ScheduleV1, WriteReceipt } from "@harness-anything/kernel";
+import { localGitObjectRefStore, type ScheduleV1, type WriteReceipt } from "@harness-anything/kernel";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { builtinCiObserveScheduleId } from "./schedule-builtin-executor.ts";
 import { isSquadControlResult, type SquadControlResult } from "./squad-control-result.ts";
 import { githubActionsGateResult, submittedGithubActionsRequirement } from "./repo-cell-ci-evidence.ts";
+import { cellErrorCode } from "./repo-cell-errors.ts";
 
 type RefreshContext = Pick<
   RepoCellApiContext,
@@ -18,6 +19,62 @@ export interface CiRefreshQueue {
   readonly requests: () => readonly RepoTaskAction[];
   /** Resolve the triggering pull whose witness the occurrence just accepted. */
   readonly answer: (taskId: string, receipt: WriteReceipt) => void;
+}
+
+/** The forward order's automatic witness import: the same refreshCi the manual pull runs. */
+export async function importSubmittedCutCiWitness(input: {
+  readonly context: Pick<RepoCellApiContext, "projection" | "rootDir">;
+  readonly refreshCi: CiRefreshQueue["refreshCi"];
+  readonly taskId: string;
+  readonly binding: RepoCellBinding;
+}): Promise<{ readonly receipt?: WriteReceipt; readonly warning?: string } | null> {
+  // A cut without a hosted CI witness requirement has nothing to import — and observe pull's
+  // witness contract rejects gateless tasks, so asking would only fail the occurrence's drain.
+  const target = submittedGithubActionsRequirement(input.context.projection.read(input.taskId).snapshot);
+  if (!target || githubActionsGateResult(target.requirement, target.execution) === "pass") return null;
+  // An occurrence that settled on a failure answers with its own receipt (outcome applied,
+  // code schedule_builtin_failed); report that as the import's warning instead of a phantom step.
+  const asResult = (receipt: WriteReceipt): { readonly receipt?: WriteReceipt; readonly warning?: string } =>
+    (receipt.outcome === "applied" || receipt.outcome === "no_changes") && !receipt.code
+      ? { receipt }
+      : {
+          warning: `${receipt.code ?? receipt.outcome}: ${String(
+            receipt.rejectionExplanation ??
+              (receipt as { readonly summary?: string }).summary ??
+              receipt.evidence ??
+              "",
+          ).slice(0, 400)}`,
+        };
+  // A main-side witness exists only once the delivery has reached the witness branch; before
+  // that the witness walk can only fail the occurrence. The reviewer reads the task branch's
+  // CI, which is exactly what the manual lane's --observe-branch pull imports.
+  const witness = target.requirement.witness,
+    delivery = target.execution.submission?.commitSha,
+    landed =
+      typeof delivery === "string" &&
+      localGitObjectRefStore.isAncestor(
+        input.context.rootDir,
+        delivery,
+        `refs/remotes/origin/${witness.kind === "github-actions" ? witness.adapterOptions.branch : "main"}`,
+      );
+  try {
+    return asResult(
+      await input.refreshCi(
+        landed
+          ? { kind: "ci-observe-pull", taskId: input.taskId }
+          : { kind: "ci-observe-pull", taskId: input.taskId, observeBranch: true },
+        input.binding,
+      ),
+    );
+  } catch (error) {
+    // The durable forward stands regardless; the center cadence and the manual pull remain.
+    return {
+      warning: `${cellErrorCode(error) ?? "ci_import_failed"}: ${(error instanceof Error
+        ? error.message
+        : String(error)
+      ).slice(0, 400)}`,
+    };
+  }
 }
 
 /**

@@ -669,6 +669,102 @@ test("task CI reports pending while the center observation cut is not ready", as
   assert.equal(f.credentialReads(), 0);
 });
 
+test("a submitted cut with no visible observation reports pending, never a false not_started", async () => {
+  const f = fixture();
+  Object.assign(f.context.projection, {
+    read: () => ({
+      snapshot: {
+        task: { iteration: 1 },
+        executions: [{ iteration: 1, submission: { commitSha: sha } }],
+      },
+    }),
+    readCiRunObservations: () => ({ status: "ready", events: [], watermark: 0, sourceRevision: 7 }),
+  });
+  Object.assign(f.context, { store: { readContentBlob: () => null } });
+  const receipt = await readTaskCi(f.context as never, { kind: "task-ci", taskId: "task-ci" }, f.binding, async () => {
+    throw new Error("provider must not be called for a submitted cut");
+  });
+  assert.equal(receipt.ci.conclusion, "pending");
+  assert.equal(receipt.ci.notStarted, undefined);
+  assert.equal(f.credentialReads(), 0);
+});
+
+test("the task owner reads a submitted cut's recorded CI without a dispatch credential", async () => {
+  const f = fixture(),
+    successEvent = {
+      schema: "ci-observation/read-v1",
+      eventId: "event-owner-read",
+      workspaceRevision: 7,
+      opId: "ci-observation-owner-read",
+      type: "ci_run_observed",
+      actor: f.binding.actor,
+      source: f.binding.source,
+      occurredAt: "2026-10-12T00:00:00Z",
+      payload: {
+        scope: "workflow",
+        identity: {
+          provider: "github-actions",
+          repositoryId: "owner/repo",
+          workflow: "rewrite-ci",
+          workflowPath: ".github/workflows/rewrite-ci.yml",
+          workflowId: "11",
+          databaseRunId: "5",
+          runAttempt: 1,
+          jobExecutionId: null,
+          jobKey: null,
+        },
+        run: {
+          runId: "5.1",
+          sha,
+          branch: "task-ci",
+          prNumber: null,
+          job: "rewrite-ci",
+          wallclockMs: 0,
+          runner: "github-actions",
+        },
+        verification: null,
+        gates: [],
+        measurementCoverage: {
+          status: "no-test-artifact",
+          missingReason: null,
+          startedFileCount: null,
+          completedFileCount: null,
+        },
+        testSummary: null,
+        failedTests: [],
+        fileOutcomes: [],
+        shardDurations: [],
+        detailRef: null,
+      },
+    };
+  Object.assign(f.context.projection, {
+    read: () => ({
+      snapshot: {
+        task: { iteration: 1 },
+        executions: [{ iteration: 1, submission: { commitSha: sha } }],
+      },
+    }),
+    readCiRunObservations: () => ({
+      status: "ready",
+      events: [successEvent],
+      watermark: 7,
+      sourceRevision: 7,
+    }),
+  });
+  Object.assign(f.context, { store: { readContentBlob: () => null } });
+  const receipt = await readTaskCi(
+    f.context as never,
+    { kind: "task-ci", taskId: "task-ci" },
+    { actor: f.binding.actor, source: "local" },
+    async () => {
+      throw new Error("provider must not be called for the owner's observation read");
+    },
+  );
+  assert.equal(receipt.ci.conclusion, "success");
+  assert.equal(receipt.ci.runs.length, 1);
+  assert.equal(f.credentialReads(), 0);
+});
+
 test("submit-facing CI rejection detail names failed jobs and errors", () => {
   const detail = formatTaskCiFailure({
     schema: "task-ci/v2",

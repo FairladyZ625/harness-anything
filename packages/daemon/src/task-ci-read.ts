@@ -118,18 +118,25 @@ export async function readTaskCi(
   provider: RunProvider = runProvider,
 ): Promise<WriteReceiptDraft & { readonly ci: TaskCiReport }> {
   const principal = binding.executionPrincipal;
-  if (!principal)
-    throw context.cellCodedError("actor_unauthorized", "Task CI requires a bound worker or reviewer dispatch.");
-  requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
+  if (principal) requireCurrentExecutionScope({ action, binding, projection: context.projection, now: context.now() });
   // The center observation copy can answer CI only after a submitted delivery exists. Before
   // that point the provider-backed path remains authoritative: it enforces the dispatch's
   // current hosting credential and therefore preserves the honest failure for an ended login.
+  // The copy itself needs no dispatch credential, so the task owner reads a submitted cut too.
+  const observedTaskId =
+    principal?.taskId ?? (typeof action.taskId === "string" && action.taskId ? action.taskId : null);
   if (
+    observedTaskId !== null &&
     typeof context.projection.readCiRunObservations === "function" &&
     context.store &&
-    hasSubmittedDelivery(context.projection, principal.taskId)
+    hasSubmittedDelivery(context.projection, observedTaskId)
   )
-    return readTaskCiFromObservations(context, principal.taskId, action);
+    return readTaskCiFromObservations(context, observedTaskId, action);
+  if (!principal)
+    throw context.cellCodedError(
+      "actor_unauthorized",
+      "Task CI requires a bound worker or reviewer dispatch; a submitted cut is readable without one.",
+    );
   const instanceId = context.projection.readRuntimeDispatch(principal.runtimeSessionId)?.payload.instanceId;
   let hosting: HostingProvider;
   if (provider !== runProvider) hosting = { kind: "github" } as HostingProvider;
@@ -366,7 +373,9 @@ function readTaskCiFromObservations(
       checks: [],
       runs: [],
     });
-  const events = cut.events.filter((event) => event.payload.run.branch === taskId && event.payload.run.sha === headSha),
+  // Commit-scoped like the provider path's commit check-runs: a landed cut's merged main run
+  // answers alongside the delivery branch's own runs, so a forwarded cut reads its real state.
+  const events = cut.events.filter((event) => event.payload.run.sha === headSha),
     groups = new Map<string, CiObservationRead[]>();
   for (const event of events) {
     const key = event.payload.run.runId,
@@ -380,9 +389,12 @@ function readTaskCiFromObservations(
     checks = runs.flatMap((run) =>
       run.jobs.map((job) => ({ name: job.name, status: job.status, conclusion: job.conclusion, url: job.url })),
     ),
+    // The copy cannot tell "no CI started" from "the observer has not recorded a completed run
+    // yet"; only the provider path (pre-submission) names actionable not-started reasons. Absent
+    // observations on a submitted cut therefore read as pending, never as a false not_started.
     conclusion =
       runs.length === 0
-        ? "not_started"
+        ? "pending"
         : runs.some((run) => run.status !== "completed")
           ? "pending"
           : runs.some((run) => run.conclusion === "failure")
@@ -394,14 +406,6 @@ function readTaskCiFromObservations(
     branch: taskId,
     headSha,
     conclusion,
-    ...(runs.length === 0
-      ? {
-          notStarted: {
-            reason: "queued" as const,
-            detail: `No completed CI observation for ${headSha} is visible at center revision ${cut.sourceRevision}; read again after the observer runs.`,
-          },
-        }
-      : {}),
     checks,
     runs,
   };
