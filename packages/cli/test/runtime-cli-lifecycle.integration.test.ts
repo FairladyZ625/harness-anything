@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
@@ -188,8 +188,8 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     ).outcome,
     "cancelled",
   );
-  const cancelledReport = await readPublishedDispatch(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`));
-  assertTaskMissionPrompt(cancelledReport.slice("live:".length), {
+  const cancelledMission = await readPublishedDispatch(path.join(artifactRoot, "missions", `${detachedDispatchId}.md`));
+  assertTaskMissionPrompt(cancelledMission, {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(workerRoot),
@@ -199,6 +199,14 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     runtimeSessionId: detachedSessionId,
     mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nhold`,
   });
+  // A cancelled run authored no dispatch report; archiving its interrupted text as one left a
+  // daemon-managed fragment the worker could not retire. The dispatch record and mission still
+  // settle, and the partial output stays reachable through the record's resultRef.
+  assert.equal(
+    existsSync(path.join(artifactRoot, "reports", `${detachedDispatchId}.md`)),
+    false,
+    "cancelled dispatch must not publish a fallback report",
+  );
   const cancelledWait = runMaybe(root, env, ["runtime", "status", detachedSessionId, "--wait", "--no-stream"]);
   assert.equal(cancelledWait.status, 1);
   assert.equal(cancelledWait.receipt.outcome, "cancelled");

@@ -195,7 +195,10 @@ export function archiveRuntimeDispatch(
         body: `${JSON.stringify(dispatch, null, 2)}\n`,
         mediaType: "text/plain" as const,
       },
-      ...(reportAuthored
+      // A cancelled run never authored its dispatch report: archiving the interrupted final
+      // text as one leaves a daemon-managed fragment the worker cannot retire. The dispatch
+      // record keeps outcome/resultRef/eventStreamRef, so that partial output stays reachable.
+      ...(reportAuthored || value.outcome === "cancelled"
         ? []
         : [
             {
