@@ -131,6 +131,9 @@ export default {
       },
     );
     const open = async () => {
+      // Reloading preserves the focus-layer state; dismiss the previous detail
+      // before navigating so its scrim cannot intercept the overview click.
+      if (await page.getByTestId("ci-selected-run").count()) await page.keyboard.press("Escape");
       await page.reload();
       await page.getByTestId("overview-ci-alert").waitFor();
       await page.getByTestId("overview-ci-alert").click();

@@ -43,7 +43,7 @@ async function fixture(t: TestContext) {
       "-days",
       "1",
       "-addext",
-      "subjectAltName=DNS:localhost",
+      "subjectAltName=DNS:localhost,IP:127.0.0.1",
     ],
     { stdio: "ignore" },
   );

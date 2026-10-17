@@ -1282,6 +1282,104 @@ test("an answered awaits is asked again by relating the same endpoints at its re
   });
 });
 
+test("terminal-source awaits leave both agenda queues while open sources stay listed", async () => {
+  await withCell("agenda-terminal-source", async (cell) => {
+    const answerer = withPolicyGroup(
+      { actor: { principal: { personId: "person-agenda" }, executor: null }, source: "local" as const },
+      "admin",
+    );
+    for (const taskId of ["task_open_src", "task_cancelled_src"] as const) {
+      const created = await cell.run({ kind: "task-create", taskId, title: taskId }, binding);
+      assert.equal(created.outcome, "applied", JSON.stringify(created));
+      await waitForFixturePublication(cell, created.opId, binding);
+    }
+    // 两份提案内容必须不同,否则第二次 propose 撞同一 action digest 被幂等去重。
+    const keep = await cell.run(decisionProposal(), binding),
+      accept = await cell.run(
+        {
+          ...decisionProposal(),
+          body: "# Agenda terminal exit\n\n## 背景\n\nThe accepted proposal needs a distinct digest.\n\n## 权衡\n\nVary the proposal body.\n\n## 结论\n\nVary it.\n",
+          jsonInput: JSON.stringify({
+            ...JSON.parse(decisionProposal().jsonInput),
+            title: "Choose agenda terminal exit",
+            question: "Should the accepted proposal leave the follow-up queue?",
+          }),
+        },
+        binding,
+      );
+    assert.equal(keep.outcome, "applied", JSON.stringify(keep));
+    assert.equal(accept.outcome, "applied", JSON.stringify(accept));
+    const keepDecisionId = (JSON.parse(String(keep.evidence)) as { decisionId: string }).decisionId,
+      acceptedDecisionId = (JSON.parse(String(accept.evidence)) as { decisionId: string }).decisionId,
+      ask = async (sourceRef: string, rationale: string) => {
+        const related = await cell.run(
+          {
+            kind: "relation-relate",
+            sourceRef,
+            targetRef: "person/person-agenda",
+            relationType: "awaits",
+            rationale,
+            expectedVersion: 0,
+          },
+          binding,
+        );
+        assert.equal(related.outcome, "applied", JSON.stringify(related));
+        const evidence = JSON.parse(String(related.evidence)) as { relationId: string };
+        return { relationId: evidence.relationId, revision: (related as { revision: number }).revision };
+      },
+      openAsk = await ask("task/task_open_src", "acceptance: 开放任务的验收"),
+      cancelledAsk = await ask("task/task_cancelled_src", "acceptance: 将被取消的任务的验收"),
+      keepAsk = await ask(`decision/${keepDecisionId}`, "consent: 待裁决策你同意吗?"),
+      acceptedAsk = await ask(`decision/${acceptedDecisionId}`, "consent: 将被采纳的决策你同意吗?");
+
+    // 两个源实体进入终态:task cancelled、decision accepted(in_effect)。边保持 active/retired 原状。
+    const cancelled = await cell.run(
+      {
+        kind: "task-transition",
+        taskId: "task_cancelled_src",
+        status: "cancelled",
+        reason: "Terminal source fixture",
+        force: true,
+      },
+      binding,
+    );
+    assert.equal(cancelled.outcome, "applied", JSON.stringify(cancelled));
+    const accepted = await cell.run(
+      {
+        kind: "decision-accept",
+        decisionId: acceptedDecisionId,
+        rationale: "The proposal owner accepted the outcome.",
+        judgmentOnlyRationale: "Direct human judgment needs no separate consent record.",
+      },
+      answerer,
+    );
+    assert.equal(accepted.outcome, "applied", JSON.stringify(accepted));
+
+    // 终态源的提问不再等读者处理;开放源(planned task、proposed decision)照常。
+    const held = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(
+      held.awaitingYou.map(({ sourceRef }) => sourceRef),
+      ["task/task_open_src", `decision/${keepDecisionId}`],
+    );
+
+    // 答复全部四条边:答复落在源终态之后,版本出列判据不再触发——终态源必须由终态过滤收口。
+    for (const { relationId, revision } of [openAsk, cancelledAsk, keepAsk, acceptedAsk]) {
+      const answered = await cell.run(
+        { kind: "relation-unrelate", relationId, reason: "已答复", expectedVersion: revision },
+        answerer,
+      );
+      assert.equal(answered.outcome, "applied", JSON.stringify(answered));
+    }
+    const followUp = await cell.read("repo.agenda.read", { limit: 50 }, binding);
+    assert.deepEqual(followUp.awaitingYou, []);
+    assert.deepEqual(
+      followUp.answeredForYou.map(({ sourceRef }) => sourceRef),
+      ["task/task_open_src", `decision/${keepDecisionId}`],
+    );
+    assert.match(followUp.summary, /已答复，待你跟进 \(2\)/u);
+  });
+});
+
 async function withCell(
   name: string,
   run: (cell: Awaited<ReturnType<typeof openRepoCell>>, rootDir: string) => Promise<void>,

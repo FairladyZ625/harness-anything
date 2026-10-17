@@ -29,6 +29,7 @@ import {
   sessionLifetimeBounds,
   sessionLifetimeRealmSettings,
 } from "./keycloak-session-lifetime.ts";
+import { mapListenerBindError, validateCertificateNames } from "./tls-listener-admission.ts";
 
 export const managedRbacVersions = Object.freeze({
   keycloak: "26.7.3",
@@ -257,12 +258,15 @@ export class ManagedRbacService {
         await this.start();
         await this.#waitUntilReady();
       };
-    if (listener) requirePrivateKeyFile(listener.certificateKeyFile);
+    if (listener) {
+      requirePrivateKeyFile(listener.certificateKeyFile);
+      validateCertificateNames(readFileSync(listener.certificateFile), [listener.address, listener.hostname]);
+    }
     try {
       await apply(listener ? { ...loopback, listener } : loopback);
     } catch (error) {
       await apply(config);
-      throw error;
+      throw mapListenerBindError(error);
     }
     return {
       ok: true,
