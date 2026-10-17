@@ -782,6 +782,7 @@ test("terminal settlement accepts an already submitted commitless task delivery"
   await publishExit(
     {
       ...settleContext,
+      input: { ...settleContext.input, remote: undefined },
       requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], false, true),
     },
     runtime,
