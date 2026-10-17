@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
@@ -256,8 +257,28 @@ function managedFixture(startsUnder: (env: NodeJS.ProcessEnv) => boolean = () =>
     launches: { name: string; args: readonly string[]; env: NodeJS.ProcessEnv }[] = [];
   mkdirSync(path.join(root, "rbac", "runtime", "postgres", "bin"), { recursive: true });
   writeFileSync(path.join(root, "rbac", "runtime", "postgres", "bin", "postgres"), "");
-  writeFileSync(certificateFile, "certificate");
-  writeFileSync(certificateKeyFile, "key", { mode: 0o600 });
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      certificateKeyFile,
+      "-out",
+      certificateFile,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:center.example.test,IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  chmodSync(certificateKeyFile, 0o600);
   writeFileSync(
     configFile,
     `${JSON.stringify(
