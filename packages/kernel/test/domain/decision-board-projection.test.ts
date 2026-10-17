@@ -6,6 +6,8 @@ import {
   decisionCapabilityIds,
   decisionCapabilityReasons,
   decisionClaimsOpen,
+  isTerminalDecisionState,
+  terminalDecisionStates,
 } from "../../src/domain/decision-board-projection.ts";
 import { decisionStates, decisionTransitionDefinitions } from "../../src/domain/decision-event.ts";
 import { explainEntityKind } from "../../src/domain/entity-kind-registry.ts";
@@ -70,4 +72,19 @@ test("claims remain open exactly in the admission states and reasons are non-sta
     decisionCapabilityReasons.filter((reason) => registered.has(reason)),
     [],
   );
+});
+
+test("a decision is follow-up terminal in every state except proposed", () => {
+  // proposed 是唯一仍待裁决的状态;其余状态(含 deferred——它没有任何出边转换)
+  // 都不会再产生「跟进提示所等待的下一次写入」。
+  assert.deepEqual(
+    decisionStates.filter((state) => isTerminalDecisionState(state)),
+    ["in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
+  );
+  assert.deepEqual(
+    [...terminalDecisionStates].sort(),
+    [...decisionStates.filter((state) => state !== "proposed")].sort(),
+  );
+  assert.equal(isTerminalDecisionState("proposed"), false);
+  assert.equal(isTerminalDecisionState("deferred"), true, "deferred has no outgoing transition and must be terminal");
 });

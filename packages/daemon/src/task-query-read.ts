@@ -7,6 +7,8 @@ import {
   closeoutReadiness,
   deriveRelationId,
   freshnessReasonOf,
+  isTerminalDecisionState,
+  isTerminalStatus,
   parseAwaitsRequest,
   relationIsCurrent,
   taskBoardPlacement,
@@ -550,7 +552,8 @@ export function makeTaskQueryReadModel(input: {
       awaitingYou: AgendaAwaitsRow[] = (awaits?.rows ?? []).filter(relationIsCurrent).flatMap((edge) => {
         const request = parseAwaitsRequest(edge.rationale),
           relation = projection.readRelationEdge(edge.relationId);
-        if (request === null || relation === null) return [];
+        // 终态源的提问已随源实体收口(任务做完/取消、决策已裁决),不再等读者处理。
+        if (request === null || relation === null || sourceIsTerminal(edge.sourceRef)) return [];
         const source = resolveEntitySummary(edge.sourceRef);
         return [
           {
@@ -578,6 +581,8 @@ export function makeTaskQueryReadModel(input: {
           edge.rationale === decisionReviewAwaitRationale(edge.sourceRef.slice("decision/".length))
         )
           return [];
+        // 终态源不会再有「答复之后的下一次写入」,这条答复没有跟进对象。
+        if (sourceIsTerminal(edge.sourceRef)) return [];
         if (sourceOwnerOf(edge.sourceRef) !== query.principalId) return [];
         const sourceVersion = projection.readEntityVersionWitness(edge.sourceRef).currentVersion;
         if (typeof sourceVersion !== "number" || sourceVersion > relation.workspaceRevision) return [];
@@ -694,6 +699,20 @@ export function makeTaskQueryReadModel(input: {
     if (parsed?.[1] === "task") return projection.read(parsed[2]!).snapshot.task?.createdBy.principal.personId;
     if (parsed?.[1] === "decision") return projection.readDecision(parsed[2]!).decision?.proposer.principal.personId;
     return undefined;
+  }
+  /** 终态源没有下一次写入:task done/cancelled、裁决已出的 decision(kernel 单点终态判定)。
+   *  「等你处理/已答复待跟进」的出列判据等的是源实体的下一次写入,终态源永远等不到。 */
+  function sourceIsTerminal(ref: string): boolean {
+    const parsed = /^(task|decision)\/(.+)$/u.exec(ref);
+    if (parsed?.[1] === "task") {
+      const status = projection.read(parsed[2]!).snapshot.task?.status;
+      return status !== undefined && isTerminalStatus(status);
+    }
+    if (parsed?.[1] === "decision") {
+      const state = projection.readDecision(parsed[2]!).decision?.state;
+      return state !== undefined && isTerminalDecisionState(state);
+    }
+    return false;
   }
   function resolvePinnedEntity(row: ReturnType<TaskProjection["listPinnedEntities"]>[number]): AgendaPinnedEntityRow {
     return { ref: row.entityRef, ...resolveEntitySummary(row.entityRef), pinnedAt: row.pinnedAt };

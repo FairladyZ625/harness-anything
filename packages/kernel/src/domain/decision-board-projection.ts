@@ -25,3 +25,20 @@ export function decisionCapabilities(state: DecisionState): readonly DecisionCap
 export function decisionClaimsOpen(state: DecisionState): boolean {
   return state === "proposed" || state === "in_effect";
 }
+
+/** Follow-up terminal: every state except `proposed`, the only one still awaiting judgment.
+ * `deferred` is included on purpose — it has no outgoing transition at all, so a follow-up cue
+ * waiting for the source's next write would wait forever, exactly like a task past done/cancelled.
+ * `in_effect` counts as settled for the same purpose: the judgment is out even though supersede
+ * and retire remain possible. */
+export const terminalDecisionStates = [
+  "in_effect",
+  "rejected",
+  "deferred",
+  "superseded",
+  "outcome_retired",
+] as const satisfies ReadonlyArray<DecisionState>;
+
+export function isTerminalDecisionState(state: DecisionState): boolean {
+  return (terminalDecisionStates as ReadonlyArray<DecisionState>).includes(state);
+}
