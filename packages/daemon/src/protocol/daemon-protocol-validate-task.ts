@@ -405,6 +405,7 @@ const taskSnapshotListRowFields = [
   "generation",
   "workspaceRevision",
   "createdAt",
+  "completedAt",
   "updatedAt",
   "snapshot",
   "coordinationStatus",
@@ -442,6 +443,7 @@ function taskSnapshotRowErrors(value: unknown, index: number): readonly DaemonTa
   if (value.generation !== "v0" && value.generation !== "v1") errors.push(error("generation"));
   if (!integer(value.workspaceRevision)) errors.push(error("workspaceRevision"));
   if (value.createdAt !== null && !nonEmpty(value.createdAt)) errors.push(error("createdAt"));
+  if (value.completedAt !== null && !nonEmpty(value.completedAt)) errors.push(error("completedAt"));
   if (!nonEmpty(value.updatedAt)) errors.push(error("updatedAt"));
   if (!statusWord([...taskStatusWords, "unknown"], value.coordinationStatus)) errors.push(error("coordinationStatus"));
   if (!snapshot(value.snapshot, value.snapshotAvailability))

@@ -599,7 +599,6 @@ function AppShell() {
                 renderTaskDetail(selected, {
                   // 详情的局部返回与全局后退是同一能力:弹栈回上一位置(业主
                   // 2026-10-11)。原地清 selectedId 会在栈里留下与上一条目相同的
-                  // 幻影条目,按侧键后退看起来毫无反应。
                   onBack: back,
                   fromViewLabel: navLabel(view),
                 })
@@ -614,6 +613,7 @@ function AppShell() {
                     agendaQuery.data,
                     agendaQuery.error instanceof Error ? agendaQuery.error.message : null,
                     taskTitles,
+                    tasksQuery.data?.rows ?? [],
                     navigateToEntity,
                     openTaskDetail,
                     gotoNav,

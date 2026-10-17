@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import type { AgentRuntimeSessionGroupsResult } from "@harness-anything/daemon/protocol";
 import type { AgendaSuccess } from "../../api-client.ts";
+import type { TaskSnapshotProjectionRow } from "../../../api/renderer-dto.ts";
 import { t } from "../../i18n/index.tsx";
 import { type AwaitsPanelSubject } from "../../awaits-answer.ts";
 import { AwaitsAnswerPanel } from "../../components/AwaitsAnswerPanel.tsx";
@@ -22,7 +23,7 @@ import {
 import { formatDuration, formatRelative, formatTime } from "../../model/time.ts";
 import { sessionStatusKey, type SessionStatus } from "../../sessions-model.ts";
 import { CADENCE_STALLED_AFTER_MS } from "../../model/cadence.ts";
-import { deliveredRows, useTodayRecentEvents, useTodaySessionGroups } from "./today-data.ts";
+import { deliveredRows, useTodaySessionGroups } from "./today-data.ts";
 
 /**
  * 重构区第一个页面:「今天」(dec_C612E69B7C7E3480A5F9D2CAD3 CH1;规格 =
@@ -37,6 +38,7 @@ export function TodayView({
   agenda,
   agendaError,
   titles,
+  tasks,
   onNavigateEntity,
   onOpenTask,
   onOpenAgenda,
@@ -47,6 +49,7 @@ export function TodayView({
   readonly agendaError: string | null;
   /** `task/<id>` → 标题(App 常驻任务投影);刚交付行的任务名从这取。 */
   readonly titles: ReadonlyMap<string, string>;
+  readonly tasks?: readonly TaskSnapshotProjectionRow[];
   readonly onNavigateEntity: (ref: string) => void;
   readonly onOpenTask: (taskId: string) => void;
   readonly onOpenAgenda: () => void;
@@ -56,7 +59,6 @@ export function TodayView({
   const [waitingDetail, setWaitingDetail] = useState<AgendaRow | null>(null);
   const [runningDetail, setRunningDetail] = useState<RunningRow | null>(null);
   const groupsQuery = useTodaySessionGroups(repoId);
-  const eventsQuery = useTodayRecentEvents(repoId);
   const groupsErrorText = groupsQuery.error instanceof Error ? groupsQuery.error.message : null;
 
   // 等你处理:议程 attn 桶(需要关注)——行集出自与议程页共用的 agendaRowsOf,排序同法
@@ -77,13 +79,13 @@ export function TodayView({
   }, [agenda]);
 
   // 年龄与停滞都由当前已读数据帧判断,不立单独计时器。
-  const now = useMemo(() => new Date().toISOString(), [agenda, groupsQuery.data, eventsQuery.dataUpdatedAt]);
+  const now = useMemo(() => new Date().toISOString(), [agenda, groupsQuery.data]);
 
   // 正在跑:会话组里还有 live 会话的任务,每任务一行;N = 在跑会话总数。
   const runningRows = useMemo(() => runningRowsOf(groupsQuery.data, Date.parse(now)), [groupsQuery.data, now]);
   const runningTotal = runningRows.reduce((total, row) => total + row.runningCount, 0);
-  // 刚交付:最近事件页里的 task_completed,新→旧。
-  const delivered = useMemo(() => deliveredRows(eventsQuery.data ?? []), [eventsQuery.data]);
+  // 刚交付:任务投影中的 done + 权威 completedAt,新→旧。
+  const delivered = useMemo(() => deliveredRows(tasks ?? [], Date.parse(now)), [tasks, now]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="today-view">
@@ -204,36 +206,33 @@ export function TodayView({
           <Region
             title={regionTitle(
               t("views.today.regionDelivered"),
-              eventsQuery.data === undefined ? (eventsQuery.error !== null ? "—" : "…") : delivered.length,
+              delivered.length,
               delivered.length > 0 ? "text-success" : "text-text-muted",
             )}
           >
-            {eventsQuery.error !== null ? (
-              <p role="alert" className="px-3.5 py-2 text-sm text-danger">
-                {t("views.today.readError", {
-                  message: eventsQuery.error instanceof Error ? eventsQuery.error.message : String(eventsQuery.error),
-                })}
-              </p>
-            ) : eventsQuery.data === undefined ? (
-              <p className="px-3.5 py-2 text-sm text-text-muted">{t("views.today.loading")}</p>
-            ) : delivered.length === 0 ? (
+            {delivered.length === 0 ? (
               <div className="px-3.5 py-2">
                 <Empty>{t("views.today.emptyDelivered")}</Empty>
               </div>
             ) : (
               <div data-testid="today-delivered-rows">
-                {delivered.map((row) => (
+                {delivered.slice(0, 5).map((row) => (
                   <div key={row.key} data-testid={`today-delivered-row-${row.taskId}`}>
                     <DenseRow
                       tag={<StatusTag tone="done" label={t("views.today.deliveredKind")} />}
-                      title={titles.get(row.taskId) ?? t("views.today.deliveredUntitled")}
+                      title={row.title || titles.get(row.taskId) || t("views.today.deliveredUntitled")}
                       reason={row.summary ?? t("views.today.deliveredReason")}
                       hoverTitle={row.taskId}
-                      time={row.at === null ? undefined : <RowTime at={row.at} />}
+                      time={<RowTime at={row.at} />}
                       onClick={() => onOpenTask(row.taskId)}
                     />
                   </div>
                 ))}
+                {delivered.length > 5 ? (
+                  <p className="px-3.5 py-2 text-sm text-text-muted">
+                    {t("views.today.deliveredMore", { count: String(delivered.length - 5) })}
+                  </p>
+                ) : null}
               </div>
             )}
           </Region>

@@ -1913,6 +1913,7 @@
   "views.today.runningFor": "已跑 {age}（{at} 起）",
   "views.today.runningAgentSessions": "{agent} 等 {count} 个会话",
   "views.today.runningMore": "还有 {count} 个",
+  "views.today.deliveredMore": "还有 {count} 件",
   "views.today.deliveredKind": "完成了",
   "views.today.deliveredUntitled": "已完成的任务",
   "views.today.deliveredReason": "任务已完成，等你看一眼。",

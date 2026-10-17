@@ -1913,6 +1913,7 @@
   "views.today.runningFor": "running {age} (since {at})",
   "views.today.runningAgentSessions": "{agent} and {count} sessions",
   "views.today.runningMore": "{count} more",
+  "views.today.deliveredMore": "{count} more delivered",
   "views.today.deliveredKind": "Completed",
   "views.today.deliveredUntitled": "A completed task",
   "views.today.deliveredReason": "The task is complete and ready for your review.",

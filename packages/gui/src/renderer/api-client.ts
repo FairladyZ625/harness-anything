@@ -1012,6 +1012,7 @@ function isTaskSnapshotProjectionRow(value: unknown): value is TaskSnapshotProje
     !isRendererRecord(value) ||
     typeof value.taskId !== "string" ||
     (value.createdAt !== null && typeof value.createdAt !== "string") ||
+    (value.completedAt !== null && typeof value.completedAt !== "string") ||
     typeof value.updatedAt !== "string" ||
     (value.generation !== "v0" && value.generation !== "v1") ||
     !isRendererRecord(value.snapshot)

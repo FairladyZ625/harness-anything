@@ -7,6 +7,7 @@ import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.t
 import {
   listTaskRowsNarrow,
   readTaskPresentationStatus,
+  taskCompletedAtSql,
   taskCreatedAtSql,
   type TaskProjectionListQuery,
 } from "./task-query-projection.ts";
@@ -37,6 +38,7 @@ const UNPARAMETERIZED_LIST_SQL = [
   "COALESCE(task_generation.generation, 'v1') AS generation,",
   "task_snapshot.workspace_revision AS workspace_revision,",
   `${taskCreatedAtSql("task_snapshot.task_id")} AS created_at,`,
+  `${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at,`,
   "task_snapshot.updated_at AS updated_at FROM task_snapshot",
   "LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)",
   "ORDER BY task_snapshot.task_id",
@@ -75,6 +77,7 @@ export function listProjection(
           readonly generation: "v0" | "v1";
           readonly workspace_revision: number;
           readonly created_at: string | null;
+          readonly completed_at: string | null;
           readonly updated_at: string;
         }>(
           prepareQuery(db, UNPARAMETERIZED_LIST_SQL, (sql) =>
@@ -94,6 +97,7 @@ export function listProjection(
           generation: row.generation,
           workspaceRevision: row.workspace_revision,
           createdAt: row.created_at,
+          completedAt: row.completed_at,
           updatedAt: row.updated_at,
           snapshot: snapshots.get(row.task_id)!,
         })),
@@ -128,6 +132,7 @@ export function readTaskListAtCut(
       generation: row.generation,
       workspaceRevision: row.workspace_revision,
       createdAt: row.created_at,
+      completedAt: row.completed_at,
       updatedAt: row.updated_at,
       snapshot: query.presentationStatus
         ? presentSnapshot(snapshots.get(row.task_id)!, row.presentation_status)
