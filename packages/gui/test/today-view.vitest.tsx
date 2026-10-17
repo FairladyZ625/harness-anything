@@ -255,7 +255,22 @@ const todayElement = (patch: Partial<Parameters<typeof TodayView>[0]> = {}) =>
     ]),
     tasks: [
       { taskId: "task_done_1", snapshot: { task: { status: "done", title: "刚交付的任务一" } } },
-      { taskId: "task_done_2", snapshot: { task: { status: "done", title: "刚交付的任务二" } } },
+      {
+        taskId: "task_done_2",
+        snapshot: {
+          task: { status: "done", title: "刚交付的任务二" },
+          executions: [
+            {
+              iteration: 1,
+              submission: {
+                completionClaim: "交付了任务二的真实摘要",
+                deliverables: [],
+                outputs: [],
+              },
+            },
+          ],
+        },
+      },
     ].map((row, index) => ({
       ...row,
       completedAt: index === 0 ? "2026-10-17T08:00:00.000Z" : "2026-10-17T06:30:00.000Z",
@@ -333,6 +348,8 @@ describe("今天:三块区域与数字", () => {
     expect(rows[0]!.textContent).toContain("刚交付的任务一");
     expect(rows[1]!.textContent).toContain("刚交付的任务二");
     expect(rows[0]!.textContent).not.toContain("task_done_1");
+    expect(rows[1]!.textContent).toContain("交付了任务二的真实摘要");
+    expect(rows[1]!.textContent).not.toContain("任务已完成");
   });
 });
 
