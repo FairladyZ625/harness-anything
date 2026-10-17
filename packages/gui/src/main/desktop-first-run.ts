@@ -149,7 +149,7 @@ export async function desktopFirstRunReport(input: {
   );
   const serviceInstalled = unit ? existsSync(unit.unitPath) : false;
   const nodeVersion = existsSync(input.runtime.node)
-    ? execFileSync(input.runtime.node, ["--version"], { encoding: "utf8" }).trim()
+    ? execFileSync(input.runtime.node, ["--version"], { encoding: "utf8", windowsHide: true }).trim()
     : null;
   return {
     node: { available: nodeVersion !== null, version: nodeVersion, path: input.runtime.node },

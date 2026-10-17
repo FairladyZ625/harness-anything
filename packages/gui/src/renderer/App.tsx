@@ -86,7 +86,7 @@ import { WorkView } from "./views/WorkView.tsx";
 import { WorkspaceView } from "./views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages, useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
-import { DesktopFirstRunGuide, FirstRunGuide } from "./components/FirstRunGuide.tsx";
+import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
@@ -555,7 +555,6 @@ function AppShell() {
   return (
     <LocalDocLayer mode={activeRepo?.mode ?? "local"}>
       <div className="relative z-1 flex h-dvh flex-col overflow-hidden md:flex-row">
-        <DesktopFirstRunGuide />
         <AppSidebar
           project={project}
           repos={systemQuery.data?.repos ?? []}
