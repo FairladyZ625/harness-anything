@@ -47,7 +47,7 @@ export function TodayView({
   readonly repoId: string;
   readonly agenda: AgendaSuccess | undefined;
   readonly agendaError: string | null;
-  /** `task/<id>` → 标题(App 常驻任务投影);刚交付行的任务名从这取。 */
+  /** `task/<id>` → 标题(App 常驻任务投影);刚交付行优先使用此读面标题。 */
   readonly titles: ReadonlyMap<string, string>;
   readonly tasks?: readonly TaskSnapshotProjectionRow[];
   readonly onNavigateEntity: (ref: string) => void;
@@ -220,7 +220,7 @@ export function TodayView({
                   <div key={row.key} data-testid={`today-delivered-row-${row.taskId}`}>
                     <DenseRow
                       tag={<StatusTag tone="done" label={t("views.today.deliveredKind")} />}
-                      title={row.title || titles.get(row.taskId) || t("views.today.deliveredUntitled")}
+                      title={titles.get(row.taskId) || row.title || t("views.today.deliveredUntitled")}
                       reason={row.summary ?? undefined}
                       hoverTitle={row.taskId}
                       time={<RowTime at={row.at} />}

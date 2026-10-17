@@ -393,6 +393,35 @@ describe("今天:三块区域与数字", () => {
     expect(rows[1]!.textContent).toContain("方案摘要二");
     expect(rows[1]!.textContent).not.toContain("方案摘要一");
   });
+
+  it("刚交付行使用任务读面标题,每个完成任务显示自己的真实标题", async () => {
+    const { container } = await mountToday(
+      todayElement({
+        titles: new Map([
+          ["task_done_1", "真实标题一"],
+          ["task_done_2", "真实标题二"],
+        ]),
+        tasks: [
+          {
+            taskId: "task_done_1",
+            completedAt: "2026-10-17T08:00:00.000Z",
+            snapshot: { task: { status: "done", title: "通用完成标题" } },
+          },
+          {
+            taskId: "task_done_2",
+            completedAt: "2026-10-17T06:30:00.000Z",
+            snapshot: { task: { status: "done", title: "通用完成标题" } },
+          },
+        ] as unknown as TaskSnapshotProjectionRow[],
+      }),
+    );
+    const rows = [...container.querySelectorAll('[data-testid^="today-delivered-row-"]')];
+    expect(rows[0]!.textContent).toContain("真实标题一");
+    expect(rows[0]!.textContent).not.toContain("真实标题二");
+    expect(rows[1]!.textContent).toContain("真实标题二");
+    expect(rows[1]!.textContent).not.toContain("真实标题一");
+    expect(container.textContent).not.toContain("通用完成标题");
+  });
 });
 
 describe("今天:行上的首要动作与下钻", () => {
