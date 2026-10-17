@@ -278,6 +278,12 @@ export function createDaemonHostRuntimeApi(
               deviceLoginNotice: (nodeId, personId, notice) =>
                 context.oidc.receiveDeviceNotice(nodeId, personId, notice),
               verifyHuman: (auth) => context.oidc.bind(auth),
+              edgeJoin: (input) =>
+                context.accessAdmin.admitEdgeJoin({
+                  inviteToken: input.inviteToken,
+                  nodeId: input.nodeId,
+                  accessToken: input.accessToken ?? "",
+                }),
             },
           });
           await context.waitForWarming(authorityRepoId);

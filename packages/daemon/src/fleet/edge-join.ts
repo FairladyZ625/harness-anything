@@ -10,6 +10,9 @@ export interface EdgeJoinInviteLink {
   readonly spkiSha256: string;
   readonly expiresAt: string;
   readonly token: string;
+  readonly loginUrl?: string;
+  readonly loginRealm?: string;
+  readonly loginClientId?: string;
 }
 export interface EdgeJoinInviteRecord extends EdgeJoinInviteLink {
   readonly createdAt: string;
@@ -95,6 +98,9 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         spkiSha256: input.spkiSha256,
         expiresAt: new Date(Date.parse(createdAt) + input.ttlMs).toISOString(),
         token: token(),
+        ...(input.loginUrl ? { loginUrl: input.loginUrl } : {}),
+        ...(input.loginRealm ? { loginRealm: input.loginRealm } : {}),
+        ...(input.loginClientId ? { loginClientId: input.loginClientId } : {}),
       };
       records.set(link.inviteId, { ...link, createdAt, consumedAt: null });
       options.onChange?.(records.get(link.inviteId)!);
@@ -128,6 +134,10 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         expiresAt: record.expiresAt,
         consumedAt: record.consumedAt,
       };
+    },
+    findByToken(tokenValue: string): EdgeJoinInviteRecord | undefined {
+      for (const record of records.values()) if (record.token === tokenValue) return clone(record);
+      return undefined;
     },
   };
 }

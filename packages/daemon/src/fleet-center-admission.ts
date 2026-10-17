@@ -45,7 +45,13 @@ export interface FleetCenterAdmissionRequest {
   readonly userRoot: string;
   readonly nodes: Pick<
     FleetCenterOptions,
-    "authenticate" | "nodeOwner" | "loginAuthority" | "verifyHuman" | "deviceLoginNotice" | "revokeDeviceSessions"
+    | "authenticate"
+    | "nodeOwner"
+    | "loginAuthority"
+    | "verifyHuman"
+    | "deviceLoginNotice"
+    | "revokeDeviceSessions"
+    | "edgeJoin"
   >;
   readonly writerEpochLease?: (repoId: string) => WriterEpochLease;
   readonly payload: {

@@ -13,11 +13,11 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 然后消费中心邀请链接：
 
 ```bash
-ha edge join '<邀请链接>' --observed-spki-sha256 '<SPKI 指纹>'
+ha edge join '<邀请链接>'
 ```
 
-该命令目前通过本机 daemon 的 access-admin writer 消费邀请。干净机器所需的中心侧准入、凭据签发、remote-edge
-注册和首次同步仍是待完成边界，已记录在 `artifacts/breakpoints.md`；本页不把它们标为已验证。
+命令会从链接读取中心证书指纹，启动设备登录流程，并向中心发送一次 `edge.join` 准入请求。中心在签发机器凭据前
+会校验交互式登录令牌与邀请归属。
 
 Wayland 会话启动 GUI 时使用 `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`。加入后可运行
 `ha gui --root <边缘仓库>` 查看中心任务，再从该仓库使用通常的 `ha runtime run` 派出 Agent。

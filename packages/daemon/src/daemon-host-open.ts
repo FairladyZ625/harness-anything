@@ -632,6 +632,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
     };
   };
+  let accessAdmin!: AccessAdminService;
   const hostContext: DaemonHostApiContext = {
     remoteProxy,
     cells,
@@ -644,6 +645,9 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakCenter,
     keycloakSession,
     oidc,
+    get accessAdmin() {
+      return accessAdmin;
+    },
     writerEpochFence,
     writerEpochLease,
     writerEpochHighWatermark,
@@ -714,13 +718,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     now,
     startedAt,
   };
-  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot),
-    // A node removal settles in the access-admin queue; the fleet center owns that node's
-    // live TLS sessions, so the settled cut is handed from one to the other here.
-    accessAdmin = new AccessAdminService(oidc, input.userRoot, {
-      onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
-    }),
-    lifecycle = createDaemonHostLifecycleApi(hostContext);
+  const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot);
+  // A node removal settles in the access-admin queue; the fleet center owns the node's
+  // live TLS sessions, so the settled cut is handed from one to the other here.
+  accessAdmin = new AccessAdminService(oidc, input.userRoot, {
+    onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
+  });
+  const lifecycle = createDaemonHostLifecycleApi(hostContext);
   // The resume failure is recorded, not surfaced: a center that cannot come back still fails
   // every consultation honestly through oidc.center(), without a second error shape.
   rbacResumed = managedRbac.resume().catch((error: unknown) =>
@@ -933,6 +937,12 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             revokeDeviceSessions: (nodeId) => oidc.revokeDeviceSessions(nodeId),
             deviceLoginNotice: (nodeId, personId, notice) => oidc.receiveDeviceNotice(nodeId, personId, notice),
             verifyHuman: (auth) => oidc.bind(auth),
+            edgeJoin: (input) =>
+              accessAdmin.admitEdgeJoin({
+                inviteToken: input.inviteToken,
+                nodeId: input.nodeId,
+                accessToken: input.accessToken ?? "",
+              }),
           },
         }),
       );

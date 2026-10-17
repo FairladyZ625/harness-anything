@@ -14,12 +14,12 @@ packages are not claimed.
 Then consume the center invitation:
 
 ```bash
-ha edge join '<invite-link>' --observed-spki-sha256 '<SPKI pin>'
+ha edge join '<invite-link>'
 ```
 
-The typed command currently consumes through the local daemon access-admin writer. The center-side admission,
-credential minting, remote-edge registration and first-sync orchestration remain the required follow-up boundary for
-a clean machine; they are listed in `artifacts/breakpoints.md` and are not claimed as verified by this page.
+The command obtains the center certificate pin from the link, opens the device login flow, and sends one
+`edge.join` admission request to the center. The center validates the interactive token and invitation before
+minting the machine credential.
 
 On Wayland, use `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`. To inspect the resulting repository and dispatch an Agent,
 run `ha gui --root <edge-repository>` or the normal `ha runtime run` command from that repository.

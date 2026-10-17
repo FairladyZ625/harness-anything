@@ -196,6 +196,49 @@ export class AccessAdminService {
     });
   }
 
+  /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
+   * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
+  async admitEdgeJoin(input: { readonly inviteToken: string; readonly nodeId: string; readonly accessToken: string }) {
+    const invite = this.#edgeJoins.findByToken(input.inviteToken);
+    if (!invite || invite.nodeId !== input.nodeId)
+      throw coded("edge_join_invalid", "The edge join invitation is invalid.");
+    if (!invite.loginClientId) throw coded("edge_join_invalid", "The invitation has no interactive login authority.");
+    const auth = await this.#oidc.bind({
+      transportKind: "fleet-tls",
+      humanAccessToken: input.accessToken,
+      humanClientId: invite.loginClientId,
+      nodePrincipal: { nodeId: invite.nodeId, personId: invite.personId },
+    });
+    if (auth.oidcPrincipal?.personId !== invite.personId)
+      throw coded("person_mismatch", "The signed-in person does not match the invitation.");
+    return this.#oidc.serialize(async () => {
+      const session = await this.#session();
+      const current = await session.adapter.readNode(session.token, invite.nodeId);
+      if (current && current.personId !== invite.personId)
+        throw coded("person_mismatch", "The invitation is owned by another person.");
+      const credential = randomBytes(32).toString("base64url");
+      if (current) {
+        await session.adapter.rotateNodeCredential(
+          session.token,
+          { ...current, revision: current.revision + 1 },
+          credential,
+        );
+      } else {
+        await session.adapter.createNode(
+          session.token,
+          {
+            nodeId: invite.nodeId,
+            personId: invite.personId,
+            registeredAt: this.#ports.now(),
+          },
+          credential,
+        );
+      }
+      this.#edgeJoins.consume({ link: invite, loginPersonId: invite.personId, observedSpkiSha256: invite.spkiSha256 });
+      return { nodeId: invite.nodeId, personId: invite.personId, credential };
+    });
+  }
+
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
     if (request.operation === "permission-request-create" && requester !== undefined)
       return this.#createPermissionRequest(request, requester);
@@ -252,12 +295,16 @@ export class AccessAdminService {
         return this.#mutate(request, actor, (session) => this.#planNodeRemoval(session, request));
       case "edge-join-create": {
         return this.#oidc.serialize(async () => {
+          const login = await this.#oidc.interactiveAuthority();
           const link = this.#edgeJoins.create({
             centerUrl: text(request.centerUrl, "centerUrl"),
             personId: actor,
             nodeId: text(request.nodeId, "nodeId"),
             spkiSha256: text(request.spkiSha256, "spkiSha256"),
             ttlMs: request.ttlMs ?? 72 * 60 * 60 * 1000,
+            loginUrl: login.url,
+            loginRealm: login.realm,
+            loginClientId: login.clientId,
           });
           return { ok: true, link, joinId: link.inviteId, state: "pending" };
         });

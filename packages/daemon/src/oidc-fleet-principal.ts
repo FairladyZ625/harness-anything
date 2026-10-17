@@ -7,6 +7,7 @@ export async function verifyFleetHuman(input: {
   readonly issuerUrl: string;
   readonly realm: string;
   readonly clientId: string;
+  readonly expectedAzp?: string;
   readonly clientSecret: string;
   readonly adminAccessToken: string;
   readonly fetch: typeof fetch;
@@ -31,7 +32,7 @@ export async function verifyFleetHuman(input: {
     claims.active !== true ||
     expiresAt <= input.now ||
     claims.iss !== `${input.issuerUrl}${realmPath}` ||
-    claims.azp !== `harness-node-${node.nodeId}` ||
+    claims.azp !== (input.expectedAzp ?? `harness-node-${node.nodeId}`) ||
     ![claims.aud].flat().includes(input.clientId) ||
     typeof claims.sub !== "string" ||
     typeof claims.harness_person_id !== "string" ||
