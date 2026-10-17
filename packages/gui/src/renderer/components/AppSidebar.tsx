@@ -7,8 +7,8 @@ import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
 import {
   NAV_GROUPS,
-  navLabelOf,
   isRedesignViewId,
+  navLabelOf,
   type NavViewId,
   type RedesignViewId,
 } from "../navigation/navConfig.tsx";

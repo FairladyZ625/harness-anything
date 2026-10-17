@@ -53,6 +53,7 @@ import graphSpotlightCards from "./scenarios/graph-spotlight-cards.mjs";
 import previewDrawerSingle from "./scenarios/preview-drawer-single.mjs";
 import overlayGlass from "./scenarios/overlay-glass.mjs";
 import redesignMyAsks from "./scenarios/redesign-my-asks.mjs";
+import redesignToday from "./scenarios/redesign-today.mjs";
 
 export const catalog = [
   taskReturnChoice,
@@ -110,6 +111,7 @@ export const catalog = [
   taskDetailExplainerDefault,
   tokenUsageCosts,
   graphSpotlightCards,
+  redesignToday,
 ];
 
 export function selectScenarios({ lane, ids }) {

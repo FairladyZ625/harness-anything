@@ -9,6 +9,7 @@ import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
 import { myAsksViewEntry } from "./views/my-asks/my-asks-view-entry.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
+import { todayViewEntry } from "./views/today/today-view-entry.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -398,7 +399,6 @@ function AppShell() {
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
-
   // 重构区路由(dec_C612E69B):重构页(今天/你交代的事)暂由 App 级状态承载,不进
   // 全局历史栈;从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
   const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
@@ -609,7 +609,19 @@ function AppShell() {
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
               ) : redesignView !== null ? (
-                myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
+                redesignView === "myAsks" ? (
+                  myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
+                ) : (
+                  todayViewEntry(
+                    projectId,
+                    agendaQuery.data,
+                    agendaQuery.error instanceof Error ? agendaQuery.error.message : null,
+                    taskTitles,
+                    navigateToEntity,
+                    openTaskDetail,
+                    gotoNav,
+                  )
+                )
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}
