@@ -21,6 +21,7 @@ import type { AppLocation } from "./viewHistory.ts";
 export function useEntityNavigation({
   navigate,
   updateLocation,
+  previewId,
   activeRepoId,
   enabledRepoIds,
   openInRepo,
@@ -30,6 +31,8 @@ export function useEntityNavigation({
 }: {
   navigate: (fields: Partial<AppLocation>) => void;
   updateLocation: (fields: Partial<AppLocation>) => void;
+  /** 当前位置的预览抽屉字段(抽屉开着 = 非空):开着时换卡走原地替换,不推栈。 */
+  previewId: string | null;
   activeRepoId: string | null;
   enabledRepoIds: ReadonlyArray<string>;
   /** 跨仓导航:切到目标仓后执行续导航(在本仓内打开 ref)。 */
@@ -68,14 +71,17 @@ export function useEntityNavigation({
   const openTaskDetail = useCallback((id: string) => navigateLocalEntity(`task/${id}`), [navigateLocalEntity]);
 
   // 预览抽屉是任务详情的轻量版;工作根没有单独的任务详情,直接进工作页。
-  // 抽屉与详情同一条推栈路径:开着抽屉按后退/侧键即回到列表(业主 2026-10-11
-  // 「有的页面能退能进,有的不能」的其中一类——原地改不占历史条目,后退失灵)。
+  // 开抽屉推栈一次,后退/侧键即回列表(业主 2026-10-11「有的页面能退能进,有的不能」);
+  // 抽屉已开时换卡(列表再点一行、抽屉内关联任务)原地替换当前条目,与总览放大层
+  // 「层内换选中原地改」同一契约——只有一个抽屉,一次关闭回列表,不逐个回放看过的
+  // 预览(业主 2026-10-17「前面点了很多,要关掉好几次,一直关」)。
   const openTaskPreview = useCallback(
     (id: string) => {
       if (isWorkRoot(id)) openTaskDetail(id);
+      else if (previewId !== null) updateLocation({ previewId: id });
       else navigate({ selectedId: null, previewId: id });
     },
-    [isWorkRoot, navigate, openTaskDetail],
+    [isWorkRoot, navigate, openTaskDetail, previewId, updateLocation],
   );
 
   // 显式开某个已知工作的工作页:任务详情的「属于工作」。

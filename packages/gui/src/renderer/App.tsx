@@ -192,7 +192,7 @@ function AppShell() {
   // (推栈)或 updateLocation()(原地改)。与图内 FocusHistoryBar 并存:那是
   // 聚光灯的实体焦点微历史,这是跨视图的应用位置历史。
   // 它在三元读取之前解析:读哪个切面由「现在挂载的是哪个界面」决定。
-  const { location, navigate, updateLocation, back, forward, canBack, canForward } = useViewHistory(
+  const { location, navigate, updateLocation, back, forward, closePreview, canBack, canForward } = useViewHistory(
     projectId,
     initialLocation(),
   );
@@ -433,6 +433,7 @@ function AppShell() {
   } = useEntityNavigation({
     navigate,
     updateLocation,
+    previewId,
     activeRepoId,
     enabledRepoIds: enabledRepos.map((repo) => repo.repoId),
     openInRepo: (repoId, continueInRepo) => {
@@ -1036,9 +1037,8 @@ function AppShell() {
           task={previewTask}
           tasks={projectTasks}
           relations={edgeRelations}
-          // 抽屉开/关与任务详情同一条推栈路径(openTaskPreview 推栈):X 键即弹栈
-          // 回列表;栈底(仅旧存储的孤立抽屉条目)无处可退,原地清预览。
-          onClose={() => (canBack ? back() : updateLocation({ previewId: null }))}
+          // 抽屉单层(业主 2026-10-17):开抽屉推栈一次、层内换卡原地替换;关闭走 closePreview 一次回列表。
+          onClose={closePreview}
           onOpenDetail={openTaskDetail}
           onPreviewTask={openTaskPreview}
           onSetPin={handleSetPin}

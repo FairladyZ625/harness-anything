@@ -10,7 +10,8 @@ import { bridgeReady, nav } from "./helpers.mjs";
 //   ③ 主进程 app-command browser-backward/forward(Windows 侧键被 OS 转
 //      WM_APPCOMMAND,DOM 拿不到):在 main 进程对窗口发同名事件,验证
 //      主进程转发 → preload 订阅 → renderer 历史弹栈的完整接线。
-// 含业主实例:任务详情 → 会话 → 后退回任务详情。抽屉与详情同栈推入,原路返回。
+// 含业主实例:任务详情 → 会话 → 后退回任务详情。抽屉开抽屉推栈一次、层内换卡
+// 原地替换(2026-10-17 单抽屉),后退一次关抽屉回列表、原路前进重开。
 
 async function sideButton(cdp, button, neutral) {
   await cdp.send("Input.dispatchMouseEvent", { type: "mousePressed", button, clicks: 1, ...neutral });
