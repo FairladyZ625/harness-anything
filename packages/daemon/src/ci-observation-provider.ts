@@ -16,8 +16,14 @@ export interface CiArtifactMetadata {
   readonly expired: boolean;
 }
 
+// `gh api --paginate --slurp` returns every page in one JSON document (branch run lists, jobs,
+// artifact lists), which exceeds execFile's 1 MiB default buffer on busy repositories.
+const ciProviderOutputLimit = 64 << 20;
 export const runCiProviderCommand: RunGh = (command, args, options) =>
-  runProcessTextAsync(command, args, options.cwd, undefined, undefined, undefined, { timeoutMs: 30_000 });
+  runProcessTextAsync(command, args, options.cwd, undefined, undefined, undefined, {
+    timeoutMs: 30_000,
+    maxBuffer: ciProviderOutputLimit,
+  });
 
 export async function listTaskBranchRuns(gh: RunGh, cwd: string, branch: string): Promise<readonly CiRunListEntry[]> {
   const pages = JSON.parse(
