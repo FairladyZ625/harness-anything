@@ -632,7 +632,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       repos: [...validRows, ...invalidRows].sort((a, b) => a.repoId.localeCompare(b.repoId)),
     };
   };
-  let accessAdmin!: AccessAdminService;
+  const accessAdminRef: { current: AccessAdminService | null } = { current: null };
   const hostContext: DaemonHostApiContext = {
     remoteProxy,
     cells,
@@ -646,7 +646,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     keycloakSession,
     oidc,
     get accessAdmin() {
-      return accessAdmin;
+      return accessAdminRef.current!;
     },
     writerEpochFence,
     writerEpochLease,
@@ -721,9 +721,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const managedRbac = input.managedRbac ?? new ManagedRbacService(input.userRoot);
   // A node removal settles in the access-admin queue; the fleet center owns the node's
   // live TLS sessions, so the settled cut is handed from one to the other here.
-  accessAdmin = new AccessAdminService(oidc, input.userRoot, {
+  const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
   });
+  accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
   // The resume failure is recorded, not surfaced: a center that cannot come back still fails
   // every consultation honestly through oidc.center(), without a second error shape.

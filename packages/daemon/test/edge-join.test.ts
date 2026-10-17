@@ -37,6 +37,25 @@ test("edge join invitation is typed, pin checked, person bound, and single use",
     () => store.consume({ link: encoded, loginPersonId: "person-a", observedSpkiSha256: "sha256:pin" }),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "already_consumed",
   );
+  assert.equal(
+    store.consume({
+      link: encoded,
+      loginPersonId: "person-a",
+      observedSpkiSha256: "sha256:pin",
+      allowSamePersonRetry: true,
+    }).consumedAt,
+    current,
+  );
+  assert.throws(
+    () =>
+      store.consume({
+        link: encoded,
+        loginPersonId: "person-b",
+        observedSpkiSha256: "sha256:pin",
+        allowSamePersonRetry: true,
+      }),
+    (error: unknown) => error instanceof EdgeJoinError && error.code === "person_mismatch",
+  );
 });
 
 test("edge join invitation expires before consumption", () => {

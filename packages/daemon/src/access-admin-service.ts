@@ -22,81 +22,15 @@ import {
   reserveCredentialFile,
 } from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
+import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
+import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 import { createEdgeJoinStore } from "./fleet/edge-join.ts";
-export const accessAdminOperations = Object.freeze([
-  "group-list",
-  "group-create",
-  "group-update",
-  "group-delete",
-  "grant",
-  "revoke",
-  "grant-list",
-  "permission-request-create",
-  "permission-request-list",
-  "permission-request-decide",
-  "permission-request-withdraw",
-  "effective-permissions",
-  "receipt-list",
-  "team-list",
-  "team-create",
-  "team-update",
-  "team-delete",
-  "team-member-add",
-  "team-member-remove",
-  "node-list",
-  "node-register",
-  "node-unregister",
-  "edge-join-create",
-  "edge-join-consume",
-  "edge-join-status",
-  "device-list",
-  "device-rename",
-  "device-pause",
-  "device-resume",
-  "device-remove",
-  "device-logout-all",
-  "receipt-reconcile",
-  "session-lifetime",
-  "session-lifetime-set",
-] as const);
-export type AccessAdminOperation = (typeof accessAdminOperations)[number];
-export interface AccessAdminRequest {
-  readonly operation?: string;
-  readonly operationId?: string;
-  readonly groupId?: string;
-  readonly displayName?: string;
-  readonly scopes?: readonly unknown[];
-  readonly composites?: readonly unknown[];
-  readonly expectedVersion?: string;
-  readonly personId?: string;
-  readonly resource?: string;
-  readonly sessionLifetimeSeconds?: number;
-  readonly teamId?: string;
-  readonly teamName?: string;
-  readonly nodeId?: string;
-  readonly systemName?: string;
-  readonly platform?: string;
-  /** Where a first node registration puts the machine credential instead of returning it. */
-  readonly credentialFile?: string;
-  readonly centerUrl?: string;
-  readonly spkiSha256?: string;
-  readonly ttlMs?: number;
-  readonly inviteId?: string;
-  readonly link?: string;
-  readonly loginPersonId?: string;
-  readonly observedSpkiSha256?: string;
-  readonly requestId?: string;
-  readonly requestVersion?: number;
-  readonly decision?: "approve" | "reject";
-  readonly rationale?: string;
-}
-export interface AccessAdminPorts {
-  readonly fetch: typeof fetch;
-  readonly now: () => string;
-  readonly journal: ReturnType<typeof managedRbacReceiptJournal>;
-  /** Called once a node removal settles applied, wherever that settle came from: mutate or reconcile. */
-  readonly onNodeRemoved?: (nodeId: string) => void;
-}
+export {
+  accessAdminOperations,
+  type AccessAdminOperation,
+  type AccessAdminPorts,
+  type AccessAdminRequest,
+} from "./access-admin-contract.ts";
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
 type Expectation =
   | { readonly kind: "team"; readonly teamId: string; readonly version: string }
@@ -174,68 +108,40 @@ export class AccessAdminService {
       journal: managedRbacReceiptJournal(userRoot),
       ...ports,
     };
-    const records = this.#ports.journal
-      .read()
-      .map((line) => JSON.parse(line) as Record<string, unknown>)
-      .filter(
-        (
-          record,
-        ): record is Record<string, unknown> & {
-          readonly record: import("./fleet/edge-join.ts").EdgeJoinInviteRecord;
-        } =>
-          record.schema === "harness-edge-join/v1" &&
-          record.kind === "record" &&
-          typeof record.record === "object" &&
-          record.record !== null,
-      )
-      .map((record) => record.record);
-    this.#edgeJoins = createEdgeJoinStore({
-      records,
-      onChange: (record) =>
-        this.#ports.journal.append(JSON.stringify({ schema: "harness-edge-join/v1", kind: "record", record })),
-    });
+    this.#edgeJoins = restoreEdgeJoinStore(this.#ports.journal);
   }
 
   /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
   async admitEdgeJoin(input: { readonly inviteToken: string; readonly nodeId: string; readonly accessToken: string }) {
-    const invite = this.#edgeJoins.findByToken(input.inviteToken);
-    if (!invite || invite.nodeId !== input.nodeId)
-      throw coded("edge_join_invalid", "The edge join invitation is invalid.");
-    if (!invite.loginClientId) throw coded("edge_join_invalid", "The invitation has no interactive login authority.");
-    const auth = await this.#oidc.bind({
-      transportKind: "fleet-tls",
-      humanAccessToken: input.accessToken,
-      humanClientId: invite.loginClientId,
-      nodePrincipal: { nodeId: invite.nodeId, personId: invite.personId },
-    });
-    if (auth.oidcPrincipal?.personId !== invite.personId)
-      throw coded("person_mismatch", "The signed-in person does not match the invitation.");
-    return this.#oidc.serialize(async () => {
-      const session = await this.#session();
-      const current = await session.adapter.readNode(session.token, invite.nodeId);
-      if (current && current.personId !== invite.personId)
-        throw coded("person_mismatch", "The invitation is owned by another person.");
-      const credential = randomBytes(32).toString("base64url");
-      if (current) {
-        await session.adapter.rotateNodeCredential(
-          session.token,
-          { ...current, revision: current.revision + 1 },
-          credential,
-        );
-      } else {
-        await session.adapter.createNode(
-          session.token,
-          {
-            nodeId: invite.nodeId,
-            personId: invite.personId,
-            registeredAt: this.#ports.now(),
-          },
-          credential,
-        );
-      }
-      this.#edgeJoins.consume({ link: invite, loginPersonId: invite.personId, observedSpkiSha256: invite.spkiSha256 });
-      return { nodeId: invite.nodeId, personId: invite.personId, credential };
+    return admitEdgeJoin({
+      ...input,
+      oidc: this.#oidc,
+      edgeJoins: this.#edgeJoins,
+      registerNode: async (invite) => {
+        const session = await this.#session();
+        const current = await session.adapter.readNode(session.token, invite.nodeId);
+        if (current && current.personId !== invite.personId)
+          throw coded("person_mismatch", "The invitation is owned by another person.");
+        const credential = randomBytes(32).toString("base64url");
+        if (current)
+          await session.adapter.rotateNodeCredential(
+            session.token,
+            { ...current, revision: current.revision + 1 },
+            credential,
+          );
+        else
+          await session.adapter.createNode(
+            session.token,
+            {
+              nodeId: invite.nodeId,
+              personId: invite.personId,
+              registeredAt: this.#ports.now(),
+            },
+            credential,
+          );
+        return credential;
+      },
     });
   }
 
