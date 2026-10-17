@@ -614,11 +614,24 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
     () => requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
     { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },
   );
-  // The read-only dispatch owns no writer turn at all: settlement flows through the spawner.
+  // The command-run recheck decides by the same allowlist: allowlisted query-only reads pass
+  // (a taskless principal has no lease coupling); everything else fails there too.
+  assert.doesNotThrow(() =>
+    requireCurrentExecutionScope({
+      action: { kind: "work-list" },
+      binding: {
+        executionPrincipal: p,
+        actor: { principal: { personId: p.personId }, executor: null },
+        source: "local",
+      },
+      projection: {} as never,
+      now: new Date().toISOString(),
+    }),
+  );
   assert.throws(
     () =>
       requireCurrentExecutionScope({
-        action: { kind: "work-list" },
+        action: { kind: "task-progress-append", taskId: "task-any" },
         binding: {
           executionPrincipal: p,
           actor: { principal: { personId: p.personId }, executor: null },

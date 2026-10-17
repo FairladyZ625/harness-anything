@@ -106,9 +106,13 @@ export function requireCurrentExecutionScope(input: {
 }): void {
   const p = input.binding.executionPrincipal;
   if (!p) return;
-  // A read-only dispatch owns no ledger writes at all — its session settles through the
-  // spawner's own binding — so the writer turn rejects before any lease or task lookup runs.
-  if (p.role === "read-only") throw executionCredentialRejected("read-only-allowlist");
+  // A read-only dispatch holds no task lease, so lease-coupled checks cannot apply; the writer
+  // turn re-decides the same allowlist rule the request entry used — command-run rechecks
+  // arrive for allowlisted query-only reads too, and those still pass.
+  if (p.role === "read-only") {
+    requireExecutionActionScope(p, input.action);
+    return;
+  }
   if (p.taskId === null || p.executionId === null) throw executionCredentialRejected();
   const ingress =
     input.action.kind === "runtime-run" && isJsonObject(input.action.executionRuntimeIngress)
