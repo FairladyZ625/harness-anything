@@ -78,24 +78,33 @@ export async function reconcileCiOccurrence(input: {
         receipt.code ?? "service_rejected",
         `${receipt.code ?? "service_rejected"}: ${receipt.rejectionExplanation ?? receipt.evidence ?? "CI acceptance failed."}`,
       );
+    const markUnavailable = (target: { readonly runId: number; readonly attempt: number; readonly reason: string }) => {
+      pending.delete(`${target.runId}.${target.attempt}`);
+      if (!unavailable.some((entry) => entry.runId === target.runId && entry.attempt === target.attempt))
+        unavailable.push(target);
+    };
+    for (const target of fetched.unavailable ?? []) markUnavailable(target);
     for (const run of fetched.runs.filter((entry) => entry.artifactUnavailable)) {
-      pending.delete(`${run.databaseId}.${run.summary.attempt}`);
-      if (!unavailable.some((target) => target.runId === run.databaseId && target.attempt === run.summary.attempt))
-        unavailable.push({
-          runId: run.databaseId,
-          attempt: run.summary.attempt,
-          reason: "provider-artifact-unavailable",
-        });
+      markUnavailable({
+        runId: run.databaseId,
+        attempt: run.summary.attempt,
+        reason: "provider-artifact-unavailable",
+      });
     }
     for (const run of fetched.runs) {
       for (const issue of run.provenanceIssues ?? []) {
-        pending.delete(`${issue.runId}.${issue.attempt}`);
-        unavailable.push({
+        markUnavailable({
           runId: issue.runId,
           attempt: issue.attempt,
           reason: `CI artifact rejected: ${issue.artifactName}; ${issue.field} expected ${issue.expected}, actual ${issue.actual}`,
         });
       }
+    }
+    if (receipt.evidence) {
+      const evidence = JSON.parse(receipt.evidence) as {
+        readonly unavailable?: readonly { readonly runId: number; readonly attempt: number; readonly reason: string }[];
+      };
+      for (const target of evidence.unavailable ?? []) markUnavailable(target);
     }
   };
   const acceptFetched = async (fetched: CiObservationFetch): Promise<boolean> => {

@@ -278,8 +278,35 @@ export function validateCiRunObservationEventV4(value: unknown, allowUnknownFiel
         (entry.stallSummary !== undefined &&
           (typeof entry.stallSummary !== "string" || !validSummary(entry.stallSummary))),
     )
-  )
-    return ["invalid CI diagnostics"];
+  ) {
+    if (!Array.isArray(p.failedTests)) return ["invalid CI diagnostics: failedTests must be an array"];
+    const failedIndex = p.failedTests.findIndex((test) => !validFailure(test, allowUnknownFields));
+    if (failedIndex >= 0) return [`invalid CI diagnostics: failedTests[${failedIndex}]`];
+    if (!Array.isArray(p.fileOutcomes)) return ["invalid CI diagnostics: fileOutcomes must be an array"];
+    const outcomeIndex = p.fileOutcomes.findIndex(
+      (entry) =>
+        !isRecord(entry) ||
+        !hasContractFields(
+          entry,
+          [
+            "file",
+            "outcome",
+            "reason",
+            ...["lastActiveTest", "elapsedMs", "limitMs", "stallSummary", "truncated", "diagnosticRef"].filter(
+              (key) => key in entry,
+            ),
+          ],
+          allowUnknownFields,
+        ) ||
+        !text(entry.file) ||
+        !["timeout", "hung", "crashed", "cancelled"].includes(String(entry.outcome)) ||
+        !text(entry.reason) ||
+        (entry.stallSummary !== undefined &&
+          (typeof entry.stallSummary !== "string" || !validSummary(entry.stallSummary))),
+    );
+    if (outcomeIndex < 0) return ["invalid CI diagnostics: fileOutcomes"];
+    return [`invalid CI diagnostics: fileOutcomes[${outcomeIndex}]`];
+  }
   if (
     !Array.isArray(p.shardDurations) ||
     p.shardDurations.some(

@@ -81,10 +81,17 @@ type FetchedCiRun = {
   readonly provenanceIssues?: readonly CiProvenanceIssue[];
   readonly provider?: "github-actions" | "gitlab-pipeline";
 };
+export type CiRunUnavailable = {
+  readonly runId: number;
+  readonly attempt: number;
+  readonly reason: string;
+};
+type FetchedCiRunOutcome = { fetched: FetchedCiRun | null } | { failure: unknown; runId: number; attempt: number };
 export const preparedCiObservation = Symbol("preparedCiObservation");
 export type CiObservationFetch = {
   readonly requestedRuns: number;
   readonly runs: readonly FetchedCiRun[];
+  readonly unavailable?: readonly CiRunUnavailable[];
   /** --task: the delivery and the run its frozen contract judges, reported with the run's conclusion. */
   readonly witness?: { readonly taskId: string; readonly delivery: string; readonly databaseId: number };
 };
@@ -187,7 +194,8 @@ export async function fetchCiObservations(
             ? selectCiBranchRuns(listed, taskId!, limit)
             : selectCiObservationRuns(listed, limit));
     const fetchResults = await Promise.all(
-      runs.map(async (run): Promise<{ fetched: FetchedCiRun | null } | { failure: unknown }> => {
+      runs.map(async (run): Promise<FetchedCiRunOutcome> => {
+        let runAttempt = (action.attempts as Readonly<Record<string, number>> | undefined)?.[run.databaseId] ?? 1;
         try {
           const fixedAttempt = (action.attempts as Readonly<Record<string, number>> | undefined)?.[run.databaseId];
           const fixed =
@@ -231,6 +239,7 @@ export async function fetchCiObservations(
                   { cwd: cell.rootDir },
                 ),
               ) as CiRunSummary);
+          runAttempt = summary.attempt;
           const { status: runLifecycleState } = summary;
           const expectedBranch = observeBranch ? taskId : "main";
           if (summary.headBranch !== expectedBranch || runLifecycleState !== "completed") {
@@ -443,12 +452,26 @@ export async function fetchCiObservations(
             },
           };
         } catch (failure) {
-          return { failure };
+          return { failure, runId: run.databaseId, attempt: runAttempt };
         }
       }),
     );
-    const failedFetch = fetchResults.find((result) => "failure" in result);
-    if (failedFetch && "failure" in failedFetch) throw failedFetch.failure;
+    const unavailable: CiRunUnavailable[] = [];
+    for (const result of fetchResults) {
+      if (!("failure" in result)) continue;
+      const detail = result.failure instanceof SyntaxError ? result.failure.message : String(result.failure);
+      if (
+        result.failure instanceof SyntaxError ||
+        (result.failure &&
+          typeof result.failure === "object" &&
+          "code" in result.failure &&
+          result.failure.code === "invalid_result")
+      ) {
+        unavailable.push({ runId: result.runId, attempt: result.attempt, reason: `CI run import rejected: ${detail}` });
+        continue;
+      }
+      throw result.failure;
+    }
     const fetched = fetchResults.flatMap((result) =>
       "fetched" in result && result.fetched !== null ? [result.fetched] : [],
     );
@@ -456,6 +479,7 @@ export async function fetchCiObservations(
     return {
       requestedRuns: namedRuns?.length ?? (witnessRun ? 1 : limit),
       runs: fetched,
+      ...(unavailable.length ? { unavailable } : {}),
       ...(witness && witnessRun
         ? { witness: { taskId: witness.taskId, delivery: witness.delivery, databaseId: witnessRun.databaseId } }
         : {}),
@@ -609,6 +633,7 @@ export function ingestCiObservations(
   fetched: CiObservationFetch,
 ): WriteReceipt {
   const eventRefs: string[] = [];
+  const unavailable: CiRunUnavailable[] = [];
   let imported = 0,
     duplicate = 0,
     lastRevision = cell.store.readHead()?.revision ?? 0;
@@ -711,6 +736,50 @@ export function ingestCiObservations(
         payload: { ...payloads[0]!.payload, scope: "attempt", verification: null, attemptInventory },
         body: null,
       });
+    for (const { payload } of payloads) {
+      const digest = createHash("sha256")
+        .update(
+          JSON.stringify([
+            identity.provider,
+            repositoryId,
+            databaseId === 0 ? identity.databaseRunId : databaseId,
+            summary.attempt,
+            payload.scope,
+            payload.identity.jobExecutionId,
+            ...(payload.scope === "attempt" ? [payload.attemptInventory] : []),
+          ]),
+        )
+        .digest("hex");
+      const existing = cell.store.readEvent(`ci-observation-${digest}`);
+      if (
+        existing &&
+        JSON.stringify(canonicalizeContractValue(existing.payload)) !==
+          JSON.stringify(canonicalizeContractValue(payload))
+      )
+        throw cell.cellCodedError("op_conflict", "CI observation identity has conflicting content.");
+    }
+    const validationErrors = payloads.flatMap(({ payload }) => {
+      const candidate: CiRunObservationEventV4 = {
+        schema: "ci-run-observation/v4",
+        eventId: "event-validation",
+        workspaceRevision: 1,
+        opId: "ci-observation-validation",
+        type: "ci_run_observed",
+        actor: binding.actor,
+        source: binding.source,
+        occurredAt: cell.now(),
+        payload,
+      };
+      return validateCurrentCiRunObservationEvent(candidate);
+    });
+    if (validationErrors.length) {
+      unavailable.push({
+        runId: databaseId,
+        attempt: summary.attempt,
+        reason: `CI run import rejected: ${validationErrors.join("; ")}`,
+      });
+      continue;
+    }
     for (const { payload, body } of payloads) {
       const digest = createHash("sha256")
         .update(
@@ -748,8 +817,6 @@ export function ingestCiObservations(
         occurredAt: cell.now(),
         payload,
       };
-      const errors = validateCurrentCiRunObservationEvent(event);
-      if (errors.length) throw cell.cellCodedError("invalid_result", errors.join("; "));
       const ref = payload.detailRef,
         plan = ciRunObservationWritePlan(event);
       const appended = cell.store.append({
@@ -776,6 +843,7 @@ export function ingestCiObservations(
       duplicate,
       requestedRuns: fetched.requestedRuns,
       eventRefs,
+      ...(unavailable.length ? { unavailable } : {}),
     }),
     visibility: "center",
     proof: {
