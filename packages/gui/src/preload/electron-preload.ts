@@ -17,7 +17,13 @@ import {
 import { agentRuntimePreloadApi } from "./agent-runtime-preload.ts";
 import { accessAdminPreloadApi } from "./access-admin-preload.ts";
 import { daemonGuiActionMethods, daemonGuiStreamFacets } from "@harness-anything/daemon/protocol";
-import { FIRST_RUN_BOOTSTRAP_CHANNEL, FIRST_RUN_CHOOSE_CHANNEL, type FirstRunApi } from "../api/first-run-contract.ts";
+import {
+  FIRST_RUN_BOOTSTRAP_CHANNEL,
+  FIRST_RUN_CHOOSE_CHANNEL,
+  DESKTOP_FIRST_RUN_STATUS_CHANNEL,
+  DESKTOP_FIRST_RUN_SETUP_CHANNEL,
+  type FirstRunApi,
+} from "../api/first-run-contract.ts";
 import { ARTIFACT_OPEN_EXTERNAL_CHANNEL, type ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import {
   LOCAL_DOC_READ_CHANNEL,
@@ -89,6 +95,8 @@ const exposedHarnessApi = {
   ...exposedApi,
   ...agentRuntimePreloadApi(ipcRenderer),
   firstRun: {
+    desktopStatus: () => invoke(DESKTOP_FIRST_RUN_STATUS_CHANNEL, null),
+    desktopSetup: () => invoke(DESKTOP_FIRST_RUN_SETUP_CHANNEL, null),
     chooseRepository: () => invoke(FIRST_RUN_CHOOSE_CHANNEL, null),
     bootstrap: (input) => invoke(FIRST_RUN_BOOTSTRAP_CHANNEL, input),
   } satisfies FirstRunApi,

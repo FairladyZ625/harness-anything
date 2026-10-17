@@ -12,6 +12,7 @@ import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell 
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { readDaemonRegistry } from "@harness-anything/kernel";
 import { registerHarnessIpcHandlers } from "./ipc-handlers.ts";
 import { createLoginWebviewSecurity } from "./login-webview-security.ts";
@@ -55,6 +56,13 @@ import {
   windowBackgroundColor,
 } from "./window-config.ts";
 import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
+import {
+  desktopRuntimePaths,
+  desktopFirstRunReport,
+  ensureShim,
+  ensureShellPath,
+  installDesktopService,
+} from "./desktop-first-run.ts";
 
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
@@ -270,6 +278,7 @@ export async function startGuiApp(): Promise<void> {
     app.dock?.setIcon(appIconPath());
   }
   installContentSecurityPolicy();
+  await prepareDesktopFirstRun();
   loginWebviewSecurity.installCertificateErrorHandler(app);
   const trustedWebContentsIds = new Set<number>();
   // 项目窗口注册表(task_ca1ee6b9e8f83c89cb376e5f07):窗口↔项目记账。开窗两条路
@@ -391,6 +400,12 @@ export async function startGuiApp(): Promise<void> {
         return selected.canceled ? null : (selected.filePaths[0] ?? null);
       },
       bootstrap: (input) => bootstrapLocalRepository(input),
+      desktopStatus: () =>
+        desktopFirstRunReport({ runtime: desktopRuntimePaths(process.resourcesPath, app.getAppPath()) }),
+      desktopSetup: async () => {
+        await prepareDesktopFirstRun();
+        return desktopFirstRunReport({ runtime: desktopRuntimePaths(process.resourcesPath, app.getAppPath()) });
+      },
     },
     trustPolicy,
   );
@@ -439,4 +454,13 @@ if (app.isPackaged || process.argv.some((arg) => /electron-main\.(?:js|ts)$/u.te
   startGuiApp().catch((err) => {
     console.error("[FATAL] startGuiApp failed:", err);
   });
+}
+
+/** Install the user-owned CLI shim and daemon service before the first renderer request. */
+async function prepareDesktopFirstRun(): Promise<void> {
+  const runtime = desktopRuntimePaths(process.resourcesPath, app.getAppPath());
+  if (!existsSync(runtime.node) || !existsSync(runtime.cli) || !existsSync(runtime.daemon)) return;
+  ensureShim(runtime);
+  ensureShellPath();
+  await installDesktopService({ runtime });
 }
