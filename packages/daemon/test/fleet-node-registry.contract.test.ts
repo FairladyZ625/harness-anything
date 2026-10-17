@@ -84,4 +84,30 @@ test("TLS listener admission requires every configured SAN name", (t) => {
       error.code === "cert_san_mismatch" &&
       error.message.includes("192.168.1.21"),
   );
+  const cnOnlyKey = path.join(root, "cn-only.key"),
+    cnOnlyCert = path.join(root, "cn-only.crt");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      cnOnlyKey,
+      "-out",
+      cnOnlyCert,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+    ],
+    { stdio: "ignore" },
+  );
+  assert.throws(
+    () => validateCertificateNames(readFileSync(cnOnlyCert), ["center.example.test"]),
+    (error: unknown) => error instanceof Error && "code" in error && error.code === "cert_san_mismatch",
+    "a subject common name does not stand in for a SAN entry",
+  );
 });

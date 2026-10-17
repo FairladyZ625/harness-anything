@@ -8,7 +8,9 @@ export function validateCertificateNames(cert: Buffer, names: readonly string[])
     // carry, which the listen address cannot tell.
     if (name === "0.0.0.0" || name === "::") continue;
     const covered =
-      isIP(name) === 0 ? certificate.checkHost(name) !== undefined : certificate.checkIP(name) !== undefined;
+      isIP(name) === 0
+        ? certificate.checkHost(name, { subject: "never" }) !== undefined
+        : certificate.checkIP(name) !== undefined;
     if (!covered) {
       throw Object.assign(
         new Error(`TLS certificate SAN does not cover ${name}; add ${name} to the certificate and retry.`),
