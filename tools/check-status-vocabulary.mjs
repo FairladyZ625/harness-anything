@@ -21,10 +21,11 @@
  *      stays deleted: unrecognised decision states map to "unknown", never to a
  *      plausible neighbour.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { daemonStatusVocabularyProjectionFinding } from "./generate-daemon-status-vocabulary.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const REGISTER = "../packages/kernel/src/domain/status-vocabulary.ts";
 const KERNEL_DOMAIN = "packages/kernel/src/domain";
@@ -331,12 +332,9 @@ async function loadModules(files) {
 }
 
 function readKernelDomainSources(root) {
-  const dir = path.join(root, KERNEL_DOMAIN);
   const sources = new Map();
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    if (!entry.isFile() || !/\.ts$/u.test(entry.name)) continue;
-    const rel = `${KERNEL_DOMAIN}/${entry.name}`;
-    sources.set(rel, readFileSync(path.join(dir, entry.name), "utf8"));
+  for (const rel of listWorktreeFiles(root, [KERNEL_DOMAIN]).filter((entry) => entry.endsWith(".ts"))) {
+    sources.set(rel, readFileSync(path.join(root, rel), "utf8"));
   }
   return sources;
 }

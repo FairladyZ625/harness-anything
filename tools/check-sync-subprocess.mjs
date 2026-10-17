@@ -5,12 +5,12 @@
  * Authority: dec_7F0604B4D53637BB6FF9875C8B CH1. Only APIs acquired
  * from node:child_process are in scope; synchronous filesystem APIs are not.
  */
-import { readdirSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
 import { syncSubprocessBaseline } from "./gate-allowlists/sync-subprocess-baseline.mjs";
 import { readSourceIdentity } from "./gate-allowlists/source-identity.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const GATE_ID = "check-sync-subprocess";
 const SOURCE_ROOTS = ["packages/daemon/src", "packages/kernel/src"];
@@ -21,9 +21,9 @@ const SITE_KINDS = new Set(["call", "export", "import", "reference"]);
 
 export function scanSyncSubprocess(root = process.cwd()) {
   const files = SOURCE_ROOTS.flatMap((directory) => {
-    const sourceFiles = walk(path.join(root, directory));
+    const sourceFiles = listWorktreeFiles(root, [directory]).filter((file) => SOURCE_FILE.test(file));
     if (sourceFiles.length === 0) throw new Error(`${GATE_ID}: required scan root ${directory} has no source files`);
-    return sourceFiles;
+    return sourceFiles.map((file) => path.join(root, file));
   });
   const program = ts.createProgram({
     rootNames: files,
@@ -296,17 +296,6 @@ function stableName(name, source) {
 
 function relative(root, file) {
   return path.relative(root, file).split(path.sep).join("/");
-}
-function walk(directory) {
-  const files = [];
-  const entries = readdirSync(directory, { withFileTypes: true });
-  for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
-    const full = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
-      if (!["dist", "node_modules", "out"].includes(entry.name)) files.push(...walk(full));
-    } else if (SOURCE_FILE.test(entry.name)) files.push(full);
-  }
-  return files;
 }
 
 function printBaseline(sites) {

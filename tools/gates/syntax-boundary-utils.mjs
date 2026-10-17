@@ -1,30 +1,16 @@
-import { readdir, readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import { listWorktreeFiles } from "./git.mjs";
 
 const extensions = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
 
 export async function productionSourceFiles(root, excluded = new Set()) {
-  const roots = [path.join(root, "packages"), path.join(root, "tools")];
-  const files = [];
-  for (const sourceRoot of roots) await walk(sourceRoot, files);
-  return files
-    .map((file) => ({ file, relative: slash(path.relative(root, file)) }))
+  return listWorktreeFiles(root, ["packages", "tools"])
+    .filter((file) => extensions.test(file))
+    .map((file) => ({ file: path.join(root, file), relative: slash(file) }))
     .filter(({ relative }) => isProductionSource(relative) && !excluded.has(relative))
     .sort((left, right) => left.relative.localeCompare(right.relative));
-}
-
-async function walk(directory, files) {
-  const entries = await readdir(directory, { withFileTypes: true }).catch((error) => {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  });
-  for (const entry of entries) {
-    if (["node_modules", "dist", "out", "coverage"].includes(entry.name)) continue;
-    const full = path.join(directory, entry.name);
-    if (entry.isDirectory()) await walk(full, files);
-    else if (extensions.test(entry.name)) files.push(full);
-  }
 }
 
 function isProductionSource(relative) {

@@ -1,6 +1,7 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const defaultScanRoots = ["packages/cli/src", "packages/kernel/src", "packages/adapters"];
 
@@ -35,12 +36,10 @@ const forbiddenPatterns = [
 export function findErrorClassificationViolations(rootDir = process.cwd(), scanRoots = defaultScanRoots) {
   const violations = [];
   for (const scanRoot of scanRoots) {
-    const absoluteRoot = path.join(rootDir, scanRoot);
-    const files = listSourceFiles(absoluteRoot);
+    const files = listWorktreeFiles(rootDir, [scanRoot]).filter((file) => file.endsWith(".ts"));
     if (files.length === 0) throw new Error(`Error classification: required scan root ${scanRoot} has no source files`);
-    for (const filePath of files) {
-      const relativePath = path.relative(rootDir, filePath).split(path.sep).join("/");
-      const lines = readFileSync(filePath, "utf8").split(/\r?\n/u);
+    for (const relativePath of files) {
+      const lines = readFileSync(path.join(rootDir, relativePath), "utf8").split(/\r?\n/u);
       lines.forEach((line, index) => {
         for (const forbidden of forbiddenPatterns) {
           if (forbidden.pattern.test(line)) {
@@ -57,20 +56,6 @@ export function findErrorClassificationViolations(rootDir = process.cwd(), scanR
     }
   }
   return violations;
-}
-
-function listSourceFiles(inputPath) {
-  const files = [];
-  for (const entry of readdirSync(inputPath, { withFileTypes: true })) {
-    if (entry.name === "node_modules" || entry.name === "dist") continue;
-    const fullPath = path.join(inputPath, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...listSourceFiles(fullPath));
-      continue;
-    }
-    if (entry.isFile() && fullPath.endsWith(".ts")) files.push(fullPath);
-  }
-  return files;
 }
 
 function main() {

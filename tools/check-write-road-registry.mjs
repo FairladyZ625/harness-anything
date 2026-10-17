@@ -1,10 +1,11 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
 import { runInNewContext } from "node:vm";
 import { fileURLToPath } from "node:url";
 import { findW3WriteAuthorityViolations } from "./check-write-coordinator-boundary.mjs";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const declarationPath = "packages/kernel/src/domain/action-declaration.ts";
 
@@ -156,7 +157,7 @@ export function findWriteRoadRegistryViolations(
 }
 
 function discoverPhysicalWriteFiles(rootDir) {
-  const files = walk(path.join(rootDir, "packages"), rootDir).filter(
+  const files = listWorktreeFiles(rootDir, ["packages"]).filter(
     (file) => file.includes("/src/") && file.endsWith(".ts"),
   );
   return files
@@ -173,16 +174,6 @@ function discoverPhysicalWriteFiles(rootDir) {
       return fsWrite || gitWrite || sqliteWrite;
     })
     .sort();
-}
-function walk(directory, rootDir) {
-  if (!existsSync(directory)) return [];
-  const out = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const file = path.join(directory, entry.name);
-    if (entry.isDirectory()) out.push(...walk(file, rootDir));
-    else out.push(path.relative(rootDir, file).split(path.sep).join("/"));
-  }
-  return out;
 }
 function hasWritableSqliteConstructionSite(body) {
   for (const match of body.matchAll(/(?:new\s+DatabaseSync|SqliteClient\.make)\s*\(/gu)) {

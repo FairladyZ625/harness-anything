@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process";
+import { lstatSync } from "node:fs";
+import path from "node:path";
 
 export function git(rootDir, args, options = {}) {
   return execFileSync("git", args, {
@@ -7,6 +9,21 @@ export function git(rootDir, args, options = {}) {
     maxBuffer: 64 * 1024 * 1024,
     stdio: ["ignore", "pipe", "pipe"],
   });
+}
+
+// The single enumeration port for gates that select check inputs from repository
+// directories: tracked plus untracked-but-not-ignored files only. .gitignore is the
+// sole ignore authority, so gitignored build output (packages/gui/build-resources,
+// dist/, node_modules/) never feeds a violation the way raw readdirSync walks did.
+// lstat keeps symlinked entries — file or directory targets — out of the list, the
+// way Dirent-based walkers did; throwIfNoEntry skips index entries deleted from the
+// worktree without git rm, which ls-files --cached still reports.
+export function listWorktreeFiles(rootDir, pathspecs = []) {
+  return git(rootDir, ["ls-files", "--cached", "--others", "--exclude-standard", "-z", "--", ...pathspecs])
+    .split("\0")
+    .filter(Boolean)
+    .filter((file) => lstatSync(path.join(rootDir, file), { throwIfNoEntry: false })?.isFile())
+    .sort();
 }
 
 export function repoRoot(cwd = process.cwd()) {

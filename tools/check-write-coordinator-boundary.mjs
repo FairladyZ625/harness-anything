@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const legacyProductionPath =
   /^(?:packages\/kernel\/src\/(?:ports\/(?:artifact-store-writer|current-session-probe|lifecycle-engine|lock-registry|write-coordinator)\.ts|store\/(?:content-addressed-blob-store|daemon-runtime(?:-queue)?|ledger-materializer|local-lock-registry|write-journal[^/]*)\.ts|write-coordination\/)|packages\/cli\/src\/daemon\/(?:command-service|doc-sync-service|queued-write-coordinator)\.ts|packages\/application\/src\/(?:current-session-probe|decision-write-service|doc-sync|fact-write-service|provenance-binding|provenance-session-exporter|runtime-event-ledger-service|runtime-session-logs|session-entity-reader|task-write-route-policy)\.ts)$/u;
@@ -12,7 +13,7 @@ const coordinatedCommitAuthorities = Object.freeze([
 
 export function findW3WriteAuthorityViolations(rootDir = process.cwd()) {
   const violations = [],
-    files = walk(path.join(rootDir, "packages"), rootDir);
+    files = listWorktreeFiles(rootDir, ["packages"]);
   for (const file of files.filter((candidate) => legacyProductionPath.test(candidate)))
     violations.push(`${file}: W3-retired production write path must not exist`);
   const cellPath = "packages/daemon/src/repo-cell.ts",
@@ -130,16 +131,6 @@ function source(rootDir, relative, violations) {
     return "";
   }
   return readFileSync(file, "utf8");
-}
-function walk(directory, rootDir) {
-  if (!existsSync(directory)) return [];
-  const files = [];
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const absolute = path.join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...walk(absolute, rootDir));
-    else files.push(path.relative(rootDir, absolute).split(path.sep).join("/"));
-  }
-  return files;
 }
 function main() {
   const violations = findW3WriteAuthorityViolations();

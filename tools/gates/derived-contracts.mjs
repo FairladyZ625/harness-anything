@@ -1,33 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { repoRoot } from "./git.mjs";
+import { listWorktreeFiles, repoRoot } from "./git.mjs";
 
 const CONTRACT_FILE = /\.contract\.(?:mjs|ts)$/u;
-const IGNORED_DIRECTORIES = new Set([".git", "coverage", "dist", "node_modules"]);
 const DOMAINS = Object.freeze(["commands", "gates", "guards", "methods", "schemas"]);
 
-function repoPath(rootDir, absolutePath) {
-  return path.relative(rootDir, absolutePath).split(path.sep).join("/");
-}
-
-function walk(directory, files) {
-  if (!existsSync(directory)) return;
-  for (const entry of readdirSync(directory, { withFileTypes: true }).sort((left, right) =>
-    left.name.localeCompare(right.name),
-  )) {
-    if (entry.isDirectory() && IGNORED_DIRECTORIES.has(entry.name)) continue;
-    const fullPath = path.join(directory, entry.name);
-    if (entry.isDirectory()) walk(fullPath, files);
-    else if (entry.isFile() && CONTRACT_FILE.test(entry.name)) files.push(fullPath);
-  }
-}
-
 export function discoverContractFiles(rootDir) {
-  const files = [];
-  for (const root of ["packages", "src", "tools"]) walk(path.join(rootDir, root), files);
-  return files.sort().map((file) => repoPath(rootDir, file));
+  return listWorktreeFiles(rootDir, ["packages", "src", "tools"]).filter((file) => CONTRACT_FILE.test(file));
 }
 
 export async function loadContracts(rootDir, files = discoverContractFiles(rootDir)) {

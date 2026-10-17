@@ -131,6 +131,12 @@ test("kernel dead-export check allowlists require an exact real task id when cit
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-f8a-dead-exports-"));
+  // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: root });
   mkdirSync(path.join(root, "packages/kernel/src"), { recursive: true });
   mkdirSync(path.join(root, "packages/application/src"), { recursive: true });
   writeFileSync(

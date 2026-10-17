@@ -1,7 +1,7 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { changedFiles, repoRoot } from "./git.mjs";
+import { changedFiles, listWorktreeFiles, repoRoot } from "./git.mjs";
 import { writeCiGateResult } from "../ci-gate-result.mjs";
 
 const DEPENDENCY_SECTIONS = Object.freeze([
@@ -13,20 +13,12 @@ const DEPENDENCY_SECTIONS = Object.freeze([
 const DECLARATION = /^Dependency-Change:[ \t]*(.*?)\s*$/gmu;
 
 function packageManifestPaths(rootDir) {
-  const result = ["package.json"];
-  const packagesRoot = path.join(rootDir, "packages");
-  if (!existsSync(packagesRoot)) return result;
-  const walk = (directory, depth) => {
-    for (const entry of readdirSync(directory, { withFileTypes: true })) {
-      if (!entry.isDirectory()) continue;
-      const fullPath = path.join(directory, entry.name);
-      if (existsSync(path.join(fullPath, "package.json")))
-        result.push(path.relative(rootDir, path.join(fullPath, "package.json")).split(path.sep).join("/"));
-      if (depth < 1) walk(fullPath, depth + 1);
-    }
-  };
-  walk(packagesRoot, 0);
-  return result.sort();
+  // Workspace manifests are the package.json files git can see under packages/;
+  // deeper pack copies (build-resources) are gitignored and never declarations.
+  return [
+    "package.json",
+    ...listWorktreeFiles(rootDir, ["packages"]).filter((file) => path.posix.basename(file) === "package.json"),
+  ].sort();
 }
 
 export function validateLockfile(rootDir) {

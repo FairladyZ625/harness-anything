@@ -330,6 +330,12 @@ test("bypass write boundary rejects writes in the current CLI command surface", 
 
 function makeFixtureRoot() {
   const root = mkdtempSync(path.join(tmpdir(), "ha-w8-boundary-"));
+  // The gate enumerates through git; the excludesFile pin keeps host-global ignores out.
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: root });
   mkdirSync(path.join(root, "packages/kernel/src/store"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/local"), { recursive: true });
   mkdirSync(path.join(root, "packages/kernel/src/projection"), { recursive: true });

@@ -22,6 +22,30 @@ import {
 
 const root = path.resolve(import.meta.dirname, "../../..");
 
+// The gate enumerates through git, so copied fixtures must be repositories carrying
+// the repository's own .gitignore (the sole ignore authority); build-resources is
+// fully ignored upstream, so copying it would only move dead weight.
+function copyRepositoryInto(fixture) {
+  const files = globSync(["packages/**/*", "package.json", "package-lock.json", "tsconfig.json", ".gitignore"], {
+    cwd: root,
+    withFileTypes: true,
+    exclude: ["**/node_modules/**", "**/dist/**", "**/build-resources/**"],
+  })
+    .filter((entry) => entry.isFile())
+    .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
+  for (const file of files) {
+    const destination = path.join(fixture, file);
+    mkdirSync(path.dirname(destination), { recursive: true });
+    copyFileSync(path.join(root, file), destination);
+  }
+  for (const args of [
+    ["init", "--quiet"],
+    ["config", "core.excludesFile", "/dev/null"],
+  ])
+    spawnSync("git", args, { cwd: fixture });
+  return files;
+}
+
 test("contract markers require an exact ID beside a test declaration", () => {
   assert.equal(hasContractEvidence('// harness-contract: sample.id\ntest("any title", () => {});', "sample.id"), true);
   for (const source of [
@@ -54,18 +78,7 @@ test("implementation contracts remain on the required boundaries path", () => {
 test("renderer rule blocks credential token shapes and private paths but passes token usage telemetry", () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-renderer-"));
   try {
-    const files = globSync(["packages/**/*", "package.json", "package-lock.json", "tsconfig.json"], {
-      cwd: root,
-      withFileTypes: true,
-      exclude: ["**/node_modules/**", "**/dist/**"],
-    })
-      .filter((entry) => entry.isFile())
-      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
-    for (const file of files) {
-      const destination = path.join(fixture, file);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      copyFileSync(path.join(root, file), destination);
-    }
+    copyRepositoryInto(fixture);
     const runGate = () =>
       spawnSync(process.execPath, [path.join(root, "tools/check-implementation-contracts.mjs")], {
         cwd: fixture,
@@ -136,18 +149,7 @@ test("renderer rule blocks credential token shapes and private paths but passes 
 test("daemon status-branch rule judges by protocol handler landing site, not comparison syntax", () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-status-"));
   try {
-    const files = globSync(["packages/**/*", "package.json", "package-lock.json", "tsconfig.json"], {
-      cwd: root,
-      withFileTypes: true,
-      exclude: ["**/node_modules/**", "**/dist/**"],
-    })
-      .filter((entry) => entry.isFile())
-      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
-    for (const file of files) {
-      const destination = path.join(fixture, file);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      copyFileSync(path.join(root, file), destination);
-    }
+    copyRepositoryInto(fixture);
     const runGate = () =>
       spawnSync(process.execPath, [path.join(root, "tools/check-implementation-contracts.mjs")], {
         cwd: fixture,
@@ -205,20 +207,10 @@ test("daemon status-branch rule judges by protocol handler landing site, not com
 test("real implementation gate accepts renamed titles and rejects each missing or misplaced contract marker", () => {
   const fixture = mkdtempSync(path.join(os.tmpdir(), "implementation-contract-"));
   try {
-    const files = globSync(["packages/**/*", "package.json", "package-lock.json", "tsconfig.json"], {
-      cwd: root,
-      withFileTypes: true,
-      exclude: ["**/node_modules/**", "**/dist/**"],
-    })
-      .filter((entry) => entry.isFile())
-      .map((entry) => path.relative(root, path.join(entry.parentPath, entry.name)));
+    const files = copyRepositoryInto(fixture);
     const anchors = [];
-    for (const file of files) {
-      const destination = path.join(fixture, file);
-      mkdirSync(path.dirname(destination), { recursive: true });
-      copyFileSync(path.join(root, file), destination);
-      if (!file.endsWith(".test.ts")) continue;
-      const source = readFileSync(destination, "utf8");
+    for (const file of files.filter((entry) => entry.endsWith(".test.ts"))) {
+      const source = readFileSync(path.join(fixture, file), "utf8");
       for (const match of source.matchAll(/^[ \t]*\/\/ harness-contract: ([a-z0-9.-]+)$/gm))
         anchors.push({ file, marker: match[0], id: match[1] });
     }

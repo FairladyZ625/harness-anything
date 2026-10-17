@@ -15,9 +15,10 @@
  *   3. The single reverse query agrees with the canonical direction.
  *   4. No production source re-reads the retired invalidated-by alias.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
+import { listWorktreeFiles } from "./gates/git.mjs";
 
 const KERNEL_ALLOWLIST = "../packages/kernel/src/domain/entity-relation.ts";
 const KERNEL_DIRECTION = "../packages/kernel/src/domain/relation-direction.ts";
@@ -175,10 +176,9 @@ export function checkGuiMirrorAgreement(
 }
 
 export function checkNoRetiredAliasReads(root = process.cwd(), findings = []) {
-  for (const file of walk(path.join(root, "packages"))) {
-    const rel = path.relative(root, file).split(path.sep).join("/");
+  for (const rel of listWorktreeFiles(root, ["packages"]).filter((file) => SOURCE_FILE.test(file))) {
     if (isTestOrFixturePath(rel)) continue;
-    if (RETIRED_ALIAS_COMPARISON.test(readFileSync(file, "utf8"))) {
+    if (RETIRED_ALIAS_COMPARISON.test(readFileSync(path.join(root, rel), "utf8"))) {
       findings.push(
         `${rel}: reads or writes the retired invalidated-by alias; reverse questions must go through incomingRelations`,
       );
@@ -209,27 +209,6 @@ async function main() {
   console.log(
     "Canonical relation direction check passed (registry, allowlist, and reverse query agree; retired mirrors refused).",
   );
-}
-
-function walk(dir) {
-  const files = [];
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch (error) {
-    if (error?.code === "ENOENT") return [];
-    throw error;
-  }
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (entry.name === "node_modules" || entry.name === "dist" || entry.name === "out") continue;
-      files.push(...walk(full));
-    } else if (SOURCE_FILE.test(entry.name)) {
-      files.push(full);
-    }
-  }
-  return files;
 }
 
 function isTestOrFixturePath(rel) {

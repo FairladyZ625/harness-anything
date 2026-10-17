@@ -6,10 +6,11 @@
  * sites are tolerated at their current counts; a new site or an extra event
  * constructor at an allowed site is refused.
  */
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import ts from "typescript";
+import { listWorktreeFiles } from "./gates/git.mjs";
 import { TASK_EVENT_CONSTRUCTION_ALLOWLIST } from "./gate-allowlists/task-event-aggregate-entry.mjs";
 
 export { TASK_EVENT_CONSTRUCTION_ALLOWLIST };
@@ -18,16 +19,14 @@ const SOURCE_FILE = /\.(?:ts|tsx|mts|js|jsx|mjs)$/u;
 
 export function scanTaskEventConstructionSites(root = process.cwd()) {
   const sites = [];
-  const files = walk(path.join(root, "packages")).filter((file) => {
-    const rel = path.relative(root, file).split(path.sep).join("/");
-    return /(?:^|\/)src\//u.test(rel) && !isTestOrFixturePath(rel);
-  });
+  const files = listWorktreeFiles(root, ["packages"]).filter(
+    (rel) => SOURCE_FILE.test(rel) && /(?:^|\/)src\//u.test(rel) && !isTestOrFixturePath(rel),
+  );
   if (files.length === 0)
     throw new Error("Task event aggregate-entry: required scan root packages has no source files");
-  for (const file of files) {
-    const rel = path.relative(root, file).split(path.sep).join("/");
-    const body = readFileSync(file, "utf8"),
-      source = ts.createSourceFile(file, body, ts.ScriptTarget.Latest, true, scriptKind(file));
+  for (const rel of files) {
+    const body = readFileSync(path.join(root, rel), "utf8"),
+      source = ts.createSourceFile(rel, body, ts.ScriptTarget.Latest, true, scriptKind(rel));
     const add = (node, form, eventType) => {
       const point = source.getLineAndCharacterOfPosition(node.getStart(source));
       sites.push({ path: rel, form, eventType, line: point.line + 1, column: point.character + 1 });
@@ -129,17 +128,6 @@ function isTestOrFixturePath(rel) {
     /(?:^|\/)(?:__fixtures__|fixtures|test|tests|e2e)\//u.test(rel) ||
     /\.(?:test|spec|vitest)\.[cm]?[jt]sx?$/u.test(rel)
   );
-}
-function walk(dir) {
-  const files = [];
-  const entries = readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      if (!["node_modules", "dist", "out"].includes(entry.name)) files.push(...walk(full));
-    } else if (SOURCE_FILE.test(entry.name)) files.push(full);
-  }
-  return files;
 }
 
 if (process.argv[1] !== undefined && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href)
