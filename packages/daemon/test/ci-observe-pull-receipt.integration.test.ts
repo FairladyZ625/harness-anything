@@ -36,6 +36,8 @@ async function submittedTaskFixture(
     readonly calls: () => string[];
     readonly releaseWitness: () => void;
     readonly releaseScan: () => void;
+    readonly disableBranchRuns: () => void;
+    readonly enableBranchRuns: () => void;
     readonly breakProvider: () => void;
     readonly show: () => Promise<ScheduleV1>;
     readonly advance: () => void;
@@ -49,6 +51,7 @@ async function submittedTaskFixture(
     deliveryFile = path.join(parent, "delivery"),
     witnessHold = path.join(parent, "witness-released"),
     scanHold = path.join(parent, "scan-released"),
+    branchRunsDisabled = path.join(parent, "branch-runs-disabled"),
     originalPath = process.env.PATH;
   mkdirSync(rootDir);
   mkdirSync(bin);
@@ -76,7 +79,7 @@ const api = args.find(a => a.startsWith('repos/')) ?? '';
 const delivery = fs.readFileSync(${JSON.stringify(deliveryFile)}, 'utf8').trim();
 const metadata = (runId) => ({name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:delivery,headSha:delivery,head_branch:runId===9?'task-pull-receipt':'main',headBranch:runId===9?'task-pull-receipt':'main',status:'completed',conclusion:'success',run_attempt:1,attempt:1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/pull-receipt'},id:runId});
 if (api.includes('/workflows/')) { await waitFor(${JSON.stringify(scanHold)}); process.stdout.write(JSON.stringify({workflow_runs: []})); }
-else if (api.includes('?branch=')) process.stdout.write(JSON.stringify([{workflow_runs:[{id:9,path:'.github/workflows/rewrite-ci.yml',head_branch:'task-pull-receipt',head_sha:delivery,event:'push',status:'completed',conclusion:'success'}]}]));
+else if (api.includes('?branch=')) process.stdout.write(JSON.stringify([{workflow_runs:fs.existsSync(${JSON.stringify(branchRunsDisabled)})?[]:[{id:9,path:'.github/workflows/rewrite-ci.yml',head_branch:'task-pull-receipt',head_sha:delivery,event:'push',status:'completed',conclusion:'success'}]}]));
 else if (api.includes('head_sha=')) { await waitFor(${JSON.stringify(witnessHold)}); process.stdout.write(JSON.stringify([{databaseId:7, path:'.github/workflows/rewrite-ci.yml', headBranch:'main', event:'push', status:'completed', conclusion:'success'}])); }
 else if (api.includes('/jobs')) process.stdout.write(JSON.stringify([{jobs:[]}]));
 else if (api.includes('/artifacts')) process.stdout.write(JSON.stringify([{artifacts:[]}]));
@@ -133,6 +136,8 @@ else throw new Error('unexpected provider call ' + args.join(' '));
       calls: () => readFileSync(callsLog, "utf8").split("\n").filter(Boolean),
       releaseWitness: () => writeFileSync(witnessHold, "released"),
       releaseScan: () => writeFileSync(scanHold, "released"),
+      disableBranchRuns: () => writeFileSync(branchRunsDisabled, "disabled"),
+      enableBranchRuns: () => rmSync(branchRunsDisabled, { force: true }),
       breakProvider: () =>
         writeFileSync(
           path.join(bin, "gh"),
@@ -384,38 +389,63 @@ test("forwarding a review cut on the remote center imports branch CI for the own
   }, "remote-center");
 });
 
-test("owner forward imports branch CI through the command runner", async () => {
-  await submittedTaskFixture(async ({ cell, taskId, releaseWitness, releaseScan }) => {
-    releaseWitness();
-    releaseScan();
-    const occurrence = await cell.run(
-      {
-        kind: "schedule-run-now",
-        scheduleId: builtinCiObserveScheduleId,
-        idempotencyKey: "record-main-witness-before-forward",
-      },
-      binding,
-    );
-    assert.equal(occurrence.outcome, "applied", JSON.stringify(occurrence));
-    const shown = await cell.run({ kind: "task-show", taskId }, binding);
-    assert.equal(shown.outcome, "applied", JSON.stringify(shown));
-    const task = JSON.parse(String(shown.evidence)) as TaskLifecycleSnapshot;
-    const executionId = task.executions.at(-1)?.executionId;
-    assert.ok(executionId, JSON.stringify(task));
-    const forwarded = await cell.run(
-      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward for CI regression." },
-      binding,
-    );
-    assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
-    const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
-      ci: { conclusion: string; runs: readonly { id: number }[] };
-    };
-    assert.equal(ci.ci.conclusion, "success", JSON.stringify(ci.ci));
-    assert.ok(
-      ci.ci.runs.some((run) => run.id === 9),
-      JSON.stringify(ci.ci.runs),
-    );
-  }, "remote-center");
+test("owner forward imports branch CI through the command runner after a frozen pass", async () => {
+  await submittedTaskFixture(
+    async ({ cell, taskId, calls, releaseWitness, releaseScan, disableBranchRuns, enableBranchRuns }) => {
+      disableBranchRuns();
+      releaseWitness();
+      releaseScan();
+      const occurrence = await cell.run(
+        {
+          kind: "schedule-run-now",
+          scheduleId: builtinCiObserveScheduleId,
+          idempotencyKey: "record-main-witness-before-forward",
+        },
+        binding,
+      );
+      assert.equal(occurrence.outcome, "applied", JSON.stringify(occurrence));
+      const beforeForward = JSON.parse(
+        String((await cell.run({ kind: "task-show", taskId }, binding)).evidence),
+      ) as TaskLifecycleSnapshot;
+      assert.equal(beforeForward.executions[0]!.gateRuns.at(-1)!.state, "completed");
+      assert.equal(beforeForward.executions[0]!.gateRuns.at(-1)!.result, "pass");
+      const ciBeforeForward = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
+        ci: { runs: readonly { id: number }[] };
+      };
+      assert.equal(
+        ciBeforeForward.ci.runs.some((run) => run.id === 9),
+        false,
+      );
+      enableBranchRuns();
+      const shown = await cell.run({ kind: "task-show", taskId }, binding);
+      assert.equal(shown.outcome, "applied", JSON.stringify(shown));
+      const task = JSON.parse(String(shown.evidence)) as TaskLifecycleSnapshot;
+      const executionId = task.executions.at(-1)?.executionId;
+      assert.ok(executionId, JSON.stringify(task));
+      const forwarded = await cell.run(
+        { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward for CI regression." },
+        binding,
+      );
+      assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
+      assert.ok(
+        calls().some((line) => line.includes("branch=task-pull-receipt")),
+        "forward must import task branch runs despite the passing gate",
+      );
+      const ci = (await cell.run({ kind: "task-ci", taskId }, binding)) as unknown as {
+        ci: { conclusion: string; runs: readonly { id: number }[] };
+      };
+      assert.equal(ci.ci.conclusion, "success", JSON.stringify(ci.ci));
+      assert.ok(
+        ci.ci.runs.some((run) => run.id === 9),
+        JSON.stringify(ci.ci.runs),
+      );
+      assert.ok(
+        ci.ci.runs.some((run) => run.id === 9),
+        JSON.stringify(ci.ci.runs),
+      );
+    },
+    "remote-center",
+  );
 });
 
 test("a failed import lands as a warning on the standing forward; the cut reads pending, never not_started", async () => {

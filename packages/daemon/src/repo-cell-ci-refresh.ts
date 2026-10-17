@@ -100,7 +100,9 @@ export function makeCiRefreshQueue(input: {
       { readonly resolve: (receipt: WriteReceipt) => void; readonly reject: (error: unknown) => void }
     >();
   let ciRefresh: Promise<WriteReceipt> | null = null;
-  const recordedWitnessReceipt = (taskId: string): WriteReceipt | null => {
+  const recordedWitnessReceipt = (action: RepoTaskAction): WriteReceipt | null => {
+    if (action.observeBranch === true || typeof action.taskId !== "string") return null;
+    const taskId = action.taskId;
     const target = submittedGithubActionsRequirement(context.projection.read(taskId).snapshot);
     if (!target) return null;
     if (githubActionsGateResult(target.requirement, target.execution) !== "pass") return null;
@@ -114,7 +116,7 @@ export function makeCiRefreshQueue(input: {
   };
   const refreshCi = async (action: RepoTaskAction, binding: RepoCellBinding): Promise<WriteReceipt> => {
     if (typeof action.taskId === "string") {
-      const recorded = recordedWitnessReceipt(action.taskId);
+      const recorded = recordedWitnessReceipt(action);
       if (recorded) return recorded;
     }
     const schedule = context.projection.getEntity("schedule", builtinCiObserveScheduleId)?.value as
@@ -225,7 +227,7 @@ export function makeCiRefreshQueue(input: {
         // Drain-time re-check: a witness the previous occurrence recorded after this pull queued
         // answers the pull from the ledger — the same recorded-verdict check the re-derivation
         // pass applies to durable submissions.
-        const recorded = recordedWitnessReceipt(request.taskId);
+        const recorded = recordedWitnessReceipt(request);
         if (!recorded) return [request];
         ciWaiters.get(request.taskId)?.resolve(recorded);
         ciWaiters.delete(request.taskId);
