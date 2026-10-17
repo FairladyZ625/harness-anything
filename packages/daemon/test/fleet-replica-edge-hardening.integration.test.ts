@@ -116,9 +116,11 @@ test("a failing confirmation is reported and never fails the replication stream"
   await fixture.openCenter();
   const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
     viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"),
-    confirmFailures: unknown[] = [];
+    confirmFailures: unknown[] = [],
+    confirmedPaths: (readonly string[] | undefined)[] = [];
   const stream = startHardeningStream(t, fixture, viewRoot, {
-    onConfirmed: () => {
+    onConfirmed: (changedPaths) => {
+      confirmedPaths.push(changedPaths);
       throw new Error("center rejected the reconcile");
     },
     onConfirmedFailure: (error) => confirmFailures.push(error),
@@ -136,7 +138,48 @@ test("a failing confirmation is reported and never fails the replication stream"
   );
   assert.ok(confirmFailures.length >= 1, "the confirmation failure was reported");
   assert.deepEqual(stream.failures, [], "confirmation failures are not stream failures");
+  assert.deepEqual(
+    confirmedPaths.filter((paths) => paths !== undefined),
+    [],
+    "a failed confirmation loses its path list, so every retry compares the whole cut",
+  );
 });
+
+test(
+  "a stream confirms the whole cut first, then only the paths later commits changed",
+  { timeout: 120_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    await seedCenterData(fixture, seededTask);
+    await fixture.openCenter();
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-harden-view-")),
+      viewDir = path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one"),
+      confirmedPaths: (readonly string[] | undefined)[] = [];
+    startHardeningStream(t, fixture, viewRoot, {
+      onConfirmed: (changedPaths) => {
+        confirmedPaths.push(changedPaths);
+      },
+    });
+    await waitForState(
+      () => readReplicaGeneration(viewDir)?.metadata.position.sequence === centerSequence(fixture),
+      "initial convergence",
+      60_000,
+    );
+    await waitForState(() => confirmedPaths.length > 0, "the first confirmation", 60_000);
+    assert.equal(confirmedPaths[0], undefined, "a new process and a base backup materialize the whole cut");
+    const before = confirmedPaths.length;
+    await pressure(fixture, 3);
+    await waitForState(
+      () => confirmedPaths.slice(before).some((paths) => (paths?.length ?? 0) > 0),
+      "a confirmation naming the changed paths",
+      60_000,
+    );
+    assert.ok(
+      confirmedPaths.slice(before).every((paths) => paths !== undefined),
+      "streamed commits carry their changed paths",
+    );
+  },
+);
 
 test(
   "an edge upgraded over the retired cut/pull layout discards it and installs a generation",
