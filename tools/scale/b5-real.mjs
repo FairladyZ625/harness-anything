@@ -444,6 +444,11 @@ async function measureB5RealSingle(options) {
   const factQuery = (index) => factRead({ query: factStatements[index % factStatements.length] });
   const narrowStatus = () => readModel.guiTasks({ status: "active", limit: 50 });
   const narrowWindow = () => readModel.guiTasks({ updatedAfter: windowStart, limit: 50 });
+  // The single-task read cost curve: the taskIds membership filter is the narrowest served read
+  // (the shape `task show` and per-task refreshes ride), so its p50 against ledger size is the
+  // "does one task's read cost grow with the ledger" answer.
+  const singleTask = (index) =>
+    readModel.guiTasks({ taskIds: [taskIds[index % taskIds.length]], limit: 1 }).rows.length;
   // A paged API is a served page, not an implicit N/page full export. The
   // integration suite separately proves that following every cursor exactly
   // reconstructs the unparameterized result; this scale sample measures the
@@ -459,6 +464,7 @@ async function measureB5RealSingle(options) {
     taskList: [],
     factSearch: [],
     relationGraph: [],
+    singleTask: [],
     taskStatus: [],
     taskWindow: [],
     taskPage: [],
@@ -477,6 +483,9 @@ async function measureB5RealSingle(options) {
       started = performance.now();
       sentinel.edges = unparamGraph().edges.length;
       samples.relationGraph.push(performance.now() - started);
+      started = performance.now();
+      singleTask(index);
+      samples.singleTask.push(performance.now() - started);
       if (narrowSupported) {
         started = performance.now();
         narrowStatus();
@@ -537,6 +546,7 @@ async function measureB5RealSingle(options) {
       taskList: stats(samples.taskList),
       factSearch: stats(samples.factSearch),
       relationGraph: stats(samples.relationGraph),
+      singleTaskRead: stats(samples.singleTask),
       ...(narrowSupported
         ? {
             taskStatusNarrow: stats(samples.taskStatus),
