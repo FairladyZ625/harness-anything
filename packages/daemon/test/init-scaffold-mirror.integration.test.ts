@@ -119,7 +119,7 @@ async function initializedCenterWithEdge() {
   });
   // One sync round of the edge: the resident replication stream's single-round control, then
   // the mirror materializes the registered workspace paths.
-  const edgeSync = (): Promise<Record<string, unknown>> =>
+  const edgeSync = (changedPaths?: readonly string[]): Promise<Record<string, unknown>> =>
     catchUpReplica({
       hostname: "127.0.0.1",
       port: center.port,
@@ -132,7 +132,10 @@ async function initializedCenterWithEdge() {
       diskQuotaBytes: replicaQuota,
       readAccessToken: owners.readAccessToken(nodeId),
     }).then((pulled) => {
-      applyFleetMirrorCut(viewRoot, repoId, workspace, "pull", { viewId: pulled.replica.viewId });
+      applyFleetMirrorCut(viewRoot, repoId, workspace, "pull", {
+        viewId: pulled.replica.viewId,
+        ...(changedPaths === undefined ? {} : { changedPaths }),
+      });
       return { ok: true } as Record<string, unknown>;
     });
   const centerSubmit = async (logical: string, body: string): Promise<void> => {
@@ -148,6 +151,14 @@ async function initializedCenterWithEdge() {
     workspace,
     edgeSync,
     centerSubmit,
+    centerRetire: async (logical: string): Promise<void> => {
+      const retired = await host.run(
+        repoId,
+        { kind: "doc-retire", paths: [logical], reason: "mirror incremental deletion test" } as never,
+        auth,
+      );
+      assert.equal(retired.outcome, "applied", JSON.stringify(retired));
+    },
     viewRoot,
     repoId,
     centerPort: center.port,
@@ -246,7 +257,7 @@ test(
       revised = `${baseline.trimEnd()}\n\nRevised at the center.\n`;
     await fixture.centerSubmit(standard, revised);
     assert.equal(readFileSync(path.join(fixture.workspace, "harness", standard), "utf8"), baseline);
-    const synced = await fixture.edgeSync();
+    const synced = await fixture.edgeSync([standard]);
     assert.equal(synced.ok, true, JSON.stringify(synced).slice(0, 500));
     assert.equal(readFileSync(path.join(fixture.workspace, "harness", standard), "utf8"), revised);
     assert.ok((fixture.edgeRevision() ?? 0) > (baseRevision ?? 0), "the mirror revision names the newer version");
@@ -275,6 +286,22 @@ test(
     assert.equal(fixture.mirrorBytes(standard) !== null, true, "the center's newer bytes are in the mirror");
   },
 );
+
+test("a center retirement removes only its selected materialized edge path", { timeout: 60_000 }, async (t) => {
+  const fixture = await initializedCenterWithEdge();
+  t.after(() => fixture.close());
+  assert.equal((await fixture.edgeSync()).ok, true);
+  const target = path.join(fixture.workspace, "harness", standard);
+  assert.equal(existsSync(target), true);
+  await fixture.centerRetire(standard);
+  assert.equal((await fixture.edgeSync([standard])).ok, true);
+  assert.equal(existsSync(target), false, "a confirmed center retirement deletes the mirrored file");
+  assert.equal(
+    existsSync(path.join(fixture.workspace, "harness", "context", "README.md")),
+    true,
+    "unselected materialized files remain in place",
+  );
+});
 
 test(
   "scan ignores center documents that were never materialized but reports deletion of a materialized document",
