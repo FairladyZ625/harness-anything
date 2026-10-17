@@ -18,6 +18,8 @@ import type {
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { AgendaView } from "../src/renderer/views/AgendaView.tsx";
 import { runningRowsOf, TodayView } from "../src/renderer/views/today/TodayView.tsx";
+import { deliveredRows } from "../src/renderer/views/today/today-data.ts";
+import type { TaskSnapshotProjectionRow } from "../src/api/renderer-dto.ts";
 import type { AgentRuntimeSessionGroupsResult } from "@harness-anything/daemon/protocol";
 
 /**
@@ -27,7 +29,7 @@ import type { AgentRuntimeSessionGroupsResult } from "@harness-anything/daemon/p
  *  - awaits 行的首要动作是就地答复(AwaitsAnswerPanel),其余行「去处理」开单层抽屉,
  *    抽屉里给「打开完整详情」;
  *  - 正在跑:会话组 runningCount>0 的任务一行,卡住(blocked/lost)标红;
- *  - 刚交付:事件页 task_completed 一行,点行直接进任务详情;
+ *  - 刚交付:任务投影 done/completedAt 一行,点行直接进任务详情;
  *  - 空态写人话,读失败显式报错,不冒充。
  */
 const REPO_ID = "today-probe",
@@ -251,6 +253,13 @@ const todayElement = (patch: Partial<Parameters<typeof TodayView>[0]> = {}) =>
       ["task_done_1", "刚交付的任务一"],
       ["task_done_2", "刚交付的任务二"],
     ]),
+    tasks: [
+      { taskId: "task_done_1", snapshot: { task: { status: "done", title: "刚交付的任务一" } } },
+      { taskId: "task_done_2", snapshot: { task: { status: "done", title: "刚交付的任务二" } } },
+    ].map((row, index) => ({
+      ...row,
+      completedAt: index === 0 ? "2026-10-17T08:00:00.000Z" : "2026-10-17T06:30:00.000Z",
+    })) as unknown as TaskSnapshotProjectionRow[],
     onNavigateEntity: () => undefined,
     onOpenTask: () => undefined,
     onOpenAgenda: () => undefined,
@@ -266,6 +275,24 @@ const click = (host: HTMLElement, testId: string) => {
 };
 
 describe("今天:三块区域与数字", () => {
+  it("从任务投影找最近完成,不受大量非完成事件影响", () => {
+    const rows = Array.from({ length: 1000 }, (_, index) => ({
+      taskId: `task_noise_${index}`,
+      completedAt: null,
+      snapshot: { task: { status: "active", title: `噪声 ${index}` } },
+    }));
+    rows.push({
+      taskId: "task_recent_done",
+      completedAt: "2026-10-17T08:00:00.000Z",
+      snapshot: { task: { status: "done", title: "最近完成" } },
+    });
+    const delivered = deliveredRows(
+      rows as unknown as TaskSnapshotProjectionRow[],
+      Date.parse("2026-10-17T09:00:00.000Z"),
+    );
+    expect(delivered.map(({ taskId }) => taskId)).toEqual(["task_recent_done"]);
+  });
+
   it("三块各一个数;等你处理的计数与议程页「需要关注」同数(两页同源)", async () => {
     const { container } = await mountToday(todayElement());
     // 等你处理:1 条 decision 源 awaits 折成 dispose + 1 条 task 源 awaits + 返工 + 待初审 + 待评审 + 待裁决 = 6。
