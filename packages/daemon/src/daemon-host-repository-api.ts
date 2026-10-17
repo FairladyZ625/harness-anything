@@ -61,6 +61,7 @@ function isRepoCellReadMethod(method: DaemonGuiRpcReadMethod): method is RepoCel
     method !== "repo.tasks.claimable" &&
     method !== "repo.tasks.assignmentDirectory" &&
     method !== "daemon.gui.system.read" &&
+    method !== "daemon.gui.home.read" &&
     method !== "daemon.gui.control.receipt" &&
     method !== "observe.tail" &&
     method !== "repo.fleet.overview.read" &&

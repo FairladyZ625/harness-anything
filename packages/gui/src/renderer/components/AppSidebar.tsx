@@ -5,7 +5,13 @@ import type { SystemRepoRow } from "../api-client.ts";
 import type { Project } from "../model/types.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
 import type { ViewId } from "../navigation/viewHistory.ts";
-import { NAV_GROUPS, navLabel } from "../navigation/navConfig.tsx";
+import {
+  NAV_GROUPS,
+  navLabelOf,
+  isRedesignViewId,
+  type NavViewId,
+  type RedesignViewId,
+} from "../navigation/navConfig.tsx";
 import { NavButton, ThemeToggle } from "./shell-chrome.tsx";
 import { QuickSwitcher } from "./sidebar/QuickSwitcher.tsx";
 import { SystemStatusPanel, type LedgerStatusBarInput } from "./sidebar/SystemStatusPanel.tsx";
@@ -22,6 +28,8 @@ export interface AppSidebarProps {
   readonly repos: readonly SystemRepoRow[];
   readonly activeRepoId: string | null;
   readonly view: ViewId;
+  /** 重构区当前页(dec_C612E69B):非 null 时主区在重构页,对应导航项点亮。 */
+  readonly redesignView: RedesignViewId | null;
   /** 任务详情占用主区时导航不点亮任何一项(与旧 App.tsx 判定一致)。 */
   readonly hasSelection: boolean;
   /** 待办签发总池的待办角标(决策待裁 + 门禁待签 + 收口待同意 + 阻断待特批)。 */
@@ -35,7 +43,7 @@ export interface AppSidebarProps {
   /** 置顶的 repoId(与项目管理页同一条顺序,App 唯一实例下传)。 */
   readonly pinnedRepoIds: ReadonlyArray<string>;
   readonly onToggleProjectPin: (repoId: string) => void;
-  readonly onNavigate: (view: ViewId) => void;
+  readonly onNavigate: (view: NavViewId) => void;
   /** 全部置顶任务(App 从议程读面取);侧栏只展示其中的工作根,其余在总览置顶区。 */
   readonly pinnedWork: readonly { readonly taskId: string; readonly title: string }[];
   /** 置顶项的打开位:App 按「根任务即工作」分流到工作页或任务详情。 */
@@ -65,6 +73,7 @@ export function AppSidebar({
   repos,
   activeRepoId,
   view,
+  redesignView,
   hasSelection,
   poolBadgeCount,
   projectSwitcherOpen,
@@ -277,10 +286,14 @@ export function AppSidebar({
               {group.items.map((item) => (
                 <NavButton
                   key={item.id}
-                  active={view === item.id && !hasSelection}
+                  active={
+                    isRedesignViewId(item.id)
+                      ? redesignView === item.id
+                      : view === item.id && !hasSelection && redesignView === null
+                  }
                   onClick={() => onNavigate(item.id)}
                   icon={item.icon}
-                  label={navLabel(item.id)}
+                  label={navLabelOf(item.id)}
                   badge={item.id === "decisionPool" ? poolBadgeCount : undefined}
                 />
               ))}

@@ -1,3 +1,4 @@
+import { readHomeOverview } from "./home/home-overview-read.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import {
   keycloakNodeRegistry,
@@ -579,6 +580,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     pid: process.pid,
     startedAt,
   });
+  const home = async (auth: DaemonAuthenticationContext) => {
+    localOnly(auth);
+    return readHomeOverview({ context: hostContext, auth });
+  };
   const system = (auth: DaemonAuthenticationContext): JsonObject => {
     localOnly(auth);
     const registry = readDaemonRegistry({ userRoot: input.userRoot }),
@@ -717,6 +722,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       return host;
     },
     system,
+    home,
     now,
     startedAt,
   };
@@ -739,6 +745,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const parkedWaitController = new AbortController();
   const host: DaemonHost = {
     remoteProxy,
+    home,
     keycloakCenter,
     sessionPrincipal: async (auth) => {
       await rbacResumed;

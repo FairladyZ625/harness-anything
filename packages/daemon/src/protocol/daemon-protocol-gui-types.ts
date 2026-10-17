@@ -1,3 +1,4 @@
+import type { DaemonHomeOverviewResult } from "../home/home-overview-types.ts";
 import type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
 export type { TaskAssignmentDirectory, TaskClaimableResult } from "./daemon-protocol-schema-ids.ts";
 import type { DaemonTaskCompletionResult } from "./daemon-protocol-task-completion.ts";
@@ -345,6 +346,7 @@ function nonNegativeInteger(value: unknown): boolean {
 
 type DaemonGuiReadDataMap = {
   readonly "daemon.gui.system.read": JsonObject;
+  readonly "daemon.gui.home.read": DaemonHomeOverviewResult;
   readonly "daemon.gui.control.receipt": JsonObject;
   readonly "observe.tail": ObserveTailResult;
   readonly "repo.tasks.assignmentDirectory": TaskAssignmentDirectory;
@@ -438,6 +440,7 @@ export type DaemonGuiRpcReadMethod = keyof DaemonGuiReadResultMap;
 
 export type DaemonGuiReadPayloadMap = {
   readonly "daemon.gui.system.read": Readonly<Record<string, never>>;
+  readonly "daemon.gui.home.read": Readonly<Record<string, never>>;
   readonly "daemon.gui.control.receipt": { readonly operationId: string };
   readonly "observe.tail": ObserveTailPayload;
   readonly "repo.tasks.assignmentDirectory": { readonly taskId: string };

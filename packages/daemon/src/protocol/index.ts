@@ -117,3 +117,10 @@ export type {
   SquadRunSummaryDto,
   SquadRunWorkerAttemptDto,
 } from "../squad-run-contract.ts";
+
+export type {
+  DaemonHomeOverviewResult,
+  DaemonHomeRepoOverview,
+  DaemonHomeMatter,
+} from "../home/home-overview-types.ts";
+export { validateHomeOverviewResult } from "../home/home-overview-validation.ts";

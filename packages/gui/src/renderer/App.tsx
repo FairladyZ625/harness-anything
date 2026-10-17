@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import type { TaskRow } from "./model/types.ts";
 import { ThemeProvider } from "./theme.tsx";
 import { HomeView } from "./views/HomeView.tsx";
+import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
 import { BoardView } from "./views/BoardView.tsx";
@@ -25,7 +26,7 @@ import { DaemonObserveView } from "./views/DaemonObserveView.tsx";
 import { TaskDetailView } from "./views/TaskDetailView.tsx";
 import { CollaborationView } from "./views/CollaborationView.tsx";
 import { useFleetOverview } from "./collaboration-data.ts";
-import { isExecutingLeasePhase } from "./model/collaboration.ts";
+import { collaborationSummaryOf } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { TaskReturnDialog } from "./components/taskDetail/TaskReturnDialog.tsx";
 import { AppSidebar } from "./components/AppSidebar.tsx";
@@ -35,6 +36,7 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
+import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
@@ -57,7 +59,7 @@ import {
 import { useSearchIndex } from "./search-index-data.ts";
 import { useFavorites } from "./model/favorites.ts";
 import { useProjectOrder } from "./project-order-preferences.ts";
-import { deriveRuntimeHealth } from "./model/runtime-health.ts";
+import { useAppRuntimeHealth } from "./model/use-app-runtime-health.ts";
 import { SessionsView } from "./views/SessionsView.tsx";
 import { SchedulesView } from "./views/SchedulesView.tsx";
 import { ArtifactsView } from "./views/ArtifactsView.tsx";
@@ -267,15 +269,8 @@ function AppShell() {
   const { openLocalDocument } = useLocalDocOpener();
 
   const projectTasks = useMemo(() => tasks.filter((t) => t.projectId === projectId), [tasks, projectId]);
-  // 总览紧凑协作入口的摘要(task_1bafbf09):本地仓也是舰队中心(业主 2026-10-05),
-  // 从已挂载的任务切面折算,不另发请求;未选中仓没有仓库视角,不给入口。
-  const collaborationSummary = useMemo(() => {
-    if (activeRepo === undefined) return null;
-    return {
-      total: projectTasks.length,
-      executing: projectTasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length,
-    };
-  }, [activeRepo, projectTasks]);
+  // 总览紧凑协作入口的摘要(折算在 model/collaboration.ts;未选中仓没有仓库视角,不给入口)。
+  const collaborationSummary = activeRepo === undefined ? null : collaborationSummaryOf(projectTasks);
   /** task 详情「打开终端」→ 终端页进页即建绑定会话;requestId 让同一请求只消费一次。 */
   const [terminalLaunch, setTerminalLaunch] = useState<TerminalLaunchTask | null>(null);
   // 预览抽屉点开的收口记录(execution/review/…):一次性聚焦意图,随任务详情
@@ -374,34 +369,25 @@ function AppShell() {
     );
   }, [projectTasks, workspaceSummaryQuery.data?.decisions.inboxCount]);
 
-  // 系统运行区输入(口径见 model/runtime-health.ts;原总览第四格,2026-08-31 收纳进
-  // 侧栏后改为常驻派生):daemon 响应折算自 systemQuery 成败 + observedAt 年龄;
-  // 投影落后取 tasksQuery 的同一对数字。读面不变,只是消费点从总览页移到外壳。
-  const runtimeHealth = useMemo(() => {
-    const lastSnapshotAt = projectTasks.reduce(
-      (latest, task) => (task.lastKnownAt > latest ? task.lastKnownAt : latest),
-      "",
-    );
-    return deriveRuntimeHealth({
-      daemon: systemQuery.data
-        ? {
-            ok: !systemQuery.isError,
-            observedAt: systemQuery.data.observedAt,
-            uptimeMs: systemQuery.data.daemon.uptimeMs,
-          }
-        : null,
-      repo: activeRepo ?? null,
-      projection: tasksQuery.data
-        ? {
-            watermark: tasksQuery.data.watermark,
-            sourceRevision: tasksQuery.data.sourceRevision,
-            status: tasksQuery.data.status,
-          }
-        : null,
-      lastSnapshotAt: lastSnapshotAt || null,
-      now: new Date().toISOString(),
-    });
-  }, [activeRepo, projectTasks, systemQuery.data, systemQuery.isError, tasksQuery.data]);
+  // 系统运行区输入(派生收敛在 model/use-app-runtime-health.ts;读面不变)。
+  const runtimeHealth = useAppRuntimeHealth({
+    daemon: systemQuery.data
+      ? {
+          ok: !systemQuery.isError,
+          observedAt: systemQuery.data.observedAt,
+          uptimeMs: systemQuery.data.daemon.uptimeMs,
+        }
+      : null,
+    repo: activeRepo ?? null,
+    projection: tasksQuery.data
+      ? {
+          watermark: tasksQuery.data.watermark,
+          sourceRevision: tasksQuery.data.sourceRevision,
+          status: tasksQuery.data.status,
+        }
+      : null,
+    projectTasks,
+  });
 
   // 切仓策略(业主 2026-10-11:切回项目直接回到它上次停留的位置):useViewHistory
   // 切仓时自己重读目标仓的栈,栈顶即上次位置、跨重启保留;显式目标(管理页活动
@@ -416,6 +402,10 @@ function AppShell() {
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
+
+  // 重构区路由(dec_C612E69B):重构页暂由 App 级状态承载,不进全局历史栈;
+  // 从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
+  const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
 
   // 实体导航出口(可寻址路由 + 最近访问)集中在此 hook;跨仓跳转先切仓再续导航。
   const {
@@ -560,6 +550,7 @@ function AppShell() {
           repos={systemQuery.data?.repos ?? []}
           activeRepoId={activeRepoId}
           view={view}
+          redesignView={redesignView}
           hasSelection={selected !== null}
           poolBadgeCount={poolBadgeCount}
           projectSwitcherOpen={projectSwitcherOpen}
@@ -574,7 +565,7 @@ function AppShell() {
           }}
           pinnedRepoIds={pinnedRepoIds}
           onToggleProjectPin={toggleProjectPin}
-          onNavigate={goto}
+          onNavigate={gotoNav}
           pinnedWork={(agendaQuery.data?.pinnedEntities ?? []).flatMap((item) =>
             item.kind === "task" ? [{ taskId: item.ref.replace(/^task\//u, ""), title: item.title }] : [],
           )}
@@ -602,7 +593,14 @@ function AppShell() {
             className="flex min-h-0 min-w-0 flex-1 flex-row overflow-hidden"
           >
             <div className="content-viewport flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-              {ledgerUnavailable ? (
+              {redesignView === "homeOverview" ? (
+                <HomeOverviewPanel
+                  currentRepoId={activeRepoId}
+                  openProject={openProject}
+                  navigateToEntity={navigateToEntity}
+                  openProjectInNewWindow={openProjectInNewWindow}
+                />
+              ) : ledgerUnavailable ? (
                 <WorkspaceSummaryPending error={ledgerReadError} />
               ) : selected && selectedWorkRootId === null ? (
                 renderTaskDetail(selected, {

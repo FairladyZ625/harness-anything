@@ -164,6 +164,7 @@ export type RepoCellReadMethod = Exclude<
   | "repo.tasks.claimable"
   | "repo.tasks.assignmentDirectory"
   | "daemon.gui.system.read"
+  | "daemon.gui.home.read"
   | "daemon.gui.control.receipt"
   | "repo.gui.catalog.snapshot"
   | "repo.gui.catalog.preset.read"

@@ -1,3 +1,4 @@
+import { validateHomeOverviewResult } from "../home/home-overview-validation.ts";
 import { repositoryReadData, validateRepositoryReadFrame } from "./repository-read-frame.ts";
 import { validateTaskClaimableResult, validateTaskAssignmentDirectory } from "./daemon-protocol-validate-entities.ts";
 import {
@@ -143,6 +144,7 @@ const validateTaskRuntimeContextRead: ResultValidator = (value) =>
     : [validationError("task-runtime-context", "result", value, "must be a valid task runtime context read")];
 const resultValidators = {
   "daemon.gui.system.read": validateSystemStatus,
+  "daemon.gui.home.read": validateHomeOverviewResult,
   "daemon.gui.control.receipt": validateDaemonControlReceipt,
   "observe.tail": validateObserveTailResult,
   "repo.tasks.assignmentDirectory": validateTaskAssignmentDirectory,

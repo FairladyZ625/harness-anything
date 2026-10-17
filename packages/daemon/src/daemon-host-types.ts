@@ -1,3 +1,4 @@
+import type { DaemonHomeOverviewResult } from "./home/home-overview-types.ts";
 import type { SquadControlResult } from "./squad-control-result.ts";
 import {
   type AuthorizationDecision,
@@ -115,6 +116,7 @@ export interface DaemonHost {
     auth: DaemonAuthenticationContext,
   ) => Promise<JsonObject>;
   readonly system: (auth: DaemonAuthenticationContext) => JsonObject;
+  readonly home: (auth: DaemonAuthenticationContext) => Promise<DaemonHomeOverviewResult>;
   readonly runtimeInstance: (
     method: string,
     payload: JsonObject,

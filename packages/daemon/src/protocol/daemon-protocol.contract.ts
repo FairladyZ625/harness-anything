@@ -596,7 +596,7 @@ type RepoRpcParams<Payload> = {
 };
 type PresetRpcMethod = (typeof presetMethods)[number]["method"];
 type DaemonGuiReadParams<Method extends keyof import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap> =
-  Method extends "daemon.gui.system.read"
+  Method extends "daemon.gui.system.read" | "daemon.gui.home.read"
     ? Readonly<Record<string, never>>
     : Method extends "daemon.gui.control.receipt"
       ? { readonly payload: import("./daemon-protocol-gui-types.ts").DaemonGuiReadPayloadMap[Method] }

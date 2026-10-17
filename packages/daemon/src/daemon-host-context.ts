@@ -1,3 +1,4 @@
+import type { DaemonHomeOverviewResult } from "./home/home-overview-types.ts";
 import type { CommandTopology } from "@harness-anything/preset/internal/preset-command-contract";
 import type { DaemonRepoMode, InvalidDaemonRegistryRepo } from "@harness-anything/kernel";
 import type { registerDaemonRepo } from "@harness-anything/kernel";
@@ -176,6 +177,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   initialAttachments: Promise<void> | null;
   readonly host: DaemonHost;
   readonly system: (auth: DaemonAuthenticationContext) => JsonObject;
+  readonly home: (auth: DaemonAuthenticationContext) => Promise<DaemonHomeOverviewResult>;
   readonly now: () => string;
   readonly startedAt: string;
 }

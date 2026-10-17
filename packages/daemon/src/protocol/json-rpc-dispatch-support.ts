@@ -22,7 +22,7 @@ type RuntimeInstanceAuthMethod = Extract<DaemonRpcMethod, `repo.runtimeInstance.
 // so it is excluded here just as the runtime membership check excludes it.
 type RepoGuiReadMethod = Exclude<
   DaemonGuiRpcReadMethod,
-  "daemon.gui.system.read" | "daemon.gui.control.receipt" | "repo.tasks.runtimeContext.read"
+  "daemon.gui.system.read" | "daemon.gui.home.read" | "daemon.gui.control.receipt" | "repo.tasks.runtimeContext.read"
 >;
 type TerminalActionMethod = "repo.gui.catalog.reread" | Extract<DaemonGuiActionMethod, `repo.terminal.${string}`>;
 type WithRepoPayload<Call> = Call extends {
@@ -48,6 +48,7 @@ export function isRepoGuiReadCall(call: DaemonRpcCall): call is DaemonRpcCallFor
   return (
     isDaemonGuiReadMethod(call.method) &&
     call.method !== "daemon.gui.system.read" &&
+    call.method !== "daemon.gui.home.read" &&
     call.method !== "daemon.gui.control.receipt"
   );
 }

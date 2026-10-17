@@ -29,3 +29,17 @@ const ACTIVE_LEASE_PHASES = new Set(["held", "reserving"]);
 /** 执行中只认 lease phase(held/reserving);orphaned/released 是持有人还在但不在执行,phase 缺失也不算。 */
 export const isExecutingLeasePhase = (phase: string | undefined): boolean =>
   phase !== undefined && ACTIVE_LEASE_PHASES.has(phase);
+
+/**
+ * 总览紧凑协作入口的摘要(task_1bafbf09):本地仓也是舰队中心(业主 2026-10-05),
+ * 从已挂载的任务切面折算,不另发请求。
+ */
+export function collaborationSummaryOf(projectTasks: readonly TaskRow[]): {
+  readonly total: number;
+  readonly executing: number;
+} {
+  return {
+    total: projectTasks.length,
+    executing: projectTasks.filter((task) => isExecutingLeasePhase(task.leasePhase)).length,
+  };
+}
