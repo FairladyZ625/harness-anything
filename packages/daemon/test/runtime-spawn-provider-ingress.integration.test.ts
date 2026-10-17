@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { makeTaskEventReader } from "@harness-anything/kernel";
+import { makeTaskEventReader, consumeKnownError } from "@harness-anything/kernel";
 import { localUserDaemonEndpoint } from "../src/client/local-daemon-target.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { appendRuntimeWorkerRecord, readDispatchStream } from "../src/dispatch-stream.ts";
@@ -988,15 +988,13 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
     assert.equal(spawned.status, 0, `${spawned.stderr}\n${spawned.stdout}`);
     // This case witnesses provider argv; settlement is covered above. Wait for the witness
     // directly instead of including canonical settlement in spawnCli's process deadline.
-    await eventually(() => existsSync(argsPath));
-    assert.deepEqual(JSON.parse(readFileSync(argsPath, "utf8")), expectedArgs);
+    assert.deepEqual(await recordedArgs(argsPath), expectedArgs);
     const fastSpawned = await spawnCli(
       ["--root", root, "--json", "runtime", "run", "codex-fast-provider", "--fast", "--prompt", "probe", "--detach"],
       childEnv,
     );
     assert.equal(fastSpawned.status, 0, `${fastSpawned.stderr}\n${fastSpawned.stdout}`);
-    await eventually(() => existsSync(codexArgsPath));
-    assert.deepEqual(JSON.parse(readFileSync(codexArgsPath, "utf8")), [
+    assert.deepEqual(await recordedArgs(codexArgsPath), [
       "exec",
       "--json",
       "--sandbox",
@@ -1062,3 +1060,20 @@ test("daemon ingress passes Claude effort and Codex fast through to the witnesse
     rmSync(parent, { recursive: true, force: true });
   }
 });
+
+/**
+ * The stub records provider argv with one writeFileSync; file existence races its content, so
+ * readiness means the record parses as a non-empty argv array, not that the path exists.
+ */
+async function recordedArgs(argsPath: string): Promise<readonly string[]> {
+  return eventuallyValue(() => {
+    if (!existsSync(argsPath)) return null;
+    try {
+      const parsed: unknown = JSON.parse(readFileSync(argsPath, "utf8"));
+      return Array.isArray(parsed) && parsed.length > 0 ? (parsed as readonly string[]) : null;
+    } catch (error) {
+      consumeKnownError(error);
+      return null;
+    }
+  });
+}
