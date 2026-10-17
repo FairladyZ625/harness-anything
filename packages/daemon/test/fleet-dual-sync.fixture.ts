@@ -132,19 +132,25 @@ export async function dualSyncFixture(
     quotaBytes: replicaQuota,
     workspaceRoot: workspace(nodeId),
   });
-  const residentStreams = nodes.map((nodeId) =>
-    startResidentReplicaSync({
-      hostname: "127.0.0.1",
-      port: center.port,
-      ca: cert,
-      servername: "localhost",
-      nodeId,
-      credential: `secret-${nodeId}`,
-      readAccessToken: owners.readAccessToken(nodeId),
-      repoId: "dual-repo",
-      viewRoot: edgeRoot(nodeId),
-      diskQuotaBytes: replicaQuota,
-    }),
+  const residentStreams = new Map<NodeId, { readonly close: () => Promise<void> }>(
+    nodes.map(
+      (nodeId) =>
+        [
+          nodeId,
+          startResidentReplicaSync({
+            hostname: "127.0.0.1",
+            port: center.port,
+            ca: cert,
+            servername: "localhost",
+            nodeId,
+            credential: `secret-${nodeId}`,
+            readAccessToken: owners.readAccessToken(nodeId),
+            repoId: "dual-repo",
+            viewRoot: edgeRoot(nodeId),
+            diskQuotaBytes: replicaQuota,
+          }),
+        ] as const,
+    ),
   );
   await Promise.all(
     nodes.map((nodeId) =>
@@ -260,10 +266,21 @@ export async function dualSyncFixture(
     createTask,
     centerRun,
     waitPublished,
+    // One resident stream owns one replica view: the center's replication slot bumps its fence on
+    // every claim, so a second stream for the same node tears the first down mid-batch and both
+    // reconnect forever. A test that opens its own edge daemon host for a node hands the stream
+    // over by stopping the fixture's before the daemon attaches (startReplicaSyncs claims then).
+    stopResidentSync: async (nodeId: NodeId): Promise<void> => {
+      const stream = residentStreams.get(nodeId);
+      if (!stream) return;
+      residentStreams.delete(nodeId);
+      await stream.close();
+    },
     git,
     owners,
     close: async () => {
-      await Promise.all(residentStreams.map((stream) => stream.close()));
+      await Promise.all([...residentStreams.values()].map((stream) => stream.close()));
+      residentStreams.clear();
       await center.close();
       await host.close();
       await owners.close();
