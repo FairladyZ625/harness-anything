@@ -9,7 +9,7 @@ export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onA
    * run in flight plus one queued. The receiver never waits for it, so work that itself waits for a
    * later replicated commit cannot block the stream that applies that commit.
    */
-  readonly onConfirmed?: () => void | Promise<void>;
+  readonly onConfirmed?: (changedPaths?: readonly string[]) => void | Promise<void>;
   readonly onConfirmedFailure?: (error: unknown) => void;
   readonly onFailure?: (error: unknown) => void;
 }
@@ -151,7 +151,10 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
   streams.set(key, stream);
   let failures = 0,
     confirming = false,
-    confirmAgain = false;
+    confirmAgain = false,
+    // null: the mirror must compare the whole cut. A new process cannot know what an earlier one
+    // applied without materializing, and a failed or base-backup batch loses its path list.
+    pendingChangedPaths: Set<string> | null = null;
   const confirm = (): void => {
     if (!options.onConfirmed) return;
     if (confirming) {
@@ -163,7 +166,15 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       do {
         confirmAgain = false;
         try {
-          await options.onConfirmed!();
+          // An empty set is a durable eventless ACK; the mirror can advance its marker without rescanning.
+          const changedPaths = pendingChangedPaths;
+          pendingChangedPaths = new Set();
+          try {
+            await options.onConfirmed!(changedPaths ? [...changedPaths] : undefined);
+          } catch (error) {
+            pendingChangedPaths = null;
+            throw error;
+          }
         } catch (error) {
           consumeKnownError(error);
           (options.onConfirmedFailure ?? ((cause) => console.error("[fleet-replica] confirmation failed", cause)))(
@@ -181,8 +192,10 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
       const attempt = await runSyncAttempt({
         ...options,
         signal: options.signal ? AbortSignal.any([options.signal, stream.connection.signal]) : stream.connection.signal,
-        onApplied: async (position) => {
+        onApplied: async (position, changedPaths) => {
           failures = 0;
+          if (!changedPaths) pendingChangedPaths = null;
+          else if (pendingChangedPaths) for (const changed of changedPaths) pendingChangedPaths.add(changed);
           observe(null);
           settle(key, position.sequence);
           settleReady(key, true);

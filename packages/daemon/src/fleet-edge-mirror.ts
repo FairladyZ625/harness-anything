@@ -29,6 +29,7 @@ export interface FleetMirrorView {
   readonly schemaGeneration: number;
   readonly headDigest: string;
   readonly manifestDigest: string;
+  readonly ledgerGeneration: number;
   readonly readerProfile: Readonly<Record<string, unknown>> | null;
   readonly authorizationShapeDigest: string;
   readonly entries: ReadonlyMap<string, FleetMirrorBlob>;
@@ -110,7 +111,11 @@ export function locateFleetMirrorView(
   viewRoot: string,
   repoId: string,
   viewId?: string,
-  options: { readonly includeEntries?: boolean; readonly entriesPrefix?: string } = {},
+  options: {
+    readonly includeEntries?: boolean;
+    readonly entriesPrefix?: string;
+    readonly entryPaths?: readonly string[];
+  } = {},
 ): FleetMirrorView | null {
   const viewsRoot = path.join(viewRoot, "repos", repoId, "views");
   if (!existsSync(viewsRoot)) return null;
@@ -131,12 +136,19 @@ export function locateFleetMirrorView(
           options.includeEntries === false
             ? new Map<string, FleetMirrorBlob>()
             : new Map<string, FleetMirrorBlob>(
-                reader
-                  .withSession((queries) => queries.readDocuments(options.entriesPrefix ?? ""))
-                  .documents.map((doc) => [
-                    doc.path,
-                    { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType },
-                  ]),
+                options.entryPaths
+                  ? options.entryPaths.flatMap((logical) => {
+                      const doc = reader.withSession((queries) => queries.readDocument(logical)).document;
+                      return doc
+                        ? [[logical, { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType }] as const]
+                        : [];
+                    })
+                  : reader
+                      .withSession((queries) => queries.readDocuments(options.entriesPrefix ?? ""))
+                      .documents.map((doc) => [
+                        doc.path,
+                        { sha256: doc.blobSha256, size: doc.size, mediaType: doc.mediaType },
+                      ]),
               );
         // The replica holds the center's ledger, so its cut identity is the center's ledger cut at the
         // same revision: a mirrorBaseCut the edge sends is checked against exactly this digest.
@@ -161,6 +173,7 @@ export function locateFleetMirrorView(
           schemaGeneration: generation.metadata.projectionSchema,
           headDigest,
           manifestDigest: `sha256:${generation.metadata.position.history}:${generation.metadata.position.sequence}`,
+          ledgerGeneration: generation.metadata.ledgerGeneration,
           readerProfile: generation.metadata.readerProfile ?? null,
           authorizationShapeDigest: "",
           entries,
@@ -301,19 +314,34 @@ export function applyFleetMirrorCut(
     readonly executionId?: string | null;
     readonly kind?: string;
     readonly code?: string;
+    readonly changedPaths?: readonly string[];
   } = {},
 ): FleetMirrorApplyResult {
-  const view = locateFleetMirrorView(viewRoot, repoId, context.viewId);
+  const markerLayout = resolveHarnessLayout(workspaceRoot).localRoot;
+  const markerPath = path.join(markerLayout, "fleet-materialized.json");
+  const markerExists = existsSync(markerPath);
+  const previous: {
+    readonly revision: number | null;
+    readonly generation?: number;
+    readonly entries: Record<string, string>;
+  } = markerExists ? JSON.parse(readFileSync(markerPath, "utf8")) : { revision: null, entries: {} };
+  const view = locateFleetMirrorView(viewRoot, repoId, context.viewId, {
+    ...(markerExists && previous.revision !== null && context.changedPaths ? { entryPaths: context.changedPaths } : {}),
+  });
   if (!view) return { outcome: "no_view", fromRevision: null, toRevision: null, dirtyPaths: [], conflicts: [] };
   const root = materializedRoot(workspaceRoot),
-    markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
-    previous: { readonly revision: number | null; readonly entries: Record<string, string> } = existsSync(markerPath)
-      ? JSON.parse(readFileSync(markerPath, "utf8"))
-      : { revision: null, entries: {} },
     entries = { ...previous.entries },
     dirtyPaths: string[] = [];
+  const fullMaterialize =
+    !markerExists ||
+    previous.revision === null ||
+    previous.generation === undefined ||
+    previous.generation !== view.ledgerGeneration ||
+    context.changedPaths === undefined;
+  const selected = fullMaterialize ? null : new Set(context.changedPaths);
   mkdirSync(root, { recursive: true });
   for (const [logical, blob] of view.entries) {
+    if (selected && !selected.has(logical)) continue;
     const target = path.join(root, ...logical.split("/"));
     // Local files can change after materialization; compare them with the last successful write,
     // not the newer center blob. The center's validated object digest is already authoritative.
@@ -337,6 +365,7 @@ export function applyFleetMirrorCut(
   // files this mirror previously wrote; a local candidate remains untouched and is surfaced for
   // the caller to reconcile, just like a conflicting update.
   for (const [logical, previousSha] of Object.entries(previous.entries)) {
+    if (selected && !selected.has(logical)) continue;
     if (view.entries.has(logical)) continue;
     const target = path.join(root, ...logical.split("/"));
     if (!existsSync(target)) {
@@ -350,7 +379,7 @@ export function applyFleetMirrorCut(
     removeFileDurably(target);
     delete entries[logical];
   }
-  writeFileDurably(markerPath, JSON.stringify({ revision: view.revision, entries }));
+  writeFileDurably(markerPath, JSON.stringify({ revision: view.revision, generation: view.ledgerGeneration, entries }));
   return { outcome: "applied", fromRevision: previous.revision, toRevision: view.revision, dirtyPaths, conflicts: [] };
 }
 export function readFleetConflictRecord(_workspaceRoot: string, _id: string): never {
