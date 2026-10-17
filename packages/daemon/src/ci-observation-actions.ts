@@ -122,13 +122,17 @@ export async function fetchCiObservations(
       : ghRunner === runCiProviderCommand
         ? await detectHostingProvider(cell.rootDir)
         : ({ kind: "github" } as const);
-  const runGh: RunGh = async (command, args, options) => {
-    try {
-      return await ghRunner(command, args, options);
-    } catch (error) {
-      throw rethrowGhFailureAsRateLimit(cell, error);
-    }
-  };
+  // GitHub's secondary rate limit rejects bursts of concurrent requests even while the hourly
+  // quota has room, so every gh call this daemon makes while observing CI shares one small budget
+  // (all repositories observe through the same GitHub account).
+  const runGh: RunGh = (command, args, options) =>
+    ghCallGate(async () => {
+      try {
+        return await ghRunner(command, args, options);
+      } catch (error) {
+        throw rethrowGhFailureAsRateLimit(cell, error);
+      }
+    });
   const limit = Number(action.limit ?? 20),
     namedRuns = Array.isArray(action.runs) ? action.runs.map(Number) : null,
     taskId = typeof action.taskId === "string" ? action.taskId : null,
@@ -863,6 +867,24 @@ export function selectCiObservationRuns(runs: readonly CiWorkflowRun[], limit: n
     .filter((run) => run.headBranch === "main")
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt) || right.databaseId - left.databaseId)
     .slice(0, limit);
+}
+export const ciGhCallConcurrency = 4;
+const ghCallGate = concurrencyGate(ciGhCallConcurrency);
+/** Runs at most `limit` works at once; a finishing work hands its slot straight to the next waiter. */
+export function concurrencyGate(limit: number): <T>(work: () => Promise<T>) => Promise<T> {
+  let active = 0;
+  const waiting: (() => void)[] = [];
+  return async (work) => {
+    if (active < limit) active += 1;
+    else await new Promise<void>((resolve) => waiting.push(resolve));
+    try {
+      return await work();
+    } finally {
+      const next = waiting.shift();
+      if (next) next();
+      else active -= 1;
+    }
+  };
 }
 const ghRateLimitText = /rate limit|HTTP 429/iu;
 const ghRateLimitResetText = /(?:reset in|try again in) ((?:[0-9]+[a-z]+)+)/iu;
