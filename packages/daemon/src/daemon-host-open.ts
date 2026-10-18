@@ -387,6 +387,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   let latestControl: DaemonControlReceipt | null = null;
   let fleetCenter: FleetTlsCenter | null = null;
   let initialAttachments: Promise<void> | null = null,
+    initialAttachmentsSettled = false,
+    replicaSyncStartQueued = false,
     closing = false;
   // An unavailable row reports no writer generation or queue: the cell that would own them
   // never opened, so a zero would be a fabricated measurement rather than an unknown.
@@ -875,6 +877,20 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
   };
   const startReplicaSyncs = (): void => {
+    // A registry refresh can arrive while the initial attach fan-out is still opening cells. Starting
+    // a remote-edge stream here races the cell's publication boundary and exposes sync failures
+    // before the host reports attachment. Defer that refresh until the same initial barrier used by
+    // attachmentsSettled(); calls made after startup remain immediate.
+    if (initialAttachments && !initialAttachmentsSettled) {
+      if (!replicaSyncStartQueued) {
+        replicaSyncStartQueued = true;
+        void initialAttachments.then(() => {
+          replicaSyncStartQueued = false;
+          startReplicaSyncs();
+        });
+      }
+      return;
+    }
     const registered = readDaemonRegistry({ userRoot: input.userRoot }).repos,
       activeRemoteEdges = new Set<string>();
     for (const repo of registered) {
@@ -1038,6 +1054,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   }
   function startInitialAttachments(): Promise<void> {
     return startInitialAttachmentsImpl(extracted).then(() => {
+      initialAttachmentsSettled = true;
       startReplicaSyncs();
       return scheduleScheduler.start();
     });

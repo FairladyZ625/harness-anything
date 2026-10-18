@@ -148,7 +148,10 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     // Attach advances one bounded, complete projection cut. Serving reads never mutates L2; future
     // writer events remain the authority and apply through the normal single-writer path.
     try {
-      projection.catchUp?.();
+      // Cold attach can replay a large canonical ledger. Yield between bounded batches so the
+      // transport can continue serving protocol/status requests while the projection warms.
+      if (projection.catchUpAsync) await projection.catchUpAsync();
+      else projection.catchUp?.();
       // Opening a reader generation is also a structural probe: a watermark can
       // be current while a persisted snapshot row is corrupt.
       projection.readTaskIndex({ limit: 1 });

@@ -1,5 +1,4 @@
 import { consumeKnownError, readDaemonRegistry } from "@harness-anything/kernel";
-import { yieldToEventLoop } from "./process-port.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
 import { latchReprobeThrottleMs } from "./repo-cell.ts";
 import type { DaemonHostRegistryContext } from "./daemon-host-context.ts";
@@ -43,7 +42,10 @@ export async function waitForWarming(context: DaemonHostRegistryContext, repoId:
   if (!settlement) return;
   void context.startInitialAttachments();
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, 5000);
+    // A command may wait for an in-flight attach, but it must return before the attach
+    // lifecycle can cross its settlement boundary during the same request. Keep the established
+    // five-second request window while honoring shorter budgets used by focused tests.
+    const timer = setTimeout(resolve, Math.min(context.attachTimeoutMs, 5_000));
     void settlement.promise.then(() => {
       clearTimeout(timer);
       resolve();
@@ -62,31 +64,28 @@ export function startInitialAttachments(context: DaemonHostRegistryContext): Pro
 }
 
 export async function attachInitial(context: DaemonHostRegistryContext): Promise<void> {
-  // Attach one workspace per event-loop turn. RepoCell replay is largely synchronous;
-  // yielding between repos keeps transport requests and shutdown signals responsive.
+  // Start repository attachments independently. A slow ledger replay must not keep later
+  // repositories warming behind it.
   const startedAt = performance.now();
-  let pruned = 0;
-  for (const [index, repo] of context.repos.entries()) {
-    if (context.closing || context.input.shutdownRequested?.()) break;
-    if (!context.warming.has(repo.repoId)) continue; // unregistered or synchronously re-registered after bind
-    if (context.pruneMissingRoot(repo)) {
-      pruned += 1;
-      continue;
-    }
-    try {
-      await context.openRegistered(repo, {
-        attachIndex: index + 1,
-        attachTotal: context.repos.length,
-      });
-    } catch (error) {
-      consumeKnownError(error);
-      context.latchUnavailable(
-        repo.repoId,
-        context.unavailableStatus(repo.repoId, repo.canonicalRoot, repo.mode, error),
-      );
-    }
-    await yieldToEventLoop();
-  }
+  const pruned = await Promise.all(
+    context.repos.map(async (repo, index) => {
+      if (context.closing || context.input.shutdownRequested?.() || !context.warming.has(repo.repoId)) return false;
+      if (context.pruneMissingRoot(repo)) return true;
+      try {
+        await context.openRegistered(repo, {
+          attachIndex: index + 1,
+          attachTotal: context.repos.length,
+        });
+      } catch (error) {
+        consumeKnownError(error);
+        context.latchUnavailable(
+          repo.repoId,
+          context.unavailableStatus(repo.repoId, repo.canonicalRoot, repo.mode, error),
+        );
+      }
+      return false;
+    }),
+  ).then((results) => results.filter(Boolean).length);
   context.input.recordLifecycle?.({
     event: "attachments_settled",
     attachTotal: context.repos.length,
