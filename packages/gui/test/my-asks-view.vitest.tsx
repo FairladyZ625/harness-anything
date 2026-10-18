@@ -3,7 +3,7 @@
 import { act } from "react";
 import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, notifyManager } from "@tanstack/react-query";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { harnessClient } from "../src/renderer/api-client.ts";
 import { MyAsksView } from "../src/renderer/views/my-asks/MyAsksView.tsx";
@@ -137,6 +137,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
+// react-query 的观察通知默认批量落在零延迟定时器上;换成微任务后取数落定时重渲染同步完成,
+// 下面的等待按条件成立而非等固定拍数(与 decision-review-gui.vitest.tsx 同一模式)。
+notifyManager.setScheduler(queueMicrotask);
+
 function mountView() {
   const opened: string[] = [],
     container = document.createElement("div");
@@ -157,24 +161,13 @@ function mountView() {
       ),
     );
   });
-  return { opened };
+  return { opened, client };
 }
 
-/** react-query 的取数由 promise 微任务推进；逐轮 act 冲干净再断言。 */
-async function flushQueries() {
-  for (let round = 0; round < 4; round += 1)
-    await act(async () => {
-      await Promise.resolve();
-    });
-  await act(async () => {
-    await new Promise<void>((resolve) => {
-      const observer = new MutationObserver(() => {
-        observer.disconnect();
-        resolve();
-      });
-      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-    });
-  });
+/** 等这轮挂载发起的取数全部落定(成功或失败)且重渲染已提交,断言再看 DOM。 */
+async function flushQueries(client: QueryClient) {
+  await vi.waitFor(() => expect(client.isFetching()).toBe(0));
+  await act(async () => undefined);
 }
 
 function textOf(body: Element): string {
@@ -184,8 +177,8 @@ function textOf(body: Element): string {
 describe("my asks view (redesign zone, dec_C612E69B7C7E3480A5F9D2CAD3)", () => {
   it("renders one row per ask in daemon order with bucket, title and the localized sentence", async () => {
     vi.spyOn(harnessClient, "getWorkBriefs").mockResolvedValue(briefs);
-    mountView();
-    await flushQueries();
+    const { client } = mountView();
+    await flushQueries(client);
     const rows = document.body.querySelectorAll("[data-testid^='my-asks-row-']");
     expect(rows.length).toBe(4);
     const text = textOf(document.body);
@@ -201,8 +194,8 @@ describe("my asks view (redesign zone, dec_C612E69B7C7E3480A5F9D2CAD3)", () => {
 
   it("folds delivered works behind a toggle and only expands on demand", async () => {
     vi.spyOn(harnessClient, "getWorkBriefs").mockResolvedValue(briefs);
-    mountView();
-    await flushQueries();
+    const { client } = mountView();
+    await flushQueries(client);
     expect(document.body.querySelector("[data-testid='my-asks-row-task_done']")).toBeNull();
     await act(async () => {
       document.body
@@ -216,7 +209,7 @@ describe("my asks view (redesign zone, dec_C612E69B7C7E3480A5F9D2CAD3)", () => {
   it("opens a single-level drawer with the ask, its tasks and the branch pull request", async () => {
     vi.spyOn(harnessClient, "getWorkBriefs").mockResolvedValue(briefs);
     const view = mountView();
-    await flushQueries();
+    await flushQueries(view.client);
     await act(async () => {
       document.body
         .querySelector("[data-testid='my-asks-row-task_waiting'] button")!
@@ -236,13 +229,13 @@ describe("my asks view (redesign zone, dec_C612E69B7C7E3480A5F9D2CAD3)", () => {
 
   it("shows the honest loading and failure states instead of inventing rows", async () => {
     vi.spyOn(harnessClient, "getWorkBriefs").mockResolvedValue(briefs);
-    mountView();
+    const first = mountView();
     expect(textOf(document.body)).toContain("正在读取…");
-    await flushQueries();
+    await flushQueries(first.client);
     expect(textOf(document.body)).toContain("桌面 App 一体化分发");
     vi.spyOn(harnessClient, "getWorkBriefs").mockRejectedValue(new Error("bridge down"));
-    mountView();
-    await flushQueries();
+    const second = mountView();
+    await flushQueries(second.client);
     expect(textOf(document.body)).toContain("读取失败：bridge down");
   });
 });
