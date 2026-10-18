@@ -205,6 +205,7 @@ export const KERNEL_ENTITY_CONTRACT = Object.freeze({
           "glm-acp",
           "agy-acp",
           "opencode",
+          "deepseek-harness",
         ],
       },
     ],
