@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { spawnSync } from "node:child_process";
 import { cpSync, existsSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -12,10 +12,8 @@ if (existsSync(publishedPresetAssets)) rmSync(publishedPresetAssets, { recursive
 cpSync(bundledPresetAssets, publishedPresetAssets, { recursive: true });
 // The build marker identifies the source commit. Rebuilding unchanged HEAD must not make a
 // resident daemon drain and restart solely because the asset-copy step generated a new UUID.
-const buildCommit =
-  process.env.HARNESS_BUILD_COMMIT?.trim() ||
-  execFileSync("git", ["rev-parse", "HEAD"], {
-    cwd: packageRoot,
-    encoding: "utf8",
-  }).trim();
+// Archive trees (clean-build gate, source tarballs) have no .git to resolve; they share one
+// stable marker so a build without commit identity still never looks like a fresh build.
+const commit = spawnSync("git", ["rev-parse", "HEAD"], { cwd: packageRoot, encoding: "utf8" });
+const buildCommit = process.env.HARNESS_BUILD_COMMIT?.trim() || commit.stdout.trim() || "source-archive";
 writeFileSync(path.join(packageRoot, "dist/build-id.txt"), `${buildCommit}\n`, "utf8");
