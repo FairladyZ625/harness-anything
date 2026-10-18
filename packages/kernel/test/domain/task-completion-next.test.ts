@@ -247,13 +247,10 @@ test("a profile that lifted the fact gate completes without facts; the gate stay
   assert.equal(taskCompletionNext(snapshot, repositoryRelaxed).blocker?.code, "fact_missing");
 });
 
-test("missing CI witness precedes independent review and requests canonical observation", () => {
+test("missing CI witness precedes independent review and directs callers to the blocking wait", () => {
   const result = taskCompletionNext(gatedAt([ciRequirement], 6), context);
   assert.equal(result.blocker?.code, "ci_missing");
-  assert.equal(
-    result.next?.action,
-    "Wait for the center CI observer to import the workflow witness; ha task ci task-1 reports its progress.",
-  );
+  assert.equal(result.next?.action, "ha task ci task-1 --wait");
 });
 
 // Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.

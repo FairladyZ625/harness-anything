@@ -109,10 +109,9 @@ function witnessCommand(
     return `ha task attest ${taskId} --gate ${gateId} --result pass`;
   if (sourceKind === "command")
     return `ha task witness-rerun ${taskId} --execution-id ${executionId} --gate ${gateId} --run-id <current-run-id> --reason <reason>`;
-  if (sourceKind === "github-actions" || sourceKind === "gitlab-pipeline")
-    return (
-      `Wait for the center CI observer to import the workflow witness; ` + `ha task ci ${taskId} reports its progress.`
-    );
+  // The blocking wait is the one entry: it returns with the verdict (green, red, or an actionable
+  // not_started reason), so a caller never re-runs complete to probe a pending gate.
+  if (sourceKind === "github-actions" || sourceKind === "gitlab-pipeline") return `ha task ci ${taskId} --wait`;
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
 }
 
