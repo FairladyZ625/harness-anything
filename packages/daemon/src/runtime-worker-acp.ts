@@ -6,6 +6,7 @@
 //   {type:"acp.session", sessionId, modes, currentMode, models?, currentModelId?}
 //                                                       emitted once after session/new|load
 //   {type:"acp.mode",    sessionId, requested, applied}   permission-mode mapping result
+//   {type:"acp.model",   sessionId, requested, applied}   model selection through configOptions
 //   {type:"acp.update",  sessionId, update, usage?}       whitelisted session/update kinds
 //   {type:"acp.result",  sessionId, stopReason, finalText, usage?}
 //   {type:"acp.error",   sessionId?, message}
@@ -33,6 +34,8 @@ export interface AcpWorkerManifest {
   readonly acpApiKey?: string;
   /** The Settings runtime.providerHandshakeTimeoutMs value the launch carried; the declared default when absent. */
   readonly handshakeTimeoutMs?: number;
+  /** The instance's selected model, applied through the session's `model` configOptions selector when it offers one. */
+  readonly model?: string;
 }
 
 type JsonRpcId = number;
@@ -261,6 +264,27 @@ export function runAcpProviderSession(
           consumeKnownError(error);
         }
       if (requested) event({ type: "acp.mode", requested, applied: applied ?? modes.current });
+      // Model selection rides the session's `model` configOptions selector (opencode, DeepSeek
+      // Harness); argv-driven kinds already launched with it and the spec `models` block has no
+      // setter this client speaks. A model the session does not offer fails the turn here, naming
+      // the offered values, rather than running on whatever the agent defaulted to.
+      if (manifest.model !== undefined && models.configId !== null) {
+        if (!models.available.includes(manifest.model))
+          throw new Error(
+            `ACP session does not offer model ${manifest.model}; offered: ${models.available.join(", ")}`,
+          );
+        const appliedModel =
+          models.current === manifest.model
+            ? models.current
+            : acpModels(
+                (await request("session/set_config_option", {
+                  sessionId,
+                  configId: models.configId,
+                  value: manifest.model,
+                })) as Record<string, unknown>,
+              ).current;
+        event({ type: "acp.model", requested: manifest.model, applied: appliedModel });
+      }
       const result = (await request(
         "session/prompt",
         {
@@ -300,15 +324,11 @@ function acpModes(session: Record<string, unknown>): AcpModes {
   const modes = isRecord(session.modes) ? session.modes : {},
     availableModes = Array.isArray(modes.availableModes) ? modes.availableModes : [],
     configOptions = Array.isArray(session.configOptions) ? session.configOptions : [],
-    modeOption = configOptions.filter(isRecord).find((option) => option.category === "mode" || option.id === "mode"),
-    optionValues =
-      isRecord(modeOption) && Array.isArray(modeOption.options)
-        ? modeOption.options.filter(isRecord).map((option) => option.value)
-        : [];
+    modeOption = configOptions.filter(isRecord).find((option) => option.category === "mode" || option.id === "mode");
   return {
     available: [
       ...new Set(
-        [...availableModes.filter(isRecord).map((mode) => mode.id), ...optionValues].filter(
+        [...availableModes.filter(isRecord).map((mode) => mode.id), ...selectOptionValues(modeOption?.options)].filter(
           (value): value is string => typeof value === "string",
         ),
       ),
@@ -323,6 +343,8 @@ function acpModes(session: Record<string, unknown>): AcpModes {
 }
 
 interface AcpModels {
+  /** The `model` configOption id when the session offers a selector; null means no setter is available. */
+  readonly configId: string | null;
   readonly available: readonly string[];
   readonly current: string | null;
 }
@@ -334,17 +356,15 @@ function acpModels(session: Record<string, unknown>): AcpModels {
   const models = isRecord(session.models) ? session.models : {},
     availableModels = Array.isArray(models.availableModels) ? models.availableModels : [],
     configOptions = Array.isArray(session.configOptions) ? session.configOptions : [],
-    modelOption = configOptions.filter(isRecord).find((option) => option.category === "model" || option.id === "model"),
-    optionValues =
-      isRecord(modelOption) && Array.isArray(modelOption.options)
-        ? modelOption.options.filter(isRecord).map((option) => option.value)
-        : [];
+    modelOption = configOptions.filter(isRecord).find((option) => option.category === "model" || option.id === "model");
   return {
+    configId: isRecord(modelOption) && typeof modelOption.id === "string" ? modelOption.id : null,
     available: [
       ...new Set(
-        [...availableModels.filter(isRecord).map((model) => model.modelId), ...optionValues].filter(
-          (value): value is string => typeof value === "string",
-        ),
+        [
+          ...availableModels.filter(isRecord).map((model) => model.modelId),
+          ...selectOptionValues(modelOption?.options),
+        ].filter((value): value is string => typeof value === "string"),
       ),
     ],
     current:
@@ -354,6 +374,14 @@ function acpModels(session: Record<string, unknown>): AcpModels {
           ? modelOption.currentValue
           : null,
   };
+}
+
+// A select configOption lists its values flat ({value, name}) or grouped
+// ({group, name, options: [{value, name}]}) — ACP SessionConfigSelectOptions.
+function selectOptionValues(options: unknown): readonly unknown[] {
+  return (Array.isArray(options) ? options : [])
+    .filter(isRecord)
+    .flatMap((option) => (Array.isArray(option.options) ? selectOptionValues(option.options) : [option.value]));
 }
 
 function pickAcpMode(requested: string, available: readonly string[]): string | null {

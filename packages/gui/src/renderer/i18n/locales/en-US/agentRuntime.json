@@ -601,6 +601,8 @@
   "agentRuntime.modelHint_agy-acp": "Gemini-family models only; strength rides the session model selector.",
   "agentRuntime.plane_opencode": "OpenCode login only; connected over ACP.",
   "agentRuntime.modelHint_opencode": "Open, free-form model names configured per instance; models arrive on session start.",
+  "agentRuntime.plane_deepseek-harness": "Reuses the desktop App's DeepSeek login (shared $DSH_HOME); connected over ACP, operator environment only.",
+  "agentRuntime.modelHint_deepseek-harness": "Use the session model option value verbatim, e.g. [\"deepseek-account\",\"deepseek-flash\"]; options arrive on session start, grouped by account route.",
   "agentRuntime.filterSearchLabel": "Search agents and squads",
   "agentRuntime.filterSearchPlaceholder": "Search name or id…  (/)",
   "agentRuntime.filterClearQuery": "Clear the search text",

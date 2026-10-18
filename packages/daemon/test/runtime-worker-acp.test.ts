@@ -414,6 +414,230 @@ test("acp worker session reads the model catalog from a configOptions selector",
   }
 });
 
+// DeepSeek Harness 0.2.1-rc.2 session/new (2026-10-18, logged-in $DSH_HOME): the model selector
+// groups its values by account route (ACP SessionConfigSelectOptions allows groups), and the
+// default route carries no API key, so the instance model must be applied before the prompt.
+const groupedModelSelector = {
+  configOptions: [
+    {
+      id: "model",
+      name: "Model",
+      category: "model",
+      type: "select",
+      currentValue: '["deepseek-official","deepseek-v4-flash"]',
+      options: [
+        {
+          group: "deepseek-official",
+          name: "DeepSeek",
+          options: [{ value: '["deepseek-official","deepseek-v4-flash"]', name: "deepseek-v4-flash" }],
+        },
+        {
+          group: "deepseek-account",
+          name: "DeepSeek Account",
+          options: [
+            { value: '["deepseek-account","deepseek-flash"]', name: "DeepSeek-V4.1-Flash" },
+            { value: '["deepseek-account","deepseek-v4-pro"]', name: "DeepSeek-V4-Pro" },
+          ],
+        },
+      ],
+    },
+    {
+      id: "reasoning_effort",
+      name: "Reasoning effort",
+      category: "thought_level",
+      type: "select",
+      currentValue: "high",
+      options: [
+        { value: "off", name: "Off" },
+        { value: "high", name: "High" },
+      ],
+    },
+  ],
+};
+
+function groupedFixture() {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-acp-worker-")),
+    capture = path.join(parent, "capture.jsonl"),
+    executablePath = writeAcpProviderStub(path.join(parent, "dsh-stub"), capture, { session: groupedModelSelector });
+  writeFileSync(capture, "");
+  return { parent, capture, executablePath };
+}
+
+function capturedEntries(capture: string): Record<string, unknown>[] {
+  return readFileSync(capture, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as Record<string, unknown>);
+}
+
+test("acp worker session applies the manifest model through a grouped configOptions selector", async () => {
+  const { parent, capture, executablePath } = groupedFixture();
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          model: '["deepseek-account","deepseek-flash"]',
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const frames = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>);
+    assert.deepEqual(
+      frames.map((frame) => frame.type).filter((type) => type !== "acp.update"),
+      ["acp.session", "acp.model", "acp.result"],
+    );
+    assert.deepEqual(frames[0], {
+      sessionId: "devin-acp-session",
+      type: "acp.session",
+      modes: ["accept-edits", "plan", "bypass"],
+      currentMode: "accept-edits",
+      models: [
+        '["deepseek-official","deepseek-v4-flash"]',
+        '["deepseek-account","deepseek-flash"]',
+        '["deepseek-account","deepseek-v4-pro"]',
+      ],
+      currentModelId: '["deepseek-official","deepseek-v4-flash"]',
+    });
+    assert.deepEqual(frames[1], {
+      sessionId: "devin-acp-session",
+      type: "acp.model",
+      requested: '["deepseek-account","deepseek-flash"]',
+      applied: '["deepseek-account","deepseek-flash"]',
+    });
+    assert.equal(frames.at(-1)!.finalText, "devin live content");
+    assert.deepEqual(
+      capturedEntries(capture).filter((entry) => entry.configOption !== undefined),
+      [{ configOption: { configId: "model", value: '["deepseek-account","deepseek-flash"]' } }],
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("acp worker session leaves the model alone when it is already the session's current value", async () => {
+  const { parent, capture, executablePath } = groupedFixture();
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          model: '["deepseek-official","deepseek-v4-flash"]',
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const frames = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => record.event as Record<string, unknown>);
+    assert.deepEqual(frames[1], {
+      sessionId: "devin-acp-session",
+      type: "acp.model",
+      requested: '["deepseek-official","deepseek-v4-flash"]',
+      applied: '["deepseek-official","deepseek-v4-flash"]',
+    });
+    assert.equal(frames.at(-1)!.type, "acp.result");
+    assert.equal(
+      capturedEntries(capture).some((entry) => entry.configOption !== undefined),
+      false,
+      "no session/set_config_option round trip for a model that is already current",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// The friendly `route/model` spelling a user might guess is not a selector value; running the
+// prompt anyway would silently land on the agent's default route.
+test("acp worker session fails closed when the session does not offer the manifest model", async () => {
+  const { parent, capture, executablePath } = groupedFixture();
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          model: "deepseek-account/deepseek-flash",
+        },
+        append,
+      );
+    await session.done;
+    await closed(child);
+    const frames = records
+        .filter((record) => record.kind === "provider_event")
+        .map((record) => record.event as Record<string, unknown>),
+      kinds = frames.map((frame) => frame.type);
+    assert.deepEqual(kinds, ["acp.session", "acp.error"]);
+    assert.match(
+      String(frames[1]!.message),
+      /does not offer model deepseek-account\/deepseek-flash; offered: \["deepseek-official","deepseek-v4-flash"\], /u,
+    );
+    assert.equal(
+      capturedEntries(capture).some((entry) => entry.configOption !== undefined),
+      false,
+      "nothing is sent to the agent for a model it does not offer",
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+// Kinds whose catalog arrives as the spec `models` block have no selector to drive; the
+// manifest model rode argv and the session is left as the agent built it.
+test("acp worker session does not emit acp.model when the agent offers no model selector", async () => {
+  const { parent, capture, executablePath } = fixture();
+  try {
+    const { records, append } = collect(),
+      child = launch(executablePath, ["acp", "--model", "swe-2-high"], { HOME: parent, PATH: process.env.PATH }),
+      session = runAcpProviderSession(
+        child,
+        {
+          kindId: "devin",
+          cwd: "/tmp",
+          env: { HOME: parent },
+          prompt: "do work",
+          acpApiKey: "test-manifest-key",
+          model: "swe-2-high",
+        },
+        append,
+      );
+    await session.done;
+    assert.equal(await closed(child), 0);
+    const kinds = records
+      .filter((record) => record.kind === "provider_event")
+      .map((record) => (record.event as Record<string, unknown>).type);
+    assert.equal(kinds.includes("acp.model"), false);
+    assert.equal(kinds.at(-1), "acp.result");
+    assert.equal(
+      capturedEntries(capture).some((entry) => entry.configOption !== undefined),
+      false,
+    );
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
 // A session/new that advertises no catalog (the spec allows omission) must not
 // produce a misleading empty model list on the frame.
 test("acp worker session omits model fields when the agent advertises none", async () => {

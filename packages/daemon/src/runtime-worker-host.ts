@@ -23,6 +23,7 @@ type RuntimeWorkerManifest = {
   readonly providerSessionId?: string;
   readonly acpApiKey?: string;
   readonly handshakeTimeoutMs?: number;
+  readonly model?: string;
 };
 
 const providerGitCredentialEnvironment = new Set([

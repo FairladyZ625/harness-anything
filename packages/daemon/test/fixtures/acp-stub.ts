@@ -101,6 +101,12 @@ process.stdin.on("data", (chunk) => {
       reply({ modes, ...sessionExtras });
     }
     else if (message.method === "session/set_mode") { record({ mode: message.params?.modeId ?? null }); reply({}); }
+    else if (message.method === "session/set_config_option") {
+      // Like the spec: answer with the full selector set, the chosen option now current.
+      const { configId, value } = message.params ?? {};
+      record({ configOption: { configId: configId ?? null, value: value ?? null } });
+      reply({ configOptions: (sessionExtras.configOptions ?? []).map((option) => option.id === configId ? { ...option, currentValue: value } : option) });
+    }
     else if (message.method === "session/prompt") {
       const text = message.params?.prompt?.[0]?.text ?? "";
       if (text === "permission-probe") {

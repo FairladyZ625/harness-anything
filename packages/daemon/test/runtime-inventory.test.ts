@@ -90,3 +90,32 @@ test("only Codex and Claude declare steer resume and Codex resumes before stdin 
   assert.equal(runtimeKinds.filter((entry) => entry.steer).length, 2);
   assert.equal(runtimeKinds.find((entry) => entry.kindId === "copilot")!.steer, undefined);
 });
+
+// DeepSeek Harness 0.2.1-rc.2 (2026-10-18): the desktop App's bundled CLI is the only entry
+// (nothing on PATH), `dsh --profile acp` takes no flags, and the sandbox/approval policy is
+// the DSH_PERMISSION_MODE environment variable (asar acp profile: sandbox-policy.mode and
+// user-approval.policy both read it; only danger-full-access turns approval off).
+test("the DeepSeek Harness launch contract: bundle path, env-borne permissions, no resume yet", () => {
+  const kind = runtimeKinds.find((entry) => entry.kindId === "deepseek-harness")!;
+  assert.ok(kind);
+  assert.equal(kind.protocolFamily, "acp");
+  assert.equal(kind.executable.command, "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh");
+  assert.equal(kind.executable.configHomeEnvironment, "DSH_HOME");
+  assert.equal(kind.executable.authFile, null);
+  assert.deepEqual(kind.launch.argumentTemplate, ["--profile", "acp"]);
+  assert.deepEqual(kind.launch.permissionEnvironment, {
+    bypass: { DSH_PERMISSION_MODE: "danger-full-access" },
+    "workspace-write": { DSH_PERMISSION_MODE: "workspace-write" },
+    "read-only": { DSH_PERMISSION_MODE: "read-only" },
+  });
+  assert.deepEqual(kind.isolation, { defaultState: "operator-environment", states: ["operator-environment"] });
+  assert.deepEqual(kind.auth.modes, ["subscription"]);
+  assert.equal(kind.auth.acpAuthMethod, undefined);
+  assert.deepEqual(kind.declaredCapabilities, ["structured_witness", "attach", "session_identity"]);
+  assert.equal(kind.capabilities.resume, "unsupported");
+  // Negative control: no other kind declares an environment-borne permission mapping.
+  assert.deepEqual(
+    runtimeKinds.filter((entry) => entry.launch.permissionEnvironment !== undefined).map((entry) => entry.kindId),
+    ["deepseek-harness"],
+  );
+});

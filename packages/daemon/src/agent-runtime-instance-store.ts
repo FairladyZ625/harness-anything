@@ -68,6 +68,7 @@ import {
   runtimeEffortRidesProviderConfig,
   runtimeKindForId,
   runtimeKindIds,
+  type RuntimeProviderDeclaration,
 } from "./runtime-inventory.ts";
 
 /** Runtime session ids the spawner mints (`runtime_<24 hex>`). The per-run temp directory joins
@@ -281,11 +282,17 @@ export function openRuntimeInstanceStore(input: {
     if (!path.isAbsolute(request.cwd) || !request.prompt)
       throw runtimeInstanceError("invalid_runtime_launch", "Runtime cwd must be absolute and prompt is required.");
     if (config.isolationState === "enforced") ensureStateRoot(config);
-    const launchTempDirectory =
+    const declaration = runtimeKindForId(config.kindId),
+      launch: RuntimeProviderDeclaration["launch"] = declaration.launch,
+      protocolFamily = declaration.protocolFamily,
+      launchTempDirectory =
         config.isolationState === "enforced" && request.runtimeSessionId !== undefined
           ? runtimeTempDirectory(instancesRoot, config.instanceId, request.runtimeSessionId)
           : null,
-      env = authEnvironment(config, launchTempDirectory ?? undefined),
+      env = {
+        ...authEnvironment(config, launchTempDirectory ?? undefined),
+        ...(permissionMode ? launch.permissionEnvironment?.[permissionMode] : undefined),
+      },
       args = launchArgs(
         config,
         model,
@@ -296,7 +303,15 @@ export function openRuntimeInstanceStore(input: {
         fast,
       ),
       definition = definitionSnapshot(config, model, effort, fast),
-      protocolFamily = runtimeKindForId(config.kindId).protocolFamily;
+      // ACP agents take the model through the session handshake (a configOptions selector),
+      // so it rides the launch manifest; argv-driven kinds already carry it in `args`.
+      acpLaunch =
+        protocolFamily === "acp"
+          ? {
+              model,
+              ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
+            }
+          : {};
     if (config.auth.mode === "subscription") {
       const readiness = rememberAuthReadiness(
         config.instanceId,
@@ -315,9 +330,7 @@ export function openRuntimeInstanceStore(input: {
         prompt: request.prompt,
         ...(request.providerSessionId ? { providerSessionId: request.providerSessionId } : {}),
         ...(permissionMode ? { permissionMode } : {}),
-        ...(protocolFamily === "acp" && request.handshakeTimeoutMs !== undefined
-          ? { handshakeTimeoutMs: request.handshakeTimeoutMs }
-          : {}),
+        ...acpLaunch,
       };
     }
     let secret: string;
@@ -359,12 +372,8 @@ export function openRuntimeInstanceStore(input: {
       ...(permissionMode ? { permissionMode } : {}),
       // ACP agents authenticate through the client handshake, so the key rides the
       // launch manifest rather than the provider's environment.
-      ...(protocolFamily === "acp"
-        ? {
-            acpApiKey: secret,
-            ...(request.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: request.handshakeTimeoutMs } : {}),
-          }
-        : {}),
+      ...(protocolFamily === "acp" ? { acpApiKey: secret } : {}),
+      ...acpLaunch,
     };
   }
   async function prepareDaemonGitEnvironment(

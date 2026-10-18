@@ -122,6 +122,7 @@ export const runtimeKindIds = Object.freeze([
   "glm-acp",
   "agy-acp",
   "opencode",
+  "deepseek-harness",
 ] as const);
 export type RuntimeKindId = (typeof runtimeKindIds)[number];
 export interface RuntimeResultClaim {

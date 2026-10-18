@@ -122,6 +122,8 @@ export interface PreparedRuntimeLaunch {
   readonly acpApiKey?: string;
   /** The caller's ACP handshake deadline; acp-family launches carry it to the worker host. */
   readonly handshakeTimeoutMs?: number;
+  /** The selected model, delivered to ACP agents through `session/set_config_option`; argv-driven kinds carry it in `args`. */
+  readonly model?: string;
 }
 
 export interface PreparedRuntimeAuthCommand {
