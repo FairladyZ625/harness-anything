@@ -1022,7 +1022,7 @@ function AppShell() {
         {edgeSurfaceMounted &&
         !triadicQuery.graphAvailable &&
         (activeEdges.hasNextPage || activeEdges.relationState === "error") ? (
-          <aside className="glass fixed bottom-4 left-4 z-50 rounded p-3" role="status">
+          <aside className="glass glass-overlay fixed bottom-4 left-4 z-50 rounded p-3" role="status">
             <span>{activeEdges.relationState === "error" ? "关系读取失败。" : "当前关系尚未全部加载。"}</span>
             {activeEdges.hasNextPage ? (
               <button disabled={activeEdges.isFetching} onClick={() => void activeEdges.fetchNextPage()}>

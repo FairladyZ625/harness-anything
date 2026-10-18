@@ -101,7 +101,7 @@ export function Drawer({
           role="dialog"
           aria-modal={modal || undefined}
           aria-label={ariaLabel}
-          className="glass pointer-events-auto fixed bottom-2.5 right-2.5 top-2.5 z-11 flex w-[min(500px,94vw)] flex-col gap-0 overflow-y-auto rounded-lg px-[18px] py-4"
+          className="glass glass-overlay pointer-events-auto fixed bottom-2.5 right-2.5 top-2.5 z-11 flex w-[min(500px,94vw)] flex-col gap-0 overflow-y-auto rounded-lg px-[18px] py-4"
           initial={{ x: "110%" }}
           animate={{ x: 0 }}
           exit={{ x: "110%" }}

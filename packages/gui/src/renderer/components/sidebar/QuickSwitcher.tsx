@@ -187,7 +187,7 @@ export function QuickSwitcher({
   return createPortal(
     <div
       data-testid="quick-switcher-panel"
-      className={`glass fixed z-40 flex w-max min-w-[min(320px,90vw)] max-w-[min(480px,90vw)] flex-col
+      className={`glass glass-overlay fixed z-40 flex w-max min-w-[min(320px,90vw)] max-w-[min(480px,90vw)] flex-col
         overflow-hidden rounded-lg p-2 shadow-2xl shadow-black/35`}
       style={position}
     >

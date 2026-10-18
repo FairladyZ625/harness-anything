@@ -97,6 +97,23 @@ describe("visual foundation: glass layer tokens", () => {
     expect(scrim).toMatch(/background:\s*var\(--color-scrim\)/u);
   });
 
+  it("gives floating overlay surfaces their own sufficiently opaque tier (.glass-overlay)", () => {
+    // 2026-10-18 业主三轮截图:浮层(小弹层与模态/抽屉/命令面板)跟常驻面板共用 .glass
+    // 的 0.7 半透明底后,下方密集文字以 ~30% 反差透出叠读。浮层档只覆盖面色:可读性
+    // 靠不透明度(暗 0.96/亮 0.97),不靠 backdrop-filter——模态/抽屉可开几分钟且内容
+    // 含活体指示,面上 blur 会复活二轮从大面积面板禁掉的活体模糊;高不透明度下折射
+    // 本就不可见,减弱动态效果/无 backdrop-filter 环境同样可读。折射归遮罩 .glass-scrim
+    // (顶层 <dialog> 内遮罩 blur 不作用到页面,退后感由 --color-scrim 加深承担)。
+    const overlay = blockBody(/\.glass-overlay\s*\{/u);
+    expect(overlay).toMatch(/background:\s*var\(--color-glass-overlay\)/u);
+    expect(overlay).not.toMatch(/backdrop-filter/u);
+    expect(overlay).not.toMatch(/border:/u);
+    const theme = blockBody(/@theme\s*\{/u);
+    expect(theme).toMatch(/--color-glass-overlay:\s*oklch\(0\.24 0\.006 285 \/ 0\.96\)/u);
+    const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
+    expect(light).toMatch(/--color-glass-overlay:\s*oklch\(0\.99 0\.002 285 \/ 0\.97\)/u);
+  });
+
   it("routes the magnify-layer refraction through the #liquid SVG filter", () => {
     expect(blockBody(/\.glass-liquid\s*\{/u)).toMatch(/backdrop-filter:\s*url\(#liquid\)/u);
   });

@@ -40,7 +40,7 @@ export function GraphLegend({
       {open && (
         <div
           data-testid="graph-legend-body"
-          className="glass absolute right-0 top-[calc(100%+6px)] z-30 flex w-[min(560px,60vw)] flex-col gap-x-4 gap-y-1.5 rounded-sm p-3"
+          className="glass glass-overlay absolute right-0 top-[calc(100%+6px)] z-30 flex w-[min(560px,60vw)] flex-col gap-x-4 gap-y-1.5 rounded-sm p-3"
         >
           <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-1">
             <span className="text-text-faint">实体</span>

@@ -158,6 +158,9 @@ it("opens on open=true with rise+fade keyframes and the native dialog open state
   mount();
   openModal();
   expect(host.querySelector("dialog")?.hasAttribute("open")).toBe(true);
+  // 面板挂浮层表面档(2026-10-18 业主截图:模态透底、表单标签不可读):可读性由
+  // .glass-overlay 的不透明面色承担,新建类对话框(Provider/Agent/定时计划)全走这里。
+  expect(panel()?.className).toContain("glass-overlay");
   // 挂载提交即写初始关键帧:压暗层与面板全透明,面板带 10px 上浮偏移。
   expect(scrim()?.style.opacity).toBe("0");
   expect(panel()?.style.opacity).toBe("0");
