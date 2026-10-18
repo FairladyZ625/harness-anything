@@ -51,6 +51,7 @@ const KIND_LABEL: Readonly<Record<AgendaAttentionItem["kind"], () => string>> = 
   stalled: () => t("views.overviewView.kindStalled"),
   answered: () => t("views.overviewView.kindAnswered"),
   archive: () => t("views.overviewView.kindArchive"),
+  "audit-finding": () => t("views.overviewView.kindAuditFinding"),
 };
 
 /**
@@ -64,6 +65,7 @@ const FOLLOW_UP_META: Readonly<Record<FollowUpKind, { readonly tone: StatusTone;
   rework: { tone: "wait", note: "views.overviewView.followReworkNote" },
   blocked: { tone: "wait", note: "views.overviewView.followBlockedNote" },
   stalled: { tone: "neutral", note: "views.overviewView.followStalledNote" },
+  "audit-finding": { tone: "wait", note: "views.overviewView.followAuditFindingNote" },
 };
 
 export interface OverviewBoardDeps {

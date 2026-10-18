@@ -157,9 +157,17 @@ function agendaAttentionItem(value: unknown): boolean {
     exactRecord(value, ["ref", "title", "kind", "region", "workTaskId", "attention"]) &&
     nonEmpty(value.ref) &&
     nonEmpty(value.title) &&
-    ["awaiting-you", "rework", "adjudication", "decision", "blocked", "stalled", "answered", "archive"].includes(
-      String(value.kind),
-    ) &&
+    [
+      "awaiting-you",
+      "rework",
+      "adjudication",
+      "decision",
+      "blocked",
+      "stalled",
+      "answered",
+      "archive",
+      "audit-finding",
+    ].includes(String(value.kind)) &&
     ["mine", "stuck"].includes(String(value.region)) &&
     (value.workTaskId === null || nonEmpty(value.workTaskId)) &&
     isJsonObject(value.attention) &&

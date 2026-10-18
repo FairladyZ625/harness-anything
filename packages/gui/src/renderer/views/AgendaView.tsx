@@ -29,7 +29,7 @@ import type { AgendaAwaitsRow } from "../../api/renderer-dto.ts";
  * 行用 DenseRow、状态用有底色的 StatusTag;点行开抽屉,答复在抽屉里就地进答复面板,
  * 其余给「打开完整详情」落逐项回应 / 评审页签 / 评审会话 / 裁决页签 / 源实体详情。
  */
-type AgendaGroup = DecisionReviewGroup | "answered" | "rework" | "adjudicate" | "taskReviewing";
+type AgendaGroup = DecisionReviewGroup | "answered" | "rework" | "adjudicate" | "taskReviewing" | "audit";
 
 /** 组的显示序 = 注意力序:等你动手的在前,已在别人手里的在后,已答复跟进垫底。 */
 const GROUP_ORDER: readonly AgendaGroup[] = [
@@ -41,6 +41,7 @@ const GROUP_ORDER: readonly AgendaGroup[] = [
   "reviewing",
   "taskReviewing",
   "answered",
+  "audit",
 ];
 
 const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
@@ -52,6 +53,7 @@ const GROUP_LABEL: Readonly<Record<AgendaGroup, MessageKey>> = {
   reviewing: "views.workspace.decisionReviewGroupReviewing",
   taskReviewing: "views.agenda.groupTaskReviewing",
   answered: "components.awaitsAnswer.answeredForYou",
+  audit: "views.agenda.groupAudit",
 };
 
 /** 组 → 状态色档(标准 §3:同一类别同一色;颜色通道只承载注意力类别)。 */
@@ -64,6 +66,7 @@ const GROUP_TONE: Readonly<Record<AgendaGroup, StatusTone>> = {
   reviewing: "wait",
   taskReviewing: "wait",
   answered: "wait",
+  audit: "wait",
 };
 
 /** 筛选桶:需要关注 = 下一步是「你」;待跟进 = 已出手、等别人回。 */
@@ -78,6 +81,7 @@ const GROUP_BUCKET: Readonly<Record<AgendaGroup, AgendaFilter>> = {
   reviewing: "follow",
   taskReviewing: "follow",
   answered: "follow",
+  audit: "follow",
 };
 
 /** 议程的一行:组、标题、原因、等待时长,加上落点(完整详情 ref)与答复源行。 */
@@ -91,7 +95,7 @@ interface AgendaRow {
   /** 注意力分的检索键(attentionItems 的 ref);不在注意力切面里的行为 null。 */
   readonly scoreRef: string | null;
   /** 「打开完整详情」的落点;ask 行的完整详情是它的源实体。 */
-  readonly target: string;
+  readonly target: string | null;
   readonly ask?: AgendaAwaitsRow;
 }
 
@@ -141,6 +145,17 @@ function agendaRowsOf(agenda: AgendaSuccess): readonly AgendaRow[] {
       scoreRef: `decision/${decision.decisionId}`,
       target: decisionAgendaRowRef(decision),
     })),
+    ...(agenda.attentionItems ?? [])
+      .filter((item) => item.kind === "audit-finding")
+      .map((item) => ({
+        id: item.ref,
+        title: item.title,
+        hint: t("views.agenda.hintAuditFinding"),
+        group: "audit" as const,
+        since: null,
+        scoreRef: item.ref,
+        target: null,
+      })),
   ];
 }
 
@@ -308,6 +323,7 @@ function AgendaDetail({
   readonly onOpenDetail: (target: string) => void;
 }) {
   const ask = detail.ask;
+  const target = detail.target;
   return (
     <div className="flex flex-col gap-3">
       <StatusTag tone={GROUP_TONE[detail.group]} label={t(GROUP_LABEL[detail.group])} />
@@ -331,14 +347,16 @@ function AgendaDetail({
             {t("components.awaitsAnswer.openAnswer")}
           </button>
         ) : null}
-        <button
-          type="button"
-          data-testid="agenda-drawer-open"
-          onClick={() => onOpenDetail(detail.target)}
-          className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
-        >
-          {t("views.agenda.openDetail")}
-        </button>
+        {target !== null ? (
+          <button
+            type="button"
+            data-testid="agenda-drawer-open"
+            onClick={() => onOpenDetail(target)}
+            className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
+          >
+            {t("views.agenda.openDetail")}
+          </button>
+        ) : null}
       </div>
     </div>
   );

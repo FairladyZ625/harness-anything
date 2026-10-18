@@ -26,6 +26,12 @@ interface AttentionSourceRow {
   };
 }
 
+interface AuditAttentionRow {
+  readonly ref: string;
+  readonly title: string;
+  readonly since: string;
+}
+
 export function buildAttentionItems(input: {
   readonly now: string;
   readonly awaitingYou: readonly AgendaAwaitsRow[];
@@ -35,6 +41,7 @@ export function buildAttentionItems(input: {
   readonly awaitingDecision: readonly AgendaDecisionRow[];
   readonly waitingOnOthers: readonly AgendaTaskRow[];
   readonly stalled: readonly AgendaTaskRow[];
+  readonly auditFindings: readonly AuditAttentionRow[];
   readonly sourceRows: readonly AttentionSourceRow[];
 }): DaemonAgendaResult["attentionItems"] {
   const sources = new Map<string, AttentionSourceRow>(input.sourceRows.map((row) => [`task/${row.taskId}`, row])),
@@ -126,6 +133,7 @@ export function buildAttentionItems(input: {
           row.work?.taskId ?? null,
         ),
       ),
+      ...input.auditFindings.map((row) => add(row.ref, row.title, "audit-finding", "mine", row.since, undefined)),
     ],
     highest = new Map<string, (typeof candidates)[number]>();
   for (const item of candidates) {

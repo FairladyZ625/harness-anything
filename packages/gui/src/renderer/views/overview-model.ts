@@ -37,6 +37,7 @@ export const ATTENTION_META: Readonly<
   stalled: { tone: "wait", rank: 6 },
   answered: { tone: "wait", rank: 7 },
   archive: { tone: "neutral", rank: 8 },
+  "audit-finding": { tone: "wait", rank: 9 },
 };
 
 /** 注意力行接回源行:行上的动作(答复/裁决/跳转)需要源读面的完整行。 */
@@ -155,7 +156,7 @@ export function decisionRows(agenda: AgendaSuccess | undefined): readonly Decisi
  * owning CEO 可处理的阻塞与初审不亮红,避免视觉上冒充需要用户;返工的文案只陈述事实
  * (评审打回、待返工),不断言归属,是否需要人由看的人判断。
  */
-export type FollowUpKind = "answered" | "adjudication" | "rework" | "blocked" | "stalled";
+export type FollowUpKind = "answered" | "adjudication" | "rework" | "blocked" | "stalled" | "audit-finding";
 
 export interface FollowUpRow {
   readonly id: string;
