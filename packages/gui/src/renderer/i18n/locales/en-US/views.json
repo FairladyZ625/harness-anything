@@ -1544,6 +1544,8 @@
   "views.settingsView.settingsGroup.new-task-defaults.description": "What a new task starts from. A vertical is a field of work (say software coding) with its own presets; a preset is the template for one kind of task — it shapes the task plan and the checks to pass before completion; a profile is a lighter or stricter variant of a preset; a scaffold is a file in this repository that adds to or replaces the documents a preset generates.",
   "views.settingsView.settingsGroup.dispatch-roles.label": "Dispatch roles",
   "views.settingsView.settingsGroup.dispatch-roles.description": "Dispatching hands a task to an agent (an AI assistant that does the work). Choose which agent is preferred for each role: the worker implements, the commander coordinates a group of workers, and the reviewer checks the result independently.",
+  "views.settingsView.settingsGroup.worker-permissions.label": "Worker permissions",
+  "views.settingsView.settingsGroup.worker-permissions.description": "Choose full credential inheritance or the restricted policy guidance shown to workers.",
   "views.settingsView.settingsGroup.review-closeout.label": "Review and closeout",
   "views.settingsView.settingsGroup.review-closeout.description": "How independent a review must be, which decisions need review, and which checks a task must pass to finish. Closeout is the final set of checks before a task is marked complete; each check is called a gate, and a task cannot complete until it passes.",
   "views.settingsView.settingsGroup.ci-gates.label": "CI and completion gates",

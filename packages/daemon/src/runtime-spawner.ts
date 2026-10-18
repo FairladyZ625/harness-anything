@@ -42,6 +42,7 @@ import {
   assembleScheduledMission,
   assembleTaskMission,
   dispatchMissionForPermission,
+  dispatchMissionForWorkerPermissions,
   decisionReviewTarget as parseDecisionReviewTarget,
   prepareRuntimeInstance,
   runtimeMissionName,
@@ -444,7 +445,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     })
                   : mission,
             readOnlyDispatch = effectivePermissionMode === "read-only",
-            dispatchMission = dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
+            dispatchMission = dispatchMissionForWorkerPermissions(
+              dispatchMissionForPermission(selfContainedMission ?? mission, effectivePermissionMode),
+              input.readSettings?.(),
+            ),
             assembledPrompt = agent
               ? assembleAgentPrompt(
                   role === "reviewer" ? { ...agent, role } : agent,
@@ -673,7 +677,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       }
     }
     const launchPreparedProcess = async () => {
-      const workerLaunch = await prepareBoundRuntimeLaunch({
+      const boundLaunch = await prepareBoundRuntimeLaunch({
         input,
         prepared,
         daemonRoute,
@@ -717,6 +721,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             }
           : {}),
       });
+      const workerLaunch = {
+        ...boundLaunch,
+        env: {
+          ...boundLaunch.env,
+          HARNESS_WORKER_PERMISSION_MODE: input.readSettings?.().workerPermissions?.mode ?? "full",
+        },
+      };
       return launchRuntimeProcess(
         launch,
         workerLaunch,
