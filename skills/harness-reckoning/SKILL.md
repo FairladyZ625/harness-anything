@@ -30,6 +30,8 @@ Read the evidence link or identifier on every candidate. Apply the funnel in ord
 
 The report is advisory. A human decides whether to create a Task, retire a rule, or propose a Decision. Quiet output is a valid health attestation; never manufacture findings.
 
+Every report ends with a fenced `harness-reckoning` JSON block using schema `harness-reckoning/v1`. Include a complete `short` window for the current occurrence and include a complete `long` window when the scheduled long review ran. Each finding has a stable `key`, a `title`, one of `unresolved`, `covered`, `resolved`, or `observation`, one of `fix-source`, `retire-or-merge`, `retain`, or `human-decision`, an integer `evidenceCount`, non-empty `evidenceRefs`, and `ownerTaskRef` (or `null`).
+
 ## Boundaries
 
 Occurrence claim ownership (`nodeId` plus `claimFence`) supplies multi-node mutual exclusion. Each result belongs to its occurrence; no shared report path is used. Edge nodes read their local projection, so the report identifies local evidence rather than pretending to be a fleet-wide canonical snapshot.

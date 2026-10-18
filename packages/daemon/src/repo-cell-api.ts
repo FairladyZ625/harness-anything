@@ -671,6 +671,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       rootDir: context.rootDir,
       projection: context.projection,
       readPinnedEntities: context.projection.listPinnedEntities,
+      store: context.store,
       judgments: repoCellTaskQueryJudgmentsFor(context.projection),
     });
   Object.assign(context.extracted, { taskListQueryFromAction, queryRead, relationQueryFromAction });

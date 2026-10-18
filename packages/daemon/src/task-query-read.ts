@@ -60,6 +60,7 @@ import {
 import { workRootOf, workspaceStructureFromProjection } from "./workspace-scope-read.ts";
 import { attentionRegionWeights } from "./agenda-attention.ts";
 import { buildAttentionItems } from "./agenda-attention-projection.ts";
+import { readReckoningAgenda } from "./reckoning-agenda-read.ts";
 import {
   decodeAgendaCursor,
   encodeAgendaCursor,
@@ -99,6 +100,7 @@ export function makeTaskQueryReadModel(input: {
   readonly rootDir: CanonicalRoot;
   readonly projection: TaskProjection;
   readonly readPinnedEntities: TaskProjection["listPinnedEntities"];
+  readonly store?: { readonly readContentBlob: (sha256: string) => Uint8Array | null };
   readonly judgments: TaskQueryJudgments;
   readonly now?: () => Date;
 }): TaskQueryReadModel {
@@ -601,6 +603,7 @@ export function makeTaskQueryReadModel(input: {
           },
         ];
       }),
+      reckoning = readReckoningAgenda({ projection, store: input.store }),
       allPinnedEntities = readPinnedEntities().map(resolvePinnedEntity),
       pinnedEntities = allPinnedEntities.slice(0, sourceLimit),
       pinnedEntityOverflow = Math.max(0, allPinnedEntities.length - pinnedEntities.length),
@@ -615,10 +618,10 @@ export function makeTaskQueryReadModel(input: {
         answeredForYou: answered?.page?.nextCursor ?? null,
       },
       nextCursor = Object.values(nextState).some((value) => value !== null) ? encodeAgendaCursor(nextState) : null,
-      cut = requireSameProjectionCut(
-        "review queue",
-        reads.length === 0 ? [projection.readRelationQuery({ limit: 1 })] : reads,
-      ),
+      cut = requireSameProjectionCut("review queue", [
+        ...(reads.length === 0 ? [projection.readRelationQuery({ limit: 1 })] : reads),
+        ...reckoning.reads,
+      ]),
       warningCodes = [
         ...new Set([active, blocked, planned, submitted, inReview].flatMap((read) => read?.warnings ?? [])),
       ],
@@ -637,6 +640,7 @@ export function makeTaskQueryReadModel(input: {
         awaitingDecision,
         waitingOnOthers,
         stalled,
+        auditFindings: reckoning.items,
         sourceRows: [active, blocked, planned, submitted, inReview].flatMap((page) => page?.rows ?? []),
       }),
       regionWeights = attentionRegionWeights(attentionItems, {
