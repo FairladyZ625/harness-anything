@@ -9,7 +9,6 @@ import type { DaemonHost } from "../src/daemon-host.ts";
 import { openDaemonConnLog, daemonConnLogFileStem } from "../src/conn-log.ts";
 import { daemonRequestLogPath, openDaemonRequestLog } from "../src/request-log.ts";
 import { createJsonRpcProtocolServer } from "../src/protocol/json-rpc-server.ts";
-import { currentDaemonProtocolVersion } from "../src/protocol/version.ts";
 import { createUnixSocketTransportServer } from "../src/transport/unix-socket.ts";
 import { requestDaemonJsonRpcAt } from "../src/client/local-json-rpc-client.ts";
 
