@@ -686,6 +686,7 @@ test("thin parser converts the sole preset script target into closed typed start
     assert.deepEqual(parsed.command, {
       rootDir: parsed.command.rootDir,
       json: false,
+      id: "preset-run-start",
       method: "repo.preset.run.start",
       action: {
         kind: "preset-run-start",
