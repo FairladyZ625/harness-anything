@@ -242,7 +242,7 @@ function usefulProviderEvent(event: Readonly<Record<string, unknown>>): boolean 
   if (type === "model.streaming" && payload)
     return ["reasoning_delta", "text_delta", "tool_call"].includes(String(payload.kind));
   if (type === "tool.updated" && payload) return ["result", "error"].includes(String(payload.kind));
-  if (["acp.session", "acp.mode", "acp.result", "acp.error"].includes(String(type))) return true;
+  if (["acp.session", "acp.mode", "acp.model", "acp.result", "acp.error"].includes(String(type))) return true;
   if (type === "acp.update") {
     const update = isJsonObject(event.update) ? event.update : null;
     return (

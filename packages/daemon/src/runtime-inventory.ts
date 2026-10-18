@@ -63,6 +63,11 @@ export interface RuntimeProviderDeclaration {
     readonly argumentTemplate: readonly string[];
     readonly permissionArgs: Readonly<Record<"bypass" | "workspace-write" | "read-only", readonly string[]>>;
     readonly resumePermissionArgs?: Readonly<Record<"bypass" | "workspace-write" | "read-only", readonly string[]>>;
+    /** Environment the permission mode sets on the provider process, for kinds whose sandbox and
+     * approval policy is read from the environment rather than from argv or `session/set_mode`. */
+    readonly permissionEnvironment?: Readonly<
+      Record<"bypass" | "workspace-write" | "read-only", Readonly<Record<string, string>>>
+    >;
     readonly apiKeyArgs?: readonly string[];
     readonly fastArgs?: readonly string[];
   };
@@ -951,6 +956,89 @@ export const runtimeKinds = [
       permissionVocabulary: "unsupported",
       independentSandbox: "unverified",
       approvalEvent: "unverified",
+      effort: "unsupported",
+      mcp: "unverified",
+      cwdRestriction: "unverified",
+      gracefulCancel: "unverified",
+    },
+  },
+  {
+    kindId: "deepseek-harness",
+    protocolFamily: "acp",
+    displayName: "DeepSeek Harness",
+    defaultProviderId: "deepseek",
+    executable: {
+      // The desktop App's bundled CLI (0.2.1-rc.2); `dsh --profile acp` serves ACP over stdio.
+      // The App does not place `dsh` on PATH, so the catalog names the bundle path: discovery
+      // resolves it against every PATH entry (path.resolve keeps an absolute command) and the
+      // kindId+path key collapses the hits into one installation. The CLI shares the App's
+      // $DSH_HOME, so an operator-environment launch borrows the App's managed login without
+      // the harness touching any credential file.
+      command: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+      configDirectory: ".dsh",
+      configHomeEnvironment: "DSH_HOME",
+      authFile: null,
+      // Models arrive on session/new as a grouped configOptions selector keyed by account
+      // route; the CLI exposes no model-listing subcommand.
+      modelProbe: null,
+      modelProbeFormat: "json-models",
+    },
+    // No `resume`: initialize advertises sessionCapabilities.resume but no loadSession, and
+    // the shared client speaks session/load only.
+    declaredCapabilities: ["structured_witness", "attach", "session_identity"] as const,
+    configuration: { fields: {}, publicFields: {}, publicDefaults: {} },
+    auth: {
+      shape: "subscription-only",
+      modes: ["subscription"],
+      // initialize advertises authMethods: [] — the App's login is the whole credential story,
+      // so presence (--version exits 0 in 0.2s) is the only local readiness check.
+      subscriptionProbe: ["--version"],
+      subscriptionProbeTimeoutMs: 10_000,
+      endpoints: { baseUrl: "none" },
+    },
+    // Enforced isolation would point DSH_HOME at an empty per-instance directory, and the
+    // harness has no login flow for it; the kind runs only where the App's login lives.
+    isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
+    permissions: { available: true, defaultMode: "bypass" },
+    launch: {
+      input: "stdin",
+      streamFormat: "jsonl",
+      resumeFlag: "session/resume",
+      argumentTemplate: ["--profile", "acp"],
+      permissionArgs: { bypass: [], "workspace-write": [], "read-only": [] },
+      // The acp profile has no session modes and takes no flags: its sandbox-policy and
+      // user-approval plugins read DSH_PERMISSION_MODE (default workspace-write). Only
+      // danger-full-access turns approval off; the other two keep approval=ask, which
+      // arrives as session/request_permission and is answered from the permission mode.
+      permissionEnvironment: {
+        bypass: { DSH_PERMISSION_MODE: "danger-full-access" },
+        "workspace-write": { DSH_PERMISSION_MODE: "workspace-write" },
+        "read-only": { DSH_PERMISSION_MODE: "read-only" },
+      },
+    },
+    sessionIdentity: {
+      eventDiscriminator: null,
+      eventIdField: "sessionId",
+      environmentFields: [],
+      transcriptReachability: "dispatch_stream_only",
+      everyFrame: true,
+    },
+    gui: { modelFamily: "open", effort: "none", effortValues: [] },
+    capabilities: {
+      ...sharedCapabilities,
+      resume: "unsupported",
+      sessionIdEveryFrame: "supported",
+      toolAllowlist: "unsupported",
+      toolDenylist: "unsupported",
+      turnLimit: "unsupported",
+      configurationIsolation: "unsupported",
+      permissionVocabulary: "supported",
+      // Measured 2026-10-18 (read-only dispatch): the write was denied by the DSH file sandbox
+      // itself — "Operation not permitted [sandbox: file access denied under read-only mode]" —
+      // with no permission round trip, so enforcement does not depend on the approval event.
+      independentSandbox: "supported",
+      approvalEvent: "unverified",
+      // session/new offers a reasoning_effort selector (off/low/high/max); nothing drives it yet.
       effort: "unsupported",
       mcp: "unverified",
       cwdRestriction: "unverified",

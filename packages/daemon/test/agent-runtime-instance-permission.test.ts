@@ -327,6 +327,102 @@ test("a kind declaring a single isolation state rejects edits to any other value
   }
 });
 
+// DeepSeek Harness reads its sandbox and approval policy from DSH_PERMISSION_MODE, so the
+// permission mode lands in the provider environment (catalog launch.permissionEnvironment),
+// and the model rides the ACP launch manifest instead of argv.
+test("environment-borne permission modes reach the provider environment and ACP launches carry the model", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-permission-env-")),
+    dsh: RuntimeInstallationWitness = {
+      installationId: "deepseek-harness-permission",
+      kindId: "deepseek-harness",
+      executablePath: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+      version: "0.2.1-rc.2",
+      observedAt: "2026-10-18T00:00:00.000Z",
+    };
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      discover: () => [observed, dsh],
+      env: { HOME: "/Users/operator", PATH: "/usr/bin" },
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+    });
+    store.create({
+      schemaVersion: 2,
+      instanceId: "dsh-default",
+      name: "DeepSeek Harness",
+      kindId: "deepseek-harness",
+      installationId: dsh.installationId,
+      providerId: "deepseek",
+      models: ['["deepseek-account","deepseek-flash"]', '["deepseek-account","deepseek-v4-pro"]'],
+      defaultModel: '["deepseek-account","deepseek-flash"]',
+      enabled: true,
+      "deepseek-harness": {},
+      auth: { mode: "subscription" },
+    });
+    const bypass = await store.prepareLaunch("dsh-default", { cwd: "/workspace/repo", prompt: "Default" }),
+      write = await store.prepareLaunch("dsh-default", {
+        cwd: "/workspace/repo",
+        prompt: "Write",
+        permissionMode: "workspace-write",
+      }),
+      readOnly = await store.prepareLaunch("dsh-default", {
+        cwd: "/workspace/repo",
+        prompt: "Read",
+        permissionMode: "read-only",
+        model: '["deepseek-account","deepseek-v4-pro"]',
+      });
+    assert.deepEqual(bypass.args, ["--profile", "acp"]);
+    assert.equal(bypass.env.DSH_PERMISSION_MODE, "danger-full-access");
+    assert.equal(bypass.env.HOME, "/Users/operator", "operator environment keeps the App's $DSH_HOME reachable");
+    assert.equal(bypass.model, '["deepseek-account","deepseek-flash"]');
+    assert.equal(write.env.DSH_PERMISSION_MODE, "workspace-write");
+    assert.equal(readOnly.env.DSH_PERMISSION_MODE, "read-only");
+    assert.equal(readOnly.model, '["deepseek-account","deepseek-v4-pro"]');
+    // Negative controls: an argv-driven kind gets neither the variable nor the manifest model,
+    // and enforced isolation is refused for a kind that only runs where the App's login lives.
+    store.create({
+      schemaVersion: 2,
+      instanceId: "codex-env-control",
+      name: "Codex",
+      kindId: "codex",
+      installationId: observed.installationId,
+      providerId: "openai",
+      models: ["gpt-5.6-sol"],
+      defaultModel: "gpt-5.6-sol",
+      enabled: true,
+      codex: {},
+      auth: { mode: "subscription" },
+    });
+    const codex = await store.prepareLaunch("codex-env-control", {
+      cwd: "/workspace/repo",
+      prompt: "Default",
+      permissionMode: "read-only",
+    });
+    assert.equal(codex.env.DSH_PERMISSION_MODE, undefined);
+    assert.equal(codex.model, undefined);
+    assert.throws(
+      () =>
+        store.create({
+          schemaVersion: 2,
+          instanceId: "dsh-enforced",
+          name: "DeepSeek Harness Enforced",
+          kindId: "deepseek-harness",
+          installationId: dsh.installationId,
+          providerId: "deepseek",
+          models: ['["deepseek-account","deepseek-flash"]'],
+          defaultModel: '["deepseek-account","deepseek-flash"]',
+          enabled: true,
+          isolationState: "enforced",
+          "deepseek-harness": {},
+          auth: { mode: "subscription" },
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 function codedAs(error: unknown, code: string): boolean {
   return error instanceof Error && "code" in error && error.code === code;
 }

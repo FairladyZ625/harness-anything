@@ -482,6 +482,7 @@ export function launchNative(
       ...(input.providerSessionId ? { providerSessionId: input.providerSessionId } : {}),
       ...(input.acpApiKey ? { acpApiKey: input.acpApiKey } : {}),
       ...(input.handshakeTimeoutMs !== undefined ? { handshakeTimeoutMs: input.handshakeTimeoutMs } : {}),
+      ...(input.model ? { model: input.model } : {}),
       ...(persistence.callbackRelay
         ? {
             callbackRelay: {

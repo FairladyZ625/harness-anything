@@ -267,6 +267,7 @@ describe("provider planes (2026-08-20 adjudication)", () => {
       "codex-acp",
       "copilot",
       "cursor",
+      "deepseek-harness",
       "devin",
       "droid",
       "glm-acp",
