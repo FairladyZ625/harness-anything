@@ -72,8 +72,19 @@ async function submittedTaskFixture(
   const gh = `#!/usr/bin/env node
 const fs = require('node:fs'); const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(callsLog)}, args.join(' ') + '\\n');
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const waitFor = async (file) => { while (!fs.existsSync(file)) await sleep(10); };
+const waitFor = async (file) => {
+  if (fs.existsSync(file)) return;
+  await new Promise((resolve, reject) => {
+    const path = require('node:path');
+    const watcher = fs.watch(path.dirname(file), (_event, name) => {
+      if (name && name.toString() !== path.basename(file)) return;
+      if (fs.existsSync(file)) finish();
+    });
+    const finish = () => { watcher.close(); resolve(); };
+    watcher.on('error', reject);
+    if (fs.existsSync(file)) finish();
+  });
+};
 (async () => {
 const api = args.find(a => a.startsWith('repos/')) ?? '';
 const delivery = fs.readFileSync(${JSON.stringify(deliveryFile)}, 'utf8').trim();
@@ -159,6 +170,7 @@ else throw new Error('unexpected provider call ' + args.join(' '));
 }
 
 async function settlesWithin<T>(work: Promise<T>, limitMs = 1_000, label = "receipt"): Promise<T> {
+  // This is only a failure bound; test progress is driven by observable state below.
   let deadline: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
@@ -173,11 +185,10 @@ async function settlesWithin<T>(work: Promise<T>, limitMs = 1_000, label = "rece
 }
 
 async function waitForIdleSchedule(show: () => Promise<ScheduleV1>): Promise<ScheduleV1> {
-  const end = Date.now() + 15_000;
   for (;;) {
     const schedule = await show();
-    if (!schedule.status.activeRun || Date.now() > end) return schedule;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    if (!schedule.status.activeRun) return schedule;
+    await new Promise<void>((resolve) => setImmediate(resolve));
   }
 }
 
@@ -227,7 +238,7 @@ test("the pull that starts an occurrence returns when its witness is accepted, b
     assert.match(String(receipt.summary ?? receipt.evidence ?? ""), /CI witness/u);
     assert.ok((await show()).status.activeRun, "the occurrence is still running the scan");
     releaseScan();
-    const settled = await waitForIdleSchedule(show);
+    const settled = await settlesWithin(waitForIdleSchedule(show), 15_000, "schedule idle");
     assert.equal(settled.status.lastRun?.outcome, "succeeded");
     assert.equal(calls().filter((line) => line.includes("head_sha=")).length, 1, "one witness walk total");
   });
@@ -247,7 +258,10 @@ test("a late --task pull waits out the active occurrence, then answers from the 
     const lateReceipt = await settlesWithin(late, 15_000, "late pull");
     assert.ok(["applied", "no_changes"].includes(lateReceipt.outcome), JSON.stringify(lateReceipt));
     assert.match(String(lateReceipt.evidence ?? lateReceipt.summary ?? ""), /already recorded/u);
-    assert.equal((await waitForIdleSchedule(show)).status.lastRun?.outcome, "succeeded");
+    assert.equal(
+      (await settlesWithin(waitForIdleSchedule(show), 15_000, "schedule idle")).status.lastRun?.outcome,
+      "succeeded",
+    );
     const walks = calls().filter((line) => line.includes("head_sha=")).length;
     assert.equal(walks, 1, "one witness walk total");
     // The queued copy the late pull left behind is dropped at the next drain: no re-walk.
@@ -302,7 +316,7 @@ for (const trigger of ["ci-observe-pull", "schedule-run-now", "task-complete"] a
             )
           : await cell.run({ kind: "ci-observe-pull", taskId }, binding);
       assert.ok(["applied", "no_changes"].includes(receipt.outcome), JSON.stringify(receipt));
-      await waitForIdleSchedule(show);
+      await settlesWithin(waitForIdleSchedule(show), 15_000, "schedule idle");
       const after = await snapshot();
       const runs = after.executions[0]!.gateRuns;
       assert.equal(runs.length, 2);
