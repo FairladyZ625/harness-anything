@@ -11,8 +11,14 @@ import {
 import type { FrozenCompletionContract } from "./completion-contract.ts";
 import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
-import { approvedReviewHistoryForExecution, reviewsForExecution, type ReviewV1 } from "./review.ts";
-import type { ExecutionV1 } from "./execution.ts";
+import {
+  approvedReviewHistoryForExecution,
+  reviewsForExecution,
+  type ReviewDispositionV1,
+  type ReviewV1,
+} from "./review.ts";
+import { disposedReviewIdsForSubmission } from "./review-consent-validity.ts";
+import { submissionDigest, type ExecutionV1 } from "./execution.ts";
 import { isWorkRoot } from "./task.ts";
 
 export type CompletionBlockerCode =
@@ -281,7 +287,9 @@ function evaluateCompletion(
   const submission = execution.submission;
   // A changes request on the current cut ends that cut: no witness can complete it, so the owner's
   // return comes before any missing evidence.
-  const changes = includeReview ? changesRequestedReview(snapshot.reviews, execution) : undefined;
+  const changes = includeReview
+    ? changesRequestedReview(snapshot.reviews, execution, snapshot.reviewDispositions ?? [])
+    : undefined;
   if (changes)
     return one(
       "review_missing",
@@ -378,10 +386,17 @@ function evaluateCompletion(
   return [];
 }
 
-/** The latest changes_requested verdict on the submitted cut: an adverse verdict the owner adjudicates. */
-export function changesRequestedReview(reviews: readonly ReviewV1[], execution: ExecutionV1): ReviewV1 | undefined {
+/** The latest changes_requested verdict on the submitted cut that no consent disposition removed:
+ * an adverse verdict the owner adjudicates. Dispositions share the consent side's one standard. */
+export function changesRequestedReview(
+  reviews: readonly ReviewV1[],
+  execution: ExecutionV1,
+  dispositions: readonly ReviewDispositionV1[],
+): ReviewV1 | undefined {
+  if (!execution.submission) return undefined;
+  const disposed = disposedReviewIdsForSubmission(dispositions, submissionDigest(execution.submission));
   return reviewsForExecution(reviews, execution)
-    .filter((review) => review.verdict === "changes_requested")
+    .filter((review) => review.verdict === "changes_requested" && !disposed.has(review.reviewId))
     .at(-1);
 }
 
