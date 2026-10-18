@@ -136,15 +136,23 @@ test("under a listener the browser signs in at its hostname while the daemon kee
 
 test("an invitation names the listener other machines can reach, not the center's loopback", async (t) => {
   const { service, root } = fixture(1_000, {}, t);
+  writeFileSync(path.join(root, "rbac", "listener.pem"), "public listener certificate");
   writeFileSync(
     path.join(root, "rbac", "config.json"),
     JSON.stringify({
       url: "http://127.0.0.1:8080",
       realm: "harness",
-      listener: { hostname: "center.example.test", port: 8443 },
+      listener: {
+        hostname: "center.example.test",
+        port: 8443,
+        certificateFile: path.join(root, "rbac", "listener.pem"),
+        certificateKeyFile: path.join(root, "rbac", "listener-key.pem"),
+      },
     }),
   );
-  assert.equal((await service.interactiveAuthority()).url, "https://center.example.test:8443");
+  const invitation = await service.interactiveAuthority();
+  assert.equal(invitation.url, "https://center.example.test:8443");
+  assert.equal(invitation.certificate, "public listener certificate");
 });
 
 test("a session in use outlives its access token without signing in again", async (t) => {
