@@ -18,7 +18,6 @@ import {
   isDecisionEvent,
   isDocEvent,
   parseCanonicalEvent,
-  serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
 } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { decisionWritePlan } from "../../packages/kernel/src/domain/decision-event.ts";

@@ -1,4 +1,4 @@
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import { artifactsClient, artifactsQueryKeys } from "./artifacts-client.ts";
 import { harnessClient } from "./api-client.ts";

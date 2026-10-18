@@ -1,9 +1,5 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import {
   canonicalGateReceipts,
@@ -32,13 +28,6 @@ import { prepareSubmissionEvidence } from "../src/repo-cell-task-progress.ts";
 
 const actor = { principal: { personId: "owner" }, executor: null } as const;
 const binding = { actor, source: "local" } as RepoCellBinding;
-
-function git(root: string, ...args: string[]): string {
-  return execFileSync("git", ["-C", root, ...args], {
-    encoding: "utf8",
-    env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" },
-  }).trim();
-}
 
 const commandRequirement = (gateId = "lint"): FrozenGateRequirement => ({
   gateId,
@@ -85,38 +74,6 @@ const githubRequirement = (gateId = "ci"): FrozenGateRequirement => ({
     },
   },
 });
-
-function submittedExecution(
-  commitSha: string,
-  requirements: readonly FrozenGateRequirement[],
-  overrides: Record<string, unknown> = {},
-): Snapshot["executions"][number] {
-  return {
-    schema: "execution/v1",
-    executionId: "execution",
-    taskId: "task",
-    nodeId: "implementation",
-    iteration: 0,
-    state: "submitted",
-    actor,
-    claimedAt: "2026-09-12T00:00:00.000Z",
-    submittedAt: "2026-09-12T00:01:00.000Z",
-    closedAt: null,
-    gateRuns: [],
-    submission: {
-      completionClaim: "Done",
-      commitSha,
-      deliverables: [],
-      outputs: [],
-      verificationNotes: ["Tests passed"],
-      knownGaps: [],
-      residualRisks: [],
-      evidenceRefs: [],
-      completionContract: { ...emptyCompletionContract, gates: [...requirements] },
-      ...overrides,
-    },
-  } as Snapshot["executions"][number];
-}
 
 function cellStub(rootDir: string, execution: Snapshot["executions"][number]) {
   const read = {

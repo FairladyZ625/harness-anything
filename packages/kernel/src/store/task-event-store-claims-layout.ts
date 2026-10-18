@@ -1,4 +1,3 @@
-import { canonicalizeWriteValue } from "../domain/write-chain.contract.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import path from "node:path";
 import { localContentObjectFileSystem } from "../local/local-layout-file-system.ts";

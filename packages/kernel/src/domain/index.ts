@@ -1,4 +1,5 @@
 export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-envelope.ts";
+export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
 export {

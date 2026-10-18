@@ -6,7 +6,7 @@ import path from "node:path";
 import test from "node:test";
 import { withTempStoreAsync } from "../../kernel/test/store/helpers.ts";
 import { event as taskCreatedTemplate } from "../../kernel/test/store/task-event-store.fixtures.ts";
-import { taskLifecycleWritePlan } from "../../kernel/src/domain/task-lifecycle-publication.ts";
+import { taskLifecycleWritePlan } from "@harness-anything/kernel";
 import { openRepoWriterCell } from "../src/repo-cell-open.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { seedSettingsEvent } from "./repo-settings.fixture.ts";

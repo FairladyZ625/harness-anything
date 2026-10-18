@@ -14,7 +14,6 @@ import {
   completionBlockers,
   normalizeTaskLifecycleCommand,
   reviewDigest,
-  serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
   sha256Text,
   submissionDigest,
@@ -23,7 +22,6 @@ import {
 import {
   makeTaskEventStore,
   makeTaskProjection,
-  reduceTaskEvent,
   serializeTaskEvent,
   TASK_LEASE_BROKER_CONTRACT,
 } from "../../kernel/test/store/task-lifecycle-runtime.ts";

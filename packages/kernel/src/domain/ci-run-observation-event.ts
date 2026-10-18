@@ -1,4 +1,4 @@
-import { validateCiRunObservationEventV4, type CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
+import type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 import {
   hasContractFields,
   isRecord,

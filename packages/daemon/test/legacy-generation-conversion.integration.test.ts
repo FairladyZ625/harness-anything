@@ -12,7 +12,6 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { validateRetiredCiRunObservationEvent } from "../../kernel/src/domain/ci-run-observation-retired-event.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import {
@@ -38,6 +37,7 @@ import {
   stableStringify,
   submissionDigest,
   validateCurrentCanonicalEvent,
+  validateRetiredCiRunObservationEvent,
   type CanonicalEventV1,
   type CanonicalEventStore,
   type TaskEventV1,

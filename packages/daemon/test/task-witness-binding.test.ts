@@ -11,7 +11,6 @@ import { completionSnapshot } from "../../kernel/test/domain/completion.fixtures
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import { centerWitnessAction, runTaskWitnessAction } from "../src/task-witness-action.ts";
-import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
 
 const requirement: FrozenGateRequirement = {
   gateId: "lint",
@@ -120,15 +119,6 @@ function fixture(t: TestContext) {
       stale = true;
     },
   };
-}
-
-function assertBinding(actual: RepoCellBinding, expected: RepoCellBinding): void {
-  assert.deepEqual(actual.source, expected.source);
-  assert.equal(actual.withWriterEpochFence, expected.withWriterEpochFence);
-  assert.equal(actual.writerEpochFence, expected.writerEpochFence);
-  assert.equal(actual.writerEpoch, expected.writerEpoch);
-  assert.deepEqual(actual.actor.principal, expected.actor.principal);
-  assert.deepEqual(actual.actor.executor, { kind: "agent", id: "completion-source:research/check" });
 }
 
 for (const existing of [false, true]) {

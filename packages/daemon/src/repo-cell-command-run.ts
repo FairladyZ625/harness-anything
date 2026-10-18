@@ -381,14 +381,6 @@ export function makeRepoCellCommandRunner(
   };
   return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
     const receipt = await run(action, binding, signal);
-    const forwardSettled =
-      action.kind === "task-adjudicate" &&
-      action.forward === true &&
-      typeof action.taskId === "string" &&
-      !isSquadControlCommand(action.kind) &&
-      "outcome" in receipt &&
-      (receipt.outcome === "applied" ||
-        (receipt.outcome === "pending" && (receipt as WriteReceipt).status === "accepted_durable"));
     if (
       (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
       typeof action.taskId === "string" &&
