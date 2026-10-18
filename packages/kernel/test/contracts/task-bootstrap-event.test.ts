@@ -137,7 +137,10 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
     ...event,
     payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, orbit: true } } },
   };
-  assert.doesNotThrow(() => serializeCanonicalEvent(future as unknown as TaskBootstrapEventV1));
+  assert.throws(
+    () => serializeCanonicalEvent(future as unknown as TaskBootstrapEventV1),
+    /task metadata contains unknown fields: orbit/u,
+  );
   assert.match(validateCurrentCanonicalEvent(future).join("\n"), /task metadata contains unknown fields: orbit/u);
   const { fromLegacyId: _missing, ...missingField } = metadata;
   void _missing;
