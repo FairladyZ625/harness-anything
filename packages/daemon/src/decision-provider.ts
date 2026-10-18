@@ -322,9 +322,10 @@ function takeCredential(
           "invalid_provider",
           "API keys must be nonblank single-line text of at most 1280 characters.",
         );
+      const secret = apiKey.trim();
       const reference = vault.issue();
       try {
-        await vault.store(reference, apiKey);
+        await vault.store(reference, secret);
       } catch {
         throw providerError(
           "provider_credential_unavailable",

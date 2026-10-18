@@ -54,7 +54,7 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
       providerId: "review-choice",
       name: "Review choice",
       model: "openrouter/model-requested",
-      apiKey: secret,
+      apiKey: `  ${secret}  `,
     });
     assert.equal((created.provider as { auth: { credentialRef: string } }).auth.credentialRef, references[0]);
     assert.equal(JSON.stringify(created).includes(secret), false);
