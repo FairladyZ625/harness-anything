@@ -11,7 +11,8 @@ import type {
   RpcShape,
 } from "./preset-command-contract-support.ts";
 import { taskActionDescriptorProjection } from "./task-action-projection.generated.ts";
-import { settingsFieldProtocolProjection, taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
+import { settingsFieldProtocolProjection } from "./settings-field-projection.generated.ts";
+import { taskCreateDescriptorProjection } from "./task-create-projection.generated.ts";
 
 export type {
   CliInputError,
