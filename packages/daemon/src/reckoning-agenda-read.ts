@@ -1,4 +1,5 @@
-import { consumeKnownError, isTerminalStatus, type TaskProjection } from "@harness-anything/kernel";
+import { isTerminalStatus, type TaskProjection } from "@harness-anything/kernel";
+import { decodeEvidencePayload } from "./repo-cell-evidence.ts";
 import { readScheduleRuns, type ScheduleRunsResult } from "./schedule-runs-read.ts";
 
 const FENCE = /```harness-reckoning\s*\r?\n([\s\S]*?)\r?\n```/gu;
@@ -144,13 +145,7 @@ function parseReport(reportText: string | null): ReckoningReport | null {
   let match: RegExpExecArray | null = null;
   for (const candidate of reportText.matchAll(FENCE)) match = candidate;
   if (match === null) return null;
-  let value: unknown;
-  try {
-    value = JSON.parse(match[1]!);
-  } catch (error) {
-    consumeKnownError(error);
-    return null;
-  }
+  const value = decodeEvidencePayload(match[1]!);
   if (!isRecord(value) || value.schema !== "harness-reckoning/v1" || !Array.isArray(value.windows)) return null;
   const windows: ReckoningWindow[] = [];
   for (const rawWindow of value.windows) {
