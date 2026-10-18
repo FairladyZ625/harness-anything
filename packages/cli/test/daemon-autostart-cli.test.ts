@@ -1107,6 +1107,19 @@ test("semantic sources and agent execution cross the daemon before transport-bou
     ]).outcome,
     "applied",
   );
+  git(fixture.root, "update-ref", "refs/remotes/origin/main", deliveryCommit);
+  assert.equal(
+    run(fixture.root, fixture.userRoot, [
+      "task",
+      "annotate",
+      taskId,
+      "--execution-id",
+      executionId,
+      "--note",
+      `merge_commit_sha:${deliveryCommit}`,
+    ]).outcome,
+    "applied",
+  );
   assert.equal(run(fixture.root, fixture.userRoot, ["task", "complete", taskId]).outcome, "applied");
 
   const shown = run(fixture.root, fixture.userRoot, ["task", "show", taskId]),

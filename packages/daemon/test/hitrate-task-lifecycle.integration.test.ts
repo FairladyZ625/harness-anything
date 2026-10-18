@@ -345,6 +345,12 @@ test("task start, closeout submit, and code-doc reconcile reuse daemon-known lif
       consentEvent?.type === "review_consent_recorded" ? consentEvent.payload.consent.submissionDigest : null,
       submissionDigest(ownerAmendedPacket),
     );
+    git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
+    const annotated = await cell.run(
+      { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${commitSha}` },
+      holder,
+    );
+    assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
     const completed = await cell.run({ kind: "task-complete", taskId }, holder);
     assert.equal(completed.outcome, "applied", JSON.stringify(completed));
 
