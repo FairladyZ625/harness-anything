@@ -1,7 +1,9 @@
 import { accessSync, constants, existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import type { DaemonAutostartResult } from "@harness-anything/daemon/internal/client/daemon-autostart";
+import { daemonBuildStamp, readDistBuildId } from "@harness-anything/daemon/internal/build-identity";
 import { daemonIdFromEnv, daemonUserRoot } from "@harness-anything/daemon/internal/client/local-daemon-target";
 import { guiStdioLogPath } from "@harness-anything/daemon/internal/lifecycle-log";
 import { startDetachedProcess } from "@harness-anything/daemon/internal/process-port";
@@ -22,6 +24,8 @@ export interface GuiLaunchDependencies {
   readonly startDetached?: typeof startDetachedProcess;
   readonly ensureDaemon?: (invokingRoot: string) => Promise<DaemonAutostartResult>;
   readonly guiPackageRoot?: string;
+  readonly sourceBuildId?: () => string | null;
+  readonly rebuildGuiBundle?: (guiPackageRoot: string) => void;
   readonly startBrowserBroker?: (guiPackageRoot: string, rootDir: string) => Promise<BrowserGuiBroker>;
   readonly waitForBrowserClose?: (broker: BrowserGuiBroker) => Promise<void>;
 }
@@ -54,6 +58,13 @@ export async function runGuiLaunch(
       "The desktop GUI is an optional shell and is not installed beside this CLI. " +
         "Install it with `npm install -g @harness-anything/gui`, then retry `ha gui`.",
     );
+  const bundle = refreshStaleGuiBundle(guiPackageRoot, dependencies);
+  if ("failure" in bundle)
+    return reject(
+      "gui_build_failed",
+      `The GUI bundle rebuild failed: ${bundle.failure} Fix the build with ` +
+        "`npm run build --workspace @harness-anything/gui`, then retry `ha gui`.",
+    );
   const browser = launch.browser,
     rendererBundle = path.join(guiPackageRoot, "dist/index.html"),
     preloadBundle = path.join(guiPackageRoot, "dist-electron/electron-preload.cjs"),
@@ -77,7 +88,13 @@ export async function runGuiLaunch(
     if (browser) {
       const broker = await (dependencies.startBrowserBroker ?? startBrowserGuiBroker)(guiPackageRoot, launch.rootDir);
       finish(
-        { ok: true, command: "gui", url: broker.url, summary: `Harness Anything GUI available at ${broker.url}` },
+        {
+          ok: true,
+          command: "gui",
+          url: broker.url,
+          ...(bundle.rebuilt ? { rebuilt: true } : {}),
+          summary: `Harness Anything GUI available at ${broker.url}`,
+        },
         0,
       );
       await (dependencies.waitForBrowserClose ?? waitForBrowserClose)(broker);
@@ -105,6 +122,7 @@ export async function runGuiLaunch(
         command: "gui",
         pid: child.pid,
         log: logPath,
+        ...(bundle.rebuilt ? { rebuilt: true } : {}),
         summary: `Harness Anything GUI launched (pid ${child.pid}) for ${launch.rootDir}; logs: ${logPath}`,
       },
       0,
@@ -119,6 +137,46 @@ async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartRe
     invokingRoot,
     onProgress: (progress) => process.stderr.write(`${progress.message}\n`),
   });
+}
+// The daemon's build_superseded drift compares its loaded dist marker against the disk marker; the
+// GUI has no resident process, so the same determination compares the bundle's dist marker against
+// the checkout's current build id and rebuilds before launch when they disagree. Only a source
+// checkout can hold sources the bundle lags behind — the installed package ships no src tree.
+function refreshStaleGuiBundle(
+  guiPackageRoot: string,
+  dependencies: GuiLaunchDependencies,
+): { readonly rebuilt: boolean } | { readonly failure: string } {
+  if (!existsSync(path.join(guiPackageRoot, "src"))) return { rebuilt: false };
+  const commit = (dependencies.sourceBuildId ?? daemonSourceBuildId)();
+  if (commit === null || readDistBuildId(guiPackageRoot) === commit) return { rebuilt: false };
+  process.stderr.write(
+    `The GUI bundle in ${guiPackageRoot} predates the current source build ${commit.slice(0, 12)}; ` +
+      "rebuilding it before launch.\n",
+  );
+  try {
+    (dependencies.rebuildGuiBundle ?? rebuildGuiBundleFromSource)(guiPackageRoot);
+  } catch (error) {
+    return { failure: cliErrorMessage(error) };
+  }
+  return { rebuilt: true };
+}
+function daemonSourceBuildId(): string | null {
+  return daemonBuildStamp().commit;
+}
+// The build's own output goes to stderr: `ha gui --json` must keep stdout to its receipt line.
+function rebuildGuiBundleFromSource(guiPackageRoot: string): void {
+  const build = spawnSync("npm", ["run", "build"], {
+    cwd: guiPackageRoot,
+    encoding: "utf8",
+    shell: process.platform === "win32",
+    windowsHide: true,
+  });
+  if (build.stdout) process.stderr.write(build.stdout);
+  if (build.stderr) process.stderr.write(build.stderr);
+  if (build.status !== 0)
+    throw new Error(
+      `npm run build exited with status ${build.status ?? "unknown"}${build.error ? `: ${build.error.message}` : ""}. `,
+    );
 }
 function missingBundleHint(bundle: string): string {
   return (

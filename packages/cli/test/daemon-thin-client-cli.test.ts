@@ -460,6 +460,7 @@ test("ha gui --help documents repository context and attach-only daemon ownershi
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /ha gui \[--root <path>\]/u);
   assert.match(result.stdout, /optional @harness-anything\/gui package/u);
+  assert.match(result.stdout, /older than the sources is rebuilt/u);
   assert.match(result.stdout, /never stops the daemon/u);
 });
 

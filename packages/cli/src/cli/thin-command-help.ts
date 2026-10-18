@@ -52,6 +52,7 @@ export const clientLocalCommands = [
     help: [
       "    GUI code comes from the optional @harness-anything/gui package; the CLI handles daemon autostart.",
       "    --root selects the repository context; it defaults to the current directory.",
+      "    In a source checkout, a GUI bundle older than the sources is rebuilt before the window opens.",
       "    Closing the GUI never stops the daemon, and the GUI never respawns a stopped daemon.",
     ].join("\n"),
   },
