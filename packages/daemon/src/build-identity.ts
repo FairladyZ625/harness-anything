@@ -42,6 +42,12 @@ export function observeDaemonBuild(runtimeFile?: string): DaemonBuildObserver {
     },
   };
 }
+// The dist marker convention is shared beyond the resident daemon: every package that builds into
+// dist/ stamps build-id.txt at build time, and readers (daemon drift, the test runner, `ha gui`)
+// compare it against the current build identity from daemonBuildStamp().
+export function readDistBuildId(packageRoot: string): string | null {
+  return readBuildId(path.join(packageRoot, "dist", buildIdFilename));
+}
 function resolveStamp(): DaemonBuildStamp {
   const stamped = process.env.HARNESS_BUILD_COMMIT?.trim();
   if (stamped) return { commit: stamped };
