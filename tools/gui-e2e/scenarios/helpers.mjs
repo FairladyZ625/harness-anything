@@ -13,6 +13,17 @@ export async function nav(page, name, testId) {
   await page.getByTestId(testId).first().waitFor();
 }
 
+// 对动画浮层断言/截图前必须等入场真正完成:Modal 等原语的面板自身是 motion 元素,
+// 入场把计算样式 opacity 从 0 拉到 1(「减弱动态效果」下仍有更短的纯淡入,不取消),
+// 取在中途就是半透明面板(task_2e9dedde 返工根因:机检只读声明背景 alpha,假绿)。
+// 条件等待面板计算 opacity === "1";非 motion 元素(如快速切换浮层)立即成立。
+export async function waitForEntrySettled(page, selector) {
+  await page.waitForFunction((sel) => {
+    const node = globalThis.document.querySelector(sel);
+    return node !== null && globalThis.getComputedStyle(node).opacity === "1";
+  }, selector);
+}
+
 // Measure the local surface: document.scrollWidth misses clipped children and
 // forced scrollbars whose contents happen to fit.
 export async function assertUnscrolledLayout(container, childSelector = ":scope > *") {
