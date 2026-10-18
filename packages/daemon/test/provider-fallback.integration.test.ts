@@ -33,6 +33,7 @@ const installation: RuntimeInstallationWitness = {
 };
 type Behavior =
   | "429"
+  | "429-reset"
   | "success"
   | "worker_stop"
   | "empty_success"
@@ -498,6 +499,32 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       existsSync(dispatchStreamPath(root, stderrBounded[0]!.dispatchId)),
       "the reason's diagnostics reference must point at a real dispatch stream",
     );
+    behaviors.set("provider-rate-first", "429-reset");
+    await installAgent(cell, "fallback-reset-window", [
+      { instance: "provider-rate-first" },
+      { instance: "provider-success-second" },
+    ]);
+    await startTask(cell, root, "task_provider_reset_window", "execution-provider-reset-window");
+    await cell.spawnRuntime(
+      {
+        agentId: "fallback-reset-window",
+        cwd: { scope: "repo-root" },
+        prompt: "Wait for provider quota reset.",
+        taskId: "task_provider_reset_window",
+        dispatchKey: "provider-reset-window",
+      },
+      binding,
+    );
+    const resetScheduled = await eventually(async () => {
+      const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_reset_window" })).dispatches;
+      return rows.length === 1 && rows[0]?.fallbackState === "scheduled"
+        ? { row: rows[0], stream: readDispatchStream(root, rows[0].dispatchId) }
+        : null;
+    });
+    assert.equal(resetScheduled.row.outcome, "failed");
+    assert.equal(resetScheduled.row.classification, "provider_quota");
+    assert.equal(resetScheduled.row.resetAt, "2099-01-01T00:00:00.000Z");
+    assert.equal(resetScheduled.stream?.fallbackSchedule?.notBeforeAt, "2099-01-01T00:00:00.000Z");
   } finally {
     await cell.close();
     rmSync(parent, { recursive: true, force: true });
@@ -863,6 +890,7 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                       http_status: 429,
                       code: "rate_limit",
                       message: "quota exhausted OPENAI_API_KEY=sk-provider-fallback-secret",
+                      ...(behavior === "429-reset" ? { resetAt: "2099-01-01T00:00:00.000Z" } : {}),
                     },
                   },
                 ]
@@ -875,7 +903,7 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
                   { type: "turn.completed" },
                 ];
         if (frames.length) output?.(`${frames.map((frame) => JSON.stringify(frame)).join("\n")}\n`);
-        exit?.(behavior === "429" ? 1 : 0);
+        exit?.(behavior === "429" || behavior === "429-reset" ? 1 : 0);
       });
     },
     terminate: () => {

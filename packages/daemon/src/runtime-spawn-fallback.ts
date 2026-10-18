@@ -258,7 +258,11 @@ export async function settleFallbackAttempt(
     roundBaseMs = Math.max(0, Number(runtimeSettings?.providerRoundBackoffBaseSeconds ?? 5) * 1_000),
     roundMaxMs = Math.max(roundBaseMs, Number(runtimeSettings?.providerRoundBackoffMaxSeconds ?? 60) * 1_000),
     delayMs = Math.min(roundMaxMs, roundBaseMs * 2 ** retryRound),
-    notBeforeAt = new Date(Date.parse(input.now()) + delayMs).toISOString();
+    observedAt = Date.parse(input.now()),
+    resetAt = outcome.classification === "provider_quota" && outcome.resetAt ? Date.parse(outcome.resetAt) : Number.NaN,
+    notBeforeAt = new Date(
+      Math.max(observedAt + delayMs, Number.isFinite(resetAt) ? resetAt : observedAt),
+    ).toISOString();
   active.stream.appendFallbackState({ state: "scheduled", delayMs, notBeforeAt, nextProvider: next }, input.now());
   context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
 }
