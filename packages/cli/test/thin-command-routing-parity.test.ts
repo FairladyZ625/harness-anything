@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import {
   DAEMON_RPC_SCHEMA,
+  commandIdForDaemonMethod,
   daemonMethodAcceptsPayloadExecutor,
   daemonProtocolCommands,
   thinCliCommands,
@@ -1473,4 +1474,16 @@ test("task create and work create payloads pass the repo.task.create wire shape"
       argv.join(" "),
     );
   }
+});
+
+test("parsed commands name their route id and sole-method attribution matches the registry", () => {
+  const parsed = parseThinCommand(["agenda", "--json"], "/repo");
+  assert.equal(parsed.ok, true);
+  if (!parsed.ok) return;
+  assert.equal(parsed.command.id, "agenda", "the CLI command id rides on the parsed command");
+  // Sole-owner methods attribute without a caller declaration; shared methods cannot.
+  assert.equal(commandIdForDaemonMethod("repo.agenda.read"), "agenda");
+  assert.equal(commandIdForDaemonMethod("repo.entity.actions.explain"), "explain");
+  assert.equal(commandIdForDaemonMethod("repo.task.run"), null);
+  assert.equal(commandIdForDaemonMethod("protocol.hello"), null);
 });

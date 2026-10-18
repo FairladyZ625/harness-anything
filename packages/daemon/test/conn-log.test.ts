@@ -13,9 +13,13 @@ function tempRoot(t: TestContext): string {
   return root;
 }
 function recordsOf(userRoot: string, daemonId = "test-daemon"): Record<string, unknown>[] {
-  const dir = path.join(userRoot, "logs");
+  const dir = path.join(userRoot, "logs"),
+    stem = daemonConnLogFileStem(daemonId),
+    // Chain rotation keeps the base file newest; older content shifts to higher generations.
+    generation = (name: string) => Number(/\.jsonl\.(\d+)$/u.exec(name)?.[1] ?? -1);
   return readdirSync(dir)
-    .filter((name) => name.startsWith(daemonConnLogFileStem(daemonId)) && name.endsWith(".jsonl"))
+    .filter((name) => name.startsWith(stem) && /\.jsonl(?:\.\d+)?$/u.test(name))
+    .sort((left, right) => generation(right) - generation(left))
     .flatMap((name) =>
       readFileSync(path.join(dir, name), "utf8")
         .split("\n")
@@ -88,6 +92,7 @@ test("conn log records open/request/close with monotonic ids, active counts, and
     transport: "unix-socket",
     method: "protocol.hello",
     command: "protocol-hello",
+    actor: "runtime-session:runtime_actor_check",
     wait: true,
     frameReceivedAt: Date.parse("2026-08-20T13:00:00.990Z"),
     handlerStartedAt: Date.parse("2026-08-20T13:00:01Z"),
@@ -156,6 +161,8 @@ test("conn log records open/request/close with monotonic ids, active counts, and
   assert.equal(hello.wait, true);
   assert.equal(hello.durationMs, 3);
   assert.equal(hello.ok, true);
+  assert.equal((hello as { actor?: string | null }).actor, "runtime-session:runtime_actor_check");
+  assert.equal((records[3] as { actor?: string | null }).actor, null, "undeclared requests record null actor");
   const close = records[4] as { conn: string; active: number; durationMs: number; requests: number };
   assert.equal(close.conn, "c-1");
   assert.equal(close.active, 1);
@@ -223,7 +230,28 @@ test("conn log rotates the day file by size into generation suffixes", async (t)
   log.connectionOpened("c", "unix-socket");
   await log.settle();
   const names = readdirSync(path.join(userRoot, "logs")).sort();
-  assert.deepEqual(names, ["daemon-size-conn-20260820.jsonl", "daemon-size-conn-20260820.jsonl.1"]);
+  // One generation per overflow: three ~170-byte opens against a 220-byte cap roll twice.
+  assert.deepEqual(names, [
+    "daemon-size-conn-20260820.jsonl",
+    "daemon-size-conn-20260820.jsonl.1",
+    "daemon-size-conn-20260820.jsonl.2",
+  ]);
+  rmSync(userRoot, { recursive: true, force: true });
+});
+
+test("conn log size rotation never deletes same-day generations: a busy day keeps every line", async (t) => {
+  const userRoot = tempRoot(t),
+    // One conn_open line is ~170 bytes at this timestamp; 300 bytes holds one line per generation.
+    log = openDaemonConnLog({ userRoot, daemonId: "lossless", maxBytes: 300, now: at("2026-08-20T10:00:00Z") });
+  const total = 9;
+  for (let index = 0; index < total; index += 1) log.connectionOpened(`conn-${index}`, "unix-socket");
+  await log.settle();
+  const records = recordsOf(userRoot, "lossless"),
+    opened = records.filter((record) => record.event === "conn_open");
+  // The within-day loss this test pins: research 3 measured 10-16 losing a full day segment to
+  // generation deletion (canonical 23,959 requests vs 22,131 retained cross-repo).
+  assert.equal(opened.length, total);
+  for (let index = 0; index < total; index += 1) assert.equal(opened[index]?.conn, `c-${index + 1}`);
   rmSync(userRoot, { recursive: true, force: true });
 });
 

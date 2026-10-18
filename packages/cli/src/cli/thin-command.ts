@@ -74,24 +74,30 @@ export function parseThinCommand(
         ? resolveThinCliCommand(args)
         : commands.find((entry) => entry.path.every((token, index) => args[index] === token)),
     inputs = deriveInputDirectory(route);
+  // Every accepted result names its route id, so the daemon-side logs can key the invocation by
+  // the CLI command the user actually typed instead of the transport method it rode on.
+  const declared = (result: ThinParseResult): ThinParseResult =>
+    result.ok && route ? { ...result, command: { ...result.command, id: route.id } } : result;
   if (route?.id === "runtime-run" && args[2]?.startsWith("--") && args.includes("--resume-dispatch"))
-    return parseResumeDispatch(rootDir, repoId, json, args, inputs);
+    return declared(parseResumeDispatch(rootDir, repoId, json, args, inputs));
   if (route?.id === "task-dispatches" && nonEmpty(args[2]) && args.length === 3)
-    return accepted(rootDir, repoId, json, { kind: "task-dispatches", taskId: args[2] }, "repo.task.dispatches");
+    return declared(
+      accepted(rootDir, repoId, json, { kind: "task-dispatches", taskId: args[2] }, "repo.task.dispatches"),
+    );
   const routed =
     parseStorageRoute(route, args, rootDir, repoId, json, inputs) ??
     parseRouted(route, args, rootDir, repoId, json, inputs);
   if (routed?.ok && typeof routed.command.action.packageSource === "string")
-    return {
+    return declared({
       ...routed,
       command: {
         ...routed.command,
         action: { ...routed.command.action, packageSource: path.resolve(cwd, routed.command.action.packageSource) },
       },
-    };
-  if (routed) return routed;
+    });
+  if (routed) return declared(routed);
   if (!route || args[0] !== "task") return rejected("unsupported_command", unsupportedCommandHint(args), json);
-  return parseTaskRoute(route.id, args, rootDir, repoId, json, inputs);
+  return declared(parseTaskRoute(route.id, args, rootDir, repoId, json, inputs));
 }
 
 function parseTaskRoute(

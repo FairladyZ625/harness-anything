@@ -171,6 +171,25 @@ export const thinCliCommands = Object.freeze(
   daemonProtocolCommands.filter((command) => !("internal" in command && command.internal)).map((command) => command),
 );
 
+// Derived from the command registry, never a hand-copied list: a method owned by exactly one CLI
+// command names that command for request attribution (repo.agenda.read → agenda). Methods shared
+// by several commands stay method-keyed — only the caller's own declaration can disambiguate them.
+const commandIdBySoleMethod = (() => {
+  const owners = new Map<string, string[]>();
+  for (const command of daemonProtocolCommands) {
+    if ("internal" in command && command.internal) continue;
+    if (!("method" in command) || !command.method) continue;
+    owners.set(command.method, [...(owners.get(command.method) ?? []), command.id]);
+  }
+  return new Map(
+    [...owners.entries()].flatMap(([method, ids]) => (ids.length === 1 ? [[method, ids[0]!] as const] : [])),
+  );
+})();
+
+export function commandIdForDaemonMethod(method: string): string | null {
+  return commandIdBySoleMethod.get(method) ?? null;
+}
+
 export function resolveThinCliCommand(args: readonly string[]): (typeof daemonProtocolCommands)[number] | undefined {
   const matches = daemonProtocolCommands.filter(
     (entry) => !("internal" in entry && entry.internal) && entry.path.every((token, index) => args[index] === token),

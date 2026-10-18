@@ -32,6 +32,7 @@ export async function streamAgentRuntimeAt(input: {
   readonly onValue: (value: AgentRuntimeStreamValue) => void;
   readonly timeoutMs?: number;
   readonly onClosed?: (failure: DaemonStreamLost) => void;
+  readonly invokingCommand?: string;
 }): Promise<() => void> {
   return streamDaemonFacetAt({
     ...input,
@@ -48,6 +49,8 @@ export async function streamDaemonFacetAt(input: {
   readonly onHello?: (value: unknown) => void;
   readonly timeoutMs?: number;
   readonly onClosed?: (failure: DaemonStreamLost) => void;
+  /** CLI command id this stream serves; recorded by the daemon's request logs. */
+  readonly invokingCommand?: string;
 }): Promise<() => void> {
   let detached = false,
     everAttached = false,
@@ -99,7 +102,11 @@ export async function streamDaemonFacetAt(input: {
             jsonrpc: "2.0",
             id: 1,
             method: "protocol.hello",
-            params: { protocolVersion: currentDaemonProtocolVersion, ...executionCredentialParams() },
+            params: {
+              protocolVersion: currentDaemonProtocolVersion,
+              ...executionCredentialParams(),
+              ...(input.invokingCommand ? { invokingCommand: input.invokingCommand } : {}),
+            },
           })}\n${JSON.stringify({
             jsonrpc: "2.0",
             id: 2,

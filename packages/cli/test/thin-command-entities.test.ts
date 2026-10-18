@@ -814,6 +814,7 @@ test("thin parser derives builtin vertical, template, and script discovery actio
     assert.deepEqual(run.command, {
       rootDir: run.command.rootDir,
       json: false,
+      id: "script-run",
       method: "repo.script.run",
       action: {
         schema: "vertical-script-action/v1",
