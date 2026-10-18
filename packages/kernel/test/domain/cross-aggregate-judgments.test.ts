@@ -311,6 +311,54 @@ test("closeout consumes the latest content-pinned consent selection and ignores 
   );
 });
 
+test("owner-disposed changes_requested review satisfies the shared consent readiness", () => {
+  const base = closeout(),
+    selected = {
+      ...base.reviews[0]!,
+      verdict: "changes_requested" as const,
+      reason: "A finding was reviewed by the owner.",
+    },
+    digest = reviewDigest(selected),
+    submission = submissionDigest(base.executions[0]!.submission!);
+  const overridden = {
+    ...base,
+    reviews: [selected],
+    consents: [
+      {
+        ...base.consents[0]!,
+        reviewDigest: digest,
+        contentDigest: selected.contentDigest,
+        submissionDigest: submission,
+      },
+    ],
+    reviewDispositions: [
+      {
+        schema: "review-disposition/v1" as const,
+        dispositionId: "disposition-owner-override",
+        taskId: selected.taskId,
+        executionId: selected.executionId,
+        iteration: selected.iteration,
+        submissionDigest: submission,
+        disposedReviewIds: [selected.reviewId],
+        rationale: "The finding predates this delivery and is non-blocking.",
+        actor,
+        source: "local" as const,
+        disposedAt: "2026-08-18T00:05:00.000Z",
+      },
+    ],
+  };
+  assert.equal(
+    consentedApprovedReviewForExecution(
+      overridden.reviews,
+      overridden.consents,
+      overridden.executions[0]!,
+      overridden.reviewDispositions,
+    )?.review.reviewId,
+    selected.reviewId,
+  );
+  assert.equal(closeoutReadiness(overridden, undefined, undefined, mergedDelivery).readiness, "ready");
+});
+
 test("closeout readiness gates work and long_running completion on an active decision derives edge", () => {
   const edge = (relationType: string, state: string, targetRef = "task/task-1") => [
     { relationId: "rel-lineage", sourceRef: "decision/dec-1/CH1", targetRef, relationType, state },

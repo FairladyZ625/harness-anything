@@ -174,6 +174,7 @@ export const consent: Transition = {
       conflicts = current?.submission
         ? reviewConsentConflicts({
             selectedReview: recorded,
+            allowSelectedChangesRequested: true,
             reviews: snapshot.reviews.filter(
               (value) => value.executionId === command.executionId && value.iteration === current.iteration,
             ),
@@ -196,9 +197,17 @@ export const consent: Transition = {
           .map((value) => value.reviewId),
       );
     if (
+      command.disposedReviewIds?.length &&
+      command.actor.principal.personId !== snapshot.task?.createdBy.principal.personId
+    )
+      issues.push(
+        lifecycleContractIssue("invalid_proof", "review override consent requires the task owner's principal"),
+      );
+    if (
       snapshot.task?.status !== "in_review" ||
       current?.state !== "submitted" ||
-      recorded?.verdict !== "approved" ||
+      (recorded?.verdict !== "approved" &&
+        !(recorded?.verdict === "changes_requested" && command.disposedReviewIds?.includes(recorded.reviewId))) ||
       recorded?.iteration !== current?.iteration ||
       consentAlreadyCurrent
     )
@@ -392,6 +401,7 @@ export const complete: Transition = {
       conflicts = currentDigest
         ? reviewConsentConflicts({
             selectedReview,
+            allowSelectedChangesRequested: true,
             reviews: snapshot.reviews.filter(
               (value) => value.executionId === command.executionId && value.iteration === current?.iteration,
             ),
