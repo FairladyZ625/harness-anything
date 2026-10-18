@@ -7,6 +7,7 @@ vi.hoisted(() => {
 });
 
 import { agendaQuery } from "../src/renderer/agenda-data.ts";
+import { fleetOverviewQuery } from "../src/renderer/collaboration-data.ts";
 import { connectionsQuery } from "../src/renderer/connection-data.ts";
 import { entityKindCatalogQuery, governedEntityRowsQuery } from "../src/renderer/entity-kind-data.ts";
 import { LEDGER_PROBE_FOCUS_REFETCH, QUERY_PACING_MS, rendererQueryDefaults } from "../src/renderer/query-pacing.ts";
@@ -32,6 +33,7 @@ describe("renderer query pacing definitions", () => {
     expect(taskListQuery("repo-a").refetchOnWindowFocus).toBe(LEDGER_PROBE_FOCUS_REFETCH);
     expect(systemStatusQuery().refetchInterval).toBe(QUERY_PACING_MS.systemStatus);
     expect(connectionsQuery().refetchInterval).toBe(QUERY_PACING_MS.connectionStatus);
+    expect(fleetOverviewQuery("repo-a").refetchInterval).toBe(QUERY_PACING_MS.fleetOverview);
     const agendaInterval = agendaQuery("repo-a").refetchInterval as (query: {
       readonly state: { readonly data?: { readonly page?: { readonly nextCursor?: string | null } } };
     }) => number | false;
@@ -129,6 +131,38 @@ describe("ledger probe heartbeat on a fixed literal clock", () => {
         defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
       }),
       observer = new QueryObserver(client, { ...taskListQuery("repo-a"), queryFn: read }),
+      unsubscribe = observer.subscribe(() => undefined);
+    client.mount();
+    try {
+      await observer.refetch();
+      expect(read).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(read).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(9_001);
+      expect(read).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+      client.unmount();
+      client.clear();
+      vi.useRealTimers();
+    }
+  });
+});
+
+/**
+ * 协作页舰队概览的心跳(task_89085c1d5e532a54933b9bf444):停在协作页时数据必须自己走
+ * ——同探针测试一样用独立字面量时钟,固定 1_000 / 9_001 两档让「过大」与「过小」的
+ * 间隔回归都必红。
+ */
+describe("fleet overview heartbeat on a fixed literal clock", () => {
+  it("fires the fleet timer just past 10s and not at 1s", async () => {
+    vi.useFakeTimers();
+    focusManager.setFocused(true);
+    const read = vi.fn(async () => ({ schema: "daemon.fleet-overview/v1", ok: true })),
+      client = new QueryClient({
+        defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+      }),
+      observer = new QueryObserver(client, { ...fleetOverviewQuery("repo-a"), queryFn: read }),
       unsubscribe = observer.subscribe(() => undefined);
     client.mount();
     try {

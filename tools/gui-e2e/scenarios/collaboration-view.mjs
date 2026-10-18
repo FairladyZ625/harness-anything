@@ -276,7 +276,7 @@ export default {
   feature: "collaboration",
   lane: "isolated",
   description:
-    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges) on the redesigned SVG command canvas (fresh/lag/absent state-colored links with a live fleet TLS center, drawer details with cut progress), event stream filtered by node with click-to-node, task jumps, reduced-motion and motion-evidence screenshots, and an animation probe proving zero React re-renders while CSS animations run.",
+    "The fleet topology Collaboration page backed by repo.fleet.overview.read: daemon-served nodes (center + lease-holding edges) on the redesigned SVG command canvas (fresh/lag/absent state-colored links with a live fleet TLS center, drawer details with cut progress), event stream filtered by node with click-to-node, task jumps, reduced-motion and motion-evidence screenshots, an animation probe proving zero structural re-renders while CSS animations run, and a live-refresh checkpoint holding the page for 25s+ while a fixture-written event and walking relative times prove data moves without page switches.",
   async run({ page, shot, fixture }) {
     // 第 2 轮:先种副本三态并启动 fleet center(daemon 空闲、center 未启动是前提)。
     await seedGuiE2eFleetReplicaStates({
@@ -449,7 +449,10 @@ export default {
 
     // 8. 动效证据(task_16c20131):视口切换后先等拓扑几何沉降(重排引发的属性写
     //    不属于动画成本),再采样 2s 稳态窗口——动画推进走 CSS 时间轴,窗口内 DOM
-    //    零变更(= 动画期间 0 次 React 重渲染);连拍三帧留档流光/呼吸/扫描环的推进。
+    //    零「结构性」变更(= 动画期间 0 次 React 重渲染;task_89085c1d5e532a54933b9bf444
+    //    起协作页挂 10s 轮询,轮询重渲染可能带来相对时间文本的 characterData 更新,
+    //    属数据刷新而非动画成本,放行;childList/attributes 仍是 React 帧驱动的证据,
+    //    必须为 0)。连拍三帧留档流光/呼吸/扫描环的推进。
     await page.setViewportSize({ width: 1440, height: originalViewport.height });
     await page.getByTestId("collaboration-view").waitFor();
     for (let round = 0; ; round += 1) {
@@ -499,6 +502,11 @@ export default {
               running: animations.length,
               advanced: after.some((time, index) => time !== null && before[index] !== null && time > before[index]),
               mutations: mutations.length,
+              mutationsByType: {
+                childList: mutations.filter((record) => record.type === "childList").length,
+                attributes: mutations.filter((record) => record.type === "attributes").length,
+                characterData: mutations.filter((record) => record.type === "characterData").length,
+              },
               samples,
               windowMs: performance.now() - startedAt,
             });
@@ -507,10 +515,11 @@ export default {
     );
     assert.ok(perf.running > 0, `CSS animations (breathe/scan/event-in) are running: ${JSON.stringify(perf)}`);
     assert.ok(perf.advanced, `animations advance on the wall-clock timeline: ${JSON.stringify(perf)}`);
+    const structural = perf.mutationsByType.childList + perf.mutationsByType.attributes;
     assert.equal(
-      perf.mutations,
+      structural,
       0,
-      `no DOM mutations while animations run (zero React re-renders): ${JSON.stringify(perf)}`,
+      `no structural DOM mutations while animations run (React re-renders): ${JSON.stringify(perf)}`,
     );
     for (let frame = 1; frame <= 3; frame += 1) {
       await shot(`collaboration-motion-frame-${frame}`);
@@ -530,6 +539,43 @@ export default {
     assert.ok(absentLinks > 0, "static state colors survive reduced motion");
     await shot("collaboration-reduced-motion-1440");
     await page.emulateMedia({ reducedMotion: "no-preference" });
+
+    // 10. 实时刷新(task_89085c1d5e532a54933b9bf444 检查点):停在协作页不切走,两张相隔
+    //     ≥25s 的截图证明数据自己在动。判据用「事件流首行的 eventId 变化」:事件窗口
+    //     锚定最新 64 条(items 升序,首行是窗口内最旧一条),台账有任何新事件,10s 一拍
+    //     的轮询就把窗口推前——首行必然换人;页头的窗口计数恒为 64(读面上限),不能用
+    //     计数变化当判据。截图 A 之后经夹具 RPC 写一笔真实 canonical 事件催动;等待是
+    //     离散条件(waitForFunction:首行变化且距 A ≥25s),不睡墙钟。隐藏 Electron 窗口
+    //     的 visibilityState 是 "visible",react-query 轮询照常进行(实测确认)。
+    await page.setViewportSize({ width: 1440, height: originalViewport.height });
+    await page.getByTestId("collaboration-view").waitFor();
+    await topologySettled(page);
+    const anchorRow = await page.evaluate(() => {
+      const row = globalThis.document.querySelector('[data-testid^="collaboration-event-evt-"]');
+      return row?.getAttribute("data-testid") ?? null;
+    });
+    assert.ok(anchorRow !== null, "the event stream must have a first row before the live probe");
+    await shot("collaboration-live-a");
+    const anchoredAt = Date.now();
+    const probeCreated = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.task.create",
+      {
+        repo: { repoId: fixture.repoId },
+        payload: { taskId: "task-collab-live-probe", title: "实时刷新探针：停在协作页不切走" },
+      },
+      5_000,
+    );
+    assert.equal(probeCreated.ok, true, `live probe task create failed: ${JSON.stringify(probeCreated)}`);
+    await page.waitForFunction(
+      ({ testid, startedAt }) => {
+        const first = globalThis.document.querySelector('[data-testid^="collaboration-event-evt-"]');
+        return Date.now() - startedAt >= 25_000 && first !== null && first.getAttribute("data-testid") !== testid;
+      },
+      { testid: anchorRow, startedAt: anchoredAt },
+      { timeout: 100_000 },
+    );
+    await shot("collaboration-live-b");
   },
 };
 

@@ -277,43 +277,15 @@ test("the validator accepts a real overview and rejects the pinned negative fixt
 
 test("the host assembly maps task snapshots, dispatch rows, the event tail and registry failures", async () => {
   const cell = {
-    read: async (method: string) => {
-      if (method === "repo.tasks.list")
-        return {
-          ok: true,
-          status: "ready",
-          rows: [
-            {
-              taskId: "task_local",
-              coordinationStatus: "active",
-              snapshot: {
-                task: { title: "本机任务" },
-                lease: {
-                  phase: "held",
-                  expiresAt: "2026-10-07T00:00:00.000Z",
-                  actor: {
-                    principal: { personId: "person_zeyu" },
-                    executor: { kind: "agent", id: "runtime-session:runtime_local" },
-                  },
-                  source: "local",
-                },
-              },
-            },
-            {
-              taskId: "task_edge",
-              coordinationStatus: "active",
-              snapshot: {
-                task: { title: null },
-                lease: {
-                  phase: "reserving",
-                  expiresAt: "2026-10-07T00:00:00.000Z",
-                  actor: { principal: { personId: "person_zeyu" }, executor: null },
-                  source: { kind: "node", nodeId: "cc90-ubuntu" },
-                },
-              },
-            },
-          ],
-        };
+    read: async (method: string, payload?: Readonly<Record<string, unknown>>) => {
+      if (method === "repo.tasks.list") {
+        // 仿真读面:status 过滤的无限读返回该状态全部行;不带 status 的首页读
+        // (旧实现形状,limit 500 按 task_id 升序)只回前两行——task_zz_late 只能经
+        // status 读到达,编码「首页之外的租约会被旧读整页漏掉」。
+        const rows = hostTaskRows();
+        if (payload?.status === undefined) return { ok: true, status: "ready", rows: rows.slice(0, 2) };
+        return { ok: true, status: "ready", rows: rows.filter((row) => row.coordinationStatus === payload.status) };
+      }
       return {
         ok: true,
         status: "ready",
@@ -384,4 +356,46 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
   assert.equal(result.events[0]!.nodeId, "center");
   assert.equal(result.events[0]!.title, "任务建立");
   assert.ok(result.center.commitSha === null || typeof result.center.commitSha === "string");
+  // 回归(task_89085c1d5e532a54933b9bf444):task_zz_late 只在 status 无限读里可见
+  // (首页按 task_id 升序只含前两行)——租约读若退回「limit 500 首页」形状,这条
+  // 断言即红:「在飞」与节点「在做什么」会漏掉第 2 页起的租约。
+  const lateEdge = result.nodes.find((node) => node.nodeId === "edge-late-01")!;
+  const lateLease = (lateEdge.leases as { taskId: string; phase: string | null }[]).find(
+    (row) => row.taskId === "task_zz_late",
+  );
+  assert.ok(lateLease !== undefined, "a lease beyond the first task_id page must still reach the overview");
+  assert.equal(lateLease!.phase, "held");
 });
+
+/** host 读面测试的任务行表:task_id 升序里 task_zz_late 排最后——首页形状读不到它。 */
+function hostTaskRows() {
+  const leaseOf = (source: unknown, phase: "held" | "reserving", executorId: string | null) => ({
+    phase,
+    expiresAt: "2026-10-07T00:00:00.000Z",
+    actor: {
+      principal: { personId: "person_zeyu" },
+      ...(executorId === null ? {} : { executor: { kind: "agent", id: executorId } }),
+    },
+    source,
+  });
+  return [
+    {
+      taskId: "task_edge",
+      coordinationStatus: "active",
+      snapshot: { task: { title: null }, lease: leaseOf({ kind: "node", nodeId: "cc90-ubuntu" }, "reserving", null) },
+    },
+    {
+      taskId: "task_local",
+      coordinationStatus: "active",
+      snapshot: { task: { title: "本机任务" }, lease: leaseOf("local", "held", "runtime-session:runtime_local") },
+    },
+    {
+      taskId: "task_zz_late",
+      coordinationStatus: "active",
+      snapshot: {
+        task: { title: "第 2 页租约任务" },
+        lease: leaseOf({ kind: "node", nodeId: "edge-late-01" }, "held", "runtime-session:runtime_late"),
+      },
+    },
+  ];
+}

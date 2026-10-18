@@ -2,6 +2,7 @@ import type { FleetReplicaStatus } from "./center-types.ts";
 import { runtimeErrorCode } from "../runtime-spawn-errors.ts";
 import type { RepoCell, RepoCellBinding } from "../repo-cell-types.ts";
 import { keycloakNodeRegistry } from "../fleet-center-admission.ts";
+import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import type { KeycloakCenterAuthority } from "../transport/auth-context.ts";
 
@@ -188,6 +189,17 @@ const ONLINE_REASON = "tls-session-fact-not-exposed",
   WATCH_REASON = "edge-sync-internals-not-exposed",
   LAST_FAILURE_REASON = "no-replica-sync-failure-record-in-lifecycle-read",
   NO_REPLICA_ROW_REASON = "center-replica-ledger-has-no-row-for-node";
+
+/**
+ * 租约事实的读面过滤集:全部非终态任务状态(taskStatusWords 去掉 done/cancelled)。
+ * held/reserving 的实现租约只与非终态任务共存——submit 与 complete 的生命周期契约都
+ * 要求先释放实现租约(task-lifecycle-command-transitions「submit must own and
+ * atomically release the active lease」)。按 status 各做一次无限读(不携 limit)取代
+ * 旧的单页 500 行读:repo.tasks.list 的 keyset 分页按 task_id 升序,台账数千任务时
+ * 首页之外的租约行会被整页漏掉,「在飞」与节点「在做什么」因此漏计
+ * (task_89085c1d5e532a54933b9bf444)。
+ */
+const LEASE_TASK_STATUSES = taskStatusWords.filter((status) => status !== "done" && status !== "cancelled");
 
 /** 授权类错误码 → 字段 redacted;其余错误原样抛出(fail-closed,不吞)。 */
 export async function authorizedOrThrow<T>(
@@ -498,9 +510,13 @@ export async function readFleetOverviewFromHost(input: {
   readonly daemon: { readonly daemonId: string; readonly startedAt: string };
 }): Promise<FleetOverviewResult> {
   const leaseFacts = await authorizedOrThrow(async () => {
-    const tasks = await input.cell.read("repo.tasks.list", { limit: 500 }, input.binding);
+    const rows = (
+      await Promise.all(
+        LEASE_TASK_STATUSES.map((status) => input.cell.read("repo.tasks.list", { status }, input.binding)),
+      )
+    ).flatMap((read) => read.rows);
     const leases: FleetLeaseFact[] = [];
-    for (const row of tasks.rows) {
+    for (const row of rows) {
       const lease = row.snapshot.lease;
       if (lease === null || lease === undefined) continue;
       const nodeId =
