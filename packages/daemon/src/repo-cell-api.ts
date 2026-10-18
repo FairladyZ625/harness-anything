@@ -1058,9 +1058,9 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     close: async () => {
       if (context.state === "closed") return;
       // Aborting a running CI observation kills its provider subprocesses through the provider
-      // port; the occurrence then settles nothing and its durable claim waits for checkpoint
-      // resume. The drain below only waits out those subprocess exits, the writes the aborted
-      // occurrences already started, and any ledger-backup run (never aborted above).
+      // port; the occurrence then records an interrupted failure before close returns. The drain
+      // below only waits out those subprocess exits, the settlement write, and any ledger-backup
+      // run (never aborted above).
       for (const abort of builtinAborts.values()) abort.abort();
       // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
       // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer

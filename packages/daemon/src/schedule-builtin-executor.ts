@@ -113,12 +113,10 @@ export async function executeBuiltinScheduleOccurrence<Receipt extends WriteRece
       outcome: "failed",
       detail: `builtin ${target.builtinId} is not registered on this daemon`,
     });
-  const executed = await runRegisteredBuiltin(executor, input.cell, input.schedule, active.occurrenceId);
-  // A cell close aborted the occurrence on its way here: settling would both publish an
-  // outcome the round never earned and start a write past close. The claim stays durable.
-  const closeSignal = input.cell.signal;
-  if (closeSignal?.aborted) throw closeSignal.reason;
-  return settleOccurrence(executed);
+  // A cell close aborts provider work, but the occurrence still needs a terminal settlement
+  // before close returns. This releases the durable claim instead of leaving an orphan activeRun
+  // for the next scheduler pass; the failed detail records that the round was interrupted.
+  return settleOccurrence(await runRegisteredBuiltin(executor, input.cell, input.schedule, active.occurrenceId));
 }
 
 /** An executor error becomes the settle detail of a failed outcome — never a swallowed failure. */

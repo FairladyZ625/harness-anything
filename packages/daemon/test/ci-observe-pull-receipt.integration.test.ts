@@ -288,7 +288,7 @@ test("closing the cell aborts a still-running CI occurrence; no provider child o
   });
 });
 
-test("a slow provider scan does not hold cell close; the aborted occurrence stays for resume", async () => {
+test("a slow provider scan does not hold cell close; the aborted occurrence settles failure", async () => {
   await submittedTaskFixture(
     async ({ cell, rootDir, taskId, show, releaseWitness, slowScan, calls, completions, exits }) => {
       releaseWitness();
@@ -313,8 +313,8 @@ test("a slow provider scan does not hold cell close; the aborted occurrence stay
       assert.deepEqual(calls(), callsAtClose, "a provider call started after close returned");
       assert.deepEqual(completions(), completionsAtClose, "a provider child completed after close returned");
       assert.deepEqual(exits(), exitsAtClose, "a provider child exited after close returned");
-      // The aborted occurrence settled nothing: reopening the cell reads its claim still active —
-      // exactly the durable state the checkpoint-resume path expects after a center restart.
+      // The aborted occurrence is durably failed before close returns, so reopening sees no
+      // orphan claim that would need scheduler recovery.
       const reopened = await openBootstrappedRepoCell({
         now: () => "2026-10-11T00:00:00.000Z",
         repoId: workspaceId("ci-pull-receipt"),
@@ -329,8 +329,8 @@ test("a slow provider scan does not hold cell close; the aborted occurrence stay
             binding,
           )) as unknown as { schedule: ScheduleV1 }
         ).schedule;
-        assert.ok(schedule.status.activeRun, "the aborted occurrence's claim waits for checkpoint resume");
-        assert.ok(!schedule.status.lastRun, "the aborted occurrence settled no outcome");
+        assert.equal(schedule.status.activeRun, null, "the aborted occurrence released its claim");
+        assert.equal(schedule.status.lastRun?.outcome, "failed", "the aborted occurrence settled a failure");
       } finally {
         await reopened.close();
       }
