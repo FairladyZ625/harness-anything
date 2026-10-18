@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { daemonIdFromEnv, resolveLocalDaemonEndpoint } from "@harness-anything/daemon/client";
+import { daemonIdFromEnv, daemonUserRoot, resolveLocalDaemonEndpoint } from "@harness-anything/daemon/client";
 
 /**
  * Explicit host read surface for dispatched GUI verification. The override is deliberately
@@ -17,6 +17,11 @@ export function guiDaemonUserRoot(env: NodeJS.ProcessEnv = process.env): string 
 
 export function guiDaemonReadOnly(env: NodeJS.ProcessEnv = process.env): boolean {
   return Boolean(env.HARNESS_GUI_READONLY_DAEMON_USER_ROOT?.trim());
+}
+
+/** Read-only attachment reads the host root but materializes transient files in the worker root. */
+export function guiArtifactCacheRoot(env: NodeJS.ProcessEnv = process.env): string {
+  return path.join(daemonUserRoot(env), "artifact-cache");
 }
 
 export function guiGlobalDaemonTarget(env: NodeJS.ProcessEnv = process.env) {

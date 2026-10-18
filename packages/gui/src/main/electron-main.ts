@@ -1,4 +1,4 @@
-import { guiDaemonUserRoot } from "./gui-daemon-target.ts";
+import { guiArtifactCacheRoot, guiDaemonUserRoot } from "./gui-daemon-target.ts";
 import { registerProjectDirectoryIpc } from "./project-directory-ipc.ts";
 import { registerProjectWindowIpc } from "./project-window-ipc.ts";
 import {
@@ -378,7 +378,7 @@ export async function startGuiApp(): Promise<void> {
           repositoryPath: typeof record.repositoryPath === "string" ? record.repositoryPath : null,
         };
       },
-      artifactCacheRoot: () => path.join(guiDaemonUserRoot(), "artifact-cache"),
+      artifactCacheRoot: () => guiArtifactCacheRoot(),
       openPath: (absolutePath) => shell.openPath(absolutePath),
     },
     trustPolicy,

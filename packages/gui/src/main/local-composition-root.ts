@@ -6,7 +6,7 @@ import {
   parseDaemonGuiReadResponse,
   parseDaemonGuiReadResult,
 } from "@harness-anything/daemon/client";
-import { guiDaemonReadOnly, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
+import { guiDaemonReadOnly, guiDaemonUserRoot, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
@@ -17,7 +17,7 @@ type JsonObject = { readonly [key: string]: JsonValue };
 type JsonValue = string | number | boolean | null | JsonObject | ReadonlyArray<JsonValue>;
 interface DaemonClient {
   readonly resolveLocalDaemonTargetFromRepos: (
-    input: { readonly rootDir: string; readonly repoIdOverride?: string },
+    input: { readonly rootDir: string; readonly repoIdOverride?: string; readonly userRoot?: string },
     repos: ReturnType<typeof defaultRegistryReader>["repos"],
   ) => {
     readonly repoId: string;
@@ -237,7 +237,11 @@ function repoTarget(
   repoId: string,
 ): ReturnType<DaemonClient["resolveLocalDaemonTargetFromRepos"]> {
   return resolveRepoScopedTarget(
-    () => daemon.resolveLocalDaemonTargetFromRepos({ rootDir, repoIdOverride: repoId }, defaultRegistryReader().repos),
+    () =>
+      daemon.resolveLocalDaemonTargetFromRepos(
+        { rootDir, repoIdOverride: repoId, userRoot: guiDaemonUserRoot() },
+        defaultRegistryReader().repos,
+      ),
     defaultRegistryReader,
     globalTarget,
     repoId,
