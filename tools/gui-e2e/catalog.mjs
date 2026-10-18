@@ -1,6 +1,7 @@
 import myDevices from "./scenarios/my-devices.mjs";
 import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
+import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
 import providerProjectAccess from "./scenarios/provider-project-access.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
@@ -57,6 +58,7 @@ export const catalog = [
   ciObservations,
   edgeReadFreshness,
   runtimeHandoff,
+  agentRuntimeEffort,
   providerProjectAccess,
   accountLogin,
   deviceLoginApproval,

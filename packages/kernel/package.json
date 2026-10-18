@@ -17,6 +17,7 @@
     "exports": {
       ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
       "./browser": { "types": "./dist/browser.d.ts", "default": "./dist/browser.js" },
+      "./runtime-effort": { "types": "./dist/domain/runtime-effort.d.ts", "default": "./dist/domain/runtime-effort.js" },
       "./contract-version": "./dist/domain/contract-version.js",
       "./daemon-registry": "./dist/daemon/registry.js",
       "./internal/domain/closeout-readiness": "./dist/domain/closeout-readiness.js",
@@ -53,6 +54,10 @@
     "./browser": {
       "types": "./src/browser.ts",
       "default": "./src/browser.ts"
+    },
+    "./runtime-effort": {
+      "types": "./src/domain/runtime-effort.ts",
+      "default": "./src/domain/runtime-effort.ts"
     },
     "./contract-version": "./src/domain/contract-version.ts",
     "./daemon-registry": "./src/daemon/registry.ts",

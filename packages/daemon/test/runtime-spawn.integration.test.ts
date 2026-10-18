@@ -417,7 +417,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       id: "declared-model",
       name: "Declared Model",
       instructions: "Include the identity marker exactly: AGENT_INSTRUCTIONS_WITNESS.",
-      runtimes: [{ type: "codex", model: "agent-declared" }],
+      runtimes: [{ type: "codex", model: "agent-declared", effort: "high" }],
       role: "worker",
       prompts: ["PROMPT_FRAGMENT_FIRST", "PROMPT_FRAGMENT_SECOND"],
       preset: "standard-task",
@@ -464,6 +464,12 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     );
   }
   try {
+    const inspected = await cell.run({ kind: "agent-inspect", agentId: "declared-model" }, binding);
+    assert.deepEqual(
+      (JSON.parse(String(inspected.evidence)) as { agent: { runtimes: readonly unknown[] } }).agent.runtimes,
+      [{ type: "codex", model: "agent-declared", effort: "high" }],
+      "Agent inspection preserves declared runtime effort",
+    );
     assert.deepEqual(
       instances
         .listPublic()
@@ -568,6 +574,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       binding,
     );
     assert.equal(launched?.definition.model, "agent-declared");
+    assert.equal(launched?.definition.reasoningEffort, "high", "an Agent declaration supplies the effort default");
     assert.match(launched?.prompt ?? "", /AGENT_INSTRUCTIONS_WITNESS/u);
     assert.match(
       launched?.prompt ?? "",
@@ -628,6 +635,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       {
         runtimeInstanceId: "codex-agent-model",
         agentId: "declared-model",
+        effort: "max",
         model: "command-override",
         cwd: { scope: "repo-root" },
         prompt: "Override the work.",
@@ -637,6 +645,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       binding,
     );
     assert.equal(launched?.definition.model, "command-override");
+    assert.equal(launched?.definition.reasoningEffort, "max", "an explicit request overrides the Agent declaration");
     await cell.spawnRuntime(
       {
         runtimeInstanceId: "codex-agent-model",

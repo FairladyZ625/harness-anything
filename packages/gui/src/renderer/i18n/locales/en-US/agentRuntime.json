@@ -257,6 +257,8 @@
   "agentRuntime.apiKeyPlaceholder": "typed once",
   "agentRuntime.apiKeyHint": "Stored in the selected server’s OS credential vault; existing keys are never shown.",
   "agentRuntime.effort": "Effort",
+  "agentRuntime.effortForKind": "Reasoning effort · {kind}",
+  "agentRuntime.instanceEffort": "Use instance default",
   "agentRuntime.fast": "Fast mode",
   "agentRuntime.fastHint": "Use Codex's faster service tier by default.",
   "agentRuntime.fastDescription": "Faster service tier",

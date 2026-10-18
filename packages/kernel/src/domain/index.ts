@@ -314,6 +314,7 @@ export {
   entityNonEmpty,
   entitySlug,
   parseAgentDeclarationV1,
+  runtimeEffortValues,
   parseSquadDeclarationV1,
   validateAgentDeclarationV1,
   validateSquadDeclarationV1,
@@ -324,6 +325,7 @@ export type {
   AgentPermissionMode,
   AgentRole,
   AgentRuntimeTargetV1,
+  RuntimeEffort,
   AgentSkillDeclarationV1,
   SquadDeclarationV1,
 } from "./agent-squad-schema.ts";

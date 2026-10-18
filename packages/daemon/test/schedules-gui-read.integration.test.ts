@@ -139,7 +139,7 @@ test(
                   id: "probe-agent",
                   name: "Probe Agent",
                   instructions: "Run the exact probe mission.",
-                  runtimes: [{ type: "codex" }],
+                  runtimes: [{ type: "codex", effort: "high" }],
                 },
               },
               actor,

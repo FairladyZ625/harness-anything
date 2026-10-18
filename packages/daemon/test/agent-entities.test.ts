@@ -206,8 +206,15 @@ test("direct authored-file writes never enter the canonical Agent read surface",
   }
 });
 
-test("a runtime-row model is optional but must be non-empty when declared", () => {
+test("runtime-row model and effort are optional and validated when declared", () => {
   assert.deepEqual(validateAgentDeclarationV1({ ...agent, runtimes: [{ type: "codex" }] }), []);
+  for (const effort of ["minimal", "low", "medium", "high", "xhigh", "max"])
+    assert.deepEqual(validateAgentDeclarationV1({ ...agent, runtimes: [{ type: "codex", effort }] }), [], effort);
+  for (const effort of ["", "ultra", 42, []])
+    assert.match(
+      validateAgentDeclarationV1({ ...agent, runtimes: [{ type: "codex", effort }] }).join("\n"),
+      /effort.*minimal, low, medium, high, xhigh, max/u,
+    );
   for (const model of ["", " ", 42, []])
     assert.match(
       validateAgentDeclarationV1({ ...agent, runtimes: [{ type: "codex", model }] }).join("\n"),
@@ -648,6 +655,7 @@ test("the GUI read contract carries the reviewer role and stays closed to the Ke
       ...agent,
       id: "voice-reviewer",
       name: "Voice Reviewer",
+      runtimes: [{ type: "codex", model: "gpt-5.6-terra", effort: "high" }],
       role: "reviewer",
     });
     await install({ rootDir, kind: "agent-install", packageSource: path.join(source, "voice-reviewer") });
@@ -659,7 +667,7 @@ test("the GUI read contract carries the reviewer role and stays closed to the Ke
       {
         id: "voice-reviewer",
         name: "Voice Reviewer",
-        runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
+        runtimes: [{ type: "codex", model: "gpt-5.6-terra", effort: "high" }],
         instance: null,
         permissionMode: null,
         role: "reviewer",

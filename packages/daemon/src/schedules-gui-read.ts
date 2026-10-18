@@ -71,7 +71,10 @@ function targetDtoOf(schedule: ScheduleV1, agent: ScheduleGuiAgentOptionDto | un
     return {
       kind: "agent",
       agentId: target.agentId,
-      runtimes: agent && isAvailableScheduleGuiAgentOption(agent) ? agent.runtimes : [],
+      runtimes:
+        agent && isAvailableScheduleGuiAgentOption(agent)
+          ? agent.runtimes.map(({ type, model }) => ({ type, ...(model === undefined ? {} : { model }) }))
+          : [],
       reasoningEffort: target.reasoningEffort ?? null,
       fast: target.fast ?? false,
       cwd: null,
@@ -380,7 +383,11 @@ function scheduleAgentOptions(context: SchedulesGuiReadContext): readonly Schedu
     });
     if (outcome.kind === "ok") {
       const agent = outcome.value;
-      return { agentId: agent.id, name: agent.name, runtimes: agent.runtimes };
+      return {
+        agentId: agent.id,
+        name: agent.name,
+        runtimes: agent.runtimes.map(({ type, model }) => ({ type, ...(model === undefined ? {} : { model }) })),
+      };
     }
     return {
       agentId,

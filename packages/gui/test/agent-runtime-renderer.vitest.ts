@@ -693,8 +693,31 @@ describe("agent runtime renderer", () => {
       instance: agentDetail.instance,
       permissionMode: agentDetail.permissionMode,
     });
+    const declaredEffort = {
+      ...agentDetail,
+      runtimes: [{ type: "claude", effort: "xhigh" as const }],
+    };
+    expect(agentDeclarationFrom(declaredEffort.id, agentDraftFrom(declaredEffort))).toMatchObject({
+      runtimes: [{ type: "claude", effort: "xhigh" }],
+    });
+    const withEffort = renderToStaticMarkup(
+      createElement(AgentCard, {
+        detail: declaredEffort,
+        row: agentRows[0] as never,
+        squads: squadRows as never,
+        instances: [],
+        availableSkills,
+        presets,
+        busy: false,
+        onSave: noop,
+        onDispatch: noop,
+        onSelectRuntime: noop,
+      }),
+    );
     expect(withSkills).toContain('data-testid="agent-skill-search"');
     expect(withSkills).toContain('data-testid="agent-preset"');
+    expect(withEffort).toContain('data-testid="agent-runtime-effort-claude"');
+    expect(withEffort).toContain('aria-label="Reasoning effort · claude"');
     expect(withSkills).not.toContain("saving here would drop the mounts");
   });
   it("keeps the Agent/Squad payload path open at the preload boundary", () => {

@@ -183,6 +183,7 @@ for (const mode of ["resume", "fresh"] as const)
       root = path.join(parent, "repo"),
       userRoot = path.join(parent, "user"),
       prompts: string[] = [],
+      efforts: (string | undefined)[] = [],
       sessions: (string | undefined)[] = [];
     let pid = 9200;
     mkdirSync(root);
@@ -196,6 +197,7 @@ for (const mode of ["resume", "fresh"] as const)
       runtimeInstances: () => [runtimeInstance("worker-instance")],
       prepareRuntimeLaunch: async (instanceId, request) => {
         prompts.push(request.prompt);
+        efforts.push(request.effort);
         sessions.push(request.providerSessionId);
         return {
           definition: {
@@ -206,7 +208,7 @@ for (const mode of ["resume", "fresh"] as const)
             kindId: "codex",
             providerId: "openai",
             model: request.model ?? "worker-instance-model",
-            reasoningEffort: null,
+            reasoningEffort: request.effort ?? null,
             fast: false,
             baseUrl: null,
             authMode: "subscription",
@@ -222,6 +224,25 @@ for (const mode of ["resume", "fresh"] as const)
       runtimeLaunch: () => fakeProcess(++pid, sessions.at(-1)),
     });
     try {
+      assert.equal(
+        (
+          await cell.run(
+            {
+              kind: "agent-install",
+              declaration: {
+                schema: "agent-declaration/v1",
+                id: "return-worker",
+                name: "Return worker",
+                instructions: "Continue the assigned task.",
+                runtimes: [{ type: "codex", effort: "high" }],
+                role: "worker",
+              },
+            },
+            binding,
+          )
+        ).outcome,
+        "applied",
+      );
       const taskId = "task_return_worker",
         executionId = "execution-original",
         created = await cell.run({ kind: "task-create", taskId, title: "Return worker" }, binding);
@@ -235,6 +256,7 @@ for (const mode of ["resume", "fresh"] as const)
       const source = await cell.spawnRuntime(
         {
           taskId,
+          agentId: "return-worker",
           cwd: { scope: "repo-root" },
           runtimeInstanceId: "worker-instance",
           prompt: "Implement the delivery.",
@@ -242,6 +264,7 @@ for (const mode of ["resume", "fresh"] as const)
         },
         binding,
       );
+      assert.equal(efforts[0], "high", "the original Agent dispatch uses its declared effort");
       await cell.awaitRuntimeOutcome(String(source.runtimeSessionId));
       assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, binding)).outcome, "applied");
       writeFileSync(
@@ -311,6 +334,7 @@ for (const mode of ["resume", "fresh"] as const)
       assert.ok(continuation, JSON.stringify(returned));
       await cell.awaitRuntimeOutcome(continuation.runtimeSessionId);
       assert.equal(sessions.length, 4);
+      assert.equal(efforts[3], "high", "task return resolves the original Agent's declared effort again");
       assert.equal(
         sessions[3],
         mode === "resume" ? "reviewer-9201" : undefined,
