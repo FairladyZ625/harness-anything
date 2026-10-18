@@ -306,6 +306,7 @@ export function validateAgentDispatchPreview(value: unknown): readonly string[] 
       command: "string",
       dispatchId: "string",
       runtimeSessionId: "string",
+      effort: "null-string",
       prompt: "string",
       mission: "string",
     },
