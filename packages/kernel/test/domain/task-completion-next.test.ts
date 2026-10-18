@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   reduceTaskEvent,
   rematerializeTaskDocuments,
+  submissionDigest,
   taskCompletionNext,
   type TaskMetadataV1,
 } from "../../src/index.ts";
@@ -324,6 +325,43 @@ test("consent guidance relies on automatic selection for one candidate and names
     "ha task review-consent task-1 --review-id review-execution or ha task review-consent task-1 --review-id review-additional",
   );
   assert.match(index(multiple), /--review-id review-execution or .*--review-id review-additional`/u);
+});
+
+// The completion gate reads the same dispositions review-consent recorded: a changes_requested
+// review the owner disposed at consent no longer blocks completion.
+test("a consent-disposed changes_requested review no longer blocks completion", () => {
+  const consented = at(6),
+    late = { ...consented.reviews[0]!, reviewId: "review-late", verdict: "changes_requested" as const },
+    execution = consented.executions[0]!,
+    withLate = { ...consented, reviews: [...consented.reviews, late] },
+    disposed = {
+      ...withLate,
+      reviewDispositions: [
+        {
+          schema: "review-disposition/v1",
+          dispositionId: "disposition-consent-1",
+          taskId: "task-1",
+          executionId: "execution-1",
+          iteration: consented.task!.iteration,
+          submissionDigest: submissionDigest(execution.submission!),
+          disposedReviewIds: ["review-late"],
+          rationale: "owner accepts the approved assessment",
+          actor: consented.consents[0]!.actor,
+          source: consented.consents[0]!.source,
+          disposedAt: consented.consents[0]!.consentedAt,
+        },
+      ],
+    };
+  assert.equal(taskCompletionNext(withLate, context).blocker?.code, "review_missing");
+  assert.equal(taskCompletionNext(disposed, context).blocker, null);
+  const index = rematerializeTaskDocuments({
+    snapshot: disposed,
+    packagePath: "tasks/task-1",
+    paths: ["tasks/task-1/INDEX.md"],
+    currentDocuments: [],
+  })[0]!.body;
+  assert.match(index, /ha task complete task-1/u);
+  assert.doesNotMatch(index, /adjudicate task-1 --return/u);
 });
 
 test("an undisposed changes request prevents an approved review from reaching consent", () => {

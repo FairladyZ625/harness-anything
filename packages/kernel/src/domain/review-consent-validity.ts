@@ -22,6 +22,17 @@ export interface ReviewConsentConflict {
   readonly reviewSubmissionDigest: `sha256:${string}` | undefined;
   readonly currentSubmissionDigest: `sha256:${string}`;
 }
+/** Review ids removed from a cut by its dispositions: bound to the current submission digest and stated with a rationale. */
+export function disposedReviewIdsForSubmission(
+  dispositions: readonly ReviewDispositionRecord[],
+  currentSubmissionDigest: `sha256:${string}`,
+): Set<string> {
+  return new Set(
+    dispositions
+      .filter((value) => value.submissionDigest === currentSubmissionDigest && value.rationale.trim().length > 0)
+      .flatMap((value) => value.disposedReviewIds),
+  );
+}
 export function reviewConsentConflicts(input: ReviewConsentValidityInput): readonly ReviewConsentConflict[] {
   const selected = input.selectedReview;
   if (!selected || selected.verdict !== "approved" || selected.submissionDigest !== input.currentSubmissionDigest)
@@ -35,11 +46,7 @@ export function reviewConsentConflicts(input: ReviewConsentValidityInput): reado
           },
         ]
       : [];
-  const disposed = new Set(
-    input.dispositions
-      .filter((value) => value.submissionDigest === input.currentSubmissionDigest && value.rationale.trim().length > 0)
-      .flatMap((value) => value.disposedReviewIds),
-  );
+  const disposed = disposedReviewIdsForSubmission(input.dispositions, input.currentSubmissionDigest);
   return input.reviews
     .filter(
       (review) =>
