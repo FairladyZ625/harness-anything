@@ -44,6 +44,8 @@ type Behavior =
 const behaviors = new Map<string, Behavior>([
   ["provider-rate-first", "429"],
   ["provider-success-second", "success"],
+  ["provider-reset-first", "429-reset"],
+  ["provider-reset-second", "success"],
   ["provider-rate-a", "429"],
   ["provider-rate-b", "429"],
   ["provider-rate-c", "success"],
@@ -499,10 +501,12 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       existsSync(dispatchStreamPath(root, stderrBounded[0]!.dispatchId)),
       "the reason's diagnostics reference must point at a real dispatch stream",
     );
-    behaviors.set("provider-rate-first", "429-reset");
+    // A quota receipt without resetAt permanently froze provider-rate-first in the success block
+    // above, and the cell's health store is shared for the whole test, so this block needs its own
+    // unfrozen pair to observe a scheduled reset-window continuation.
     await installAgent(cell, "fallback-reset-window", [
-      { instance: "provider-rate-first" },
-      { instance: "provider-success-second" },
+      { instance: "provider-reset-first" },
+      { instance: "provider-reset-second" },
     ]);
     await startTask(cell, root, "task_provider_reset_window", "execution-provider-reset-window");
     await cell.spawnRuntime(
@@ -515,11 +519,21 @@ test("provider fallback switches attempts, exhausts without blocking the task, a
       },
       binding,
     );
+    // The scheduled fallback state lands on the dispatch stream before the terminal
+    // runtime_session_outcome_observed event commits through the write queue, and the row's
+    // resetAt becomes visible only with that event — wait for the publication, not just the
+    // stream state.
+    let resetObserved: readonly TaskDispatchRow[] = [];
     const resetScheduled = await eventually(async () => {
       const rows = (await cell.read("repo.task.dispatches", { taskId: "task_provider_reset_window" })).dispatches;
-      return rows.length === 1 && rows[0]?.fallbackState === "scheduled"
+      resetObserved = rows;
+      return rows.length === 1 &&
+        rows[0]?.fallbackState === "scheduled" &&
+        rows[0]?.resetAt === "2099-01-01T00:00:00.000Z"
         ? { row: rows[0], stream: readDispatchStream(root, rows[0].dispatchId) }
         : null;
+    }).catch((error: Error) => {
+      throw new Error(`${error.message}: ${JSON.stringify(resetObserved)}`);
     });
     assert.equal(resetScheduled.row.outcome, "failed");
     assert.equal(resetScheduled.row.classification, "provider_quota");
@@ -881,7 +895,7 @@ function fakeProcess(pid: number, behavior: Behavior): RuntimeProcess {
         const frames =
           behavior === "empty_success"
             ? []
-            : behavior === "429"
+            : behavior === "429" || behavior === "429-reset"
               ? [
                   { type: "thread.started", thread_id: `provider-${pid}` },
                   {

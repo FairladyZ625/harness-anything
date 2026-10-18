@@ -267,7 +267,7 @@ export async function settleFallbackAttempt(
   context.reconcileFallback(readDispatchStream(input.rootDir, active.dispatchId));
 }
 
-/** Schedules a settled stream's next fallback attempt: one bounded timer from the scheduled
+/** Schedules a settled stream's next fallback attempt: bounded timers from the scheduled
  * notBeforeAt, re-reading the stream at fire time so a superseded schedule never launches.
  * The continuation launch is handed in by the spawner because it is the same spawnAttempt
  * entry every other dispatch takes. */
@@ -303,120 +303,129 @@ export function scheduleFallbackContinuation(args: {
     observedNowMs = Date.parse(input.now());
   if (!Number.isFinite(notBeforeMs) || !Number.isFinite(observedNowMs)) return;
   const remainingMs = Math.max(0, notBeforeMs - observedNowMs);
-  const timer = setTimeout(() => {
-    if (args.closed()) return;
-    input.schedule(async () => {
-      const current = readDispatchStream(input.rootDir, stream.header.dispatchId);
-      if (
-        !current ||
-        current.fallbackState !== "scheduled" ||
-        current.fallbackSchedule?.notBeforeAt !== stream.fallbackSchedule!.notBeforeAt ||
-        !current.attemptOutcome ||
-        !current.header.fallbackAttempt ||
-        !current.header.binding ||
-        typeof current.header.cwd !== "string"
-      )
+  // setTimeout collapses delays above 2^31-1 ms onto 1 ms, so a quota resetAt years out would
+  // fire immediately; arm at most the platform maximum and re-check the clock at fire time.
+  const timer = setTimeout(
+    () => {
+      if (args.closed()) return;
+      if (Date.parse(input.now()) < notBeforeMs) {
+        scheduleFallbackContinuation(args);
         return;
-      const header = current.header,
-        binding = runtimeBindingForDispatch(header.binding!),
-        dispatchCwd = header.cwd;
-      if (!binding || typeof dispatchCwd !== "string") return;
-      const fallback = header.fallbackAttempt!,
-        nextAttemptIndex = fallback.attemptIndex + 1,
-        currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
-        nextCandidateIndex = currentCandidateIndex + 1,
-        nextRound = (fallback.retryRound ?? 0) + (nextCandidateIndex >= fallback.candidates.length ? 1 : 0),
-        nextFallback = {
-          ...fallback,
-          attemptIndex: nextAttemptIndex,
-          candidateIndex: nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex,
-          retryRound: nextRound,
-          ...(fallback.waitStartedAt ||
-          current.fallbackSchedule.waitStartedAt ||
-          nextCandidateIndex >= fallback.candidates.length
-            ? { waitStartedAt: fallback.waitStartedAt ?? current.fallbackSchedule.waitStartedAt ?? input.now() }
-            : {}),
-        },
-        next = fallback.candidates[nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex],
-        writer = reopenDispatchStream(input.rootDir, header),
-        continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
-      if (
-        !next ||
-        next.instance !== current.fallbackSchedule.nextProvider.instance ||
-        next.model !== current.fallbackSchedule.nextProvider.model
-      )
-        return;
-      try {
-        const continuationPayload: JsonObject = {
-            runtimeInstanceId: next.instance,
-            ...(header.delegatedByAgentId && header.agentId
-              ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
-              : header.agentId
-                ? { agentId: header.agentId }
-                : {}),
-            ...(header.role ? { role: header.role } : {}),
-            ...(header.squadId ? { squadId: header.squadId } : {}),
-            ...(next.model ? { model: next.model } : {}),
-            ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
-            ...(header.fast === undefined ? {} : { fast: header.fast }),
-            ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
-            cwd:
-              dispatchCwd === input.rootDir
-                ? { scope: "repo-root" }
-                : { scope: "repo-relative", path: path.relative(input.rootDir, dispatchCwd) },
-            prompt: continuation,
-            ...(header.promptSource ? { promptSource: header.promptSource } : {}),
-            ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
-            ...(header.taskId ? { taskId: header.taskId } : {}),
-            dispatchKey: `${fallback.rootDispatchKey}:fallback:${String(nextAttemptIndex)}`,
-          },
-          continuationBinding =
-            (await input.authorizeRuntimeContinuation?.(
-              continuationPayload,
-              binding,
-              `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
-            )) ?? binding;
-        await args.launch(
-          continuationPayload,
-          continuationBinding,
-          nextFallback,
-          header.schedule,
-          header.runtimeSessionId,
-          header.publicationOwner,
-          (dispatchId, runtimeSessionId) => {
-            writer.appendFallbackState(
-              { state: "dispatched", nextDispatchId: dispatchId, nextRuntimeSessionId: runtimeSessionId },
-              input.now(),
-            );
-          },
-        );
-        archiveDispatchStream(input.rootDir, header.dispatchId);
-      } catch (error) {
-        consumeKnownError(error);
-        const reason = String(
-          scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
-        ).slice(0, 1024);
-        writer.appendFallbackState({ state: "exhausted", reason }, input.now());
-        archiveDispatchStream(input.rootDir, header.dispatchId);
-        await input.onAttemptTerminal?.({
-          runtimeSessionId: header.runtimeSessionId,
-          dispatchId: header.dispatchId,
-          task:
-            header.taskId && header.executionId
-              ? {
-                  taskId: header.taskId,
-                  executionId: header.executionId,
-                  leaseVersion: header.leaseVersion ?? null,
-                }
-              : null,
-          schedule: header.schedule ?? null,
-          outcome: "failed",
-          reason,
-          endedAt: input.now(),
-          binding,
-        });
       }
-    }, runtimeBindingForDispatch(stream.header.binding!));
-  }, remainingMs);
+      input.schedule(async () => {
+        const current = readDispatchStream(input.rootDir, stream.header.dispatchId);
+        if (
+          !current ||
+          current.fallbackState !== "scheduled" ||
+          current.fallbackSchedule?.notBeforeAt !== stream.fallbackSchedule!.notBeforeAt ||
+          !current.attemptOutcome ||
+          !current.header.fallbackAttempt ||
+          !current.header.binding ||
+          typeof current.header.cwd !== "string"
+        )
+          return;
+        const header = current.header,
+          binding = runtimeBindingForDispatch(header.binding!),
+          dispatchCwd = header.cwd;
+        if (!binding || typeof dispatchCwd !== "string") return;
+        const fallback = header.fallbackAttempt!,
+          nextAttemptIndex = fallback.attemptIndex + 1,
+          currentCandidateIndex = fallback.candidateIndex ?? fallback.attemptIndex,
+          nextCandidateIndex = currentCandidateIndex + 1,
+          nextRound = (fallback.retryRound ?? 0) + (nextCandidateIndex >= fallback.candidates.length ? 1 : 0),
+          nextFallback = {
+            ...fallback,
+            attemptIndex: nextAttemptIndex,
+            candidateIndex: nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex,
+            retryRound: nextRound,
+            ...(fallback.waitStartedAt ||
+            current.fallbackSchedule.waitStartedAt ||
+            nextCandidateIndex >= fallback.candidates.length
+              ? { waitStartedAt: fallback.waitStartedAt ?? current.fallbackSchedule.waitStartedAt ?? input.now() }
+              : {}),
+          },
+          next = fallback.candidates[nextCandidateIndex >= fallback.candidates.length ? 0 : nextCandidateIndex],
+          writer = reopenDispatchStream(input.rootDir, header),
+          continuation = continuationMission(current.attemptOutcome, fallback.originalMission);
+        if (
+          !next ||
+          next.instance !== current.fallbackSchedule.nextProvider.instance ||
+          next.model !== current.fallbackSchedule.nextProvider.model
+        )
+          return;
+        try {
+          const continuationPayload: JsonObject = {
+              runtimeInstanceId: next.instance,
+              ...(header.delegatedByAgentId && header.agentId
+                ? { agentId: header.delegatedByAgentId, targetAgentId: header.agentId }
+                : header.agentId
+                  ? { agentId: header.agentId }
+                  : {}),
+              ...(header.role ? { role: header.role } : {}),
+              ...(header.squadId ? { squadId: header.squadId } : {}),
+              ...(next.model ? { model: next.model } : {}),
+              ...(header.reasoningEffort ? { effort: header.reasoningEffort } : {}),
+              ...(header.fast === undefined ? {} : { fast: header.fast }),
+              ...(header.permissionMode ? { permissionMode: header.permissionMode } : {}),
+              cwd:
+                dispatchCwd === input.rootDir
+                  ? { scope: "repo-root" }
+                  : { scope: "repo-relative", path: path.relative(input.rootDir, dispatchCwd) },
+              prompt: continuation,
+              ...(header.promptSource ? { promptSource: header.promptSource } : {}),
+              ...(header.onExitCommand ? { onExitCommand: header.onExitCommand } : {}),
+              ...(header.taskId ? { taskId: header.taskId } : {}),
+              dispatchKey: `${fallback.rootDispatchKey}:fallback:${String(nextAttemptIndex)}`,
+            },
+            continuationBinding =
+              (await input.authorizeRuntimeContinuation?.(
+                continuationPayload,
+                binding,
+                `runtime-continuation:${header.dispatchId}:${nextAttemptIndex}`,
+              )) ?? binding;
+          await args.launch(
+            continuationPayload,
+            continuationBinding,
+            nextFallback,
+            header.schedule,
+            header.runtimeSessionId,
+            header.publicationOwner,
+            (dispatchId, runtimeSessionId) => {
+              writer.appendFallbackState(
+                { state: "dispatched", nextDispatchId: dispatchId, nextRuntimeSessionId: runtimeSessionId },
+                input.now(),
+              );
+            },
+          );
+          archiveDispatchStream(input.rootDir, header.dispatchId);
+        } catch (error) {
+          consumeKnownError(error);
+          const reason = String(
+            scrubProviderValue(`Provider fallback could not launch ${next.instance}: ${runtimeErrorMessage(error)}`),
+          ).slice(0, 1024);
+          writer.appendFallbackState({ state: "exhausted", reason }, input.now());
+          archiveDispatchStream(input.rootDir, header.dispatchId);
+          await input.onAttemptTerminal?.({
+            runtimeSessionId: header.runtimeSessionId,
+            dispatchId: header.dispatchId,
+            task:
+              header.taskId && header.executionId
+                ? {
+                    taskId: header.taskId,
+                    executionId: header.executionId,
+                    leaseVersion: header.leaseVersion ?? null,
+                  }
+                : null,
+            schedule: header.schedule ?? null,
+            outcome: "failed",
+            reason,
+            endedAt: input.now(),
+            binding,
+          });
+        }
+      }, runtimeBindingForDispatch(stream.header.binding!));
+    },
+    Math.min(remainingMs, 2_147_483_647),
+  );
   timer.unref();
 }
