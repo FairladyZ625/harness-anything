@@ -168,7 +168,12 @@ export interface FollowUpRow {
 }
 
 const isFollowUpKind = (kind: AgendaAttentionItem["kind"]): kind is FollowUpKind =>
-  kind === "answered" || kind === "adjudication" || kind === "rework" || kind === "blocked" || kind === "stalled";
+  kind === "answered" ||
+  kind === "adjudication" ||
+  kind === "rework" ||
+  kind === "blocked" ||
+  kind === "stalled" ||
+  kind === "audit-finding";
 
 export function followUpRows(agenda: AgendaSuccess | undefined): readonly FollowUpRow[] {
   if (agenda === undefined) return [];

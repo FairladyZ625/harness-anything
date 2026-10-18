@@ -995,7 +995,7 @@ describe("总览:系统状态弱化与异常提升", () => {
 });
 
 describe("总览派生(纯函数)", () => {
-  it("decisionRows 只收真实待人两类,followUpRows 收其余五类(含 owning CEO 的待初审)", () => {
+  it("decisionRows 只收真实待人两类,followUpRows 收跟进、返工、阻塞与审计发现", () => {
     const read = agenda({
       answeredForYou: [
         {
@@ -1021,6 +1021,14 @@ describe("总览派生(纯函数)", () => {
           workTaskId: "task_w1",
           attention: { score: 30, reasons: [] },
         },
+        {
+          ref: "audit-finding/schedule-1/repeated-check",
+          title: "重复的结算见证误判",
+          kind: "audit-finding",
+          region: "mine",
+          workTaskId: null,
+          attention: { score: 85, reasons: [{ label: "审计发现", contribution: 85 }] },
+        },
       ],
     });
     expect(
@@ -1032,7 +1040,11 @@ describe("总览派生(纯函数)", () => {
       followUpRows(read)
         .map(({ kind }) => kind)
         .sort(),
-    ).toEqual(["adjudication", "answered", "blocked", "stalled"]);
+    ).toEqual(["adjudication", "answered", "audit-finding", "blocked", "stalled"]);
+    expect(followUpRows(read).find(({ id }) => id === "audit-finding/schedule-1/repeated-check")).toMatchObject({
+      kind: "audit-finding",
+      title: "重复的结算见证误判",
+    });
   });
 
   it("watchedWorks:置顶保留在前不受窗口限制;其余按活动窗口过滤、终态置顶只计数", () => {
