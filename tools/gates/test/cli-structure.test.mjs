@@ -177,6 +177,50 @@ test("daemon transport graph accepts the line client's thin leaf imports", async
   assert.match(result.stdout, /CLI structure check passed/u);
 });
 
+test("CLI and daemon transport graphs admit the Decisions provider command declaration module", async () => {
+  const root = await fixture();
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol.contract.ts",
+    [
+      "import { daemonOwnedProtocolCommands } from './daemon-protocol-commands.ts';",
+      "export function resolveThinCliCommand(): void { void daemonOwnedProtocolCommands; }",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol-commands.ts",
+    [
+      "import { providerProtocolCommands } from './daemon-protocol-commands-provider.ts';",
+      "export const daemonOwnedProtocolCommands = providerProtocolCommands;",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/protocol/daemon-protocol-commands-provider.ts",
+    [
+      "import { presetCommands } from '@harness-anything/preset/internal/preset-command-contract';",
+      "export const providerProtocolCommands = presetCommands;",
+      "",
+    ].join("\n"),
+  );
+  write(
+    root,
+    "packages/daemon/src/client/local-json-rpc-client.ts",
+    [
+      "import { daemonOwnedProtocolCommands } from '../protocol/daemon-protocol-commands.ts';",
+      "export function transport(): void { void daemonOwnedProtocolCommands; }",
+      "",
+    ].join("\n"),
+  );
+
+  const result = run(root);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /CLI structure check passed/u);
+});
+
 test("daemon transport graph rejects a kernel barrel reachable from the line client", async () => {
   const root = await fixture();
   write(

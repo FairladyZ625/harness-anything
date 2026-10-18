@@ -35,6 +35,9 @@ function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>):
   };
 }
 
+const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
+  parseProvider(route, args, rootDir, json, inputs);
+
 // Routes whose argv shape needs a dedicated parser, keyed by command id.
 const dedicatedRouteParsers = new Map<string, RoutedParser>([
   [
@@ -49,6 +52,12 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["work-list", parseWorkRead],
   ["work-show", parseWorkRead],
   ["agent-retire", parseAgentRetire],
+  ["provider-create", parseProviderRoute],
+  ["provider-delete", parseProviderRoute],
+  ["provider-list", parseProviderRoute],
+  ["provider-probe", parseProviderRoute],
+  ["provider-show", parseProviderRoute],
+  ["provider-update", parseProviderRoute],
 ]);
 
 function parseEdgeJoin(
@@ -194,7 +203,6 @@ export function parseRouted(
       : parseGraph(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
-  if (rootCommand === "provider") return parseProvider(route, args, rootDir, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
   if (route.id === "agent-run") return parseAgentRun(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);
