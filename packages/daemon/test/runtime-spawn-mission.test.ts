@@ -129,3 +129,22 @@ test("work missions omit the task maintenance protocol because work explainers a
   assert.doesNotMatch(mission, /# Living Deliverable Protocol/u);
   assert.doesNotMatch(explicitPromptMission("task_leaf", null, "Go."), /Work Page Maintenance Protocol/u);
 });
+
+test("a re-dispatched explicit mission carries the owner return verbatim before the caller text", () => {
+  const returnBody = "# Owner return for iteration 0\n\n## Rework instruction\n\nFix the frozen-gate short circuit.",
+    mission = explicitPromptMission("task_x", null, "Continue task task_x.", "baseline", null, undefined, returnBody),
+    returnAt = mission.indexOf("# Owner rework instruction");
+  assert.ok(returnAt >= 0, "the managed return body rides the mission");
+  assert.ok(
+    mission.indexOf(returnBody) > returnAt,
+    "the rendered return document follows its section header untouched",
+  );
+  assert.ok(mission.indexOf("Continue task task_x.") > returnAt, "the caller text stays last");
+  assert.ok(mission.endsWith("Continue task task_x."), "explicit caller text stays intact");
+  assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# Owner rework instruction/u);
+  assert.doesNotMatch(
+    explicitPromptMission(null, null, "Go.", "baseline", null, undefined, returnBody),
+    /# Owner rework instruction/u,
+    "unbound prompts carry no rework record",
+  );
+});

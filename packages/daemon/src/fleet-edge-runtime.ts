@@ -348,6 +348,31 @@ export function openFleetEdgeRuntime(input: {
         const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId),
           prProtocol = prBodyDeliveryProtocol(prBodyPath);
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
+        // A re-dispatched worker answers the latest owner return: the mirrored managed
+        // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the
+        // remote task context, exactly like the local projection paths inject it.
+        const priorIteration = current.task && current.task.iteration > 0 ? current.task.iteration - 1 : null,
+          ownerReturnBody =
+            priorIteration === null
+              ? null
+              : (() => {
+                  const logicalPath = `${candidates[0]!}/returns/iteration-${String(priorIteration)}.md`;
+                  if (!view.entries.has(logicalPath)) return null;
+                  let body: string;
+                  try {
+                    body = readFileSync(
+                      path.join(packageRoot, "returns", `iteration-${String(priorIteration)}.md`),
+                      "utf8",
+                    );
+                  } catch {
+                    throw edgeRuntimeError(
+                      "runtime_task_package_unavailable",
+                      `Task ${taskId} has an unreadable mirrored owner return at ${logicalPath}; ` +
+                        "run ha daemon fleet edge sync, then retry.",
+                    );
+                  }
+                  return body.trim() ? body.trim() : null;
+                })();
         const mission = missionName
             ? (() => {
                 const name = runtimeMissionName(missionName),
@@ -373,6 +398,7 @@ export function openFleetEdgeRuntime(input: {
               })()
             : null,
           missionAfterPackage = [
+            ...(ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
             taskQueryGuidance(taskId),
             ...(livingProtocol === null ? [] : [livingProtocol]),
             ...(prProtocol === null ? [] : [prProtocol]),
@@ -391,6 +417,7 @@ export function openFleetEdgeRuntime(input: {
           profileId,
           taskClass: current.task!.taskClass,
           prBodyPath,
+          ownerReturnBody,
           mission: (reachedPackageRoot) =>
             [
               `Your task package is ${reachedPackageRoot}.\n` +

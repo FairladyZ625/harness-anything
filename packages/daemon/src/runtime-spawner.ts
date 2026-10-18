@@ -47,6 +47,7 @@ import {
   prepareRuntimeInstance,
   runtimeMissionName,
   explicitPromptMission,
+  priorOwnerReturnBody,
   taskPrBodyPath,
 } from "./runtime-spawn-mission.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
@@ -315,6 +316,15 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       // The profile is frozen at creation: locally from the projection, remotely from the center's
       // serving read. It gates the Living Deliverable Protocol on every task-bound path.
       missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
+      // A re-dispatched worker answers the latest owner return, so its mission carries the managed
+      // rework record verbatim — from the center's serving read remotely, from the projection
+      // locally. Reviewers bind to a submitted cut instead, so their missions never carry it.
+      ownerReturnBody =
+        taskId === null || reviewerBinding
+          ? null
+          : remoteTask !== null
+            ? remoteTask.ownerReturnBody
+            : priorOwnerReturnBody(projection!, taskId),
       taskMission = taskId
         ? missionAt(input.rootDir, cwd, remoteTask ?? { projection: projection!, taskId, missionName, causalContext })
         : null,
@@ -328,6 +338,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               missionProfileId,
               remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection!, taskId) : null,
               remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
+              ownerReturnBody,
             );
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =

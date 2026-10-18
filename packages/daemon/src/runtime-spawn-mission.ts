@@ -384,6 +384,22 @@ export function taskPrBodyPath(projection: TaskProjection, taskId: string): stri
   return document.path === null ? null : path.posix.relative(document.packagePath, document.path);
 }
 
+/**
+ * The managed rework record of the iteration a re-dispatched worker must answer: the rendered
+ * `returns/iteration-N.md` body when the task has advanced past iteration N, null on a first
+ * dispatch (iteration 0). The rendered document stays the single storage of the instruction;
+ * missions embed it verbatim instead of carrying a second copy.
+ */
+export function priorOwnerReturnBody(projection: TaskProjection, taskId: string): string | null {
+  const read = projection.read(taskId),
+    priorIteration = read.snapshot.task && read.snapshot.task.iteration > 0 ? read.snapshot.task.iteration - 1 : null;
+  if (priorIteration === null || read.packagePath === null) return null;
+  const body = projection
+    .readDocument(`${read.packagePath}/returns/iteration-${String(priorIteration)}.md`)
+    .document?.body.trim();
+  return body ? body : null;
+}
+
 /** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. */
 export function explicitPromptMission(
   taskId: string | null,
@@ -392,6 +408,7 @@ export function explicitPromptMission(
   profileId: string | null | undefined = undefined,
   prBodyPath: string | null = null,
   taskClass?: string,
+  ownerReturnBody: string | null = null,
 ): string {
   const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass),
     prProtocol = taskId === null ? null : prBodyDeliveryProtocol(prBodyPath);
@@ -399,6 +416,7 @@ export function explicitPromptMission(
     ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
     ...(prProtocol === null ? [] : [prProtocol]),
     ...(causalContext === null ? [] : [causalContext]),
+    ...(taskId === null || ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
     prompt,
   ].join("\n\n");
 }
@@ -437,15 +455,10 @@ export function deriveTaskMission(
     snapshot = projection.read(taskId).snapshot,
     livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
     prProtocol = prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
-    priorIteration = snapshot.task && snapshot.task.iteration > 0 ? snapshot.task.iteration - 1 : null,
-    returnDocument =
-      priorIteration === null
-        ? null
-        : projection.readDocument(`${planDocument.packagePath}/returns/iteration-${String(priorIteration)}.md`)
-            .document,
+    ownerReturnBody = priorOwnerReturnBody(projection, taskId),
     mission = [
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
-      ...(returnDocument ? [`# Owner rework instruction\n\n${returnDocument.body.trim()}`] : []),
+      ...(ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
       taskQueryGuidance(taskId),
       ...(livingProtocol === null ? [] : [livingProtocol]),
       ...(prProtocol === null ? [] : [prProtocol]),

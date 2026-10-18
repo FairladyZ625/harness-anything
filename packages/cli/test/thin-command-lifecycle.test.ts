@@ -344,8 +344,30 @@ test("lifecycle CLI maps explicit selectors and accepts every derivable executio
 test("returned adjudication requires an explicit worker continuation choice", () => {
   const missing = parseThinCommand(["task", "adjudicate", "task-1", "--return", "--note", "Please revise."]);
   assert.equal(missing.ok, false);
-  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode resume/u);
-  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode none/u);
+  if (!missing.ok) assert.match(missing.nextAction, /--worker-mode resume\|fresh\|none/u);
+  // Every missing parameter is named in one rejection, not one per retry: a bare --return
+  // shows the whole gap (--worker-mode, --note, --message) at once.
+  const bare = parseThinCommand(["task", "adjudicate", "task-1", "--return"]);
+  assert.equal(bare.ok, false);
+  if (!bare.ok) {
+    assert.match(bare.nextAction, /--worker-mode/u);
+    assert.match(bare.nextAction, /--note/u);
+    assert.match(bare.nextAction, /--message/u);
+  }
+  const noNoteOrMode = parseThinCommand([
+    "task",
+    "adjudicate",
+    "task-1",
+    "--return",
+    "--message",
+    "Use the review comments and continue.",
+  ]);
+  assert.equal(noNoteOrMode.ok, false);
+  if (!noNoteOrMode.ok) {
+    assert.match(noNoteOrMode.nextAction, /--worker-mode/u, "the missing worker mode is named");
+    assert.match(noNoteOrMode.nextAction, /--note/u, "the missing note is named alongside it");
+    assert.doesNotMatch(noNoteOrMode.nextAction, /--message/u, "a provided parameter is not re-asked for");
+  }
   const resumed = parseThinCommand([
     "task",
     "adjudicate",
