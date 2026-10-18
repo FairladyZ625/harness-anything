@@ -183,4 +183,11 @@ describe("快速切换面板精简(业主 2026-10-11)", () => {
     });
     expect(document.querySelector('[data-testid="quick-switcher-open-window-main"]')).toBeNull();
   });
+
+  it("面板挂浮层玻璃档(glass-overlay):折射由浮层档承担,下方文字不透底(2026-10-18 业主截图回归锁)", async () => {
+    await renderSwitcher({ repos: [repo({ repoId: "main", displayName: "主项目" })] });
+    const panel = document.querySelector('[data-testid="quick-switcher-panel"]');
+    expect(panel?.className).toContain("glass");
+    expect(panel?.className).toContain("glass-overlay");
+  });
 });

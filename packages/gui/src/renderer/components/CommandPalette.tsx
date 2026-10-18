@@ -128,7 +128,7 @@ export function CommandPalette({
       onClick={onClose}
     >
       <div
-        className="glass w-[560px] max-w-[90vw] overflow-hidden rounded-xl shadow-2xl"
+        className="glass glass-overlay w-[560px] max-w-[90vw] overflow-hidden rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 border-b border-border px-3 py-2.5">

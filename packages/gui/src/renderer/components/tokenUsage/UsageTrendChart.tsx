@@ -412,7 +412,7 @@ function TrendReadout({
   return (
     <div
       data-testid="token-usage-trend-readout"
-      className="glass pointer-events-none absolute top-1 z-10 min-w-[188px] max-w-[280px] rounded-sm px-2.5 py-2"
+      className="glass glass-overlay pointer-events-none absolute top-1 z-10 min-w-[188px] max-w-[280px] rounded-sm px-2.5 py-2"
       style={style}
     >
       <p className="flex items-baseline justify-between gap-3">

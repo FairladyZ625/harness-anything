@@ -114,7 +114,7 @@ export function FocusLayer({
           key="focus-layer"
           layoutId={sourceId}
           layoutDependency={sourceId}
-          className="glass fixed inset-0 z-11 m-auto h-[min(84vh,860px)] w-[min(86vw,1320px)] overflow-hidden rounded-lg"
+          className="glass glass-overlay fixed inset-0 z-11 m-auto h-[min(84vh,860px)] w-[min(86vw,1320px)] overflow-hidden rounded-lg"
           transition={{ duration: MOTION_DURATION.focusGrow, ease: MOTION_EASE.panel }}
           role="dialog"
           aria-modal="true"

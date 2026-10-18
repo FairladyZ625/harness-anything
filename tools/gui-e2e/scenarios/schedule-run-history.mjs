@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { compileEntityUpsert, makeTaskEventStore } from "../../../packages/kernel/src/index.ts";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
+import { waitForEntrySettled } from "./helpers.mjs";
 
 // Schedule 运行历史详情页(task: schedule-gui-report-md-occurrence-fact-decision-rollup)。
 //
@@ -116,6 +117,7 @@ export default {
     await page.getByTestId("schedule-form-id").fill("gui-e2e-no-instances");
     await page.getByTestId("schedule-form-name").fill("Saved without local instances");
     await page.getByTestId("schedule-form-mission").fill("Inspect local availability at execution time.");
+    await waitForEntrySettled(page, '[data-testid="schedule-form-dialog"] .glass-overlay');
     await shot("schedule-form-modal");
     assert.equal(await page.getByTestId("schedule-form-submit").isEnabled(), true);
     await page.getByTestId("schedule-form-submit").click();

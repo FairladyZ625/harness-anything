@@ -13,6 +13,42 @@ export async function nav(page, name, testId) {
   await page.getByTestId(testId).first().waitFor();
 }
 
+// 对动画浮层断言/截图前必须等入场真正完成:Modal 等原语的面板自身是 motion 元素,
+// 入场把计算样式 opacity 从 0 拉到 1(「减弱动态效果」下仍有更短的纯淡入,不取消),
+// 取在中途就是半透明面板(task_2e9dedde 返工根因:机检只读声明背景 alpha,假绿)。
+// 条件等待面板计算 opacity === "1";非 motion 元素(如快速切换浮层)立即成立。
+export async function waitForEntrySettled(page, selector) {
+  await page.waitForFunction((sel) => {
+    const node = globalThis.document.querySelector(sel);
+    return node !== null && globalThis.getComputedStyle(node).opacity === "1";
+  }, selector);
+}
+
+/**
+ * The native dialog top layer must never filter its own panel. Keep this check
+ * separate from the browser evaluation so a unit test can exercise the failure
+ * case without starting Electron.
+ */
+export function assertUnfilteredOverlayState(state, label) {
+  assert.equal(state.panelFilter, "none", `${label} 面板 filter=${state.panelFilter} 必须为 none`);
+  assert.equal(
+    state.panelBackdropFilter,
+    "none",
+    `${label} 面板 backdrop-filter=${state.panelBackdropFilter} 必须为 none`,
+  );
+  assert.deepEqual(
+    state.ancestorFilters,
+    [],
+    `${label} 面板祖先不能声明 filter/backdrop-filter: ${JSON.stringify(state.ancestorFilters)}`,
+  );
+  assert.equal(state.scrimFilter, "none", `${label} 遮罩 filter=${state.scrimFilter} 必须为 none`);
+  assert.equal(
+    state.scrimBackdropFilter,
+    "none",
+    `${label} 遮罩 backdrop-filter=${state.scrimBackdropFilter} 必须为 none; blur 只能在 dialog::backdrop`,
+  );
+}
+
 // Measure the local surface: document.scrollWidth misses clipped children and
 // forced scrollbars whose contents happen to fit.
 export async function assertUnscrolledLayout(container, childSelector = ":scope > *") {
