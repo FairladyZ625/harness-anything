@@ -5,6 +5,7 @@ import { keycloakNodeRegistry } from "../fleet-center-admission.ts";
 import { taskStatusWords } from "../protocol/daemon-protocol-vocabulary.ts";
 import { daemonBuildStamp } from "../build-identity.ts";
 import type { KeycloakCenterAuthority } from "../transport/auth-context.ts";
+import type { DaemonTaskSnapshotListResult } from "../protocol/daemon-protocol-gui-types.ts";
 
 /**
  * 协作页舰队拓扑的只读聚合(task_8ce646d94):一次 typed read 回答「舰队有哪些节点、
@@ -191,15 +192,17 @@ const ONLINE_REASON = "tls-session-fact-not-exposed",
   NO_REPLICA_ROW_REASON = "center-replica-ledger-has-no-row-for-node";
 
 /**
- * 租约事实的读面过滤集:全部非终态任务状态(taskStatusWords 去掉 done/cancelled)。
- * held/reserving 的实现租约只与非终态任务共存——submit 与 complete 的生命周期契约都
- * 要求先释放实现租约(task-lifecycle-command-transitions「submit must own and
- * atomically release the active lease」)。按 status 各做一次无限读(不携 limit)取代
- * 旧的单页 500 行读:repo.tasks.list 的 keyset 分页按 task_id 升序,台账数千任务时
- * 首页之外的租约行会被整页漏掉,「在飞」与节点「在做什么」因此漏计
- * (task_89085c1d5e532a54933b9bf444)。
+ * 租约事实的读面过滤集:只有展示态 active。生命周期契约保证 snapshot.lease !== null
+ * ⇒ 任务原始状态 active——租约只由 execution_started 创建(同时把状态置为 active),
+ * block/unblock/cancel/return 都要求无租约,submit 原子释放,released 租约在投影里
+ * 归 null(task-lifecycle-command-transitions / rebuildable-task-projection-runtime)。
+ * 展示态过滤下 raw active 都落在 active 页,唯一例外是「整棵子树已终态的根任务」
+ * (展示 done/cancelled):该边角自首个版本起就不在租约读面内,读全量 done 桶的
+ * 代价远超它的价值。每个状态按 keyset 游标翻页读完——repo.tasks.list 默认 limit 500
+ * 且按 task_id 升序分页,单状态超一页时首页之后的租约仍会被整页漏掉
+ * (task_89085c1d5e532a54933b9bf444 返工)。
  */
-const LEASE_TASK_STATUSES = taskStatusWords.filter((status) => status !== "done" && status !== "cancelled");
+const LEASE_TASK_STATUSES = ["active"] as const satisfies readonly (typeof taskStatusWords)[number][];
 
 /** 授权类错误码 → 字段 redacted;其余错误原样抛出(fail-closed,不吞)。 */
 export async function authorizedOrThrow<T>(
@@ -510,11 +513,21 @@ export async function readFleetOverviewFromHost(input: {
   readonly daemon: { readonly daemonId: string; readonly startedAt: string };
 }): Promise<FleetOverviewResult> {
   const leaseFacts = await authorizedOrThrow(async () => {
-    const rows = (
-      await Promise.all(
-        LEASE_TASK_STATUSES.map((status) => input.cell.read("repo.tasks.list", { status }, input.binding)),
-      )
-    ).flatMap((read) => read.rows);
+    const rows: DaemonTaskSnapshotListResult["rows"][number][] = [];
+    for (const status of LEASE_TASK_STATUSES) {
+      // 翻页读完一个状态:keyset 游标与 repo.tasks.list 的既有点页契约一致
+      // (同 task-claimable-read 的完整读),首页 500 行之外的租约行靠它到达。
+      let cursor: string | undefined;
+      do {
+        const page = await input.cell.read(
+          "repo.tasks.list",
+          { status, limit: 500, ...(cursor === undefined ? {} : { cursor }) },
+          input.binding,
+        );
+        rows.push(...page.rows);
+        cursor = page.page?.nextCursor ?? undefined;
+      } while (cursor !== undefined);
+    }
     const leases: FleetLeaseFact[] = [];
     for (const row of rows) {
       const lease = row.snapshot.lease;

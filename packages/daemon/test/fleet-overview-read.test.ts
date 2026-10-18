@@ -276,15 +276,30 @@ test("the validator accepts a real overview and rejects the pinned negative fixt
 });
 
 test("the host assembly maps task snapshots, dispatch rows, the event tail and registry failures", async () => {
+  const listCalls: { readonly status: unknown; readonly cursor: unknown }[] = [];
   const cell = {
     read: async (method: string, payload?: Readonly<Record<string, unknown>>) => {
       if (method === "repo.tasks.list") {
-        // 仿真读面:status 过滤的无限读返回该状态全部行;不带 status 的首页读
-        // (旧实现形状,limit 500 按 task_id 升序)只回前两行——task_zz_late 只能经
-        // status 读到达,编码「首页之外的租约会被旧读整页漏掉」。
-        const rows = hostTaskRows();
-        if (payload?.status === undefined) return { ok: true, status: "ready", rows: rows.slice(0, 2) };
-        return { ok: true, status: "ready", rows: rows.filter((row) => row.coordinationStatus === payload.status) };
+        // 仿真读面契约(task-query-read):按展示态过滤,keyset 按 task_id 升序,
+        // 默认 limit 500;cursor 是上一页最后一行的 task_id,还有后续页才给 nextCursor。
+        listCalls.push({ status: payload?.status, cursor: payload?.cursor });
+        const limit = typeof payload?.limit === "number" ? payload.limit : 500,
+          rows = hostTaskRows()
+            .filter((row) => row.coordinationStatus === payload?.status)
+            .sort((left, right) => left.taskId.localeCompare(right.taskId)),
+          after = typeof payload?.cursor === "string" ? payload.cursor : null,
+          start = after === null ? 0 : rows.findIndex((row) => row.taskId > after),
+          pageRows = start === -1 ? [] : rows.slice(start, start + limit);
+        return {
+          ok: true,
+          status: "ready",
+          rows: pageRows,
+          page: {
+            limit,
+            cursor: after,
+            nextCursor: pageRows.length > 0 && start + pageRows.length < rows.length ? pageRows.at(-1)!.taskId : null,
+          },
+        };
       }
       return {
         ok: true,
@@ -356,18 +371,34 @@ test("the host assembly maps task snapshots, dispatch rows, the event tail and r
   assert.equal(result.events[0]!.nodeId, "center");
   assert.equal(result.events[0]!.title, "任务建立");
   assert.ok(result.center.commitSha === null || typeof result.center.commitSha === "string");
-  // 回归(task_89085c1d5e532a54933b9bf444):task_zz_late 只在 status 无限读里可见
-  // (首页按 task_id 升序只含前两行)——租约读若退回「limit 500 首页」形状,这条
-  // 断言即红:「在飞」与节点「在做什么」会漏掉第 2 页起的租约。
+  // 回归(task_89085c1d5e532a54933b9bf444 返工):active 共 503 行,三条租约全部
+  // 落在 keyset 第 2 页(首页 500 行是无租约 filler)。租约读若不携游标翻页——
+  // 按状态单页、或不限状态只读首页——这三条都到不了 overview,「在飞」与节点
+  // 「在做什么」漏计。同时钉住过滤集:租约只与 raw active 共存,读面只应请求 active。
+  assert.ok(listCalls.length >= 2, "the lease read must follow the keyset cursor past the first page");
+  assert.ok(
+    listCalls.every((call) => call.status === "active"),
+    "only the lease-holding status may be paged",
+  );
+  assert.equal(listCalls[1]!.cursor, "task_aa_0499");
   const lateEdge = result.nodes.find((node) => node.nodeId === "edge-late-01")!;
   const lateLease = (lateEdge.leases as { taskId: string; phase: string | null }[]).find(
     (row) => row.taskId === "task_zz_late",
   );
-  assert.ok(lateLease !== undefined, "a lease beyond the first task_id page must still reach the overview");
+  assert.ok(lateLease !== undefined, "a lease beyond the first keyset page must still reach the overview");
   assert.equal(lateLease!.phase, "held");
+  const ubuntuLease = (ubuntu.leases as { taskId: string; phase: string | null }[]).find(
+    (row) => row.taskId === "task_edge",
+  );
+  assert.ok(ubuntuLease !== undefined, "a reserving lease beyond the first keyset page must reach the overview");
+  assert.equal(ubuntuLease!.phase, "reserving");
 });
 
-/** host 读面测试的任务行表:task_id 升序里 task_zz_late 排最后——首页形状读不到它。 */
+/**
+ * host 读面测试的任务行表:500 行无租约 filler(task_aa_0000..task_aa_0499,task_id
+ * 升序排最前)之后才是三条租约行(task_edge/task_local/task_zz_late)——单状态超
+ * 一页(500)时租约全部落在 keyset 第 2 页。
+ */
 function hostTaskRows() {
   const leaseOf = (source: unknown, phase: "held" | "reserving", executorId: string | null) => ({
     phase,
@@ -378,7 +409,13 @@ function hostTaskRows() {
     },
     source,
   });
+  const filler = Array.from({ length: 500 }, (_, index) => ({
+    taskId: `task_aa_${String(index).padStart(4, "0")}`,
+    coordinationStatus: "active",
+    snapshot: { task: { title: null }, lease: null },
+  }));
   return [
+    ...filler,
     {
       taskId: "task_edge",
       coordinationStatus: "active",
