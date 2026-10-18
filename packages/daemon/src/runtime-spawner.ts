@@ -402,6 +402,11 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               (agent && runtimeInstance
                 ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.model
                 : undefined),
+            selectedEffort =
+              effort ??
+              (agent && runtimeInstance
+                ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.effort
+                : undefined),
             configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
             declaredPermissionMode = permissionMode ?? agent?.permissionMode,
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
@@ -461,6 +466,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 command: "runtime-spawn",
                 dispatchId: newDispatchId,
                 runtimeSessionId,
+                effort: selectedEffort ?? null,
                 prompt,
                 mission,
               }
@@ -471,7 +477,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                   cwd,
                   prompt,
                   ...(selectedModel ? { model: selectedModel } : {}),
-                  ...(effort ? { effort } : {}),
+                  ...(selectedEffort ? { effort: selectedEffort } : {}),
                   ...(fast === undefined ? {} : { fast }),
                   ...(declaredPermissionMode ? { permissionMode: declaredPermissionMode } : {}),
                   ...(providerSessionId ? { providerSessionId } : {}),

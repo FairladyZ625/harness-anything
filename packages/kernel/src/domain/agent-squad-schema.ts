@@ -13,11 +13,14 @@ export interface AgentSkillDeclarationV1 {
 }
 export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
+export const runtimeEffortValues = Object.freeze(["minimal", "low", "medium", "high", "xhigh", "max"] as const);
+export type RuntimeEffort = (typeof runtimeEffortValues)[number];
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
 export interface AgentRuntimeTargetV1 {
   readonly type: string;
   readonly model?: string;
+  readonly effort?: RuntimeEffort;
 }
 export interface AgentDeclarationV1 {
   readonly id: string;
@@ -74,6 +77,12 @@ export const AGENT_DECLARATION_V1_SCHEMA = Object.freeze({
           model: {
             ...nonEmptyString("Model used on this runtime kind; omit to use the instance default."),
             "x-error": "must be a non-empty string.",
+          },
+          effort: {
+            type: "string",
+            enum: runtimeEffortValues,
+            description: "Reasoning effort for this runtime kind; omit to use the instance default.",
+            "x-error": `must be ${runtimeEffortValues.join(", ")}.`,
           },
         },
       },

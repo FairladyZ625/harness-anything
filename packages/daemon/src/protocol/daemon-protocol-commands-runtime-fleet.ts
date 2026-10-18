@@ -7,6 +7,7 @@ import {
   defineRuntimeLocalWriteCommand,
   workspacePathFormat,
 } from "@harness-anything/preset/internal/preset-command-contract";
+import { runtimeEffortValues } from "@harness-anything/kernel";
 
 export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
   id: "agent-run",
@@ -44,7 +45,7 @@ export const agentRunProtocolCommand = defineRuntimeLocalWriteCommand({
       false,
       { code: "invalid_runtime_effort" },
       {
-        enum: ["minimal", "low", "medium", "high", "xhigh", "max"],
+        enum: runtimeEffortValues,
       },
     ),
     cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
@@ -102,7 +103,7 @@ export const runtimeFleetProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
         },
-        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+        { enum: runtimeEffortValues },
       ),
       cliInput("--fast", "boolean", false, {
         code: "invalid_runtime_fast",
@@ -360,7 +361,7 @@ export const scheduleShowJsonFields = Object.freeze(["scheduleId"] as const),
   ] as const),
   scheduleDeleteJsonFields = Object.freeze(["scheduleId"] as const),
   scheduleDeleteJsonAllowedFields = Object.freeze([...scheduleDeleteJsonFields, "reason", "idempotencyKey"] as const),
-  scheduleReasoningEfforts = ["minimal", "low", "medium", "high", "xhigh", "max"] as const;
+  scheduleReasoningEfforts = runtimeEffortValues;
 
 const schedulePacketInputs = (requiredFields: readonly string[], allowedFields: readonly string[]) => [
   cliInput(

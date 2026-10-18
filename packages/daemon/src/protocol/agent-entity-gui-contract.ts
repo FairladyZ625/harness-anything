@@ -1,4 +1,4 @@
-import { entityNonEmpty, entitySlug } from "@harness-anything/kernel";
+import { entityNonEmpty, entitySlug, runtimeEffortValues } from "@harness-anything/kernel";
 import { EntitySchemaContractError } from "@harness-anything/kernel";
 import type { AgentRuntimeTargetV1, AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 
@@ -129,9 +129,10 @@ function agentRuntimeTargets(value: unknown): value is readonly AgentRuntimeTarg
     value.every(
       (item) =>
         isEntityRecord(item) &&
-        Object.keys(item).every((key) => ["type", "model"].includes(key)) &&
+        Object.keys(item).every((key) => ["type", "model", "effort"].includes(key)) &&
         entitySlug(item.type) &&
-        (item.model === undefined || entityNonEmpty(item.model)),
+        (item.model === undefined || entityNonEmpty(item.model)) &&
+        (item.effort === undefined || (runtimeEffortValues as readonly string[]).includes(String(item.effort))),
     ) &&
     new Set(value.map((item) => (item as AgentRuntimeTargetV1).type)).size === value.length
   );
@@ -143,7 +144,7 @@ const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] 
     ...catalogRowChecks(row),
     !agentGuiRoles.includes(String(row.role)) ? "agent catalog row role must be worker, commander, or reviewer." : [],
     !agentRuntimeTargets(row.runtimes)
-      ? "agent catalog row runtimes must be an array of unique {type, model?} targets."
+      ? "agent catalog row runtimes must be an array of unique {type, model?, effort?} targets."
       : [],
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
@@ -157,7 +158,7 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
       ? ["agent detail needs non-empty id, name, role, and instructions."]
       : [],
     !agentRuntimeTargets(row.runtimes)
-      ? ["agent detail runtimes must be an array of unique {type, model?} targets."]
+      ? ["agent detail runtimes must be an array of unique {type, model?, effort?} targets."]
       : [],
     row.skills !== undefined && !agentSkills(row.skills)
       ? ["agent detail skills must be an array of unique {id, path} references."]

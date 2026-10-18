@@ -8,6 +8,7 @@ import {
   type ContractVersion,
   type LedgerCutIdentity,
   type EntityActionInputField,
+  runtimeEffortValues,
 } from "@harness-anything/kernel";
 import { daemonProtocolCommands } from "../protocol/daemon-protocol-commands.ts";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
@@ -495,7 +496,7 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
           timezone: text,
           agentId: id,
           mission: bodyText,
-          reasoningEffort: one("minimal", "low", "medium", "high", "xhigh", "max"),
+          reasoningEffort: one(...runtimeEffortValues),
           fast: boolean,
           cwd: logicalPath,
           disabled: boolean,
@@ -522,7 +523,7 @@ const scheduleActionShapes: Readonly<Record<string, Check>> = {
           timezone: text,
           agentId: id,
           mission: bodyText,
-          reasoningEffort: nullable(one("minimal", "low", "medium", "high", "xhigh", "max")),
+          reasoningEffort: nullable(one(...runtimeEffortValues)),
           fast: boolean,
           keepDays: positiveInt,
           keepMonthly: boolean,

@@ -257,6 +257,8 @@
   "agentRuntime.apiKeyPlaceholder": "只输入一次",
   "agentRuntime.apiKeyHint": "存入所选服务器的系统凭据库；不会回显已有密钥。",
   "agentRuntime.effort": "Effort",
+  "agentRuntime.effortForKind": "推理档位 · {kind}",
+  "agentRuntime.instanceEffort": "使用实例默认值",
   "agentRuntime.fast": "快速模式",
   "agentRuntime.fastHint": "默认使用 Codex 的快速服务层级。",
   "agentRuntime.fastDescription": "更快的服务层级",

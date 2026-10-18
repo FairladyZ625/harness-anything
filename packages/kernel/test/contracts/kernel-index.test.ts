@@ -27,6 +27,7 @@ test("kernel public source index is importable by the explicit TS test runner", 
     [...kernel.decisionStates],
     ["proposed", "in_effect", "rejected", "deferred", "superseded", "outcome_retired"],
   );
+  assert.deepEqual(kernel.runtimeEffortValues, ["minimal", "low", "medium", "high", "xhigh", "max"]);
   assert.equal("LifecycleEngine" in kernel, false);
   assert.equal("LockRegistry" in kernel, false);
   assert.equal("VersionControlSystem" in kernel, false);

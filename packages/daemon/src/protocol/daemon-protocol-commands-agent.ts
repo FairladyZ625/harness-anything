@@ -7,6 +7,7 @@ import {
   defineEdgeReplicaQueryOnlyReadCommand,
   defineRuntimeLocalWriteCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
+import { runtimeEffortValues } from "@harness-anything/kernel";
 import { agentRunProtocolCommand } from "./daemon-protocol-commands-runtime-fleet.ts";
 
 export const agentProtocolCommands = Object.freeze([
@@ -379,7 +380,7 @@ export const agentProtocolCommands = Object.freeze([
         {
           code: "invalid_runtime_effort",
         },
-        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
+        { enum: runtimeEffortValues },
       ),
       cliInput("--model", "single", false, {
         code: "invalid_field",

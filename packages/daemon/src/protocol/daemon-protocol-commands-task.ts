@@ -12,6 +12,7 @@ import {
   workspacePathFormat,
   type GeneratedTaskActionProtocolDeclaration,
 } from "@harness-anything/preset/internal/preset-command-contract";
+import { runtimeEffortValues } from "@harness-anything/kernel";
 export { generatedTaskActionProtocolDeclarations, generatedTaskCreateResultFields, generatedWriteReceiptFields };
 export type { GeneratedTaskActionProtocolDeclaration };
 
@@ -255,13 +256,7 @@ export const taskExecutionProtocolCommands = Object.freeze([
       cliInput("--execution-id", "single", false, { code: "invalid_field" }),
       cliInput("--instance", "single", false, { code: "invalid_field" }, { field: "runtimeInstanceId" }),
       cliInput("--model", "single", false, { code: "invalid_field" }),
-      cliInput(
-        "--effort",
-        "single",
-        false,
-        { code: "invalid_runtime_effort" },
-        { enum: ["minimal", "low", "medium", "high", "xhigh", "max"] },
-      ),
+      cliInput("--effort", "single", false, { code: "invalid_runtime_effort" }, { enum: runtimeEffortValues }),
       cliInput("--fast", "boolean", false, { code: "invalid_runtime_fast" }),
     ],
   }),

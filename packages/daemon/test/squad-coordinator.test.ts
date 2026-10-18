@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { ActorIdentity, LeaseV1, TaskLifecycleSnapshot, TaskV2 } from "@harness-anything/kernel";
+import { parseRuntimeBatchEntry } from "../src/runtime-orchestration.ts";
 import { deriveSquadChildPlan, reacquireSquadTaskLease } from "../src/repo-cell-squad-child.ts";
 import {
   callbackLeaderPrompt,
@@ -154,6 +155,14 @@ test("runtime-batch leaves worker instance selection to the harness", () => {
         ["terra"],
       ),
     /Leader dispatch contains harness-owned fields\./u,
+  );
+});
+
+test("runtime-batch effort validation follows the runtime-run declaration", () => {
+  assert.equal(parseRuntimeBatchEntry({ instance: "codex-one", prompt: "Work.", effort: "xhigh" }, 0).effort, "xhigh");
+  assert.throws(
+    () => parseRuntimeBatchEntry({ instance: "codex-one", prompt: "Work.", effort: "turbo" }, 0),
+    /Batch dispatch 0 effort must be minimal, low, medium, high, xhigh, max\./u,
   );
 });
 

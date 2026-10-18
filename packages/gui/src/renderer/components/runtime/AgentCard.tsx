@@ -2,9 +2,9 @@ import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { useEffect, useRef, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
-import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
+import type { AgentDeclarationV1, RuntimeEffort } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import { agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
+import { agentRuntimeKindMatches, runtimeEffortValues } from "@harness-anything/daemon/protocol";
 import type {
   AgentEntityAvailableRow,
   AgentEntityDetail,
@@ -30,8 +30,8 @@ import type { RuntimeDockRow } from "./useRuntimeWorkspace.ts";
 export type AgentDraft = {
   readonly name: string;
   readonly role: "worker" | "commander" | "reviewer";
-  /** One row per accepted runtime kind; model "" means the instance default. */
-  readonly runtimes: readonly { readonly type: string; readonly model: string }[];
+  /** One row per accepted runtime kind; empty model/effort use the instance defaults. */
+  readonly runtimes: readonly { readonly type: string; readonly model: string; readonly effort: RuntimeEffort | "" }[];
   readonly preset: string;
   readonly skills: readonly { readonly id: string; readonly path: string }[];
   readonly instructions: string;
@@ -43,7 +43,11 @@ export type AgentDraft = {
 export const agentDraftFrom = (detail: AgentEntityDetail): AgentDraft => ({
   name: detail.name,
   role: detail.role,
-  runtimes: detail.runtimes.map((target) => ({ type: target.type, model: target.model ?? "" })),
+  runtimes: detail.runtimes.map((target) => ({
+    type: target.type,
+    model: target.model ?? "",
+    effort: target.effort ?? "",
+  })),
   preset: detail.preset ?? "",
   skills: detail.skills,
   instructions: detail.instructions,
@@ -60,6 +64,7 @@ export function agentDeclarationFrom(id: string, draft: AgentDraft): AgentDeclar
     runtimes: draft.runtimes.map((target) => ({
       type: target.type,
       ...(target.model.trim() ? { model: target.model.trim() } : {}),
+      ...(target.effort ? { effort: target.effort } : {}),
     })),
     role: draft.role,
     ...(draft.skills.length ? { skills: draft.skills } : {}),
@@ -143,7 +148,10 @@ export function AgentCard({
   const compatible = instances.filter(
     (instance) => instance.enabled && agentRuntimeKindMatches(draft.runtimes, instance.kindId),
   );
-  const patchRuntime = (kindId: string, value: { readonly model: string }) =>
+  const patchRuntime = (
+      kindId: string,
+      value: Partial<{ readonly model: string; readonly effort: RuntimeEffort | "" }>,
+    ) =>
       patch({
         runtimes: draft.runtimes.map((target) => (target.type === kindId ? { ...target, ...value } : target)),
       }),
@@ -151,7 +159,7 @@ export function AgentCard({
       const selected = draft.runtimes.some((target) => target.type === kindId),
         runtimes = selected
           ? draft.runtimes.filter((target) => target.type !== kindId)
-          : [...draft.runtimes, { type: kindId, model: "" }];
+          : [...draft.runtimes, { type: kindId, model: "", effort: "" }];
       patch({
         runtimes,
         // A pinned instance only stays valid while its kind still matches a selected row.
@@ -581,6 +589,20 @@ export function AgentCard({
                   {options.map((model) => (
                     <option key={model} value={model}>
                       {model}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  aria-label={t("agentRuntime.effortForKind", { kind: target.type })}
+                  data-testid={`agent-runtime-effort-${target.type}`}
+                  value={target.effort}
+                  onChange={(event) => patchRuntime(target.type, { effort: event.target.value as RuntimeEffort | "" })}
+                  className="control"
+                >
+                  <option value="">{t("agentRuntime.instanceEffort")}</option>
+                  {runtimeEffortValues.map((effort) => (
+                    <option key={effort} value={effort}>
+                      {effort}
                     </option>
                   ))}
                 </select>
