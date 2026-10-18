@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -20,7 +20,7 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
       store: async (reference, secret) => void credentials.set(reference, secret),
       resolve: async (reference) => {
         const secret = credentials.get(reference);
-        if (!secret) throw Object.assign(new Error("unavailable"), { code: "provider_credential_unavailable" });
+        if (!secret) throw Object.assign(new Error("unavailable"), { code: "runtime_credential_unavailable" });
         return secret;
       },
       remove: async (reference) => void credentials.delete(reference),
@@ -120,6 +120,75 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
     assert.equal(deleted.deletedProviderId, "review-choice");
     assert.equal(credentials.has(references[0]!), false);
     assert.deepEqual(service.list(), []);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("Decisions provider returns an empty list only when its file is absent", () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-read-"));
+  try {
+    const missing = openDecisionProviderService({ userRoot: parent });
+    assert.deepEqual(missing.read(), []);
+
+    writeFileSync(path.join(parent, "decision-providers.json"), "not-json");
+    const corrupt = openDecisionProviderService({ userRoot: parent });
+    assert.throws(() => corrupt.read(), SyntaxError);
+  } finally {
+    rmSync(parent, { recursive: true, force: true });
+  }
+});
+
+test("Decisions provider maps credential unavailability and propagates other vault failures", async () => {
+  const parent = mkdtempSync(path.join(tmpdir(), "ha-decision-provider-vault-"));
+  let resolveFailure: Error = Object.assign(new Error("unavailable"), { code: "runtime_credential_unavailable" });
+  const vault: CredentialPort = {
+      issue: () => "credential:v1:test-key",
+      store: async () => undefined,
+      resolve: async () => {
+        throw resolveFailure;
+      },
+      remove: async () => undefined,
+    },
+    service = openDecisionProviderService({ userRoot: parent, vault });
+  try {
+    await service.command({
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "model-a",
+      credentialRef: "credential:v1:test-key",
+    });
+    await assert.rejects(
+      service.command({ kind: "provider-probe", providerId: "decision-a" }),
+      (error: unknown) =>
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        error.code === "provider_credential_unavailable",
+    );
+    assert.equal(service.list()[0]?.probe.state, "failed");
+
+    const unexpected = new Error("vault implementation failed");
+    resolveFailure = unexpected;
+    await assert.rejects(
+      service.port.decide({
+        subjectRef: "task/a",
+        questionSetVersion: "choice/v1",
+        state: ["text"],
+        question: {
+          type: "choice",
+          prompt: "Choose",
+          options: [
+            { id: "yes", text: "Yes" },
+            { id: "no", text: "No" },
+          ],
+          criteria: { yes: "yes", no: "no" },
+        },
+      }),
+      (error: unknown) => error === unexpected,
+    );
   } finally {
     rmSync(parent, { recursive: true, force: true });
   }

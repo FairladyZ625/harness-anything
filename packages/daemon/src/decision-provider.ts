@@ -1,8 +1,7 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { OpenRouter } from "@openrouter/sdk";
 import type { DecisionsResponse } from "@openrouter/sdk/models";
-import { consumeKnownError } from "@harness-anything/kernel";
 import type {
   AdvisoryDecision,
   DecisionOption,
@@ -79,16 +78,14 @@ export function openDecisionProviderService(input: {
   };
   const read = (): readonly DecisionProviderRecord[] => {
     if (cached !== null) return cached;
-    try {
-      const parsed = JSON.parse(readFileSync(target, "utf8")) as ProviderFile;
-      if (parsed.schema !== fileSchema || !Array.isArray(parsed.providers))
-        throw providerError("invalid_provider", "The stored Decisions provider file has an unsupported shape.");
-      cached = parsed.providers;
-    } catch (error) {
-      if (!isErrorCode(error, "ENOENT")) throw error;
-      consumeKnownError(error);
+    if (!existsSync(target)) {
       cached = [];
+      return cached;
     }
+    const parsed = JSON.parse(readFileSync(target, "utf8")) as ProviderFile;
+    if (parsed.schema !== fileSchema || !Array.isArray(parsed.providers))
+      throw providerError("invalid_provider", "The stored Decisions provider file has an unsupported shape.");
+    cached = parsed.providers;
     return cached;
   };
   const persist = (providers: readonly DecisionProviderRecord[]): void => {
@@ -110,12 +107,9 @@ export function openDecisionProviderService(input: {
     if (typeof value !== "string")
       throw providerError("invalid_base_url", "baseUrl must be an absolute HTTPS URL or loopback HTTP URL.");
     const text = value.trim();
-    let url: URL;
-    try {
-      url = new URL(text);
-    } catch {
+    if (!URL.canParse(text))
       throw providerError("invalid_base_url", "baseUrl must be an absolute HTTPS URL or loopback HTTP URL.");
-    }
+    const url = new URL(text);
     if (
       url.protocol !== "https:" &&
       !(url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname))
@@ -243,7 +237,8 @@ export function openDecisionProviderService(input: {
       let apiKey: string;
       try {
         apiKey = await vault.resolve(current.auth.credentialRef);
-      } catch {
+      } catch (error) {
+        if (!isErrorCode(error, "runtime_credential_unavailable")) throw error;
         const failed = {
           ...current,
           probe: { state: "failed" as const, checkedAt: now(), code: "provider_credential_unavailable" },
@@ -281,7 +276,8 @@ export function openDecisionProviderService(input: {
         let apiKey: string;
         try {
           apiKey = await vault.resolve(provider.auth.credentialRef);
-        } catch {
+        } catch (error) {
+          if (!isErrorCode(error, "runtime_credential_unavailable")) throw error;
           throw providerError(
             "provider_credential_unavailable",
             `The credential for ${provider.providerId} is unavailable.`,
@@ -328,7 +324,8 @@ function takeCredential(
       const reference = vault.issue();
       try {
         await vault.store(reference, secret);
-      } catch {
+      } catch (error) {
+        if (!isErrorCode(error, "runtime_credential_unavailable")) throw error;
         throw providerError(
           "provider_credential_unavailable",
           "The API key could not be stored in the credential vault.",

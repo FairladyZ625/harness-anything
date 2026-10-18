@@ -38,7 +38,6 @@ export function parseProvider(
           type: flags.one.get("--type"),
           providerId: flags.one.get("--id"),
           name: flags.one.get("--name"),
-          vendor: flags.one.get("--vendor") ?? "openrouter",
           model: flags.one.get("--model"),
           ...(flags.one.has("--base-url") ? { baseUrl: flags.one.get("--base-url") } : {}),
           ...(flags.one.has("--api-key-file") ? { apiKeyFile: flags.one.get("--api-key-file") } : {}),

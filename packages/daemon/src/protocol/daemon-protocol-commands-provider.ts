@@ -14,7 +14,6 @@ export const providerProtocolCommands = Object.freeze([
       cliInput("--type", "single", true, { code: "missing_field" }, { enum: ["decisions"] }),
       cliInput("--id", "single", true, { code: "missing_field" }, { regex: "^[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$" }),
       cliInput("--name", "single", true, { code: "missing_field" }),
-      cliInput("--vendor", "single", false, { code: "invalid_field" }, { enum: ["openrouter"] }),
       cliInput("--model", "single", true, { code: "missing_field" }),
       cliInput("--base-url", "single", false, { code: "invalid_field" }),
       cliInput("--api-key-file", "single", false, { code: "invalid_field" }, { conflictsWith: ["--credential-ref"] }),

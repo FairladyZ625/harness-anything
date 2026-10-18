@@ -85,7 +85,6 @@ test("Decisions provider CLI accepts only the approved provider type and credent
       type: "decisions",
       providerId: "review-choice",
       name: "Review choice",
-      vendor: "openrouter",
       model: "openrouter/model-a",
       baseUrl: "https://openrouter.ai",
       credentialRef: "credential:v1:test-key",
