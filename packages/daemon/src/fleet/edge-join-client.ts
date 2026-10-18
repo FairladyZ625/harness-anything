@@ -68,6 +68,7 @@ export async function joinFleetEdge(
     caPath,
     nodeId: admitted.nodeId,
     credential: admitted.credential,
+    humanClientId: authority.clientId,
     viewRoot: `${root}-view`,
     quotaBytes: defaultQuotaBytes,
     timeoutMs: 60_000,

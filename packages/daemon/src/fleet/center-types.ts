@@ -64,6 +64,7 @@ export interface FleetCenterOptions {
     frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
     peer: ReplicationPeer,
     signal: AbortSignal,
+    humanClientId?: string,
   ) => Promise<void>;
 }
 

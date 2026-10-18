@@ -147,6 +147,7 @@ export interface FleetEdgeSyncRequest {
     readonly servername?: string;
     readonly nodeId: string;
     readonly credential: string;
+    readonly humanClientId?: string;
     readonly repoId: string;
     readonly viewRoot: string;
     readonly quotaBytes: number;
@@ -186,6 +187,7 @@ export async function syncFleetEdgeMirror(
     },
     head = await readFleetRepositoryMetadataClient({
       ...(readAccessToken ? { readAccessToken } : {}),
+      ...(request.humanClientId ? { humanClientId: request.humanClientId } : {}),
       hostname: request.host,
       port: request.port,
       ca: material(request.caPath, "--ca"),
@@ -263,6 +265,11 @@ function persistEdgeConnection(request: FleetEdgeSyncRequest["payload"]): void {
     ...(request.servername ? { servername: request.servername } : {}),
     nodeId: request.nodeId,
     credential: request.credential,
+    ...(request.humanClientId
+      ? { humanClientId: request.humanClientId }
+      : previous?.humanClientId
+        ? { humanClientId: previous.humanClientId }
+        : {}),
     viewRoot: request.viewRoot,
     quotaBytes: request.quotaBytes,
     ...(previous?.waitTimeoutMs !== undefined ? { waitTimeoutMs: previous.waitTimeoutMs } : {}),

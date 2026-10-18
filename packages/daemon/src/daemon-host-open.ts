@@ -904,6 +904,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
         ...(config.servername ? { servername: config.servername } : {}),
         nodeId: config.nodeId,
         credential: config.credential,
+        ...(config.humanClientId ? { humanClientId: config.humanClientId } : {}),
         repoId: config.repoId,
         viewRoot,
         diskQuotaBytes: config.quotaBytes,
