@@ -178,32 +178,13 @@ function fixtureSchedule(): ScheduleV1 {
   });
 }
 
-test("Schedule persists bounded typed CI reconciliation checkpoints and rejects invalid continuations", () => {
+test("Schedule rejects retired CI observation state", () => {
   const base = fixtureSchedule();
-  const progress = {
-    workflow: "rewrite-ci",
-    workflowIndex: 0,
-    scanPass: 2,
-    nextPage: 7,
-    nextRunId: null,
-    nextAttempt: 1,
-    pending: [{ runId: 123, attempt: 2, workflow: "rewrite-ci" }],
-    unavailable: [],
-    lastCompletedScanAt: null,
-    error: null,
-    retryAt: null,
-  };
-  const withProgress = { ...base, status: { ...base.status, ciObserve: progress } };
-  assert.deepEqual(validateScheduleV1(withProgress), []);
-  for (const ciObserve of [
-    { ...progress, nextPage: 0 },
-    { ...progress, pending: Array(101).fill(progress.pending[0]) },
-    { ...progress, error: "x".repeat(1025) },
-    { ...progress, retryAt: "tomorrow" },
-    { ...progress, freeText: "untyped" },
-  ])
-    assert.notDeepEqual(validateScheduleV1({ ...base, status: { ...base.status, ciObserve } }), []);
-  assert.deepEqual(validateScheduleV1(base), [], "pre-checkpoint Schedule values retain their exact valid shape");
+  assert.deepEqual(validateScheduleV1(base), []);
+  assert.notDeepEqual(
+    validateScheduleV1({ ...base, status: { ...base.status, ciObserve: { workflow: "rewrite-ci" } } }),
+    [],
+  );
 });
 
 test("new schedule inputs reject retired pins and historical projection removes them", async () => {

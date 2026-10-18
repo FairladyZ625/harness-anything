@@ -9,7 +9,6 @@ import { withPolicyGroup, signInPolicyTestUser } from "./keycloak-policy.fixture
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import {
-  builtinCiObserveScheduleId,
   builtinLedgerBackupScheduleId,
   builtinNightlyReckoningScheduleId,
   scheduledLedgerBackupRoot,
@@ -127,7 +126,6 @@ async function fireDueOccurrences(mode: DaemonRepoMode) {
 }
 
 const seededRows = [
-  [builtinCiObserveScheduleId, "armed", "builtin"],
   [builtinLedgerBackupScheduleId, "armed", "builtin"],
   [builtinNightlyReckoningScheduleId, "paused", "agent-unconfigured"],
 ];

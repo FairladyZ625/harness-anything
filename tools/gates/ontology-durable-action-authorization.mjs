@@ -578,7 +578,7 @@ function queuedPreparedAuthorization(rootDir, analysis, authority) {
     !inventory ||
     !ts.isArrayLiteralExpression(inventory) ||
     !importsBinding(runner, "./write-queue-external-reads.ts", "readBeforeWriteQueue", "readBeforeWriteQueue") ||
-    !syntax(run).includes("readBeforeWriteQueue(context,action,binding,context.refreshCi)") ||
+    !syntax(run).includes("readBeforeWriteQueue(context,action,binding)") ||
     !syntax(run).includes(
       "returnexternalRead.then((publish)=>enqueuePublication((authorizationDecision)=>publish(action,authorizationDecision?{...binding,authorizationDecision}:binding),",
     )

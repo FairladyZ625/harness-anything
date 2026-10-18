@@ -60,18 +60,11 @@ export {
 } from "./closeout-readiness.ts";
 export {
   completionEvidenceBasis,
-  completionEvidenceResults,
   judgeCompletionEvidence,
   OVERRIDE_RATIONALE_MIN_LENGTH,
   validOverrideRationale,
 } from "./completion-evidence.ts";
-export type {
-  CompletionEvidenceBasis,
-  CompletionEvidenceJudgment,
-  CompletionEvidenceProvenance,
-  CompletionEvidenceResult,
-  CompletionEvidenceV1,
-} from "./completion-evidence.ts";
+export type { CompletionEvidenceJudgment, CompletionEvidenceV1 } from "./completion-evidence.ts";
 export { blockingOf, dispatchPrerequisitesOf, stackedDeliveryBaseline } from "./task-blocking.ts";
 export type { BlockingLabel } from "./task-blocking.ts";
 

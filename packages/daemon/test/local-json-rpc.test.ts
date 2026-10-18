@@ -413,6 +413,10 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1: runtime steer is one owner-routed action.
   // dec_4C06F7F902E91C4210020A9E75/CH2 removes the task-ci action with the retired observer chain.
   assert.equal(actionDeclarations.length, 152);
+  assert.equal(
+    actionDeclarations.some(({ kind }) => kind === "ci-observe-pull" || kind === "task-ci"),
+    false,
+  );
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);

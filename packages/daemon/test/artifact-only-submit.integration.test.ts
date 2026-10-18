@@ -213,9 +213,10 @@ test("a closeout-only no-diff task completes after review, consent and a Fact", 
 test("an empty public commit cannot force a merge requirement for a no-diff delivery", () =>
   submitBaselineTask(true, "empty-commit"));
 
-test("an added public path still requires main CI after review and consent", () => submitBaselineTask(true, "add"));
+test("an added public path still requires merged delivery after review and consent", () =>
+  submitBaselineTask(true, "add"));
 
-test("a deletion-only public cut still requires main CI after review and consent", () =>
+test("a deletion-only public cut still requires merged delivery after review and consent", () =>
   submitBaselineTask(true, "delete"));
 
 test("a documentation amendment completes with newly accepted artifact paths on its own cut", async () => {

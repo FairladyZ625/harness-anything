@@ -29,7 +29,7 @@ test("window latency uses every eligible sample and nearest-rank P95, excluding 
     [
       ...records,
       row(900_000, { method: "repo.agentRuntime.sessions.await" }),
-      row(800_000, { method: "repo.task.read", command: "task-ci", wait: true }),
+      row(800_000, { method: "repo.task.read", command: "receipt-show", wait: true }),
       row(80, { at: "2026-10-03T10:00:00Z" }),
       row(90, { at: "2026-10-03T12:00:01Z" }),
     ],
@@ -47,24 +47,26 @@ test("window latency uses every eligible sample and nearest-rank P95, excluding 
   assert.equal(stats.coverage.continuity, "unknown");
 });
 
-test("commands sharing one RPC method keep separate latency; provider-backed task-ci never pools with local reads", () => {
+test("commands sharing one RPC method keep separate latency; receipt-show never pools with local reads", () => {
   const stats = requestWindowMetrics(
     [
       ...Array.from({ length: 20 }, (_, i) => row(20 + i, { method: "repo.task.read", command: "task-show" })),
-      ...Array.from({ length: 5 }, (_, i) => row(4_000 + i * 1_000, { method: "repo.task.read", command: "task-ci" })),
+      ...Array.from({ length: 5 }, (_, i) =>
+        row(4_000 + i * 1_000, { method: "repo.task.read", command: "receipt-show" }),
+      ),
       row(30, { command: undefined }),
     ],
     until - 3_600_000,
     until,
   );
   const byCommand = new Map(stats.latency.byCommand.map((entry) => [entry.command, entry]));
-  assert.deepEqual([...byCommand.keys()], ["task-show", "task-ci", "<no command>"]);
+  assert.deepEqual([...byCommand.keys()], ["task-show", "receipt-show", "<no command>"]);
   assert.equal(byCommand.get("task-show")!.method, "repo.task.read");
   assert.equal(byCommand.get("task-show")!.serviceMs.sampleCount, 20);
   assert.equal(byCommand.get("task-show")!.serviceMs.p95Ms, 38);
   assert.equal(byCommand.get("task-show")!.serviceMs.maxMs, 39);
-  assert.equal(byCommand.get("task-ci")!.method, "repo.task.read");
-  assert.equal(byCommand.get("task-ci")!.serviceMs.p50Ms, 6_000);
+  assert.equal(byCommand.get("receipt-show")!.method, "repo.task.read");
+  assert.equal(byCommand.get("receipt-show")!.serviceMs.p50Ms, 6_000);
   assert.equal(byCommand.get("<no command>")!.serviceMs.sampleCount, 1);
   assert.equal("durationMs" in stats.latency, false, "no method-pooled aggregate remains beside byCommand");
 });

@@ -6,6 +6,7 @@ import {
   currentTaskForWrite,
   parseCanonicalEvent,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   type TaskBootstrapEventV1,
 } from "../../src/index.ts";
 import { validateCurrentCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
@@ -115,7 +116,7 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
   // Historical events recorded metadata.longRunning before taskClass=long_running existed; the
   // immutable log must keep replaying, so the retired key is tolerated when it carries its old type.
   const legacy = parseCanonicalEvent(
-    serializeCanonicalEvent({
+    serializePersistedCanonicalEvent({
       ...event,
       payload: {
         ...event.payload,
@@ -130,7 +131,7 @@ test("long_running is a kernel taskClass and the retired longRunning boolean is 
         ...event,
         payload: { ...event.payload, task: { ...event.payload.task, metadata: { ...metadata, longRunning: "yes" } } },
       } as unknown as TaskBootstrapEventV1),
-    /retired task metadata field longRunning must be a boolean/u,
+    /task metadata contains unknown fields: longRunning/u,
   );
   const future = {
     ...event,

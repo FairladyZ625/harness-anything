@@ -218,29 +218,15 @@ test("a parked sessions.await records wait while ordinary reads do not", async (
       payload: { action: { kind: "task-show", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV" } },
     },
   });
-  // The command path keeps its own wait criterion: the client-declared --wait flag.
-  await server.handle({
-    jsonrpc: "2.0",
-    id: 4,
-    method: "repo.task.read",
-    params: {
-      repo: { repoId: "logged" },
-      payload: {
-        action: { kind: "task-ci", taskId: "task_01ARZ3NDEKTSV4RRFFQ69G5FAV", wait: true },
-      },
-    },
-  });
   server.close();
   await server.requestLog.settle();
 
   const records = readRecords(rootDir);
-  assert.equal(records.length, 3);
+  assert.equal(records.length, 2);
   assert.equal(records[0].method, "repo.agentRuntime.sessions.await");
   assert.equal(records[0].wait, true);
   assert.equal(records[1].command, "task-show");
   assert.equal(records[1].wait, false);
-  assert.equal(records[2].command, "task-ci");
-  assert.equal(records[2].wait, true);
 });
 
 test("the declared agent executor is recorded so a request can be attributed to the agent that made it", async (t) => {

@@ -11,6 +11,7 @@ import {
   deriveRelationId,
   parseCanonicalEvent,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
 } from "../../src/index.ts";
 import {
   assertDecisionJudgmentConsent,
@@ -240,7 +241,7 @@ const decisionDraft: DecisionEventDraftV1 = {
 test("Decision event reader ignores additions while the current writer requires its exact authored mutation claim", () => {
   assert.deepEqual(validateDecisionEvent(decision.event), []);
   assert.deepEqual(Schema.decodeUnknownSync(DecisionEventSchema)(decision.event), decision.event);
-  assert.deepEqual(parseCanonicalEvent(serializeCanonicalEvent(decision.event)), decision.event);
+  assert.deepEqual(parseCanonicalEvent(serializePersistedCanonicalEvent(decision.event)), decision.event);
   for (const future of [
     { ...decision.event, unexpected: true },
     {

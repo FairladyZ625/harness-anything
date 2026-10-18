@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { createTaskPullRequest } from "../src/runtime-task-pr.ts";
-import { fixture, secret } from "./task-ci.fixtures.ts";
+import { fixture, secret } from "./runtime-task-pr.fixtures.ts";
 
 const lintPass = async () => {};
 
@@ -21,7 +21,7 @@ function prFixture() {
       ...f.context.projection,
       read: () => ({
         ...f.context.projection.read(),
-        packagePath: "tasks/task-ci-ci",
+        packagePath: "tasks/task-pr",
         watermark: 42,
         sourceRevision: 42,
         snapshot: { ...f.context.projection.read().snapshot, task: { title: "Task CI" } },
@@ -48,7 +48,7 @@ for (const update of [false, true])
     let calls = 0;
     const receipt = await createTaskPullRequest(
       f.context as never,
-      { kind: "task-pr", taskId: "task-ci", update, ...(update ? {} : { title: "fix(daemon): publish task PR" }) },
+      { kind: "task-pr", taskId: "task-pr", update, ...(update ? {} : { title: "fix(daemon): publish task PR" }) },
       f.binding,
       async (args, env, cwd) => {
         calls++;
@@ -56,7 +56,7 @@ for (const update of [false, true])
         assert.equal(cwd, "/fixture/center");
         assert.equal(args[1], update ? "edit" : "create");
         assert.equal(args[args.indexOf("--body") + 1], f.body);
-        assert.equal(args.includes("task-ci"), true);
+        assert.equal(args.includes("task-pr"), true);
         assert.equal(args.includes("merge"), false);
         assert.equal(
           args.some((arg) => arg.includes(secret)),
@@ -75,7 +75,7 @@ test("task PR runs the bilingual gate on the body before the provider", async ()
   let linted: string | null = null;
   const receipt = await createTaskPullRequest(
     f.context as never,
-    { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): run PR body gate" },
+    { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): run PR body gate" },
     f.binding,
     async () => "https://github.com/fixture/repo/pull/3",
     async (body, rootDir) => {
@@ -92,7 +92,7 @@ test("task PR rejects non-conventional titles before reading credentials", async
   await assert.rejects(
     createTaskPullRequest(
       f.context as never,
-      { kind: "task-pr", taskId: "task-ci", title: "中文任务名" },
+      { kind: "task-pr", taskId: "task-pr", title: "中文任务名" },
       f.binding,
       async () => {
         throw new Error("provider must not run");
@@ -110,7 +110,7 @@ test("task PR update validates and forwards an optional title", async () => {
   let args: readonly string[] = [];
   await createTaskPullRequest(
     f.context as never,
-    { kind: "task-pr", taskId: "task-ci", update: true, title: "docs(daemon): clarify PR title" },
+    { kind: "task-pr", taskId: "task-pr", update: true, title: "docs(daemon): clarify PR title" },
     f.binding,
     async (received) => {
       args = received;
@@ -118,7 +118,7 @@ test("task PR update validates and forwards an optional title", async () => {
     },
     lintPass,
   );
-  assert.deepEqual(args.slice(0, 5), ["pr", "edit", "task-ci", "--title", "docs(daemon): clarify PR title"]);
+  assert.deepEqual(args.slice(0, 5), ["pr", "edit", "task-pr", "--title", "docs(daemon): clarify PR title"]);
 });
 
 test("task PR refuses a placeholder-only body, names the sections, and never calls the provider", async () => {
@@ -143,7 +143,7 @@ test("task PR refuses a placeholder-only body, names the sections, and never cal
   await assert.rejects(
     createTaskPullRequest(
       context as never,
-      { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): reject placeholder body" },
+      { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): reject placeholder body" },
       f.binding,
       async () => {
         throw new Error("provider must not run when the lint rejects");
@@ -165,7 +165,7 @@ test("task PR refuses a placeholder-only body, names the sections, and never cal
 test("task PR refuses another task or reviewer before invoking the provider", async () => {
   for (const [taskId, role] of [
     ["task-other", "implementation"],
-    ["task-ci", "reviewer"],
+    ["task-pr", "reviewer"],
   ] as const) {
     const f = prFixture();
     await assert.rejects(
@@ -188,7 +188,7 @@ test("task PR provider errors surface with credentials removed", async () => {
   await assert.rejects(
     createTaskPullRequest(
       f.context as never,
-      { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): redact provider error" },
+      { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): redact provider error" },
       f.binding,
       async () => {
         throw new Error(`provider rejected ${secret}`);
@@ -213,7 +213,7 @@ test("human task PR uses repository authentication without a dispatch credential
   };
   const receipt = await createTaskPullRequest(
     context as never,
-    { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): use human repository identity" },
+    { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): use human repository identity" },
     { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
     async (_args, env) => {
       assert.equal(env.GH_TOKEN, undefined);
@@ -256,7 +256,7 @@ test("task PR runs the repository lint script itself and rejects a placeholder-o
   await assert.rejects(
     createTaskPullRequest(
       withBody(placeholderBody) as never,
-      { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): lint task PR body" },
+      { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): lint task PR body" },
       f.binding,
       async () => {
         throw new Error("provider must not run when the lint rejects");
@@ -269,7 +269,7 @@ test("task PR runs the repository lint script itself and rejects a placeholder-o
   );
   const receipt = await createTaskPullRequest(
     withBody(filledBody) as never,
-    { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): lint task PR body" },
+    { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): lint task PR body" },
     f.binding,
     async () => "https://github.com/fixture/repo/pull/2",
   );
@@ -283,7 +283,7 @@ test("task PR skips the body gate in a repository that has no lint script", asyn
   const f = prFixture();
   const receipt = await createTaskPullRequest(
     { ...f.context, rootDir } as never,
-    { kind: "task-pr", taskId: "task-ci", title: "fix(daemon): create task PR" },
+    { kind: "task-pr", taskId: "task-pr", title: "fix(daemon): create task PR" },
     f.binding,
     async () => "https://github.com/fixture/repo/pull/3",
   );
