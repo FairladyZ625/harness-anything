@@ -272,7 +272,8 @@ export function validateDaemonWorkBriefs(value: unknown): readonly string[] {
   const part = (item: unknown) =>
     isJsonObject(item) &&
     partKinds.includes(String(item.kind)) &&
-    (item.kind === "planned" || typeof item.title === "string");
+    // planned 与 retired 是纯状态分句(「还剩没开工的事」/「已收口」),不带标题;其余分句必须带标题。
+    (item.kind === "planned" || item.kind === "retired" || typeof item.title === "string");
   const pull = (item: unknown) =>
     isJsonObject(item) &&
     typeof item.taskId === "string" &&
