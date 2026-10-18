@@ -41,5 +41,7 @@ export function accessAdminPreloadApi(
     reconcile: (input) => ask({ operation: "receipt-reconcile", ...input }),
     sessionLifetime: () => ask({ operation: "session-lifetime" }),
     setSessionLifetime: (input) => ask({ operation: "session-lifetime-set", ...input }),
+    issueEdgeJoin: (input) => ask({ operation: "edge-join-create", ...input }),
+    edgeJoinStatus: (input) => ask({ operation: "edge-join-status", ...input }),
   };
 }

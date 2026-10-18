@@ -1,5 +1,6 @@
 import type { IpcMainInvokeEvent } from "electron";
 import type { JsonObject } from "@harness-anything/daemon";
+import { encodeEdgeJoinLink } from "@harness-anything/daemon/internal/fleet/edge-join";
 import { ACCESS_ADMIN_CHANNEL } from "../api/access-admin-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
@@ -50,6 +51,11 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "effective-permissions": { personId: "text", resource: "text" },
   "receipt-reconcile": { operationId: "text" },
   "session-lifetime-set": { sessionLifetimeSeconds: "seconds", expectedVersion: "text" },
+  // The edge invitation the daemon signs itself; the same fields `ha bootstrap --operation
+  // edge-join-create` takes. Not in `writes`: the daemon serializes and journals it without an
+  // operationId, and the reply is not a command receipt.
+  "edge-join-create": { nodeId: "text", centerUrl: "text", spkiSha256: "text" },
+  "edge-join-status": { inviteId: "text" },
 };
 
 /** Operations that change Keycloak; the main process names each one so a lost receipt can be reconciled. */
@@ -88,8 +94,30 @@ export function registerAccessAdminIpc(
 ): void {
   registrar.handle(ACCESS_ADMIN_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
-    return ports.daemonRequest(accessAdminParams(input, ports.operationId));
+    const params = accessAdminParams(input, ports.operationId);
+    const reply = await ports.daemonRequest(params);
+    return params.operation === "edge-join-create" ? edgeJoinIssuedReply(reply) : reply;
   });
+}
+
+/**
+ * The daemon's edge-join-create success carries the invitation as a struct — token included. The
+ * renderer receives the closed form instead: the encoded `harness-edge://join/…` string plus the
+ * facts the panel displays, so the token crosses the IPC boundary exactly once and never as a
+ * second struct copy. Refusals pass through untouched.
+ */
+function edgeJoinIssuedReply(reply: JsonObject): JsonObject {
+  if (reply.ok !== true) return reply;
+  const link = reply.link;
+  if (typeof link !== "object" || link === null || Array.isArray(link))
+    throw new Error("Edge join creation returned no invitation link.");
+  return {
+    ok: true,
+    joinId: reply.joinId,
+    state: reply.state,
+    expiresAt: (link as { readonly expiresAt: string }).expiresAt,
+    inviteLink: encodeEdgeJoinLink(link as unknown as Parameters<typeof encodeEdgeJoinLink>[0]),
+  };
 }
 
 export function accessAdminParams(input: unknown, operationId: () => string): JsonObject {

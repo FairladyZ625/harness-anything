@@ -18,6 +18,8 @@ export const QUERY_PACING_MS = {
   systemStatus: 10_000,
   /** connections status:admin 面,cut 覆盖不到,自持低频轮询。 */
   connectionStatus: 30_000,
+  /** 边缘邀请状态:签发后等边缘消费的观察窗,比连接面密、与台账探针同档;全部终态即停。 */
+  edgeJoinStatus: 10_000,
   /** Token 消耗聚合读:数据在派工流里,runtime_metrics 增长不推进台账 cut,自持低频轮询。 */
   tokenUsage: 10_000,
   /** agenda 未读完游标的续读节奏(读完即停,不是周期轮询)。 */
