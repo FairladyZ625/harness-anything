@@ -59,8 +59,8 @@
 | 报告缺失或为空 | 是否正常结束、报告落点、报告写权限 | 保留已有产物并报告未完成，不能只把运行成功当作交付 |
 | 评审显示批准 | 实际执行与评审身份、被评内容版本、所需同意 | 核实独立性；缺失则走支持的复核路径，不修改身份冒充独立 |
 | `ha task push` 报 `delivery_publish_failed` | 分支名是否等于任务标识、git 常规身份、CAS 远端切点、网络 | 按回执 detail 点名的原因在本地修正后重试 `ha task push`；不绕过 git 包装器直推 |
-| `ha task pr` / `ha task ci` 报 `runtime_credential_unavailable` | 派工实例是否已绑定对应 provider 的托管凭据、原生凭据库是否可解析 | 由操作者配置（`ha runtime instance hosting-credential set <instance-id> --provider <github|gitlab> --ref <ref>`，见 docs-release/hosted-credentials.md）；worker 把 CI 标为 unverified 并上报 |
-| `ha task push/pr/ci` 报 `unsupported_command` | 该机器 CLI 与 daemon 版本是否早于这些命令 | 升级后重试；升级前在 closeout 把 CI 记为 unverified 并附报错原文 |
+| `ha task push` / `ha task pr` 报 `runtime_credential_unavailable` | 派工实例是否已绑定对应 provider 的托管凭据、原生凭据库是否可解析 | 由操作者配置（`ha runtime instance hosting-credential set <instance-id> --provider <github|gitlab> --ref <ref>`，见 docs-release/hosted-credentials.md）；发布受阻如实上报。CI 结果看托管平台的 PR 检查，不在台账复制一份另行裁决 |
+| `ha task push/pr` 报 `unsupported_command` | 该机器 CLI 与 daemon 版本是否早于这些命令 | 升级后重试；升级前在 closeout 记录受阻原文。CI 是否可合入由托管平台在 PR 检查与合并时裁决，不再读取另一份台账判定 |
 
 守护进程重启或主干更新是否影响执行，依据当前运行时契约与现场核实。支持独立执行和重新收养的运行时不能沿用“一重启就杀掉所有执行”的禁令；也不能假设所有宿主都具有收养能力。涉及共享服务的动作仍需真实归属与授权。
 
