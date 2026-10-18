@@ -6,7 +6,7 @@ import {
   parseDaemonGuiReadResponse,
   parseDaemonGuiReadResult,
 } from "@harness-anything/daemon/client";
-import { daemonIdFromEnv, daemonUserRoot, resolveLocalDaemonEndpoint } from "@harness-anything/daemon/client";
+import { guiDaemonReadOnly, guiGlobalDaemonTarget } from "./gui-daemon-target.ts";
 import { validateProjectPath } from "../api/local-api.ts";
 import { createGuiServiceBridgeForDaemon, type GuiServiceBridge, type ShippedGuiRoute } from "../api/service-bridge.ts";
 import { streamDaemonFacetAt } from "./agent-runtime-stream-client.ts";
@@ -66,6 +66,7 @@ export function createLocalGuiServiceBridge(rootDir: string): GuiServiceBridge {
   );
 }
 export async function bootstrapLocalRepository(input: FirstRunBootstrapInput): Promise<JsonObject> {
+  if (guiDaemonReadOnly()) return readOnlyFailure("daemon.repo.bootstrap");
   const target = globalTarget();
   try {
     const daemon = await loadClient();
@@ -93,6 +94,12 @@ async function request(rootDir: string, route: ShippedGuiRoute, payload: unknown
           "repoId" in payload)
           ? repoPayload(payload)
           : null;
+    if (guiDaemonReadOnly() && route.commandClass !== "repo-read")
+      return failure(
+        route.rpcMethod,
+        "GUI read-only daemon attachment rejects write operations",
+        Object.assign(new Error("gui_read_only"), { code: "gui_read_only" }),
+      );
     const target = scoped ? repoTarget(daemon, rootDir, scoped.repoId) : globalTarget();
     const daemonPayload = scoped?.payload ?? ((payload ?? {}) as JsonObject);
     const body: JsonObject = route.inputSchemaId === "gui.empty/v1" ? {} : { payload: daemonPayload },
@@ -220,9 +227,7 @@ function repoPayload(value: unknown): { readonly repoId: string; readonly payloa
   return { repoId, payload };
 }
 function globalTarget() {
-  const userRoot = daemonUserRoot(),
-    daemonId = daemonIdFromEnv();
-  return { socketPath: resolveLocalDaemonEndpoint({ userRoot, daemonId }), userRoot, daemonId };
+  return guiGlobalDaemonTarget();
 }
 
 /** repo 作用域 target:local 仓走严格判定,启用中的 remote-proxy 仓回退全局 socket(见 repo-scoped-target.ts)。 */
@@ -241,6 +246,7 @@ function repoTarget(
 
 /** Settings → 仓库与连接 的 admin 通道:同一 one-shot 客户端直达本机 daemon 的 admin RPC。 */
 export async function requestDaemonAdminRpc(method: string, params: JsonObject): Promise<JsonObject> {
+  if (guiDaemonReadOnly() && method !== "daemon.connection.probe") return readOnlyFailure(method);
   return daemonRpc(globalTarget(), method, params);
 }
 
@@ -251,6 +257,7 @@ export async function requestRepoScopedRpc(
   method: string,
   params: JsonObject,
 ): Promise<JsonObject> {
+  if (guiDaemonReadOnly() && method !== "repo.tasks.document.read") return readOnlyFailure(method);
   const daemon = await loadClient();
   return daemonRpc(repoTarget(daemon, rootDir, repoId), method, params);
 }
@@ -276,4 +283,13 @@ async function daemonRpc(
 async function loadClient(): Promise<DaemonClient> {
   client ??= import("@harness-anything/daemon/client") as Promise<DaemonClient>;
   return client;
+}
+
+function readOnlyFailure(method: string): JsonObject {
+  const receipt = daemonProtocolError(
+    method,
+    "gui_read_only",
+    "GUI read-only daemon attachment rejects write operations.",
+  );
+  return receipt as unknown as JsonObject;
 }

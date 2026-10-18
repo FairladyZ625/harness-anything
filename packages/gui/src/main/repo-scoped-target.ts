@@ -1,5 +1,5 @@
 import { readDaemonRegistry, type DaemonRegistry } from "@harness-anything/kernel";
-import { daemonUserRoot } from "@harness-anything/daemon/client";
+import { guiDaemonUserRoot } from "./gui-daemon-target.ts";
 
 /**
  * PLT-EdgeGUI-W3:repo 作用域请求的 daemon target 解析。
@@ -50,5 +50,5 @@ export function resolveRepoScopedTarget(
 
 /** electron-main 用的缺省装配:registry 读 kernel 的唯一事实源,userRoot 来自环境。 */
 export function defaultRegistryReader(): DaemonRegistry {
-  return readDaemonRegistry({ userRoot: daemonUserRoot() });
+  return readDaemonRegistry({ userRoot: guiDaemonUserRoot() });
 }
