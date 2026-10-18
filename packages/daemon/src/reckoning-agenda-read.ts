@@ -145,6 +145,7 @@ function parseReport(reportText: string | null): ReckoningReport | null {
   let match: RegExpExecArray | null = null;
   for (const candidate of reportText.matchAll(FENCE)) match = candidate;
   if (match === null) return null;
+  // Keep malformed report payloads on the shared evidence fallback boundary.
   const value = decodeEvidencePayload(match[1]!);
   if (!isRecord(value) || value.schema !== "harness-reckoning/v1" || !Array.isArray(value.windows)) return null;
   const windows: ReckoningWindow[] = [];
