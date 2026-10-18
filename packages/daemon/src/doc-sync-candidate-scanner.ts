@@ -235,8 +235,16 @@ export function scanDocCandidates(input: {
       // A route-owned document is a pure projection of its owning event route: local bytes are
       // never an input to this channel (the Git-less edge already drops them), so drift is
       // repaired by rebuilding the worktree copy from the canonical projection instead of
-      // blocking every doc command until a human restores the file by hand.
-      if (safe && projected.document !== null && projected.watermark === projected.sourceRevision) {
+      // blocking every doc command until a human restores the file by hand. harness.yaml is the
+      // exception: it is the authored settings declaration surface — settings-update parses its
+      // worktree bytes (--gates-from-document) and absorbs equal-value drift — so this channel
+      // keeps reporting that drift to the workspace-config route instead of discarding it.
+      if (
+        safe &&
+        route.requiredRoute !== "workspace-config" &&
+        projected.document !== null &&
+        projected.watermark === projected.sourceRevision
+      ) {
         const rebuilt = Buffer.from(projected.document.body, "utf8");
         mkdirSync(path.dirname(target), { recursive: true });
         writeFileSync(target, rebuilt);
