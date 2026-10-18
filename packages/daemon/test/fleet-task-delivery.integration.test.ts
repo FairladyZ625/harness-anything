@@ -109,6 +109,10 @@ for (const explicit of [false, true])
         JSON.stringify({ schema: "fleet-edge-config/v1", ...config }),
       );
       fixture.owners.signIn(edgeUser, "node-one");
+      // The delivery daemon claims node-one's replication slot when it attaches; the fixture's own
+      // resident stream must stop first, or the two keep fencing each other for the slot and every
+      // replica-dependent wait below races a stream that is repeatedly reset mid-batch.
+      await fixture.stopResidentSync("node-one");
       const oidc = new OidcSessionService(edgeUser, { fetch: fixture.owners.keycloak.fetch });
       const edge = await openDaemonHost({
         daemonId: "delivery-edge",
