@@ -341,6 +341,11 @@ test(
       { kind: "task-review-consent", taskId, executionId, reviewId },
       await new OidcSessionService(fixture.userRoot).bind({ transportKind: "unix-socket" }),
     );
+    git(fixture.repo, "update-ref", "refs/remotes/origin/main", delivery);
+    await applied(
+      { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${delivery}` },
+      localAuthFixture(),
+    );
     assert.deepEqual(await fromNode("complete-after-consent", { kind: "task-complete" }), {
       outcome: "applied",
       code: null,
