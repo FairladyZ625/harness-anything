@@ -54,8 +54,9 @@ describe("desktop first-run guide", () => {
 
   it("refetches the report when the main process finishes its background setup", async () => {
     const status = vi.fn();
-    status.mockResolvedValueOnce({ shim: { installed: false, preservedExistingHa: false, path: "/ha" } });
-    status.mockResolvedValueOnce({ shim: { installed: true, preservedExistingHa: false, path: "/ha" } });
+    const node = { available: true, version: "v24.0.0", path: "/bundle/node" };
+    status.mockResolvedValueOnce({ node, shim: { installed: false, preservedExistingHa: false, path: "/ha" } });
+    status.mockResolvedValueOnce({ node, shim: { installed: true, preservedExistingHa: false, path: "/ha" } });
     let push: (() => void) | undefined;
     installBridge({
       desktopStatus: () => status(),
@@ -71,6 +72,64 @@ describe("desktop first-run guide", () => {
     });
     expect(status).toHaveBeenCalledTimes(2);
     expect(guide.textContent).toContain("App CLI shim");
+  });
+
+  it("renders nothing when the embedded runtime is missing (ha gui source launch)", async () => {
+    // ha gui 的 npm/源码通道没有内嵌 Node;首启引导是打包 App 的安装面,这一通道整屏不弹。
+    installBridge({
+      desktopStatus: async () => ({
+        node: { available: false, version: null, path: "/electron/Resources/node/darwin-arm64/node" },
+        path: { includesShim: false, shellRc: "/home/u/.zshrc" },
+        daemon: { reachable: true, serviceInstalled: false },
+        shim: { installed: false, preservedExistingHa: false, path: "/home/u/bin/ha" },
+      }),
+    });
+    const guide = await mount(createElement(DesktopFirstRunGuide));
+    expect(guide.textContent).toBe("");
+  });
+
+  it("claims the desktop is ready only when every check passes", async () => {
+    installBridge({
+      desktopStatus: async () => ({
+        node: { available: true, version: "v24.0.0", path: "/bundle/node" },
+        path: { includesShim: true, shellRc: "/home/u/.zshrc" },
+        daemon: { reachable: true, serviceInstalled: true },
+        shim: { installed: true, preservedExistingHa: false, path: "/home/u/bin/ha" },
+      }),
+    });
+    const guide = await mount(createElement(DesktopFirstRunGuide));
+    expect(guide.querySelector("h1")?.textContent).toBe("电脑已准备好使用 Harness Anything");
+  });
+
+  it("does not claim readiness when a check failed, and a reachable daemon is not a failure", async () => {
+    installBridge({
+      desktopStatus: async () => ({
+        node: { available: true, version: "v24.0.0", path: "/bundle/node" },
+        path: { includesShim: false, shellRc: "/home/u/.zshrc" },
+        daemon: { reachable: true, serviceInstalled: false },
+        shim: { installed: false, preservedExistingHa: false, path: "/home/u/bin/ha" },
+      }),
+    });
+    const guide = await mount(createElement(DesktopFirstRunGuide));
+    expect(guide.querySelector("h1")?.textContent).not.toContain("已准备好");
+    expect(guide.textContent).toContain("✓ 后台服务");
+    expect(guide.textContent).toContain("daemon 正在运行");
+  });
+
+  it("explains an existing command-line ha as preserved instead of warning about it", async () => {
+    installBridge({
+      desktopStatus: async () => ({
+        node: { available: true, version: "v24.0.0", path: "/bundle/node" },
+        path: { includesShim: true, shellRc: "/home/u/.zshrc" },
+        daemon: { reachable: true, serviceInstalled: true },
+        shim: { installed: true, preservedExistingHa: true, path: "/home/u/bin/ha" },
+        npmHa: "/Users/u/.local/bin/ha",
+      }),
+    });
+    const guide = await mount(createElement(DesktopFirstRunGuide));
+    expect(guide.textContent).toContain("/Users/u/.local/bin/ha");
+    expect(guide.textContent).toContain("无需处理");
+    expect(guide.textContent).not.toContain("检测到另一份 ha");
   });
 });
 
