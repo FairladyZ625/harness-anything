@@ -148,6 +148,9 @@ export function canonicalGateReceipts(
       .map(({ gateId }) => gateId),
   );
   return completionGateIds(snapshot.task?.completionGateIds ?? [], current.submission).flatMap((gateId) => {
+    const requirement = current.submission?.completionContract.gates.find((candidate) => candidate.gateId === gateId);
+    // Retired CI is explained by merge evidence at read time; it has no ledger receipt to reference.
+    if (isRetiredCiRequirement(gateId, requirement)) return [];
     if (!passed.has(gateId)) return [];
     const codeDoc =
       gateId === "code-doc-reconciliation"

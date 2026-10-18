@@ -18,6 +18,7 @@ import {
 import { lifecycleFixture, implementer, twoRoundLifecycleEvents } from "../store/task-lifecycle-fixture.ts";
 import { completionEvidenceBasis } from "../../src/domain/completion-evidence.ts";
 import { closeoutReadiness } from "../../src/domain/closeout-readiness.ts";
+import { canonicalGateReceipts } from "../../src/domain/task-lifecycle-contract-support.ts";
 import { validateTaskGraph } from "../../src/domain/task-graph.ts";
 import {
   applyTransition,
@@ -40,6 +41,59 @@ const metadata = {
   surfaces: [] as readonly string[],
   fromLegacyId: null,
 };
+
+test("retired CI is omitted from completion receipt cuts even when an old receipt exists", () => {
+  const gates = [
+      {
+        gateId: "ci",
+        appliesTo: "code" as const,
+        witness: {
+          kind: "github-actions" as const,
+          predicateType: "ci/v1",
+          resultSchema: { type: "object" },
+          adapterId: "github-actions" as const,
+          adapterOptions: {
+            workflows: ["rewrite-ci"],
+            branch: "main",
+            event: "push",
+            coverage: "exact" as const,
+            selection: "newest" as const,
+          },
+        },
+      },
+    ],
+    fixture = lifecycleFixture({ gates, complete: false }),
+    current = fixture.snapshot.executions[0]!;
+  const snapshot: TaskLifecycleSnapshot = {
+    ...fixture.snapshot,
+    gateWitnesses: [
+      {
+        schema: "completion-gate-witness/v1",
+        witnessId: "old-ci-witness",
+        receiptId: "old-ci-receipt",
+        checkerId: "github-actions",
+        gateId: "ci",
+        result: "pass",
+        taskId: current.taskId,
+        executionId: current.executionId,
+        commitSha: current.submission!.commitSha,
+        iteration: current.iteration,
+        actor: implementer,
+        source: "local",
+        verifiedAt: "2026-08-11T00:04:30.000Z",
+      } as TaskLifecycleSnapshot["gateWitnesses"][number],
+    ],
+  };
+  assert.deepEqual(
+    canonicalGateReceipts(snapshot, current, {
+      required: true,
+      merged: true,
+      targetBranch: "main",
+      platform: "github",
+    }),
+    [],
+  );
+});
 
 function executionReceipt(gateIds: readonly ("ci" | "code-doc-reconciliation")[]): string {
   const gates = gateIds.map((gateId) =>
