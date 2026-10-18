@@ -253,7 +253,8 @@ function AppShell() {
   const activeRepo = systemQuery.data?.repos.find((repo) => repo.repoId === activeRepoId);
   // 窗口标题「项目名 — Harness Anything」:Dock/任务栏/⌘` 切窗口可辨认。
   useProjectWindowTitle(activeRepo?.displayName ?? null);
-  // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂载时读。
+  // 协作页舰队拓扑(task_8ce646d94):repo.fleet.overview.read 一条 typed read,挂统一
+  // 节奏常量自持轮询(见 collaboration-data.ts:半数事实是 daemon 级状态,cut 覆盖不到)。
   const fleetOverview = useFleetOverview(activeRepoId, view === "collaboration");
   const project = adaptRepoProject(
     projectId,
