@@ -10,11 +10,7 @@ import {
   validateRelationEvent,
   type RelationEventV1,
 } from "../../src/domain/relation-event.ts";
-import {
-  parseCanonicalEvent,
-  serializeCanonicalEvent,
-  serializePersistedCanonicalEvent,
-} from "../../src/domain/doc-sync.contract.ts";
+import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { validateCurrentCanonicalEvent } from "../../src/domain/doc-sync-canonical-events.ts";
 
 const oldRef = "software/coding/external-issue@1/ISSUE-0123456789abcdef";

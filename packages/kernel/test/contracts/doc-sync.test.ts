@@ -14,7 +14,6 @@ import docSyncContract, {
   parseCanonicalEvent,
   parseDocWriteIntent,
   resolveDocRoute,
-  serializeCanonicalEvent,
   serializePersistedCanonicalEvent,
   serializeDocEvent,
   serializeDocWriteIntent,
