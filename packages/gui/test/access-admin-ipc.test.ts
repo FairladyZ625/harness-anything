@@ -36,7 +36,7 @@ function fixture() {
             joinId: "invite-1",
             state: "pending",
             link: {
-              version: 1,
+              version: 2,
               centerUrl: "https://center.test",
               inviteId: "invite-1",
               personId: "person-gui",
@@ -219,7 +219,7 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
 
 test("edge-join-create hands the renderer the encoded link once, never the token struct", async () => {
   const daemonLink = {
-    version: 1,
+    version: 2,
     centerUrl: "https://center.test",
     inviteId: "invite-9",
     personId: "person-gui",
