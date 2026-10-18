@@ -47,7 +47,9 @@ export function DesktopFirstRunGuide() {
       unsubscribe?.();
     };
   }, [bridge, dismissed]);
-  if (!bridge || dismissed || status === null) return null;
+  // 首启引导是打包 App 的安装面:ha gui/源码启动没有内嵌 runtime(dec_799A4C48FE22F5EF58F3B7C166 CH7,
+  // npm 与 App 两通道共存),主进程报告里 node.available=false,这里整屏不弹。
+  if (!bridge || dismissed || status === null || status.node?.available !== true) return null;
   const setup = async () => {
     setRunning(true);
     try {
@@ -75,10 +77,11 @@ export function DesktopFirstRunGuide() {
     ],
     [
       "后台服务",
-      status.daemon?.serviceInstalled === true && status.daemon.reachable === true,
-      status.daemon?.reachable ? "daemon 正在运行" : "已安装，等待启动",
+      status.daemon?.reachable === true,
+      status.daemon?.reachable ? "daemon 正在运行" : status.daemon?.serviceInstalled ? "已安装，等待启动" : "未安装",
     ],
   ] as const;
+  const allPassed = rows.every(([, ok]) => ok);
   const failures = status.setupFailures ?? [];
   return (
     <div
@@ -89,7 +92,9 @@ export function DesktopFirstRunGuide() {
     >
       <section className="w-full max-w-xl rounded-2xl border border-accent/40 bg-surface-raised p-7 shadow-2xl">
         <p className="font-mono text-xs uppercase tracking-[0.2em] text-accent">首次启动 · App 设置</p>
-        <h1 className="mt-2 text-2xl font-semibold">电脑已准备好使用 Harness Anything</h1>
+        <h1 className="mt-2 text-2xl font-semibold">
+          {allPassed ? "电脑已准备好使用 Harness Anything" : "App 设置还未全部完成"}
+        </h1>
         <p className="mt-2 text-sm leading-6 text-text-muted">
           我们检查了内嵌运行环境、终端命令和后台服务。已有 npm 版 ha 不会被覆盖。
         </p>
@@ -122,7 +127,11 @@ export function DesktopFirstRunGuide() {
             ))}
           </div>
         ) : null}
-        {status.npmHa ? <p className="mt-4 text-xs text-text-muted">检测到另一份 ha：{status.npmHa}</p> : null}
+        {status.npmHa ? (
+          <p className="mt-4 text-xs text-text-muted">
+            检测到已有一份命令行安装的 ha（{status.npmHa}）；App 不会改动它，可继续照常使用，无需处理。
+          </p>
+        ) : null}
         <p className="mt-4 text-xs text-text-muted">如果刚刚修改了 PATH，请关闭并重新打开终端。</p>
         <div className="mt-6 flex justify-end gap-2">
           <button type="button" className="rounded-md border border-border-subtle px-4 py-2 text-sm" onClick={finish}>
