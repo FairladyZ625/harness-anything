@@ -504,6 +504,67 @@ test("a diagnostics-invalid run is isolated and does not block the next valid ru
   });
 });
 
+test("a malformed GitLab pipeline response is isolated from other pipelines", async () => {
+  await withTempStoreAsync(async (rootDir) => {
+    execFileSync("git", ["init", "-q", rootDir]);
+    execFileSync("git", ["-C", rootDir, "remote", "add", "origin", "https://gitlab.com/group/project.git"]);
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async (input) => {
+      const url = String(input);
+      if (url.includes("/pipelines?"))
+        return new Response(
+          JSON.stringify([
+            { id: 1, status: "success", ref: "main", sha, created_at: now },
+            { id: 2, status: "success", ref: "main", sha, created_at: now },
+            { id: 3, ref: "main", sha, created_at: now },
+          ]),
+        );
+      if (url.includes("/pipelines/1/jobs")) return new Response("not-json");
+      if (url.includes("/pipelines/2/jobs")) return new Response(JSON.stringify([]));
+      throw new Error(`unexpected GitLab request ${url}`);
+    };
+    try {
+      const fetched = await fetchCiObservations(
+        {
+          rootDir,
+          settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
+          input: { prepareDaemonGitEnvironment: async () => ({ GITLAB_TOKEN: "test-token" }) },
+          cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+        } as never,
+        { kind: "ci-observe-pull", limit: 3, instanceId: "test-instance" },
+      );
+      assert.deepEqual(fetched.unavailable?.map(({ runId }) => runId).sort(), [1, 3]);
+      assert.match(
+        fetched.unavailable?.find(({ runId }) => runId === 1)?.reason ?? "",
+        /^CI run import rejected: .*JSON/u,
+      );
+      assert.match(
+        fetched.unavailable?.find(({ runId }) => runId === 3)?.reason ?? "",
+        /GitLab pipeline fields id, status, ref, and sha/u,
+      );
+      assert.deepEqual(
+        fetched.runs.map((run) => run.databaseId),
+        [2],
+      );
+      globalThis.fetch = async () => new Response("unauthorized", { status: 401 });
+      await assert.rejects(
+        fetchCiObservations(
+          {
+            rootDir,
+            settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
+            input: { prepareDaemonGitEnvironment: async () => ({ GITLAB_TOKEN: "test-token" }) },
+            cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+          } as never,
+          { kind: "ci-observe-pull", limit: 2, instanceId: "test-instance" },
+        ),
+        { code: "task_ci_read_failed" },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
 test("late and expired artifacts retain the workflow witness and a durable diagnostic target", async () => {
   await fixture(async ({ run, state, store, current }) => {
     state.runs = 1;

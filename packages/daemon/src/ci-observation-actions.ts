@@ -459,22 +459,7 @@ export async function fetchCiObservations(
         }
       }),
     );
-    const unavailable: CiRunUnavailable[] = [];
-    for (const result of fetchResults) {
-      if (!("failure" in result)) continue;
-      const detail = result.failure instanceof SyntaxError ? result.failure.message : String(result.failure);
-      if (
-        result.failure instanceof SyntaxError ||
-        (result.failure &&
-          typeof result.failure === "object" &&
-          "code" in result.failure &&
-          result.failure.code === "invalid_result")
-      ) {
-        unavailable.push({ runId: result.runId, attempt: result.attempt, reason: `CI run import rejected: ${detail}` });
-        continue;
-      }
-      throw result.failure;
-    }
+    const unavailable = unavailableCiRunFailures(fetchResults);
     const fetched = fetchResults.flatMap((result) =>
       "fetched" in result && result.fetched !== null ? [result.fetched] : [],
     );
@@ -551,84 +536,122 @@ async function fetchGitLabCiObservations(
     .filter((pipeline) => !witness || (pipeline.source ?? "push") === witness.options.event)
     .sort((a, b) => b.id - a.id)
     .slice(0, witness ? 1 : limit);
-  const runs = await Promise.all(
-    selected.map(async (pipeline): Promise<FetchedCiRun> => {
-      const jobs = await request<readonly { id: number; name: string; status: string; web_url?: string }[]>(
-        `/pipelines/${pipeline.id}/jobs?per_page=100`,
-      );
-      const preparedJobs: PreparedCiJob[] = await Promise.all(
-        jobs.map(async (job) => {
-          const trace =
-            job.status === "failed"
-              ? (await request<string>(`/jobs/${job.id}/trace`)).replaceAll(token, "[REDACTED]")
-              : "";
-          const detail = trace ? ciFailureDetail(scrubCiProviderLog(trace, [token])) : ciFailureDetail("");
-          const body = JSON.stringify(detail),
-            sha256 = createHash("sha256").update(body).digest("hex");
-          const artifact: CiRunArtifact = {
-            schema: "ci-run-artifact/v2",
-            run: {
-              runId: String(pipeline.id),
-              sha: pipeline.sha,
-              branch: pipeline.ref,
-              prNumber: null,
-              job: job.name,
-              wallclockMs: 0,
-              runner: "gitlab-pipeline",
+  const outcomes = await Promise.all(
+    selected.map(async (pipeline): Promise<FetchedCiRunOutcome> => {
+      try {
+        if (
+          !Number.isSafeInteger(pipeline.id) ||
+          typeof pipeline.status !== "string" ||
+          typeof pipeline.ref !== "string" ||
+          typeof pipeline.sha !== "string"
+        )
+          throw cell.cellCodedError("invalid_result", "GitLab pipeline fields id, status, ref, and sha are required.");
+        const jobs = await request<readonly { id: number; name: string; status: string; web_url?: string }[]>(
+          `/pipelines/${pipeline.id}/jobs?per_page=100`,
+        );
+        if (
+          !Array.isArray(jobs) ||
+          jobs.some(
+            (job) => !Number.isSafeInteger(job.id) || typeof job.name !== "string" || typeof job.status !== "string",
+          )
+        )
+          throw cell.cellCodedError(
+            "invalid_result",
+            `GitLab pipeline ${pipeline.id} jobs must include id, name, and status.`,
+          );
+        const preparedJobs: PreparedCiJob[] = await Promise.all(
+          jobs.map(async (job) => {
+            const trace =
+              job.status === "failed"
+                ? (await request<string>(`/jobs/${job.id}/trace`)).replaceAll(token, "[REDACTED]")
+                : "";
+            const detail = trace ? ciFailureDetail(scrubCiProviderLog(trace, [token])) : ciFailureDetail("");
+            const body = JSON.stringify(detail),
+              sha256 = createHash("sha256").update(body).digest("hex");
+            const artifact: CiRunArtifact = {
+              schema: "ci-run-artifact/v2",
+              run: {
+                runId: String(pipeline.id),
+                sha: pipeline.sha,
+                branch: pipeline.ref,
+                prNumber: null,
+                job: job.name,
+                wallclockMs: 0,
+                runner: "gitlab-pipeline",
+              },
+              producer: {
+                repositoryId: `${hosting.host}/${hosting.projectPath}`,
+                workflow: ".gitlab-ci.yml",
+                databaseRunId: String(pipeline.id),
+                runAttempt: pipeline.id,
+                jobKey: String(job.id),
+                jobName: job.name,
+              },
+              detail,
+              gates: [],
+              measurementCoverage: {
+                status: detail.tests.length ? "partial" : "unknown",
+                missingReason: trace ? "derived from bounded provider log" : null,
+                startedFileCount: null,
+                completedFileCount: null,
+              },
+            };
+            return {
+              artifact,
+              jobExecutionId: String(job.id),
+              body,
+              sha256,
+              measurement: ciDetailMeasurement(detail),
+            };
+          }),
+        );
+        return {
+          fetched: {
+            databaseId: pipeline.id,
+            summary: {
+              workflowName: ".gitlab-ci.yml",
+              headSha: pipeline.sha,
+              headBranch: pipeline.ref,
+              status: pipeline.status === "success" || pipeline.status === "failed" ? "completed" : pipeline.status,
+              conclusion:
+                pipeline.status === "success" ? "success" : pipeline.status === "failed" ? "failure" : pipeline.status,
+              attempt: 1,
+              event: pipeline.source ?? "push",
             },
-            producer: {
-              repositoryId: `${hosting.host}/${hosting.projectPath}`,
-              workflow: ".gitlab-ci.yml",
-              databaseRunId: String(pipeline.id),
-              runAttempt: pipeline.id,
-              jobKey: String(job.id),
-              jobName: job.name,
-            },
-            detail,
-            gates: [],
-            measurementCoverage: {
-              status: detail.tests.length ? "partial" : "unknown",
-              missingReason: trace ? "derived from bounded provider log" : null,
-              startedFileCount: null,
-              completedFileCount: null,
-            },
-          };
-          return {
-            artifact,
-            jobExecutionId: String(job.id),
-            body,
-            sha256,
-            measurement: ciDetailMeasurement(detail),
-          };
-        }),
-      );
-      return {
-        databaseId: pipeline.id,
-        summary: {
-          workflowName: ".gitlab-ci.yml",
-          headSha: pipeline.sha,
-          headBranch: pipeline.ref,
-          status: pipeline.status === "success" || pipeline.status === "failed" ? "completed" : pipeline.status,
-          conclusion:
-            pipeline.status === "success" ? "success" : pipeline.status === "failed" ? "failure" : pipeline.status,
-          attempt: 1,
-          event: pipeline.source ?? "push",
-        },
-        repositoryId: `${hosting.host}/${hosting.projectPath}`,
-        workflowPath: ".gitlab-ci.yml",
-        workflowId: null,
-        jobs: preparedJobs,
-        provider: "gitlab-pipeline",
-      };
+            repositoryId: `${hosting.host}/${hosting.projectPath}`,
+            workflowPath: ".gitlab-ci.yml",
+            workflowId: null,
+            jobs: preparedJobs,
+            provider: "gitlab-pipeline",
+          },
+        };
+      } catch (failure) {
+        return { failure, runId: pipeline.id, attempt: 1 };
+      }
     }),
   );
+  const unavailable = unavailableCiRunFailures(outcomes);
+  const runs = outcomes.flatMap((outcome) => ("fetched" in outcome && outcome.fetched ? [outcome.fetched] : []));
   return {
     requestedRuns: namedRuns?.length ?? limit,
     runs,
+    ...(unavailable.length ? { unavailable } : {}),
     ...(witness && selected[0]
       ? { witness: { taskId: witness.taskId, delivery: witness.delivery, databaseId: selected[0].id } }
       : {}),
   };
+}
+
+function isInvalidCiRunResult(error: unknown): boolean {
+  return !!error && typeof error === "object" && "code" in error && error.code === "invalid_result";
+}
+function unavailableCiRunFailures(outcomes: readonly FetchedCiRunOutcome[]): CiRunUnavailable[] {
+  return outcomes.flatMap((outcome) => {
+    if (!("failure" in outcome)) return [];
+    if (!(outcome.failure instanceof SyntaxError) && !isInvalidCiRunResult(outcome.failure)) throw outcome.failure;
+    const detail = outcome.failure instanceof SyntaxError ? outcome.failure.message : String(outcome.failure);
+    return [{ runId: outcome.runId, attempt: outcome.attempt, reason: `CI run import rejected: ${detail}` }];
+  });
 }
 export function ingestCiObservations(
   cell: RepoCellActionContext,
