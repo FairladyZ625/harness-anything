@@ -173,4 +173,4 @@ jobs:
           export RSYNC_RSH="ssh -i $HOME/.ssh/update-feed -o StrictHostKeyChecking=accept-new"
           target="$UPDATE_SSH_USER@tencent-lighthouse-prod:/srv/harness-update/$CHANNEL/"
           rsync -av --exclude='latest*.yml' dist/release/ "$target"
-          rsync -av dist/release/*/latest*.yml "$target"
+          rsync -av dist/release/latest*.yml "$target"
