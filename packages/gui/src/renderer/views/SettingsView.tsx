@@ -1,7 +1,7 @@
 import { Toggle } from "../components/primitives/Toggle.tsx";
 import { SegCtl } from "../components/primitives/SegCtl.tsx";
 import { Button } from "../components/primitives/Button.tsx";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTheme, type ThemeMode, type UiScale } from "../theme";
 import { useMotionPreference, type MotionPreference } from "../motion-config.tsx";
 import { t, useI18n, type MessageKey } from "../i18n/index.tsx";
@@ -23,6 +23,8 @@ import { useSettingsMutation } from "../settings-data.ts";
 import type { SystemRepoRow } from "../api-client.ts";
 import { RepositoriesAndConnectionsView } from "./settings/RepositoriesAndConnectionsView.tsx";
 import { RepositorySettingsPanel } from "./settings/RepositorySettingsPanel.tsx";
+import { guiHostBridge } from "../gui-transport.ts";
+import type { UpdateState } from "../../api/update-contract.ts";
 
 // i18n(task_bff1b8d6):设置页文案一律走 locales(同 task_9f39e256 的 tab 机制),
 // 模块级清单只留 id/key,文案键(labelKey/descKey)在渲染期经 t() 取。
@@ -64,7 +66,8 @@ type SettingsTab =
   | "shortcuts"
   | "notifications"
   | "data"
-  | "privacy";
+  | "privacy"
+  | "updates";
 const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKey }[] = [
   {
     id: "repositories",
@@ -87,6 +90,7 @@ const SETTINGS_TABS: { id: SettingsTab; labelKey: MessageKey; descKey: MessageKe
   },
   { id: "data", labelKey: "views.settingsView.tabData", descKey: "views.settingsView.tabDataDesc" },
   { id: "privacy", labelKey: "views.settingsView.tabPrivacy", descKey: "views.settingsView.tabPrivacyDesc" },
+  { id: "updates", labelKey: "views.settingsView.tabUpdates", descKey: "views.settingsView.tabUpdatesDesc" },
 ];
 
 export function SettingsView({
@@ -104,6 +108,13 @@ export function SettingsView({
   const { locale, setLocale } = useI18n();
   const [activeTab, setActiveTab] = useState<SettingsTab>(repoId === null ? "repositories" : "repository");
   const [notifyOnReady, setNotifyOnReady] = useState(true);
+  const updates = guiHostBridge()?.updates;
+  const [updateState, setUpdateState] = useState<UpdateState>({ state: "idle" });
+  useEffect(() => {
+    if (!updates) return;
+    void updates.status().then(setUpdateState);
+    return updates.onStatus(setUpdateState);
+  }, [updates]);
   const [timePrefs, setTimePrefs] = useState<TimeDisplayPrefs>(() => readTimeDisplayPrefs());
   const updateTimePrefs = (partial: Partial<TimeDisplayPrefs>) => {
     const next = { ...timePrefs, ...partial };
@@ -332,6 +343,31 @@ export function SettingsView({
           <Section variant="panel" title={t("views.settingsView.sectionPrivacy")}>
             <Row label={t("views.settingsView.telemetryLabel")} desc={t("views.settingsView.telemetryDescription")}>
               <Toggle label={t("views.settingsView.telemetryLabel")} checked={false} disabled />
+            </Row>
+          </Section>
+        );
+      case "updates":
+        return (
+          <Section variant="panel" title={t("views.settingsView.sectionUpdates")}>
+            <Row
+              label={t("views.settingsView.updateStatusLabel")}
+              desc={t("views.settingsView.updateStatusDescription")}
+            >
+              <div className="flex items-center gap-2">
+                <span className="ui-meta text-text-muted">
+                  {updateState.state === "available" || updateState.state === "downloaded"
+                    ? updateState.version
+                    : updateState.state}
+                </span>
+                <Button onClick={() => void updates?.check()} disabled={!updates || updateState.state === "checking"}>
+                  {t("views.settingsView.checkUpdates")}
+                </Button>
+                {updateState.state === "downloaded" ? (
+                  <Button variant="primary" onClick={() => void updates?.install()}>
+                    {t("views.settingsView.installUpdate")}
+                  </Button>
+                ) : null}
+              </div>
             </Row>
           </Section>
         );

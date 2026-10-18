@@ -1861,5 +1861,12 @@
   "views.myAsks.readError": "读取失败：{message}",
   "views.myAsks.loading": "正在读取…",
   "views.myAsks.partDelivered": "「{title}」刚交付",
-  "views.myAsks.partRetired": "已收口，没有进行中的事"
+  "views.myAsks.partRetired": "已收口，没有进行中的事",
+  "views.settingsView.tabUpdates": "更新",
+  "views.settingsView.tabUpdatesDesc": "应用与守护进程更新",
+  "views.settingsView.sectionUpdates": "更新",
+  "views.settingsView.updateStatusLabel": "更新状态",
+  "views.settingsView.updateStatusDescription": "检查签名发布源中的新应用版本。",
+  "views.settingsView.checkUpdates": "检查更新",
+  "views.settingsView.installUpdate": "重启并安装"
 }

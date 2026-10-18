@@ -1861,5 +1861,12 @@
   "views.myAsks.readError": "Read failed: {message}",
   "views.myAsks.loading": "Reading…",
   "views.myAsks.partDelivered": "“{title}” was just delivered",
-  "views.myAsks.partRetired": "closed out; nothing in flight"
+  "views.myAsks.partRetired": "closed out; nothing in flight",
+  "views.settingsView.tabUpdates": "Updates",
+  "views.settingsView.tabUpdatesDesc": "App and daemon updates",
+  "views.settingsView.sectionUpdates": "Updates",
+  "views.settingsView.updateStatusLabel": "Update status",
+  "views.settingsView.updateStatusDescription": "Check the signed release feed for a newer app bundle.",
+  "views.settingsView.checkUpdates": "Check for updates",
+  "views.settingsView.installUpdate": "Restart and install"
 }
