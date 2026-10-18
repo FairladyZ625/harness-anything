@@ -41,16 +41,12 @@ import {
   assembleUnboundPrompt,
   assembleScheduledMission,
   assembleTaskMission,
-  missionAt,
   dispatchMissionForPermission,
   decisionReviewTarget as parseDecisionReviewTarget,
   prepareRuntimeInstance,
   runtimeMissionName,
-  explicitPromptMission,
-  priorOwnerReturnBody,
-  taskPrBodyPath,
+  resolveRuntimeMission,
 } from "./runtime-spawn-mission.ts";
-import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import {
   assertPreparedRuntimeLaunch,
   launchExitNotification,
@@ -307,39 +303,17 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
-    const causalContext =
-        remoteTask === null
-          ? taskId === null
-            ? null
-            : assembleTaskCausalContext({ projection: projection!, taskId })
-          : remoteTask.causalContext,
-      // The profile is frozen at creation: locally from the projection, remotely from the center's
-      // serving read. It gates the Living Deliverable Protocol on every task-bound path.
-      missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
-      // A re-dispatched worker answers the latest owner return, so its mission carries the managed
-      // rework record verbatim — from the center's serving read remotely, from the projection
-      // locally. Reviewers bind to a submitted cut instead, so their missions never carry it.
-      ownerReturnBody =
-        taskId === null || reviewerBinding
-          ? null
-          : remoteTask !== null
-            ? remoteTask.ownerReturnBody
-            : priorOwnerReturnBody(projection!, taskId),
-      taskMission = taskId
-        ? missionAt(input.rootDir, cwd, remoteTask ?? { projection: projection!, taskId, missionName, causalContext })
-        : null,
-      mission =
-        explicitMission === undefined
-          ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
-          : explicitPromptMission(
-              taskId,
-              causalContext,
-              explicitMission,
-              missionProfileId,
-              remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection!, taskId) : null,
-              remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
-              ownerReturnBody,
-            );
+    const { taskMission, mission } = resolveRuntimeMission({
+      rootDir: input.rootDir,
+      cwd,
+      taskId,
+      projection,
+      remoteTask,
+      taskSnapshot,
+      missionName,
+      explicitMission,
+      reviewerBinding: Boolean(reviewerBinding),
+    });
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),

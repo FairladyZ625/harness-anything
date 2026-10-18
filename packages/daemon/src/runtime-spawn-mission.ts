@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AgentRole, TaskProjection } from "@harness-anything/kernel";
+import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
@@ -9,7 +9,12 @@ import { type ResolvedAgentSkill } from "./agent-skills.ts";
 import { resolveContainedPath } from "./contained-path.ts";
 import { assembleTaskCausalContext } from "./dispatch-causal-context.ts";
 import { requiredRuntimeSpawnText, runtimeSpawnError } from "./runtime-spawn-errors.ts";
-import type { RuntimeAgent, RuntimeDaemonRoute, RuntimeSessionSelection } from "./runtime-spawn-types.ts";
+import type {
+  RemoteRuntimePersistence,
+  RuntimeAgent,
+  RuntimeDaemonRoute,
+  RuntimeSessionSelection,
+} from "./runtime-spawn-types.ts";
 import { assertTaskTransitionDocumentReady, locateTaskTransitionDocument } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
@@ -602,4 +607,61 @@ export function assembleScheduledMission(input: {
     "# Assigned Mission",
     input.mission,
   ].join("\n");
+}
+
+/** The mission a dispatch carries: derived from the task package, or an explicit prompt wrapped in the
+ * same task guidance. Remote dispatches read every input from the center's serving cut, local ones from
+ * the projection. */
+export function resolveRuntimeMission(input: {
+  readonly rootDir: string;
+  readonly cwd: string;
+  readonly taskId: string | null;
+  readonly projection: TaskProjection | null;
+  readonly remoteTask: Awaited<ReturnType<RemoteRuntimePersistence["taskContext"]>> | null;
+  readonly taskSnapshot: TaskLifecycleSnapshot | null;
+  readonly missionName: string | undefined;
+  readonly explicitMission: string | undefined;
+  readonly reviewerBinding: boolean;
+}): {
+  readonly taskMission: { readonly mission: string; readonly packageRoot: string } | null;
+  readonly mission: string;
+} {
+  const { rootDir, cwd, taskId, remoteTask, taskSnapshot, missionName, explicitMission } = input,
+    projection = input.projection!,
+    causalContext =
+      remoteTask === null
+        ? taskId === null
+          ? null
+          : assembleTaskCausalContext({ projection, taskId })
+        : remoteTask.causalContext,
+    // The profile is frozen at creation: locally from the projection, remotely from the center's
+    // serving read. It gates the Living Deliverable Protocol on every task-bound path.
+    missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
+    // A re-dispatched worker answers the latest owner return, so its mission carries the managed
+    // rework record verbatim — from the center's serving read remotely, from the projection
+    // locally. Reviewers bind to a submitted cut instead, so their missions never carry it.
+    ownerReturnBody =
+      taskId === null || input.reviewerBinding
+        ? null
+        : remoteTask !== null
+          ? remoteTask.ownerReturnBody
+          : priorOwnerReturnBody(projection, taskId),
+    taskMission = taskId
+      ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext })
+      : null;
+  return {
+    taskMission,
+    mission:
+      explicitMission === undefined
+        ? (taskMission?.mission ?? requiredRuntimeSpawnText(undefined, "prompt"))
+        : explicitPromptMission(
+            taskId,
+            causalContext,
+            explicitMission,
+            missionProfileId,
+            remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection, taskId) : null,
+            remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
+            ownerReturnBody,
+          ),
+  };
 }
