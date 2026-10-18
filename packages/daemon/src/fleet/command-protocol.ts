@@ -45,7 +45,7 @@ export interface FleetRuntimeDispatchContext {
   readonly executionId: string | null;
 }
 type Msg<S extends string, P extends object = object> = S extends string
-  ? Readonly<{ schema: S; messageId: string; accessToken?: string }> & Readonly<P>
+  ? Readonly<{ schema: S; messageId: string; accessToken?: string; humanClientId?: string }> & Readonly<P>
   : never;
 export interface FleetDeviceLoginNotice {
   readonly userCode: string;
@@ -803,11 +803,13 @@ export function parseFleetFrame(input: string | unknown): FleetFrameV1 {
     throw new FleetContractError("Fleet frame is not valid JSON");
   }
   const payload = record(value)
-    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken"))
+    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== "accessToken" && key !== "humanClientId"))
     : value;
   if (
     !record(value) ||
     (value.accessToken !== undefined && !accessToken(value.accessToken)) ||
+    (value.humanClientId !== undefined &&
+      (typeof value.humanClientId !== "string" || value.humanClientId.length === 0)) ||
     typeof value.schema !== "string" ||
     !schemas[value.schema]?.(payload)
   )

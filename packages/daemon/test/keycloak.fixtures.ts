@@ -43,7 +43,7 @@ export function fakeKeycloak() {
     permissions = new Map<string, Permission>(),
     users = new Map<string, { id: string; username: string; attributes: Record<string, string[]> }>(),
     tokens = new Map<string, string>(),
-    interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string }>(),
+    interactiveSessions = new Map<string, { personId: string; nodeId: string; issuer: string; clientId?: string }>(),
     nodeClients = new Map<string, NodeClient>(),
     nodeLogins: { clientId: string; ok: boolean }[] = [],
     profile = { attributes: [{ name: "username" }, { name: "email" }] as { name: string }[] },
@@ -117,7 +117,7 @@ export function fakeKeycloak() {
               active: true,
               exp: Math.floor(Date.now() / 1000) + 3600,
               iss: `${session.issuer}/realms/${keycloakRealm}`,
-              azp: `harness-node-${session.nodeId}`,
+              azp: session.clientId ?? `harness-node-${session.nodeId}`,
               aud: ["harness-center"],
               sub: tokens.get(token),
               harness_person_id: session.personId,
@@ -442,14 +442,20 @@ export function fakeKeycloak() {
       nodeClients.set(clientId, client);
       return client.secret;
     },
-    interactiveSession(personId: string, nodeId: string, issuer: string, token = `token-${personId}`): void {
+    interactiveSession(
+      personId: string,
+      nodeId: string,
+      issuer: string,
+      token = `token-${personId}`,
+      clientId?: string,
+    ): void {
       const subject =
         tokens.get(`token-${personId}`) ??
         [...users.values()].find((user) => user.attributes.harness_person_id?.[0] === personId)?.id;
       if (!subject) throw new Error(`unknown fixture account ${personId}`);
       tokens.set(`token-${personId}`, subject);
       tokens.set(token, subject);
-      interactiveSessions.set(token, { personId, nodeId, issuer });
+      interactiveSessions.set(token, { personId, nodeId, issuer, ...(clientId ? { clientId } : {}) });
     },
     endInteractiveSession(token: string): void {
       interactiveSessions.delete(token);
