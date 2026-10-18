@@ -23,9 +23,11 @@ function git(root: string, ...args: string[]): string {
 
 /**
  * A task with a submitted delivery (coverage: exact), a scripted gh provider that can serve or
- * block the witness walk and the diagnostic scan independently, and a call log every gh
- * invocation appends to. Gates: witnessHold blocks runs?head_sha until released; scanHold
- * blocks the workflow-runs page until released.
+ * block the witness walk and the diagnostic scan independently, and logs every gh invocation
+ * appends to: the call line at start, a completion line after a served answer, and an exit line
+ * from the child's own exit hook. Gates: witnessHold blocks runs?head_sha until released;
+ * scanHold blocks the workflow-runs page until released; slowScan replaces that block with a
+ * fixed provider delay, proving the occurrence mid-flight when close arrives.
  */
 async function submittedTaskFixture(
   work: (input: {
@@ -34,6 +36,9 @@ async function submittedTaskFixture(
     readonly taskId: string;
     readonly delivery: string;
     readonly calls: () => string[];
+    readonly completions: () => string[];
+    readonly exits: () => string[];
+    readonly slowScan: () => void;
     readonly releaseWitness: () => void;
     readonly releaseScan: () => void;
     readonly disableBranchRuns: () => void;
@@ -48,9 +53,12 @@ async function submittedTaskFixture(
     rootDir = path.join(parent, "repo"),
     bin = path.join(parent, "bin"),
     callsLog = path.join(parent, "calls.log"),
+    completionsLog = path.join(parent, "completions.log"),
+    exitsLog = path.join(parent, "exits.log"),
     deliveryFile = path.join(parent, "delivery"),
     witnessHold = path.join(parent, "witness-released"),
     scanHold = path.join(parent, "scan-released"),
+    slowScan = path.join(parent, "slow-scan"),
     branchRunsDisabled = path.join(parent, "branch-runs-disabled"),
     originalPath = process.env.PATH;
   mkdirSync(rootDir);
@@ -66,12 +74,19 @@ async function submittedTaskFixture(
     "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: exact\n      selection: newest\n",
   );
   writeFileSync(callsLog, "");
+  writeFileSync(completionsLog, "");
+  writeFileSync(exitsLog, "");
   // The writer thread copies the environment when the cell opens, before the delivery commit
   // exists — the stub reads the delivery sha from this file instead of process.env.
   writeFileSync(deliveryFile, "");
   const gh = `#!/usr/bin/env node
 const fs = require('node:fs'); const args = process.argv.slice(2);
 fs.appendFileSync(${JSON.stringify(callsLog)}, args.join(' ') + '\\n');
+process.once('exit', () => fs.appendFileSync(${JSON.stringify(exitsLog)}, 'exit\\n'));
+// A child the cell-close abort terminates never runs its async body to completion; route the
+// signal through the exit hook so the log records that death too.
+process.once('SIGTERM', () => process.exit(0));
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const waitFor = async (file) => {
   if (fs.existsSync(file)) return;
   await new Promise((resolve, reject) => {
@@ -89,7 +104,7 @@ const waitFor = async (file) => {
 const api = args.find(a => a.startsWith('repos/')) ?? '';
 const delivery = fs.readFileSync(${JSON.stringify(deliveryFile)}, 'utf8').trim();
 const metadata = (runId) => ({name:'rewrite-ci',workflowName:'rewrite-ci',head_sha:delivery,headSha:delivery,head_branch:runId===9?'task-pull-receipt':'main',headBranch:runId===9?'task-pull-receipt':'main',status:'completed',conclusion:'success',run_attempt:1,attempt:1,event:'push',path:'.github/workflows/rewrite-ci.yml',workflow_id:1,repository:{full_name:'fixture/pull-receipt'},id:runId});
-if (api.includes('/workflows/')) { await waitFor(${JSON.stringify(scanHold)}); process.stdout.write(JSON.stringify({workflow_runs: []})); }
+if (api.includes('/workflows/')) { if (fs.existsSync(${JSON.stringify(slowScan)})) await sleep(2000); else await waitFor(${JSON.stringify(scanHold)}); process.stdout.write(JSON.stringify({workflow_runs: []})); }
 else if (api.includes('?branch=')) process.stdout.write(JSON.stringify([{workflow_runs:fs.existsSync(${JSON.stringify(branchRunsDisabled)})?[]:[{id:9,path:'.github/workflows/rewrite-ci.yml',head_branch:'task-pull-receipt',head_sha:delivery,event:'push',status:'completed',conclusion:'success'}]}]));
 else if (api.includes('head_sha=')) { await waitFor(${JSON.stringify(witnessHold)}); process.stdout.write(JSON.stringify([{databaseId:7, path:'.github/workflows/rewrite-ci.yml', headBranch:'main', event:'push', status:'completed', conclusion:'success'}])); }
 else if (api.includes('/jobs')) process.stdout.write(JSON.stringify([{jobs:[]}]));
@@ -98,6 +113,7 @@ else if (api.includes('/attempts/')) process.stdout.write(JSON.stringify(metadat
 else if (args[1] === 'view') process.stdout.write(JSON.stringify(metadata(Number(args[2]))));
 else if (args[1] === 'list') process.stdout.write('[]');
 else throw new Error('unexpected provider call ' + args.join(' '));
+fs.appendFileSync(${JSON.stringify(completionsLog)}, 'done\\n');
 })().catch(e => { process.stderr.write(e.stack); process.exitCode=1; });
 `;
   writeFileSync(path.join(bin, "gh"), gh, { mode: 0o755 });
@@ -145,6 +161,9 @@ else throw new Error('unexpected provider call ' + args.join(' '));
         now = "2026-10-11T02:00:00.000Z";
       },
       calls: () => readFileSync(callsLog, "utf8").split("\n").filter(Boolean),
+      completions: () => readFileSync(completionsLog, "utf8").split("\n").filter(Boolean),
+      exits: () => readFileSync(exitsLog, "utf8").split("\n").filter(Boolean),
+      slowScan: () => writeFileSync(slowScan, "slow"),
       releaseWitness: () => writeFileSync(witnessHold, "released"),
       releaseScan: () => writeFileSync(scanHold, "released"),
       disableBranchRuns: () => writeFileSync(branchRunsDisabled, "disabled"),
@@ -242,6 +261,81 @@ test("the pull that starts an occurrence returns when its witness is accepted, b
     assert.equal(settled.status.lastRun?.outcome, "succeeded");
     assert.equal(calls().filter((line) => line.includes("head_sha=")).length, 1, "one witness walk total");
   });
+});
+
+test("closing the cell aborts a still-running CI occurrence; no provider child outlives close", async () => {
+  await submittedTaskFixture(async ({ cell, taskId, show, releaseWitness, slowScan, calls, exits }) => {
+    releaseWitness();
+    // The scan page answers only after a fixed provider delay, so the occurrence is provably
+    // mid-flight when close arrives: the triggering pull has returned, the walk is done, and the
+    // scan child process is still running.
+    slowScan();
+    const pull = cell.run({ kind: "ci-observe-pull", taskId }, binding);
+    await settlesWithin(pull, 5_000, "triggering pull");
+    assert.ok((await show()).status.activeRun, "the occurrence is still running the slow scan");
+    const end = Date.now() + 15_000;
+    while (!calls().some((line) => line.includes("/workflows/")) && Date.now() < end)
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.ok(
+      calls().some((line) => line.includes("/workflows/")),
+      "the occurrence reached the slow scan page",
+    );
+    await cell.close();
+    // Close aborted the occurrence and killed its provider children: every gh invocation that
+    // started has exited — completed or terminated — before close returned, so nothing writes
+    // past this point.
+    assert.equal(exits().length, calls().length, "gh children still running when close returned");
+  });
+});
+
+test("a slow provider scan does not hold cell close; the aborted occurrence settles failure", async () => {
+  await submittedTaskFixture(
+    async ({ cell, rootDir, taskId, show, releaseWitness, slowScan, calls, completions, exits }) => {
+      releaseWitness();
+      slowScan();
+      const pull = cell.run({ kind: "ci-observe-pull", taskId }, binding);
+      await settlesWithin(pull, 5_000, "triggering pull");
+      assert.ok((await show()).status.activeRun, "the occurrence is still running the slow scan");
+      const end = Date.now() + 15_000;
+      while (!calls().some((line) => line.includes("/workflows/")) && Date.now() < end)
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      const closedAt = Date.now();
+      await cell.close();
+      // The scan child sleeps 2s; a close that waits the occurrence out blocks the daemon stop on
+      // a center round that can run for many minutes. The abort cuts the round short and returns
+      // close well before the provider delay elapses.
+      const closeMs = Date.now() - closedAt;
+      assert.ok(closeMs < 1_000, `close waited ${closeMs}ms; the slow scan was not aborted`);
+      const callsAtClose = calls(),
+        completionsAtClose = completions(),
+        exitsAtClose = exits();
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      assert.deepEqual(calls(), callsAtClose, "a provider call started after close returned");
+      assert.deepEqual(completions(), completionsAtClose, "a provider child completed after close returned");
+      assert.deepEqual(exits(), exitsAtClose, "a provider child exited after close returned");
+      // The aborted occurrence is durably failed before close returns, so reopening sees no
+      // orphan claim that would need scheduler recovery.
+      const reopened = await openBootstrappedRepoCell({
+        now: () => "2026-10-11T00:00:00.000Z",
+        repoId: workspaceId("ci-pull-receipt"),
+        rootDir: canonicalRoot(rootDir),
+        ownerId: "pull-receipt",
+        mode: "local",
+      });
+      try {
+        const schedule = (
+          (await reopened.run(
+            { kind: "schedule-show", scheduleId: builtinCiObserveScheduleId },
+            binding,
+          )) as unknown as { schedule: ScheduleV1 }
+        ).schedule;
+        assert.equal(schedule.status.activeRun, null, "the aborted occurrence released its claim");
+        assert.equal(schedule.status.lastRun?.outcome, "failed", "the aborted occurrence settled a failure");
+      } finally {
+        await reopened.close();
+      }
+    },
+  );
 });
 
 test("a late --task pull waits out the active occurrence, then answers from the ledger without provider IO", async () => {

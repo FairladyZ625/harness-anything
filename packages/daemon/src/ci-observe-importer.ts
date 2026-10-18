@@ -33,6 +33,8 @@ export async function reconcileCiOccurrence(input: {
   readonly accept: (fetched: CiObservationFetch) => Promise<WriteReceiptDraft>;
   readonly requests: () => readonly RepoTaskAction[];
   readonly gh?: RunGh;
+  /** Aborted by cell close: the default provider kills its gh subprocesses through it. */
+  readonly signal?: AbortSignal;
   readonly hostingProvider?: "github" | "gitlab";
 }): Promise<BuiltinExecutionResult> {
   const { cell } = input,
@@ -56,12 +58,17 @@ export async function reconcileCiOccurrence(input: {
       detail: progress.error ?? "Waiting for the GitHub rate-limit reset.",
       ciObserve: progress,
     };
-  const gh: RunGh = input.gh ?? runCiProviderCommand;
+  const signal = input.signal;
+  const gh: RunGh =
+    input.gh ??
+    (signal === undefined
+      ? runCiProviderCommand
+      : (command, args, options) => runCiProviderCommand(command, args, { ...options, signal }));
   // The GitHub workflow scan is provider-specific. GitLab observations are fetched by
   // fetchCiObservations through REST; never send a self-hosted GitLab repository to `gh`.
   const hosting = input.hostingProvider
     ? { kind: input.hostingProvider }
-    : gh === runCiProviderCommand
+    : input.gh === undefined
       ? (await hasOriginRemote(cell.rootDir))
         ? await detectHostingProvider(cell.rootDir, undefined, true)
         : ({ kind: "github" } as const)

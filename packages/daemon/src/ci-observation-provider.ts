@@ -1,7 +1,11 @@
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { runProcessTextAsync } from "./process-port.ts";
 
-export type RunGh = (command: string, args: readonly string[], options: { readonly cwd: string }) => Promise<string>;
+export type RunGh = (
+  command: string,
+  args: readonly string[],
+  options: { readonly cwd: string; readonly signal?: AbortSignal },
+) => Promise<string>;
 export type CiWorkflowRun = { readonly databaseId: number; readonly headBranch: string; readonly createdAt: string };
 export type CiRunListEntry = CiWorkflowRun & {
   readonly headSha: string;
@@ -20,7 +24,7 @@ export interface CiArtifactMetadata {
 // artifact lists), which exceeds execFile's 1 MiB default buffer on busy repositories.
 const ciProviderOutputLimit = 64 << 20;
 export const runCiProviderCommand: RunGh = (command, args, options) =>
-  runProcessTextAsync(command, args, options.cwd, undefined, undefined, undefined, {
+  runProcessTextAsync(command, args, options.cwd, undefined, undefined, options.signal, {
     timeoutMs: 30_000,
     maxBuffer: ciProviderOutputLimit,
   });

@@ -32,6 +32,12 @@ export interface BuiltinExecutorCell {
   readonly runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>;
   /** The Settings `storage.backupExecutionLimitMs` value: how long one backup run may take end to end. */
   readonly backupExecutionLimitMs: number;
+  /**
+   * Aborted when the cell closes mid-occurrence. An occurrence cut short this way settles
+   * nothing: its durable claim and checkpoint are the state a daemon restart leaves, and the
+   * next executor resumes from them.
+   */
+  readonly signal?: AbortSignal;
 }
 
 type RunInternal<Receipt extends WriteReceipt> = (action: RepoTaskAction, binding: RepoCellBinding) => Promise<Receipt>;
@@ -107,6 +113,9 @@ export async function executeBuiltinScheduleOccurrence<Receipt extends WriteRece
       outcome: "failed",
       detail: `builtin ${target.builtinId} is not registered on this daemon`,
     });
+  // A cell close aborts provider work, but the occurrence still needs a terminal settlement
+  // before close returns. This releases the durable claim instead of leaving an orphan activeRun
+  // for the next scheduler pass; the failed detail records that the round was interrupted.
   return settleOccurrence(await runRegisteredBuiltin(executor, input.cell, input.schedule, active.occurrenceId));
 }
 
