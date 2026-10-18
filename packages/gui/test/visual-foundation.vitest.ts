@@ -97,6 +97,16 @@ describe("visual foundation: glass layer tokens", () => {
     expect(scrim).toMatch(/background:\s*var\(--color-scrim\)/u);
   });
 
+  it("keeps native dialog panel content outside the scrim filter", () => {
+    const dialogBackdrop = blockBody(/\.component-modal::backdrop\s*\{/u);
+    expect(dialogBackdrop).toMatch(
+      /backdrop-filter:\s*blur\(var\(--scrim-blur\)\)\s*saturate\(var\(--scrim-saturate\)\)/u,
+    );
+    const dialogScrim = blockBody(/\.component-modal\s+\.glass-scrim\s*\{/u);
+    expect(dialogScrim).toMatch(/background:\s*transparent/u);
+    expect(dialogScrim).toMatch(/backdrop-filter:\s*none/u);
+  });
+
   it("gives floating overlay surfaces their own sufficiently opaque tier (.glass-overlay)", () => {
     // 2026-10-18 业主三轮截图:浮层(小弹层与模态/抽屉/命令面板)跟常驻面板共用 .glass
     // 的 0.7 半透明底后,下方密集文字以 ~30% 反差透出叠读。浮层档只覆盖面色:可读性

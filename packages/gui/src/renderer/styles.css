@@ -161,8 +161,8 @@
      模态/抽屉/命令面板)不用 blur 换可读性——模态面板常驻几分钟且内含活体指示,
      面上 blur 会复活二轮禁掉的大面积活体模糊;靠足够不透明的面色(暗 0.96/亮 0.97)
      把下方密集文字压到不可辨,减弱动态效果/不支持 backdrop-filter 的环境同样可读。
-     折射职责归遮罩(.glass-scrim);--color-scrim 加深是对 <dialog> 顶层遮罩无折射
-     的补偿(见 .glass-scrim 注释)。 */
+     折射职责归遮罩(.glass-scrim);原生 <dialog> 另由 ::backdrop 承担页面折射
+     (见 .glass-scrim 注释)。 */
   --color-glass-overlay: oklch(0.24 0.006 285 / 0.96);
   --color-scrim: oklch(0.2 0.008 285 / 0.55);
   --scrim-blur: 18px;
@@ -346,7 +346,7 @@ html[data-theme="light"] {
    而不是 backdrop-filter:模态/抽屉可能开几分钟且内容含活体指示,面上 blur 等于把
    二轮(task_5c651ff17b698ff2bce7e6affa)从大面积面板上禁掉的活体模糊请回浮层;
    高不透明度下折射本就不可见,「减弱动态效果」或不支持 backdrop-filter 的环境同样
-   可读。折射职责归遮罩档 .glass-scrim。大面积常驻面板仍禁 blur(visual-foundation
+   可读。折射职责归遮罩档 .glass-scrim(原生 Modal 用 dialog::backdrop)。大面积常驻面板仍禁 blur(visual-foundation
    对 .glass 的负例断言把守)。 */
 .glass-overlay {
   background: var(--color-glass-overlay);
@@ -370,14 +370,26 @@ html[data-theme="light"] .glass-sub {
   border: var(--hairline-width) solid oklch(0 0 0 / 0.08);
 }
 
-/* 模态压暗层(原型 .scrim.on 档):blur 在正常 stacking 上下文(Drawer/FocusLayer/
-   CommandPalette 的遮罩)有效;Modal 的遮罩挂在 <dialog> 顶层内,backdrop root 是
-   dialog 自身,blur 实际不作用到页面(task_2e9dedde 2026-10-18 Electron 截图实证:
-   0.42 压暗下遮罩外背景列表文字仍清楚可读)——顶层模态的退后感只由本档的压暗不
-   透明度承担,故 0.28→0.55(亮 0.2→0.45)。 */
+/* 模态压暗层(原型 .scrim.on 档):正常 stacking 上下文(Drawer/FocusLayer/
+   CommandPalette)的遮罩可直接折射页面。原生 <dialog> 处在 top layer,其子元素的
+   backdrop-filter 会把同一 top-layer 绘制面(包括弹窗面板)一起模糊;因此 Modal 的
+   遮罩只保留实色压暗,折射移到 ::backdrop(它位于 dialog 内容之后),保证表单文字
+   不被自己的遮罩处理。--color-scrim 加深是对 top-layer 退后感的补偿。 */
 .glass-scrim {
   background: var(--color-scrim);
   backdrop-filter: blur(var(--scrim-blur)) saturate(var(--scrim-saturate));
+}
+
+/* 原生 dialog 的 backdrop 是唯一只覆盖页面、不会覆盖 dialog 面板的合成层。Modal
+   内的真实 scrim 仍由 motion 控制 opacity,但不得再声明滤镜或底色,否则 Chromium
+   会把 top-layer 内的面板正文一并模糊(按钮/开关等独立合成层则看似清晰,造成假象)。 */
+.component-modal::backdrop {
+  background: var(--color-scrim);
+  backdrop-filter: blur(var(--scrim-blur)) saturate(var(--scrim-saturate));
+}
+.component-modal .glass-scrim {
+  background: transparent;
+  backdrop-filter: none;
 }
 
 /* 放大层液态折射(原型 .focus.lq 档):与 .glass 同用;滤镜 def 见 GlassFoundation.tsx */
@@ -1038,8 +1050,9 @@ html[data-theme="light"] ::selection {
   outline-offset: 1px;
 }
 
-/* 模态压暗层:由 Modal 原语渲染在 dialog 内的 .glass-scrim div 承载(A3 进出动效
-   需要真实元素);::backdrop 保持 UA 默认的透明点击拦截,不再叠加视觉。 */
+/* 模态压暗层:页面折射与压暗由原生 dialog::backdrop 承载,只覆盖 dialog 之后的页面;
+   Modal 原语渲染在 dialog 内的 .glass-scrim div 仍保留作 A3 进出动效的真实元素,
+   但通过上方的 .component-modal .glass-scrim 规则保持透明且无滤镜。 */
 
 /* A wide table/code block stays inside its own reading column. */
 .document-wide-block {

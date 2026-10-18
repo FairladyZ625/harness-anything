@@ -24,6 +24,31 @@ export async function waitForEntrySettled(page, selector) {
   }, selector);
 }
 
+/**
+ * The native dialog top layer must never filter its own panel. Keep this check
+ * separate from the browser evaluation so a unit test can exercise the failure
+ * case without starting Electron.
+ */
+export function assertUnfilteredOverlayState(state, label) {
+  assert.equal(state.panelFilter, "none", `${label} 面板 filter=${state.panelFilter} 必须为 none`);
+  assert.equal(
+    state.panelBackdropFilter,
+    "none",
+    `${label} 面板 backdrop-filter=${state.panelBackdropFilter} 必须为 none`,
+  );
+  assert.deepEqual(
+    state.ancestorFilters,
+    [],
+    `${label} 面板祖先不能声明 filter/backdrop-filter: ${JSON.stringify(state.ancestorFilters)}`,
+  );
+  assert.equal(state.scrimFilter, "none", `${label} 遮罩 filter=${state.scrimFilter} 必须为 none`);
+  assert.equal(
+    state.scrimBackdropFilter,
+    "none",
+    `${label} 遮罩 backdrop-filter=${state.scrimBackdropFilter} 必须为 none; blur 只能在 dialog::backdrop`,
+  );
+}
+
 // Measure the local surface: document.scrollWidth misses clipped children and
 // forced scrollbars whose contents happen to fit.
 export async function assertUnscrolledLayout(container, childSelector = ":scope > *") {

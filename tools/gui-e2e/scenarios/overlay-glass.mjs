@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { requestDaemonJsonRpcAt } from "../../../packages/daemon/src/client/local-json-rpc-client.ts";
-import { waitForEntrySettled } from "./helpers.mjs";
+import { assertUnfilteredOverlayState, waitForEntrySettled } from "./helpers.mjs";
 
 // 浮层玻璃透底(task_2e9dedde,业主 2026-10-18 三轮截图):浮在内容之上的面——快速切换
 // 浮层与新建 Provider/Agent/定时计划对话框——曾共用常驻面板档 .glass 的 0.7 半透明底,
@@ -44,6 +44,37 @@ async function assertReadableOverlay(page, selector, label) {
     "1",
     `${label} 计算样式 opacity=${settled} ≠ 1:入场动画未完成,此刻面板仍半透明(返工要防的失败形态)`,
   );
+}
+
+async function assertReadableModal(page, selector, label) {
+  await assertReadableOverlay(page, selector, label);
+  const state = await page
+    .locator(selector)
+    .first()
+    .evaluate((panel) => {
+      const dialog = panel.closest("dialog");
+      const scrim = dialog?.querySelector(".glass-scrim");
+      const ancestorFilters = [];
+      for (let ancestor = panel.parentElement; ancestor !== null; ancestor = ancestor.parentElement) {
+        const style = globalThis.getComputedStyle(ancestor);
+        if (style.filter !== "none" || style.backdropFilter !== "none") {
+          ancestorFilters.push({ tag: ancestor.tagName, filter: style.filter, backdropFilter: style.backdropFilter });
+        }
+      }
+      const panelStyle = globalThis.getComputedStyle(panel);
+      const scrimStyle = scrim === null ? null : globalThis.getComputedStyle(scrim);
+      return {
+        panelFilter: panelStyle.filter,
+        panelBackdropFilter: panelStyle.backdropFilter,
+        ancestorFilters,
+        scrimFilter: scrimStyle?.filter ?? "missing",
+        scrimBackdropFilter: scrimStyle?.backdropFilter ?? "missing",
+        dialogBackdropFilter:
+          dialog === null ? "missing" : globalThis.getComputedStyle(dialog, "::backdrop").backdropFilter,
+      };
+    });
+  assertUnfilteredOverlayState(state, label);
+  assert.match(state.dialogBackdropFilter, /blur\(/u, `${label} blur 必须只出现在 dialog::backdrop`);
 }
 
 export default {
@@ -106,7 +137,7 @@ export default {
       await page.getByTestId("schedule-action-create").click();
       await page.getByTestId("schedule-form-dialog").waitFor();
       await waitForEntrySettled(page, '[data-testid="schedule-form-dialog"] .glass-overlay');
-      await assertReadableOverlay(page, '[data-testid="schedule-form-dialog"] .glass-overlay', "新建定时计划");
+      await assertReadableModal(page, '[data-testid="schedule-form-dialog"] .glass-overlay', "新建定时计划");
       await shot(`overlay-schedule-${theme}`);
       await page.keyboard.press("Escape");
 
@@ -116,7 +147,7 @@ export default {
       await page.getByTestId("runtime-new-agents").click();
       await page.getByTestId("new-agent-dialog").waitFor();
       await waitForEntrySettled(page, '[data-testid="new-agent-dialog"] .glass-overlay');
-      await assertReadableOverlay(page, '[data-testid="new-agent-dialog"] .glass-overlay', "新建 Agent");
+      await assertReadableModal(page, '[data-testid="new-agent-dialog"] .glass-overlay', "新建 Agent");
       await shot(`overlay-agent-${theme}`);
       await page.keyboard.press("Escape");
 
@@ -126,7 +157,7 @@ export default {
       await page.getByTestId("runtime-new-runtimes").click();
       await page.getByTestId("new-runtime-dialog").waitFor();
       await waitForEntrySettled(page, '[data-testid="new-runtime-dialog"] .glass-overlay');
-      await assertReadableOverlay(page, '[data-testid="new-runtime-dialog"] .glass-overlay', "新建 Provider");
+      await assertReadableModal(page, '[data-testid="new-runtime-dialog"] .glass-overlay', "新建 Provider");
       await shot(`overlay-provider-${theme}`);
       await page.keyboard.press("Escape");
     }
@@ -140,7 +171,7 @@ export default {
     await page.getByTestId("schedule-action-create").click();
     await page.getByTestId("schedule-form-dialog").waitFor();
     await waitForEntrySettled(page, '[data-testid="schedule-form-dialog"] .glass-overlay');
-    await assertReadableOverlay(
+    await assertReadableModal(
       page,
       '[data-testid="schedule-form-dialog"] .glass-overlay',
       "新建定时计划(减弱动态效果)",
