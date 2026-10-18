@@ -356,7 +356,7 @@ test("owner-disposed changes_requested review satisfies the shared consent readi
     )?.review.reviewId,
     selected.reviewId,
   );
-  assert.equal(closeoutReadiness(overridden).readiness, "ready");
+  assert.equal(closeoutReadiness(overridden, undefined, undefined, mergedDelivery).readiness, "ready");
 });
 
 test("closeout readiness gates work and long_running completion on an active decision derives edge", () => {
