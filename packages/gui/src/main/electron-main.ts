@@ -29,11 +29,7 @@ import {
 } from "./local-composition-root.ts";
 import { registerConnectionAdminIpc } from "./connection-admin-ipc.ts";
 import { addLocalMainControls } from "./local-main-controls.ts";
-import {
-  daemonUserRoot,
-  resolveLocalDaemonTarget,
-  resolveLocalDaemonTargetFromRepos,
-} from "@harness-anything/daemon/client";
+import { resolveLocalDaemonTarget, resolveLocalDaemonTargetFromRepos } from "@harness-anything/daemon/client";
 import {
   evaluateHtmlArtifactAttachment,
   evaluateHtmlArtifactRequest,
