@@ -26,7 +26,6 @@ type RoutedParser = (
 function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>): Record<string, unknown> {
   return {
     ...(f.one.get("--center-url") ? { centerUrl: f.one.get("--center-url") } : {}),
-    ...(f.one.get("--spki-sha256") ? { spkiSha256: f.one.get("--spki-sha256") } : {}),
     ...(f.one.get("--ttl-ms") ? { ttlMs: Number(f.one.get("--ttl-ms")) } : {}),
     ...(f.one.get("--invite-id") ? { inviteId: f.one.get("--invite-id") } : {}),
     ...(f.one.get("--link") ? { link: f.one.get("--link") } : {}),

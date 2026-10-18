@@ -205,7 +205,6 @@ export const daemonProtocolMethods = Object.freeze([
       platform: "string?",
       credentialFile: "string?",
       centerUrl: "string?",
-      spkiSha256: "string?",
       ttlMs: "number?",
       inviteId: "string?",
       link: "string?",

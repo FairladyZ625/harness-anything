@@ -1,8 +1,9 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
-import { createHash, X509Certificate } from "node:crypto";
+import { X509Certificate } from "node:crypto";
 import { randomUUID } from "node:crypto";
+import { spkiSha256Fingerprint } from "./edge-join.ts";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -757,10 +758,7 @@ export async function requestFleetEdgeJoinPinned(options: {
     const peer = socket.getPeerCertificate(true);
     if (!peer.raw)
       throw Object.assign(new Error("The center did not present a certificate."), { code: "pin_mismatch" });
-    const pin = `sha256:${createHash("sha256")
-      .update(new X509Certificate(peer.raw).publicKey.export({ type: "spki", format: "der" }))
-      .digest("base64")}`;
-    if (pin !== options.spkiSha256)
+    if (spkiSha256Fingerprint(peer.raw) !== options.spkiSha256)
       throw Object.assign(new Error("The center certificate fingerprint does not match the invitation."), {
         code: "pin_mismatch",
       });

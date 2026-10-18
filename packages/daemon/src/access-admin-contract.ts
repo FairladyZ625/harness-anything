@@ -1,4 +1,5 @@
 import type { managedRbacReceiptJournal } from "./managed-rbac-service.ts";
+import type { FleetCenterConfig } from "./fleet-center-config.ts";
 
 import type { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 
@@ -22,7 +23,6 @@ export interface AccessAdminRequest {
   readonly platform?: string;
   readonly credentialFile?: string;
   readonly centerUrl?: string;
-  readonly spkiSha256?: string;
   readonly ttlMs?: number;
   readonly inviteId?: string;
   readonly link?: string;
@@ -39,4 +39,6 @@ export interface AccessAdminPorts {
   readonly now: () => string;
   readonly journal: ReturnType<typeof managedRbacReceiptJournal>;
   readonly onNodeRemoved?: (nodeId: string) => void;
+  /** The fleet center listener this daemon last started, whose certificate an invitation pins. */
+  readonly readFleetCenterConfig?: () => FleetCenterConfig | null;
 }

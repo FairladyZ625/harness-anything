@@ -75,26 +75,25 @@ test("ha bootstrap routes managed lifecycle options to the daemon", () => {
 });
 
 test("ha bootstrap exposes the center invitation and edge consume operations on the daemon route", () => {
-  const created = parseThinCommand(
-    [
-      "bootstrap",
-      "--operation",
-      "edge-join-create",
-      "--center-url",
-      "https://center.test",
-      "--node-id",
-      "edge-a",
-      "--spki-sha256",
-      "pin",
-    ],
-    "/repo",
-  );
+  const created = parseThinCommand(["bootstrap", "--operation", "edge-join-create", "--node-id", "edge-a"], "/repo");
   assert.equal(created.ok, true);
   if (created.ok) {
     assert.equal(created.command.method, "daemon.rbac.manage");
     assert.equal(created.command.action.operation, "edge-join-create");
     assert.equal(created.command.action.nodeId, "edge-a");
+    assert.equal("centerUrl" in created.command.action, false);
   }
+  const overridden = parseThinCommand(
+    ["bootstrap", "--operation", "edge-join-create", "--center-url", "https://center.test", "--node-id", "edge-a"],
+    "/repo",
+  );
+  assert.equal(overridden.ok, true);
+  if (overridden.ok) assert.equal(overridden.command.action.centerUrl, "https://center.test");
+  // The center reads its listening certificate itself; a hand-computed pin is no longer accepted.
+  assert.equal(
+    parseThinCommand(["bootstrap", "--operation", "edge-join-create", "--spki-sha256", "pin"], "/repo").ok,
+    false,
+  );
   const consumed = parseThinCommand(
     [
       "bootstrap",

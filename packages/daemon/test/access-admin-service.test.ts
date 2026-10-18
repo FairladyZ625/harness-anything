@@ -1,6 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { randomUUID } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { createHash, randomUUID, X509Certificate } from "node:crypto";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { actionDeclarations } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
@@ -11,6 +15,7 @@ import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
+import { decodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
 async function fixture(t: TestContext) {
@@ -688,4 +693,77 @@ test("host-level actions answer to the fleet grant of the signed-in person, neve
   assert.deepEqual([decision.policyRef, decision.outcome], ["keycloak-policy@1", "allowed"]);
   assert.deepEqual([...new Set(requests)], ["@fleet#runtime-instance-create"]);
   await assert.rejects(attempt(), { code: "authentication_required" });
+});
+
+test("edge-join-create pins the listening certificate itself and answers one decodable join link", async (t) => {
+  const { keycloak, oidc, root } = await fixture(t),
+    material = mkdtempSync(path.join(tmpdir(), "ha-edge-invite-"));
+  t.after(() => rmSync(material, { recursive: true, force: true }));
+  const listener = {
+    port: 9443,
+    bind: "127.0.0.1",
+    repoId: "repo-a",
+    keyPath: path.join(material, "tls.key"),
+    certPath: path.join(material, "tls.crt"),
+    stateRoot: path.join(material, "state"),
+    quotaBytes: 1,
+  };
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      listener.keyPath,
+      "-out",
+      listener.certPath,
+      "-subj",
+      "/CN=localhost",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:localhost",
+    ],
+    { stdio: "ignore" },
+  );
+  const issuing = new AccessAdminService(oidc, root, {
+    fetch: keycloak.fetch,
+    readFleetCenterConfig: () => listener,
+  });
+  const receipt = await issuing.run({ operation: "edge-join-create", nodeId: "edge-a" });
+  assert.equal(receipt.ok, true);
+  assert.match(String(receipt.link), /^harness-edge:\/\/join\//u);
+  const link = decodeEdgeJoinLink(String(receipt.link));
+  assert.equal(link.nodeId, "edge-a");
+  assert.equal(link.personId, "person-admin");
+  // The listener this daemon saved is the address the invitation carries when --center-url is absent.
+  assert.equal(link.centerUrl, "https://127.0.0.1:9443");
+  // The pin the edge verifies (peer.ts) over the same certificate, computed here by the raw steps:
+  // sha256 over the SPKI DER, base64, with the sha256: prefix.
+  const edgePin = `sha256:${createHash("sha256")
+    .update(new X509Certificate(readFileSync(listener.certPath)).publicKey.export({ type: "spki", format: "der" }))
+    .digest("base64")}`;
+  assert.equal(link.spkiSha256, edgePin);
+  // The receipt carries the invitation exactly once, as the encoded link; the token rides only inside it.
+  assert.equal(JSON.stringify(receipt).includes(link.token), false);
+  assert.equal(
+    (await issuing.run({ operation: "edge-join-status", inviteId: String(receipt.joinId) })).status,
+    "pending",
+  );
+  const overridden = await issuing.run({
+    operation: "edge-join-create",
+    nodeId: "edge-b",
+    centerUrl: "https://center.example",
+  });
+  assert.equal(decodeEdgeJoinLink(String(overridden.link)).centerUrl, "https://center.example");
+});
+
+test("edge-join-create refuses to issue when no fleet center listener is configured", async (t) => {
+  const { admin } = await fixture(t);
+  await assert.rejects(admin.run({ operation: "edge-join-create", nodeId: "edge-a" }), {
+    code: "fleet_center_unavailable",
+  });
 });

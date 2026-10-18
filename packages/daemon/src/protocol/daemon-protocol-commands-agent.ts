@@ -538,7 +538,6 @@ export const agentProtocolCommands = Object.freeze([
       cliInput("--resource", "single", false, { code: "invalid_field" }),
       cliInput("--credential-file", "single", false, { code: "invalid_field" }, { field: "credentialFile" }),
       cliInput("--center-url", "single", false, { code: "invalid_field" }, { field: "centerUrl" }),
-      cliInput("--spki-sha256", "single", false, { code: "invalid_field" }, { field: "spkiSha256" }),
       cliInput("--ttl-ms", "single", false, { code: "invalid_field" }, { field: "ttlMs", projection: "number" }),
       cliInput("--invite-id", "single", false, { code: "invalid_field" }, { field: "inviteId" }),
       cliInput("--link", "single", false, { code: "invalid_field" }),

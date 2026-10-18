@@ -733,6 +733,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // live TLS sessions, so the settled cut is handed from one to the other here.
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
+    readFleetCenterConfig: () => readFleetCenterConfig(input.userRoot, input.daemonId),
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
