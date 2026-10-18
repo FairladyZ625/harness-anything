@@ -1,6 +1,5 @@
-import { isTerminalStatus, type TaskProjection } from "@harness-anything/kernel";
+import { consumeKnownError, isTerminalStatus, type TaskProjection } from "@harness-anything/kernel";
 import { readScheduleRuns, type ScheduleRunsResult } from "./schedule-runs-read.ts";
-import type { ScheduleRunRowDto } from "./protocol/schedule-runs-contract.ts";
 
 const FENCE = /```harness-reckoning\s*\r?\n([\s\S]*?)\r?\n```/gu;
 const FINDING_STATUSES = new Set(["unresolved", "covered", "resolved", "observation"]);
@@ -148,7 +147,8 @@ function parseReport(reportText: string | null): ReckoningReport | null {
   let value: unknown;
   try {
     value = JSON.parse(match[1]!);
-  } catch {
+  } catch (error) {
+    consumeKnownError(error);
     return null;
   }
   if (!isRecord(value) || value.schema !== "harness-reckoning/v1" || !Array.isArray(value.windows)) return null;
