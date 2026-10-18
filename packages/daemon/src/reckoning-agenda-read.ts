@@ -5,6 +5,9 @@ import { readScheduleRuns, type ScheduleRunsResult } from "./schedule-runs-read.
 const FENCE = /```harness-reckoning\s*\r?\n([\s\S]*?)\r?\n```/gu;
 const FINDING_STATUSES = new Set(["unresolved", "covered", "resolved", "observation"]);
 const FINDING_ACTIONS = new Set(["fix-source", "retire-or-merge", "retain", "human-decision"]);
+// Two weeks of daily occurrences cover the two-window short streak and the
+// latest weekly long-window report while keeping agenda blob reads bounded.
+const AGENDA_RUN_LIMIT = 16;
 
 interface ReckoningFinding {
   readonly key: string;
@@ -55,7 +58,7 @@ export function readReckoningAgenda(input: {
         store: input.store,
       },
       schedule.id,
-      200,
+      AGENDA_RUN_LIMIT,
     );
     reads.push(runs);
   }
@@ -67,33 +70,47 @@ export function deriveScheduleItems(
   projection: TaskProjection,
 ): readonly ReckoningAgendaItem[] {
   const rows = [...read.runs]
-    .filter((row) => row.kind === "scheduled")
+    // Manual success reports are outside the Schedule cadence. A missed row
+    // still represents a broken scheduled occurrence and must break the
+    // streak even if an upstream projection labels its kind differently.
+    .filter((row) => row.kind === "scheduled" || row.outcome !== "succeeded")
     .sort((left, right) => left.scheduledFor.localeCompare(right.scheduledFor));
   const shortCounts = new Map<string, number>();
+  const shortActive = new Set<string>();
   const longActive = new Set<string>();
   const latest = new Map<string, ReckoningFinding>();
   const since = new Map<string, string>();
+  const clearSinceIfInactive = (key: string): void => {
+    if (!shortActive.has(key) && !longActive.has(key)) since.delete(key);
+  };
 
   for (const row of rows) {
     const report = row.outcome === "succeeded" ? parseReport(row.reportText) : null;
     const short = report?.windows.find((window) => window.kind === "short");
     if (row.outcome !== "succeeded" || short?.complete !== true) {
+      // An incomplete occurrence breaks the current streak but must not erase
+      // an item that was already activated by earlier complete windows.
       shortCounts.clear();
     } else {
       const findings = new Map(short.findings.map((finding) => [finding.key, finding] as const));
-      const keys = new Set([...shortCounts.keys(), ...findings.keys()]);
+      const keys = new Set([...shortCounts.keys(), ...shortActive, ...findings.keys()]);
       for (const key of keys) {
         const finding = findings.get(key);
         if (finding === undefined || finding.status === "resolved" || finding.status === "covered") {
           shortCounts.delete(key);
-          if (finding !== undefined) longActive.delete(key);
-          if (finding !== undefined) latest.set(key, finding);
+          shortActive.delete(key);
+          if (finding !== undefined) {
+            longActive.delete(key);
+            latest.set(key, finding);
+          }
+          clearSinceIfInactive(key);
           continue;
         }
         const previousCount = shortCounts.get(key) ?? 0;
         shortCounts.set(key, previousCount + 1);
         latest.set(key, finding);
         if (previousCount === 0) since.set(key, row.scheduledFor);
+        if (previousCount + 1 >= 2) shortActive.add(key);
       }
     }
 
@@ -106,6 +123,7 @@ export function deriveScheduleItems(
         if (finding === undefined || finding.status === "resolved" || finding.status === "covered") {
           longActive.delete(key);
           if (finding !== undefined) latest.set(key, finding);
+          clearSinceIfInactive(key);
         } else if (finding.evidenceCount >= 2) {
           const wasActive = longActive.has(key);
           longActive.add(key);
@@ -120,7 +138,7 @@ export function deriveScheduleItems(
 
   const items: ReckoningAgendaItem[] = [];
   for (const [key, finding] of latest) {
-    if ((shortCounts.get(key) ?? 0) < 2 && !longActive.has(key)) continue;
+    if (!shortActive.has(key) && !longActive.has(key)) continue;
     if (finding.status === "resolved" || finding.status === "covered") continue;
     if (finding.ownerTaskRef !== null && ownerTaskIsOpen(finding.ownerTaskRef, projection)) continue;
     items.push({

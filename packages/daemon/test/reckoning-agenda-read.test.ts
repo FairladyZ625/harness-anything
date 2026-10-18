@@ -14,10 +14,11 @@ function row(
   scheduledFor: string,
   reportText: string | null,
   outcome: "succeeded" | "failed" | "missed" = "succeeded",
+  kind: "scheduled" | "manual" = "scheduled",
 ) {
   return {
     occurrenceId: scheduledFor,
-    kind: "scheduled" as const,
+    kind,
     scheduledFor,
     claimedAt: scheduledFor,
     endedAt: scheduledFor,
@@ -52,6 +53,7 @@ function report({
   key = "delivery-witness",
   ownerTaskRef = null,
   long = false,
+  includeFinding = true,
   scheduledFor = "2026-10-14",
 } = {}) {
   const finding = {
@@ -72,8 +74,8 @@ function report({
     JSON.stringify({
       schema: "harness-reckoning/v1",
       windows: [
-        { kind: "short", complete: true, findings: [finding] },
-        ...(long ? [{ kind: "long", complete: true, findings: [finding] }] : []),
+        { kind: "short", complete: true, findings: includeFinding ? [finding] : [] },
+        ...(long ? [{ kind: "long", complete: true, findings: includeFinding ? [finding] : [] }] : []),
       ],
     }),
     "```",
@@ -123,32 +125,46 @@ test("10/14-10/17 replay promotes repeated finding once, then clears on resolved
   );
 });
 
-test("failed, missed, incomplete, and one-off mismatch break short streak without long state", () => {
-  const first = report();
-  assert.deepEqual(
-    deriveScheduleItems(
+test("failed, missed, and incomplete occurrences preserve an already activated item", () => {
+  const activated = [
+    row("2026-10-14T23:00:00Z", report()),
+    row("2026-10-15T23:00:00Z", report({ scheduledFor: "2026-10-15" })),
+  ];
+  for (const [index, outcome] of ["failed", "missed"] as const) {
+    const items = deriveScheduleItems(
       read(
-        row("2026-10-14T23:00:00Z", first),
-        row("2026-10-15T23:00:00Z", null, "failed"),
-        row("2026-10-16T23:00:00Z", first),
+        ...activated,
+        row(`2026-10-${16 + index}T23:00:00Z`, null, outcome, outcome === "missed" ? "manual" : "scheduled"),
       ),
       projection(),
-    ),
-    [],
+    );
+    assert.equal(items.length, 1, `${outcome} must preserve the active item`);
+  }
+
+  const incompleteReport = report({ scheduledFor: "2026-10-16" }).replace('"complete":true', '"complete":false');
+  const incompleteItems = deriveScheduleItems(
+    read(...activated, row("2026-10-16T23:00:00Z", incompleteReport)),
+    projection(),
   );
-  const incomplete = report();
-  const incompleteReport = incomplete.replace('"complete":true', '"complete":false');
-  assert.deepEqual(
-    deriveScheduleItems(
-      read(
-        row("2026-10-14T23:00:00Z", first),
-        row("2026-10-15T23:00:00Z", incompleteReport),
-        row("2026-10-16T23:00:00Z", first),
-      ),
-      projection(),
-    ),
-    [],
+  assert.equal(incompleteItems.length, 1, "incomplete must preserve the active item");
+});
+
+test("a complete short window without the key clears an active item", () => {
+  const cleared = read(
+    row("2026-10-14T23:00:00Z", report()),
+    row("2026-10-15T23:00:00Z", report({ scheduledFor: "2026-10-15" })),
+    row("2026-10-16T23:00:00Z", report({ includeFinding: false, scheduledFor: "2026-10-16" })),
   );
+  assert.deepEqual(deriveScheduleItems(cleared, projection()), []);
+  const reactivated = deriveScheduleItems(
+    read(
+      ...cleared.runs.map((run) => run),
+      row("2026-10-17T23:00:00Z", report({ scheduledFor: "2026-10-17" })),
+      row("2026-10-18T23:00:00Z", report({ scheduledFor: "2026-10-18" })),
+    ),
+    projection(),
+  );
+  assert.equal(reactivated[0]?.since, "2026-10-17T23:00:00Z");
 });
 
 test("long window needs two evidence points and open owner task suppresses duplicate", () => {
