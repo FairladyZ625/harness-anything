@@ -156,14 +156,17 @@ jobs:
         env:
           UPDATE_SSH_KEY: ${{ secrets.UPDATE_FEED_SSH_KEY }}
           UPDATE_SSH_USER: ${{ secrets.UPDATE_FEED_SSH_USER }}
+          UPDATE_SSH_HOST: ${{ secrets.UPDATE_FEED_SSH_HOST }}
         run: |
           set -euo pipefail
           test -n "$UPDATE_SSH_KEY" || { echo "UPDATE_FEED_SSH_KEY secret is required for feed upload" >&2; exit 1; }
           test -n "$UPDATE_SSH_USER" || { echo "UPDATE_FEED_SSH_USER secret is required for feed upload" >&2; exit 1; }
+          test -n "$UPDATE_SSH_HOST" || { echo "UPDATE_FEED_SSH_HOST secret is required for feed upload" >&2; exit 1; }
       - name: Upload beta or stable feed atomically
         env:
           UPDATE_SSH_KEY: ${{ secrets.UPDATE_FEED_SSH_KEY }}
           UPDATE_SSH_USER: ${{ secrets.UPDATE_FEED_SSH_USER }}
+          UPDATE_SSH_HOST: ${{ secrets.UPDATE_FEED_SSH_HOST }}
           CHANNEL: ${{ needs.validate.outputs.prerelease == 'true' && 'beta' || 'stable' }}
         run: |
           set -euo pipefail
@@ -171,6 +174,6 @@ jobs:
           printf '%s' "$UPDATE_SSH_KEY" > ~/.ssh/update-feed
           chmod 600 ~/.ssh/update-feed
           export RSYNC_RSH="ssh -i $HOME/.ssh/update-feed -o StrictHostKeyChecking=accept-new"
-          target="$UPDATE_SSH_USER@tencent-lighthouse-prod:/srv/harness-update/$CHANNEL/"
+          target="$UPDATE_SSH_USER@$UPDATE_SSH_HOST:/srv/harness-update/$CHANNEL/"
           rsync -av --exclude='latest*.yml' dist/release/ "$target"
           rsync -av dist/release/latest*.yml "$target"
