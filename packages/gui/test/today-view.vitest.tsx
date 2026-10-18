@@ -31,7 +31,12 @@ import type { AgentRuntimeSessionGroupsResult } from "@harness-anything/daemon/p
  *  - 空态写人话,读失败显式报错,不冒充。
  */
 const REPO_ID = "today-probe",
-  AT = "2026-10-17T01:00:00.000Z";
+  NOW_MS = Date.now(),
+  // 夹具时间相对真实 now 取值:卡住阈值与交付窗口都是 24h,绝对时间戳会在次日
+  // 凌晨越过边界让绿灯变红(2026-10-18 实测);自含显式 now 的单测保持绝对时间。
+  AT = new Date(NOW_MS - 3_600_000).toISOString(),
+  DELIVERED_AT_FIRST = new Date(NOW_MS - 7_200_000).toISOString(),
+  DELIVERED_AT_SECOND = new Date(NOW_MS - 12_600_000).toISOString();
 
 const decisionRow = (decisionId: string): AgendaDecisionRow => ({
   decisionId,
@@ -253,7 +258,7 @@ const todayElement = (patch: Partial<Parameters<typeof TodayView>[0]> = {}) =>
       },
     ].map((row, index) => ({
       ...row,
-      completedAt: index === 0 ? "2026-10-17T08:00:00.000Z" : "2026-10-17T06:30:00.000Z",
+      completedAt: index === 0 ? DELIVERED_AT_FIRST : DELIVERED_AT_SECOND,
     })) as unknown as TaskSnapshotProjectionRow[],
     onNavigateEntity: () => undefined,
     onOpenTask: () => undefined,
@@ -357,7 +362,7 @@ describe("今天:三块区域与数字", () => {
         tasks: [
           {
             taskId: "task_done_1",
-            completedAt: "2026-10-17T08:00:00.000Z",
+            completedAt: DELIVERED_AT_FIRST,
             snapshot: {
               task: { status: "done", title: "刚交付的任务一" },
               executions: [
@@ -370,7 +375,7 @@ describe("今天:三块区域与数字", () => {
           },
           {
             taskId: "task_done_2",
-            completedAt: "2026-10-17T06:30:00.000Z",
+            completedAt: DELIVERED_AT_SECOND,
             snapshot: {
               task: { status: "done", title: "刚交付的任务二" },
               executions: [
@@ -402,12 +407,12 @@ describe("今天:三块区域与数字", () => {
         tasks: [
           {
             taskId: "task_done_1",
-            completedAt: "2026-10-17T08:00:00.000Z",
+            completedAt: DELIVERED_AT_FIRST,
             snapshot: { task: { status: "done", title: "通用完成标题" } },
           },
           {
             taskId: "task_done_2",
-            completedAt: "2026-10-17T06:30:00.000Z",
+            completedAt: DELIVERED_AT_SECOND,
             snapshot: { task: { status: "done", title: "通用完成标题" } },
           },
         ] as unknown as TaskSnapshotProjectionRow[],
@@ -431,12 +436,12 @@ describe("今天:三块区域与数字", () => {
         tasks: [
           {
             taskId: "task_done_1",
-            completedAt: "2026-10-17T08:00:00.000Z",
+            completedAt: DELIVERED_AT_FIRST,
             snapshot: { task: { status: "done", title: "" } },
           },
           {
             taskId: "task_done_2",
-            completedAt: "2026-10-17T06:30:00.000Z",
+            completedAt: DELIVERED_AT_SECOND,
             snapshot: { task: { status: "done", title: "" } },
           },
         ] as unknown as TaskSnapshotProjectionRow[],
