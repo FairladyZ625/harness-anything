@@ -1,5 +1,5 @@
 import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
-import type { DecisionProviderRecord } from "@harness-anything/kernel";
+import type { DecisionProviderRecord } from "@harness-anything/daemon/protocol";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";

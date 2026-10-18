@@ -1,5 +1,5 @@
 import { useLayoutEffect, useState } from "react";
-import type { DecisionProviderRecord } from "@harness-anything/kernel";
+import type { DecisionProviderRecord } from "@harness-anything/daemon/protocol";
 import { Button } from "../primitives/Button.tsx";
 import { Field, FieldGrid } from "../primitives/Fields.tsx";
 import { Modal } from "../primitives/Modal.tsx";

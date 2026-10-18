@@ -1,4 +1,4 @@
-import type { DecisionProviderRecord } from "@harness-anything/kernel";
+import type { DecisionProviderRecord } from "@harness-anything/daemon/protocol";
 import { guiHostBridge } from "./gui-transport.ts";
 import { isRendererRecord, rendererErrorHint } from "./result-validation.ts";
 

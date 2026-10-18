@@ -721,6 +721,7 @@ export default Object.freeze({
     "W5-GUI-S3",
     "Runtime-Instances-S1",
     "Runtime-Instances-S3",
+    "Decision-Provider",
     "Fleet-Wiring",
     "B2-S1",
     "G6-A",

@@ -1,16 +1,20 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { OpenRouter } from "@openrouter/sdk";
 import type { DecisionsResponse } from "@openrouter/sdk/models";
+import { consumeKnownError } from "@harness-anything/kernel";
 import type {
   AdvisoryDecision,
   DecisionOption,
   DecisionPortFailureCode,
+  DecisionProviderMetadata,
   DecisionProviderRecord,
   DecisionQuestion,
   DecisionRequest,
+  DecisionUsage,
 } from "@harness-anything/kernel";
 import { credentialPort, isCredentialReferenceText, type CredentialPort } from "./agent-runtime-credential-port.ts";
+import { writeFileDurably } from "./durable-file.ts";
 
 const fileSchema = "decision-providers/v1" as const;
 const defaultServerUrl = "https://openrouter.ai";
@@ -81,16 +85,14 @@ export function openDecisionProviderService(input: {
         throw providerError("invalid_provider", "The stored Decisions provider file has an unsupported shape.");
       cached = parsed.providers;
     } catch (error) {
-      if (isErrorCode(error, "ENOENT")) cached = [];
-      else throw error;
+      if (!isErrorCode(error, "ENOENT")) throw error;
+      consumeKnownError(error);
+      cached = [];
     }
     return cached;
   };
   const persist = (providers: readonly DecisionProviderRecord[]): void => {
-    mkdirSync(path.dirname(target), { recursive: true });
-    const tmp = `${target}.${process.pid}.tmp`;
-    writeFileSync(tmp, `${JSON.stringify({ schema: fileSchema, providers }, null, 2)}\n`, { mode: 0o600 });
-    renameSync(tmp, target);
+    writeFileDurably(target, `${JSON.stringify({ schema: fileSchema, providers }, null, 2)}\n`, 0o600);
     cached = providers;
   };
   const requiredText = (value: unknown, field: string): string => {
@@ -468,24 +470,26 @@ function decodeDecision(
       "decision_protocol_invalid",
       "The Decisions response did not match the requested question type.",
     );
+  const providerMetadata: DecisionProviderMetadata = Object.freeze({
+    providerId: provider.providerId,
+    vendor: provider.vendor,
+    requestedModel: provider.model,
+    resolvedModel: response.model,
+    modelVersion: null,
+    providerRoute: response.provider ?? null,
+  });
+  const usage: DecisionUsage = Object.freeze({
+    inputTokens: response.usage.inputTokens,
+    outputTokens: response.usage.outputTokens,
+    reportedCost: response.usage.cost ?? null,
+  });
   const base = Object.freeze({
     disposition: "advisory" as const,
     authoritative: false as const,
     subjectRef: request.subjectRef,
     questionSetVersion: request.questionSetVersion,
-    provider: Object.freeze({
-      providerId: provider.providerId,
-      vendor: provider.vendor,
-      requestedModel: provider.model,
-      resolvedModel: response.model,
-      modelVersion: null,
-      providerRoute: response.provider ?? null,
-    }),
-    usage: Object.freeze({
-      inputTokens: response.usage.inputTokens,
-      outputTokens: response.usage.outputTokens,
-      reportedCost: response.usage.cost ?? null,
-    }),
+    provider: providerMetadata,
+    usage,
     latencyMs,
   });
   if (answer.type === "noul") {

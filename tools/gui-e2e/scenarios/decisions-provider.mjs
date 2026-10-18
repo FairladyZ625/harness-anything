@@ -10,14 +10,14 @@ async function settleDialog(page, testId) {
       scrim = surface.querySelector(".glass-scrim");
     await new Promise((resolve) => {
       const inspect = () => {
-        const contentOpacity = Number.parseFloat(getComputedStyle(content).opacity),
-          scrimOpacity = Number.parseFloat(getComputedStyle(scrim).opacity),
-          transform = getComputedStyle(content).transform,
-          offsetY = transform === "none" ? 0 : new DOMMatrixReadOnly(transform).m42;
+        const contentOpacity = Number.parseFloat(globalThis.getComputedStyle(content).opacity),
+          scrimOpacity = Number.parseFloat(globalThis.getComputedStyle(scrim).opacity),
+          transform = globalThis.getComputedStyle(content).transform,
+          offsetY = transform === "none" ? 0 : new globalThis.DOMMatrixReadOnly(transform).m42;
         if (contentOpacity >= 0.99 && scrimOpacity >= 0.99 && Math.abs(offsetY) < 0.1) resolve();
-        else requestAnimationFrame(inspect);
+        else globalThis.requestAnimationFrame(inspect);
       };
-      requestAnimationFrame(inspect);
+      globalThis.requestAnimationFrame(inspect);
     });
   });
 }

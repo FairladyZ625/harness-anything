@@ -1,6 +1,5 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
-import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import type { DecisionProviderRecord } from "@harness-anything/kernel";
+import type { DecisionProviderRecord, RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
 import {
   isAvailableAgentEntityRow,
   isAvailableSquadEntityRow,
