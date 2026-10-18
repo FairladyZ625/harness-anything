@@ -15,6 +15,7 @@ import {
   requireExecutionRequestScope,
   requireExecutionActionScope,
 } from "../src/runtime-execution-scope.ts";
+import { daemonProtocolCommands } from "../src/protocol/daemon-protocol-commands.ts";
 import { executeRepoAction } from "../src/repo-cell-action-dispatch.ts";
 import { bindVerifiedExecutorClaim } from "../src/repo-cell-authorization.ts";
 import { fakeKeycloak } from "./keycloak.fixtures.ts";
@@ -626,6 +627,37 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
       }),
     { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },
   );
+});
+
+test("every repo-read protocol command resolves through the execution request precheck", () => {
+  // The request precheck resolves every credential-bearing method through actionForDaemonMethod,
+  // so a repo-read command whose method stops resolving dies as unsupported_command before the
+  // read-only allowlist can speak (F-2B12D3CB; the protocol-registry fallback fixed it for
+  // repo.agenda.read and repo.agentRuntime.overview). Enumerate the whole class so the next
+  // branch-owned read command fails here instead of in a dispatched worker's shell.
+  const worker = principal(),
+    // The local service controls (daemon service install/status/uninstall, daemon start) borrow the
+    // handshake method as a sentinel: they never travel a daemon RPC request, so the precheck never
+    // resolves them. Everything else the CLI can name must resolve.
+    readCommands = daemonProtocolCommands.filter(
+      (command) => command.commandClass === "repo-read" && command.method !== "protocol.hello",
+    );
+  for (const command of readCommands) {
+    const kind = "actionKind" in command ? command.actionKind : command.id,
+      params = {
+        repo: { repoId: worker.repoId },
+        payload: command.method === "repo.task.run" || command.method === "repo.task.read" ? { action: { kind } } : {},
+      };
+    // CH2 (dec_CF96A3C910B31D2D7498F32DDD): a task-bound worker keeps every repository read.
+    assert.doesNotThrow(() => requireExecutionRequestScope(worker, command.method, params), command.method);
+    // The read-only dispatch narrows reads to its allowlist, but descriptor absence must never be
+    // the rejection: unsupported_command here is the exact regression class this gate guards.
+    try {
+      requireExecutionRequestScope(readOnlyPrincipal(), command.method, params);
+    } catch (error) {
+      assert.equal((error as { code?: string }).code, "execution_credential_rejected", command.method);
+    }
+  }
 });
 
 test("execution credentials keep validator sources inside the dispatched repository", async () => {
