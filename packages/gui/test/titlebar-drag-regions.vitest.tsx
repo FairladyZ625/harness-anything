@@ -50,6 +50,7 @@ it("侧栏顶行(HARNESS 行)是拖拽区并在顶部给红绿灯让位,主题�
           activeRepoId={null}
           view="home"
           hasSelection={false}
+          redesignView={null}
           poolBadgeCount={undefined}
           projectSwitcherOpen={false}
           onProjectSwitcherToggle={() => {}}

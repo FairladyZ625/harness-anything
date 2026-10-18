@@ -99,6 +99,7 @@ import { chainRepoCellWrite, repoCellTaskQueryJudgmentsFor } from "./repo-cell.t
 import { workspaceSummaryFromProjection } from "./workspace-summary-read.ts";
 import { workspaceScopeFromProjection } from "./workspace-scope-read.ts";
 import { workIndexFromProjection } from "./work-read.ts";
+import { workBriefsFromProjection } from "./work-briefs-read.ts";
 import { readCiObservatory } from "./ci-observatory-read.ts";
 import type { RepoCellOperationalContext, RepoCellSettingsState } from "./repo-cell-action-context.ts";
 import type { makeRecoveryProbe } from "./recovery-state.ts";
@@ -331,6 +332,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
       queryRead().guiTasks(taskListQueryFromPayload(payload, context.cellCodedError)),
     "repo.tasks.wip": () => readTaskWipSnapshot(context as unknown as TaskQueryCell),
     "repo.works.index": () => workIndexFromProjection(context.projection),
+    // 读者的 person id 只来自读绑定(agent 议程读同源),payload 永远不携带身份。
+    "repo.works.briefs.read": (_payload: Readonly<Record<string, unknown>>, binding?: RepoCellBinding) => {
+      const principalId = binding?.actor.principal.personId;
+      return workBriefsFromProjection({
+        projection: context.projection,
+        ...(principalId === undefined ? {} : { principalId }),
+        agendaPage: (query) => queryRead().agenda({ ...query, ...(principalId === undefined ? {} : { principalId }) }),
+        ciRuns: readCiObservatory({ rootDir: context.rootDir, projection: context.projection, window: 100 }).runs.map(
+          ({ branch, prNumber, pass, occurredAt }) => ({ branch, prNumber, pass, occurredAt }),
+        ),
+      });
+    },
     "repo.workspace.summary.read": () => workspaceSummaryFromProjection(context.projection),
     "repo.workspace.scope.read": (payload) =>
       workspaceScopeFromProjection(context.projection, {

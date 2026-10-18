@@ -78,6 +78,7 @@ function mountSidebar(
               activeRepoId="repo"
               view="home"
               hasSelection={false}
+              redesignView={null}
               poolBadgeCount={undefined}
               projectSwitcherOpen={false}
               onProjectSwitcherToggle={() => {}}

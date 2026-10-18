@@ -31,6 +31,7 @@ export const taskQueryKeys = {
   activeSlice: (repoId: string) => ["tasks", repoId, "active-slice"] as const,
   wip: (repoId: string) => ["tasks", repoId, "wip"] as const,
   works: (repoId: string) => ["tasks", repoId, "works"] as const,
+  briefs: (repoId: string) => ["tasks", repoId, "briefs"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
 };

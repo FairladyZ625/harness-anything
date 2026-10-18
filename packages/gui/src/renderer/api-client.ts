@@ -32,6 +32,7 @@ import type {
   TaskSnapshotInvalidRow,
   TaskWipRead,
   WorkIndexRead,
+  WorkBriefsRead,
   TaskCompletionRead,
   WorkspaceSummaryRead,
   WorkspaceScopeRead,
@@ -307,6 +308,13 @@ export const harnessClient = {
     const result = await invoke("repo.works.index", payload, "getWorkIndex");
     if (!result || result.schema !== "daemon.work-index/v1" || result.ok !== true || !Array.isArray(result.works))
       throw new Error(localErrorHint(result, "Work index bridge returned an invalid result."));
+    return result;
+  },
+  /** `repo.works.briefs.read`:每工作根的状态桶、分句与抽屉行,daemon 侧唯一推导。 */
+  async getWorkBriefs(payload: RepoScope): Promise<WorkBriefsRead> {
+    const result = await invoke("repo.works.briefs.read", payload, "getWorkBriefs");
+    if (!result || result.schema !== "daemon.work-briefs/v1" || result.ok !== true || !Array.isArray(result.briefs))
+      throw new Error(localErrorHint(result, "Work briefs bridge returned an invalid result."));
     return result;
   },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
