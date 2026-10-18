@@ -51,7 +51,7 @@ export function createDaemonHostRuntimeApi(
   | "fleet"
   | "system"
   | "runtimeInstance"
-  | "provider"
+  | "decisionProvider"
   | "runtimeInstanceAuth"
 > {
   // Runtime orchestration (bounded batch window) is a host-level composer of
@@ -465,7 +465,7 @@ export function createDaemonHostRuntimeApi(
         authorizationDecision: authorizationDecision as unknown as JsonObject,
       } as JsonObject;
     },
-    provider: async (method, payload, auth) => {
+    decisionProvider: async (method, payload, auth) => {
       context.localOnly(auth);
       const operation = method.replace("daemon.provider.", ""),
         actionKind = ["create", "list", "show", "update", "probe", "delete"].includes(operation)

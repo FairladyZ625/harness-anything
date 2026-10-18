@@ -122,7 +122,11 @@ export interface DaemonHost {
     payload: JsonObject,
     auth: DaemonAuthenticationContext,
   ) => Promise<JsonObject>;
-  readonly provider: (method: string, payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<JsonObject>;
+  readonly decisionProvider: (
+    method: string,
+    payload: JsonObject,
+    auth: DaemonAuthenticationContext,
+  ) => Promise<JsonObject>;
   readonly requestControl: (payload: JsonObject, auth: DaemonAuthenticationContext) => Promise<DaemonControlReceipt>;
   readonly controlReceipt: (operationId: string, auth: DaemonAuthenticationContext) => DaemonControlReceipt;
   readonly issueRuntimeWitness: (

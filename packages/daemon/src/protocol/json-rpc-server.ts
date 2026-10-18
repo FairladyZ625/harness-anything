@@ -449,7 +449,10 @@ export function createJsonRpcProtocolServer(options: {
     }
     if (isProviderCall(call)) {
       try {
-        return reply(call.method, await options.host.provider(call.method, call.params.payload, options.authContext));
+        return reply(
+          call.method,
+          await options.host.decisionProvider(call.method, call.params.payload, options.authContext),
+        );
       } catch (error) {
         return reply(call.method, protocolFailure(call.method, error));
       }
