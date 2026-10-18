@@ -119,12 +119,12 @@ export interface AccessSessionLifetimeReply {
   readonly maximumSeconds: number;
 }
 
-/** One signed edge invitation. The main process encodes the daemon's link struct into the
- * `harness-edge://join/…` string here, so the token crosses into the renderer exactly once. */
+/** One signed edge invitation, in the closed form the daemon replies with. The link is the
+ * encoded `harness-edge://join/…` string — the only place the token exists — so it crosses to
+ * the renderer exactly once and is never present as a second struct copy. */
 export interface EdgeJoinIssued {
   readonly joinId: string;
   readonly state: "pending";
-  readonly expiresAt: string;
   readonly inviteLink: string;
 }
 
@@ -190,11 +190,11 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
       readonly expectedVersion: string;
     }
   | {
-      /** Signs one edge invitation on the daemon's single-writer path; the encoded link is shown once. */
+      /** Signs one edge invitation on the daemon's single-writer path; the daemon reads its own
+       * listener certificate to compute the pin, and the encoded link is shown once. */
       readonly operation: "edge-join-create";
       readonly nodeId: string;
-      readonly centerUrl: string;
-      readonly spkiSha256: string;
+      readonly centerUrl?: string;
     }
   | { readonly operation: "edge-join-status"; readonly inviteId: string }
 );
@@ -268,10 +268,6 @@ export interface AccessAdminApi {
     readonly sessionLifetimeSeconds: number;
     readonly expectedVersion: string;
   }) => Reply<AccessReceipt>;
-  readonly issueEdgeJoin: (input: {
-    readonly nodeId: string;
-    readonly centerUrl: string;
-    readonly spkiSha256: string;
-  }) => Reply<EdgeJoinIssued>;
+  readonly issueEdgeJoin: (input: { readonly nodeId: string; readonly centerUrl?: string }) => Reply<EdgeJoinIssued>;
   readonly edgeJoinStatus: (input: { readonly inviteId: string }) => Reply<EdgeJoinStatusReply>;
 }

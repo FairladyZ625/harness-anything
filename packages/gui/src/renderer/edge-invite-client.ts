@@ -10,11 +10,7 @@ import { isRendererRecord, rendererReadError } from "./result-validation.ts";
  */
 
 type AccessBridge = {
-  readonly issueEdgeJoin: (input: {
-    readonly nodeId: string;
-    readonly centerUrl: string;
-    readonly spkiSha256: string;
-  }) => Promise<unknown>;
+  readonly issueEdgeJoin: (input: { readonly nodeId: string; readonly centerUrl?: string }) => Promise<unknown>;
   readonly edgeJoinStatus: (input: { readonly inviteId: string }) => Promise<unknown>;
 };
 
@@ -26,8 +22,7 @@ function accessBridge(): AccessBridge {
 
 export async function issueEdgeJoin(input: {
   readonly nodeId: string;
-  readonly centerUrl: string;
-  readonly spkiSha256: string;
+  readonly centerUrl?: string;
 }): Promise<EdgeJoinIssued> {
   return readIssued(await accessBridge().issueEdgeJoin(input));
 }
@@ -37,16 +32,15 @@ export function readIssued(value: unknown): EdgeJoinIssued {
     !isRendererRecord(value) ||
     value.ok !== true ||
     typeof value.joinId !== "string" ||
-    typeof value.expiresAt !== "string" ||
-    typeof value.inviteLink !== "string" ||
-    !value.inviteLink.startsWith("harness-edge://join/")
+    value.state !== "pending" ||
+    typeof value.link !== "string" ||
+    !value.link.startsWith("harness-edge://join/")
   )
     throw rendererReadError(value, "Edge join creation returned an invalid result.");
   return {
     joinId: value.joinId,
     state: "pending",
-    expiresAt: value.expiresAt,
-    inviteLink: value.inviteLink,
+    inviteLink: value.link,
   };
 }
 

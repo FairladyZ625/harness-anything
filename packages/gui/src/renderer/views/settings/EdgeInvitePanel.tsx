@@ -12,11 +12,12 @@ import { StatusTag } from "../../components/primitives/StatusTag.tsx";
 import { formatTime } from "../../model/time.ts";
 
 /**
- * 中心节点的「邀请边缘节点」入口(task gui-edge-invite):节点名 + 中心地址 + 证书指纹
- * 交给 daemon 的 edge-join-create 签发——GUI 不另写签发逻辑,授权与序列化都在 daemon。
- * 链接是凭据:inviteLink 只存在于本组件内存,「完成」即从 DOM 与内存清除;会话内保留的
- * 行只有 joinId/nodeId/有效期与状态,状态轮询按 inviteId 查,链接不需要在场。
- * 中心地址与指纹是公开事实(随每份邀请发给边缘),留在表单里方便批量签发。
+ * 中心节点的「邀请边缘节点」入口(task gui-edge-invite):节点名交给 daemon 的
+ * edge-join-create 签发——GUI 不另写签发逻辑,授权与序列化都在 daemon,证书指纹也由
+ * daemon 读自己的监听证书算出,这里没有指纹输入。链接是凭据:inviteLink 只存在于本组件
+ * 内存,「完成」即从 DOM 与内存清除;会话内保留的行只有 joinId/nodeId 与状态,状态轮询
+ * 按 inviteId 查(有效期也来自状态回执),链接不需要在场。中心地址留空时由 daemon 按监听
+ * 配置推导,填写即覆盖,表单里保留方便批量签发。
  */
 
 const INPUT_CLASS = [
@@ -27,7 +28,6 @@ const INPUT_CLASS = [
 interface IssuedInvite {
   readonly joinId: string;
   readonly nodeId: string;
-  readonly expiresAt: string;
   /** 只在签出到「完成」之间存在;关掉就再也取不出来。 */
   inviteLink?: string;
 }
@@ -37,7 +37,6 @@ const statusTone = { pending: "wait", consumed: "done", expired: "bad" } as cons
 export function EdgeInvitePanel() {
   const [nodeId, setNodeId] = useState(""),
     [centerUrl, setCenterUrl] = useState(""),
-    [spkiSha256, setSpkiSha256] = useState(""),
     [feedback, setFeedback] = useState<string | null>(null),
     [invites, setInvites] = useState<readonly IssuedInvite[]>([]),
     [statuses, setStatuses] = useState<Readonly<Record<string, EdgeJoinStatusReply>>>({});
@@ -65,15 +64,14 @@ export function EdgeInvitePanel() {
 
   const submit = () => {
     setFeedback(null);
-    if (nodeId.trim().length === 0 || centerUrl.trim().length === 0 || spkiSha256.trim().length === 0) {
+    if (nodeId.trim().length === 0) {
       setFeedback(t("views.repositories.inviteFieldsRequired"));
       return;
     }
     issue.mutate(
       {
         nodeId: nodeId.trim(),
-        centerUrl: centerUrl.trim(),
-        spkiSha256: spkiSha256.trim(),
+        ...(centerUrl.trim() ? { centerUrl: centerUrl.trim() } : {}),
       },
       {
         onSuccess: (issued) => {
@@ -81,12 +79,11 @@ export function EdgeInvitePanel() {
             {
               joinId: issued.joinId,
               nodeId: nodeId.trim(),
-              expiresAt: issued.expiresAt,
               inviteLink: issued.inviteLink,
             },
             ...current,
           ]);
-          // 中心两事实留给下一张邀请;只有节点名需要重填。
+          // 中心地址是可选覆盖,留给下一张邀请;只有节点名需要重填。
           setNodeId("");
         },
         onError: (error) => {
@@ -130,16 +127,6 @@ export function EdgeInvitePanel() {
           onChange={(event) => setCenterUrl(event.target.value)}
         />
       </Row>
-      <Row label={t("views.repositories.inviteSpkiLabel")} desc={t("views.repositories.inviteSpkiHint")}>
-        <input
-          data-testid="edge-invite-spki"
-          aria-label={t("views.repositories.inviteSpkiLabel")}
-          className={INPUT_CLASS}
-          placeholder="sha256:…"
-          value={spkiSha256}
-          onChange={(event) => setSpkiSha256(event.target.value)}
-        />
-      </Row>
       {feedback ? (
         <p data-testid="edge-invite-feedback" className="px-3 py-2 ui-meta text-status-blocked">
           {feedback}
@@ -167,10 +154,12 @@ export function EdgeInvitePanel() {
                     ) : (
                       <span className="ui-micro text-text-faint">{t("views.repositories.inviteStatusUnknown")}</span>
                     )}
-                    <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
-                      {t("views.repositories.inviteExpires")}
-                      {formatTime(invite.expiresAt, { style: "date-time" }) ?? invite.expiresAt}
-                    </span>
+                    {status ? (
+                      <span className="ml-auto shrink-0 font-mono ui-micro text-text-faint">
+                        {t("views.repositories.inviteExpires")}
+                        {formatTime(status.expiresAt, { style: "date-time" }) ?? status.expiresAt}
+                      </span>
+                    ) : null}
                   </div>
                   {invite.inviteLink ? (
                     <div data-testid={`edge-invite-link-${invite.nodeId}`} className="flex flex-col gap-1">
