@@ -701,3 +701,54 @@ test("runtime update still rejects empty values, empty model lists, and secret-l
       /secret-like/u,
     );
 });
+
+test("Decisions Provider credentials cross preload only as a top-level API key", () => {
+  assert.equal(
+    assertPreloadPayload("createDecisionProvider", {
+      type: "decisions",
+      providerId: "decision-a",
+      name: "Decision A",
+      model: "openai/model-a",
+      apiKey: "fixture-key",
+      enabled: true,
+    }),
+    true,
+  );
+  assert.equal(
+    assertPreloadPayload("updateDecisionProvider", { providerId: "decision-a", name: "Updated", apiKey: "new-key" }),
+    true,
+  );
+  assert.throws(
+    () =>
+      assertPreloadPayload("createDecisionProvider", {
+        type: "llm",
+        providerId: "decision-a",
+        name: "A",
+        model: "m",
+        apiKey: "key",
+      }),
+    /Only Decisions API providers/u,
+  );
+  assert.throws(
+    () =>
+      assertPreloadPayload("createDecisionProvider", {
+        type: "decisions",
+        providerId: "decision-a",
+        name: "Decision A",
+        model: "openai/model-a",
+        credential: { apiKey: "nested-key" },
+      }),
+    /secret-like/u,
+  );
+  assert.throws(
+    () =>
+      assertPreloadPayload("createDecisionProvider", {
+        type: "decisions",
+        providerId: "decision-a",
+        name: "Decision A",
+        model: "openai/model-a",
+        unexpected: true,
+      }),
+    /unexpected fields/u,
+  );
+});

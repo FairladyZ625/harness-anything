@@ -2,6 +2,7 @@ import myDevices from "./scenarios/my-devices.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
 import providerProjectAccess from "./scenarios/provider-project-access.mjs";
+import decisionsProvider from "./scenarios/decisions-provider.mjs";
 import deviceLoginApproval from "./scenarios/device-login-approval.mjs";
 import accountLogin from "./scenarios/account-login.mjs";
 import taskAssignment from "./scenarios/task-assignment.mjs";
@@ -61,6 +62,7 @@ export const catalog = [
   runtimeHandoff,
   agentRuntimeEffort,
   providerProjectAccess,
+  decisionsProvider,
   accountLogin,
   deviceLoginApproval,
   taskAssignment,

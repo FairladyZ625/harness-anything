@@ -96,6 +96,7 @@ import type { DaemonHostApiContext, DaemonHostRegistryContext } from "./daemon-h
 import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
+import { openDecisionProviderService } from "./decision-provider.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -182,6 +183,18 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       resolveCredential: vault.resolve,
     }),
     instances = { ...instanceStore, ...runtimeInstanceCredentialService(instanceStore, vault) },
+    decisionProviders = openDecisionProviderService({
+      userRoot: input.userRoot,
+      vault,
+      isCredentialInUse: (reference) =>
+        instanceStore
+          .list()
+          .some(
+            (config) =>
+              (config.auth.mode === "api-key" && config.auth.credentialRef === reference) ||
+              Object.values(config.hostingCredentialRefs ?? {}).includes(reference),
+          ),
+    }),
     runtimePorts = {
       runtimeInstances: instances.listPublic,
       runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
@@ -695,6 +708,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     scheduleScheduler,
     edgeRuntimeFor,
     instances,
+    decisionProviders,
     requiredText,
     point,
     controls,

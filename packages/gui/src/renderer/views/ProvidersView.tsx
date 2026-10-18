@@ -1,4 +1,5 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
+import type { DecisionProviderRecord } from "@harness-anything/kernel";
 import { isAvailableAgentEntityRow } from "../agent-entity-client.ts";
 import { t } from "../i18n/index.tsx";
 import { ActionError } from "../components/runtime/ActionError.tsx";
@@ -15,6 +16,14 @@ import { Button } from "../components/primitives/Button.tsx";
 import { runtimeAuthPresentation } from "../runtime-auth-presentation.ts";
 import { runtimeSelectionFromRef, useProviderWorkspace } from "../components/runtime/useRuntimeWorkspace.ts";
 import { useSettingsMutation, useSettingsQuery } from "../settings-data.ts";
+import {
+  DecisionProviderDetail,
+  DecisionProviderDialog,
+  ProviderTypeDialog,
+  type ProviderEntryType,
+} from "../components/runtime/DecisionProviderPanel.tsx";
+import type { DecisionProviderCreateInput, DecisionProviderUpdateInput } from "../decision-provider-client.ts";
+import { useDecisionProviderCatalog, useDecisionProviderMutations } from "../decision-provider-data.ts";
 
 // Provider 入口(W6 IA 拆分):承运者(Runtime 实例)的完整工作区——目录 rail、
 // 实例卡片(编辑/auth/self-test/权限/删除)与右栏 health。live 计数取 overview 的
@@ -83,9 +92,20 @@ export function ProvidersWorkspace({
 }) {
   const refSelection = runtimeSelectionFromRef(focusedEntityRef);
   const refId = refSelection?.type === "runtime" ? refSelection.id : null;
-  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行 =
-  // 推栈选中引用进详情、全局后退/返回键弹回目录;宽容器常驻双栏,该状态不参与。
-  const narrow = useCatalogDetailPane(refId);
+  const decisionCatalog = useDecisionProviderCatalog(),
+    decisionMutations = useDecisionProviderMutations();
+  const [decisionSelection, setDecisionSelection] = useState<string | null>(null),
+    [typeDialog, setTypeDialog] = useState(false),
+    [decisionEditor, setDecisionEditor] = useState<{
+      readonly open: boolean;
+      readonly provider: DecisionProviderRecord | null;
+    }>({
+      open: false,
+      provider: null,
+    }),
+    [decisionError, setDecisionError] = useState<string | null>(null);
+  useEffect(() => setDecisionSelection(null), [focusedEntityRef]);
+  const decisionProviders = decisionCatalog.data ?? [];
   const workspace = useProviderWorkspace(repoId, refId);
   const settings = useSettingsQuery(repoId),
     settingsMutation = useSettingsMutation(repoId);
@@ -93,15 +113,26 @@ export function ProvidersWorkspace({
     [inspector, setInspector] = useState(true);
   const installations = workspace.machine.data?.installations ?? [];
   const instances = workspace.instances;
+  const decisionSelectionId =
+      decisionSelection !== null && decisionProviders.some(({ providerId }) => providerId === decisionSelection)
+        ? decisionSelection
+        : refId === null && !workspace.machine.isPending && instances.length === 0 && decisionProviders.length > 0
+          ? decisionProviders[0]!.providerId
+          : null,
+    decisionProvider = decisionProviders.find(({ providerId }) => providerId === decisionSelectionId) ?? null;
+  // 窄容器(内容区 <720px,styles.css .catalog-split)的单列形态:目录全宽、点行进详情;
+  // Runtime 深链与 Decisions 本地选择都驱动同一详情布局。
+  const narrow = useCatalogDetailPane(refId ?? decisionSelectionId);
   const allowedInstances = Array.isArray(settings.data?.settings.runtime?.allowedInstances)
     ? settings.data.settings.runtime.allowedInstances
     : [];
   // 深链指向的实例可能已被删除(或仍在读取):存在才采用,否则回落目录首项(异常置顶后的
   // 第一项,标准 §2.5)——派生选择,不写回导航栈。
-  const selectedId =
+  const runtimeSelectedId =
     refId !== null && instances.some((candidate) => candidate.instanceId === refId)
       ? refId
       : (orderProviderRows(instances, workspace.authProbeStates, allowedInstances)[0]?.instance.instanceId ?? null);
+  const selectedId = decisionSelectionId === null ? runtimeSelectedId : null;
   const instance =
     selectedId === null ? null : (instances.find((candidate) => candidate.instanceId === selectedId) ?? null);
   // 乐观并发令牌 = settings read 的 singleton 行修订(与写路径同源);lastChanged 只作归因展示。
@@ -141,7 +172,7 @@ export function ProvidersWorkspace({
           })}
         </p>
       )}
-      {workspace.feedback && !workspace.error && (
+      {workspace.feedback && !workspace.error && !decisionError && (
         <p
           role="status"
           onClick={workspace.clearFeedback}
@@ -153,23 +184,83 @@ export function ProvidersWorkspace({
       <CatalogSplit detailOpen={narrow.detailOpen}>
         <ProviderRail
           instances={instances}
+          decisionProviders={decisionProviders}
           authProbeStates={workspace.authProbeStates}
           selectedId={selectedId}
+          selectedDecisionProviderId={decisionSelectionId}
           liveByInstance={workspace.liveByInstance}
           allowedInstanceIds={allowedInstances}
-          onSelect={(instanceId) => onSelectEntity(`provider/${instanceId}`)}
-          onNew={() => setDialog(true)}
+          onSelect={(instanceId) => {
+            setDecisionSelection(null);
+            onSelectEntity(`provider/${instanceId}`);
+          }}
+          onSelectDecisionProvider={setDecisionSelection}
+          onNew={() => setTypeDialog(true)}
         />
         <main
           data-testid="providers-detail"
           data-pane="detail"
           className="min-w-0 flex-1 overflow-y-auto px-4 pt-3.5 pb-6"
         >
-          <CatalogBackButton testId="providers-back-to-list" onBack={onBack} />
-          {instance === null ? (
+          <CatalogBackButton
+            testId="providers-back-to-list"
+            onBack={() => {
+              if (decisionSelectionId !== null) setDecisionSelection(null);
+              else onBack();
+            }}
+          />
+          {decisionCatalog.error ? (
+            <p role="alert" data-testid="decision-provider-read-error" className="mb-3 ui-micro text-status-blocked">
+              {t("decisionProvider.readFailed", {
+                error:
+                  decisionCatalog.error instanceof Error
+                    ? decisionCatalog.error.message
+                    : String(decisionCatalog.error),
+              })}
+            </p>
+          ) : null}
+          {decisionError ? (
+            <ActionError>{t("decisionProvider.operationFailed", { error: decisionError })}</ActionError>
+          ) : null}
+          {decisionProvider !== null ? (
+            <DecisionProviderDetail
+              provider={decisionProvider}
+              busy={decisionMutations.busy}
+              onEdit={() => setDecisionEditor({ open: true, provider: decisionProvider })}
+              onProbe={() => {
+                setDecisionError(null);
+                void decisionMutations.probe
+                  .mutateAsync(decisionProvider.providerId)
+                  .catch((cause: unknown) => setDecisionError(cause instanceof Error ? cause.message : String(cause)));
+              }}
+              onSetEnabled={(enabled) => {
+                setDecisionError(null);
+                void decisionMutations.update
+                  .mutateAsync({ providerId: decisionProvider.providerId, enabled })
+                  .catch((cause: unknown) => setDecisionError(cause instanceof Error ? cause.message : String(cause)));
+              }}
+              onDelete={() => {
+                setDecisionError(null);
+                void decisionMutations.remove
+                  .mutateAsync(decisionProvider.providerId)
+                  .then(() => {
+                    setDecisionSelection(null);
+                  })
+                  .catch((cause: unknown) => setDecisionError(cause instanceof Error ? cause.message : String(cause)));
+              }}
+            />
+          ) : instance === null ? (
             <>
               {workspace.error ? <ActionError>{workspace.error}</ActionError> : null}
-              <Empty>{t(workspace.machine.isPending ? "agentRuntime.loading" : "agentRuntime.emptyProviders")}</Empty>
+              <Empty>
+                {t(
+                  decisionCatalog.isPending
+                    ? "decisionProvider.loading"
+                    : workspace.machine.isPending
+                      ? "agentRuntime.loading"
+                      : "agentRuntime.emptyProviders",
+                )}
+              </Empty>
             </>
           ) : (
             <>
@@ -234,7 +325,7 @@ export function ProvidersWorkspace({
             </>
           )}
         </main>
-        {inspector && (
+        {inspector && decisionSelectionId === null && (
           <ProviderInspector
             instance={instance}
             probeState={selectedId === null ? undefined : workspace.authProbeStates.get(selectedId)}
@@ -258,6 +349,32 @@ export function ProvidersWorkspace({
               onSelectEntity(`provider/${input.instanceId}`);
             }
           });
+        }}
+      />
+      <ProviderTypeDialog
+        open={typeDialog}
+        onClose={() => setTypeDialog(false)}
+        onChoose={(type: ProviderEntryType) => {
+          setTypeDialog(false);
+          if (type === "llm") setDialog(true);
+          else {
+            setDecisionError(null);
+            setDecisionEditor({ open: true, provider: null });
+          }
+        }}
+      />
+      <DecisionProviderDialog
+        open={decisionEditor.open}
+        provider={decisionEditor.provider}
+        busy={decisionMutations.busy}
+        onClose={() => setDecisionEditor({ open: false, provider: null })}
+        onSubmit={async (input: DecisionProviderCreateInput | DecisionProviderUpdateInput) => {
+          const saved =
+            "type" in input
+              ? await decisionMutations.create.mutateAsync(input)
+              : await decisionMutations.update.mutateAsync(input);
+          setDecisionSelection(saved.providerId);
+          setDecisionEditor({ open: false, provider: null });
         }}
       />
       {workspace.settlement && (

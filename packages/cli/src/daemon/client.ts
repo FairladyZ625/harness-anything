@@ -186,7 +186,7 @@ export async function runCommandThroughDaemon(
       return receipt;
     return awaitDeviceLogin(receipt, request, onPhase);
   }
-  if (command.method.startsWith("daemon.runtimeInstance.")) {
+  if (command.method.startsWith("daemon.runtimeInstance.") || command.method.startsWith("daemon.provider.")) {
     const userRoot = daemonUserRoot(env),
       daemonId = daemonIdFromEnv(env),
       { kind: _kind, ...inputPayload } = command.action,

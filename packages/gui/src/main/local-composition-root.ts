@@ -195,7 +195,9 @@ const SESSION_AUTH_TIMEOUT_MS = 1_000;
 
 function requestTimeoutMs(route: ShippedGuiRoute, payload: JsonObject, timeouts: GuiRequestTimeouts): number {
   if (
-    ["createRuntimeInstance", "updateRuntimeInstance"].includes(route.guiBridgeMethod) &&
+    ["createRuntimeInstance", "updateRuntimeInstance", "createDecisionProvider", "updateDecisionProvider"].includes(
+      route.guiBridgeMethod,
+    ) &&
     payload.apiKey !== undefined
   )
     return INSTANCE_KEY_TIMEOUT_MS;

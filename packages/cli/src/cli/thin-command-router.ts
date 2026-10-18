@@ -10,6 +10,7 @@ import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-com
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
+import { parseProvider } from "./thin-command-provider.ts";
 import { parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -193,6 +194,7 @@ export function parseRouted(
       : parseGraph(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "runtime" && route.path[1] === "instance")
     return parseRuntimeInstance(route, args, rootDir, repoId, json, inputs);
+  if (rootCommand === "provider") return parseProvider(route, args, rootDir, json, inputs);
   if (rootCommand === "runtime") return parseRuntime(route, args, rootDir, repoId, json, inputs);
   if (route.id === "agent-run") return parseAgentRun(route, args, rootDir, repoId, json, inputs);
   if (rootCommand === "schedule") return parseSchedule(route, args, rootDir, repoId, json, inputs);

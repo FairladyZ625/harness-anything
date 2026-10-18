@@ -12,6 +12,7 @@ export type {
   SquadDeclarationV1,
 } from "./daemon-protocol-gui-types.ts";
 export type * from "./daemon-protocol-gui-types.ts";
+export type { DecisionProviderProbe, DecisionProviderRecord } from "@harness-anything/kernel";
 export type * from "./daemon-protocol-task-completion.ts";
 export type * from "./daemon-settings-read-types.ts";
 export { daemonGuiActionMethods, daemonGuiInvokeFacets, daemonGuiStreamFacets } from "./daemon-protocol-gui-actions.ts";
