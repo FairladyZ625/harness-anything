@@ -125,7 +125,7 @@ current blocker codes:
 | `closeout_placeholder` | the closeout is still scaffolding |
 | `review_missing` | no approved Review |
 | `consent_missing` | no review-consent record |
-| `ci_missing` | the contract declares `ci` but no witnessed green run (`settings.ci.workflows`; collected automatically by `builtin-ci-observe`) |
+| `delivery_missing` | repository settings require merged code delivery, but its recorded merge commit is absent from the configured target branch; legacy frozen `ci` gates use the same read-only merge evidence |
 | `code_doc_missing` | the contract declares `code-doc-reconciliation` but no verified witness (`ha task code-doc reconcile`) |
 | `gate_witness_missing` | a canonical checker witness for another declared gate is missing |
 | `decision_lineage_missing` | the load-bearing decision lineage is not closed |

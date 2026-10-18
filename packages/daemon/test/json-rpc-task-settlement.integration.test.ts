@@ -2,18 +2,15 @@
 import { readDispatchStreamHeaders } from "../src/dispatch-stream.ts";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import test, { after, before } from "node:test";
+import test from "node:test";
 import { fleetNodeOwners } from "./fleet-store.fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
-import { fetchCiObservations, ingestCiObservations } from "../src/ci-observation-actions.ts";
 import {
   canonicalEventWritePlan,
-  ciRunObservationWritePlan,
   makeTaskEventReader,
   makeTaskEventStore,
   makeTaskProjection,
@@ -38,20 +35,6 @@ import { realizedDecisionBody, realizeTaskPlanFixture } from "../../../tools/fix
 import { openRepoCell as openProductRepoCell } from "../src/repo-cell.ts";
 import { openBootstrappedRepoCell as openRepoCell, seedSettingsEvent } from "./repo-settings.fixture.ts";
 import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
-const ciBin = mkdtempSync(path.join(tmpdir(), "ha-protocol-ci-")),
-  originalPath = process.env.PATH;
-before(() => {
-  writeFileSync(
-    path.join(ciBin, "gh"),
-    "#!/usr/bin/env node\nrequire('fs').appendFileSync(require('path').join(__dirname, 'invocations'), 'gh\\n');\nprocess.stdout.write('[]');\n",
-    { mode: 0o755 },
-  );
-  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
-});
-after(() => {
-  process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
-});
 function assertValidWriteReceipt(value: unknown): void {
   assert.equal(typeof value, "object");
   assert.notEqual(value, null);
@@ -132,41 +115,39 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       ).outcome,
       "applied",
     );
-    const beforeMissingCi = store().read().revision,
-      ciInvocations = () => existsSync(path.join(ciBin, "invocations")) ? readFileSync(path.join(ciBin, "invocations"), "utf8") : "",
-      invocationsBefore = ciInvocations(),
-      missingCi = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
+    const beforeMissingMerge = store().read().revision,
+      missingMerge = (await cell.run({ kind: "task-complete", taskId, executionId }, binding)) as unknown as Record<
         string,
         unknown
       >;
     assert.deepEqual(
-      { outcome: missingCi.outcome, code: missingCi.code, steps: missingCi.steps },
-      { outcome: "op_rejected", code: "ci_missing", steps: [] },
+      { outcome: missingMerge.outcome, code: missingMerge.code, steps: missingMerge.steps },
+      { outcome: "op_rejected", code: "delivery_missing", steps: [] },
     );
     assert.equal(
-      (missingCi.next as readonly { readonly action: string }[])[0]?.action,
-      `Wait for the center CI observer to import the workflow witness; ha task ci ${taskId} reports its progress.`,
+      (missingMerge.next as readonly { readonly action: string }[])[0]?.action,
+      `Merge the delivery into origin/main, then run ha task complete ${taskId}.`,
     );
-    assert.deepEqual(store().read().events.slice(beforeMissingCi), [], "missing CI must return guidance without starting or waiting for a CI Schedule occurrence");
-    assert.equal(ciInvocations(), invocationsBefore, "completion must not invoke GitHub when its witness is absent");
+    assert.deepEqual(store().read().events.slice(beforeMissingMerge), [], "an unmerged delivery returns guidance without writing a completion");
     assert.equal(
       store()
         .read()
         .events.some((event) => event.type === "task_completed" && event.taskId === taskId),
       false,
-      "ci_missing must leave the task outside done",
+      "an unmerged delivery must leave the task outside done",
     );
-    await publishCiObservation("completion-facade", rootDir, executionId, commitSha, "run-completion-facade");
+    await markMerged(cell, rootDir, "completion-facade", taskId, executionId, commitSha, binding);
     const beforeReviewBlock = store().read().revision,
       missingReview = await cell.run({ kind: "task-complete", taskId, executionId }, binding) as unknown as Record<string, unknown>;
     assert.deepEqual({ outcome: missingReview.outcome, code: missingReview.code }, { outcome: "op_rejected", code: "review_missing" });
-    assert.deepEqual(store().read().events.filter((event) => event.workspaceRevision > beforeReviewBlock).map((event) => event.type), ["completion_gate_verified"]);
+    // The retired CI gate is derived from merge evidence and must not publish a copied observation event.
+    assert.deepEqual(store().read().events.filter((event) => event.workspaceRevision > beforeReviewBlock).map((event) => event.type), []);
     assert.deepEqual(missingReview.steps, []);
-    assert.equal(store().read().revision, beforeReviewBlock + 1);
+    assert.equal(store().read().revision, beforeReviewBlock);
     const reviewBinding = (id: string) => withPolicyGroup({ actor: { principal: { personId: `person-${id}` }, executor: { kind: "agent" as const, id } }, source: "local" as const }, "maintainer");
     const recordReview = async (reviewId: string, verdict: "approved" | "dismissed") => { writeFileSync(path.join(rootDir, "review.json"), JSON.stringify({ verdict, reason: `${reviewId} ${verdict}.`, evidenceChecked: ["tests"] })); const reportPath = `${packagePath}/artifacts/reports/${reviewId.replace(/^review-/u, "")}.md`; mkdirSync(path.join(rootDir, "harness", packagePath, "artifacts", "reports"), { recursive: true }); writeFileSync(path.join(rootDir, "harness", reportPath), `# Review ${reviewId}\n\nPhysical review findings.\n`); assert.equal((await cell!.run({ kind: "doc-submit", paths: [reportPath] }, binding)).outcome, "applied"); const receipt = await cell!.run({ kind: "task-review-execution", taskId, executionId, reviewId, fromFile: "review.json" }, reviewBinding(reviewId)); assert.equal(receipt.outcome, "applied", JSON.stringify(receipt)); const visible = await waitForAcceptedReceipt(cell!, receipt, binding); assert.equal(visible.wait?.state, "satisfied", JSON.stringify(visible)); return receipt; };
     await recordReview("review-dismissed", "dismissed");
-    assert.match(readFileSync(path.join(rootDir, "harness", `${packagePath}/INDEX.md`), "utf8"), /ha task dispatch-review/u, "a dismissed Review must leave the execution awaiting review");
+    assert.match(String((await cell.read("repo.tasks.completion.read", { taskId })).completionNext.action), /ha task dispatch-review/u, "a dismissed Review must leave the execution awaiting review");
     await recordReview("review-unselected", "approved");
     await recordReview("review-complete", "approved");
     const reviewEvents = store().read().events.filter((event) => event.type === "review_recorded"); assert.deepEqual(reviewEvents.map((event) => event.payload.review.reviewId), ["review-dismissed", "review-unselected", "review-complete"]);
@@ -221,7 +202,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     );
     const completeEvent = store().readEvent(String(completed.opId)); assert.equal(completeEvent?.type, "task_completed"); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(store().read().events.filter((event) => event.type !== "task_completed").every((event) => event.schema !== "task-event/v1" || event.payload.task.status !== "done"), true); const revision = store().read().revision, repeated = await cell.run({ kind: "task-complete", taskId, executionId }, binding); assert.equal(repeated.opId, completed.opId); assert.equal(store().read().revision, revision);
     const completedShow = JSON.parse(String((await cell.run({ kind: "task-show", taskId }, binding)).evidence)) as { task: { status: string; currentNode: string } }, completedList = JSON.parse(String((await cell.run({ kind: "task-list" }, binding)).evidence)) as { rows: { taskId: string; status: string }[] }; assert.deepEqual({ status: completedShow.task.status, currentNode: completedShow.task.currentNode }, { status: "done", currentNode: "review" }); assert.equal(completedList.rows.find((row) => row.taskId === taskId)?.status, "done");
-    await cell.close(); cell = undefined; const rebuilt = makeTaskProjection({ rootDir, eventStore: store() }); rebuilt.close(); rmSync(rebuilt.path, { force: true }); rebuilt.rebuild(); assert.equal(rebuilt.read(taskId).snapshot.task?.status, "done"); assert.equal(rebuilt.read(taskId).snapshot.task?.currentNode, "review"); assert.equal(rebuilt.read(taskId).snapshot.gateWitnesses.length, 1); rebuilt.close();
+    await cell.close(); cell = undefined; const rebuilt = makeTaskProjection({ rootDir, eventStore: store() }); rebuilt.close(); rmSync(rebuilt.path, { force: true }); rebuilt.rebuild(); assert.equal(rebuilt.read(taskId).snapshot.task?.status, "done"); assert.equal(rebuilt.read(taskId).snapshot.task?.currentNode, "review"); assert.equal(rebuilt.read(taskId).snapshot.gateWitnesses.length, 0); rebuilt.close();
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 // prettier-ignore
@@ -230,8 +211,8 @@ test("CompleteTask response loss settles by stable receipt and never publishes a
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-unknown-")), taskId = "task-unknown-complete", executionId = "execution-unknown-complete", repoId = workspaceId("complete-unknown"); let armed = false, cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
     initRepo(rootDir); mkdirSync(path.join(rootDir, "harness"), { recursive: true }); writeFileSync(path.join(rootDir, "harness/harness.yaml"), "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n"); /* CI witnessing is opt-in per repository */ cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-one", killpoint: (point) => { if (armed && point === "before_response_write" && makeTaskEventReader({ repoId, rootDir }).read().events.some((event) => event.type === "task_completed")) { armed = false; throw new Error("response lost"); } } }); await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "Unknown complete"); const store = () => makeTaskEventReader({ repoId, rootDir }), before = store().read().revision; armed = true;
-    const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 2); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 2); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
+    const unknown = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding) as unknown as Record<string, unknown>; assert.deepEqual({ outcome: unknown.outcome, status: unknown.status, code: unknown.code, stoppedAt: unknown.stoppedAt }, { outcome: "applied", status: "accepted_durable", code: "publication_indeterminate", stoppedAt: "complete-settlement" }); assert.match(String((unknown.next as { command: string }[])[0]?.command), new RegExp(`receipt show ${unknown.opId}`, "u")); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1); assert.equal(cell.status().state, "attached"); await cell.close(); cell = undefined;
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-unknown-two" }); const settled = await cell.run({ kind: "receipt-show", opId: String(unknown.opId) }, repoWriteBinding), retried = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding); assert.equal(settled.outcome, "applied", JSON.stringify(settled)); assert.equal(retried.outcome, "applied", JSON.stringify(retried)); assert.equal(retried.opId, unknown.opId); assert.equal(store().read().revision, before + 1); assert.equal(store().read().events.filter((event) => event.type === "task_completed").length, 1);
   } finally { await cell?.close(); rmSync(rootDir, { recursive: true, force: true }); }
 });
 // prettier-ignore
@@ -723,388 +704,6 @@ test("task mutation rejections name the missing field and current execution stat
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
-test("task complete rejects a passing observation for another submitted commit", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-binding-")),
-    taskId = "task-complete-ci-binding",
-    executionId = "execution-complete-ci-binding",
-    repoId = workspaceId("complete-ci-binding");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    initRepo(rootDir);
-    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-    writeFileSync(
-      path.join(rootDir, "harness/harness.yaml"),
-      "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
-    ); // CI witnessing is opt-in
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-binding" });
-    await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
-    await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Binding", false, "f".repeat(40));
-    const store = makeTaskEventReader({ repoId, rootDir }),
-      submitted = store
-        .read()
-        .events.find(
-          (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
-        );
-    assert.ok(submitted && submitted.type === "execution_submitted");
-    const execution = submitted.payload.execution;
-    const unrelatedCut = store.read().revision;
-    const unrelated = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-    assert.equal(unrelated.code, "ci_missing", JSON.stringify(unrelated));
-    assert.deepEqual(
-      store
-        .read()
-        .events.slice(unrelatedCut)
-        .map((event) => event.type),
-      [],
-      "missing CI must leave collection to its independent Schedule",
-    );
-    await publishCiObservation(
-      repoId,
-      rootDir,
-      executionId,
-      execution.submission.commitSha,
-      "unverified-matching-sha",
-      false,
-    );
-    const unverifiedCut = store.read().revision;
-    const unverified = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-    assert.equal(unverified.outcome, "op_rejected", JSON.stringify(unverified));
-    assert.equal(
-      unverified.code,
-      "invalid_proof",
-      "unverified matching observations cannot establish workflow verification",
-    );
-    assert.equal(
-      store.read().revision,
-      unverifiedCut,
-      "unverified historical-style observations cannot append passing witnesses",
-    );
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-test("task complete accepts a verified main run on a commit that contains the submission", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-descendant-")),
-    taskId = "task-complete-ci-descendant",
-    executionId = "execution-complete-ci-descendant",
-    repoId = workspaceId("complete-ci-descendant");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    initRepo(rootDir);
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-descendant" });
-    await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Descendant", false);
-    const submitted = makeTaskEventReader({ repoId, rootDir })
-      .read()
-      .events.find(
-        (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
-      );
-    assert.ok(submitted && submitted.type === "execution_submitted");
-    const submittedSha = String(submitted.payload.execution.submission?.commitSha),
-      laterMain = git(rootDir, "commit-tree", `${submittedSha}^{tree}`, "-p", submittedSha, "-m", "later main");
-    await publishCiObservation(repoId, rootDir, executionId, laterMain, "run-later-main");
-    const attempt = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-    assert.equal(attempt.outcome, "applied", JSON.stringify(attempt));
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-test("a lightweight repository-diff task completes off submitted through its CI witness with no review or consent", async () => {
-  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-lightweight-")),
-    taskId = "task-complete-ci-lightweight",
-    executionId = "execution-complete-ci-lightweight",
-    repoId = workspaceId("complete-ci-lightweight");
-  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-  try {
-    initRepo(rootDir);
-    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-    writeFileSync(
-      path.join(rootDir, "harness/harness.yaml"),
-      "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n  closeout:\n    profile: strict\n",
-    ); // strict: only the task's frozen lightweight profile lifts review
-    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-lightweight" });
-    const created = (await cell.run(
-      { kind: "task-create", taskId, title: "CI Lightweight", presetId: "standard-task", profileId: "lightweight" },
-      repoWriteBinding,
-    )) as Record<string, unknown>;
-    assert.equal(created.outcome, "applied", JSON.stringify(created));
-    assert.equal(created.outputShape, "repository-diff");
-    await waitForAcceptedReceipt(cell, created as never);
-    const packagePath = String(created.packagePath);
-    await realizeTaskPlanFixture(rootDir, packagePath, (planPath) =>
-      cell!.run({ kind: "doc-submit", paths: [planPath] }, repoWriteBinding),
-    );
-    assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, repoWriteBinding)).outcome, "applied");
-    await cell.settlePendingMaterialization("lightweight delivery commit");
-    const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
-    writeFileSync(path.join(deliveryRoot, "README.md"), "# Lightweight delivery\n");
-    git(deliveryRoot, "add", "README.md");
-    git(deliveryRoot, "commit", "--quiet", "-m", "fix: lightweight delivery");
-    const delivered = git(deliveryRoot, "rev-parse", "HEAD");
-    writeFileSync(
-      path.join(rootDir, "harness", packagePath, "closeout.md"),
-      `# Closeout\n\n## Summary\n\nDelivered ${delivered}.\n\n## Verification\n\nnode --test fixture — exit 0.\n`,
-    );
-    const submitted = await cell.run({ kind: "task-submit", taskId, executionId }, repoWriteBinding);
-    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
-    // The one path: a lifted review gate owes no triage, so there is no forward to take.
-    const forwarded = (await cell.run(
-      { kind: "task-adjudicate", taskId, executionId, forward: true, reason: "Forward a lightweight cut." },
-      repoWriteBinding,
-    )) as Record<string, unknown>;
-    assert.equal(forwarded.code, "invalid_transition", JSON.stringify(forwarded));
-    assert.match(String(forwarded.rejectionExplanation), /lifted review.*ha task complete/u);
-    const laterMain = git(rootDir, "commit-tree", `${delivered}^{tree}`, "-p", delivered, "-m", "merged main");
-    await publishCiObservation(repoId, rootDir, executionId, laterMain, "run-lightweight-main");
-    const completed = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-    assert.equal(completed.outcome, "applied", JSON.stringify(completed));
-    const events = makeTaskEventReader({ repoId, rootDir }).read().events;
-    assert.ok(events.some((event) => event.type === "completion_gate_verified" && event.taskId === taskId));
-    assert.ok(events.some((event) => event.type === "task_completed" && event.taskId === taskId));
-    assert.equal(
-      events.filter((event) =>
-        ["submission_forwarded", "runtime_dispatch_requested", "review_recorded", "review_consent_recorded"].includes(
-          event.type,
-        ),
-      ).length,
-      0,
-      "the lightweight cut is never forwarded, reviewed, or consented",
-    );
-  } finally {
-    await cell?.close();
-    rmSync(rootDir, { recursive: true, force: true });
-  }
-});
-test(
-  "task complete judges a collected failed main run, then passes on the independently collected rerun",
-  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
-  async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-red-")),
-      ghBin = mkdtempSync(path.join(tmpdir(), "ha-complete-ci-red-gh-")),
-      taskId = "task-complete-ci-red",
-      executionId = "execution-complete-ci-red",
-      repoId = workspaceId("complete-ci-red"),
-      filePath = process.env.PATH;
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      initRepo(rootDir);
-      mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-      writeFileSync(
-        path.join(rootDir, "harness/harness.yaml"),
-        "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
-      );
-      // GitHub holds only a failed main run covering the delivery, with no ci-observation artifact.
-      // The writer thread copies the environment when it starts, so the stub goes on PATH first
-      // and reads the delivery commit once the task has submitted it.
-      writeFileSync(
-        path.join(ghBin, "gh"),
-        "#!/usr/bin/env node\nconst fs = require('fs'), path = require('path');\n" +
-          "if (process.argv.includes('--slurp') && (process.argv.includes('--jq') || process.argv.includes('--template')))\n" +
-          "  { console.error('the `--slurp` option is not supported with `--jq` or `--template`'); process.exit(1); }\n" +
-          "const [group, rawVerb] = process.argv.slice(2), marker = path.join(__dirname, 'delivery'); const verb = group === 'api' ? process.argv.find(arg => arg.startsWith('repos/')) ?? rawVerb : rawVerb;\n" +
-          "const sha = fs.existsSync(marker) ? fs.readFileSync(marker, 'utf8') : null;\n" +
-          "const rerun = fs.existsSync(path.join(__dirname, 'rerun')), conclusion = rerun ? 'success' : 'failure';\n" +
-          "const run = { databaseId: 36464979857, headBranch: 'main', headSha: sha, status: 'completed' };\n" +
-          "if (sha && group === 'run' && verb === 'list')\n" +
-          "  process.stdout.write(JSON.stringify([{ ...run, createdAt: '2026-09-29T00:00:00Z', conclusion }]));\n" +
-          "else if (sha && group === 'run' && verb === 'view')\n" +
-          "  process.stdout.write(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',\n" +
-          "    status: 'completed', conclusion, attempt: rerun ? 2 : 1, event: 'push' }));\n" +
-          "else if (sha && group === 'api' && verb.includes('/commits?')) process.stdout.write(JSON.stringify([{ sha, parents: [] }]));\n" +
-          "else if (sha && group === 'api' && verb.includes('/compare/')) process.stdout.write(JSON.stringify({ status: 'identical' }));\n" +
-          "else if (sha && group === 'api' && verb.includes('head_sha=')) process.stdout.write(JSON.stringify([{ ...run, event: 'push', path: '.github/workflows/rewrite-ci.yml', conclusion }]));\n" +
-          "else if (group === 'api' && verb.includes('/workflows/')) process.stdout.write(JSON.stringify({ workflow_runs: [] }));\n" +
-          "else if (group === 'api' && verb.includes('/artifacts?')) process.stdout.write(JSON.stringify([{ artifacts: [] }]));\n" +
-          "else if (group === 'api' && verb.includes('/jobs?')) process.stdout.write(JSON.stringify([{ total_count: 1, jobs: [{ id: rerun ? 2 : 1, name: 'rewrite-ci', conclusion }] }]));\n" +
-          "else if (group === 'api') process.stdout.write(JSON.stringify({ run_attempt: rerun ? 2 : 1, head_sha: sha, head_branch: 'main',\n" +
-          "  conclusion, event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci', repository: { full_name: 'fixture/repo' } }));\n" +
-          "else if (group === 'run' && verb === 'download') { console.error('no artifacts found'); process.exit(1); }\n" +
-          "else process.stdout.write('[]');\n",
-        { mode: 0o755 },
-      );
-      process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
-      cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "complete-ci-red" });
-      await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
-      await prepareReadyCompletion(cell, rootDir, repoId, taskId, executionId, "CI Red", false);
-      const reader = makeTaskEventReader({ repoId, rootDir }),
-        submitted = reader
-          .read()
-          .events.find(
-            (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
-          );
-      assert.ok(submitted && submitted.type === "execution_submitted");
-      writeFileSync(path.join(ghBin, "delivery"), String(submitted.payload.execution.submission?.commitSha));
-      await cell.run({ kind: "ci-observe-pull", taskId }, repoWriteBinding);
-      const attempt = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-      assert.equal(attempt.outcome, "op_rejected", JSON.stringify(attempt));
-      assert.equal(attempt.status, "rejected", JSON.stringify(attempt));
-      assert.equal(attempt.code, "ci_missing", JSON.stringify(attempt));
-      assert.match(String(attempt.rejectionExplanation), /CI 36464979857\.1: fail/u);
-      const after = reader.read().events;
-      assert.equal(
-        after.some((event) => event.type === "ci_run_observed" && event.payload.run.runId === "36464979857.1"),
-        true,
-        "the collected failure run is recorded as an observation",
-      );
-      assert.equal(
-        after.some((event) => event.type === "task_completed"),
-        false,
-      );
-      const shown = await cell.run({ kind: "task-show", taskId }, repoWriteBinding);
-      assert.equal(
-        (JSON.parse(String(shown.evidence)) as { readonly task: { readonly status: string } }).task.status,
-        "in_review",
-      );
-      // The same run is rerun and its second attempt passes. The recorded failure must not stop
-      // the independent collector from observing again: the newest attempt is the contract's verdict.
-      writeFileSync(path.join(ghBin, "rerun"), "");
-      await cell.run({ kind: "ci-observe-pull", taskId }, repoWriteBinding);
-      // The center adopts the newer attempt without an owner-issued rerun action.
-      const rerun = await cell.run({ kind: "task-complete", taskId, executionId }, repoWriteBinding);
-      assert.equal(rerun.outcome, "applied", JSON.stringify(rerun));
-      assert.equal(
-        reader
-          .read()
-          .events.some((event) => event.type === "ci_run_observed" && event.payload.run.runId === "36464979857.2"),
-        true,
-        "the rerun attempt is recorded as its own observation",
-      );
-    } finally {
-      process.env.PATH = filePath;
-      await cell?.close();
-      rmSync(ghBin, { recursive: true, force: true });
-      rmSync(rootDir, { recursive: true, force: true });
-    }
-  },
-);
-test(
-  "CI refresh isolates an invalid run without borrowing a workflow acceptance",
-  { skip: process.platform === "win32" ? "requires POSIX shell-script executables resolved through PATH" : false },
-  async () => {
-    const rootDir = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-partial-")),
-      ghBin = mkdtempSync(path.join(tmpdir(), "ha-ci-pull-partial-gh-")),
-      repoId = workspaceId("ci-pull-partial"),
-      filePath = process.env.PATH;
-    let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
-    try {
-      initRepo(rootDir);
-      // Run 1 has a workflow verdict; run 2 has a v2 job artifact with an invalid gate.
-      // The invalid run is rejected whole and listed as unavailable; the valid run is still imported.
-      writeFileSync(
-        path.join(ghBin, "gh"),
-        `#!/usr/bin/env node
-const fs = require('fs'), path = require('path');
-const argv = process.argv;
-if (argv.includes('--slurp') && (argv.includes('--jq') || argv.includes('--template'))) {
-  console.error('the \`--slurp\` option is not supported with \`--jq\` or \`--template\`');
-  process.exit(1);
-}
-const [group, verb, id] = process.argv.slice(2), sha = 'a'.repeat(40);
-if (group === 'run' && verb === 'download') {
-  const args = process.argv.slice(2), dir = args[args.indexOf('--dir') + 1];
-  if (args[3] !== '-n' || args[4] !== 'ci-observation-2-1-rewrite-ci') throw new Error('unexpected artifact name');
-  fs.mkdirSync(dir, { recursive: true });
-  fs.copyFileSync(path.join(__dirname, 'observation.json'), path.join(dir, 'observation.json'));
-} else if (group === 'api') {
-  if (argv.some(arg => arg.includes('/artifacts?'))) console.log(JSON.stringify([{ artifacts: argv.some(arg => arg.includes('/runs/2/')) ? [{ id:22, name:'ci-observation-2-1-rewrite-ci', expired:false }] : [] }]));
-  else if (process.argv.some(arg => arg.includes('/jobs?'))) console.log(JSON.stringify([{ jobs: [{ id: 22, name: 'rewrite-ci' }] }]));
-  else console.log(JSON.stringify({ run_attempt: 1, head_sha: sha, head_branch: 'main', conclusion: 'success',
-    event: 'push', path: '.github/workflows/rewrite-ci.yml', workflow_id: 1, name: 'rewrite-ci',
-    repository: { full_name: 'fixture/repo' } }));
-} else if (group === 'run' && verb === 'view') {
-  console.log(JSON.stringify({ workflowName: 'rewrite-ci', headSha: sha, headBranch: 'main',
-    status: 'completed', conclusion: 'success', attempt: 1, event: 'push' }));
-} else console.log('[]');
-
-`,
-        { mode: 0o755 },
-      );
-      writeFileSync(
-        path.join(ghBin, "observation.json"),
-        JSON.stringify({
-          schema: "ci-run-artifact/v2",
-          producer: {
-            repositoryId: "fixture/repo",
-            workflow: ".github/workflows/rewrite-ci.yml",
-            databaseRunId: "2",
-            runAttempt: 1,
-            jobKey: "rewrite-ci",
-            jobName: "rewrite-ci",
-          },
-          run: {
-            runId: "2.1",
-            sha: "a".repeat(40),
-            branch: "main",
-            prNumber: null,
-            job: "rewrite-ci",
-            wallclockMs: 0,
-            runner: "github-actions",
-          },
-          detail: { schema: "ci-run-detail/v1", tests: [], fileOutcomes: [], diagnostics: [] },
-          measurementCoverage: { status: "complete", missingReason: null, startedFileCount: 0, completedFileCount: 0 },
-          gates: [{ gate: "ci", result: "unknown-result", metrics: {} }],
-        }),
-      );
-      process.env.PATH = `${ghBin}${path.delimiter}${filePath ?? ""}`;
-      cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "ci-pull-partial" });
-      await seedBuiltinSchedules({ cell, binding: repoWriteBinding });
-      const pulled = await cell.run({ kind: "ci-observe-pull", runs: [1, 2] }, repoWriteBinding);
-      assert.equal(pulled.outcome, "applied", JSON.stringify(pulled));
-      assert.notEqual(pulled.code, "schedule_builtin_failed", JSON.stringify(pulled));
-      const occurrence = (await cell.run(
-        { kind: "schedule-show", scheduleId: "builtin-ci-observe" },
-        repoWriteBinding,
-      )) as unknown as {
-        schedule: {
-          status: {
-            lastRun: { outcome: string; detail: string };
-            ciObserve?: { unavailable?: readonly { runId: number; attempt: number; reason: string }[] };
-          };
-        };
-      };
-      // An invalid run is isolated: the scan settles and the rejected run is listed with its reason.
-      assert.equal(occurrence.schedule.status.lastRun.outcome, "succeeded", JSON.stringify(occurrence.schedule.status));
-      const rejected = occurrence.schedule.status.ciObserve?.unavailable ?? [];
-      assert.deepEqual(
-        rejected.map((entry) => [entry.runId, entry.attempt]),
-        [[2, 1]],
-        JSON.stringify(rejected),
-      );
-      assert.match(rejected[0]!.reason, /invalid CI gates/u);
-      const observed = makeTaskEventReader({ repoId, rootDir })
-        .read()
-        .events.flatMap((event) =>
-          event.type === "ci_run_observed" &&
-          !(event.schema === "ci-run-observation/v4" && event.payload.scope === "attempt")
-            ? [event.payload.run.runId]
-            : [],
-        );
-      assert.deepEqual(observed, ["1.1"], "the valid run is recorded while the invalid run is rejected whole");
-      const inventories = makeTaskEventReader({ repoId, rootDir })
-        .read()
-        .events.flatMap((event) =>
-          event.schema === "ci-run-observation/v4" && event.payload.scope === "attempt" ? [event.payload] : [],
-        );
-      assert.deepEqual(
-        inventories.map((payload) => payload.run.runId),
-        ["1.1"],
-      );
-      assert.deepEqual(inventories[0]?.attemptInventory?.missingArtifactJobIds, ["22"]);
-      assert.equal(
-        makeTaskEventReader({ repoId, rootDir })
-          .read()
-          .events.some((event) => event.schema === "ci-run-observation/v4" && event.payload.scope === "job"),
-        false,
-      );
-    } finally {
-      process.env.PATH = filePath;
-      await cell?.close();
-      rmSync(ghBin, { recursive: true, force: true });
-      rmSync(rootDir, { recursive: true, force: true });
-    }
-  },
-);
 async function writeCloseout(
   drain: () => Promise<unknown>,
   rootDir: string,
@@ -1169,9 +768,7 @@ async function prepareReadyCompletion(
   taskId: string,
   executionId: string,
   title: string,
-  publishObservation = true,
-  observationCommitSha?: string,
-): Promise<string> {
+): Promise<void> {
   const binding = repoWriteBinding;
   const created = await cell.run({ kind: "task-create", taskId, title }, binding);
   const createdVisible = await waitForAcceptedReceipt(cell, created, binding);
@@ -1243,146 +840,30 @@ async function prepareReadyCompletion(
     binding,
   );
   assert.equal((await waitForAcceptedReceipt(cell, consented, binding)).wait?.state, "satisfied");
-  if (!publishObservation && !observationCommitSha) return "";
-  const ciReceipt = await publishCiObservation(
-    repoId,
-    rootDir,
-    executionId,
-    observationCommitSha ?? commitSha,
-    `run-${taskId}`,
-  );
-  return ciReceipt;
+  await markMerged(cell, rootDir, repoId, taskId, executionId, commitSha, binding);
 }
-async function publishCiObservation(
-  repoId: string,
+async function markMerged(
+  cell: Awaited<ReturnType<typeof openRepoCell>>,
   rootDir: string,
+  repoId: string,
+  taskId: string,
   executionId: string,
   commitSha: string,
-  runId: string,
-  verified = true,
-): Promise<string> {
-  const stateRoot = path.join(rootDir, ".harness", "fixture-writer-epochs"),
-    authority = openPersistentWriterEpoch({ stateRoot, holderId: "direct-store" }),
-    lease = authority.current(repoId);
-  assert.ok(lease, "the isolated repo cell owns a current writer epoch");
-  const store = makeTaskEventStore({
-      repoId,
-      rootDir,
-      writerFence: () => ({
-        schema: "harness-writer-epoch-fence/v1",
-        stateRoot,
-        repoId,
-        holderId: lease.holderId,
-        epoch: lease.epoch,
-      }),
-    }),
-    projection = makeTaskProjection({ rootDir, eventStore: store }),
-    databaseId = Number.parseInt(createHash("sha256").update(runId).digest("hex").slice(0, 8), 16) + 1,
-    observedRunId = `${databaseId}.${verified ? 1 : 2}`;
-  try {
-    const cell = {
-      rootDir,
-      settings: { read: () => ({ ci: { workflows: ["rewrite-ci", "rebuild-gates"] } }) },
-      store,
-      projection,
-      now: () => "2026-09-09T00:00:00.000Z",
-      cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
-    } as unknown as Parameters<typeof ingestCiObservations>[0];
-    const fetched = await fetchCiObservations(cell, { kind: "ci-observe-pull", limit: 1 }, async (_command, args) => {
-      if (args[1] === "list")
-        return JSON.stringify([{ databaseId, headBranch: "main", createdAt: "2026-09-09T00:00:00.000Z" }]);
-      if (args[1] === "view")
-        return JSON.stringify({
-          workflowName: "rewrite-ci",
-          headSha: commitSha,
-          headBranch: "main",
-          status: "completed",
-          conclusion: "success",
-          attempt: 1,
-          event: "push",
-        });
-      if (args.some((arg) => arg.includes("/artifacts?"))) return JSON.stringify([{ artifacts: [] }]);
-      if (args.some((arg) => arg.includes("/jobs?"))) return JSON.stringify([{ total_count: 0, jobs: [] }]);
-      if (args[0] === "api")
-        return JSON.stringify({
-          run_attempt: 1,
-          head_sha: commitSha,
-          head_branch: "main",
-          conclusion: "success",
-          event: "push",
-          path: ".github/workflows/rewrite-ci.yml",
-          workflow_id: 1,
-          name: "rewrite-ci",
-          repository: { full_name: "fixture/repo" },
-        });
-      assert.equal(args[1], "download");
-      return "";
-    });
-    if (!verified) {
-      const fixture: import("@harness-anything/kernel").CiRunObservationEventV4 = JSON.parse(
-        readFileSync(
-          new URL("../../kernel/fixtures/canonical-events/ci-run-observation-v4/workflow.json", import.meta.url),
-          "utf8",
-        ),
-      );
-      const event: import("@harness-anything/kernel").CiRunObservationEventV4 = {
-        ...fixture,
-        eventId: `event-unverified-${databaseId}`,
-        opId: `unverified-${databaseId}`,
-        workspaceRevision: (store.readHead()?.revision ?? 0) + 1,
-        actor,
-        source: "local",
-        occurredAt: cell.now(),
-        payload: {
-          ...fixture.payload,
-          identity: { ...fixture.payload.identity, databaseRunId: String(databaseId), runAttempt: 2 },
-          run: { ...fixture.payload.run, runId: observedRunId, sha: commitSha },
-          verification: null,
-        },
-      };
-      store.append({ event, plan: ciRunObservationWritePlan(event), blobs: [] });
-      projection.apply(event);
-      await store.drain();
-      return `event:${event.opId}`;
-    }
-    const receipt = ingestCiObservations(cell, repoWriteBinding, fetched);
-    // The importer publishes the workflow verdict and its authoritative attempt inventory.
-    assert.equal(JSON.parse(receipt.evidence).imported, 2);
-    const event = store
-      .read()
-      .events.find(
-        (candidate) => candidate.type === "ci_run_observed" && candidate.payload.run.runId === observedRunId,
-      );
-    assert.ok(event && event.type === "ci_run_observed");
-    assert.equal(event.payload.verification?.conclusion, verified ? "success" : undefined);
-    assert.ok(
-      store
-        .read()
-        .events.some(
-          (candidate) =>
-            candidate.type === "execution_submitted" && candidate.payload.execution.executionId === executionId,
-        ),
+  binding = repoWriteBinding,
+): Promise<void> {
+  const submitted = makeTaskEventReader({ repoId, rootDir })
+    .read()
+    .events.find(
+      (event) => event.type === "execution_submitted" && event.payload.execution.executionId === executionId,
     );
-    const eventRefs = JSON.parse(receipt.evidence).eventRefs;
-    const inventory = store
-      .read()
-      .events.find(
-        (candidate) =>
-          candidate.type === "ci_run_observed" &&
-          candidate.schema === "ci-run-observation/v4" &&
-          candidate.payload.scope === "attempt" &&
-          candidate.payload.run.runId === observedRunId,
-      );
-    assert.ok(inventory && inventory.type === "ci_run_observed" && inventory.schema === "ci-run-observation/v4");
-    assert.deepEqual(inventory.payload.attemptInventory, { jobs: [], missingArtifactJobIds: [] });
-    assert.deepEqual(eventRefs, [`event:${event.opId}`, `event:${inventory.opId}`]);
-    await store.drain();
-    return eventRefs[0];
-  } finally {
-    projection.close();
-    await store.drain();
-    authority.close();
-  }
+  assert.ok(submitted && submitted.type === "execution_submitted");
+  assert.equal(submitted.payload.execution.submission?.commitSha, commitSha);
+  git(rootDir, "update-ref", "refs/remotes/origin/main", commitSha);
+  const annotated = await cell.run(
+    { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${commitSha}` },
+    binding,
+  );
+  assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
 }
 async function rpc(
   host: Awaited<ReturnType<typeof openDaemonHost>>,

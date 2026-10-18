@@ -22,7 +22,7 @@ import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import type { CanonicalEventV1 } from "../../src/domain/doc-sync.contract.ts";
 import type { TaskEventV1 } from "../../src/domain/task-lifecycle.contract.ts";
 import type { TaskV2 } from "../../src/domain/task.ts";
-import { serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { taskLifecycleWritePlan } from "../../src/domain/task-lifecycle-publication.ts";
 import { withTempStoreAsync } from "./helpers.ts";
@@ -37,7 +37,10 @@ function memoryEventStore(events: readonly CanonicalEventV1[]) {
     readHead: () =>
       events.length === 0
         ? null
-        : { revision: events.length, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(events.at(-1)!))}` },
+        : {
+            revision: events.length,
+            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(events.at(-1)!))}`,
+          },
     readBatch: (cursor: string | null, maxItems: number) => {
       const start = cursor === null ? 0 : Number(cursor),
         slice = events.slice(start, start + maxItems);
@@ -277,7 +280,7 @@ test("catch-up does not report rounds whose projection watermark stays fixed", a
         eventStore: {
           readHead: () => ({
             revision: 1,
-            eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
           }),
           readBatch: () => {
             reads += 1;
@@ -315,7 +318,7 @@ test("catch-up resumes source scanning after the applied watermark", async () =>
         ? null
         : {
             revision: sourceEvents.length,
-            eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(sourceEvents.at(-1)!))}`,
+            eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(sourceEvents.at(-1)!))}`,
           },
     readBatch: (cursor: string | null, maxItems: number) => {
       const start = cursor === null ? 0 : Number(cursor),
@@ -351,7 +354,7 @@ test("async catch-up yields the event loop between bounded rounds", async () => 
     eventStore = {
       readHead: () => ({
         revision: fixture.events.length,
-        eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(fixture.events.at(-1)!))}`,
+        eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(fixture.events.at(-1)!))}`,
       }),
       readBatch: (cursor: string | null, maxItems: number) => {
         const start = Number(cursor ?? 0),

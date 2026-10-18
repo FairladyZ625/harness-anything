@@ -346,7 +346,7 @@ function taskDocumentUpdates(
     paths,
     currentDocuments,
     completionContext: {
-      ...readCompletionContext(projection, taskId, read.snapshot, read.status),
+      ...readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
       hasDispatchLineage: readTaskLineageDispatches({ projection, taskId }).length > 0,
     },
   }).map(({ path, body }) => ({

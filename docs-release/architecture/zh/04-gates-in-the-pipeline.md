@@ -98,7 +98,7 @@ preset/profile 的 `completionGates`,执行 `completion-readiness.ts` 的确定�
 | `closeout_placeholder` | closeout 仍是脚手架 |
 | `review_missing` | 缺 approved Review |
 | `consent_missing` | 缺 review-consent 记录 |
-| `ci_missing` | 契约声明 `ci` 但无见证绿 run(`settings.ci.workflows`；由 `builtin-ci-observe` 自动采集) |
+| `delivery_missing` | 仓库设置要求代码交付已合入，但执行记录的合入 commit 不在配置的目标分支上；旧冻结 `ci` gate 也只读使用同一合入证据 |
 | `code_doc_missing` | 契约声明 `code-doc-reconciliation` 但缺已验证 witness(`ha task code-doc reconcile`) |
 | `gate_witness_missing` | 其他声明门的 canonical checker 见证缺失 |
 | `decision_lineage_missing` | 承重 decision 谱系未闭合 |

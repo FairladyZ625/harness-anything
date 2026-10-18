@@ -3,9 +3,8 @@ import { readFileSync } from "node:fs";
 export const integrationShardCount = 6;
 export const defaultIntegrationTestWeightMs = 1000;
 
-// Measured per-file durations, regenerated from CI observation artifacts by
-// tools/refresh-integration-test-weights.mjs. A file without an entry (new, or under the
-// generator's floor) takes the default weight and is placed into the lightest shard.
+// Measured per-file durations are kept in integration-test-weights.json. A file without an entry
+// takes the default weight and is placed into the lightest shard.
 export const integrationTestFileWeightsMs = Object.freeze(
   JSON.parse(readFileSync(new URL("./integration-test-weights.json", import.meta.url), "utf8")),
 );

@@ -186,15 +186,15 @@ describe("时序吞吐分桶(固定 10s × 360 环形缓冲)", () => {
 });
 
 describe("协议命令级慢请求统计", () => {
-  it("只把显式 wait=true 的 task-ci 请求从执行分位点排除", () => {
+  it("只把显式 wait=true 的 receipt-show 请求从执行分位点排除", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
       logPage(
         [
-          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 60_000 }),
-          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 40_000, wait: false }),
-          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 120_000, wait: true }),
+          logItem({ method: "repo.task.read", command: "receipt-show", durationMs: 60_000 }),
+          logItem({ method: "repo.task.read", command: "receipt-show", durationMs: 40_000, wait: false }),
+          logItem({ method: "repo.task.read", command: "receipt-show", durationMs: 120_000, wait: true }),
           logItem({ method: "repo.task.read", command: "task-list", durationMs: 4 }),
         ],
         "history",
@@ -202,24 +202,26 @@ describe("协议命令级慢请求统计", () => {
       ),
     );
     const stats = observeStatsLog(state.rows, null).stats;
-    expect(stats.waits).toMatchObject([{ command: "task-ci", method: "repo.task.read", count: 1, maxMs: 120_000 }]);
+    expect(stats.waits).toMatchObject([
+      { command: "receipt-show", method: "repo.task.read", count: 1, maxMs: 120_000 },
+    ]);
     expect(stats.ops.map((entry) => entry.command)).toContain("task-list");
-    expect(stats.ops.find((entry) => entry.command === "task-ci")).toMatchObject({ count: 2, maxMs: 60_000 });
+    expect(stats.ops.find((entry) => entry.command === "receipt-show")).toMatchObject({ count: 2, maxMs: 60_000 });
     expect(stats.p95Ms).toBe(60_000);
   });
 
-  it("同一 method 下的 task-show 与 task-ci 分成两行,method 只作次要标签", () => {
+  it("同一 method 下的 task-show 与 receipt-show 分成两行,method 只作次要标签", () => {
     let state = initialObserveTail();
     state = applyObserveTailPage(
       state,
       logPage(
         [
-          // 本地读:毫秒级;外部提供方命令 task-ci 同走 repo.task.read 但秒级——两行分开,
+          // 本地读:毫秒级;等待 receipt-show 同走 repo.task.read 但秒级——两行分开,
           // 互不污染分位(业主曾看到的「repo.task.read P50 5s / P95 20s」正是两者混算)。
           logItem({ method: "repo.task.read", command: "task-show", durationMs: 3 }),
           logItem({ method: "repo.task.read", command: "task-show", durationMs: 12 }),
           logItem({ method: "repo.task.read", command: "task-show", durationMs: 40 }),
-          logItem({ method: "repo.task.read", command: "task-ci", durationMs: 6_000, wait: true }),
+          logItem({ method: "repo.task.read", command: "receipt-show", durationMs: 6_000, wait: true }),
         ],
         "history",
         0,
@@ -228,7 +230,7 @@ describe("协议命令级慢请求统计", () => {
     const stats = observeStatsLog(state.rows, null).stats;
     const show = stats.ops.find((entry) => entry.command === "task-show");
     expect(show).toMatchObject({ method: "repo.task.read", count: 3, maxMs: 40 });
-    expect(stats.waits.find((entry) => entry.command === "task-ci")).toMatchObject({
+    expect(stats.waits.find((entry) => entry.command === "receipt-show")).toMatchObject({
       method: "repo.task.read",
       count: 1,
       maxMs: 6_000,

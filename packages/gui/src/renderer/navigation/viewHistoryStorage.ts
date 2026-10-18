@@ -123,13 +123,7 @@ function restoreTaskFilters(value: unknown): TaskFilters | null {
 
 const LANE_GROUP_BYS: ReadonlySet<unknown> = new Set<LaneGroupBy>(["root", "engine", "productLine"]);
 
-const OVERVIEW_FOCUS_KEYS: ReadonlySet<unknown> = new Set<DrillFocusKey>([
-  "wip",
-  "review",
-  "followups",
-  "pinned",
-  "ci",
-]);
+const OVERVIEW_FOCUS_KEYS: ReadonlySet<unknown> = new Set<DrillFocusKey>(["wip", "review", "followups", "pinned"]);
 
 /**
  * 总览层字段还原(后加字段,旧存储没有照样可读):null/缺省 = 层关着;键不在放大层

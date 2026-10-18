@@ -367,7 +367,6 @@ type DaemonGuiReadDataMap = {
   readonly "repo.entity.locator.read": import("../entity-locator-read.ts").EntityLocatorReadV1;
   readonly "repo.entity.content.read": import("../entity-content-read.ts").EntityContentReadV1;
   readonly "repo.settings.read": import("./daemon-settings-read-types.ts").DaemonSettingsRead;
-  readonly "repo.ci.observatory.read": import("../ci-observatory-read.ts").CiObservatoryRead;
   readonly "repo.workspace.summary.read": DaemonWorkspaceSummaryResult;
   readonly "repo.workspace.scope.read": import("../workspace-scope-read.ts").WorkspaceScopeRead;
   readonly "repo.agenda.read": DaemonAgendaResult;
@@ -468,7 +467,6 @@ export type DaemonGuiReadPayloadMap = {
     readonly path?: string;
   };
   readonly "repo.settings.read": Readonly<Record<string, never>>;
-  readonly "repo.ci.observatory.read": { readonly window?: number };
   readonly "repo.workspace.summary.read": Readonly<Record<string, never>>;
   readonly "repo.workspace.scope.read": {
     readonly rootTaskId: string;

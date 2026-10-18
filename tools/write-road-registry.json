@@ -86,7 +86,6 @@
   "physicalWriteFiles": [
     "packages/daemon/src/agent-runtime-instance-storage.ts",
     "packages/daemon/src/agent-runtime-instance-store.ts",
-    "packages/daemon/src/ci-observation-actions.ts",
     "packages/daemon/src/client/daemon-autostart.ts",
     "packages/daemon/src/conn-log.ts",
     "packages/daemon/src/daemon-singleton.ts",

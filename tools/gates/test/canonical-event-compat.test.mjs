@@ -9,6 +9,7 @@ import {
   canonicalEventSchemas,
   validateCurrentCanonicalEvent,
 } from "../../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
+import { validateRetiredCiRunObservationEvent } from "../../../packages/kernel/src/domain/ci-run-observation-retired-event.ts";
 import test from "node:test";
 import {
   validateCanonicalFixtureChanges,
@@ -259,7 +260,7 @@ test("generation migration retains frozen historical bytes, rejects live admissi
     { rootDir } = makeRepo(files),
     schemas = [
       ...canonicalEventSchemas.filter((entry) => ["entity-event/v1", "agent-entity-event/v1"].includes(entry.schema)),
-      { schema: "ci-run-observation/v1", validate: validateCurrentCanonicalEvent },
+      { schema: "ci-run-observation/v1", validate: validateRetiredCiRunObservationEvent },
     ];
   assert.deepEqual(validateFrozenCanonicalEvents(rootDir, schemas), []);
   for (const file of readOnlyGenerationOneFixtures.keys()) {

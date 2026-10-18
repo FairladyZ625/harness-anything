@@ -113,14 +113,11 @@ test("complete bundled reviewer prompt confines writes to its review receipt", (
   assert.match(prompt, /For a Task.*pinned execution.*For a Decision.*reviewContentDigest/su);
   assert.match(prompt, /Write only the structured review report.*dispatch-assigned artifacts\/reports paths/u);
   assert.match(prompt, /For a Task use ha task review-execution; for a Decision use ha decision review/u);
-  assert.match(prompt, /read the PR checks yourself with `ha task ci <task-id> --json`/u);
-  assert.match(prompt, /confirm `ci\.headSha` is the pinned delivery commit/u);
-  assert.match(prompt, /`not_started` and `pending` conclusions are not green/u);
-  assert.match(
-    prompt,
-    /a `not_started` report names its reason \(no pull request, a conflicting pull request, or queued\)/u,
-  );
-  assert.match(prompt, /The command serves GitHub-hosted repositories only/u);
+  assert.match(prompt, /read the PR checks directly with the hosting-platform CLI and your own platform credentials/u);
+  assert.match(prompt, /`gh pr checks <PR-number>` and `gh run view <run-id> --log-failed`/u);
+  assert.match(prompt, /checks are for the pinned delivery commit/u);
+  assert.match(prompt, /Pending checks are not green/u);
+  assert.doesNotMatch(prompt, /ha task ci/u);
   assert.match(prompt, /stop if that cut changes/u);
   assert.match(prompt, /Do not amend or adjudicate the target/u);
   assert.doesNotMatch(prompt, /ha task push|git push/u);
@@ -156,7 +153,7 @@ test("unbound reviewer dispatch does not inherit implementation permissions", ()
 });
 
 for (const role of [undefined, "worker"] as const)
-  test(`${role ?? "undeclared"} worker publishes the task branch and closes the CI loop itself`, () => {
+  test(`${role ?? "undeclared"} worker publishes the task branch and reads platform checks directly`, () => {
     const prompt = assembleUnboundPrompt("Implement the assigned package.", role);
     assert.match(
       prompt,
@@ -167,19 +164,15 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /ha task pr <task-id>/u);
     assert.match(prompt, /daemon pushes exactly this task's branch with the dispatch-held credential/u);
     assert.match(prompt, /do not run `git push` yourself and never push another ref/u);
-    // The CI loop is wait → triage → fix: the only path to a submitted delivery.
-    assert.match(prompt, /ha task ci <task-id> --wait/u);
-    assert.match(prompt, /`--timeout <seconds>` to bound the wait/u);
-    assert.match(prompt, /confirm `ci\.headSha` is your\s+delivery commit/u);
-    assert.match(prompt, /`pending` and `not_started` are not verdicts/u);
-    assert.match(prompt, /no pull request → open one with `ha task pr`/u);
-    assert.match(prompt, /a conflicting pull request → rebase onto the base\s+and push again/u);
+    assert.match(prompt, /gh pr checks <PR-number> --watch/u);
+    assert.match(prompt, /gh run view <run-id> --log-failed/u);
+    assert.match(prompt, /confirm the checks are for your pushed delivery SHA/u);
+    assert.match(prompt, /Pending checks are not green/u);
     assert.match(prompt, /compare the same test on\s+origin\/main's latest CI/u);
-    assert.match(prompt, /main-red failures are recorded in the closeout, not fixed and not waited on/u);
-    assert.match(prompt, /Both\s+commands serve GitHub-hosted repositories only/u);
-    assert.match(prompt, /`unsupported_command`\s+or\s+`runtime_credential_unavailable`/u);
-    assert.match(prompt, /mark the CI unverified in the closeout with that error/u);
+    assert.match(prompt, /main-red failures are recorded\s+in the closeout, not fixed and not waited on/u);
+    assert.match(prompt, /If your platform CLI cannot read the\s+checks, report the error and mark CI unverified/u);
     assert.match(prompt, /Do not merge/u);
+    assert.doesNotMatch(prompt, /ha task ci|ci\.headSha|not_started/u);
     assert.doesNotMatch(prompt, /gh pr create/u);
     assert.doesNotMatch(prompt, /git push origin/u);
   });
@@ -193,12 +186,14 @@ test("commander owns verified integration and PR delivery without merge authorit
   assert.match(prompt, /Do not cherry-pick or rebase child commits/u);
   assert.match(prompt, /targeted and integration regressions.*final integrated commit/u);
   // The delivery loop is the same constant the Worker Role carries: the daemon holds the Git
-  // credential, so publication goes through ha task push / ha task pr / ha task ci.
+  // credential; workers read platform checks with their own platform CLI credentials.
   assert.match(prompt, /ha task push <task-id>/u);
   assert.match(prompt, /ha task pr <task-id>/u);
-  assert.match(prompt, /ha task ci <task-id> --wait/u);
+  assert.match(prompt, /gh pr checks <PR-number> --watch/u);
+  assert.match(prompt, /gh run view <run-id> --log-failed/u);
+  assert.doesNotMatch(prompt, /ha task ci|ci\.headSha/u);
   assert.match(prompt, /daemon pushes exactly this task's branch with the dispatch-held credential/u);
-  assert.match(prompt, /mark the CI unverified in the closeout with that error/u);
+  assert.match(prompt, /If your platform CLI cannot read the\s+checks, report the error and mark CI unverified/u);
   assert.match(prompt, /ha task adjudicate --forward/u);
   assert.match(prompt, /Do not merge.*CEO/u);
   assert.doesNotMatch(prompt, /git push origin/u);

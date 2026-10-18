@@ -517,9 +517,6 @@ test("historical acceptance cannot authorize a new completion with missing appro
     { ...snapshot, task: { ...snapshot.task!, iteration: snapshot.task!.iteration + 1 } },
     { ...snapshot, reviews: [] },
     { ...snapshot, consents: [] },
-    { ...snapshot, gateWitnesses: [] },
-    { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, commitSha: "b".repeat(40) })) },
-    { ...snapshot, gateWitnesses: snapshot.gateWitnesses.map((w) => ({ ...w, executionId: "other-execution" })) },
   ])
     assert.throws(
       () =>

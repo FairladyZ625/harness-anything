@@ -22,7 +22,6 @@ import type { RepoTaskAction } from "../src/repo-cell-types.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { finishLedgerBackup } from "../src/schedule-backup-worker.ts";
 import {
-  builtinCiObserveScheduleId,
   builtinLedgerBackupScheduleId,
   builtinNightlyReckoningScheduleId,
   defaultLedgerBackupRetention,
@@ -138,7 +137,7 @@ test("the seeded ledger-backup builtin executes in-process and settles with dril
       assert.equal(seeded.schedule.spec.target.kind, "builtin");
       assert.equal(seeded.schedule.spec.target.builtinId, "ledger-backup");
       const listed = (await cell.run({ kind: "schedule-list" }, actor)) as { schedules: readonly unknown[] };
-      assert.equal(listed.schedules.length, 3);
+      assert.equal(listed.schedules.length, 2);
       const reckoning = (await cell.run(
         { kind: "schedule-show", scheduleId: builtinNightlyReckoningScheduleId },
         actor,
@@ -474,7 +473,7 @@ test(
         };
         assert.deepEqual(
           first.schedules.map(({ scheduleId }) => scheduleId),
-          [builtinCiObserveScheduleId, builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
+          [builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
         );
         const run = (await host.run(
           repoId,
@@ -495,7 +494,7 @@ test(
         };
         assert.deepEqual(
           second.schedules.map(({ scheduleId }) => scheduleId),
-          [builtinCiObserveScheduleId, builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
+          [builtinLedgerBackupScheduleId, builtinNightlyReckoningScheduleId],
         );
       } finally {
         await host.close();

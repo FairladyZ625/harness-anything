@@ -19,7 +19,6 @@ import { runtimeFleetProtocolCommands, scheduleProtocolCommands } from "./daemon
 import { taskSurfaceProtocolCommands } from "./daemon-protocol-commands-task-surface.ts";
 import { taskExecutionProtocolCommands } from "./daemon-protocol-commands-task.ts";
 import { peopleProtocolCommands } from "./daemon-protocol-commands-people.ts";
-import { ciObservationProtocolCommands } from "./daemon-protocol-commands-ci.ts";
 import { relationProtocolCommands } from "./daemon-protocol-commands-relation.ts";
 import { daemonGuiActionMethods, daemonStreamFacets } from "./daemon-protocol-gui-actions.ts";
 import { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
@@ -164,7 +163,6 @@ export const daemonOwnedProtocolCommands = Object.freeze([
   ...settingsProtocolCommands,
   ...eventProtocolCommands,
   ...peopleProtocolCommands,
-  ...ciObservationProtocolCommands,
 ] as const);
 
 export const daemonProtocolCommands = Object.freeze([...daemonOwnedProtocolCommands, ...presetCommands] as const);

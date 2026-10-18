@@ -780,8 +780,8 @@ test("U-12 Configure-Verify failure keeps the canonical publication and returns 
         .some((target) => target.startsWith("tasks/")),
       false,
     );
-    // Settings, vertical, scaffold documents, and the three builtin schedules.
-    assert.equal(stream.revision, 6);
+    // Settings, vertical, scaffold documents, and the two remaining builtin schedules.
+    assert.equal(stream.revision, 5);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(stream.events[2]?.schema, "doc-event/v1");
@@ -994,8 +994,8 @@ test("repository overlay is additive, preserves authored prose, and rejects an i
       rootDir: fixture.alpha,
       repoId: "alpha",
     }).read();
-    // Settings, vertical, scaffold documents, and the three builtin schedules.
-    assert.equal(stream.revision, 6);
+    // Settings, vertical, scaffold documents, and the two remaining builtin schedules.
+    assert.equal(stream.revision, 5);
     assert.equal(stream.events[0]?.schema, "settings-event/v1");
     assert.equal(stream.events[1]?.schema, "vertical-declaration-event/v1");
     assert.equal(stream.events[2]?.schema, "doc-event/v1");

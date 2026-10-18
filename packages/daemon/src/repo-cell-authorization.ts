@@ -246,8 +246,6 @@ function authorizeDurableRepoCellAction(input: Parameters<typeof authorizeRepoCe
       return authorizeRepoCellAction(input);
     case "agent-run":
       return authorizeRepoCellAction(input);
-    case "ci-observe-pull":
-      return authorizeRepoCellAction(input);
     case "daemon-control-request":
       return authorizeRepoCellAction(input);
     case "daemon-fleet-center-start":

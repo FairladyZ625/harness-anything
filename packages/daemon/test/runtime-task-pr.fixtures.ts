@@ -1,36 +1,37 @@
+// harness-test-tier: fast
 import assert from "node:assert/strict";
 import { submissionDigest } from "@harness-anything/kernel";
 
-export const sha = "a".repeat(40),
-  secret = "opaque-fixture-secret-ci-345";
+export const secret = "opaque-fixture-secret-pr-345";
+
 export function fixture(role: "implementation" | "reviewer" = "implementation") {
-  const p = {
-      personId: "person-ci",
-      repoId: "repo-ci",
-      runtimeSessionId: "runtime-ci",
-      dispatchId: "dispatch-ci",
-      taskId: "task-ci",
-      executionId: "execution-ci",
+  const principal = {
+      personId: "person-pr",
+      repoId: "repo-pr",
+      runtimeSessionId: "runtime-pr",
+      dispatchId: "dispatch-pr",
+      taskId: "task-pr",
+      executionId: "execution-pr",
       role,
       source: "local" as const,
       expiresAt: "2099-01-01T00:00:00.000Z",
     },
     actor = {
-      principal: { personId: p.personId },
-      executor: { kind: "agent" as const, id: `runtime-session:${p.runtimeSessionId}` },
+      principal: { personId: principal.personId },
+      executor: { kind: "agent" as const, id: `runtime-session:${principal.runtimeSessionId}` },
     },
     submission = { fixture: "submission" },
     dispatch = {
       actor,
       source: "local",
       payload: {
-        dispatchId: p.dispatchId,
+        dispatchId: principal.dispatchId,
         role,
-        instanceId: "instance-ci",
+        instanceId: "instance-pr",
         reviewTarget: {
           kind: "task",
-          taskId: p.taskId,
-          executionId: p.executionId,
+          taskId: principal.taskId,
+          executionId: principal.executionId,
           digest: submissionDigest(submission as never),
         },
       },
@@ -42,7 +43,7 @@ export function fixture(role: "implementation" | "reviewer" = "implementation") 
     cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
     input: {
       prepareDaemonGitEnvironment: async (id: string, provider = "github") => {
-        assert.equal(id, "instance-ci");
+        assert.equal(id, "instance-pr");
         assert.equal(provider, "github");
         credentialReads++;
         return { GH_TOKEN: secret, HARNESS_GITHUB_TOKEN: secret };
@@ -52,11 +53,11 @@ export function fixture(role: "implementation" | "reviewer" = "implementation") 
       readRuntimeSession: () => ({
         liveness: "live",
         outcome: null,
-        taskBindings: [{ taskId: p.taskId, executionId: p.executionId }],
+        taskBindings: [{ taskId: principal.taskId, executionId: principal.executionId }],
       }),
       readRuntimeDispatch: () => dispatch,
-      currentLease: () => ({ phase: "held", actor, executionId: p.executionId, source: "local" }),
-      read: () => ({ snapshot: { executions: [{ executionId: p.executionId, submission }] } }),
+      currentLease: () => ({ phase: "held", actor, executionId: principal.executionId, source: "local" }),
+      read: () => ({ snapshot: { executions: [{ executionId: principal.executionId, submission }] } }),
       readCut: () => ({ sourceRevision: 42 }),
     },
     extracted: {
@@ -65,7 +66,7 @@ export function fixture(role: "implementation" | "reviewer" = "implementation") 
   };
   return {
     context,
-    binding: { executionPrincipal: p, actor, source: "local" as const },
+    binding: { executionPrincipal: principal, actor, source: "local" as const },
     dispatch,
     credentialReads: () => credentialReads,
   };

@@ -76,6 +76,14 @@ async function runChildSlice(
     executionId: childExecutionId,
   })) as Record<string, unknown>;
   assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+  execFileSync("git", ["-C", f.root, "update-ref", "refs/remotes/origin/main", delivery]);
+  const annotated = (await f.run({
+    kind: "task-annotate",
+    taskId: childTaskId,
+    executionId: childExecutionId,
+    note: `merge_commit_sha:${delivery}`,
+  })) as Record<string, unknown>;
+  assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
   return { created, packagePath };
 }
 

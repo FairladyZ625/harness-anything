@@ -35,8 +35,7 @@ export function parseTask(
   if (id === "task-artifact-add") return parseTaskArtifactAdd(args, rootDir, repoId, json, inputs);
   const taskId = args[id === "task-code-doc-reconcile" || id === "task-code-doc-repoint" ? 3 : 2];
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${verb ?? "<verb>"} <task-id>.`, json);
-  if (id === "task-push" || id === "task-pr" || id === "task-ci")
-    return parseTaskPublication(id, args, rootDir, repoId, json, inputs);
+  if (id === "task-push" || id === "task-pr") return parseTaskPublication(id, args, rootDir, repoId, json, inputs);
   if (
     id === "task-assign" ||
     id === "task-unassign" ||
@@ -113,7 +112,7 @@ export function parseTask(
 }
 
 function parseTaskPublication(
-  id: "task-push" | "task-pr" | "task-ci",
+  id: "task-push" | "task-pr",
   args: readonly string[],
   rootDir: SafePath,
   repoId: string | undefined,
@@ -126,15 +125,11 @@ function parseTaskPublication(
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
   if (id === "task-pr" && !flags.booleans.has("--update") && !flags.one.has("--title"))
     return rejected("missing_field", "Creating a task PR requires --title '<type>(<scope>): <summary>'.", json);
-  // --wait/--timeout ride the CLI facade's poll loop; the facade strips them before the daemon read.
-  const timeout = flags.one.get("--timeout");
   return accepted(rootDir, repoId, json, {
     kind: id,
     taskId,
     ...(flags.booleans.has("--update") ? { update: true } : {}),
     ...(flags.one.has("--title") ? { title: flags.one.get("--title") } : {}),
-    ...(id === "task-ci" && flags.booleans.has("--wait") ? { wait: true } : {}),
-    ...(id === "task-ci" && timeout !== undefined ? { timeoutSeconds: Number(timeout) } : {}),
   });
 }
 

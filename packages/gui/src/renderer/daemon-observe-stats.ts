@@ -44,7 +44,7 @@ export interface ObserveTimeSlice {
 
 /**
  * 单个命令的耗时聚合:次数、最大值与全量耗时序列(分位点在展示层按需排序)。command 是
- * 分组主键(同一 method 下的 task-show 与 task-ci 各自成行);method 只作次要标签展示。
+ * 分组主键;method 只作次要标签展示。
  */
 export interface ObserveOpStat {
   readonly command: string;

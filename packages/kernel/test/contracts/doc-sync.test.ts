@@ -14,7 +14,7 @@ import docSyncContract, {
   parseCanonicalEvent,
   parseDocWriteIntent,
   resolveDocRoute,
-  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   serializeDocEvent,
   serializeDocWriteIntent,
   validateCurrentDocEvent,
@@ -79,7 +79,7 @@ test("canonical reader accepts the historical doc-event ledger identity bytes", 
     repoId: "harness-anything",
     sha: "de2fe7239e570c7c9ed6fe8417a32f008bbf7ccc",
   });
-  assert.equal(serializeCanonicalEvent(parsed), legacyDocEventBytes);
+  assert.equal(serializePersistedCanonicalEvent(parsed), legacyDocEventBytes);
   assert.deepEqual(
     validateWriteReceipt({
       ...committedAcceptance(parsed.opId, parsed.workspaceRevision),

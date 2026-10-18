@@ -1,15 +1,11 @@
-import { validateCiRunObservationEventV4, type CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
+import type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 import {
-  freezeDeclaredWritePlan,
   hasContractFields,
   isRecord,
-  serializeEventEnvelope,
   validateEventEnvelopeIdentity,
   type ActorIdentity,
   type EventEnvelope,
-  type FrozenWritePlan,
 } from "./write-chain.contract.ts";
-import { eventObjectTarget } from "../layout/ledger-object-layout.ts";
 import { completionEvidenceResults, type CompletionEvidenceResult } from "./completion-evidence.ts";
 
 export const CI_RUN_OBSERVATION_SCHEMA = Object.freeze({
@@ -79,6 +75,17 @@ export type CiRunObservationEventV2 = EventEnvelope<
   }
 >;
 
+export type CiRunObservationEventV1 = EventEnvelope<
+  "ci-run-observation/v1",
+  "ci_run_observed",
+  ActorIdentity,
+  {
+    readonly run: CiRunObservationEventV2["payload"]["run"];
+    readonly tests: readonly CiRunObservationTest[];
+    readonly gates: readonly CiRunObservationGateV2[];
+  }
+>;
+
 export type CiRunObservationEventV3 = EventEnvelope<
   "ci-run-observation/v3",
   "ci_run_observed",
@@ -114,12 +121,12 @@ export function validateCiRunObservationEvent(value: unknown): readonly string[]
   return validateFields(value, true, "ci-run-observation/v3", "result");
 }
 
-export function validateCurrentCiRunObservationEvent(value: unknown): readonly string[] {
-  return validateCiRunObservationEventV4(value, false);
-}
-
 export function validateCiRunObservationEventV2(value: unknown): readonly string[] {
   return validateFields(value, true, "ci-run-observation/v2", "pass");
+}
+
+export function validateCiRunObservationEventV1(value: unknown): readonly string[] {
+  return validateFields(value, true, "ci-run-observation/v1", "pass", false);
 }
 
 function validateFields(
@@ -127,6 +134,7 @@ function validateFields(
   allowUnknownFields: boolean,
   schema: string,
   gateField: "pass" | "result",
+  verificationRequired = true,
 ): readonly string[] {
   if (
     !isRecord(value) ||
@@ -134,9 +142,13 @@ function validateFields(
     value.schema !== schema ||
     value.type !== "ci_run_observed" ||
     !isRecord(value.payload) ||
-    !hasContractFields(value.payload, ["run", "tests", "gates", "verification"], allowUnknownFields) ||
+    !hasContractFields(
+      value.payload,
+      ["run", "tests", "gates", ...(verificationRequired ? ["verification"] : [])],
+      allowUnknownFields,
+    ) ||
     !validRun(value.payload.run, allowUnknownFields) ||
-    !validVerification(value.payload.verification, value.payload.run, allowUnknownFields) ||
+    (verificationRequired && !validVerification(value.payload.verification, value.payload.run, allowUnknownFields)) ||
     !Array.isArray(value.payload.tests) ||
     value.payload.tests.some((test) => !validTest(test, allowUnknownFields)) ||
     !Array.isArray(value.payload.gates) ||
@@ -181,7 +193,7 @@ export function validVerification(value: unknown, run: unknown, allowUnknownFiel
     Number(value.attempt) > 0 &&
     nonEmpty(value.headSha) &&
     nonEmpty(value.conclusion) &&
-    (allowUnknownFields || nonEmpty(value.event)) &&
+    ((allowUnknownFields && value.event === undefined) || nonEmpty(value.event)) &&
     run.runId === `${value.runId}.${value.attempt}` &&
     run.sha === value.headSha &&
     (value.source === "gitlab-pipeline" || run.branch === "main")
@@ -232,10 +244,7 @@ function validGate(value: unknown, allowUnknownFields: boolean, gateField: "pass
     !isRecord(value.metrics)
   )
     return false;
-  return (
-    allowUnknownFields ||
-    Object.values(value.metrics).every((metric) => typeof metric === "number" && Number.isFinite(metric))
-  );
+  return Object.values(value.metrics).every((metric) => typeof metric === "number" && Number.isFinite(metric));
 }
 
 function nonEmpty(value: unknown): value is string {
@@ -248,34 +257,4 @@ function nonNegativeNumber(value: unknown): boolean {
 
 export function isCiRunObservationEvent(event: { readonly schema: string }): event is CiRunObservationEventV4 {
   return event.schema === CI_RUN_OBSERVATION_SCHEMA.id;
-}
-
-export function serializeCiRunObservationEvent(event: CiRunObservationEventV4): string {
-  const errors = validateCurrentCiRunObservationEvent(event);
-  if (errors.length) throw new CiRunObservationContractError(errors.join("; "));
-  return serializeEventEnvelope(event);
-}
-
-export function ciRunObservationWritePlan(event: CiRunObservationEventV4): FrozenWritePlan<"ci_run_observed"> {
-  return freezeDeclaredWritePlan(
-    {
-      commandType: event.type,
-      targets: [
-        { kind: "event_file", path: eventObjectTarget(event.opId), operation: "create" },
-        { kind: "event_head", path: "harness/events/head.json", operation: "replace" },
-        ...(event.payload.detailRef
-          ? [
-              {
-                kind: "content_blob" as const,
-                sha256: event.payload.detailRef.sha256,
-                size: event.payload.detailRef.encodedBytes,
-                mediaType: event.payload.detailRef.mediaType,
-              },
-            ]
-          : []),
-        { kind: "projection_invalidation", projection: "ci-run-observation/v4", key: event.payload.run.runId },
-      ],
-    },
-    [event.type],
-  );
 }

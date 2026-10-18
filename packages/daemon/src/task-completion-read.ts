@@ -3,13 +3,19 @@ import {
   assessFactRetirement,
   assessTransitionDocument,
   consumeKnownError,
+  currentExecutionCuts,
+  INITIAL_SETTINGS_V1,
+  localGitObjectRefStore,
   requireTransitionDocumentKind,
+  type CloseoutSnapshot,
+  type CompletionDeliveryStatus,
   taskCompletionNext,
   type CompletionReadinessContext,
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
   type TaskProjectionQueries,
   type TaskLifecycleSnapshot,
+  type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { readTaskTransitionDocument, taskTransitionDocumentState } from "./transition-document-access.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
@@ -22,6 +28,7 @@ export function readCompletionContext(
   taskId: string,
   snapshot: TaskLifecycleSnapshot,
   status: "ready" | "pending",
+  rootDir?: string,
 ): CompletionReadinessContext {
   const taskRead = projection.read(taskId),
     unavailable: CompletionReadinessContext = {
@@ -52,6 +59,7 @@ export function readCompletionContext(
     facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" }),
     common = {
       closeoutGates: readEffectiveCloseoutGates(projection, snapshot),
+      delivery: readCompletionDeliveryStatus(projection, snapshot, rootDir),
       eligibleDirtyPaths: [],
       producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
       projectionStatus: facts.status,
@@ -79,6 +87,38 @@ export function readCompletionContext(
     closeoutContract: closeout.contract,
     closeoutPath: closeout.path,
     closeoutMissingSections: assessment.missingSections,
+  };
+}
+
+export function readCompletionDeliveryStatus(
+  projection: TaskProjectionQueries,
+  snapshot: CloseoutSnapshot,
+  rootDir?: string,
+): CompletionDeliveryStatus {
+  const projected = projection.getEntity("settings", "repository")?.value as RepositorySettingsV1 | undefined,
+    delivery = projected?.delivery ?? INITIAL_SETTINGS_V1.delivery,
+    cuts = currentExecutionCuts(snapshot),
+    execution = cuts.length === 1 ? cuts[0] : undefined,
+    required = delivery.requireMerged && execution?.submission?.commitSha != null,
+    mergeSha =
+      execution?.schema === "execution/v1"
+        ? execution.annotations
+            ?.findLast((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note))
+            ?.note.slice(17)
+        : undefined,
+    targetRef = `refs/remotes/origin/${delivery.targetBranch}`;
+  return {
+    required,
+    merged:
+      !required ||
+      rootDir === undefined ||
+      mergeSha === undefined ||
+      !localGitObjectRefStore.hasCommit(rootDir, mergeSha) ||
+      !localGitObjectRefStore.hasCommit(rootDir, targetRef)
+        ? null
+        : localGitObjectRefStore.isAncestor(rootDir, mergeSha, targetRef),
+    targetBranch: delivery.targetBranch,
+    platform: delivery.platform,
   };
 }
 
@@ -170,12 +210,16 @@ export function factRetirementAssessment(
   });
 }
 
-export function readTaskCompletion(projection: TaskProjectionQueries, taskId: string): DaemonTaskCompletionResult {
+export function readTaskCompletion(
+  projection: TaskProjectionQueries,
+  taskId: string,
+  rootDir?: string,
+): DaemonTaskCompletionResult {
   // The same judgment task show, task dispatches, task read-set, task review and the task document
   // reads consult: a lagging cut is not an answer about this task, and a current cut without it is a
   // not-found naming the id — never an ok-shaped completion for a task that does not exist.
   const read = requireCurrentTaskProjection(projection, taskId, "task completion read"),
-    context = readCompletionContext(projection, taskId, read.snapshot, read.status),
+    context = readCompletionContext(projection, taskId, read.snapshot, read.status, rootDir),
     { next, blocker } = taskCompletionNext(read.snapshot, context);
   // Surface the upstream Facts that still need an explicit disposition before the agent runs
   // complete, so fact_retirement_undeclared never arrives as a surprise. The assessment needs

@@ -337,6 +337,7 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       restoreDrillRetention: 3,
       locale: "en-US",
       scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
+      delivery: { requireMerged: true, targetBranch: "main", platform: "github" },
       ci: { workflows: [] },
       gates: [],
       agenda: { pinLimit: 30 },

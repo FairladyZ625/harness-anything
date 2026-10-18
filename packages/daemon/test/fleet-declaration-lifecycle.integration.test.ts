@@ -342,7 +342,16 @@ test(
       localAuthFixture(),
     );
     assert.equal(confirmed.outcome, "applied", JSON.stringify(confirmed));
-    await invoke(["task", "complete", taskId]);
+    git(edgeRoot, "push", "origin", `${delivery}:refs/heads/edge-delivery`);
+    git(fixture.repo, "fetch", remote, "refs/heads/edge-delivery:refs/remotes/origin/main");
+    const annotated = await fixture.host.run(
+      repoId,
+      { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${delivery}` },
+      localAuthFixture(),
+    );
+    assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
+    const completedAtCenter = await fixture.host.run(repoId, { kind: "task-complete", taskId }, localAuthFixture());
+    assert.equal(completedAtCenter.outcome, "applied", JSON.stringify(completedAtCenter));
     const completed = await fixture.host.run(repoId, { kind: "task-show", taskId }, fixture.auth);
     assert.equal(JSON.parse(String(completed.evidence)).task.status, "done");
   },

@@ -401,11 +401,10 @@ function consentMissingHaState() {
   };
 }
 
-// A task-show receipt whose first completion blocker is a merge-only gate (the CI witness exists
-// only on the merged main run), so the blocker chain MASKS the review-consent verdict. The
-// reviews/consents digests are computed with the kernel's own helpers, so the fixture's review
-// chain is honestly bindable — the same facts the kernel judgment consumes in production.
-function reviewChainMaskedByCiHaState({ consented = true, staleConsent = false, closeoutOverrides } = {}) {
+// A historical task-show receipt retains the retired CI gate in its frozen declaration. Its
+// current completion blocker is delivery_missing until merge; review consent is judged separately.
+// The digests use the kernel helpers so the fixture matches the facts production consumes.
+function reviewChainWithDeliveryBlockerHaState({ consented = true, staleConsent = false, closeoutOverrides } = {}) {
   const submission = {
       commitSha: `5a1f${"0".repeat(36)}`,
       completionClaim: "Delivered the guarded merge path.",
@@ -492,10 +491,10 @@ function reviewChainMaskedByCiHaState({ consented = true, staleConsent = false, 
         reviews: closeoutOverrides?.review === false ? [] : [review],
         consents: consented ? [consent] : [],
       }),
-      completionBlocker: { code: "ci_missing", gate: "ci" },
+      completionBlocker: { code: "delivery_missing" },
       completionNext: {
-        action: "ha ci observe pull",
-        reason: "Publish a passing canonical ci checker witness for this execution cut.",
+        action: "ha task complete task",
+        reason: "Confirm the delivery is merged to the configured target branch.",
         authority: "person_zeyu",
         readCut: { revision: 7, iteration: 0, executionId: "exe_cut" },
       },
@@ -522,10 +521,10 @@ test("refuses a task PR whose current execution has no consented approved review
   assert.equal(existsSync(setup.prWorktree), true);
 });
 
-test("merges a consented task PR whose completion blocker is a merge-only gate (ci_missing)", (t) => {
-  // The CEO return's named scenario: consent recorded, but the CI witness exists only on the
-  // merged main run, so the ledger's first blocker is ci_missing — the merge must still proceed.
-  const setup = fixture(t, { branch: TASK_BRANCH, haState: reviewChainMaskedByCiHaState() });
+test("merges a consented task PR with a historical CI gate declaration and delivery_missing blocker", (t) => {
+  // CH4 keeps frozen CI gates readable as retired history; completion now waits for merge evidence.
+  // The merge command checks the approved review and owner consent before it creates that evidence.
+  const setup = fixture(t, { branch: TASK_BRANCH, haState: reviewChainWithDeliveryBlockerHaState() });
 
   const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
 
@@ -540,7 +539,7 @@ test("merges a task PR whose receipt exceeds the spawnSync default maxBuffer", (
   // 1 MiB default maxBuffer, so reading it died with ENOBUFS and the merge failed closed. The
   // lifecycle progress log is what grows with task age, so pad it past the old default on top of
   // an otherwise consented receipt and require the judgment to still be read and the merge to run.
-  const haState = reviewChainMaskedByCiHaState();
+  const haState = reviewChainWithDeliveryBlockerHaState();
   haState.receipt.progress = [{ schema: "task-progress/v1", statement: "p".repeat(3 * 1024 * 1024) }];
   const setup = fixture(t, { branch: TASK_BRANCH, haState });
 
@@ -555,11 +554,11 @@ test("refuses a task PR whose missing consent is masked by a merge-only gate", a
   const cases = [
     {
       label: "no consent recorded",
-      haState: reviewChainMaskedByCiHaState({ consented: false }),
+      haState: reviewChainWithDeliveryBlockerHaState({ consented: false }),
     },
     {
       label: "consent pinned to a superseded submission",
-      haState: reviewChainMaskedByCiHaState({ staleConsent: true }),
+      haState: reviewChainWithDeliveryBlockerHaState({ staleConsent: true }),
     },
   ];
   for (const { label, haState } of cases) {
@@ -589,7 +588,7 @@ test("merges a lightweight task PR whose review and consent gates were lifted at
   // very class of low-risk PRs the short path exists for.
   const setup = fixture(t, {
     branch: TASK_BRANCH,
-    haState: reviewChainMaskedByCiHaState({
+    haState: reviewChainWithDeliveryBlockerHaState({
       consented: false,
       closeoutOverrides: { review: false, consent: false, fact: false },
     }),

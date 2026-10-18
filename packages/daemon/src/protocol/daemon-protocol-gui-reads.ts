@@ -4,7 +4,6 @@ import { observeTailReadMethod } from "./daemon-protocol-observe-tail-read.ts";
 import {
   DAEMON_AGENDA_SCHEMA,
   DAEMON_ARTIFACTS_LIST_SCHEMA,
-  DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_AGENT_ENTITY_CATALOG_SCHEMA,
   DAEMON_AGENT_ENTITY_DETAIL_SCHEMA,
   DAEMON_AGENT_RUNTIME_EVENTS_SCHEMA,
@@ -137,25 +136,6 @@ export const daemonGuiReadMethods = Object.freeze([
     commandClass: "repo-read",
   },
   observeTailReadMethod,
-  {
-    id: "ci.observatory.read",
-    phase: "PLT-TestEng-W1",
-    method: "repo.ci.observatory.read",
-    requiresRepo: true,
-    params: shape({
-      repo: shape({ repoId: "string" }),
-      payload: shape({ window: "number?", fetchDetails: "boolean?" }),
-    }),
-    guiBridgeMethod: "getCiObservatory",
-    httpMethod: "GET",
-    path: "/api/ci/observatory",
-    inputSchemaId: "gui.ci-observatory-query/v1",
-    outputSchemaId: DAEMON_CI_OBSERVATORY_SCHEMA.id,
-    errorSchemaId: DAEMON_PROTOCOL_ERROR_SCHEMA.id,
-    serviceMethod: "readCiObservatory",
-    auth: "local-session-token",
-    commandClass: "repo-read",
-  },
   {
     id: "settings.read",
     phase: "Settings-Kind",

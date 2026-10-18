@@ -411,7 +411,12 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
   // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle adds three host actions.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1: runtime steer is one owner-routed action.
-  assert.equal(actionDeclarations.length, 153);
+  // dec_4C06F7F902E91C4210020A9E75/CH2 removes the task-ci action with the retired observer chain.
+  assert.equal(actionDeclarations.length, 152);
+  assert.equal(
+    actionDeclarations.some(({ kind }) => kind === "ci-observe-pull" || kind === "task-ci"),
+    false,
+  );
   assert.deepEqual([...protocolKinds].sort(), [...declaredKinds].sort());
   for (const [kind, descriptor] of protocol) {
     const declaration = actionDeclarations.find((candidate) => candidate.kind === kind);
@@ -469,13 +474,7 @@ test("non-read protocol, Policy, receipt, residency, and entity catalogs close o
     actionDeclarations.find(({ kind }) => kind === "fact-record")?.receiptSettlement,
     "canonical-acceptance",
   );
-  for (const kind of [
-    "agent-run",
-    "ci-observe-pull",
-    "doc-conflict-discard-local",
-    "doc-materialize",
-    "projection-rebuild",
-  ])
+  for (const kind of ["agent-run", "doc-conflict-discard-local", "doc-materialize", "projection-rebuild"])
     assert.equal(actionDeclarations.find((candidate) => candidate.kind === kind)?.receiptSettlement, "none", kind);
   // The GUI exit admits an applied receipt only with its committed acceptance or a settled no-write.
   // A GUI write left at settlement "none" answers applied/unknown, which that exit rejects after the

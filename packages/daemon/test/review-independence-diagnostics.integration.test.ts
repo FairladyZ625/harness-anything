@@ -1057,6 +1057,13 @@ test("review binding permits independent runtimes but still rejects the executio
     assert.ok(submittedCut.payload.execution.submission?.deliverables.includes("README.md"));
     const reconciled = await cell.run({ kind: "task-code-doc-reconcile", taskId, paths: ["README.md"] }, operator);
     assert.equal(reconciled.outcome, "applied", JSON.stringify(reconciled));
+    const deliveryCommit = git(workerRoot, "rev-parse", "HEAD");
+    git(rootDir, "update-ref", "refs/remotes/origin/main", deliveryCommit);
+    const annotated = await cell.run(
+      { kind: "task-annotate", taskId, executionId, note: `merge_commit_sha:${deliveryCommit}` },
+      operator,
+    );
+    assert.equal(annotated.outcome, "applied", JSON.stringify(annotated));
     writeFileSync(
       path.join(rootDir, "review.json"),
       JSON.stringify({ verdict: "approved", reason: "Reviewed.", evidenceChecked: ["tests"] }),

@@ -167,8 +167,11 @@ login:
 ```bash
 ha task push <task-id>        # publish the task branch through the daemon-held credential
 ha task pr <task-id>          # create the pull request (--update edits the existing one)
-ha task ci <task-id> --wait   # read the branch's CI; blocks until a verdict
 ```
+
+Workers read checks with their hosting-platform CLI and their own platform
+credentials. For GitHub, use `gh pr checks <PR-number> --watch` and
+`gh run view <run-id> --log-failed`.
 
 Every bound worker gets `ha` from the CLI bin directory belonging to the
 running daemon's installation, with its dispatched repository root and daemon
@@ -267,11 +270,10 @@ value, and a retry command. Use these state rules when recovering:
 | `invalid_transition` from `task start`  | The current round already has an active execution                | Run `ha task start <task-id>` without `--execution-id` to reuse it.                                                                                                  |
 | `lease_required`                        | Submitter does not hold the execution lease                      | Run `ha task start <task-id>`, then retry submit as the holder.                                                                                                      |
 | `lease_not_found`                       | Runtime settlement already released the lease                    | Run `ha task start <task-id>` without a new execution id, then retry submit.                                                                                         |
-| `runtime_credential_unavailable` from `ha task pr` / `ha task ci` | The dispatch's runtime instance has no configured GitHub credential, or the native vault cannot resolve it | The operator binds the credential ([Hosted Git credentials](hosted-credentials.md)); the worker records the error text, marks CI unverified, and reports. |
+| `runtime_credential_unavailable` from `ha task pr` | The dispatch's runtime instance has no configured hosting credential, or the native vault cannot resolve it | The operator binds the credential ([Hosted Git credentials](hosted-credentials.md)). |
 | `runtime_credential_unavailable` from provider key commands | The native credential vault is unavailable (for example a locked Linux keyring) | Follow the headless keyring setup in [Provider API keys](provider-credentials.md#linux-without-a-desktop). |
 | `delivery_publish_failed` from `ha task push` | The task branch push was refused or rejected (another branch checked out, missing or foreign git identity, lost compare-and-swap cut, network) | Read the reason in the receipt, fix the named cause locally, then retry `ha task push <task-id>`. |
-| `task_ci_read_failed`                   | The CI read through the GitHub CLI failed                        | Retry `ha task ci <task-id>`; if it persists, check the credential's repository access and permissions ([Hosted Git credentials](hosted-credentials.md)). |
-| `unsupported_command` naming `task push` / `task pr` / `task ci` | The CLI or daemon on that machine predates these commands | Upgrade the CLI and daemon, then retry; until then record CI as unverified in the closeout with the error text. |
+| `unsupported_command` naming `task push` / `task pr` | The CLI or daemon on that machine predates these commands | Upgrade the CLI and daemon, then retry. |
 
 ## Registry v2 hard cut
 

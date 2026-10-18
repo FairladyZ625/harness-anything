@@ -84,26 +84,43 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
     ],
     reviews: [],
     consents: [],
-    codeDocWitnesses: [],
+    codeDocWitnesses:
+      commitSha === null
+        ? []
+        : [
+            {
+              schema: "code-doc-witness/v1",
+              witnessId: "code-doc",
+              taskId: "task-artifact-only",
+              executionId: "execution-1",
+              commitSha,
+              iteration: 0,
+              paths: ["packages/daemon/src/live.ts"],
+              actor,
+              source: "local",
+              reconciledAt: "2026-09-14T00:02:00.000Z",
+            },
+          ],
     gateWitnesses: [],
     edgesTaken: [],
     lease: null,
   };
 }
 
-test("artifact-only cuts skip code-cut gates while commit cuts retain both", () => {
+test("artifact-only cuts skip code gates while committed cuts require merge evidence", () => {
   const context = {
       closeout: "ready" as const,
       closeoutPath: "tasks/task-artifact-only/closeout.md",
       eligibleDirtyPaths: [],
       producesFactCount: 1,
       closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
+      delivery: { required: true, merged: false, targetBranch: "main", platform: "github" as const },
     },
     artifactOnly = snapshot(null),
     committed = snapshot("b".repeat(40));
   assert.deepEqual(completionBlockers(artifactOnly, "execution-1", context), []);
   assert.equal(requiredGateWitnessCount(artifactOnly, artifactOnly.executions[0]!), 0);
   assert.deepEqual(canonicalGateReceipts(artifactOnly, artifactOnly.executions[0]!), []);
-  assert.equal(completionBlockers(committed, "execution-1", context)[0]?.code, "ci_missing");
-  assert.equal(requiredGateWitnessCount(committed, committed.executions[0]!), 2);
+  assert.equal(completionBlockers(committed, "execution-1", context)[0]?.code, "delivery_missing");
+  assert.equal(requiredGateWitnessCount(committed, committed.executions[0]!, context.delivery), 1);
 });

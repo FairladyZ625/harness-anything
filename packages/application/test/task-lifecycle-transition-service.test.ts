@@ -9,15 +9,12 @@ import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/d
 import {
   openSqliteEventStore,
   activateEmptyCanonicalGeneration,
-  claimGateRun,
   applyTransition,
   canonicalGateReceipts,
-  compileCompletionGateWitness,
-  completionEvidenceBasis,
   completionBlockers,
   normalizeTaskLifecycleCommand,
   reviewDigest,
-  serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   sha256Text,
   submissionDigest,
   type TaskEventV1,
@@ -25,7 +22,6 @@ import {
 import {
   makeTaskEventStore,
   makeTaskProjection,
-  reduceTaskEvent,
   serializeTaskEvent,
   TASK_LEASE_BROKER_CONTRACT,
 } from "../../kernel/test/store/task-lifecycle-runtime.ts";
@@ -119,7 +115,11 @@ test("completion blocker matrix returns one canonical next for every substantive
       ["closeout_placeholder", consented.snapshot, { ...ready, closeout: "placeholder" as const }],
       ["review_missing", forwarded.snapshot, ready],
       ["consent_missing", reviewed.snapshot, ready],
-      ["ci_missing", withGates(["ci"]), ready],
+      [
+        "delivery_missing",
+        withGates(["ci"]),
+        { ...ready, delivery: { required: true, merged: false, targetBranch: "main", platform: "github" as const } },
+      ],
       ["code_doc_missing", withGates(["code-doc-reconciliation"]), ready],
       ["gate_witness_missing", withGates(["lint"]), ready],
       ["decision_lineage_missing", orphanWork, ready],
@@ -206,193 +206,6 @@ test("completion blocker matrix returns one canonical next for every substantive
       "the explicit empty-path witness is canonical proof for a report-only cut",
     );
     assert.deepEqual(completionBlockers(consented.snapshot, "execution-1", ready), []);
-  } finally {
-    await harness.cleanup();
-  }
-});
-
-test("canonical checker receipt becomes a content-cut gate witness before CompleteTask", async () => {
-  const harness = lifecycleHarness();
-  try {
-    await harness.create();
-    await harness.start("execution-1");
-    await harness.submit(
-      "execution-1",
-      undefined,
-      "implemented",
-      "a".repeat(40),
-      [],
-      [
-        {
-          gateId: "ci",
-          appliesTo: "code",
-          witness: {
-            ...completionSnapshot.completion.sources["github-actions"],
-            adapterId: "github-actions",
-            adapterOptions: {
-              workflows: ["rewrite-ci"],
-              branch: "main",
-              event: "push",
-              coverage: "descendant",
-              selection: "newest",
-            },
-          },
-        },
-      ],
-    );
-    await harness.adjudicate("execution-1", "forward");
-    await harness.review("execution-1", "acceptance", "approved");
-    const consented = await harness.consent("execution-1");
-    const snapshot = {
-      ...consented.snapshot,
-      task: { ...consented.snapshot.task!, completionGateIds: ["ci"] },
-    };
-    const execution = snapshot.executions[0]!;
-    snapshot.executions = [
-      {
-        ...execution,
-        gateRuns: [
-          claimGateRun({
-            repoId: "repo",
-            execution,
-            requirement: execution.submission!.completionContract.gates[0]!,
-            runId: "run-ci",
-            claimFence: 1,
-            actor,
-            occurredAt: "2026-08-11T00:09:00.000Z",
-            expiresAt: "2026-08-11T01:00:00.000Z",
-          }),
-        ],
-      },
-    ];
-    const input = {
-      snapshot,
-      taskId: "task-1",
-      executionId: "execution-1",
-      gateId: "ci",
-      result: "pass" as const,
-      receiptId: "op-ci",
-      checkerId: "standard",
-      commitSha: "a".repeat(40),
-      iteration: 0,
-      reviewGate: true,
-      actor,
-      source: "local" as const,
-      opId: "op-ci",
-      eventId: "event-ci",
-      workspaceRevision: snapshot.revision + 1,
-      occurredAt: "2026-08-11T00:10:00.000Z",
-      packagePath: null,
-      currentDocuments: [],
-      evidence: {
-        schema: "completion-evidence/v1" as const,
-        checkerId: "standard",
-        gateId: "ci",
-        result: "pass" as const,
-        subjects: [],
-        predicateType: "ci/v1",
-        predicate: {},
-        diagnostic: "CI passed",
-        observed: true,
-        basis: completionEvidenceBasis(
-          snapshot.executions.find((execution) => execution.executionId === "execution-1")!,
-        ),
-        provenance: {
-          source: "runner" as const,
-          adapterId: "github-actions" as const,
-          runId: "run-ci",
-          claimFence: 1,
-          rawResult: "event:op-ci",
-        },
-      },
-    };
-    const compiled = compileCompletionGateWitness(input);
-    assert.deepEqual(compiled.event.payload.witness, {
-      schema: "completion-gate-witness/v1",
-      witnessId: "gate-op-ci",
-      receiptId: "op-ci",
-      checkerId: "standard",
-      gateId: "ci",
-      result: "pass",
-      taskId: "task-1",
-      executionId: "execution-1",
-      commitSha: "a".repeat(40),
-      iteration: 0,
-      actor,
-      source: "local",
-      verifiedAt: "2026-08-11T00:10:00.000Z",
-      subjects: [],
-      predicateType: "ci/v1",
-      predicate: {},
-      diagnostic: "CI passed",
-      observed: true,
-      basis: completionEvidenceBasis(snapshot.executions.find((execution) => execution.executionId === "execution-1")!),
-      provenance: {
-        source: "runner",
-        adapterId: "github-actions",
-        runId: "run-ci",
-        claimFence: 1,
-        rawResult: "event:op-ci",
-      },
-    });
-    const verified = reduceTaskEvent(snapshot, compiled.event),
-      complete = command(
-        harness.rootDir,
-        { type: "CompleteTask" as const, taskId: "task-1", executionId: "execution-1" },
-        { eventId: "event-complete", workspaceRevision: verified.revision + 1, occurredAt: "2026-08-11T00:11:00.000Z" },
-        verified.revision,
-      ),
-      proof = {
-        capability: "task-complete@v1" as const,
-        capabilityRef: "cap-complete",
-        actorRole: "owner" as const,
-        noActiveLease: true as const,
-        closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
-        gateReceipts: [
-          {
-            gateId: "ci",
-            receiptRef: "event:op-ci",
-            result: "pass" as const,
-            executionId: "execution-1",
-            commitSha: "a".repeat(40),
-            iteration: 0 as const,
-          },
-        ],
-      };
-    const withFailedHistory = {
-      ...verified,
-      gateWitnesses: [
-        {
-          ...compiled.event.payload.witness,
-          witnessId: "gate-op-ci-fail",
-          receiptId: "op-ci-fail",
-          result: "fail",
-        } as unknown as typeof compiled.event.payload.witness,
-        ...verified.gateWitnesses,
-      ],
-    };
-    assert.deepEqual(
-      withFailedHistory.gateWitnesses.map(({ result }) => result),
-      ["fail", "pass"],
-    );
-    assert.doesNotThrow(() => applyTransition(withFailedHistory, complete, proof));
-    assert.throws(
-      () =>
-        applyTransition(verified, complete, {
-          ...proof,
-          gateReceipts: [{ ...proof.gateReceipts[0]!, receiptRef: "event:forged" }],
-        }),
-      /L2-verified/u,
-    );
-    assert.throws(
-      () => reduceTaskEvent(snapshot, { ...compiled.event, opId: "op-tampered" }),
-      /canonical event receipt/u,
-    );
-    assert.throws(() => compileCompletionGateWitness({ ...input, commitSha: "b".repeat(40) }), /execution cut/u);
-    // dec_4190D5EA63D9DD208CE946F133: runs may witness a submitted cut before independent review.
-    const atTriage = { ...input, snapshot: { ...snapshot, task: { ...snapshot.task, status: "submitted" as const } } };
-    assert.doesNotThrow(() => compileCompletionGateWitness(atTriage));
-    assert.doesNotThrow(() => compileCompletionGateWitness({ ...atTriage, reviewGate: false }));
   } finally {
     await harness.cleanup();
   }
@@ -993,7 +806,7 @@ function seedAcceptedEvents(rootDir: string, repoId: string, events: readonly Ta
         fence: { repoId, holder: "direct-store", epoch: 1 },
         intent: {
           opId: event.opId,
-          intentDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+          intentDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
           summary: event.type,
         },
         events: [event],

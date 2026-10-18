@@ -216,7 +216,6 @@ export function renderMarkdown(report) {
       report.cli.docShow.measured
         ? `- doc show（${report.cli.docShow.samples} 次热样本，${report.cli.docShow.path}）：p50 ${report.cli.docShow.wallMs.p50Ms} ms / p95 ${report.cli.docShow.wallMs.p95Ms} ms。`
         : `- doc show：未测得（${report.cli.docShow.reason}）。`,
-      `- task ci：${report.cli.taskCi.reason}。`,
       "",
     );
   }
@@ -278,7 +277,6 @@ export function renderMarkdown(report) {
     "## 未覆盖（unverified）",
     "",
     "- GUI 桌面 GPU 占用（隐藏窗口 lane 禁 GPU）。",
-    "- `ha task ci` 的 PR-present 路径（夹具无法持有派工 GitHub 凭据）。",
     "- 边缘复制链路与中心/边缘生产 daemon 的资源占用（本基线只在独立实例上测；生产观测沿用工作线 Context 里的单机单时点数字）。",
     "- 主从复制 10/50/100 边缘压测（父工作线已立独立任务）。",
     "",

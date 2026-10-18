@@ -82,7 +82,7 @@ export interface OverviewBoardDeps {
 }
 
 /** 放大层的键:WIP/评审执行/跟进返工/置顶承诺/main CI 红。 */
-export type DrillFocusKey = "wip" | "review" | "followups" | "pinned" | "ci";
+export type DrillFocusKey = "wip" | "review" | "followups" | "pinned";
 
 /* ------------------------------------------------------------------ 顶部:需要你处理(紧凑决策带) */
 

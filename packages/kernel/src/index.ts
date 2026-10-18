@@ -215,12 +215,7 @@ export type {
   ProjectedExecution,
   SubmissionV1,
 } from "./domain/execution.ts";
-export {
-  executionAnnotationKinds,
-  isNativeCommitSha,
-  isNativeExecution,
-  submissionDigest,
-} from "./domain/execution.ts";
+export { executionAnnotationKinds, isNativeExecution, submissionDigest } from "./domain/execution.ts";
 export {
   CODE_DOC_GATE_ID,
   gateAppliesTo,

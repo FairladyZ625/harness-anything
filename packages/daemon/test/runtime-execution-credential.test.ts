@@ -86,27 +86,12 @@ test("independent Keycloak client authenticates only its secret, expiry, and cur
 test("execution requests exclude other tasks, repos, controls, and human consent", () => {
   const p = principal();
   const request = (kind: string, overrides = {}) =>
-    requireExecutionRequestScope(
-      p,
-      kind === "task-push" || kind === "ci-observe-pull" ? "repo.task.run" : "repo.task.read",
-      {
-        repo: { repoId: p.repoId },
-        payload: { action: { kind, taskId: p.taskId, ...overrides } },
-      },
-    );
+    requireExecutionRequestScope(p, kind === "task-push" ? "repo.task.run" : "repo.task.read", {
+      repo: { repoId: p.repoId },
+      payload: { action: { kind, taskId: p.taskId, ...overrides } },
+    });
   assert.doesNotThrow(() => request("task-show"));
-  assert.doesNotThrow(() => request("task-ci"));
-  assert.doesNotThrow(() =>
-    requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: p.taskId }),
-  );
-  assert.doesNotThrow(() => request("task-ci", { taskId: "task-other" }));
-  assert.doesNotThrow(() =>
-    requireExecutionActionScope({ ...p, role: "reviewer" }, { kind: "task-ci", taskId: "task-other" }),
-  );
   assert.doesNotThrow(() => request("task-push"));
-  assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId }));
-  assert.throws(() => request("ci-observe-pull", { taskId: undefined }), { code: "execution_credential_rejected" });
-  assert.doesNotThrow(() => request("ci-observe-pull", { taskId: p.taskId, limit: 1 }));
   for (const kind of ["task-review-consent", "task-adjudicate", "people-delegate", "task-review-execution"])
     assert.throws(() => request(kind));
   assert.doesNotThrow(() => request("task-show", { taskId: "task-other" }));
@@ -308,15 +293,12 @@ test("a live worker may publish and read CI after submission releases the lease"
     };
   assert.doesNotThrow(() => requireCurrentExecutionScope(input));
   assert.doesNotThrow(() => bindVerifiedExecutorClaim(input));
-  const ci = { ...input, action: { kind: "task-ci", taskId: p.taskId } };
-  assert.doesNotThrow(() => requireCurrentExecutionScope(ci));
-  assert.doesNotThrow(() => requireCurrentExecutionScope({ ...ci, action: { kind: "task-ci", taskId: "task-other" } }));
   assert.doesNotThrow(
     () => requireCurrentExecutionScope({ ...input, action: { kind: "task-progress-append", taskId: p.taskId } }),
     {},
   );
   liveness = "exited";
-  assert.throws(() => requireCurrentExecutionScope(ci), { code: "execution_credential_rejected" });
+  assert.throws(() => requireCurrentExecutionScope(input), { code: "execution_credential_rejected" });
   assert.throws(() => bindVerifiedExecutorClaim(input), { code: "execution_credential_rejected" });
   assert.throws(() => bindVerifiedExecutorClaim({ ...input, action: { ...action, taskId: "task-other" } }), {
     code: "execution_credential_rejected",
@@ -597,7 +579,6 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
   for (const method of ["repo.agenda.read", "repo.agentRuntime.overview"])
     assert.doesNotThrow(() => requireExecutionRequestScope(p, method, { repo: { repoId: p.repoId }, payload: {} }));
   for (const action of [
-    { kind: "task-ci", taskId: "task-any" },
     { kind: "decision-show", decisionId: "dec_any" },
     { kind: "doc-show", path: "tasks/x/y.md" },
     { kind: "event-list" },
@@ -610,6 +591,9 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
       code: "execution_credential_rejected",
       message: /allowlisted ledger queries/u,
     });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-ci", taskId: "task-any" } as never), {
+    code: "unsupported_command",
+  });
   assert.throws(
     () => requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
     { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },

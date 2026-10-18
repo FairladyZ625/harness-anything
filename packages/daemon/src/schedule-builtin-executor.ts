@@ -5,7 +5,6 @@ import {
   applyLedgerBackupRetention,
   readVerifiedLedgerBackup,
   type LedgerBackupRetentionPolicyV1,
-  type CiObserveProgress,
   type ScheduleBuiltinParamsV1,
   type ScheduleV1,
   type WriteReceiptDraft as WriteReceipt,
@@ -19,7 +18,6 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 export const scheduledLedgerBackupRoot = "tmp/harness-backup";
 /** Deterministic schedule id of the system-seeded ledger backup. */
 export const builtinLedgerBackupScheduleId = "builtin-ledger-backup";
-export const builtinCiObserveScheduleId = "builtin-ci-observe";
 export const builtinNightlyReckoningScheduleId = "builtin-nightly-reckoning";
 /** Retention defaults when the schedule carries no explicit params. */
 export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { keepDays: 3, keepMonthly: true };
@@ -28,16 +26,9 @@ export const defaultLedgerBackupRetention: LedgerBackupRetentionPolicyV1 = { kee
 export interface BuiltinExecutorCell {
   readonly rootDir: string;
   readonly now: () => string;
-  readonly observeCi: (schedule: ScheduleV1) => Promise<BuiltinExecutionResult>;
   readonly runSnapshot: <T>(work: () => T | PromiseLike<T>) => Promise<T>;
   /** The Settings `storage.backupExecutionLimitMs` value: how long one backup run may take end to end. */
   readonly backupExecutionLimitMs: number;
-  /**
-   * Aborted when the cell closes mid-occurrence. An occurrence cut short this way settles
-   * nothing: its durable claim and checkpoint are the state a daemon restart leaves, and the
-   * next executor resumes from them.
-   */
-  readonly signal?: AbortSignal;
 }
 
 type RunInternal<Receipt extends WriteReceipt> = (action: RepoTaskAction, binding: RepoCellBinding) => Promise<Receipt>;
@@ -52,12 +43,10 @@ type BuiltinExecutor = (input: {
 export interface BuiltinExecutionResult {
   readonly outcome: "succeeded" | "failed";
   readonly detail: string;
-  readonly ciObserve?: CiObserveProgress;
 }
 
 const builtinExecutors: Readonly<Record<string, BuiltinExecutor>> = Object.freeze({
   "ledger-backup": executeLedgerBackup,
-  "ci-observe": ({ cell, schedule }) => cell.observeCi(schedule),
 });
 
 /**
@@ -89,7 +78,6 @@ export async function executeBuiltinScheduleOccurrence<Receipt extends WriteRece
           outcome: result.outcome,
           endedAt: input.cell.now(),
           detail: result.detail,
-          ...(result.ciObserve ? { ciObserve: result.ciObserve } : {}),
           idempotencyKey: `${input.idempotencyKey}:builtin-${result.outcome}`,
         },
         input.binding,
@@ -214,17 +202,6 @@ export async function seedBuiltinSchedules(input: {
       keepMonthly: defaultLedgerBackupRetention.keepMonthly,
       mission: "System ledger backup: snapshot, restore drill, retention cleanup.",
       idempotencyKey: `builtin-seed:${builtinLedgerBackupScheduleId}:v1`,
-    },
-    {
-      kind: "schedule-create",
-      scheduleId: builtinCiObserveScheduleId,
-      name: "CI observation",
-      mode: "detect",
-      everyMs: 60_000,
-      builtinId: "ci-observe",
-      systemPresetId: "ci-observe",
-      mission: "Reconcile GitHub workflow witnesses and diagnostic artifacts through the center occurrence.",
-      idempotencyKey: `builtin-seed:${builtinCiObserveScheduleId}:v1`,
     },
     {
       kind: "schedule-create",

@@ -13,6 +13,7 @@ import {
   deriveRelationId,
   makeTaskProjection,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   sha256Text,
   type CanonicalEventV1,
   type MigrationImportEventV1,
@@ -290,7 +291,7 @@ export function projectionFixture(rootDir: string) {
     appendEvent: (event: CanonicalEventV1) => {
       eventStreamHead = {
         revision: event.workspaceRevision,
-        eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+        eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
       };
     },
     blobs,

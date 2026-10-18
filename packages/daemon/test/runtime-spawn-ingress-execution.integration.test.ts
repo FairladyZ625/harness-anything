@@ -321,51 +321,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(implementationBinding?.type, "runtime_session_task_bound");
       if (implementationBinding?.type !== "runtime_session_task_bound") throw new Error("missing task binding");
       writeCloseout(taskId, "The second runtime execution is ready for review.");
-      // An explicit observer imports an unrelated failed run: this exercises actor attribution
-      // without supplying a green witness or coupling the observation to submission.
-      writeProviderExecutable(
-        path.join(parent, "gh"),
-        `
-        import { mkdirSync, writeFileSync } from "node:fs";
-        import path from "node:path";
-        const command = process.argv[3], sha = "f".repeat(40);
-        if (command === "list") console.log(JSON.stringify([{ databaseId: 901, headBranch: "main", createdAt: "2026-01-01T00:00:00Z" }]));
-        else if (command === "view") console.log(JSON.stringify({
-          workflowName: "rewrite-ci", headSha: sha, headBranch: "main", status: "completed",
-          conclusion: "failure", attempt: 1, event: "push"
-        }));
-        else if (process.argv[2] === "api" && process.argv.some(arg => arg.includes("/artifacts"))) console.log(JSON.stringify([{artifacts: []}]));
-        // gh --paginate --slurp wraps REST page objects, even without observation artifacts.
-        else if (process.argv[2] === "api" && process.argv.some(arg => arg.includes("/jobs?"))) console.log(JSON.stringify([
-          { total_count: 1, jobs: [{ id: 901, name: "rewrite-ci", conclusion: "failure" }] }
-        ]));
-        else if (process.argv[2] === "api" && process.argv[3].includes("/workflows/")) console.log(JSON.stringify({workflow_runs: []}));
-        else if (process.argv[2] === "api") console.log(JSON.stringify({
-          run_attempt: 1, head_sha: sha, head_branch: "main", conclusion: "failure", event: "push",
-          path: ".github/workflows/rewrite-ci.yml", workflow_id: 1, name: "rewrite-ci",
-          repository: { full_name: "fixture/repo" }
-        }));
-        else if (command === "download") { console.error("no artifacts found"); process.exit(1); }
-        else process.exit(1);
-      `,
-      );
-      const beforeObservation = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
-        secondExecutionId = implementationBinding.payload.executionId,
+      const secondExecutionId = implementationBinding.payload.executionId,
         runtimeExecutor = {
           kind: "agent" as const,
           id: `runtime-session:${String(implementation.runtimeSessionId)}`,
         },
-        observed = await host.run(repoId, { kind: "ci-observe-pull", limit: 20, executor: runtimeExecutor }, auth);
-      assert.equal(observed.outcome, "applied", JSON.stringify(observed));
-      const observations = makeTaskEventReader({ repoId, rootDir: root })
-        .read()
-        .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeObservation);
-      assert.ok(observations.length > 0, "the explicit observer must ingest the configured run");
-      // CI publication belongs to the center occurrence, not the runtime requesting refresh.
-      for (const observation of observations)
-        assert.deepEqual(observation.actor, { principal: { personId: "owner" }, executor: null });
-
-      const beforeSubmission = makeTaskEventReader({ repoId, rootDir: root }).read().revision,
         secondSubmission = await host.run(
           repoId,
           {
@@ -377,14 +337,6 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
           auth,
         );
       assert.equal(secondSubmission.outcome, "applied", JSON.stringify(secondSubmission));
-      assert.equal(
-        makeTaskEventReader({ repoId, rootDir: root })
-          .read()
-          .events.filter((event) => event.type === "ci_run_observed" && event.workspaceRevision > beforeSubmission)
-          .length,
-        0,
-        "submission must not pull another CI observation",
-      );
       assert.equal(
         (
           await host.run(

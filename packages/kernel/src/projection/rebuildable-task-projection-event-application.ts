@@ -51,7 +51,7 @@ import { isSettingsEvent } from "../domain/settings-event.ts";
 import { isValidCloseoutOverrides } from "../domain/settings-closeout.ts";
 import { isVerticalDeclarationEvent } from "../domain/vertical-declaration.ts";
 import { isRetiredPeopleEvent } from "../domain/people-event.ts";
-import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
+import { isRetiredCiRunObservationEvent } from "../domain/ci-run-observation-retired-event.ts";
 import { projectScheduleHistory, scheduleDefinition, validateScheduleDefinitionV1 } from "../domain/schedule.ts";
 import { lifecycleDocumentPaths } from "../domain/task-lifecycle-publication.ts";
 import { slugifyTaskTitle } from "../layout/index.ts";
@@ -139,6 +139,7 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
+  if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
   projectArtifactEntityState(db, event);
   if (isEntityPinEvent(event)) {
@@ -166,26 +167,6 @@ export function applyEvent(
         event.type === "entity_pinned" ? "true" : "false",
         taskId,
       );
-    return;
-  }
-  if (isCiRunObservationEvent(event)) {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
-    return;
-  }
-  if (event.schema === "ci-run-observation/v2" || event.schema === "ci-run-observation/v3") {
-    runSql(
-      db,
-      "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, NULL, ?)",
-      event.opId,
-      event.workspaceRevision,
-      eventJson,
-    );
     return;
   }
   if (isLedgerLayoutMigrationEvent(event)) {

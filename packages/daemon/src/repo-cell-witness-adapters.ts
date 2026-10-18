@@ -17,7 +17,6 @@ import {
 } from "@harness-anything/kernel";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
-import { githubActionsWitnessEvidence } from "./repo-cell-ci-evidence.ts";
 
 type Execution = Snapshot["executions"][number];
 
@@ -70,12 +69,6 @@ export interface WitnessAdapter {
 }
 
 export const witnessAdapters: Readonly<Partial<Record<FrozenGateRequirement["witness"]["kind"], WitnessAdapter>>> = {
-  "github-actions": {
-    evaluate: (cell, requirement, execution) => githubActionsWitnessEvidence(cell, requirement, execution),
-  },
-  "gitlab-pipeline": {
-    evaluate: (cell, requirement, execution) => githubActionsWitnessEvidence(cell, requirement, execution),
-  },
   command: {
     collect: collectCommandWitness,
     evaluate: (_cell, _requirement, _execution, collected) => (collected as CompletionEvidenceV1 | undefined) ?? null,

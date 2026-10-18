@@ -97,6 +97,15 @@ test("release acceptance: attributed lifecycle chain create→start→fact→sub
     const commitSha = git(workerRoot, "rev-parse", "HEAD");
     writeCloseout(root, packagePath, `The chain fixture is complete at ${commitSha}.`);
     run(root, userRoot, ["task", "submit", taskId, "--execution-id", executionId], worker);
+    git(root, "merge", "--no-ff", "--quiet", "-m", "merge release acceptance delivery", taskId);
+    const mergeCommitSha = git(root, "rev-parse", "HEAD");
+    git(root, "update-ref", "refs/remotes/origin/main", mergeCommitSha);
+    run(
+      root,
+      userRoot,
+      ["task", "annotate", taskId, "--execution-id", executionId, "--note", `merge_commit_sha:${mergeCommitSha}`],
+      worker,
+    );
     run(
       root,
       userRoot,

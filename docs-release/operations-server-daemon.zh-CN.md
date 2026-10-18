@@ -150,8 +150,10 @@ worker 在其中提交，并经 daemon 代办的命令发布，绝不使用本�
 ```bash
 ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
 ha task pr <task-id>          # 创建 pull request（--update 更新已有）
-ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
 ```
+
+Worker 使用托管平台 CLI 和自己的平台凭据读取检查。GitHub 使用
+`gh pr checks <PR-number> --watch`，并用 `gh run view <run-id> --log-failed` 查看失败日志。
 
 每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
 派工仓库 root 与 daemon 路由。中心与边缘 daemon 使用同一路径，不使用固定 canonical
@@ -230,11 +232,10 @@ NODE_EXTRA_CA_CERTS=/path/to/ca.pem ha daemon service install
 | `task start` 的 `invalid_transition`  | 当前 round 已有 active execution                       | 不传 `--execution-id`，运行 `ha task start <task-id>` 复用它。                                                                                          |
 | `lease_required`                      | submit 调用者不持有 execution lease                    | 运行 `ha task start <task-id>`，再由 holder 重试 submit。                                                                                               |
 | `lease_not_found`                     | runtime 结算已释放 lease                               | 不传新的 execution id 运行 `ha task start <task-id>`，再重试 submit。                                                                                   |
-| `ha task pr` / `ha task ci` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定 GitHub 凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）；worker 记下报错原文，把 CI 标为 unverified 并上报。 |
+| `ha task pr` 的 `runtime_credential_unavailable` | 派工的 runtime instance 未绑定托管凭据，或原生凭据库解析失败 | 由操作者绑定凭据（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
 | provider key 命令的 `runtime_credential_unavailable` | 原生凭据库不可用（例如 Linux keyring 未解锁） | 按 [Provider API keys](provider-credentials.md#linux-without-a-desktop) 的无桌面 keyring 设置处理。 |
 | `ha task push` 的 `delivery_publish_failed` | 任务分支推送被拒绝或被远端拒绝（检出在别的分支、git 身份缺失或非本仓身份、CAS 切点丢失、网络） | 读回执里的原因，在本地修正点名的问题后重试 `ha task push <task-id>`。 |
-| `task_ci_read_failed`                 | 经 GitHub CLI 的 CI 读取失败                          | 重试 `ha task ci <task-id>`；仍失败则检查凭据的仓库访问与权限（[托管 Git 凭据](hosted-credentials.zh-CN.md)）。 |
-| 点名 `task push` / `task pr` / `task ci` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试；在此之前在 closeout 里把 CI 记为 unverified 并附报错原文。 |
+| 点名 `task push` / `task pr` 的 `unsupported_command` | 该机器的 CLI 或 daemon 版本早于这些命令 | 升级 CLI 与 daemon 后重试。 |
 
 ## registry v2 硬切
 

@@ -10,7 +10,7 @@ import {
   validateRelationEvent,
   type RelationEventV1,
 } from "../../src/domain/relation-event.ts";
-import { parseCanonicalEvent, serializeCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
+import { parseCanonicalEvent, serializePersistedCanonicalEvent } from "../../src/domain/doc-sync.contract.ts";
 import { validateCurrentCanonicalEvent } from "../../src/domain/doc-sync-canonical-events.ts";
 
 const oldRef = "software/coding/external-issue@1/ISSUE-0123456789abcdef";
@@ -42,9 +42,9 @@ function fixture(source: string, target = "task/task_fixture"): RelationEventV1 
 test("historical versioned artifact endpoints retain their bytes and identity through canonical read and replay", () => {
   for (const event of [fixture(oldRef), fixture("task/task_fixture", oldRef)]) {
     assert.deepEqual(validateRelationEvent(event), []);
-    const bytes = serializeCanonicalEvent(event);
+    const bytes = serializePersistedCanonicalEvent(event);
     assert.deepEqual(parseCanonicalEvent(bytes), event);
-    assert.equal(serializeCanonicalEvent(parseCanonicalEvent(bytes)), bytes);
+    assert.equal(serializePersistedCanonicalEvent(parseCanonicalEvent(bytes)), bytes);
     const entity = reduceRelationEntity(null, event);
     assert.equal(entity.id, event.relationId);
     assert.equal(entity.source, event.payload.relation.source);
