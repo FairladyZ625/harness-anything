@@ -56,13 +56,15 @@ function statusSummary(scan: DocCandidateScan): string {
       (row) => row.state === "blocked" || row.state === "deletion" || row.state === "conflict",
     ),
     eligible = scan.rows.filter((row) => row.state === "eligible").length,
-    inapplicable = scan.rows.filter((row) => row.state === "inapplicable").length;
+    inapplicable = scan.rows.filter((row) => row.state === "inapplicable").length,
+    rebuilt = rebuiltRows(scan);
   return [
     blocked.length ? `doc-status: BLOCKED (${blocked.length})` : "doc-status: clean",
     ...(blocked.length
       ? ["blocked:", ...blocked.map((row) => `${row.path}\t${row.state}\t${row.reason ?? "candidate is blocked"}`)]
       : []),
     ...retireNextLines(blocked.filter((row) => row.state === "deletion")),
+    ...rebuiltSummaryLines(rebuilt),
     `eligible: ${eligible}`,
     `inapplicable: ${inapplicable}`,
   ].join("\n");
@@ -236,8 +238,24 @@ export function submitSummary(
       : ["(none)"]),
     "inapplicable:",
     ...(inapplicable.length ? inapplicable.map((row) => `${row.path}\t${row.reason}`) : ["(none)"]),
+    ...rebuiltSummaryLines(rebuiltRows(scan)),
     ...retireNextLines(blocked.filter((row) => row.state === "deletion")),
   ].join("\n");
+}
+
+// A route-owned projection rebuilt from the canonical document is clean, but the local rewrite it
+// replaced is gone; the summary is where the operator learns that happened.
+function rebuiltRows(scan: DocCandidateScan) {
+  return scan.rows.filter((row) => row.state === "clean" && row.reason !== null);
+}
+
+function rebuiltSummaryLines(rebuilt: readonly { readonly path: string; readonly reason: string | null }[]): string[] {
+  return rebuilt.length === 0
+    ? []
+    : [
+        "rebuilt (route-owned projections restored from the canonical document):",
+        ...rebuilt.map((row) => `${row.path}\t${row.reason}`),
+      ];
 }
 
 // A receipt that reports a canonical document missing from the worktree must name its one exit:
