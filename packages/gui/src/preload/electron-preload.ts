@@ -8,6 +8,13 @@ import {
 import { APP_COMMAND_CHANNEL, type AppCommandApi, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { contextBridge, ipcRenderer } from "electron";
 import {
+  UPDATE_CHECK_CHANNEL,
+  UPDATE_INSTALL_CHANNEL,
+  UPDATE_STATUS_CHANNEL,
+  UPDATE_STATUS_EVENT,
+  type UpdateApi,
+} from "../api/update-contract.ts";
+import {
   HARNESS_PRELOAD_API,
   assertPreloadPayload,
   preloadApiCapabilities,
@@ -171,6 +178,17 @@ const exposedHarnessApi = {
   // 账号与访问控制页:策略组、授权与回执,见 preload/access-admin-preload.ts。
   access: accessAdminPreloadApi(invoke),
   capabilities: preloadApiCapabilities,
+  updates: {
+    check: () => invoke(UPDATE_CHECK_CHANNEL, null),
+    install: () => invoke(UPDATE_INSTALL_CHANNEL, null),
+    status: () => invoke(UPDATE_STATUS_CHANNEL, null),
+    onStatus: (listener) => {
+      const subscription = (_event: Electron.IpcRendererEvent, status: unknown) =>
+        listener(status as Parameters<typeof listener>[0]);
+      ipcRenderer.on(UPDATE_STATUS_EVENT, subscription);
+      return () => ipcRenderer.removeListener(UPDATE_STATUS_EVENT, subscription);
+    },
+  } satisfies UpdateApi,
 };
 
 contextBridge.exposeInMainWorld(HARNESS_PRELOAD_API, exposedHarnessApi);
