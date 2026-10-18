@@ -160,14 +160,20 @@ function mountView() {
   return { opened };
 }
 
-/** react-query 的取数落在微任务与下一个宏任务里;逐轮 act 冲干净再断言。 */
+/** react-query 的取数由 promise 微任务推进；逐轮 act 冲干净再断言。 */
 async function flushQueries() {
   for (let round = 0; round < 4; round += 1)
     await act(async () => {
       await Promise.resolve();
     });
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+    });
   });
 }
 
