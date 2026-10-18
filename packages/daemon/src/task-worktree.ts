@@ -187,7 +187,7 @@ export async function checkoutTaskWorktree(
     const published = await publishedBranchRef(rootDir, binding.branch);
     if (fresh) await addManagedWorktree(rootDir, { cwd, branch: binding.branch, baseRef: published ?? defaultRef! });
     // A checkout this node already had, or a branch that survived one, may predate another node's push.
-    if (published) await continuePublishedBranch(cwd, published);
+    if (published) await continuePublishedBranch(cwd, published, defaultRef);
     // With no published task branch to continue, a checkout a refused or cancelled dispatch cut may also predate
     // the default branch itself: one that never worked is advanced, so the retry starts on the present baseline.
     else if (defaultRef) await advanceIdleCheckout(cwd, defaultRef);
