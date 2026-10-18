@@ -1,5 +1,4 @@
-import { validateCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
-import { ciRunObservationV3Migration, ciWorkflowVerificationMigration } from "./event-shape-migration.ts";
+import { validateRetiredCiRunObservationEvent } from "../domain/ci-run-observation-retired-event.ts";
 import type { CanonicalEventV1 } from "../domain/doc-sync-types.ts";
 import {
   serializePersistedCanonicalEvent,
@@ -56,22 +55,16 @@ export function planCompletionGeneration(source: SqliteEventStore, approvedSnaps
     // Cursor increases with every yielded revision; eventRowPage.done ends the stream.
     for (const row of completionSourceRows(source)) {
       const original = JSON.parse(row.eventJson) as CanonicalEventV1;
-      // Generation 1's CI shapes use their existing offline rewrite functions. Completion
-      // events go directly through this mapper so missing new fields cannot erase a Task.
-      const verified =
-        metadata.generation === 1 ? (ciWorkflowVerificationMigration.rewrite(original)?.event ?? original) : original;
-      const canonical =
-        metadata.generation === 1 ? (ciRunObservationV3Migration.rewrite(verified)?.event ?? verified) : verified;
-      const converted = mapper.convert(canonical);
+      const converted = mapper.convert(original);
       const historicalBlobs: CanonicalContentBlob[] = [];
       let current = converted.event;
       // Gen1 non-completion records retain the existing offline source-witness policy.
       // Completion records must pass their dedicated closure conversion, never become a generic witness.
       if (metadata.generation === 1 && !("task" in original.payload) && original.schema !== "settings-event/v1") {
-        const issues =
-          current.schema === "ci-run-observation/v3"
-            ? validateCiRunObservationEvent(current)
-            : validateCurrentCanonicalEvent(current);
+        const retiredCi = String(current.schema).startsWith("ci-run-observation/");
+        const issues = retiredCi
+          ? validateRetiredCiRunObservationEvent(current)
+          : validateCurrentCanonicalEvent(current);
         const missing =
           issues.length === 0 &&
           contentClaims(current).some((claim) => {
@@ -79,7 +72,9 @@ export function planCompletionGeneration(source: SqliteEventStore, approvedSnaps
             if (bytes && bytes.byteLength !== claim.size) throw new Error(`corrupt accepted content ${claim.sha256}`);
             return bytes === null;
           });
-        if (issues.length || missing) {
+        if (retiredCi && (issues.length || missing))
+          throw new Error(`Historical CI observation ${current.opId} is invalid or incomplete: ${issues.join("; ")}`);
+        if (!retiredCi && (issues.length || missing)) {
           current = historicalWitness(original, row, source);
           const entity = current.payload.entity;
           if (entity.kind === "repo-document")

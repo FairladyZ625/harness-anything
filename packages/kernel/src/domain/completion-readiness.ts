@@ -3,8 +3,10 @@ import {
   closeoutReadiness,
   currentExecutionCuts,
   gateSatisfied,
+  isRetiredCiRequirement,
   lineageOrphan,
   type CloseoutGateStatus,
+  type CompletionDeliveryStatus,
 } from "./closeout-readiness.ts";
 import type { FrozenCompletionContract } from "./completion-contract.ts";
 import type { MarkdownDocumentContract, TransitionDocumentMissingSection } from "./transition-document-readiness.ts";
@@ -24,7 +26,7 @@ export type CompletionBlockerCode =
   | "closeout_placeholder"
   | "review_missing"
   | "consent_missing"
-  | "ci_missing"
+  | "delivery_missing"
   | "code_doc_missing"
   | "decision_lineage_missing"
   | "lease_held"
@@ -59,6 +61,7 @@ export interface CompletionReadinessContext {
   readonly authorization?: "allowed" | "denied";
   readonly invalidDocument?: { readonly path: string; readonly reason: string };
   readonly closeoutGates?: Readonly<Record<CloseoutGate, boolean>>;
+  readonly delivery?: CompletionDeliveryStatus;
   readonly closeoutContract?: MarkdownDocumentContract | null;
   /** Whether declare-executor has a dispatch record it can replay as executor proof. */
   readonly hasDispatchLineage?: boolean;
@@ -110,9 +113,7 @@ function witnessCommand(
   if (sourceKind === "command")
     return `ha task witness-rerun ${taskId} --execution-id ${executionId} --gate ${gateId} --run-id <current-run-id> --reason <reason>`;
   if (sourceKind === "github-actions" || sourceKind === "gitlab-pipeline")
-    return (
-      `Wait for the center CI observer to import the workflow witness; ` + `ha task ci ${taskId} reports its progress.`
-    );
+    return `Read required checks on the hosting platform and merge the delivery into its configured target branch.`;
   return `Run the canonical ${gateId} checker to witness execution ${executionId}.`;
 }
 
@@ -276,7 +277,8 @@ function evaluateCompletion(
       factDisposition: true,
       codeDoc: true,
     },
-    assessment = closeoutReadiness(snapshot, undefined, closeoutGates);
+    assessment = closeoutReadiness(snapshot, undefined, closeoutGates, context.delivery);
+  const submission = execution.submission;
   // A changes request on the current cut ends that cut: no witness can complete it, so the owner's
   // return comes before any missing evidence.
   const changes =
@@ -290,26 +292,29 @@ function evaluateCompletion(
     );
   // An empty manifest leaves the holder no path to reconcile: completion preparation writes that
   // witness itself, so it is never the step to name.
-  const reconcilable = closeoutGates.codeDoc && execution.submission.deliverables.length > 0;
-  const gate = assessment.gates.find(
-    ({ gateId, status }) =>
+  const reconcilable = closeoutGates.codeDoc && submission.deliverables.length > 0;
+  const gate = assessment.gates.find(({ gateId, status }) => {
+    const requirement = submission.completionContract.gates.find((candidate) => candidate.gateId === gateId);
+    return (
       !gateSatisfied(status) &&
+      !(context.delivery?.required && isRetiredCiRequirement(gateId, requirement)) &&
       (gateId !== "code-doc-reconciliation" || reconcilable) &&
-      !context.preparedGateIds?.includes(gateId),
-  );
+      !context.preparedGateIds?.includes(gateId)
+    );
+  });
   if (gate)
     return gate.gateId === "code-doc-reconciliation"
       ? one(
           "code_doc_missing",
           gate.gateId,
           `ha task code-doc reconcile ${task.taskId}` +
-            execution.submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
+            submission.deliverables.map((value) => ` --path '${value.replaceAll("'", "'\\''")}'`).join(""),
           "The submitted execution cut has no canonical code/doc witness.",
         )
       : one(
-          gate.gateId === "ci" ? "ci_missing" : "gate_witness_missing",
+          "gate_witness_missing",
           gate.gateId,
-          witnessCommand(task.taskId, gate.gateId, gate.status, execution.submission.completionContract, executionId),
+          witnessCommand(task.taskId, gate.gateId, gate.status, submission.completionContract, executionId),
           gate.status === "signoff_missing"
             ? `Gate ${gate.gateId} passed its automated witness and requires a human signoff for this execution cut.`
             : (gate.detail ?? `Publish a passing canonical ${gate.gateId} checker witness for this execution cut.`),
@@ -361,6 +366,15 @@ function evaluateCompletion(
       "consent",
       reviewConsentCommands(task.taskId, snapshot.reviews, execution).join(" or "),
       "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
+    );
+  if (context.delivery?.required && submission.commitSha !== null && !context.delivery.merged)
+    return one(
+      "delivery_missing",
+      "delivery",
+      `Merge the delivery into origin/${context.delivery.targetBranch}, then run ha task complete ${task.taskId}.`,
+      context.delivery.merged === false
+        ? `The ${context.delivery.platform} delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
+        : `The ${context.delivery.platform} delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
     );
   return [];
 }

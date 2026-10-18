@@ -31,7 +31,6 @@ function runnerFixture(linked = true) {
     "test-quarantine.mjs",
     "test-quarantine.json",
     "node-test-file-activity-reporter.mjs",
-    "node-test-observation-reporter.mjs",
     "node-test-stall-report.mjs",
     "node-test-daemon-owner.mjs",
   ]) {

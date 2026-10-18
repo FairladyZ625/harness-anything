@@ -39,7 +39,6 @@ import { validateEntityLocatorRead } from "../entity-locator-read.ts";
 import { isJsonObject } from "./json-rpc-types.ts";
 import { validateSquadRunRead, validateSquadRunsList } from "../squad-run-contract.ts";
 import { validateFleetOverview } from "../fleet/fleet-overview-read.ts";
-import { validateCiObservatoryRead } from "../ci-observatory-read.ts";
 import {
   validateAgentDispatchPreview,
   validateCatalogPreset,
@@ -163,7 +162,6 @@ const resultValidators = {
   "repo.entity.locator.read": validateEntityLocatorRead,
   "repo.entity.content.read": validateEntityContentRead,
   "repo.settings.read": validateDaemonSettingsRead,
-  "repo.ci.observatory.read": validateCiObservatoryRead,
   "repo.workspace.summary.read": validateDaemonWorkspaceSummary,
   "repo.workspace.scope.read": validateDaemonWorkspaceScope,
   "repo.agenda.read": validateDaemonAgenda,

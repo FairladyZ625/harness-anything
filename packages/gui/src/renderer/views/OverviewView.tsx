@@ -8,7 +8,7 @@ import { Region } from "../components/primitives/Region";
 import { StatusTag } from "../components/primitives/StatusTag";
 import type { AppLocation, OverviewFocusLocation } from "../navigation/viewHistory.ts";
 import type { AwaitsPanelSubject } from "../awaits-answer.ts";
-import { useOverviewArtifacts, useOverviewCi, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
+import { useOverviewArtifacts, useOverviewRecentEvents, useOverviewRuntime } from "../overview-data.ts";
 import { useSettingsQuery } from "../settings-data.ts";
 import { useTaskWipQuery } from "../task-data.ts";
 import type { RuntimeHealth } from "../model/runtime-health.ts";
@@ -45,7 +45,6 @@ import {
   type DrillFocusKey,
   type OverviewBoardDeps,
 } from "./overview-regions.tsx";
-import { CiFocusDetail, CiFocusList } from "./overview-ci.tsx";
 import { wipVisibleEntries, type WipFilter } from "./OverviewTaskWip.tsx";
 
 /**
@@ -129,8 +128,6 @@ export function OverviewView({
   const focus = overviewLayer.overviewFocus?.key ?? null;
   const layerSelectedId = overviewLayer.overviewFocus?.selectedId ?? null;
   const artifactFocus = overviewLayer.overviewArtifactId;
-  const [fetchCiDetails, setFetchCiDetails] = useState(false);
-  const ciQuery = useOverviewCi(repoId, fetchCiDetails);
   const runtimeQuery = useOverviewRuntime(repoId);
   const eventsQuery = useOverviewRecentEvents(repoId);
   const artifactsQuery = useOverviewArtifacts(repoId);
@@ -142,8 +139,8 @@ export function OverviewView({
   // WIP 放大层的分组/搜索过滤态放在这里:FocusLayer 的 ↑↓ 只在可见集合里移动,itemIds
   // 与名单渲染必须出自同一份 wipVisibleEntries,组件内部各持一份会各自漂移。
   const [wipFilter, setWipFilter] = useState<WipFilter>({ group: "all", search: "" });
-  // 年龄随读面刷新重算:agenda/works/ci 任一前进都给一帧新时钟,不立单独计时器。
-  const now = useMemo(() => new Date().toISOString(), [agenda, works, ciQuery.data, runtimeQuery.data]);
+  // 年龄随读面刷新重算:agenda/works/runtime 任一前进都给一帧新时钟,不立单独计时器。
+  const now = useMemo(() => new Date().toISOString(), [agenda, works, runtimeQuery.data]);
 
   const workTitleOf = useMemo(
     () => new Map((works?.works ?? []).map((work) => [work.taskId, work.title] as const)),
@@ -181,8 +178,6 @@ export function OverviewView({
     () => new Map(watchedRecentPaths(recentDays, watched).map((path) => [path.workTaskId, path] as const)),
     [recentDays, watched],
   );
-  const ciRuns = ciQuery.data?.runs ?? [];
-  const failing = ciRuns.filter((run) => run.branch === "main" && run.pass === false);
   const wipCounted = wipQuery.data?.counted ?? [];
   const wipFull = wipQuery.data !== undefined && wipCounted.length >= wipQuery.data.limit;
   // 「执行与下钻 → 进行中的任务」的内联名单(注意力分降序;行内含执行者与最近活动)。
@@ -239,15 +234,11 @@ export function OverviewView({
             ? followUps.map(({ id }) => id)
             : focus === "pinned"
               ? pinned.map(({ taskId }) => taskId)
-              : ciRuns.map(({ eventId }) => eventId);
+              : [];
   const focusSelected =
     focus === null ? null : focusIds.includes(layerSelectedId ?? "") ? layerSelectedId! : (focusIds[0] ?? null);
 
-  const quietLine =
-    health.daemon.state === "responsive" &&
-    failing.length === 0 &&
-    !ciQuery.isError &&
-    (health.projection.lag ?? 0) <= 0;
+  const quietLine = health.daemon.state === "responsive" && (health.projection.lag ?? 0) <= 0;
 
   const worksTag =
     watched.length === 0 ? null : watched.some(({ source }) => source === "pinned") ? (
@@ -264,25 +255,10 @@ export function OverviewView({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="overview-view">
       <header data-testid="overview-topbar" className="flex flex-none flex-wrap items-center gap-1.5 px-3 pb-2 pt-2">
-        {/* 异常提升:daemon 无响应 / main CI 红(可点开失败名单)/ 投影落后;正常状态收进弱化小字。 */}
+        {/* 异常提升:daemon 无响应 / 投影落后;正常状态收进弱化小字。 */}
         {health.daemon.state === "unresponsive" && (
           <StatusPill tone="bad">{t("views.overviewView.topDaemonDown")}</StatusPill>
         )}
-        <button
-          type="button"
-          data-testid="overview-ci-alert"
-          onClick={() => openFocus("ci")}
-          className="glass flex h-6 shrink-0 items-center gap-1.5 rounded-xs px-2.5 text-text-muted ui-meta hover:text-text"
-        >
-          {t("views.overviewView.regionCi")} ·{" "}
-          {failing.length > 0
-            ? t("views.overviewView.topCiRedCount", { count: failing.length })
-            : t(
-                ciQuery.isError || ciQuery.data === undefined || ciQuery.data.status === "pending"
-                  ? "views.ci.unknown"
-                  : "views.ci.inspect",
-              )}
-        </button>
         {collaboration !== null && collaboration !== undefined && onOpenCollaboration !== undefined && (
           <button
             type="button"
@@ -347,7 +323,6 @@ export function OverviewView({
             // 完整事实,快照恢复的剪枝才不会把「还没到的区域」提前删掉。
             agenda !== undefined &&
             works !== undefined &&
-            !ciQuery.isPending &&
             !runtimeQuery.isPending &&
             !eventsQuery.isPending &&
             !wipQuery.isPending &&
@@ -628,38 +603,6 @@ export function OverviewView({
             focusSelected === null ? null : (
               <PinnedFocusDetail task={pinned.find(({ taskId }) => taskId === focusSelected)!} deps={deps} />
             )
-          }
-        />
-      )}
-      {focus === "ci" && (
-        <FocusLayer
-          open
-          title={t("views.overviewView.regionCi")}
-          emphasis="detail"
-          tag={<StatusTag tone="neutral" label={ciQuery.data?.statisticsAvailability ?? "pending"} />}
-          big={ciRuns.length}
-          itemIds={focusIds}
-          selectedId={focusSelected}
-          onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "ci", selectedId: id } })}
-          onClose={() => onOverviewLayerClose({ overviewFocus: null })}
-          list={
-            <CiFocusList
-              ci={ciQuery.data}
-              selectedId={focusSelected}
-              onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "ci", selectedId: id } })}
-            />
-          }
-          detail={
-            <CiFocusDetail
-              ci={ciQuery.data}
-              run={ciRuns.find(({ eventId }) => eventId === focusSelected)}
-              error={ciQuery.error?.message ?? null}
-              fetching={ciQuery.isFetching}
-              onFetch={() => {
-                if (fetchCiDetails) void ciQuery.refetch();
-                else setFetchCiDetails(true);
-              }}
-            />
           }
         />
       )}

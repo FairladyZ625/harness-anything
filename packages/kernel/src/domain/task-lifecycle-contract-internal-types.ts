@@ -15,6 +15,7 @@ import type { LeaseChangeReason, TaskEventV1 } from "./task-lifecycle-event.ts";
 import type { DomainStatus } from "./lifecycle-status.ts";
 import type { FactStillHoldsAttestation } from "./fact-retirement-readiness.ts";
 import type { CloseoutGate } from "./settings-closeout.ts";
+import type { CompletionDeliveryStatus } from "./closeout-readiness.ts";
 
 // Shared public contract shapes and internal transition protocol.
 /** The owner's forward adjudication on one cut, keyed (executionId, iteration): the corridor
@@ -240,6 +241,7 @@ export interface CompleteTaskProof {
   readonly actorRole: "owner" | "commander";
   readonly noActiveLease: true;
   readonly closeoutGates: Readonly<Record<CloseoutGate, boolean>>;
+  readonly delivery?: CompletionDeliveryStatus;
   readonly gateReceipts: readonly {
     readonly gateId: string;
     readonly receiptRef: string;

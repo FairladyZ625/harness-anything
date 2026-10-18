@@ -87,23 +87,6 @@ test("fleet task routing requires both edge config and remote-edge registry mode
     (await fleetTaskRoute(command("repo.task.read", { kind: "task-show", taskId: "task_one" }), env))?.action,
     { kind: "task-show", taskId: "task_one" },
   );
-  const ciRoute = await fleetTaskRoute(command("repo.task.read", { kind: "task-ci", taskId: "task_one" }), env);
-  assert.deepEqual(ciRoute?.action, { kind: "task-ci", taskId: "task_one" });
-  const ciFrame = {
-    schema: "fleet.task.command/v1",
-    messageId: "ci-read",
-    repoId: "route-repo",
-    writerEpoch: 1,
-    opId: "ci-read-op",
-    taskId: "task_one",
-    action: ciRoute!.action,
-    docChanges: null,
-    mirrorBaseCut: null,
-  };
-  assert.doesNotThrow(() => parseFleetFrame(ciFrame));
-  assert.throws(() =>
-    parseFleetFrame({ ...ciFrame, action: { kind: "task-ci", taskId: "task_one", branch: "other" } }),
-  );
   assert.deepEqual(
     (await fleetTaskRoute(command("repo.task.run", { kind: "task-settle", taskId: "task_one" }), env))?.action,
     { kind: "task-settle", taskId: "task_one" },

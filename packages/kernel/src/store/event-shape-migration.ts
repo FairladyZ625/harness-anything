@@ -1,8 +1,3 @@
-import {
-  validateCiRunObservationEventV2,
-  validateCiRunObservationEvent,
-  type CiRunObservationEventV2,
-} from "../domain/ci-run-observation-event.ts";
 import { historicalCompletionRequirements } from "./offline-completion-contract.ts";
 import { effectiveCloseoutGates } from "../domain/settings-closeout.ts";
 import { readSettingsFacet } from "../domain/settings.ts";
@@ -59,9 +54,7 @@ export type EventShapeMigrationName =
   | "decision-digests"
   | "schedule-definitions"
   | "settings-wal-flush"
-  | "settings-roles"
-  | "ci-workflow-verification"
-  | "ci-run-observation-v3";
+  | "settings-roles";
 export type EventShapeMigrationKind =
   | "entity-owned-content-manifests-migrate"
   | "task-v2-snapshots-migrate"
@@ -731,50 +724,6 @@ const scheduleDefinitionsMigration: EventShapeMigrationSpec = {
   },
 };
 
-export const ciWorkflowVerificationMigration = {
-  name: "ci-workflow-verification",
-  matches: (event: CanonicalEventV1) => String(event.schema) === "ci-run-observation/v1",
-  rewrite: (event: CanonicalEventV1) => {
-    if (String(event.schema) !== "ci-run-observation/v1") return null;
-    const rewritten = {
-      ...event,
-      schema: "ci-run-observation/v2",
-      payload: { ...event.payload, verification: null },
-    } as CanonicalEventV1;
-    const issues = validateCiRunObservationEventV2(rewritten);
-    if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);
-    return {
-      event: rewritten,
-      category: "historical CI measurements retained without workflow verification",
-      before: { schema: event.schema },
-      after: { schema: rewritten.schema, verification: null },
-    };
-  },
-} satisfies EventShapeMigrationSpec;
-
-export const ciRunObservationV3Migration = {
-  name: "ci-run-observation-v3",
-  matches: (event: CanonicalEventV1) => event.schema === "ci-run-observation/v2",
-  rewrite: (event: CanonicalEventV1) => {
-    if (event.schema !== "ci-run-observation/v2") return null;
-    const payload = event.payload as CiRunObservationEventV2["payload"],
-      gates = payload.gates.map(({ gate, pass, metrics }) => ({ gate, result: pass ? "pass" : "fail", metrics })),
-      rewritten = {
-        ...event,
-        schema: "ci-run-observation/v3",
-        payload: { ...payload, gates },
-      } as CanonicalEventV1,
-      issues = validateCiRunObservationEvent(rewritten);
-    if (issues.length) throw new Error(`Invalid historical CI observation ${event.opId}: ${issues.join("; ")}`);
-    return {
-      event: rewritten,
-      category: "historical CI gate pass values normalized to semantic results",
-      before: { schema: event.schema },
-      after: { schema: rewritten.schema },
-    };
-  },
-} satisfies EventShapeMigrationSpec;
-
 // Pre-manifest upserts accepted exactly the declaration claim already carried by the event.
 // Observed/updated declarations own additional content that cannot be inferred from that claim.
 const entityOwnedContentMigration: EventShapeMigrationSpec = {
@@ -805,11 +754,7 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "settings-roles-migrate": settingsRolesMigration,
 };
 
-const generationShapeMigrations = [
-  ...Object.values(eventShapeMigrations),
-  ciWorkflowVerificationMigration,
-  ciRunObservationV3Migration,
-];
+const generationShapeMigrations = [...Object.values(eventShapeMigrations)];
 
 /**
  * Plans the generation-0 to generation-1 shape conversion without changing the source store.

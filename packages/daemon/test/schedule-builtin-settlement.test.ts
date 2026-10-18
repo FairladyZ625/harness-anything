@@ -7,15 +7,15 @@ import { executeBuiltinScheduleOccurrence } from "../src/schedule-builtin-execut
 const now = "2026-10-09T00:00:00.000Z";
 const binding = { actor: { principal: { personId: "settlement-test" }, executor: null }, source: "local" as const };
 const base = createScheduleV1({
-  scheduleId: "builtin-ci-observe",
-  name: "CI",
+  scheduleId: "test-builtin-settlement",
+  name: "Unregistered builtin",
   mode: "detect",
   actor: binding.actor,
   occurredAt: now,
   spec: {
     trigger: { kind: "interval", everyMs: 60000, anchorAt: now },
-    target: { kind: "builtin", builtinId: "ci-observe" },
-    mission: "Observe CI",
+    target: { kind: "builtin", builtinId: "unregistered-test-builtin" },
+    mission: "Exercise schedule settlement",
   },
 });
 const schedule: ScheduleV1 = {
@@ -42,8 +42,8 @@ for (const outcome of ["succeeded", "failed"] as const) {
       cell: {
         rootDir: ".",
         now: () => now,
-        observeCi: async () => ({ outcome, detail: "test" }),
         runSnapshot: async (work) => work(),
+        backupExecutionLimitMs: 1000,
       },
       schedule,
       binding,
@@ -52,7 +52,7 @@ for (const outcome of ["succeeded", "failed"] as const) {
     });
     assert.equal(receipt, rejected);
     assert.deepEqual(warnings, [
-      "[schedule-builtin] builtin-ci-observe/claim-test settlement rejected: schedule_claim_stale.",
+      "[schedule-builtin] test-builtin-settlement/claim-test settlement rejected: schedule_claim_stale.",
     ]);
   });
 }
@@ -66,8 +66,8 @@ test("C2 thrown settlement failure logs its code and remains rejected", async (t
       cell: {
         rootDir: ".",
         now: () => now,
-        observeCi: async () => ({ outcome: "succeeded", detail: "test" }),
         runSnapshot: async (work) => work(),
+        backupExecutionLimitMs: 1000,
       },
       schedule,
       binding,
@@ -79,6 +79,6 @@ test("C2 thrown settlement failure logs its code and remains rejected", async (t
     (error) => error === failure,
   );
   assert.deepEqual(warnings, [
-    "[schedule-builtin] builtin-ci-observe/claim-test settlement failed: writer_epoch_stale: Writer changed",
+    "[schedule-builtin] test-builtin-settlement/claim-test settlement failed: writer_epoch_stale: Writer changed",
   ]);
 });

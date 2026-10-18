@@ -1,15 +1,9 @@
-import { validateCiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
 import {
   validateExecutionDelegationEvent,
   validateCurrentExecutionDelegationEvent,
 } from "./execution-delegation-event.ts";
 import { validateCurrentEntityEvent, validateEntityEvent } from "./entity-event.ts";
 import { validateCurrentEntityPinEvent, validateEntityPinEvent } from "./entity-pin-event.ts";
-import {
-  validateCiRunObservationEvent,
-  validateCiRunObservationEventV2,
-  validateCurrentCiRunObservationEvent,
-} from "./ci-run-observation-event.ts";
 import { validateAgentRuntimeEvent, validateCurrentAgentRuntimeEvent } from "./agent-runtime.ts";
 import { validateCurrentDecisionEvent, validateDecisionEvent } from "./decision-event.ts";
 import type { CanonicalEventV1, DocEventV1, PersistedCanonicalEventV1 } from "./doc-sync-types.ts";
@@ -32,6 +26,7 @@ import { validateCurrentScheduleEvent, validateScheduleEvent } from "./schedule-
 import { validateCurrentSettingsEvent, validateSettingsEvent } from "./settings-event.ts";
 import { validateCurrentVerticalDeclarationEvent, validateVerticalDeclarationEvent } from "./vertical-declaration.ts";
 import { validateRetiredPeopleEvent } from "./people-event.ts";
+import { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 import { validateCurrentRelationEvent, validateRelationEvent } from "./relation-event.ts";
 import { canonicalizeWriteValue, isRecord } from "./write-chain.contract.ts";
 import { normalizePersistedTimestamp } from "./timestamp.ts";
@@ -49,19 +44,10 @@ export const canonicalEventSchemas: readonly CanonicalEventSchemaRegistration[] 
     validateCurrent: validateCurrentExecutionDelegationEvent,
   },
   { schema: "entity-pin-event/v1", validate: validateEntityPinEvent, validateCurrent: validateCurrentEntityPinEvent },
-  {
-    schema: "ci-run-observation/v2",
-    validate: validateCiRunObservationEventV2,
-  },
-  {
-    schema: "ci-run-observation/v3",
-    validate: validateCiRunObservationEvent,
-  },
-  {
-    schema: "ci-run-observation/v4",
-    validate: validateCiRunObservationEventV4,
-    validateCurrent: validateCurrentCiRunObservationEvent,
-  },
+  { schema: "ci-run-observation/v2", validate: validateRetiredCiRunObservationEvent },
+  { schema: "ci-run-observation/v1", validate: validateRetiredCiRunObservationEvent },
+  { schema: "ci-run-observation/v3", validate: validateRetiredCiRunObservationEvent },
+  { schema: "ci-run-observation/v4", validate: validateRetiredCiRunObservationEvent },
   {
     schema: "task-event/v1",
     validate: (value: unknown) => validateTaskEvent(value).map((issue) => issue.message),
@@ -161,8 +147,7 @@ export function validateCurrentCanonicalEvent(value: unknown): readonly string[]
 }
 
 export function serializeCanonicalEvent(event: CanonicalEventV1): string {
-  const entry = canonicalEventSchemas.find((candidate) => candidate.schema === event.schema);
-  const errors = entry?.validate(event) ?? ["canonical event schema is unknown"];
+  const errors = validateCurrentCanonicalEvent(event);
   if (errors.length) throw new Error(errors.join("; "));
   return serializeCanonicalEventUnchecked(event);
 }

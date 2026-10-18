@@ -1,7 +1,13 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import {
+  gateResults,
+  INITIAL_SETTINGS_V1,
   effectiveCloseoutGates,
   reduceTaskEvent,
   taskCompletionNext,
@@ -11,7 +17,38 @@ import {
 } from "@harness-anything/kernel";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { repoCellTaskQueryJudgmentsFor } from "../src/repo-cell.ts";
-import { readCompletionContext } from "../src/task-completion-read.ts";
+import { readCompletionContext, readCompletionDeliveryStatus } from "../src/task-completion-read.ts";
+
+function git(root: string, ...args: string[]): string {
+  return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
+}
+
+function codeDelivery(
+  snapshot: TaskLifecycleSnapshot,
+  commitSha: string | null,
+  mergeSha?: string,
+): TaskLifecycleSnapshot {
+  return {
+    ...snapshot,
+    executions: snapshot.executions.map((execution) => ({
+      ...execution,
+      submission: execution.submission ? { ...execution.submission, commitSha } : null,
+      ...(mergeSha
+        ? {
+            annotations: [
+              ...(execution.annotations ?? []),
+              {
+                kind: "correction" as const,
+                note: `merge_commit_sha:${mergeSha}`,
+                actor: execution.actor,
+                annotatedAt: "2026-10-18T00:00:00.000Z",
+              },
+            ],
+          }
+        : {}),
+    })),
+  };
+}
 
 const strictSubmitted: TaskLifecycleSnapshot = lifecycleFixture().events.slice(0, 3).reduce(reduceTaskEvent, {
   revision: 0,
@@ -43,7 +80,12 @@ function frozenCut(closeout: CloseoutSettingsV1, overrides = {}) {
 const submitted = frozenCut({ profile: "standard" });
 
 /** Settings-facet-aware read projection stub: one submitted unreviewed cut and a valid closeout. */
-function projection(closeout: CloseoutSettingsV1 | null, factRows = 1, childCount = 0): TaskProjectionQueries {
+function projection(
+  closeout: CloseoutSettingsV1 | null,
+  factRows = 1,
+  childCount = 0,
+  requireMerged = false,
+): TaskProjectionQueries {
   return {
     read: () => ({
       snapshot: submitted,
@@ -81,7 +123,9 @@ function projection(closeout: CloseoutSettingsV1 | null, factRows = 1, childCoun
     readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
     readTaskChildCounts: (ids: readonly string[]) => (childCount ? { [ids[0]!]: childCount } : {}),
     getEntity: (kind: string, id: string) =>
-      kind === "settings" && id === "repository" && closeout ? { value: { closeout } } : null,
+      kind === "settings" && id === "repository" && closeout
+        ? { value: { closeout, delivery: { ...INITIAL_SETTINGS_V1.delivery, requireMerged } } }
+        : null,
   } as unknown as TaskProjectionQueries;
 }
 
@@ -112,7 +156,8 @@ test("strict profile read side keeps demanding review and consent", () => {
 
 test("a repository without a settings entity reads the standard default gates", () => {
   const context = readCompletionContext(projection(null), "task-1", submitted, "ready");
-  assert.equal(taskCompletionNext(submitted, context).blocker, null);
+  assert.equal(context.delivery?.required, true);
+  assert.equal(taskCompletionNext(submitted, context).blocker?.code, "delivery_missing");
 });
 
 test("a task-bound fact lift completes factless; the repository default still demands one", () => {
@@ -162,4 +207,122 @@ test("changing repository closeout settings leaves the submitted contract frozen
   const context = readCompletionContext(projection({ profile: "strict" }), "task-1", submitted, "ready");
   assert.deepEqual(context.closeoutGates, submitted.executions[0]!.submission!.completionContract.closeoutGates);
   assert.equal(taskCompletionNext(submitted, context).blocker, null);
+});
+
+test("delivery merge reads distinguish merged, unmerged, and unavailable Git evidence", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-delivery-completion-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "-q", "-b", "main");
+  git(root, "config", "user.name", "Test");
+  git(root, "config", "user.email", "test@example.com");
+  writeFileSync(path.join(root, "delivery.txt"), "base\n");
+  git(root, "add", "delivery.txt");
+  git(root, "commit", "-qm", "base");
+  const base = git(root, "rev-parse", "HEAD");
+  writeFileSync(path.join(root, "delivery.txt"), "merged\n");
+  git(root, "commit", "-qam", "merge candidate");
+  const merge = git(root, "rev-parse", "HEAD"),
+    projection = {
+      getEntity: () => ({
+        value: { delivery: { ...INITIAL_SETTINGS_V1.delivery, targetBranch: "release", platform: "gitlab" } },
+      }),
+    } as unknown as TaskProjectionQueries,
+    read = (snapshot: TaskLifecycleSnapshot) => readCompletionDeliveryStatus(projection, snapshot, root),
+    code = codeDelivery(strictSubmitted, merge, merge);
+
+  git(root, "update-ref", "refs/remotes/origin/release", merge);
+  assert.deepEqual(read(code), { required: true, merged: true, targetBranch: "release", platform: "gitlab" });
+
+  git(root, "update-ref", "refs/remotes/origin/release", base);
+  assert.equal(read(code).merged, false, "a known target that does not contain the merge commit is unmerged");
+
+  git(root, "update-ref", "-d", "refs/remotes/origin/release");
+  assert.equal(read(code).merged, null, "a missing configured target ref is unknown");
+  assert.equal(read(codeDelivery(strictSubmitted, null, merge)).required, false, "artifact-only delivery skips merge");
+  assert.equal(read(codeDelivery(strictSubmitted, merge)).merged, null, "a missing merge annotation is unknown");
+  assert.equal(
+    read(codeDelivery(strictSubmitted, merge, "f".repeat(40))).merged,
+    null,
+    "an unavailable merge object is unknown",
+  );
+});
+
+test("merge evidence retires only the CI gate and does not lift review or consent", () => {
+  const ci = {
+      gateId: "ci",
+      appliesTo: "code" as const,
+      witness: {
+        kind: "github-actions" as const,
+        predicateType: "ci/v1",
+        resultSchema: { type: "object" },
+        adapterId: "github-actions" as const,
+        adapterOptions: {
+          workflows: ["checks"],
+          branch: "main",
+          event: "push",
+          coverage: "exact" as const,
+          selection: "newest" as const,
+        },
+      },
+    },
+    quality = {
+      gateId: "quality",
+      appliesTo: "code" as const,
+      witness: {
+        kind: "manual" as const,
+        predicateType: "human/v1",
+        resultSchema: { type: "object" },
+        adapterId: "manual-attest",
+        adapterOptions: {},
+      },
+    },
+    snapshot = lifecycleFixture({ gates: [ci, quality], complete: false })
+      .events.slice(0, 3)
+      .reduce(reduceTaskEvent, {
+        revision: 0,
+        task: null,
+        executions: [],
+        reviews: [],
+        consents: [],
+        codeDocWitnesses: [],
+        gateWitnesses: [],
+        edgesTaken: [],
+        lease: null,
+      }),
+    execution = snapshot.executions[0]!,
+    delivery = { required: true, merged: true, targetBranch: "main", platform: "github" } as const,
+    context = {
+      closeout: "ready" as const,
+      closeoutPath: "closeout.md",
+      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+      eligibleDirtyPaths: [],
+      producesFactCount: 1,
+      projectionStatus: "ready" as const,
+      delivery,
+    },
+    results = gateResults(
+      snapshot,
+      undefined,
+      execution.executionId,
+      execution.submission,
+      execution.iteration,
+      delivery,
+    );
+
+  assert.equal(results.find(({ gateId }) => gateId === "ci")?.status, "passed");
+  assert.equal(results.find(({ gateId }) => gateId === "quality")?.status, "missing");
+  assert.equal(taskCompletionNext(strictSubmitted, { ...context, delivery }).blocker?.code, "not_in_review");
+
+  const approvedWithoutConsent = lifecycleFixture().events.slice(0, 5).reduce(reduceTaskEvent, {
+    revision: 0,
+    task: null,
+    executions: [],
+    reviews: [],
+    consents: [],
+    codeDocWitnesses: [],
+    gateWitnesses: [],
+    edgesTaken: [],
+    lease: null,
+  });
+  assert.equal(taskCompletionNext(approvedWithoutConsent, { ...context, delivery }).blocker?.code, "consent_missing");
 });

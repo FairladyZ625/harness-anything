@@ -109,7 +109,6 @@ export function taskQueryApi(
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
   | "readReckoningEvents"
-  | "readCiRunObservations"
   | "readSettingsEvent"
   | "readArtifactEntityState"
   | "readEventList"

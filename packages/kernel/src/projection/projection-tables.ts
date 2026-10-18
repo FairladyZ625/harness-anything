@@ -1,4 +1,3 @@
-import { CI_OBSERVATION_WINDOW_INDEX_SQL } from "./ci-observation-window-query.ts";
 import type { DatabaseSync } from "node:sqlite";
 /** Shared query tables in the center projection and its full physical replica. */
 export const TASK_INDEX_TABLES_SQL = `
@@ -124,8 +123,6 @@ export const REPOSITORY_READ_TABLES_SQL = `
     CREATE INDEX IF NOT EXISTS event_index_runtime_session ON event_index(
       json_extract(event_json, '$.payload.runtimeSessionId'), workspace_revision
     ) WHERE json_extract(event_json, '$.schema') = 'agent-runtime-event/v1';
-    CREATE INDEX IF NOT EXISTS event_index_ci_observations ON event_index(workspace_revision)
-      WHERE json_extract(event_json, '$.schema') IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4');
     CREATE INDEX IF NOT EXISTS event_index_schedule_events ON event_index(workspace_revision)
       WHERE json_extract(event_json, '$.schema') = 'schedule-event/v1';
     CREATE INDEX IF NOT EXISTS event_index_schedule_entity ON event_index (
@@ -135,7 +132,7 @@ export const REPOSITORY_READ_TABLES_SQL = `
       json_extract(event_json, '$.actor.executor.id'), workspace_revision
     ) WHERE
       json_extract(event_json, '$.schema') IN ('fact-event/v1','decision-event/v1','task-event/v1');
-    ${CI_OBSERVATION_WINDOW_INDEX_SQL}`;
+    `;
 
 export function createProjectionTables(db: DatabaseSync): void {
   db.exec(TASK_INDEX_TABLES_SQL);

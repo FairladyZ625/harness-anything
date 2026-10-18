@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { validateRetiredCiRunObservationEvent } from "../../kernel/src/domain/ci-run-observation-retired-event.ts";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell } from "./repo-settings.fixture.ts";
 import {
@@ -367,8 +368,6 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
         { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
         { name: "settings-roles", count: 0, firstRevision: null, lastRevision: null },
-        { name: "ci-workflow-verification", count: 0, firstRevision: null, lastRevision: null },
-        { name: "ci-run-observation-v3", count: 0, firstRevision: null, lastRevision: null },
       ],
     );
     assert.equal(first.migratedEvents, 1);
@@ -1086,7 +1085,7 @@ function arrayStore(
   } as CanonicalEventStore;
 }
 
-test("offline conversion retains old CI labels as unverified measurements", () => {
+test("offline conversion preserves retired CI event bytes without rewriting the schema", () => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-generation-ci-verification-"));
   const legacy = {
     schema: "ci-run-observation/v1",
@@ -1119,16 +1118,15 @@ test("offline conversion retains old CI labels as unverified measurements", () =
     });
     assert.equal(plan.events.length, 1);
     const converted = plan.events[0]!;
-    assert.equal(converted.schema, "ci-run-observation/v3");
-    assert.deepEqual(converted.payload, {
-      ...legacy.payload,
-      gates: [{ gate: "ci", result: "pass", metrics: { runAttempt: 1 } }],
-      verification: null,
-    });
+    assert.equal(converted.schema, "ci-run-observation/v1");
+    assert.deepEqual(converted.payload, legacy.payload);
     assert.equal(converted.opId, legacy.opId);
     assert.equal(converted.workspaceRevision, legacy.workspaceRevision);
     assert.equal(JSON.stringify(legacy), original, "source object and its original fields remain untouched");
-    assert.equal(plan.migrationFamilies.find(({ name }) => name === "ci-workflow-verification")?.count, 1);
+    assert.equal(
+      plan.migrationFamilies.some(({ name }) => name.startsWith("ci-")),
+      false,
+    );
     const repeated = planLegacyGenerationConversion({ rootDir: root, store: arrayStore(plan.events, () => null) });
     assert.deepEqual(repeated.events, plan.events);
     assert.equal(repeated.rewrites.length, 0);
@@ -1146,6 +1144,7 @@ test("offline conversion retains old CI labels as unverified measurements", () =
     const stored = openSqliteEventStore({ repoId: "ci-history", generation: 1, databasePath, readOnly: true });
     try {
       assert.deepEqual(stored.events()[0], converted);
+      assert.deepEqual(validateRetiredCiRunObservationEvent(stored.events()[0]), []);
       assert.notDeepEqual(validateCurrentCanonicalEvent(stored.events()[0]), []);
     } finally {
       stored.close();

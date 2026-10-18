@@ -2,13 +2,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  serializeCiRunObservationEvent,
   validateCiRunObservationEvent,
-  validateCurrentCiRunObservationEvent,
   validateCiRunObservationEventV2,
   type CiRunObservationEventV2,
   type CiRunObservationEventV3,
 } from "../../src/domain/ci-run-observation-event.ts";
+import { validateRetiredCiRunObservationEvent } from "../../src/domain/ci-run-observation-retired-event.ts";
+import { validateCiRunObservationEventV4 } from "../../src/domain/ci-run-observation-v4.ts";
+import {
+  parseCanonicalEvent,
+  serializeCanonicalEvent,
+  validateCurrentCanonicalEvent,
+} from "../../src/domain/doc-sync-canonical-events.ts";
 
 const base = {
   eventId: "event-ci-run",
@@ -37,36 +42,52 @@ const event: CiRunObservationEventV3 = {
 
 test("v2 retains the legacy boolean gate shape", () => {
   assert.deepEqual(validateCiRunObservationEventV2(v2), []);
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent(v2), []);
+  assert.deepEqual(validateRetiredCiRunObservationEvent(v2), []);
+  assert.notDeepEqual(validateCurrentCanonicalEvent(v2), []);
 });
 
 test("v3 remains historical only and cannot be written as current", () => {
   assert.deepEqual(validateCiRunObservationEvent(event), []);
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent(event), []);
-  assert.throws(() => serializeCiRunObservationEvent(event as never), /invalid/u);
+  assert.deepEqual(validateRetiredCiRunObservationEvent(event), []);
+  assert.notDeepEqual(validateCurrentCanonicalEvent(event), []);
+  assert.throws(() => serializeCanonicalEvent(event as never), /not current/u);
 });
 
 test("v3 rejects legacy boolean gates", () => {
   assert.notDeepEqual(
-    validateCurrentCiRunObservationEvent({ ...event, payload: { ...event.payload, gates: v2.payload.gates } }),
+    validateRetiredCiRunObservationEvent({ ...event, payload: { ...event.payload, gates: v2.payload.gates } }),
     [],
   );
 });
 
 test("current validation rejects unknown schema generations", () => {
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent({ ...event, schema: "ci-run-observation/v2" }), []);
+  assert.notDeepEqual(validateRetiredCiRunObservationEvent({ ...event, schema: "ci-run-observation/v5" }), []);
+  assert.notDeepEqual(validateCurrentCanonicalEvent({ ...event, schema: "ci-run-observation/v4" }), []);
+});
+
+test("v1 event fixture remains readable as retired history and is not writable", async () => {
+  const { readFileSync } = await import("node:fs");
+  const body = readFileSync(
+    new URL("../../fixtures/canonical-events/ci-run-observation-v1/accepted.json", import.meta.url),
+    "utf8",
+  );
+  const parsed = parseCanonicalEvent(body);
+  assert.equal(parsed.schema, "ci-run-observation/v1");
+  assert.deepEqual(validateRetiredCiRunObservationEvent(parsed), []);
+  assert.notDeepEqual(validateCurrentCanonicalEvent(parsed), []);
+  assert.equal(JSON.stringify(parsed) + "\n", body);
 });
 
 test("ci run observation rejects invalid retry and metric values", () => {
   assert.match(
-    validateCurrentCiRunObservationEvent({
+    validateRetiredCiRunObservationEvent({
       ...event,
       payload: { ...event.payload, tests: [{ ...event.payload.tests[0]!, retry: -1 }] },
     }).join("\n"),
     /invalid/u,
   );
   assert.match(
-    validateCurrentCiRunObservationEvent({
+    validateRetiredCiRunObservationEvent({
       ...event,
       payload: { ...event.payload, gates: [{ gate: "G32", result: "pass", metrics: { count: Number.NaN } }] },
     }).join("\n"),
@@ -97,7 +118,7 @@ test("v3 requires matching workflow verification when present", () => {
   const legacy = structuredClone(verified);
   delete legacy.payload.verification.event;
   assert.deepEqual(validateCiRunObservationEvent(legacy), []);
-  assert.notDeepEqual(validateCurrentCiRunObservationEvent(legacy), []);
+  assert.deepEqual(validateRetiredCiRunObservationEvent(legacy), []);
   for (const candidate of [
     { ...verified, schema: "ci-run-observation/v1" },
     {
@@ -119,10 +140,10 @@ test("v3 requires matching workflow verification when present", () => {
     },
     { ...verified, payload: { ...verified.payload, run: { ...verified.payload.run, branch: "feature" } } },
   ])
-    assert.notDeepEqual(validateCurrentCiRunObservationEvent(candidate), []);
+    assert.notDeepEqual(validateRetiredCiRunObservationEvent(candidate), []);
 });
 
-test("v4 workflow positive fixture and negative measurements lock the unique current writer", async () => {
+test("v4 workflow fixture stays readable and cannot be written as a current event", async () => {
   const { readFileSync } = await import("node:fs");
   const { validateCurrentCanonicalEvent, canonicalEventSchemas } = await import(
     "../../src/domain/doc-sync-canonical-events.ts"
@@ -139,22 +160,30 @@ test("v4 workflow positive fixture and negative measurements lock the unique cur
       "utf8",
     ),
   );
-  assert.deepEqual(validateCurrentCanonicalEvent(valid), []);
+  assert.deepEqual(validateRetiredCiRunObservationEvent(valid), []);
   assert.notDeepEqual(validateCurrentCanonicalEvent(invalid), []);
-  assert.equal(JSON.parse(serializeCiRunObservationEvent(valid)).schema, "ci-run-observation/v4");
+  assert.deepEqual(
+    parseCanonicalEvent(
+      readFileSync(
+        new URL("../../fixtures/canonical-events/ci-run-observation-v4/workflow.json", import.meta.url),
+        "utf8",
+      ),
+    ),
+    valid,
+  );
+  assert.throws(() => serializeCanonicalEvent(valid as never), /not current/u);
   for (const history of [v2, event]) {
     assert.deepEqual(canonicalEventSchemas.find((entry) => entry.schema === history.schema)!.validate(history), []);
     assert.notDeepEqual(validateCurrentCanonicalEvent(history), []);
   }
 });
 
-test("v4 historical job boundaries tolerate additions while current admission rejects them", async () => {
+test("v4 historical job boundaries tolerate additions and reject malformed history", async () => {
   const { readFileSync } = await import("node:fs");
-  const { validateCiRunObservationEventV4 } = await import("../../src/domain/ci-run-observation-v4.ts");
   const fixture = JSON.parse(
     readFileSync(new URL("../../fixtures/canonical-events/ci-run-observation-v4/job.json", import.meta.url), "utf8"),
   );
-  assert.deepEqual(validateCurrentCiRunObservationEvent(fixture), []);
+  assert.deepEqual(validateRetiredCiRunObservationEvent(fixture), []);
   const boundaries = [
     [],
     ["payload"],
@@ -175,11 +204,12 @@ test("v4 historical job boundaries tolerate additions while current admission re
     for (const key of boundary) object = object[key];
     object.futureOptionalField = true;
     assert.deepEqual(validateCiRunObservationEventV4(event), [], String(boundary));
-    assert.notDeepEqual(validateCurrentCiRunObservationEvent(event), [], String(boundary));
+    assert.deepEqual(validateRetiredCiRunObservationEvent(event), [], String(boundary));
   }
   for (const missing of ["testKey", "declarationLocation", "failureLocation", "durationMs"]) {
     const event = structuredClone(fixture);
     delete event.payload.failedTests[0][missing];
     assert.notDeepEqual(validateCiRunObservationEventV4(event), [], missing);
+    assert.notDeepEqual(validateRetiredCiRunObservationEvent(event), [], missing);
   }
 });

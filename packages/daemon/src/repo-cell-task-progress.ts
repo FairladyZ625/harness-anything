@@ -29,7 +29,11 @@ import { runDocAction } from "./doc-sync-actions.ts";
 import { scanDocCandidates } from "./doc-sync-candidate-scanner.ts";
 import type { RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { verifyCodeDocCommitPaths } from "./code-doc-path-verification.ts";
-import { readCompletionContext, factRetirementAssessment } from "./task-completion-read.ts";
+import {
+  readCompletionContext,
+  readCompletionDeliveryStatus,
+  factRetirementAssessment,
+} from "./task-completion-read.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import { archiveTaskOnComplete } from "./repo-cell-task-auto-archive.ts";
 import { cutReviewDispatchObstruction, dispatchInReviewCutReview, selectReviewAgent } from "./task-review-dispatch.ts";
@@ -232,7 +236,12 @@ export async function completeTask(
     if (!fact.fact)
       throw cell.cellCodedError("invalid_command", `Resolution Fact ${factRef} does not exist in the projection.`);
     const source = await cell.service.read(sourceTaskId),
-      sourceReadiness = closeoutReadiness(source.snapshot);
+      sourceReadiness = closeoutReadiness(
+        source.snapshot,
+        undefined,
+        readEffectiveCloseoutGates(cell.projection, source.snapshot),
+        readCompletionDeliveryStatus(cell.projection, source.snapshot, cell.rootDir),
+      );
     if (source.snapshot.task?.status !== "done" || sourceReadiness.readiness !== "passed")
       return cell.completionStopped(
         initialOpId,
@@ -242,7 +251,7 @@ export async function completeTask(
           code: "not_in_review",
           gate: "sibling-resolution",
           next: {
-            action: `Wait for ${sourceTaskId} to complete review, consent, CI, and merge, then retry ha task complete ${taskId} --resolved-by ${sourceTaskId}.`,
+            action: `Wait for ${sourceTaskId} to complete review, consent, and its configured delivery gates, then retry ha task complete ${taskId} --resolved-by ${sourceTaskId}.`,
             reason: `Sibling task ${sourceTaskId} is not fully accepted (readiness: ${sourceReadiness.readiness}).`,
             authority: "task owner",
             readCut: { revision: initial.snapshot.revision, iteration: null, executionId: null },
@@ -266,7 +275,7 @@ export async function completeTask(
       applied = cell.completionApplied(completed, settled, "", archive.receipt ? [archive.receipt] : []);
     return archive.warning ? { ...applied, warnings: [...(applied.warnings ?? []), archive.warning] } : applied;
   }
-  const initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status),
+  const initialContext = readCompletionContext(cell.projection, taskId, initial.snapshot, initial.status, cell.rootDir),
     decision = taskCompletionNext(
       initial.snapshot,
       { ...initialContext, authorization: binding.authorizationDecision?.outcome === "allowed" ? "allowed" : "denied" },
@@ -514,7 +523,7 @@ export function completionContext(
 ): CompletionReadinessContext {
   if (presetSnapshotDigest !== snapshot.task?.presetSnapshotDigest)
     throw cell.cellCodedError("preset_snapshot_mismatch", `Run ha preset upgrade ${taskId} before completion.`);
-  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready"),
+  const canonical = readCompletionContext(cell.projection, taskId, snapshot, "ready", cell.rootDir),
     scan = scanDocCandidates({
       rootDir: cell.rootDir,
       workspaceId: cell.input.repoId,

@@ -66,10 +66,6 @@ export const DAEMON_ENTITY_CONTENT_READ_SCHEMA = Object.freeze({
   required: Object.freeze(["schema", "ok", "outcome", "entityRef", "path", "repositoryPath", "content", "entries"]),
 });
 
-export const DAEMON_CI_OBSERVATORY_SCHEMA = Object.freeze({
-  id: "daemon.ci-observatory/v1",
-});
-
 export const DAEMON_OBSERVE_TAIL_SCHEMA = Object.freeze({
   id: "daemon.observe-tail/v3",
 });

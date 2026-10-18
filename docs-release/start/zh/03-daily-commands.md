@@ -71,7 +71,7 @@ ha settings read                                              # 显示 worktree.
 ```bash
 ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
 ha task pr <task-id>          # 创建 pull request（--update 更新已有）
-ha task ci <task-id> --wait   # 读取分支 CI；阻塞到出结论
+gh pr checks <PR-number> --watch  # 使用自己的平台登录读取 PR 检查
 ```
 
 direct-push 保护把工作树内的任何推送都限制在本任务自己的分支上。凭据是操作者侧

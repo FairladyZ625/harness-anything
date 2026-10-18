@@ -9,10 +9,10 @@ its complete sequence; do not derive an agent-specific shortcut from this page.
 This page and the `harness-contributing` skill describe one model: an agent
 contributing with its operator's own Git credentials — it pushes the
 contribution branch and opens the PR itself. The other model is a dispatched,
-task-bound worker inside a registered Harness workspace: it holds no personal
-Git credentials and publishes through the daemon with `ha task push`,
-`ha task pr`, and `ha task ci`, while direct-push protection limits any push to
-the task's own branch. See
+task-bound worker inside a registered Harness workspace: it publishes through
+the daemon with `ha task push` and `ha task pr`, then reads checks directly
+with its own hosting-platform CLI login. Direct-push protection limits any
+daemon-mediated push to the task's own branch. See
 [Task branch publishing](../../operations-server-daemon.md#task-branch-publishing-and-direct-push-protection).
 
 Both models share the same boundary: merge stays with the maintainer.

@@ -24,8 +24,6 @@ import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/d
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { gate as validateGateWitnessWire } from "../src/protocol/daemon-protocol-validate-entities.ts";
 import { attestGateWitness } from "../src/repo-cell-witness-adapters.ts";
-import { strandedDelivery } from "../src/repo-cell-ci-evidence.ts";
-import { fetchCiObservations } from "../src/ci-observation-actions.ts";
 import { runProcessExitAsync } from "../src/process-port.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import type { RepoCellBinding, Snapshot } from "../src/repo-cell-types.ts";
@@ -184,52 +182,6 @@ test(
     await assert.rejects(runProcessExitAsync("ha-no-such-binary-9f8e7d", []), { code: "ENOENT" });
   },
 );
-
-test("a delivery is stranded only when no run on the frozen CI branch can ever cover it", async () => {
-  const root = mkdtempSync(path.join(tmpdir(), "ha-stranded-"));
-  try {
-    git(root, "init", "-q", "-b", "main");
-    git(root, "config", "user.name", "Test");
-    git(root, "config", "user.email", "test@example.com");
-    writeFileSync(path.join(root, "file.txt"), "base\n");
-    git(root, "add", "file.txt");
-    git(root, "commit", "-qm", "base");
-    git(root, "checkout", "-qb", "delivery");
-    writeFileSync(path.join(root, "delivered.txt"), "delivered\n");
-    git(root, "add", "delivered.txt");
-    git(root, "commit", "-qm", "delivery");
-    const cutSha = git(root, "rev-parse", "HEAD"),
-      stranded = (sha: string, requirement = githubRequirement()) =>
-        strandedDelivery(root, submittedExecution(sha, [requirement]).submission);
-    git(root, "checkout", "-q", "main");
-
-    assert.equal(stranded(cutSha), false, "no origin/main to judge against");
-    git(root, "update-ref", "refs/remotes/origin/main", "main");
-    assert.equal(stranded(cutSha), false, "an unmerged fork may still land");
-    writeFileSync(path.join(root, "file.txt"), "main moved\n");
-    git(root, "commit", "-qam", "main moves on");
-    git(root, "cherry-pick", cutSha);
-    git(root, "update-ref", "refs/remotes/origin/main", "main");
-    assert.equal(stranded(cutSha), true, "its change landed under another SHA");
-    assert.equal(stranded(cutSha, commandRequirement()), false, "no github-actions gate is frozen");
-    assert.equal(stranded("f".repeat(40)), true, "the commit is gone from the repository");
-    git(root, "merge", "-qm", "merge delivery", cutSha);
-    git(root, "update-ref", "refs/remotes/origin/main", "main");
-    assert.equal(stranded(cutSha), false, "the commit itself reached main");
-
-    const observed = submittedExecution("f".repeat(40), [githubRequirement()]),
-      cell = Object.assign(cellStub(root, observed), {
-        settings: { read: () => ({ ci: { workflows: ["rewrite-ci"] } }) },
-      });
-    await assert.rejects(
-      fetchCiObservations(cell, { kind: "ci-observe-pull", taskId: "task" }, async () => "[]"),
-      (error: Error & { code?: string }) =>
-        error.code === "ci_witness_not_found" && /adjudicate task --return --review-id/u.test(error.message),
-    );
-  } finally {
-    rmSync(root, { recursive: true, force: true });
-  }
-});
 
 // -- canonical write admission ------------------------------------------------
 

@@ -38,7 +38,7 @@ export function requestWindowMetrics(
     },
     latency: {
       byCommand: commandLatency(eligible.map(({ record }) => record)),
-      note: "Daemon timings per command, not CLI end-to-end latency. Commands sharing one RPC method (for example task-show and the provider-backed task-ci on repo.task.read) are never pooled. Service includes handler-internal waiting; queue wait inside the handler is not separately measured. P95 uses nearest-rank; fewer than 20 samples is low sample.",
+      note: "Daemon timings per command, not CLI end-to-end latency. Commands sharing one RPC method are never pooled. Service includes handler-internal waiting; queue wait inside the handler is not separately measured. P95 uses nearest-rank; fewer than 20 samples is low sample.",
     },
   };
 }

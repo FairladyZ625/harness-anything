@@ -2,6 +2,7 @@ import { completionGenerationFixtures, convertFrozenCompletionSample } from "./c
 import { readOnlyGenerationOneFixtures } from "./canonical-event-generations.mjs";
 import { decodeLegacyEventBytes } from "../../packages/kernel/src/store/legacy-generation-source.ts";
 import { validateCurrentCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync-canonical-events.ts";
+import { validateRetiredCiRunObservationEvent } from "../../packages/kernel/src/domain/ci-run-observation-retired-event.ts";
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -443,7 +444,7 @@ function main() {
     ...validateCanonicalFixtureChanges(rootDir, base),
     ...validateFrozenCanonicalEvents(rootDir, canonicalEventSchemas, parseCanonicalEvent),
     ...validateFrozenCanonicalEvents(rootDir, [
-      { schema: "ci-run-observation/v1", validate: validateCurrentCanonicalEvent },
+      { schema: "ci-run-observation/v1", validate: validateRetiredCiRunObservationEvent },
     ]),
     ...daemon.errors,
   ];

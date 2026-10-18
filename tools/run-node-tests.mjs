@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
 import { spawn, spawnSync } from "node:child_process";
 import {
   appendFileSync,
@@ -16,7 +15,6 @@ import { dirname, join, relative, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { selectIntegrationShardFiles } from "./integration-test-shards.mjs";
 import {
-  boundedCiSummary,
   collectSlowTests,
   coverageReporterArgs,
   ensureFreshBuild,
@@ -165,7 +163,6 @@ const activityRoot = mkdtempSync(join(tmpdir(), "ha-node-test-watchdog-"));
 const testTemporaryRoot = mkdtempSync(join(tmpdir(), "ha-node-test-"));
 const activityPath = join(activityRoot, "activity.jsonl");
 const reporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-file-activity-reporter.mjs")).href;
-const observationReporterUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-observation-reporter.mjs")).href;
 const quarantinePattern =
   process.env.HARNESS_TEST_QUARANTINE === "skip"
     ? exactNamePattern(readTestQuarantine(repoRoot).map((entry) => entry.test))
@@ -180,14 +177,8 @@ const stallReportMs = finiteTimeouts.length === 0 ? undefined : Math.max(1_000, 
 const daemonOwnerUrl = pathToFileURL(resolve(import.meta.dirname, "node-test-daemon-owner.mjs")).href;
 const coveragePath = options.coverage === undefined ? undefined : resolve(options.coverage);
 if (coveragePath !== undefined) mkdirSync(dirname(coveragePath), { recursive: true });
-const observationDestination = process.env.HARNESS_CI_NODE_TEST_RESULTS ?? process.env.HARNESS_CI_OBSERVATION_RAW;
-const observationRoot = observationDestination ? join(observationDestination, randomUUID()) : null;
 
 const childEnvironment = { ...process.env, HARNESS_TEST_TEMP_ROOT: testTemporaryRoot };
-if (observationRoot) {
-  mkdirSync(observationRoot, { recursive: true });
-  childEnvironment.HARNESS_CI_NODE_TEST_RESULTS = observationRoot;
-}
 
 for (const name of WORKER_ENVIRONMENT_VARIABLES) delete childEnvironment[name];
 const child = spawn(
@@ -199,9 +190,6 @@ const child = spawn(
     ...coverageReporterArgs(coveragePath),
     `--test-reporter=${reporterUrl}`,
     `--test-reporter-destination=${activityPath}`,
-    ...(process.env.HARNESS_CI_NODE_TEST_RESULTS || process.env.HARNESS_CI_OBSERVATION_RAW
-      ? [`--test-reporter=${observationReporterUrl}`, "--test-reporter-destination=stdout"]
-      : []),
     `--import=${stallReportUrl}`,
     `--import=${daemonOwnerUrl}`,
     ...(quarantinePattern ? [`--test-skip-pattern=${quarantinePattern}`] : []),
@@ -252,7 +240,6 @@ const watchdog =
           console.error(
             `[node-test-watchdog] test file exceeded timeout: ${overdue.map(stalledFileReport).join(", ")}`,
           );
-          persistFileOutcomes(now, new Set(overdue));
           termination = terminateProcessTree(child);
         },
         Math.min(1_000, Math.max(25, Math.floor(fileTimeoutMs / 4))),
@@ -280,11 +267,6 @@ const exitCode = await new Promise((resolveRun) => {
       refreshActivity();
       rmSync(activityRoot, { recursive: true, force: true });
       rmSync(testTemporaryRoot, { recursive: true, force: true });
-      if (observationRoot)
-        appendFileSync(
-          join(observationRoot, `coverage-${process.pid}.jsonl`),
-          `${JSON.stringify({ kind: "coverage", startedFiles: [...startedFiles], completedFiles: [...completedFiles], missingReason: code === 0 || timedOutFiles.length === 0 ? null : "runner buffers not delivered before kill are unknown" })}\n`,
-        );
       resolveRun(code);
     });
   };
@@ -304,10 +286,8 @@ const exitCode = await new Promise((resolveRun) => {
 });
 const slowTests = collectSlowTests(output, options.slowThresholdMs);
 console.log(formatSlowTestSummary(slowTests, options.slowThresholdMs, options.slowLimit));
-// Machine-readable per-file outcomes: the spec reporter names no file for a passing top-level
-// test, so a caller forwarding only stdout (isolated dispatch) cannot attribute results per
-// file without these lines. Started files only — a selected file that never started is the
-// caller's selection, not an outcome.
+// The spec reporter names no file for a passing top-level test, so the isolated dispatcher
+// cannot attribute its forwarded output per file without these lines.
 for (const file of [...startedFiles].sort()) console.log(`[node-test-file] ${fileOutcome(file)} ${file}`);
 // A forced exit here discards forwarded output still queued in userspace when stdout is a slow
 // pipe (CI log shipping): the inline ✖ lines survive because they were written earlier, while
@@ -414,40 +394,6 @@ function stalledFileReport(file) {
   return open > 0
     ? `${file} (hung inside: ${last})`
     : `${file} (every test finished, last was ${last}; the process did not exit -- look for an open handle, not a slow test)`;
-}
-
-function persistFileOutcomes(now, overdue) {
-  if (!observationRoot) return;
-  const output = join(observationRoot, `files-${process.pid}.jsonl`);
-  mkdirSync(observationRoot, { recursive: true });
-  const diagnostics = readdirSync(observationRoot)
-    .filter((name) => name.startsWith("stall-"))
-    .flatMap((name) =>
-      readFileSync(join(observationRoot, name), "utf8")
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => ({ name, entry: JSON.parse(line) })),
-    );
-  for (const [file, activity] of activeFiles) {
-    const diagnostic = diagnostics.find(({ entry }) => entry.file && repoRelativeTestFile(entry.file) === file);
-    const summary = boundedCiSummary(diagnostic ? JSON.stringify(diagnostic.entry.report.libuv) : "unavailable");
-    appendFileSync(
-      output,
-      `${JSON.stringify({
-        kind: "file",
-        file,
-        outcome: overdue.has(file) ? "timeout" : "cancelled",
-        lastActiveTest: lastTestByFile.get(file) ?? null,
-        elapsedMs: now - activity.startedAt,
-        limitMs: activity.timeoutMs,
-        reason: overdue.has(file) ? "watchdog deadline" : "same process tree terminated",
-        causedBy: [...overdue],
-        stallSummary: summary.summary,
-        truncated: summary.truncated,
-        diagnosticRef: diagnostic?.name ?? null,
-      })}\n`,
-    );
-  }
 }
 
 function refreshActivity() {

@@ -246,49 +246,6 @@ function daemonStoppedReceipt(
   };
 }
 
-export const taskCiWaitDefaults = { pollIntervalMs: 30_000, timeoutMs: 3_600_000 };
-
-/** `ha task ci --wait` blocks until the task branch reaches a CI verdict. The CLI owns the loop:
- * every round is the same unmodified task-ci read, so no second read path exists. Terminal states —
- * success exits 0; a red verdict, an actionable not_started reason (waiting cannot change it), or
- * an exhausted budget exit 1 with the last report attached. */
-export async function waitForTaskCi(
-  command: ThinCommand,
-  request: (command: ThinCommand) => Promise<JsonObject> = runCommandThroughDaemon,
-  clock: { readonly now: () => number; readonly sleep: (ms: number) => Promise<void> } = {
-    now: () => Date.now(),
-    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
-  },
-): Promise<JsonObject> {
-  const { wait: _wait, timeoutSeconds, ...readAction } = command.action,
-    read = { ...command, action: { ...readAction, wait: true } },
-    startedAt = clock.now(),
-    deadline = startedAt + (typeof timeoutSeconds === "number" ? timeoutSeconds * 1000 : taskCiWaitDefaults.timeoutMs);
-  for (;;) {
-    const receipt = await request(read);
-    if (receipt.ok !== true) return receipt;
-    const ci = isRecordValue(receipt.ci) ? receipt.ci : null,
-      conclusion = typeof ci?.conclusion === "string" ? ci.conclusion : null,
-      reason =
-        ci && isRecordValue(ci.notStarted) && typeof ci.notStarted.reason === "string" ? ci.notStarted.reason : null;
-    if (conclusion === "success") return receipt;
-    if (conclusion === "failure") return { ...receipt, exitCode: 1 };
-    // No pull request, or a conflicting one: the reason names the action, waiting cannot settle it.
-    if (conclusion === "not_started" && reason !== null && reason !== "queued") return { ...receipt, exitCode: 1 };
-    if (clock.now() >= deadline)
-      return {
-        ...receipt,
-        exitCode: 1,
-        wait: { state: "timeout", waitedSeconds: Math.round((clock.now() - startedAt) / 1000), conclusion },
-      };
-    await clock.sleep(taskCiWaitDefaults.pollIntervalMs);
-  }
-}
-
-function isRecordValue(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 export async function waitForSquadRun(command: ThinCommand, squadRunId: string): Promise<JsonObject> {
   const readCommand = {
     ...command,

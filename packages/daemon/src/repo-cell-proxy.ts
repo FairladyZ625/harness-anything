@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { fetchEdgeCiDetails } from "./ci-detail-cache.ts";
 import { repositoryRuntimeReads } from "./repository-runtime-reads.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
 import { readEdgeDocWorkspace } from "./fleet-edge-doc-read.ts";
@@ -553,36 +551,6 @@ export async function openRepoCellProxy(
           return { ...readAtCut(projection, method, payload, prepared), ...frame };
         }) as never;
       }
-      if (input.mode === "remote-edge" && method === "repo.ci.observatory.read" && payload.fetchDetails === true) {
-        const selected = edgeReplicaRead(binding, (projection) => ({
-          view: edgeViews.get(projection)!,
-          answer: readAtCut(projection, method, payload, binding) as unknown as { missingDetails: readonly string[] },
-        }));
-        const config = edgeConfig()!;
-        await fetchEdgeCiDetails({
-          peer: {
-            hostname: config.host,
-            port: config.port,
-            ca: readFileSync(config.caPath),
-            ...(config.servername ? { servername: config.servername } : {}),
-            nodeId: config.nodeId,
-            credential: config.credential,
-            repoId: config.repoId,
-            readAccessToken: async () => binding?.keycloakAuthorization?.session?.accessToken,
-          },
-          viewRoot: config.viewRoot,
-          view: selected.view,
-          eventIds: selected.answer.missingDetails.filter(
-            (ref) => !["inventory:", "artifact:", "unavailable:"].some((prefix) => ref.startsWith(prefix)),
-          ),
-          quotaBytes: config.quotaBytes,
-        });
-        return edgeReplicaRead(binding, (projection, frame, view) => {
-          if (view.revision !== selected.view.revision || view.headDigest !== selected.view.headDigest)
-            throw cellCodedError("projection_pending", "CI observation cut changed while fetching details.");
-          return { ...readAtCut(projection, method, payload, binding), ...frame };
-        }) as never;
-      }
       if (input.mode === "remote-edge" && method !== "repo.agent.skills.list")
         return edgeReplicaRead(binding, (projection, frame) => {
           return { ...readAtCut(projection, method, payload, binding), ...frame };
@@ -593,7 +561,7 @@ export async function openRepoCellProxy(
             rootDir: input.rootDir,
             projection: projection as TaskProjection,
             readPinnedEntities: projection.listPinnedEntities,
-            judgments: repoCellTaskQueryJudgmentsFor(projection),
+            judgments: repoCellTaskQueryJudgmentsFor(projection, input.rootDir),
           }).guiTasks(taskListQuery(payload)),
         ) as never;
       return query((projection) => readAtCut(projection, method, payload, binding)) as never;

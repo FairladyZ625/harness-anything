@@ -14,7 +14,6 @@ import {
   DAEMON_AGENT_RUNTIME_TOKEN_USAGE_DETAIL_SCHEMA,
   DAEMON_AGENT_SKILL_CATALOG_SCHEMA,
   DAEMON_CONTROL_RECEIPT_SCHEMA,
-  DAEMON_CI_OBSERVATORY_SCHEMA,
   DAEMON_DECISION_LIST_SCHEMA,
   DAEMON_FLEET_OVERVIEW_SCHEMA,
   DAEMON_DOCUMENT_READ_SCHEMA,
@@ -113,14 +112,6 @@ export const daemonGuiReadSchemas = Object.freeze([
     writer: "packages/daemon/src/entity-content-read.ts#serializeEntityContentRead",
     error: "packages/daemon/src/entity-content-read.ts#EntityContentReadContractError",
     negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/entity-content-read-invalid.json"]),
-  },
-  {
-    id: DAEMON_CI_OBSERVATORY_SCHEMA.id,
-    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_CI_OBSERVATORY_SCHEMA",
-    parser: "packages/daemon/src/ci-observatory-read.ts#validateCiObservatoryRead",
-    writer: "packages/daemon/src/ci-observatory-read.ts#serializeCiObservatoryRead",
-    error: "packages/daemon/src/ci-observatory-read.ts#CiObservatoryContractError",
-    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-ci-observatory-invalid.json"]),
   },
   {
     id: GUI_SYSTEM_STATUS_SCHEMA.id,

@@ -34,10 +34,8 @@ import {
 import { deriveActionResult } from "./entity-action-catalog-executor.ts";
 import { executeVerticalScriptAction, publishExecutedVerticalScript } from "./vertical-script-actions.ts";
 import { readBeforeWriteQueue } from "./write-queue-external-reads.ts";
-import { importSubmittedCutCiWitness } from "./repo-cell-ci-refresh.ts";
 import { inspectScheduleProjection } from "./schedule-projection.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
-import { readTaskCi } from "./task-ci-read.ts";
 import { resolveDecisionReviewAction } from "./repo-cell-action-parse.ts";
 
 function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAction): boolean {
@@ -51,9 +49,7 @@ function targetsBuiltinSchedule(context: RepoCellApiContext, action: RepoTaskAct
 /** The RepoCell command pipeline: recovery admission, the executor claim, and the queued
  * publication interval that authorizes, executes, and settles one command at the writer cut. */
 export function makeRepoCellCommandRunner(
-  context: RepoCellApiContext & {
-    readonly refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceipt>;
-  },
+  context: RepoCellApiContext,
 ): (
   action: RepoTaskAction,
   binding: RepoCellBinding,
@@ -194,11 +190,7 @@ export function makeRepoCellCommandRunner(
           const admission = admitRepoMode(context.mode, command, binding.source);
           if (!admission.ok) throw context.cellCodedError(admission.code, admission.nextAction);
           if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
-          return context.withHumanSummary(
-            await (action.kind === "task-ci"
-              ? readTaskCi(context, action, binding)
-              : context.executeAction(action, binding)),
-          );
+          return context.withHumanSummary(await context.executeAction(action, binding));
         })
         .then((receipt) => receipt as WriteReceipt)
         .catch((error) => failAction(error));
@@ -370,7 +362,7 @@ export function makeRepoCellCommandRunner(
               return warnings.length ? { ...receipt, warnings: [...(receipt.warnings ?? []), ...warnings] } : receipt;
             };
           })
-        : readBeforeWriteQueue(context, action, binding, context.refreshCi);
+        : readBeforeWriteQueue(context, action, binding);
     if (externalRead)
       return externalRead
         .then((publish) =>
@@ -413,28 +405,6 @@ export function makeRepoCellCommandRunner(
       );
       if (warnings.length)
         return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), ...warnings] };
-    }
-    if (forwardSettled) {
-      // The forwarded cut's CI witness imports through the same refreshCi the manual pull uses,
-      // after the durable forward and its review dispatch settled: no human has to remember the
-      // pull, and the reviewer reads the cut's real CI state instead of not_started. A failed
-      // import lands as a warning — the center cadence and the manual pull remain the recovery.
-      const imported = await importSubmittedCutCiWitness({
-        context,
-        refreshCi: context.refreshCi,
-        taskId: action.taskId as string,
-        binding,
-      });
-      if (imported?.receipt)
-        return {
-          ...receipt,
-          steps: [
-            ...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []),
-            imported.receipt as unknown as WriteReceipt,
-          ],
-        };
-      if (imported?.warning)
-        return { ...receipt, warnings: [...((receipt as WriteReceipt).warnings ?? []), imported.warning] };
     }
     return receipt;
   };

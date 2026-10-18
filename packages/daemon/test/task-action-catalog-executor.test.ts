@@ -164,14 +164,14 @@ test("a criterion-bearing rejection shows the blocker's reason, not the criterio
   const contract = getExecutableEntityAction("task-complete");
   assert.ok(contract);
   const criterionRef = "closeout-readiness/closeoutReadiness",
-    reason = "Publish a passing canonical ci checker witness for this execution cut.",
+    reason = "Merge the delivery into origin/main before completing this execution cut.",
     action = { kind: "task-complete", taskId: "task_contract" } as const,
     receipt = deriveActionResult(
       contract,
       action,
       failed(
-        "op-ci-missing",
-        cellCriterionError("ci_missing", reason, "complete", criterionRef, [reason]),
+        "op-delivery-missing",
+        cellCriterionError("delivery_missing", reason, "complete", criterionRef, [reason]),
         contract,
         action,
       ),

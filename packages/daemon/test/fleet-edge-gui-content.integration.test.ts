@@ -13,7 +13,7 @@ import { waitForState } from "./fleet-replication.fixture.ts";
 
 // The actual GUI JSON-RPC methods; the edge workspace deliberately has no task files.
 test(
-  "GUI documents, binary bytes, workspace events and CI read the same replica cut offline",
+  "GUI documents, binary bytes and workspace events read the same replica cut offline",
   { timeout: 180_000 },
   async (t) => {
     const f = await fleetNodeClaimFixture(t, undefined, undefined, undefined, undefined, true);
@@ -159,8 +159,6 @@ test(
     });
     assert.equal(explanation.mode, "object", JSON.stringify(explanation));
     assert.equal((explanation.subjects as unknown[]).length, 1);
-    const ci = await read("repo.ci.observatory.read", { window: 10 });
-    assert.deepEqual(ci.runs, []);
     const decisions = await read("repo.decisions.list", { projection: "full" });
     assert.deepEqual(decisions.decisions, []);
     // The center is gone: an explicit catch-up fails, and the edge doctor reports the resident

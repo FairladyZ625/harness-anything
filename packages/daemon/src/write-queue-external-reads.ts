@@ -1,8 +1,5 @@
 import path from "node:path";
-import { settleImportedGithubActionsClaims } from "./task-witness-action.ts";
 import { type WriteReceiptDraft } from "@harness-anything/kernel";
-import { ingestCiObservations, preparedCiObservation, type CiObservationFetch } from "./ci-observation-actions.ts";
-import type { ScheduleV1 } from "@harness-anything/kernel";
 import { artifactImportSourceResolution, prepareArtifactEntityImportSource } from "./artifact-entity-action.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import { taskWorktreeInput } from "./repo-cell-action-dispatch.ts";
@@ -34,7 +31,6 @@ export function readBeforeWriteQueue(
   context: RepoCellApiContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
-  refreshCi: (action: RepoTaskAction, binding: RepoCellBinding) => Promise<WriteReceiptDraft>,
 ): Promise<QueuedPublication> | null {
   const baseline =
     action.kind === "task-start" && typeof action.taskId === "string"
@@ -64,23 +60,6 @@ export function readBeforeWriteQueue(
       (sourceResolution) => (action, binding) =>
         context.executeAction({ ...action, [artifactImportSourceResolution]: sourceResolution }, binding),
     );
-  if (action.kind === "ci-observe-pull") {
-    const fetched = (action as RepoTaskAction & { readonly [preparedCiObservation]?: CiObservationFetch })[
-      preparedCiObservation
-    ];
-    if (fetched)
-      return Promise.resolve((action, binding) => {
-        const schedule = context.projection.getEntity("schedule", String(action.scheduleId))?.value as
-          | ScheduleV1
-          | undefined;
-        if (!schedule?.status.activeRun || schedule.status.activeRun.claimFence !== action.claimFence)
-          throw context.cellCodedError("schedule_claim_stale", "CI occurrence claim is no longer current.");
-        const receipt = ingestCiObservations(context.extracted, binding, fetched);
-        settleImportedGithubActionsClaims(context.extracted, binding);
-        return receipt;
-      });
-    return refreshCi(action, binding).then((receipt) => () => receipt);
-  }
   if (action.kind === "task-push") {
     const taskId = typeof action.taskId === "string" ? action.taskId : null;
     if (taskId === null) throw context.cellCodedError("invalid_command", "Task branch push requires a task id.");

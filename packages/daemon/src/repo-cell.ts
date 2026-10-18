@@ -18,6 +18,7 @@ import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSe
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
 import { readEffectiveCloseoutGates, readRepositorySettings } from "./repo-cell-settings-state.ts";
+import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
 import type { RepoCellAttachProgress, RepoCellBinding } from "./repo-cell-types.ts";
 import { resolveWriteSessionIdentity } from "./session-identity/index.ts";
@@ -42,10 +43,15 @@ export type {
 const coldAttachCatchUpLimit = 32;
 
 /** Read judgments bound to one projection cut: the closeout verdict follows the effective gate set. */
-export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries): TaskQueryJudgments {
+export function repoCellTaskQueryJudgmentsFor(projection: TaskProjectionQueries, rootDir?: string): TaskQueryJudgments {
   return {
     closeout: (snapshot, availability) =>
-      closeoutReadiness(snapshot, availability, readEffectiveCloseoutGates(projection, snapshot)),
+      closeoutReadiness(
+        snapshot,
+        availability,
+        readEffectiveCloseoutGates(projection, snapshot),
+        readCompletionDeliveryStatus(projection, snapshot, rootDir),
+      ),
     blocking: (tasks, relations, state) => blockingOf(tasks, relations, state),
   };
 }

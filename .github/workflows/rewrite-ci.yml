@@ -15,10 +15,6 @@ env:
   # Quarantined tests (tools/test-quarantine.json) run only on the nightly schedule; PR and main-push
   # lanes skip them so a load-sensitive test cannot block merges. Every entry names its owner task.
   HARNESS_TEST_QUARANTINE: ${{ github.event_name == 'schedule' && 'run' || 'skip' }}
-  HARNESS_CI_NODE_TEST_RESULTS: tmp/ci-observation/node-tests.json
-  HARNESS_CI_VITEST_RESULTS: tmp/ci-observation/vitest.json
-  HARNESS_CI_GATE_RESULTS: tmp/ci-observation/gates.json
-  HARNESS_CI_OBSERVATION_OUTPUT: tmp/ci-observation/observation.json
 
 # Cancel superseded pull request runs (e.g. after a force-push).
 concurrency:
@@ -33,9 +29,6 @@ jobs:
   full-check:
     if: github.event_name != 'pull_request' && github.event_name != 'push'
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: full-check (${{ matrix.node-version }})
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     strategy:
       fail-fast: false
       matrix:
@@ -53,14 +46,6 @@ jobs:
       - run: git diff --check
       - run: sudo apt-get update && sudo apt-get install -y xvfb
       - run: npm run check
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-full-check-${{ matrix.node-version }}
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   typecheck:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
@@ -69,9 +54,6 @@ jobs:
       fail-fast: false
       matrix:
         node-version: [24]
-    env:
-      HARNESS_CI_JOB: typecheck (${{ matrix.node-version }})
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -80,21 +62,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job typecheck
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-typecheck
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   fast-contract:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: fast-contract
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -106,23 +77,12 @@ jobs:
       - run: npm ci
       - run: git diff --check
       - run: node tools/run-manifest-gates.mjs --workflow-job fast-contract
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-fast-contract
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   crlf-checkout:
     # Four of the reported Windows defects (#1525, #1526, #1538, #1588) are line-ending defects,
     # not platform defects: they reproduce anywhere git is told to convert. Catching them costs a
     # Linux runner and one config line, so they should never again be found by a person on Windows.
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: crlf-checkout
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - name: Convert line endings on checkout the way a Windows host does
         run: git config --global core.autocrlf true
@@ -137,14 +97,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job crlf-checkout
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-crlf-checkout
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   windows-first-run:
     # platform-smoke asserts the CLI boots and refuses on a cold machine -- every command it runs
@@ -158,9 +110,6 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
-    env:
-      HARNESS_CI_JOB: windows-first-run (${{ matrix.os }})
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -170,14 +119,6 @@ jobs:
       - run: npm ci
       - run: npm run build -w @harness-anything/cli
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-first-run
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-windows-first-run-${{ matrix.os }}
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   integration-shard:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
@@ -187,9 +128,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
-    env:
-      HARNESS_CI_JOB: integration-shard (${{ matrix.shard }})
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -198,14 +136,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job integration-shard --shard ${{ matrix.shard }}
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-integration-${{ matrix.shard }}
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   windows-integration-shard:
     # The integration tier is where every POSIX host assumption lives: symlinks, deletable open
@@ -223,9 +153,6 @@ jobs:
       fail-fast: false
       matrix:
         shard: [1, 2, 3, 4, 5, 6]
-    env:
-      HARNESS_CI_JOB: windows-integration-shard (${{ matrix.shard }})
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -234,14 +161,6 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job windows-integration-shard --shard ${{ matrix.shard }}
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-windows-integration-${{ matrix.shard }}
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   nightly-daemon-soak:
     # Functional CI starts a small daemon, serves one client for seconds, and stops it. That shape
@@ -315,9 +234,6 @@ jobs:
     permissions:
       contents: read
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: boundaries
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -331,22 +247,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node tools/run-manifest-gates.mjs --workflow-job boundaries
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-boundaries
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   ontology-advisory:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     continue-on-error: true
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: ontology-advisory
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -358,21 +263,10 @@ jobs:
       - run: npm ci
       - name: Report Phase G0 ontology findings
         run: node tools/run-manifest-gates.mjs --workflow-job ontology-advisory
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-ontology-advisory
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   package-policy:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: package-policy
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -384,21 +278,10 @@ jobs:
       - if: github.event_name == 'push'
         run: npm run build -w @harness-anything/cli
       - run: node tools/run-manifest-gates.mjs --workflow-job package-policy
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-package-policy
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   supply-chain:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: supply-chain
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -407,21 +290,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job supply-chain
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-supply-chain
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
 
   gui-build:
     if: github.event_name == 'pull_request' || github.event_name == 'push'
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: gui-build
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -447,19 +319,8 @@ jobs:
         run: npm ci
       - if: ${{ steps.filter.outputs.gui == 'true' }}
         run: node tools/run-manifest-gates.mjs --workflow-job gui-build
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-gui-build
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14
   node26-compatibility:
     runs-on: ubuntu-latest
-    env:
-      HARNESS_CI_JOB: node26-compatibility
-      HARNESS_CI_JOB_MATRIX: '${{ toJSON(matrix) }}'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -471,11 +332,3 @@ jobs:
       - run: echo "npm_package_config_node_gyp_nodedir=$(dirname "$(dirname "$(command -v node)")")" >> "$GITHUB_ENV"
       - run: npm ci
       - run: node tools/run-manifest-gates.mjs --workflow-job node26-compatibility
-      - name: Upload structured CI observation artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ci-observation-${{ github.run_id }}-${{ github.run_attempt }}-node26-compatibility
-          path: tmp/ci-observation/observation.json
-          if-no-files-found: ignore
-          retention-days: 14

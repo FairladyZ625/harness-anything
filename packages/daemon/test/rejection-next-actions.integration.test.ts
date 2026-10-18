@@ -5,31 +5,14 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { DatabaseSync } from "node:sqlite";
 import path from "node:path";
-import test, { after, before } from "node:test";
-import { makeTaskEventReader, makeTaskProjection, currentGateRun } from "@harness-anything/kernel";
+import test from "node:test";
+import { makeTaskEventReader, makeTaskProjection } from "@harness-anything/kernel";
 import { parseThinCommand } from "@harness-anything/cli/internal/cli/thin-command";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
-import { seedBuiltinSchedules } from "../src/schedule-builtin-executor.ts";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
-import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
 import { commitDelivery } from "./review-independence.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-
-const ciBin = mkdtempSync(path.join(tmpdir(), "ha-submit-ci-bin-"));
-const originalPath = process.env.PATH;
-before(() => {
-  writeProviderExecutable(
-    path.join(ciBin, "gh"),
-    'if (process.argv[2] !== "run" || process.argv[3] !== "list") process.exit(1); console.log("[]");\n',
-  );
-  process.env.PATH = `${ciBin}${path.delimiter}${originalPath ?? ""}`;
-});
-after(() => {
-  if (originalPath === undefined) delete process.env.PATH;
-  else process.env.PATH = originalPath;
-  rmSync(ciBin, { recursive: true, force: true });
-});
 
 function writeCloseout(rootDir: string, packagePath: unknown): void {
   writeFileSync(
@@ -271,14 +254,7 @@ test("executor declaration and completion context refusals name projection rebui
     cache = path.join(rootDir, ".harness/cache/task.sqlite");
   let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
   try {
-    // The completion retry this test names only exists for a repository that declares CI witnessing.
-    mkdirSync(path.join(rootDir, "harness"), { recursive: true });
-    writeFileSync(
-      path.join(rootDir, "harness/harness.yaml"),
-      "settings:\n  ci:\n    workflows: [rewrite-ci]\n  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n",
-    );
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-one" });
-    await seedBuiltinSchedules({ cell, binding: owner });
     const created = await cell.run({ kind: "task-create", taskId, title: "Projection exits" }, owner);
     assert.equal(created.outcome, "applied");
     await waitForFixturePublication(cell, created.opId, owner);
@@ -336,31 +312,19 @@ test("executor declaration and completion context refusals name projection rebui
     ]);
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
     const retry = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
-    assert.equal(retry.code, "ci_missing", JSON.stringify(retry));
-    const runReader = makeTaskEventReader({ repoId, rootDir });
-    const runProjection = makeTaskProjection({ rootDir, eventStore: runReader });
-    const currentRun = currentGateRun(runProjection.read(taskId).snapshot!.executions.at(-1)!, "ci");
-    runProjection.close();
-    await runReader.drain();
-    assert.equal(currentRun?.state, "running");
-    assert.deepEqual((retry as Record<string, unknown>).next, [
-      {
-        action:
-          "Wait for the center CI observer to import the workflow witness; ha task ci task-projection-exits reports its progress.",
-        reason: `Gate run ${currentRun!.runId} is running.`,
-        authority: "person-owner",
-        readCut: { revision: submittedRevision, iteration: 0, executionId },
-      },
-    ]);
+    assert.equal(retry.code, "delivery_missing", JSON.stringify(retry));
+    const retryNext = (retry as Record<string, unknown>).next as readonly { action: string }[];
+    assert.match(retryNext[0]?.action ?? "", /Merge the delivery into origin\/main/u);
+    assert.doesNotMatch(JSON.stringify(retry), /task ci|ci observe/u);
     await cell.close();
     cell = undefined;
 
     cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "projection-exits-four" });
     mutate(cache, "DELETE FROM preset_snapshot");
     const closeout = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
-    assert.equal(closeout.code, "ci_missing", JSON.stringify(closeout));
+    assert.equal(closeout.code, "delivery_missing", JSON.stringify(closeout));
     assert.equal((await cell.run({ kind: "projection-rebuild" }, owner)).outcome, "applied");
-    assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "ci_missing");
+    assert.equal((await cell.run({ kind: "task-complete", taskId, executionId }, owner)).code, "delivery_missing");
   } finally {
     await cell?.close();
     rmSync(rootDir, { recursive: true, force: true });

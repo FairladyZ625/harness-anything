@@ -1,4 +1,4 @@
-import { validateCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
+import { validateRetiredCiRunObservationEvent } from "../domain/ci-run-observation-retired-event.ts";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { serializeCanonicalEventUnchecked } from "../domain/doc-sync-canonical-events.ts";
@@ -253,10 +253,9 @@ export function preflightConvertedGenerationActivation(input: {
       (row) => decodeLegacyEventBytes(row.eventJson, `generation revision ${row.revision}`).event,
     );
     for (const event of events) {
-      const issues =
-        event.schema === "ci-run-observation/v3"
-          ? validateCiRunObservationEvent(event)
-          : validateCurrentCanonicalEvent(event);
+      const issues = String(event.schema).startsWith("ci-run-observation/")
+        ? validateRetiredCiRunObservationEvent(event)
+        : validateCurrentCanonicalEvent(event);
       if (issues.length > 0)
         throw new TaskEventStoreError(
           "invalid_store",
@@ -294,10 +293,9 @@ export function preflightConvertedGenerationActivation(input: {
 function validatedConversionPlan(snapshot: ImmutableLegacySnapshotV2, rootDir: string, snapshotPath: string) {
   const plan = planLegacyGenerationConversion({ rootDir, store: snapshotStore(snapshot, snapshotPath) });
   for (const event of plan.events) {
-    const issues =
-      event.schema === "ci-run-observation/v3"
-        ? validateCiRunObservationEvent(event)
-        : validateCurrentCanonicalEvent(event);
+    const issues = String(event.schema).startsWith("ci-run-observation/")
+      ? validateRetiredCiRunObservationEvent(event)
+      : validateCurrentCanonicalEvent(event);
     if (issues.length > 0)
       throw new TaskEventStoreError(
         "invalid_store",

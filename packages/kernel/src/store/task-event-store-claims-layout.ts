@@ -1,4 +1,3 @@
-import { ciDetailMeasurement, validDiagnosticTest, type CiRunDetail } from "../domain/ci-run-observation-v4.ts";
 import { canonicalizeWriteValue } from "../domain/write-chain.contract.ts";
 import { isCiRunObservationEvent } from "../domain/ci-run-observation-event.ts";
 import path from "node:path";
@@ -260,28 +259,6 @@ export function prepareContentObjects(
   blobs: readonly CanonicalContentBlob[],
 ): void {
   persistContentObjects(objectRoot, events, blobs);
-  for (const event of events) {
-    if (!isCiRunObservationEvent(event) || event.payload.detailRef === null) continue;
-    const ref = event.payload.detailRef;
-    const detail = JSON.parse(Buffer.from(readContentObject(objectRoot, ref.sha256)!).toString("utf8")) as CiRunDetail;
-    if (
-      detail.schema !== "ci-run-detail/v1" ||
-      !Array.isArray(detail.tests) ||
-      detail.tests.some((test) => !validDiagnosticTest(test)) ||
-      !Array.isArray(detail.fileOutcomes) ||
-      !Array.isArray(detail.diagnostics)
-    )
-      throw new TaskEventStoreError("invalid_write_plan", "invalid CI detail object");
-    const measured = ciDetailMeasurement(detail);
-    const declared = {
-      testSummary: event.payload.testSummary,
-      failedTests: event.payload.failedTests,
-      fileOutcomes: event.payload.fileOutcomes,
-      shardDurations: event.payload.shardDurations,
-    };
-    if (JSON.stringify(canonicalizeWriteValue(measured)) !== JSON.stringify(canonicalizeWriteValue(declared)))
-      throw new TaskEventStoreError("invalid_write_plan", "CI detail and hot measurement differ");
-  }
 }
 
 export function objectPath(objectRoot: string, sha256: string): string {

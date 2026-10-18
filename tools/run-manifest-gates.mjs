@@ -309,24 +309,11 @@ function main(argv) {
   if (options.changed !== null) options.changedPaths = readChangedPaths(options.changed);
   readTestQuarantine(repoRoot);
   if (shouldSkipTestQuarantine(options.workflowJob, process.env)) process.env.HARNESS_TEST_QUARANTINE = "skip";
-  if (options.workflowJob)
-    process.env.HARNESS_CI_JOB ||=
-      options.shard === null ? options.workflowJob : `${options.workflowJob} (${options.shard})`;
   if (options.shard !== null) process.env.HARNESS_TEST_SHARD = String(options.shard);
   if (options.workflowJob === "integration-shard" || options.workflowJob === "windows-integration-shard")
     process.env.HARNESS_TEST_TIER = "integration";
   else if (options.workflowJob === "gui-build") process.env.HARNESS_TEST_TIER = "gui";
   else if (options.workflowJob) process.env.HARNESS_TEST_TIER ||= "contract";
-  if (process.env.GITHUB_ACTIONS === "true") {
-    process.env.HARNESS_CI_JOB_STARTED_MS ||= String(Date.now());
-    process.env.HARNESS_CI_NODE_TEST_RESULTS ||= path.join(repoRoot, "tmp/ci-observation/node-tests.json");
-    process.env.HARNESS_CI_VITEST_RESULTS ||= path.join(repoRoot, "tmp/ci-observation/vitest.json");
-    process.env.HARNESS_CI_GATE_RESULTS ||= path.join(repoRoot, "tmp/ci-observation/gates.json");
-    process.env.HARNESS_CI_OBSERVATION_OUTPUT ||= path.join(repoRoot, "tmp/ci-observation/observation.json");
-    process.env.HARNESS_CI_JOB ||= process.env.GITHUB_JOB ?? "unknown";
-    process.env.HARNESS_PR_NUMBER ||=
-      process.env.GITHUB_EVENT_NAME === "pull_request" ? extractPullRequestNumber() : "";
-  }
   const manifest = readManifest();
   const plan = buildManifestGatePlan(manifest, options);
   const selector = options.packageSurface
@@ -338,24 +325,13 @@ function main(argv) {
     console.log(`Changed path selection (${options.changed}): ${options.changedPaths.length} path(s).`);
   }
   console.log(`Manifest gate runner (${selector}): ${plan.length} command(s).`);
-  const gateResults = [];
   const failedGateIds = [];
-  try {
-    for (const entry of plan) {
-      const result = runCommand(entry.id, entry.command);
-      gateResults.push({
-        gate: canonicalGateId(entry.id),
-        result: result.ok ? "pass" : "fail",
-        metrics: { durationMs: result.durationMs },
-      });
-      if (!result.ok) {
-        failedGateIds.push(entry.id);
-        if (options.packageSurface) break;
-        continue;
-      }
+  for (const entry of plan) {
+    const result = runCommand(entry.id, entry.command);
+    if (!result.ok) {
+      failedGateIds.push(entry.id);
+      if (options.packageSurface) break;
     }
-  } finally {
-    writeObservation(gateResults);
   }
   if (failedGateIds.length > 0) {
     console.error(`\nManifest gate runner failed (${selector}): ${failedGateIds.join(", ")}.`);
@@ -369,41 +345,6 @@ function readGitOutput(args) {
   const result = spawnSync("git", args, { cwd: repoRoot, encoding: "utf8", maxBuffer: 50 * 1024 * 1024 });
   if (result.status !== 0) throw new Error(`git ${args.join(" ")} failed: ${(result.stderr || result.stdout).trim()}`);
   return result.stdout;
-}
-
-function canonicalGateId(id) {
-  return { "production-delta": "G33", "entity-id-links": "G37" }[id] ?? id;
-}
-
-function writeObservation(gateResults) {
-  if (process.env.GITHUB_ACTIONS !== "true") return;
-  const gatePath = process.env.HARNESS_CI_GATE_RESULTS;
-  if (!gatePath) return;
-  spawnSync(
-    process.execPath,
-    [
-      "-e",
-      "const fs=require('fs'),p=process.argv[1];fs.mkdirSync(require('path').dirname(p),{recursive:true});fs.writeFileSync(p,JSON.stringify(JSON.parse(process.argv[2]))+'\\n')",
-      gatePath,
-      JSON.stringify(gateResults),
-    ],
-    { cwd: repoRoot, stdio: "inherit" },
-  );
-  const observation = spawnSync(process.execPath, [path.join(repoRoot, "tools/write-ci-observation.mjs")], {
-    cwd: repoRoot,
-    env: process.env,
-    stdio: "inherit",
-  });
-  if (observation.status !== 0) throw new Error("CI observation artifact finalization failed");
-}
-
-function extractPullRequestNumber() {
-  try {
-    const event = JSON.parse(readFileSync(process.env.GITHUB_EVENT_PATH, "utf8"));
-    return String(event.pull_request?.number ?? "");
-  } catch {
-    return "";
-  }
 }
 
 const l0WorkflowJobs = new Set([

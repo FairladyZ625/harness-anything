@@ -178,7 +178,7 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
-    assert.match(body, /ha task ci <task-id> --wait/u);
+    assert.match(body, /gh pr checks <PR-number> --watch/u);
     assert.match(body, /ha task pr <task-id>/u);
     assert.match(body, /not_started/u);
     assert.match(body, /PR 冲突|conflicting pull request/u);
@@ -189,7 +189,7 @@ test("worker handoff templates carry framework-owned publication rules", () => {
   assert.match(prompt, /canonical repository root/u);
   assert.match(prompt, /ha doc sync --submit --task <task-id>/u);
   assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
-  assert.match(prompt, /ha task ci <task-id> --wait/u);
+  assert.match(prompt, /gh pr checks <PR-number> --watch/u);
   // The prompt source escapes backticks inside the template literal; match both spellings.
   assert.match(prompt, /`pending` and `not_started` are not verdicts/u);
 });

@@ -18,7 +18,7 @@ import { WIP_STATUS_ORDER } from "./OverviewTaskWip.tsx";
 
 /**
  * 总览的纯派生层(2026-10-04 重构:注意力优先):从已挂载的读面(repo.agenda.read 的
- * attentionItems 与各分组、repo.works.index、repo.agentRuntime.overview、repo.ci.observatory.read、
+ * attentionItems 与各分组、repo.works.index、repo.agentRuntime.overview、
  * observe.tail 事件页、repo.tasks.wip)推出首块「需要你处理」、主区「关注的工作」与紧凑
  * 下钻入口的行模型。不做任何取数,不重推 daemon 的判据——注意力分、分组全部透传 S1;
  * 这里只做「行怎么显示、落在哪个块、动作给谁」的投影。

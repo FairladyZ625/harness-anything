@@ -118,7 +118,6 @@ test("renderMarkdown carries every measured arm and the unverified section", () 
         path: "harness/tasks/x/task_plan.md",
         wallMs: { p50Ms: 140, p95Ms: 180 },
       },
-      taskCi: { measured: false, reason: "needs a dispatch-held credential" },
     },
     daemon: {
       socketReadyMs: 700,
@@ -185,7 +184,6 @@ test("renderMarkdown carries every measured arm and the unverified section", () 
     "singleTask p50",
     "## GUI（隐藏窗口 lane）",
     "## 未覆盖（unverified）",
-    "ha task ci",
   ])
     assert.ok(markdown.includes(expected), `markdown must mention ${expected}`);
   const partial = renderMarkdown({ ...report, gui: undefined, kernel: undefined });

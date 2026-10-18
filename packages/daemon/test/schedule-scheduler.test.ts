@@ -1005,8 +1005,8 @@ async function waitUntil(predicate: () => boolean): Promise<void> {
 
 test("reconciliation preserves a live builtin and recovers only an executor absent after restart", async () => {
   const clock = fakeClock("2026-08-27T10:00:00.000Z"),
-    builtin = schedule("builtin-ci-observe");
-  builtin.spec.target = { kind: "builtin", builtinId: "ci-observe" };
+    builtin = schedule("legacy-unregistered-builtin");
+  builtin.spec.target = { kind: "builtin", builtinId: "retired-test-builtin" };
   builtin.status.activeRun = {
     occurrenceId: "interrupted",
     kind: "manual",

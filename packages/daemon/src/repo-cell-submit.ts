@@ -29,7 +29,6 @@ import { readTaskTransitionDocument } from "./transition-document-access.ts";
 import { prepareSubmissionEvidence } from "./repo-cell-task-progress.ts";
 import { dispatchInReviewCutReview } from "./task-review-dispatch.ts";
 import { presetSnapshotReader, taskOutputShape, taskWorktreeBinding } from "./task-worktree.ts";
-import { formatTaskCiFailure, readTaskCi } from "./task-ci-read.ts";
 
 /** Git resolves the empty-tree object id virtually; it exists in every repository. */
 const EMPTY_TREE_SHA = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -536,46 +535,7 @@ export async function submitTask(
       derived.error,
       synced ? [synced] : [],
     );
-  const submission = derived.submission,
-    origin = makeGitReadinessSource().run(cell.rootDir, ["config", "--get", "remote.origin.url"]),
-    // CI admission applies to hosted deliveries, not repositories with no remote or a
-    // local filesystem remote (runtime/Fleet can also deliver those code cuts).
-    hosted = origin.ok && /^(?:https?:\/\/|ssh:\/\/|[^/\s]+@[^:\s]+:)/u.test(origin.stdout),
-    ciRequired = submission.commitSha !== null && binding.executionPrincipal !== undefined && hosted;
-  if (ciRequired) {
-    const ci = await readTaskCi(cell, { kind: "task-ci", taskId }, binding);
-    if (ci.ci.headSha !== submission.commitSha || ci.ci.conclusion !== "success") {
-      if (
-        ci.ci.headSha === submission.commitSha &&
-        (ci.ci.conclusion === "not_started" || ci.ci.conclusion === "pending")
-      )
-        return cell.withHumanSummary({
-          outcome: "pending",
-          opId: cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
-          revision: fresh.snapshot.revision,
-          evidence: `Task CI for ${submission.commitSha} is ${ci.ci.conclusion}; the submitted lifecycle cut remains durable while the provider settles.`,
-        }) as WriteReceiptDraft;
-      const failureDetail = formatTaskCiFailure(ci.ci);
-      return {
-        ...cell.rejected(
-          cell.operationId(action, binding, cell.input.repoId, fresh.snapshot.revision),
-          "invalid_transition",
-        ),
-        rejectionExplanation: `Task CI must be green for ${submission.commitSha}; observed ${ci.ci.headSha} with ${ci.ci.conclusion}${
-          ci.ci.notStarted ? `: ${ci.ci.notStarted.detail}` : ""
-        }.${failureDetail ? `\n${failureDetail}` : ""}`,
-        next: [
-          completionGuidance(
-            fresh.snapshot,
-            executionId,
-            `ha task ci ${taskId} --wait`,
-            "Wait for the CI verdict instead of stopping; a not_started report names its reason. Fix and push until the exact delivery SHA is green.",
-          ),
-        ],
-        steps: synced ? [synced] : [],
-      } as WriteReceiptDraft;
-    }
-  }
+  const submission = derived.submission;
   const anchorDriftWarnings = submissionAnchorDriftWarnings(selected.submission, submission);
   // A lost response resumes the stored cut only when the synchronized closeout still derives the same submission.
   if (selected.submission && action.amend !== true) {

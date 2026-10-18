@@ -1,5 +1,4 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query";
-import type { CiObservatoryRead } from "../api/renderer-dto.ts";
 import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
 import { artifactsClient, artifactsQueryKeys } from "./artifacts-client.ts";
 import { harnessClient } from "./api-client.ts";
@@ -12,24 +11,6 @@ import { observeTailRequest } from "./daemon-observe-model.ts";
  * 且都有界(CI 观察窗 ≤30 run;事件一页 history,不进 follow 循环)。agenda、工作索引、
  * 台账摘要由 App 常驻挂载,经 props 进来。
  */
-
-const ciQueryKeys = {
-  observatory: (repoId: string) => ["ci-observatory", repoId] as const,
-};
-
-export function useOverviewCi(repoId: string | null, fetchDetails = false): UseQueryResult<CiObservatoryRead, Error> {
-  const selectedRepoId = repoId ?? "unselected";
-  return useQuery({
-    queryKey: [...ciQueryKeys.observatory(selectedRepoId), fetchDetails],
-    queryFn: (): Promise<CiObservatoryRead> =>
-      harnessClient.getCiObservatory({ repoId: selectedRepoId, window: 30, fetchDetails }),
-    enabled: repoId !== null,
-    placeholderData: (previous) => previous,
-    // CI run 观察是 canonical 事件,台账 cut 扇出会失效这个 key;这里只给一个兜底陈旧窗。
-    staleTime: 60_000,
-    retry: 1,
-  });
-}
 
 const eventsQueryKeys = {
   recent: (repoId: string) => ["overview-recent-events", repoId] as const,
@@ -82,4 +63,4 @@ export function useOverviewArtifacts(repoId: string | null) {
   });
 }
 
-export { ciQueryKeys, eventsQueryKeys };
+export { eventsQueryKeys };

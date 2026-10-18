@@ -13,7 +13,6 @@ import type {
   AgendaAwaitsRow,
   AgendaAttentionItem,
   AgendaRegionWeights,
-  CiObservatoryRead,
   ContractVersion,
   FactAnchorRow,
   RelationFactRow,
@@ -319,21 +318,6 @@ export const harnessClient = {
   },
   async getAgenda(payload: RepoScope & { readonly limit?: number; readonly cursor?: string }): Promise<AgendaSuccess> {
     return readAgendaResult(await invoke("repo.agenda.read", payload, "getAgenda"));
-  },
-  /** main 分支 CI 观察窗(dec_B3D40712 CH1 的 CI 区域只在这份读红时出现);window 有界 1..100。 */
-  async getCiObservatory(
-    payload: RepoScope & { readonly window?: number; readonly fetchDetails?: boolean },
-  ): Promise<CiObservatoryRead> {
-    const result = await invoke("repo.ci.observatory.read", payload, "getCiObservatory");
-    if (
-      !result ||
-      result.schema !== "daemon.ci-observatory/v1" ||
-      result.ok !== true ||
-      (result.status !== "ready" && result.status !== "pending") ||
-      !Array.isArray(result.runs)
-    )
-      throw new Error(localErrorHint(result, "CI observatory bridge returned an invalid result."));
-    return result;
   },
   async getSettings(payload: RepoScope): Promise<SettingsSuccess> {
     return readSettingsResult(await invoke("repo.settings.read", payload, "getSettings"));

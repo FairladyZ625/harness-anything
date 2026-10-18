@@ -1,4 +1,3 @@
-import { validCiObserveProgress } from "./schedule-ci-progress.ts";
 import { record } from "./actor-identity.ts";
 import type {
   EntityActionContract,
@@ -310,7 +309,6 @@ const declarations = Object.freeze([
       field("outcome", "string", true, scheduleRunOutcomes),
       field("endedAt", "string", true),
       field("detail"),
-      field("ciObserve", "json-object"),
       idempotencyKey,
     ]),
     read: false,
@@ -509,20 +507,10 @@ function compileScheduleAction(
     outcome = action.outcome as ScheduleRunOutcome;
   if (!scheduleRunOutcomes.includes(outcome) || !timestamp(action.endedAt))
     reject("invalid_command", "Schedule settlement requires one canonical outcome and UTC end time.");
-  if (
-    action.ciObserve !== undefined &&
-    (schedule.spec.target.kind !== "builtin" ||
-      schedule.spec.target.builtinId !== "ci-observe" ||
-      !validCiObserveProgress(action.ciObserve))
-  )
-    reject("invalid_command", "CI progress requires the ci-observe builtin and a bounded typed checkpoint.");
   const settled: ScheduleV1 = {
     ...schedule,
     status: {
       ...schedule.status,
-      ...(action.ciObserve === undefined
-        ? {}
-        : { ciObserve: action.ciObserve as import("./schedule-ci-progress.ts").CiObserveProgress }),
       activeRun: null,
       lastRun: {
         occurrenceId: active.occurrenceId,

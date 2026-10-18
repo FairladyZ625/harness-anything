@@ -163,7 +163,7 @@ const codeDocRequirement = {
     appliesTo: "code" as const,
     witness: { kind: "internal" as const, adapterId: "code-doc-reconciliation" as const, adapterOptions: {} },
   },
-  ciRequirement = {
+  retiredCiRequirement = {
     gateId: "ci",
     appliesTo: "code" as const,
     witness: {
@@ -180,15 +180,24 @@ const codeDocRequirement = {
       },
     },
   };
-const gatedAt = (gates: readonly (typeof ciRequirement | typeof codeDocRequirement)[], count: number) =>
+const gatedAt = (gates: readonly (typeof retiredCiRequirement | typeof codeDocRequirement)[], count: number) =>
   lifecycleFixture({ gates, complete: false })
     .events.slice(0, count)
     .reduce(reduceTaskEvent, emptyTaskLifecycleSnapshot());
 
-test("an empty delivery cut skips code/doc reconciliation and still requires CI", () => {
-  const result = taskCompletionNext(gatedAt([codeDocRequirement, ciRequirement], 6), context);
-  assert.equal(result.blocker?.code, "ci_missing");
-  assert.doesNotMatch(result.next!.action, /Identify the delivery paths|code-doc reconcile/);
+test("an empty delivery cut skips code/doc reconciliation", () => {
+  const result = taskCompletionNext(gatedAt([codeDocRequirement], 6), context);
+  assert.equal(result.blocker, null);
+  assert.equal(result.next, null);
+});
+
+test("a frozen CI gate reads configured merge evidence instead of an observation", () => {
+  const snapshot = gatedAt([retiredCiRequirement], 6),
+    delivery = { required: true, targetBranch: "main", platform: "github" as const };
+  const unmerged = taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: false } });
+  assert.equal(unmerged.blocker?.code, "delivery_missing");
+  assert.match(unmerged.next!.action, /origin\/main/u);
+  assert.equal(taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: true } }).blocker, null);
 });
 
 test("a nonempty delivery cut still requires a code/doc witness", () => {
@@ -247,15 +256,6 @@ test("a profile that lifted the fact gate completes without facts; the gate stay
   assert.equal(taskCompletionNext(snapshot, repositoryRelaxed).blocker?.code, "fact_missing");
 });
 
-test("missing CI witness precedes independent review and requests canonical observation", () => {
-  const result = taskCompletionNext(gatedAt([ciRequirement], 6), context);
-  assert.equal(result.blocker?.code, "ci_missing");
-  assert.equal(
-    result.next?.action,
-    "Wait for the center CI observer to import the workflow witness; ha task ci task-1 reports its progress.",
-  );
-});
-
 // Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.
 test("a recorded changes_requested review guides the owner's return instead of another review dispatch", () => {
   const reviewed = at(5),
@@ -288,20 +288,21 @@ test("a recorded changes_requested review guides the owner's return instead of a
 });
 
 // Q1-R1-004: review-consent selects a sole approved candidate itself; only a choice needs its id.
-test("a changes request on the current cut comes before missing CI evidence", () => {
-  const reviewed = gatedAt([ciRequirement], 5),
+test("a changes request on the current cut comes before missing merge evidence", () => {
+  const reviewed = gatedAt([retiredCiRequirement], 5),
     changesRequested = {
       ...reviewed,
       reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],
     },
-    result = taskCompletionNext(changesRequested, context);
+    delivery = { required: true, merged: false, targetBranch: "main", platform: "github" as const },
+    result = taskCompletionNext(changesRequested, { ...context, delivery });
   assert.equal(result.blocker?.code, "review_missing");
   assert.equal(
     result.next?.action,
     "ha task adjudicate task-1 --return --worker-mode <resume|fresh|none> --message <feedback> --review-id review-changes --note-file <path>",
   );
-  // Without the changes request the missing CI witness still leads.
-  assert.equal(taskCompletionNext(reviewed, context).blocker?.code, "ci_missing");
+  // Without the changes request, the old frozen CI gate is interpreted through merge evidence.
+  assert.equal(taskCompletionNext(reviewed, { ...context, delivery }).blocker?.code, "delivery_missing");
 });
 
 test("consent guidance relies on automatic selection for one candidate and names each of several", () => {

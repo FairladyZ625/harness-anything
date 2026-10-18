@@ -226,16 +226,6 @@ export interface TaskProjection {
   }) => readonly CanonicalEventV1[];
   readonly readScheduleOutputEvents: (runtimeSessionIds: readonly string[]) => readonly CanonicalEventV1[];
   readonly readSettingsEvent: () => SettingsEventV1 | null;
-  readonly readCiRunObservations: (
-    limit: number,
-    beforeRevision?: number,
-    selection?: { readonly familyWindow: number },
-  ) => {
-    readonly status: "ready" | "pending";
-    readonly events: readonly import("../domain/ci-run-observation-v4.ts").CiObservationRead[];
-    readonly watermark: number;
-    readonly sourceRevision: number;
-  };
   readonly readPresetSnapshot: (digest: string) => PresetSnapshotProjectionRead;
   readonly readProgress: (taskId: string) => TaskProgressProjectionRead;
   readonly admitFact: (event: FactEventV1) => void;

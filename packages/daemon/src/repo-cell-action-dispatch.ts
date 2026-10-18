@@ -519,7 +519,7 @@ export function declareExecutionExecutor(
         return document ? [document] : [];
       }),
       completionContext: {
-        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status),
+        ...readCompletionContext(cell.projection, taskId, declaration.snapshot, current.status, cell.rootDir),
         hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),
@@ -583,7 +583,7 @@ export function annotateExecution(
         return document ? [document] : [];
       }),
       completionContext: {
-        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status),
+        ...readCompletionContext(cell.projection, taskId, annotation.snapshot, current.status, cell.rootDir),
         hasDispatchLineage: readTaskLineageDispatches({ projection: cell.projection, taskId }).length > 0,
       },
     }),

@@ -1,8 +1,8 @@
 # 托管 Git 凭据
 
-任务分支推送、创建 pull request 与读取 CI 都经 daemon 完成，不用 worker
-本人的 GitHub 登录。它们使用的凭据是由机器操作者按 runtime instance
-一次性配置的 GitHub token。本页是操作者配置说明；面向 worker 的命令见
+任务分支推送与创建 pull request 都经 daemon 完成。Worker 使用托管平台 CLI
+和自己的平台凭据直接读取 CI 检查。Daemon 使用机器操作者按 runtime instance
+一次性配置的 GitHub 或 GitLab token。本页是操作者配置说明；面向 worker 的命令见
 [任务分支发布与 direct-push 保护](operations-server-daemon.zh-CN.md#任务分支发布与-direct-push-保护)。
 
 ## 这份凭据驱动什么
@@ -13,7 +13,6 @@
 | --- | --- |
 | `ha task push <task-id>` | 经 HTTPS git 推送任务分支（`git push --force-with-lease`）。 |
 | `ha task pr <task-id>` | 先跑仓库的 PR body 门，再经 GitHub CLI 创建或更新 pull request。 |
-| `ha task ci <task-id>` | 经 GitHub CLI 读取任务分支的 checks、workflow runs、失败日志与 pull request 状态。 |
 
 daemon 的 `PATH` 上必须有 GitHub CLI（`gh`）与 `git`；常驻服务记录的是安装
 shell 的 `PATH`（见[常驻服务](operations-server-daemon.zh-CN.md#常驻服务macos-与-linux)）。
@@ -67,21 +66,18 @@ daemon 用这份 token 执行的是一组固定操作。只对工作区要发布
 | --- | --- | --- |
 | 经 HTTPS 推送任务分支 | `ha task push` | Contents: Read and write |
 | 创建或更新 pull request | `ha task pr` | Pull requests: Read and write |
-| 读 check runs | `ha task ci` | Checks: Read |
-| 读 workflow runs、jobs、失败日志 | `ha task ci` | Actions: Read |
-| 读仓库、分支、pull request 元数据 | `ha task ci` | Metadata: Read |
 
 classic personal access token 用 `repo` scope 覆盖同一组操作。没有推送权限的
-token 在 `ha task push` 失败；缺 pull request 或 CI 读权限的 token 在
-`ha task pr` / `ha task ci` 失败。轮换 token 即存新条目并改绑；daemon 只有在
+token 在 `ha task push` 失败；缺 pull request 权限的 token 在 `ha task pr`
+失败。轮换 token 即存新条目并改绑；daemon 只有在
 没有其他 instance 或凭据设置还引用某条目时才会删除它。
 
 ## 当前限制
 
-GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限，CI
-需要 Actions 读权限；GitLab token 推送需要 `write_repository`，读取 pipelines、
-jobs 与 traces 需要 `read_api`。daemon 按 provider 解析绑定引用，仅向自身 git/API
-操作提供 token。provider 默认从 `origin` 推断；无法识别或自建 GitLab host 时，
+GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限；GitLab
+token 推送需要 `write_repository`。daemon 按 provider 解析绑定引用，仅向自身 git/API
+操作提供 token。Worker 需要自己的托管平台 CLI 登录来读取检查与失败日志（GitHub
+使用 `gh pr checks` 和 `gh run view --log-failed`）。provider 默认从 `origin` 推断；无法识别或自建 GitLab host 时，
 在仓库 settings 声明 `hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
-v4，无需 `glab`（见
+v4；daemon 管理的发布无需 `glab`（见
 [Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)）。

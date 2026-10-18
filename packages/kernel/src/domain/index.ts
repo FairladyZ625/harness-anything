@@ -47,6 +47,7 @@ export type { DomainStatus } from "./lifecycle-status.ts";
 
 export {
   type CloseoutSnapshot,
+  type CompletionDeliveryStatus,
   closeoutReadiness,
   completionGateIds,
   currentExecutionCuts,
@@ -54,6 +55,7 @@ export {
   judgeGateWitnesses,
   waivableAutomatedFail,
   currentSubmittedExecutions,
+  isRetiredCiRequirement,
 } from "./closeout-readiness.ts";
 export {
   completionEvidenceBasis,
@@ -386,19 +388,9 @@ export type {
   ArtifactLocator,
   ArtifactSourceIdentityInput,
 } from "./artifact-entity.ts";
-export { ciRunObservationWritePlan, validateCurrentCiRunObservationEvent } from "./ci-run-observation-event.ts";
 
 export { type ExecutionDelegationRecord } from "./execution-delegation.ts";
 
 export { parseDelegatedExecutionToken } from "./delegated-execution-token.ts";
 
 export { type ExecutionDelegationEventV1 } from "./execution-delegation-event.ts";
-
-export type { CiRunObservationEventV4 } from "./ci-run-observation-v4.ts";
-
-export { ciDetailMeasurement, validDiagnosticTest } from "./ci-run-observation-v4.ts";
-export type { CiDetailRef, CiRunDetail, CiObservationRead, CiObservationIdentity } from "./ci-run-observation-v4.ts";
-
-export type { CiObserveProgress } from "./schedule-ci-progress.ts";
-
-export { ciRunWindow, ciRerunStatistics } from "./ci-rerun-statistics.ts";

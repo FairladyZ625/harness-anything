@@ -223,7 +223,10 @@ export function lifecycleReceipt(
     nextCommand =
       taskCompletionAction(
         snapshot,
-        { ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready"), hasDispatchLineage },
+        {
+          ...readCompletionContext(cell.projection, event.taskId, snapshot, "ready", cell.rootDir),
+          hasDispatchLineage,
+        },
         executionId ?? undefined,
       )?.action ?? null,
     // A parentTaskId amend hands the task to a different work; the receipt names where it landed.

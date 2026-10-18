@@ -40,6 +40,8 @@ import { presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
 import type { PublicPublication, RepoCellBinding, RepoTaskAction, Snapshot } from "./repo-cell-types.ts";
 import { leaseTtlMs } from "./repo-cell-types.ts";
 import { reviewActorsIndependent } from "./decision-review-authorization.ts";
+import { readCompletionDeliveryStatus } from "./task-completion-read.ts";
+import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 
 const START_VALIDATION_CRITERION = "task-lifecycle-command-transitions/start.validate";
 const SUBMIT_PROOF_CRITERION = "repo-cell-proof/proofFor.SubmitExecution";
@@ -574,7 +576,12 @@ export function completeProof(
         accepted,
         sourceSnapshot.reviewDispositions,
       ) ||
-      closeoutReadiness(sourceSnapshot).readiness !== "passed"
+      closeoutReadiness(
+        sourceSnapshot,
+        undefined,
+        projection ? readEffectiveCloseoutGates(projection, sourceSnapshot) : undefined,
+        projection ? readCompletionDeliveryStatus(projection, sourceSnapshot, rootDir) : undefined,
+      ).readiness !== "passed"
     )
       throw cellCodedError(
         "invalid_proof",
@@ -582,18 +589,6 @@ export function completeProof(
       );
     if (!/^fact\/F-[0-9A-HJKMNP-TV-Z]{8}$/u.test(command.resolution.factRef) || !fact?.fact || fact.status !== "ready")
       throw cellCodedError("invalid_proof", "Sibling resolution requires an existing, projected canonical Fact.");
-    if (accepted.submission?.commitSha) {
-      const base = rootDir ? repositoryBaseRef(rootDir) : null;
-      if (
-        !rootDir ||
-        !base ||
-        !makeGitReadinessSource().run(rootDir, ["merge-base", "--is-ancestor", accepted.submission.commitSha, base]).ok
-      )
-        throw cellCodedError(
-          "invalid_proof",
-          "Sibling delivery is not on the repository default branch. Merge the source delivery before resolving this task.",
-        );
-    }
     return {
       capability: "task-complete@v1",
       capabilityRef: authorizationDecision.policyRef,
@@ -619,8 +614,9 @@ export function completeProof(
       "complete",
       COMPLETE_VALIDATION_CRITERION,
     );
-  const supplied = canonicalGateReceipts(snapshot, execution);
-  if (supplied.length !== requiredGateWitnessCount(snapshot, execution))
+  const delivery = projection ? readCompletionDeliveryStatus(projection, snapshot, rootDir) : undefined,
+    receipts = canonicalGateReceipts(snapshot, execution, delivery);
+  if (receipts.length !== requiredGateWitnessCount(snapshot, execution, delivery))
     throw cellCriterionError(
       "gate_witness_missing",
       "Task completion canonical gate-witness proof was not satisfied.",
@@ -633,7 +629,8 @@ export function completeProof(
     actorRole: "owner",
     noActiveLease: true,
     closeoutGates: execution.submission!.completionContract!.closeoutGates,
-    gateReceipts: supplied,
+    delivery,
+    gateReceipts: receipts,
     authorizationDecision,
   };
 }

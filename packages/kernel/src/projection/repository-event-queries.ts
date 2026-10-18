@@ -1,6 +1,3 @@
-import { readCiObservationWindowRows } from "./ci-observation-window-query.ts";
-import { decodeCiObservation, type CiRunObservationEventV4 } from "../domain/ci-run-observation-v4.ts";
-import type { CiRunObservationEventV2, CiRunObservationEventV3 } from "../domain/ci-run-observation-event.ts";
 import { readArtifactEntityState } from "./artifact-entity-state-projection.ts";
 import { readEventList } from "./event-list-query.ts";
 import { privateRuntimeEventTypes, publicRuntimeDispatch } from "../domain/runtime-public-query.ts";
@@ -78,13 +75,6 @@ const SCHEDULE_EVENTS_BY_ID_SQL = [
   "AND json_extract(event_json, '$.entity.id') = ?",
   "ORDER BY workspace_revision",
 ].join(" ");
-const CI_RUN_OBSERVATIONS_SQL = [
-  "SELECT event_json FROM event_index",
-  "WHERE json_extract(event_json, '$.schema') IN ('ci-run-observation/v2','ci-run-observation/v3','ci-run-observation/v4')",
-  "AND workspace_revision < ?",
-  "ORDER BY workspace_revision DESC LIMIT ?",
-].join(" ");
-
 export function repositoryEventQueries(
   withRead: RepositoryReadSession,
 ): Pick<
@@ -103,7 +93,6 @@ export function repositoryEventQueries(
   | "readScheduleEvents"
   | "readScheduleOutputEvents"
   | "readReckoningEvents"
-  | "readCiRunObservations"
   | "readSettingsEvent"
   | "readArtifactEntityState"
   | "readEventList"
@@ -295,27 +284,6 @@ export function repositoryEventQueries(
         return queryRows(db, sql, ...runtimeSessionIds.map((id) => `runtime-session:${id}`)).map(
           (row) => JSON.parse(String(row.event_json)) as CanonicalEventV1,
         );
-      }),
-    readCiRunObservations: (pageLimit, beforeRevision = Number.MAX_SAFE_INTEGER, selection) =>
-      withRead((db, cut) => {
-        if (!Number.isSafeInteger(pageLimit) || pageLimit < 1 || pageLimit > 2_000)
-          throw new Error("ci run observation page requires a limit from 1 to 2000");
-        return {
-          status: cut.status,
-          events: (selection
-            ? readCiObservationWindowRows(db, selection.familyWindow)
-            : queryRows(db, CI_RUN_OBSERVATIONS_SQL, beforeRevision, pageLimit)
-          ).map((row) =>
-            decodeCiObservation(
-              JSON.parse(String(row.event_json)) as
-                | CiRunObservationEventV2
-                | CiRunObservationEventV3
-                | CiRunObservationEventV4,
-            ),
-          ),
-          watermark: cut.watermark,
-          sourceRevision: cut.sourceRevision,
-        };
       }),
   };
 }

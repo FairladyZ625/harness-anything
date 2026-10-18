@@ -54,11 +54,10 @@ const reviewerDiscipline = [
     "submission digest, delivery, and applicable tests. For a Decision, inspect the frozen proposal, body, " +
     "claims, and cited evidence at its reviewContentDigest; do not require a code commit or CI. Label checks " +
     "you cannot run unverified.",
-  "- For a Task delivery, read the PR checks yourself with `ha task ci <task-id> --json` (the reviewed task's id) " +
-    "and confirm `ci.headSha` is the pinned delivery commit. `not_started` and `pending` conclusions are not green; " +
-    "a `not_started` report names its reason (no pull request, a conflicting pull request, or queued). " +
-    "The command serves GitHub-hosted repositories only; when it is unavailable or the repository is hosted " +
-    "elsewhere, label the CI check unverified.",
+  "- For a Task delivery, read the PR checks directly with the hosting-platform CLI and your own platform credentials; " +
+    "for GitHub use `gh pr checks <PR-number>` and `gh run view <run-id> --log-failed`. Confirm the checks are for " +
+    "the pinned delivery commit. Pending checks are not green; when the platform CLI cannot read them, label the " +
+    "check unverified.",
   "- Write only the structured review report and input at the dispatch-assigned artifacts/reports paths. " +
     "For a Task use ha task review-execution; for a Decision use ha decision review. Record approved or " +
     "changes_requested against the pinned target and digest, and stop if that cut changes.",
@@ -75,15 +74,13 @@ const taskDeliveryPublicationDiscipline = [
   "  no Git credentials, so do not run `git push` yourself and never push another ref.",
   "- After the branch is published, create the task PR with `ha task pr <task-id> --title '<type>(<scope>): <summary>'`; use an English type (feat, fix, refactor, perf, test, docs, chore, or ci), with optional scope. The daemon validates the title before creating it.",
   "  frozen task PR body and the same dispatch-held credential; workers may not merge it.",
-  "- Close the CI loop before you submit: run `ha task ci <task-id> --wait` and let it block until the branch reaches a",
-  "  verdict (`--json` for the full report, `--timeout <seconds>` to bound the wait), and confirm `ci.headSha` is your",
-  "  delivery commit. `pending` and `not_started` are not verdicts — keep waiting, and when `not_started` names its",
-  "  reason, act on it: no pull request → open one with `ha task pr`; a conflicting pull request → rebase onto the base",
-  "  and push again; queued → keep waiting. A red verdict is triaged, never accepted: compare the same test on",
-  "  origin/main's latest CI — main-red failures are recorded in the closeout, not fixed and not waited on; every other",
-  "  red you repair, re-run the local evidence, push again, and read CI again until the delivery SHA is green. Both",
-  "  commands serve GitHub-hosted repositories only. When either answers `unsupported_command` or",
-  "  `runtime_credential_unavailable`, mark the CI unverified in the closeout with that error and submit as usual.",
+  "- Close the CI loop before you submit: read PR checks directly with the hosting-platform CLI and your own",
+  "  platform credentials. On GitHub, run `gh pr checks <PR-number> --watch`, then use `gh run view <run-id> --log-failed`",
+  "  for a failure; confirm the check run is for your pushed delivery SHA. Pending checks are not green. A red verdict",
+  "  is triaged, never accepted: compare the same test on origin/main's latest CI — main-red failures are recorded",
+  "  in the closeout, not fixed and not waited on; every other red you judge as caused by this change, repair, push",
+  "  again, and read the platform checks again until the delivery SHA is green. If your platform CLI cannot read the",
+  "  checks, report the error and mark CI unverified. `ha task pr` and the GitHub examples serve GitHub-hosted repos.",
   "- Do not merge; final merge authority belongs to the CEO.",
 ].join("\n");
 

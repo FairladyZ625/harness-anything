@@ -1,5 +1,4 @@
 import myDevices from "./scenarios/my-devices.mjs";
-import ciObservations from "./scenarios/ci-observations.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
 import providerProjectAccess from "./scenarios/provider-project-access.mjs";
@@ -57,7 +56,6 @@ import redesignMyAsks from "./scenarios/redesign-my-asks.mjs";
 export const catalog = [
   taskReturnChoice,
   myDevices,
-  ciObservations,
   edgeReadFreshness,
   runtimeHandoff,
   agentRuntimeEffort,

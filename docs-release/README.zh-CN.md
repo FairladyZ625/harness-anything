@@ -118,8 +118,8 @@ daemon 文档说明当前运维形态和限制：本地 daemon 服务管理、�
 
 ## 配置托管 Git 凭据
 
-任务分支推送、pull request 与 CI 读取运行在操作者绑定、存于本机原生凭据库的
-GitHub token 上，不用 worker 的个人登录。该页讲绑定命令、各平台创建凭据库条目的
+任务分支推送与 pull request 使用操作者绑定、存于本机原生凭据库的 GitHub token，
+由 daemon 代办。Worker 用自己的托管平台 CLI 登录读取 CI 检查。该页讲绑定命令、各平台创建凭据库条目的
 方法，以及 token 的最小权限。
 
 → **[hosted-credentials.zh-CN.md](hosted-credentials.zh-CN.md)**
