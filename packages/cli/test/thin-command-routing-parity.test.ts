@@ -1483,7 +1483,7 @@ test("parsed commands name their route id and sole-method attribution matches th
   assert.equal(parsed.command.id, "agenda", "the CLI command id rides on the parsed command");
   // Sole-owner methods attribute without a caller declaration; shared methods cannot.
   assert.equal(commandIdForDaemonMethod("repo.agenda.read"), "agenda");
-  assert.equal(commandIdForDaemonMethod("repo.ci.observatory.read"), "ci-observe-statistics");
+  assert.equal(commandIdForDaemonMethod("repo.entity.actions.explain"), "explain");
   assert.equal(commandIdForDaemonMethod("repo.task.run"), null);
   assert.equal(commandIdForDaemonMethod("protocol.hello"), null);
 });
