@@ -75,6 +75,7 @@ test(
     };
 
     for (const nodeId of ["node-one", "node-two"]) {
+      f.owners.keycloak.interactiveSession("person-one", nodeId, f.owners.url, `device-token-${nodeId}`, "harness-cli");
       const { response, workspaceRoot } = await join(nodeId, link(nodeId, "person-one")),
         result = response.result as Record<string, unknown>;
       assert.equal(result?.ok, true, JSON.stringify(response));
@@ -82,6 +83,7 @@ test(
       assert.equal(JSON.stringify(response).includes(`secret-${nodeId}`), false, "the receipt carries no credential");
       const config = readFleetEdgeConfig(workspaceRoot);
       assert.equal(config?.credential, `secret-${nodeId}`);
+      assert.equal(config?.humanClientId, "harness-cli");
       assert.equal(statSync(path.join(workspaceRoot, "fleet-edge.json")).mode & 0o777, 0o600);
       const tasks = path.join(workspaceRoot, "harness", "tasks");
       assert.ok(
