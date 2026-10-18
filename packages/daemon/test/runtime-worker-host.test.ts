@@ -79,6 +79,34 @@ test("worker marker injects provider token while an unconfigured worker has none
   assert.equal(unconfigured.GITLAB_TOKEN, undefined);
 });
 
+// dec_249858DC66C8A8B632F56F4A72/CH1 also requires GitLab Git credentials.
+test("GitLab worker uses the existing askpass without storing its token in Git config", () => {
+  const secret = "fake-gitlab-worker-token",
+    environment = runtimeWorkerProviderEnvironment({
+      ...process.env,
+      PATH: [path.resolve(import.meta.dirname, "../../../tools/git-hooks"), process.env.PATH ?? ""].join(
+        path.delimiter,
+      ),
+      HARNESS_WORKER_GITLAB_TOKEN: secret,
+      HARNESS_CANONICAL_ROOT: path.resolve(import.meta.dirname, "../../.."),
+    });
+  assert.equal(environment.GITLAB_TOKEN, secret);
+  assert.equal(environment.HARNESS_GITLAB_TOKEN, secret);
+  assert.equal(environment.HARNESS_WORKER_GITLAB_TOKEN, undefined);
+  assert.equal(environment.GH_TOKEN, undefined);
+  assert.equal(environment.GIT_CONFIG_VALUE_0, "");
+  const result = spawnSync("git", ["credential", "fill"], {
+    env: environment,
+    input: "protocol=https\nhost=gitlab.com\n\n",
+    encoding: "utf8",
+    timeout: 5_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /username=x-access-token/u);
+  assert.ok(result.stdout.includes(`password=${secret}`));
+  assert.equal(result.stderr.includes(secret), false);
+});
+
 test(
   "Git SSH cannot use host credentials in the provider environment",
   { skip: process.platform === "win32" ? "requires POSIX executable SSH fixture semantics" : false },

@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import path from "node:path";
 import { createInterface } from "node:readline";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, openDispatchStreamAppender, scrubProviderValue } from "./dispatch-stream.ts";
@@ -65,7 +66,10 @@ export function runtimeWorkerProviderEnvironment(
     GIT_CONFIG_NOSYSTEM: "1",
     GIT_CONFIG_COUNT: "1",
     GIT_CONFIG_KEY_0: "credential.helper",
-    GIT_CONFIG_VALUE_0: "!gh auth git-credential",
+    GIT_CONFIG_VALUE_0: hostingCredentialEnvironment.GITLAB_TOKEN || workerGitlabToken ? "" : "!gh auth git-credential",
+    ...(hostingCredentialEnvironment.GITLAB_TOKEN || workerGitlabToken
+      ? { GIT_ASKPASS: path.join(environment.HARNESS_CANONICAL_ROOT!, "tools", "git-hooks", "git-askpass") }
+      : {}),
     GIT_SSH_COMMAND: `ssh -F ${nullDevice} -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none -o IdentityFile=${nullDevice}`,
     GIT_TERMINAL_PROMPT: "0",
     ...(hostingCredentialEnvironment.GH_TOKEN || workerGithubToken

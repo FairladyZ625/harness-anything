@@ -129,7 +129,10 @@ export async function prepareBoundRuntimeLaunch(args: {
       (args.execution && input.keycloakCenter
         ? await issueRuntimeExecutionCredential(await input.keycloakCenter(), { ...args.execution, expiresAt })
         : undefined);
-  const workerGitEnvironment = await prepareTaskWorkerGitEnvironment(input, args.runtimeInstanceId);
+  // dec_249858DC66C8A8B632F56F4A72/CH1 authorizes hosting credentials for task workers.
+  const workerGitEnvironment = taskId
+    ? await prepareTaskWorkerGitEnvironment(input, args.runtimeInstanceId)
+    : undefined;
   return {
     ...prepared,
     env: {
