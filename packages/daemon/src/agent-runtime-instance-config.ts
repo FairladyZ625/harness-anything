@@ -1,4 +1,4 @@
-import { runtimeEffortValues } from "@harness-anything/kernel";
+import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { isCredentialReferenceText } from "./agent-runtime-credential-port.ts";
 import type {
   AgyRuntimeInstanceConfig,

@@ -6,6 +6,9 @@ import {
   validateEntityJsonSchema,
   type EntityDocumentJsonSchema,
 } from "./entity-json-schema.ts";
+import { runtimeEffortValues, type RuntimeEffort } from "./runtime-effort.ts";
+
+export { runtimeEffortValues, type RuntimeEffort };
 
 export interface AgentSkillDeclarationV1 {
   readonly id: string;
@@ -13,8 +16,6 @@ export interface AgentSkillDeclarationV1 {
 }
 export type AgentRole = "worker" | "commander" | "reviewer";
 export type AgentPermissionMode = "bypass" | "workspace-write" | "read-only";
-export const runtimeEffortValues = Object.freeze(["minimal", "low", "medium", "high", "xhigh", "max"] as const);
-export type RuntimeEffort = (typeof runtimeEffortValues)[number];
 export const agentStates = ["configured", "active", "retired"] as const;
 export type AgentState = (typeof agentStates)[number];
 export interface AgentRuntimeTargetV1 {

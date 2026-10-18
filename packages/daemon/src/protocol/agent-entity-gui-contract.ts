@@ -1,4 +1,5 @@
-import { entityNonEmpty, entitySlug, runtimeEffortValues } from "@harness-anything/kernel";
+import { entityNonEmpty, entitySlug } from "@harness-anything/kernel";
+import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { EntitySchemaContractError } from "@harness-anything/kernel";
 import type { AgentRuntimeTargetV1, AgentSkillDeclarationV1 } from "@harness-anything/kernel";
 

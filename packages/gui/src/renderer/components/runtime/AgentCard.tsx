@@ -2,9 +2,10 @@ import { SegCtl } from "../primitives/SegCtl.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { useEffect, useRef, useState } from "react";
 import { Eye } from "@phosphor-icons/react";
-import type { AgentDeclarationV1, RuntimeEffort } from "@harness-anything/daemon/protocol";
+import { runtimeEffortValues, type RuntimeEffort } from "@harness-anything/kernel/runtime-effort";
+import type { AgentDeclarationV1 } from "@harness-anything/daemon/protocol";
 import type { RuntimeInstanceSummary } from "@harness-anything/daemon/protocol";
-import { agentRuntimeKindMatches, runtimeEffortValues } from "@harness-anything/daemon/protocol";
+import { agentRuntimeKindMatches } from "@harness-anything/daemon/protocol";
 import type {
   AgentEntityAvailableRow,
   AgentEntityDetail,
@@ -157,7 +158,7 @@ export function AgentCard({
       }),
     toggleRuntime = (kindId: string) => {
       const selected = draft.runtimes.some((target) => target.type === kindId),
-        runtimes = selected
+        runtimes: AgentDraft["runtimes"] = selected
           ? draft.runtimes.filter((target) => target.type !== kindId)
           : [...draft.runtimes, { type: kindId, model: "", effort: "" }];
       patch({

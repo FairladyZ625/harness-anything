@@ -8,8 +8,8 @@ import {
   type ContractVersion,
   type LedgerCutIdentity,
   type EntityActionInputField,
-  runtimeEffortValues,
 } from "@harness-anything/kernel";
+import { runtimeEffortValues } from "@harness-anything/kernel/runtime-effort";
 import { daemonProtocolCommands } from "../protocol/daemon-protocol-commands.ts";
 import { isUtcTimestamp } from "../protocol/json-rpc-types.ts";
 

@@ -19,8 +19,6 @@ export { daemonGuiReadMethods } from "./daemon-protocol-gui-reads.ts";
 export { daemonGuiReadSchemas } from "./daemon-protocol-schema-registry.ts";
 export { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
 export { validateDaemonQueryPayload } from "./daemon-protocol-validate-relation-query.ts";
-export { runtimeEffortValues } from "@harness-anything/kernel";
-export type { RuntimeEffort } from "@harness-anything/kernel";
 export {
   parseScheduleDuration,
   scheduleDurationUnitMs,
