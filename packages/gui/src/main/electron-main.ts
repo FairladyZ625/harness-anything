@@ -56,6 +56,7 @@ import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 import { DESKTOP_FIRST_RUN_UPDATED_CHANNEL, type DesktopSetupFailure } from "../api/first-run-contract.ts";
 import { desktopRuntimePaths, desktopFirstRunReport, runDesktopSetup } from "./desktop-first-run.ts";
 import { registerUpdaterIpc } from "./update-service.ts";
+import { autoUpdater } from "electron-updater";
 
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
@@ -413,7 +414,7 @@ export async function startGuiApp(): Promise<void> {
   registerProjectWindowIpc(ipcMain, projectWindows, trustPolicy);
   projectWindows.newWindow(null);
   const updaterWindow = BrowserWindow.getAllWindows()[0];
-  if (updaterWindow) registerUpdaterIpc(ipcMain, updaterWindow, trustPolicy);
+  if (updaterWindow) registerUpdaterIpc(ipcMain, updaterWindow, trustPolicy, autoUpdater, app.getVersion());
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) projectWindows.newWindow(null);
   });
