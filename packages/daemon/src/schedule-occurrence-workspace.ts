@@ -73,19 +73,43 @@ export async function publishedBranchRef(rootDir: string, branch: string): Promi
  * continues what the previous node pushed. A checkout that also holds work the published branch lacks — commits
  * of its own or uncommitted changes — is left exactly as it is and refused: nothing here discards work.
  */
-export async function continuePublishedBranch(cwd: string, published: string): Promise<void> {
+export async function continuePublishedBranch(
+  cwd: string,
+  published: string,
+  defaultRef: string | null,
+): Promise<void> {
   if ((await git(cwd, "rev-list", "--count", `HEAD..${published}`)) === "0") return;
   const ahead = await git(cwd, "rev-list", "--count", `${published}..HEAD`),
     dirty = (await git(cwd, "status", "--porcelain")).length > 0;
-  if (ahead !== "0" || dirty)
+  if (ahead !== "0" || dirty) {
+    const equivalentRebase =
+        ahead !== "0" &&
+        !dirty &&
+        defaultRef !== null &&
+        (await git(cwd, "merge-base", defaultRef, "HEAD")) === (await git(cwd, "rev-parse", defaultRef)) &&
+        (await git(cwd, "cherry", "HEAD", published)).split("\n").every((line) => !line.startsWith("+")),
+      remoteDifferent = equivalentRebase
+        ? []
+        : (await git(cwd, "cherry", "HEAD", published))
+            .split("\n")
+            .filter((line) => line.startsWith("+"))
+            .map((line) => line.slice(2)),
+      localDifferent = equivalentRebase
+        ? []
+        : (await git(cwd, "log", "--format=%h", `${published}..HEAD`)).split("\n").filter(Boolean);
+    if (equivalentRebase) return;
     throw Object.assign(
       new Error(
         `Worktree ${cwd} is behind ${published} and holds ` +
           (ahead !== "0" ? `${ahead} commit(s) that branch lacks` : "uncommitted changes") +
+          (remoteDifferent.length || localDifferent.length
+            ? `; different commits: ${[...remoteDifferent, ...localDifferent].join(", ")}`
+            : "") +
           "; it was left untouched. Rebase or remove that work in the worktree, then retry.",
       ),
       { code: "task_worktree_diverged" },
     );
+  }
   await git(cwd, "merge", "--quiet", "--ff-only", published);
 }
 

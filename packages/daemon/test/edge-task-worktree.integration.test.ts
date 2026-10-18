@@ -232,6 +232,27 @@ test("a checkout behind the published branch that holds work of its own is refus
   }
 });
 
+test("a clean rebase-equivalent task checkout continues when the published branch has the old commits", async (t) => {
+  const fixture = nodesFixture(t),
+    onA = (await checkoutTaskWorktree(fixture.nodeA, taskId, binding, noWorktreeSetup()))!,
+    onB = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  commit(onA.cwd, "task-change.txt");
+  commit(onB.cwd, "task-change.txt");
+  assert.equal((await pushWorkerBranch({ cwd: onA.cwd, canonicalRoot: fixture.nodeA, taskId })).attempted, true);
+
+  const defaultTip = commit(fixture.nodeA, "main-change.txt");
+  git(fixture.nodeA, "push", "-q", "origin", "main");
+  git(fixture.nodeB, "fetch", "-q", "origin");
+  git(onB.cwd, "rebase", "-q", "origin/main");
+  const rebased = git(onB.cwd, "rev-parse", "HEAD");
+
+  const resumed = (await checkoutTaskWorktree(fixture.nodeB, taskId, binding, noWorktreeSetup()))!;
+  assert.equal(resumed.cwd, onB.cwd);
+  assert.equal(git(onB.cwd, "rev-parse", "HEAD"), rebased);
+  assert.equal(git(onB.cwd, "merge-base", "origin/main", "HEAD"), defaultTip);
+  assert.equal(git(onB.cwd, "status", "--porcelain"), "");
+});
+
 const launchSentinel = "edge launch reached";
 function launched(error: unknown): boolean {
   return error instanceof Error && error.message === launchSentinel;
