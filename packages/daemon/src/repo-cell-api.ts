@@ -192,6 +192,11 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
   // Backup lifetimes serialize independently of ledger writes: retention cannot remove
   // another builtin's in-progress snapshot. A replay shares the same claim's execution.
   const builtinRuns = new Map<string, Promise<WriteReceipt>>();
+  // CI observation occurrences are abortable at cell close: a center round can run for many
+  // minutes and resumes from its durable checkpoint, so close kills its provider subprocesses
+  // instead of waiting the round out. Ledger backup occurrences take no abort — their run is
+  // bounded by storage.backupExecutionLimitMs — and keep the full close wait.
+  const builtinAborts = new Map<string, AbortController>();
   const ciRefreshQueue = makeCiRefreshQueue({
     context: apiContext,
     builtinRuns: () => builtinRuns,
@@ -859,15 +864,18 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     if (running) return action.scheduledFor === undefined ? running : Promise.resolve(receipt);
     const writerFence = binding.withWriterEpochFence ?? context.activeWriterEpochFence,
       writerDescriptor = binding.writerEpochFence ?? context.activeWriterEpochFenceDescriptor;
+    const abort = schedule.spec.target.builtinId === "ci-observe" ? new AbortController() : null;
     const executorCell: BuiltinExecutorCell = {
       rootDir: context.rootDir,
       now: context.now,
       backupExecutionLimitMs: context.settings.read().storage.backupExecutionLimitMs,
+      signal: abort?.signal,
       observeCi: async (schedule) => {
         const result = await reconcileCiOccurrence({
           cell: context.extracted,
           schedule,
           requests: ciRefreshQueue.requests,
+          signal: abort?.signal,
           accept: async (fetched) => {
             const receipt = await run(
               {
@@ -961,8 +969,12 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
           },
         }),
       )
-      .finally(() => builtinRuns.delete(active.claimFence));
+      .finally(() => {
+        builtinRuns.delete(active.claimFence);
+        if (abort) builtinAborts.delete(active.claimFence);
+      });
     builtinRuns.set(active.claimFence, pending);
+    if (abort) builtinAborts.set(active.claimFence, abort);
     if (schedule.spec.target.builtinId === "ledger-backup")
       builtinTail = pending.then(
         () => undefined,
@@ -1045,7 +1057,15 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
     },
     close: async () => {
       if (context.state === "closed") return;
-      await builtinTail;
+      // Aborting a running CI observation kills its provider subprocesses through the provider
+      // port; the occurrence then settles nothing and its durable claim waits for checkpoint
+      // resume. The drain below only waits out those subprocess exits, the writes the aborted
+      // occurrences already started, and any ledger-backup run (never aborted above).
+      for (const abort of builtinAborts.values()) abort.abort();
+      // Terminates because builtinRuns only shrinks while close waits: every entry removes itself
+      // at settlement, and a new entry needs a schedule-run-now claim the closing owner no longer
+      // issues.
+      while (builtinRuns.size > 0) await Promise.allSettled([...builtinRuns.values()]);
       context.state = "closed";
       context.runtimeSpawner.close();
       await context.terminal.close();
