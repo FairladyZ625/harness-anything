@@ -132,7 +132,7 @@ test("v3 requires matching workflow verification when present", () => {
     { ...verified, payload: { ...verified.payload, verification: { ...verified.payload.verification, attempt: 3 } } },
     {
       ...verified,
-      payload: { ...verified.payload, verification: { ...verified.payload.verification, event: undefined } },
+      payload: { ...verified.payload, verification: { ...verified.payload.verification, event: 7 } },
     },
     {
       ...verified,

@@ -289,7 +289,7 @@ test("a recorded changes_requested review guides the owner's return instead of a
 
 // Q1-R1-004: review-consent selects a sole approved candidate itself; only a choice needs its id.
 test("a changes request on the current cut comes before missing merge evidence", () => {
-  const reviewed = gatedAt([retiredCiRequirement], 5),
+  const reviewed = gatedAt([retiredCiRequirement], 6),
     changesRequested = {
       ...reviewed,
       reviews: [{ ...reviewed.reviews[0]!, reviewId: "review-changes", verdict: "changes_requested" as const }],

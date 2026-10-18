@@ -83,6 +83,7 @@ function fixture(
     cell = {
       rootDir,
       projectionReady,
+      projection: {},
       service: { read: async () => read },
       lifecycleAction: async (action: unknown) => {
         calls.push(action);

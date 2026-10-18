@@ -34,3 +34,5 @@
 - task-bound 回执只经 `ha doc sync --submit --task <task-id>` 提交。
 - 仓库交付先用 `ha task push <task-id>` 发布，再用 `ha task pr <task-id>` 创建 PR。之后用托管平台 CLI 和你自己的平台凭据直接读取检查；GitHub 使用 `gh pr checks <PR-number> --watch`。确认检查对应已推送的交付 SHA 全绿后才提交。Worker 不得合并。
 - 检查仍在等待时继续等。GitHub 检查失败时用 `gh run view <run-id> --log-failed` 读取日志，并对照 origin/main 最近 CI 的同一用例：main 也红的记入报告、不修、不等；其余判定为本次改动引起后修复、再推送，并重读平台检查，直到交付 SHA 全绿。CLI 无法读取检查时，报告错误并把 CI 标为 unverified。
+- 排队的检查仍在等待，继续等到有明确结论。
+- 如果 PR 冲突，先 rebase 到最新 `origin/main`，再次推送并重读检查。

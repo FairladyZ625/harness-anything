@@ -579,7 +579,6 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
   for (const method of ["repo.agenda.read", "repo.agentRuntime.overview"])
     assert.doesNotThrow(() => requireExecutionRequestScope(p, method, { repo: { repoId: p.repoId }, payload: {} }));
   for (const action of [
-    { kind: "task-ci", taskId: "task-any" },
     { kind: "decision-show", decisionId: "dec_any" },
     { kind: "doc-show", path: "tasks/x/y.md" },
     { kind: "event-list" },
@@ -592,6 +591,9 @@ test("the read-only dispatch admits only its allowlisted ledger queries and no w
       code: "execution_credential_rejected",
       message: /allowlisted ledger queries/u,
     });
+  assert.throws(() => requireExecutionActionScope(p, { kind: "task-ci", taskId: "task-any" } as never), {
+    code: "unsupported_command",
+  });
   assert.throws(
     () => requireExecutionRequestScope(p, "repo.settings.read", { repo: { repoId: p.repoId }, payload: {} }),
     { code: "execution_credential_rejected", message: /allowlisted ledger queries/u },

@@ -19,6 +19,7 @@ import {
   isDocEvent,
   parseCanonicalEvent,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
 } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { decisionWritePlan } from "../../packages/kernel/src/domain/decision-event.ts";
 import {
@@ -347,7 +348,10 @@ export function projectFrozenDaemonResponses(rootDir, transformEvent = (event) =
     projection.readStateDigest();
     projection.close();
     for (const event of fixture.events) {
-      head = { revision: event.workspaceRevision, eventDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}` };
+      head = {
+        revision: event.workspaceRevision,
+        eventDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+      };
       positionFixtureProjection(projectionPath, event.workspaceRevision);
       try {
         projection.apply(event, fixtureWritePlan(event));

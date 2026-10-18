@@ -389,7 +389,8 @@ test("bootstrap concurrent writer admission commits one complete workspace", asy
   const hosts = await Promise.all(["one", "two"].map((daemonId) => openDaemonHost({ daemonId, userRoot: path.join(parent, daemonId) })));
   try { const results = await Promise.allSettled(hosts.map((host) => host.bootstrap({ rootDir, repoId: "fresh", personId: "owner", displayName: "Owner" }, auth)));
     assert.equal(results.filter(({ status }) => status === "fulfilled").length, 1); assert.equal(results.filter(({ status }) => status === "rejected").length, 1);
-    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
+    // dec_4C06F7F902E91C4210020A9E75/CH2 retires the builtin CI observer schedule.
+    assert.deepEqual(makeTaskEventReader({rootDir, repoId: "fresh"}).read().events.map((event) => event.type), ["settings_changed", "vertical_declared", "documents_written", "schedule_created", "schedule_created"]); assert.equal(git(rootDir, "check-ignore", "harness"), "harness"); assert.equal(git(rootDir, "check-ignore", ".harness"), ".harness"); }
   finally { await Promise.all(hosts.map((host) => host.close())); rmSync(parent, { recursive: true, force: true }); }
 });
 // prettier-ignore

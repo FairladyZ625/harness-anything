@@ -11,7 +11,7 @@ import { TaskLifecycleContractError, validateTaskEvent } from "./task-lifecycle-
 import type { ExecutionAnnotatedEvent, ExecutionExecutorDeclaredEvent, TaskEventV1 } from "./task-lifecycle-event.ts";
 import { isSameExecution, isSamePerson } from "./actor-domain-services.ts";
 import { codeDocRecordId, currentCodeDocRecord, currentCodeDocWitness } from "./code-doc-witness.ts";
-import { completionGateIds, judgeGateWitnesses } from "./closeout-readiness.ts";
+import { completionGateIds, isRetiredCiRequirement, judgeGateWitnesses } from "./closeout-readiness.ts";
 import { gateAppliesToSubmission } from "./completion-contract.ts";
 import { settleGateRun, replaceGateRun } from "./gate-run.ts";
 import type {
@@ -842,6 +842,10 @@ function acceptedCompletionWitnesses(
   )
     return false;
   return completionGateIds(snapshot.task.completionGateIds, current.submission).every((gateId) => {
+    const requirement = current.submission!.completionContract?.gates.find((gate) => gate.gateId === gateId);
+    // dec_4C06F7F902E91C4210020A9E75 retires ledger CI witnesses. A newly accepted
+    // completion is replayable from merge evidence without a copied CI witness event.
+    if (isRetiredCiRequirement(gateId, requirement)) return true;
     if (gateId === "code-doc-reconciliation") {
       const witness = currentCodeDocWitness(snapshot.codeDocWitnesses, executionId);
       return (
@@ -850,12 +854,7 @@ function acceptedCompletionWitnesses(
       );
     }
     // Accepted history keeps its original gap: a preserved verdict carries no bound evidence.
-    const { status } = judgeGateWitnesses(
-      snapshot.gateWitnesses,
-      current,
-      gateId,
-      current.submission!.completionContract?.gates.find((gate) => gate.gateId === gateId),
-    );
+    const { status } = judgeGateWitnesses(snapshot.gateWitnesses, current, gateId, requirement);
     return status === "passed" || status === "waived";
   });
 }

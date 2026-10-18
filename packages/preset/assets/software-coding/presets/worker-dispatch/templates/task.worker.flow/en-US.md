@@ -34,3 +34,5 @@ Stop and report when scope, authority, required input, or a destructive choice i
 - Submit task-bound receipts only through `ha doc sync --submit --task <task-id>`.
 - For a repository delivery, publish with `ha task push <task-id>` and create the PR with `ha task pr <task-id>`. Read checks directly with your hosting-platform CLI and your own platform credentials; on GitHub use `gh pr checks <PR-number> --watch`. Submit only after the pushed delivery SHA is green. Workers never merge.
 - Pending checks are not a verdict. On GitHub, use `gh run view <run-id> --log-failed` to inspect a failure and compare the same test on origin/main's latest CI: main-red failures are recorded in the report, not fixed and not waited on; every other red you judge as caused by this change, repair, push again, and read platform checks again until the delivery SHA is green. If the CLI cannot read checks, report the error and mark CI unverified.
+- queued checks remain pending; keep waiting for a verdict.
+- If the pull request has a conflicting pull request state, rebase onto the latest `origin/main`, push again, and reread the checks.

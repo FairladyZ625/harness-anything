@@ -76,7 +76,7 @@ const taskDeliveryPublicationDiscipline = [
   "  frozen task PR body and the same dispatch-held credential; workers may not merge it.",
   "- Close the CI loop before you submit: read PR checks directly with the hosting-platform CLI and your own",
   "  platform credentials. On GitHub, run `gh pr checks <PR-number> --watch`, then use `gh run view <run-id> --log-failed`",
-  "  for a failure; confirm the check run is for your pushed delivery SHA. Pending checks are not green. A red verdict",
+  "  for a failure; confirm the checks are for your pushed delivery SHA. Pending checks are not green. A red verdict",
   "  is triaged, never accepted: compare the same test on origin/main's latest CI — main-red failures are recorded",
   "  in the closeout, not fixed and not waited on; every other red you judge as caused by this change, repair, push",
   "  again, and read the platform checks again until the delivery SHA is green. If your platform CLI cannot read the",

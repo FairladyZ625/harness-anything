@@ -25,6 +25,7 @@ const requirement: FrozenGateRequirement = {
 
 function fixture(t: TestContext) {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-witness-binding-"));
+  const now = "2026-10-18T00:00:00.000Z";
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: rootDir, encoding: "utf8" }).trim();
   git("init", "-q");
@@ -145,15 +146,9 @@ for (const existing of [false, true]) {
 test("a rejected writer append cannot record a generic gate claim, and transport cannot claim", (t) => {
   const f = fixture(t);
   f.stale();
-  assert.throws(
-    () =>
-      runTaskWitnessAction(
-        f.cell,
-        { ...f.action, kind: "task-witness-rerun", runId: "run-1", reason: "retry" },
-        f.sourceBinding,
-      ),
-    { code: "writer_epoch_stale" },
-  );
+  assert.throws(() => runTaskWitnessAction(f.cell, { ...f.action, kind: "task-witness-claim" }, f.sourceBinding), {
+    code: "writer_epoch_stale",
+  });
   assert.equal(f.events.length, 0);
   assert.equal(f.snapshot().executions[0]!.gateRuns.length, 0);
   assert.equal(f.published.length, 0);

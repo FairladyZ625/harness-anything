@@ -1,6 +1,7 @@
 import { type TaskLifecycleServiceProof } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   canonicalGateReceipts,
+  isRetiredCiRequirement,
   closeoutReadiness,
   codeDocRecordId,
   consumeKnownError,
@@ -710,7 +711,13 @@ export function gateChecks(snapshot: Snapshot, executionId: string) {
   const results = gateResults(snapshot, undefined, executionId, execution?.submission, execution?.iteration);
   if (results.length === 0) return [{ gate: "none", status: "pass", witnessRef: null }];
   return results.map(({ gateId: gate, status: gateStatus }) => {
-    const passed = gateStatus === "passed" || gateStatus === "waived",
+    const requirement = execution?.submission?.completionContract.gates.find((candidate) => candidate.gateId === gate),
+      // A task can only reach done after merge evidence retires its historical CI requirement.
+      // Preserve that accepted result in completion receipts even though no ledger witness exists.
+      passed =
+        (snapshot.task?.status === "done" && isRetiredCiRequirement(gate, requirement)) ||
+        gateStatus === "passed" ||
+        gateStatus === "waived",
       candidate =
         gate === "code-doc-reconciliation" ? currentCodeDocWitness(snapshot.codeDocWitnesses, executionId) : undefined,
       codeDoc =

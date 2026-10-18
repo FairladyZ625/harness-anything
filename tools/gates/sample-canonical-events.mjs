@@ -4,7 +4,10 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, unlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import { canonicalEventSchemas, serializeCanonicalEvent } from "../../packages/kernel/src/domain/doc-sync.contract.ts";
+import {
+  canonicalEventSchemas,
+  serializePersistedCanonicalEvent,
+} from "../../packages/kernel/src/domain/doc-sync.contract.ts";
 import { consumeKnownError } from "../../packages/kernel/src/error-consumption.ts";
 import { git, repoRoot } from "./git.mjs";
 
@@ -219,7 +222,7 @@ function originsDocument(samples, ref) {
     "",
     "The ledger-derived events below were selected by `tools/gates/sample-canonical-events.mjs` using the",
     "recursive payload-key signature `(schema, type, payload keys)`. Each selected event is de-identified and",
-    "reserialized with the production `serializeCanonicalEvent` implementation. Every JSON file in this directory",
+    "reserialized with the production persisted-event serializer. Every JSON file in this directory",
     "is protected by `packages/*/fixtures/** -text` in `.gitattributes`.",
     "",
     "| Schema | Event type | Frozen sample | Source | Source blob |",
@@ -252,7 +255,7 @@ export function writeCanonicalEventSamples(rootDir, rawSamples, ref = DEFAULT_RE
         throw new Error(`${sample.schema}/${sample.type}: de-identification changed the payload-key shape`);
       if (issues.length > 0)
         throw new Error(`${sample.schema}/${sample.type}: de-identified sample is invalid: ${issues.join("; ")}`);
-      return { ...sample, body: serializeCanonicalEvent(event) };
+      return { ...sample, body: serializePersistedCanonicalEvent(event) };
     });
   for (const schema of sourceSchemas) {
     const directory = path.join(fixtureRoot, fixtureDirectory(schema));

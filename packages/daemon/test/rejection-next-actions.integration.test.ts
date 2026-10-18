@@ -262,6 +262,19 @@ test("executor declaration and completion context refusals name projection rebui
       cell!.run({ kind: "doc-submit", paths: [planPath] }, owner),
     );
     assert.equal((await cell.run({ kind: "task-start", taskId, executionId }, owner)).outcome, "applied");
+    const fact = await cell.run(
+      {
+        kind: "fact-record",
+        taskId,
+        statement: "Completion requirements are checked after projection recovery.",
+        evidenceSource: "test:projection-exits",
+        confidence: "high",
+        memoryClass: "semantic",
+        memoryTags: [],
+      },
+      owner,
+    );
+    assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     const deliveryRoot = path.join(rootDir, ".worktrees", taskId);
     await commitDelivery(cell, deliveryRoot);
     assert.equal(git(deliveryRoot, "diff", "--name-only", "HEAD^", "HEAD"), "README.md");

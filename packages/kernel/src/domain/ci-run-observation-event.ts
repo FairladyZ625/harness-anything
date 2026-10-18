@@ -193,7 +193,7 @@ export function validVerification(value: unknown, run: unknown, allowUnknownFiel
     Number(value.attempt) > 0 &&
     nonEmpty(value.headSha) &&
     nonEmpty(value.conclusion) &&
-    (allowUnknownFields || nonEmpty(value.event)) &&
+    ((allowUnknownFields && value.event === undefined) || nonEmpty(value.event)) &&
     run.runId === `${value.runId}.${value.attempt}` &&
     run.sha === value.headSha &&
     (value.source === "gitlab-pipeline" || run.branch === "main")
@@ -244,10 +244,7 @@ function validGate(value: unknown, allowUnknownFields: boolean, gateField: "pass
     !isRecord(value.metrics)
   )
     return false;
-  return (
-    allowUnknownFields ||
-    Object.values(value.metrics).every((metric) => typeof metric === "number" && Number.isFinite(metric))
-  );
+  return Object.values(value.metrics).every((metric) => typeof metric === "number" && Number.isFinite(metric));
 }
 
 function nonEmpty(value: unknown): value is string {

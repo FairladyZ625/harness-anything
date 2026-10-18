@@ -281,8 +281,7 @@ function evaluateCompletion(
   const submission = execution.submission;
   // A changes request on the current cut ends that cut: no witness can complete it, so the owner's
   // return comes before any missing evidence.
-  const changes =
-    includeReview && assessment.blocker === "review" ? changesRequestedReview(snapshot.reviews, execution) : undefined;
+  const changes = includeReview ? changesRequestedReview(snapshot.reviews, execution) : undefined;
   if (changes)
     return one(
       "review_missing",

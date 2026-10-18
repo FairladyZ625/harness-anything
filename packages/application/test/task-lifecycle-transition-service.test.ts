@@ -15,6 +15,7 @@ import {
   normalizeTaskLifecycleCommand,
   reviewDigest,
   serializeCanonicalEvent,
+  serializePersistedCanonicalEvent,
   sha256Text,
   submissionDigest,
   type TaskEventV1,
@@ -807,7 +808,7 @@ function seedAcceptedEvents(rootDir: string, repoId: string, events: readonly Ta
         fence: { repoId, holder: "direct-store", epoch: 1 },
         intent: {
           opId: event.opId,
-          intentDigest: `sha256:${sha256Text(serializeCanonicalEvent(event))}`,
+          intentDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
           summary: event.type,
         },
         events: [event],

@@ -180,7 +180,7 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
     assert.match(body, /gh pr checks <PR-number> --watch/u);
     assert.match(body, /ha task pr <task-id>/u);
-    assert.match(body, /not_started/u);
+    assert.match(body, /unverified/u);
     assert.match(body, /PR 冲突|conflicting pull request/u);
     assert.match(body, /排队|queued/u);
     assert.match(body, /main 也红|main-red/u);
@@ -190,8 +190,7 @@ test("worker handoff templates carry framework-owned publication rules", () => {
   assert.match(prompt, /ha doc sync --submit --task <task-id>/u);
   assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
   assert.match(prompt, /gh pr checks <PR-number> --watch/u);
-  // The prompt source escapes backticks inside the template literal; match both spellings.
-  assert.match(prompt, /`pending` and `not_started` are not verdicts/u);
+  assert.match(prompt, /Pending checks are not green/u);
 });
 
 function makeRepo(context, prefix) {

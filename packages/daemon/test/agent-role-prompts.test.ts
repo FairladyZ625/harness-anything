@@ -166,10 +166,10 @@ for (const role of [undefined, "worker"] as const)
     assert.match(prompt, /do not run `git push` yourself and never push another ref/u);
     assert.match(prompt, /gh pr checks <PR-number> --watch/u);
     assert.match(prompt, /gh run view <run-id> --log-failed/u);
-    assert.match(prompt, /checks are for your pushed delivery SHA/u);
+    assert.match(prompt, /confirm the checks are for your pushed delivery SHA/u);
     assert.match(prompt, /Pending checks are not green/u);
     assert.match(prompt, /compare the same test on\s+origin\/main's latest CI/u);
-    assert.match(prompt, /main-red failures are recorded in the closeout, not fixed and not waited on/u);
+    assert.match(prompt, /main-red failures are recorded\s+in the closeout, not fixed and not waited on/u);
     assert.match(prompt, /If your platform CLI cannot read the\s+checks, report the error and mark CI unverified/u);
     assert.match(prompt, /Do not merge/u);
     assert.doesNotMatch(prompt, /ha task ci|ci\.headSha|not_started/u);
