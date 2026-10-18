@@ -2,7 +2,7 @@ import {
   /* @gate-identity check-sync-subprocess/sync-subprocess-006 */
   execFileSync,
 } from "node:child_process";
-import { existsSync, lstatSync, readFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import {
   artifactSubtreePath,
@@ -230,18 +230,35 @@ export function scanDocCandidates(input: {
       base = projected.document?.blobSha256 ?? null,
       candidate = bytes === null ? null : sha256Bytes(bytes);
     if (!route.allowed) {
-      return safe && candidate !== null && candidate === base
-        ? scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null)
-        : scannedCandidateRow(
-            "blocked",
-            safe ? `path is owned by ${route.requiredRoute}` : "path contains a symbolic link or is not a regular file",
-            bytes,
-            base,
-            candidate,
-            null,
-            null,
-            route.requiredRoute,
-          );
+      if (safe && candidate !== null && candidate === base)
+        return scannedCandidateRow("clean", null, bytes, base, candidate, classification?.mediaType ?? null);
+      // A route-owned document is a pure projection of its owning event route: local bytes are
+      // never an input to this channel (the Git-less edge already drops them), so drift is
+      // repaired by rebuilding the worktree copy from the canonical projection instead of
+      // blocking every doc command until a human restores the file by hand.
+      if (safe && projected.document !== null && projected.watermark === projected.sourceRevision) {
+        const rebuilt = Buffer.from(projected.document.body, "utf8");
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, rebuilt);
+        return scannedCandidateRow(
+          "clean",
+          `rebuilt from the canonical document; local edits are not a write path (route ${route.requiredRoute})`,
+          rebuilt,
+          base,
+          base,
+          classification?.mediaType ?? null,
+        );
+      }
+      return scannedCandidateRow(
+        "blocked",
+        safe ? `path is owned by ${route.requiredRoute}` : "path contains a symbolic link or is not a regular file",
+        bytes,
+        base,
+        candidate,
+        null,
+        null,
+        route.requiredRoute,
+      );
     }
     if (input.taskId === undefined && taskDirectory !== null && claimingTaskId === null)
       return scannedCandidateRow(

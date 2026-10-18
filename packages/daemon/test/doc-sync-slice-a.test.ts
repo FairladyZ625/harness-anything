@@ -879,7 +879,7 @@ test("new non-textual artifacts are inapplicable while binary replacement of can
   }
 });
 
-test("retired people files are ordinary documents while typed writable routes remain blocked", async () => {
+test("retired people files are ordinary documents while daemon-owned config heals and stray route files block", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-doc-a-owned-route-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -900,10 +900,24 @@ test("retired people files are ordinary documents while typed writable routes re
     const document = await cell.run({ kind: "doc-show", path: "people.yaml" }, binding);
     assert.match(document.evidence ?? "", /harness-people\/v1/u);
 
+    // The hand-edited config is a canonical projection of the workspace-config route: the scan
+    // rebuilds it from the canonical document instead of blocking, and no touch stays unresolved.
     const workspace = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding),
       workspaceRow = rows(workspace.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
-    assert.deepEqual([workspaceRow?.state, workspaceRow?.reason], ["blocked", "path is owned by workspace-config"]);
-    assert.equal(workspace.detail?.unresolvedTouches[0]?.requiredRoute, "workspace-config");
+    assert.equal(workspaceRow?.state, "clean");
+    assert.match(workspaceRow?.reason ?? "", /rebuilt from the canonical document[^\n]*route workspace-config/u);
+    assert.deepEqual(workspace.detail?.unresolvedTouches, []);
+    assert.notEqual(
+      readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8"),
+      "schema: harness-anything/v1\nname: hand-edited\n",
+      "the local rewrite of the daemon-owned config is discarded, not synced",
+    );
+    // A route-owned path with no canonical document to rebuild from still reports its owner.
+    write(rootDir, "events/segments/manifest.json", "{}\n");
+    const stray = await cell.run({ kind: "doc-status", paths: ["events/segments/manifest.json"] }, binding),
+      strayRow = rows(stray.evidence)[0] as { readonly state: string; readonly reason?: string } | undefined;
+    assert.deepEqual([strayRow?.state, strayRow?.reason], ["blocked", "path is owned by canonical-event"]);
+    assert.equal(stray.detail?.unresolvedTouches[0]?.requiredRoute, "canonical-event");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

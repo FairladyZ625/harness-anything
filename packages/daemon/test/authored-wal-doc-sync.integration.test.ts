@@ -11,7 +11,7 @@ import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git, initRepo, ownerBinding, write } from "./doc-sync-slice-a.fixtures.ts";
 
-test("Explicit submission settles an eligible authored edit and status highlights blocked candidates", async () => {
+test("Explicit submission settles an eligible authored edit and status rebuilds route-owned drift", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-authored-wal-doc-sync-"));
   initRepo(rootDir);
   const cell = await openRepoCell({
@@ -32,14 +32,15 @@ test("Explicit submission settles an eligible authored edit and status highlight
     await waitForFixturePublication(cell, submitted.opId, binding);
     assert.equal(git(rootDir, "show", "HEAD:harness/context/auto.md"), "# Settled by WAL");
 
+    const canonicalConfig = readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8");
     write(rootDir, "harness.yaml", "schema: hand-edited\n");
     const status = await cell.run({ kind: "doc-status", paths: ["harness.yaml"] }, binding);
-    assert.match(status.summary ?? "", /doc-status: BLOCKED \(1\)/u);
-    assert.match(status.summary ?? "", /harness\.yaml\tblocked/u);
+    assert.doesNotMatch(status.summary ?? "", /BLOCKED/u);
+    assert.match(status.summary ?? "", /rebuilt \(route-owned projections restored/u);
+    assert.equal(readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8"), canonicalConfig);
+    assert.equal(git(rootDir, "diff", "--name-only"), "");
   } finally {
     await cell.close();
-    assert.equal(git(rootDir, "diff", "--name-only"), "harness/harness.yaml");
-    assert.match(git(rootDir, "status", "--porcelain", "--", "harness/harness.yaml"), /^M harness\/harness\.yaml$/mu);
     rmSync(rootDir, { recursive: true, force: true });
   }
 });
@@ -105,6 +106,7 @@ test("Explicit submission keeps forbidden and unresolved candidates out of an el
 
     write(rootDir, unresolved, "---\nowner: hand-edit\n---\n# Unresolved\n\nbase\n");
     write(rootDir, "context/eligible.md", "# Eligible\n\nsettled in the same WAL cut\n");
+    const canonicalConfig = readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8");
     write(rootDir, "harness.yaml", "schema: hand-edited\n");
     const transition = await cell.run(
       { kind: "task-start", taskId: "task-mixed", executionId: "execution-mixed" },
@@ -124,13 +126,15 @@ test("Explicit submission keeps forbidden and unresolved candidates out of an el
       };
     assert.equal(statusRows.rows.find((row) => row.path === "context/eligible.md")?.state, "clean");
     assert.equal(statusRows.rows.find((row) => row.path === unresolved)?.state, "blocked");
-    assert.equal(statusRows.rows.find((row) => row.path === "harness.yaml")?.state, "blocked");
-    assert.match(status.summary ?? "", /doc-status: BLOCKED \(2\)/u);
+    // The daemon-owned config heals instead of blocking: its local rewrite was never a write path.
+    assert.equal(statusRows.rows.find((row) => row.path === "harness.yaml")?.state, "clean");
+    assert.match(status.summary ?? "", /doc-status: BLOCKED \(1\)/u);
+    assert.match(status.summary ?? "", /rebuilt \(route-owned projections restored[\s\S]*harness\.yaml/u);
     assert.equal(
       readFileSync(path.join(rootDir, "harness", unresolved), "utf8"),
       "---\nowner: hand-edit\n---\n# Unresolved\n\nbase\n",
     );
-    assert.equal(readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8"), "schema: hand-edited\n");
+    assert.equal(readFileSync(path.join(rootDir, "harness", "harness.yaml"), "utf8"), canonicalConfig);
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });
