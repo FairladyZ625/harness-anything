@@ -206,6 +206,7 @@ export class AccessAdminService {
             loginUrl: login.url,
             loginRealm: login.realm,
             loginClientId: login.clientId,
+            ...(login.certificate ? { loginCertificate: login.certificate } : {}),
           });
           return { ok: true, link, joinId: link.inviteId, state: "pending" };
         });

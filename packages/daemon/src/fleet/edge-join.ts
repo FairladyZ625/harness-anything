@@ -2,7 +2,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 
 export type EdgeJoinInviteStatus = "pending" | "consumed" | "expired";
 export interface EdgeJoinInviteLink {
-  readonly version: 1;
+  readonly version: 2;
   readonly centerUrl: string;
   readonly inviteId: string;
   readonly personId: string;
@@ -13,6 +13,8 @@ export interface EdgeJoinInviteLink {
   readonly loginUrl?: string;
   readonly loginRealm?: string;
   readonly loginClientId?: string;
+  /** Public PEM certificate for the separate Keycloak listener used during first login. */
+  readonly loginCertificate?: string;
 }
 export interface EdgeJoinInviteRecord extends EdgeJoinInviteLink {
   readonly createdAt: string;
@@ -64,7 +66,7 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinInviteLink {
     if (
       typeof decoded !== "object" ||
       decoded === null ||
-      (decoded as { version?: unknown }).version !== 1 ||
+      (decoded as { version?: unknown }).version !== 2 ||
       !["centerUrl", "inviteId", "personId", "nodeId", "spkiSha256", "expiresAt", "token"].every((key) =>
         isText((decoded as Record<string, unknown>)[key]),
       )
@@ -91,7 +93,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
       if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
       const createdAt = now();
       const link: EdgeJoinInviteLink = {
-        version: 1,
+        version: 2,
         centerUrl: input.centerUrl,
         inviteId: randomUUID(),
         personId: input.personId,
@@ -102,6 +104,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         ...(input.loginUrl ? { loginUrl: input.loginUrl } : {}),
         ...(input.loginRealm ? { loginRealm: input.loginRealm } : {}),
         ...(input.loginClientId ? { loginClientId: input.loginClientId } : {}),
+        ...(input.loginCertificate ? { loginCertificate: input.loginCertificate } : {}),
       };
       records.set(link.inviteId, { ...link, createdAt, consumedAt: null });
       options.onChange?.(records.get(link.inviteId)!);
