@@ -42,7 +42,10 @@ export async function waitForWarming(context: DaemonHostRegistryContext, repoId:
   if (!settlement) return;
   void context.startInitialAttachments();
   await new Promise<void>((resolve) => {
-    const timer = setTimeout(resolve, context.attachTimeoutMs);
+    // A command may wait for an in-flight attach, but it must return before the attach
+    // lifecycle can cross its settlement boundary during the same request. Keep the established
+    // five-second request window while honoring shorter budgets used by focused tests.
+    const timer = setTimeout(resolve, Math.min(context.attachTimeoutMs, 5_000));
     void settlement.promise.then(() => {
       clearTimeout(timer);
       resolve();
