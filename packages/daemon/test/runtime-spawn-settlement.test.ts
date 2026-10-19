@@ -551,6 +551,112 @@ test("a replayed terminal behind a scheduled fallback keeps settlement for the c
   }
 });
 
+test("a replayed terminal whose exit is already published does not re-notify settlement", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "runtime-terminal-replay-published-"));
+  try {
+    // task_cd7fb6fc36171d90d3c77c7893 round 2: a fleet edge adopts an exited runtime through a
+    // stale replica whose session still shows outcome=null even though the center already
+    // settled it (PR #3776: fleet-runtime-assignment-ownership, release counted twice). The
+    // settlement is queued ahead of the exit publication in the same write chain, so a ledger
+    // that already shows the exit has already taken the settlement: the replay republishes the
+    // terminal events and must not re-enter the settlement entry.
+    const schedule = {
+      scheduleId: "replay-published-schedule",
+      occurrenceId: "occurrence_replaypub000000000000",
+      claimFence: "claim_replay_pub",
+      mode: "detect",
+    } as const;
+    const stream = openDispatchStream(rootDir, {
+      dispatchId: replayDispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: replayRuntimeSessionId,
+      instanceId: "provider-a",
+      startedAt: "2026-10-16T23:02:30.617Z",
+      dispatchOpId: "replay-dispatch-op-pub",
+      kindId: "codex",
+      permissionMode: "bypass",
+      binding,
+      cwd: rootDir,
+      prompt: "settle replayed terminal",
+      mission: "settle replayed terminal",
+      model: "model-a",
+      reasoningEffort: null,
+      fast: false,
+      schedule,
+    });
+    stream.appendTerminalOutcome(
+      {
+        payload: {
+          runtimeSessionId: replayRuntimeSessionId,
+          outcome: "stopped",
+          exitCode: 0,
+          resultRef: "artifact:runtime-result/sha256/0000000000000000000000000000000000000000000000000000000000000000",
+          result: null,
+          dispatchId: replayDispatchId,
+          endedAt: "2026-10-16T23:20:04.290Z",
+        },
+        body: "Worker stopped after a normal exit without a submitted delivery.",
+        reason: "Worker stopped after a normal exit without a submitted delivery.",
+      },
+      "2026-10-16T23:20:04.290Z",
+    );
+    const terminals: RuntimeAttemptTerminal[] = [],
+      published: string[] = [],
+      runtime = active({
+        process: {
+          pid: process.pid,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+        },
+        runtimeSessionId: replayRuntimeSessionId,
+        dispatchId: replayDispatchId,
+        dispatchOpId: "replay-dispatch-op-pub",
+        binding,
+        task: null,
+        schedule,
+        squadId: null,
+        delegatedBy: null,
+        cwd: rootDir,
+        prompt: "settle replayed terminal",
+        onExitCommand: null,
+        reasoningEffort: null,
+        fast: false,
+        startedAt: "2026-10-16T23:02:30.617Z",
+        stream: { ref: `runtime-stream:${replayDispatchId}` } as never,
+      }),
+      context = {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-16T23:43:09.000Z",
+          stream: { publish: () => ({}) },
+          onAttemptTerminal: async (terminal: RuntimeAttemptTerminal) => {
+            terminals.push(terminal);
+          },
+        },
+        resultMediaType: "text/markdown",
+        runtimeResultText: () => "",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async (type: string) => {
+          published.push(type);
+          return {};
+        },
+        settleFallback: async () => {
+          throw new Error("a replayed terminal must not re-enter the fallback chain");
+        },
+      } as unknown as RuntimeSpawnerContext;
+    await publishExit(context, runtime, 0, true);
+    assert.deepEqual(published, ["runtime_session_exited", "runtime_session_outcome_observed"]);
+    assert.equal(terminals.length, 0, "an already-settled exit must not be settled again");
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("settlement ignores a replayed terminal whose occurrence is already settled", async () => {
   const run: { action: { kind: string } }[] = [],
     cell = {
