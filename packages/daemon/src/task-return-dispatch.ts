@@ -61,7 +61,7 @@ function prepareWorkerContinuation(
       taskId,
       ...(agentId ? { agentId } : {}),
       ...(mode === "resume" ? { dispatchId: previous!.dispatchId } : {}),
-      ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+      // An adjudication runtime pin belongs to the reviewer; the worker resolves from its Agent declaration.
       ...(typeof action.model === "string" ? { model: action.model } : {}),
       prompt: [
         `Continue task ${taskId}. Read its task package before implementing the owner feedback.`,

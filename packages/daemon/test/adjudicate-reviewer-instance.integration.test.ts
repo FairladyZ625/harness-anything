@@ -184,7 +184,8 @@ for (const mode of ["resume", "fresh"] as const)
       userRoot = path.join(parent, "user"),
       prompts: string[] = [],
       efforts: (string | undefined)[] = [],
-      sessions: (string | undefined)[] = [];
+      sessions: (string | undefined)[] = [],
+      launchedInstances: string[] = [];
     let pid = 9200;
     mkdirSync(root);
     initRepo(root);
@@ -194,18 +195,28 @@ for (const mode of ["resume", "fresh"] as const)
       rootDir: canonicalRoot(root),
       ownerId: `return-worker-${mode}`,
       runtimeDaemonRoute: { userRoot, daemonId: "return-worker", endpoint: path.join(userRoot, "return.sock") },
-      runtimeInstances: () => [runtimeInstance("worker-instance")],
+      runtimeInstances: () => [
+        runtimeInstance("worker-instance"),
+        {
+          ...runtimeInstance("reviewer-only-instance"),
+          kindId: "claude",
+          providerId: "reviewer-only-instance",
+          models: ["reviewer-model"],
+          defaultModel: "reviewer-model",
+        },
+      ],
       prepareRuntimeLaunch: async (instanceId, request) => {
         prompts.push(request.prompt);
         efforts.push(request.effort);
         sessions.push(request.providerSessionId);
+        const kindId = instanceId === "reviewer-only-instance" ? "claude" : "codex";
         return {
           definition: {
             schema: "agent-definition-snapshot/v1",
             configVersion: 1,
             instanceId,
             installationId: installation.installationId,
-            kindId: "codex",
+            kindId,
             providerId: "openai",
             model: request.model ?? "worker-instance-model",
             reasoningEffort: request.effort ?? null,
@@ -213,7 +224,7 @@ for (const mode of ["resume", "fresh"] as const)
             baseUrl: null,
             authMode: "subscription",
           },
-          installation,
+          installation: { ...installation, kindId },
           executablePath: installation.executablePath,
           args: ["exec", "--json", "-"],
           env: {},
@@ -221,7 +232,10 @@ for (const mode of ["resume", "fresh"] as const)
           prompt: request.prompt,
         };
       },
-      runtimeLaunch: () => fakeProcess(++pid, sessions.at(-1)),
+      runtimeLaunch: (prepared) => {
+        launchedInstances.push(prepared.definition.instanceId);
+        return fakeProcess(++pid, sessions.at(-1));
+      },
     });
     try {
       assert.equal(
@@ -281,12 +295,19 @@ for (const mode of ["resume", "fresh"] as const)
       );
       assert.equal(emptyMessage.outcome, "op_rejected", JSON.stringify(emptyMessage));
       const forwarded = await cell.run(
-        { kind: "task-adjudicate", taskId, forward: true, reason: "Review.", runtimeInstanceId: "worker-instance" },
+        {
+          kind: "task-adjudicate",
+          taskId,
+          forward: true,
+          reason: "Review.",
+          runtimeInstanceId: "reviewer-only-instance",
+        },
         binding,
       );
       assert.equal(forwarded.outcome, "applied", JSON.stringify(forwarded));
       const reviewer = (forwarded as unknown as { steps: { runtimeSessionId: string }[] }).steps.at(-1)!;
       await cell.awaitRuntimeOutcome(reviewer.runtimeSessionId);
+      assert.equal(launchedInstances[1], "reviewer-only-instance");
       assert.equal(
         (
           await cell.run(
@@ -325,6 +346,7 @@ for (const mode of ["resume", "fresh"] as const)
           workerMode: mode,
           followUp: "Correct the parser edge case.",
           reason: "Small revision.",
+          runtimeInstanceId: "reviewer-only-instance",
         },
         binding,
       );
@@ -339,6 +361,11 @@ for (const mode of ["resume", "fresh"] as const)
         sessions[3],
         mode === "resume" ? "reviewer-9201" : undefined,
         "resume selects the lease-holding worker, never a newer reviewer or read-only observer",
+      );
+      assert.equal(
+        launchedInstances[3],
+        "worker-instance",
+        "the returned worker runs on its own declared runtime, never the reviewer's foreign instance",
       );
       assert.match(prompts[3], /Correct the parser edge case/u);
       // The re-dispatched worker answers the latest owner return: its mission carries the managed

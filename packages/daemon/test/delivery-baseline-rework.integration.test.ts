@@ -97,7 +97,6 @@ test("a rework execution freezes the delivery branch's fork point, not the advan
         return: true,
         workerMode: "fresh",
         followUp: "Rework the cut.",
-        runtimeInstanceId: "missing-return-worker",
         reason: "Rework the cut.",
       },
       owner,
