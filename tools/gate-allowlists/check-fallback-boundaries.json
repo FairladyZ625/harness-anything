@@ -179,6 +179,7 @@
    "packages/daemon/src/runtime-spawn-process.ts#terminateRuntimeTree",
    "packages/daemon/src/runtime-spawn-provider-frames.ts#isStructuredSuccessResult",
    "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeProviderLine",
+   "packages/daemon/src/runtime-spawn-provider-stream.ts#observeProviderSessionMetrics",
    "packages/daemon/src/runtime-spawn-settlement.ts#publishExit",
    "packages/daemon/src/runtime-worker-acp.ts#cancel",
    "packages/daemon/src/runtime-worker-acp.ts#fail",
