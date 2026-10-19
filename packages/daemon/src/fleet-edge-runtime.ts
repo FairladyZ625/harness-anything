@@ -338,7 +338,9 @@ export function openFleetEdgeRuntime(input: {
           // Causal context, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
           { causalContext, profileId, worktree } = runtimeContext,
-          livingProtocol = livingDeliverableProtocol(profileId, current.task?.taskClass);
+          // A reviewer binding (the spawner passes `review` only for role=reviewer) keeps the task
+          // guidance but carries no worker delivery contract, matching the local projection paths.
+          livingProtocol = review === undefined ? livingDeliverableProtocol(profileId, current.task?.taskClass) : null;
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -349,7 +351,7 @@ export function openFleetEdgeRuntime(input: {
           );
         }
         const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId),
-          prProtocol = prBodyDeliveryProtocol(prBodyPath);
+          prProtocol = review === undefined ? prBodyDeliveryProtocol(prBodyPath) : null;
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         // A re-dispatched worker answers the latest owner return: the mirrored managed
         // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the

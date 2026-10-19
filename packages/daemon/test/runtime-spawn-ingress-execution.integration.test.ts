@@ -254,6 +254,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(firstReviewer.outcome, "applied", JSON.stringify(firstReviewer));
       assert.match(launchedPrompt, /# Reviewer Role/u);
       assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
+      assert.doesNotMatch(
+        launchedPrompt,
+        /# Living Deliverable Protocol|# PR Body Delivery Protocol/u,
+        "reviewer dispatches carry no worker delivery protocols",
+      );
       await eventuallyValue(
         async () =>
           makeTaskEventReader({ repoId, rootDir: root })
@@ -306,6 +311,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(implementation.outcome, "applied", JSON.stringify(implementation));
       assert.match(launchedPrompt, /# Previous submitted conclusion/u);
       assert.match(launchedPrompt, /Continue implementation\./u);
+      assert.match(
+        launchedPrompt,
+        /# Living Deliverable Protocol/u,
+        "implementation dispatches keep the living protocol on the baseline profile",
+      );
       assert.doesNotMatch(launchedPrompt, /# Reviewer Role/u);
 
       const implementationBinding = await eventuallyValue(
@@ -410,6 +420,11 @@ test("daemon ingress preserves executor-scoped task-bound runtime execution", as
       assert.equal(independentReview.outcome, "applied", JSON.stringify(independentReview));
       assert.match(launchedPrompt, /# Reviewer Role/u);
       assert.doesNotMatch(launchedPrompt, /# Implementation Permissions|# Worker Role|temporary WIP commit/u);
+      assert.doesNotMatch(
+        launchedPrompt,
+        /# Living Deliverable Protocol|# PR Body Delivery Protocol/u,
+        "reviewer dispatches carry no worker delivery protocols",
+      );
     });
     await t.test("a submitted or in-review task rejects an implementation dispatch at admission", async () => {
       const taskId = "task-runtime-frozen-cut",

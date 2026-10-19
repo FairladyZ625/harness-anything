@@ -142,6 +142,11 @@ test(
         assert.equal(result.outcome, "applied", JSON.stringify(result));
         assert.equal(boundExecution(result.dispatchId), executionId);
         reviewers.push(String(result.runtimeSessionId));
+        assert.doesNotMatch(
+          launchedPrompts.at(-1)!,
+          /# Living Deliverable Protocol|# PR Body Delivery Protocol/u,
+          "edge reviewer dispatches carry no worker delivery protocols",
+        );
       }
       if (iteration === 1) {
         // A promptless edge dispatch derives its mission from the mirrored package: the managed
@@ -158,6 +163,7 @@ test(
         assert.match(mission, /# Owner rework instruction/u);
         assert.match(mission, /# Owner return for iteration 0/u);
         assert.match(mission, /Revise the delivery\./u);
+        assert.doesNotMatch(mission, /# Living Deliverable Protocol|# PR Body Delivery Protocol/u);
         assert.doesNotMatch(launchedPrompts[0]!, /# Owner rework instruction/u);
       }
       if (iteration > 0) {
