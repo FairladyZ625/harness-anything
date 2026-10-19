@@ -215,6 +215,12 @@ test("offline settings conversion drops retired CI fields while preserving local
           cursor: String(revision),
           done: revision === store.revision(),
           accessedItems: events.length,
+          prefetchContent: (batch) =>
+            new Map(
+              batch.flatMap((event) =>
+                contentClaims(event).map((claim) => [claim.sha256, store.readContentObject(claim.sha256)] as const),
+              ),
+            ),
         };
       },
     };

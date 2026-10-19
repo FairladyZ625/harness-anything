@@ -265,7 +265,7 @@ test("profile precedence is explicit action, then projected settings", () => {
       {
         id: "baseline",
         title: "Baseline",
-        completionGates: ["ci"],
+        completionGates: ["code-doc-reconciliation"],
         templateSelections: [],
       },
       {
