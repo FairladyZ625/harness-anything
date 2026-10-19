@@ -61,12 +61,12 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
   t.after(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
   const address = server.address();
   assert.ok(address && typeof address === "object");
+  let now = 0;
   const authority = {
       url: `https://localhost:${address.port}`,
       realm: "harness",
       clientId: "harness-node-one",
     },
-    now = 0,
     service = new OidcSessionService(root, { now: () => now });
 
   await assert.rejects(service.beginDevice(undefined, authority), /fetch failed/u);
