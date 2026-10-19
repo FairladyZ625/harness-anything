@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   blockingOf,
@@ -10,6 +10,9 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   resolveHarnessLayout,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
+  TaskEventStoreError,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
@@ -91,6 +94,30 @@ export interface RepoCellCore {
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
+  // A remote edge is read-only against the center's replica. Its prior local ledger is disposable;
+  // canonical repositories still go through the kernel's strict offline-conversion requirement.
+  if (context.mode === "remote-edge") {
+    try {
+      resolveActiveGeneration({ rootInput: context.rootDir, repoId: context.input.repoId });
+    } catch (error) {
+      const generationTwo = sqliteLedgerPath(context.rootDir, 2);
+      if (
+        !(error instanceof TaskEventStoreError) ||
+        error.code !== "invalid_store" ||
+        !error.message.startsWith("generation 3 upgrade is incomplete;") ||
+        !existsSync(generationTwo)
+      )
+        throw error;
+      for (const stalePath of [
+        generationTwo,
+        `${generationTwo}-wal`,
+        `${generationTwo}-shm`,
+        `${generationTwo}.activation.json`,
+        `${generationTwo}.import-source.json`,
+      ])
+        rmSync(stalePath, { force: true });
+    }
+  }
   // Maintenance pins and the commit guard both belong to the ledger repository, never the project
   // repository around it: the pins tune the WAL write path, and refusing a project commit is the
   // exact harm the guard exists to prevent.
