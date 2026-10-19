@@ -54,9 +54,7 @@ test("converted historical declaration is accepted, replayed on reopen and permi
       projection = makeTaskProjection({ rootDir: root, eventStore: reader });
     try {
       const declaration = readCanonicalVerticalDeclaration(projection)!;
-      assert.deepEqual(declaration.definition.completion.gates, {
-        ci: { source: "github-actions", appliesTo: "code" },
-      });
+      assert.deepEqual(declaration.definition.completion.gates, {});
       assert.equal(declaration.revision, 65820);
       assert.equal(reader.read().events[historicalRevision - 1]!.schema, "migration-import-event/v1");
     } finally {

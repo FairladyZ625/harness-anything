@@ -837,7 +837,12 @@ function assertDeclaredNestedKeys(
     if (!parent || typeof parent !== "object" || Array.isArray(parent)) continue;
     for (const key of Object.keys(parent))
       if (!children.has(key))
-        throw new SettingsDeclarationError(`settings.${path.join(".")} field ${key} is not declared`);
+        throw new SettingsDeclarationError(
+          `settings.${path.join(".")} field ${key} is not declared` +
+            (RETIRED_SETTINGS_PATHS.some((retired) => retired.join(".") === [...path, key].join("."))
+              ? "; run ha migrate settings --help to convert retired CI settings."
+              : ""),
+        );
   }
 }
 

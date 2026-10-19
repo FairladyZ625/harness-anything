@@ -505,7 +505,7 @@ function renderFieldControl(
   row: { readonly field: string; readonly widget: string; readonly options: readonly string[] | null },
   props: FieldControlProps,
 ) {
-  const { draft, catalogBlocked, updateDraft } = props,
+  const { draft, updateDraft } = props,
     testId = FIELD_TEST_IDS[row.field];
   switch (row.widget) {
     case "role-selectors": {

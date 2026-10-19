@@ -1,12 +1,10 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
 import test from "node:test";
-import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   assembleScheduledMission,
   assembleTaskMission,
   assembleUnboundPrompt,
-  dispatchMissionForWorkerPermissions,
   explicitPromptMission,
   livingDeliverableProtocol,
   prBodyDeliveryProtocol,
@@ -215,38 +213,5 @@ test("a re-dispatched explicit mission carries the owner return verbatim before 
     explicitPromptMission(null, null, "Go.", "baseline", null, undefined, returnBody),
     /# Owner rework instruction/u,
     "unbound prompts carry no rework record",
-  );
-});
-
-test("full worker permissions leave the mission untouched; restricted appends the selected policy", () => {
-  const mission = "Ship the leaf task.";
-  assert.equal(dispatchMissionForWorkerPermissions(mission, undefined), mission, "no settings means full inheritance");
-  assert.equal(
-    dispatchMissionForWorkerPermissions(mission, INITIAL_SETTINGS_V1),
-    mission,
-    "the full default policy stays invisible",
-  );
-
-  const restricted = dispatchMissionForWorkerPermissions(mission, {
-    ...INITIAL_SETTINGS_V1,
-    workerPermissions: { ...INITIAL_SETTINGS_V1.workerPermissions, mode: "restricted", merge: false },
-  });
-  assert.ok(restricted.startsWith(mission), "the policy block is appended, never rewriting the mission");
-  assert.match(restricted, /# Worker Permissions Policy\n\nThis dispatch uses the restricted worker permissions/u);
-  assert.match(restricted, /- merge pull requests: not allowed/u, "a switch turned off reads not allowed");
-  assert.match(restricted, /- push branches: allowed/u, "a switch left on reads allowed");
-  for (const label of [
-    "read CI results and logs",
-    "read hosted artifacts",
-    "open pull requests",
-    "change repository settings",
-    "use equivalent GitLab operations",
-  ]) {
-    assert.match(restricted, new RegExp(`- ${label}: allowed`, "u"), `every selected switch is spelled out`);
-  }
-  assert.equal(
-    Object.keys(INITIAL_SETTINGS_V1.workerPermissions).length - 1,
-    7,
-    "the policy block lists every declared switch",
   );
 });

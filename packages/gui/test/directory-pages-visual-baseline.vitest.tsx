@@ -45,7 +45,6 @@ describe("AdaptersView 目录行(标准 §2.5)", () => {
       verticals: [],
       templates: [],
       scaffolds: { task: [], repository: [] },
-      ciWorkflows: [],
       bundledAgents: [],
       adapters: [
         {

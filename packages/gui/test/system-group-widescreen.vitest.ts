@@ -60,7 +60,6 @@ function seedQueries(client: QueryClient): void {
       reviewReturnBudget: 3,
       taskScaffold: "governance/task-scaffold.json",
       repositoryScaffold: "governance/repository-scaffold.json",
-      ciWorkflows: [],
       closeoutProfile: "standard",
       closeoutReview: false,
       closeoutConsent: false,
@@ -147,7 +146,6 @@ function seedQueries(client: QueryClient): void {
       task: ["governance/task-scaffold.json"],
       repository: ["governance/repository-scaffold.json"],
     },
-    ciWorkflows: [],
     bundledAgents: ["closeout-reviewer"],
     adapters: [1, 2, 3].map((n) => ({
       adapterId: `adapter-g5-${n}`,
@@ -368,7 +366,6 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
         reviewReturnBudget: 3,
         taskScaffold: settings.scaffolds.task,
         repositoryScaffold: settings.scaffolds.repository,
-        ciWorkflows: [],
         closeoutProfile: "standard",
         closeoutReview: false,
         closeoutConsent: false,

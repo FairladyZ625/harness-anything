@@ -110,7 +110,6 @@ const CATALOG: CatalogSnapshotSuccess = {
   verticals: [],
   templates: [],
   scaffolds: { task: [], repository: [] },
-  ciWorkflows: [],
   bundledAgents: ["codex-worker", "claude-reviewer"],
   settingsFields: [],
   settingsGroups: [],

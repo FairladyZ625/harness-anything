@@ -1,6 +1,6 @@
+import { RETIRED_SETTINGS_PATHS } from "../domain/settings.ts";
 import { historicalCompletionRequirements } from "./offline-completion-contract.ts";
 import { effectiveCloseoutGates } from "../domain/settings-closeout.ts";
-import { readSettingsFacet } from "../domain/settings.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -31,7 +31,7 @@ import { validateTaskV2, type TaskV2 } from "../domain/task.ts";
 import { normalizePersistedTimestamp } from "../domain/timestamp.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import { sha256Text } from "../integrity/stable-hash.ts";
-import { localEventFileSystem, localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
+import { localRuntimeStateFileSystem } from "../local/local-layout-file-system.ts";
 import { makeTaskProjection } from "../projection/rebuildable-task-projection-factory.ts";
 import { canonicalJson } from "../projection/rebuildable-task-projection-sql.ts";
 import type { TaskProjection } from "../projection/task-projection-port.ts";
@@ -53,7 +53,8 @@ export type EventShapeMigrationName =
   | "decision-digests"
   | "schedule-definitions"
   | "settings-wal-flush"
-  | "settings-roles";
+  | "settings-roles"
+  | "settings-ci";
 export type EventShapeMigrationKind =
   | "entity-owned-content-manifests-migrate"
   | "task-v2-snapshots-migrate"
@@ -63,7 +64,8 @@ export type EventShapeMigrationKind =
   | "decision-digests-migrate"
   | "schedule-definitions-migrate"
   | "settings-wal-flush-migrate"
-  | "settings-roles-migrate";
+  | "settings-roles-migrate"
+  | "settings-ci-migrate";
 export interface EventShapeRewrite {
   readonly event: CanonicalEventV1;
   readonly blobs?: readonly CanonicalContentBlob[];
@@ -616,6 +618,41 @@ export const settingsRolesMigration: EventShapeMigrationSpec = {
   },
 };
 
+const settingsCiMigration: EventShapeMigrationSpec = {
+  name: "settings-ci",
+  matches: () => false,
+  rewrite: (event) => {
+    if (!isSettingsEvent(event)) return null;
+    const before = event.payload.settings,
+      after = structuredClone(before) as unknown as Record<string, unknown>;
+    let changed = false;
+    for (const [parent, key] of RETIRED_SETTINGS_PATHS) {
+      const group = after[parent];
+      if (!isRecord(group) || !Object.hasOwn(group, key)) continue;
+      delete (group as Record<string, unknown>)[key];
+      if (!Object.keys(group).length) delete after[parent];
+      changed = true;
+    }
+    if (Array.isArray(after.gates)) {
+      const gates = after.gates.filter(
+        (gate) => !isRecord(gate) || !["github-actions", "gitlab-pipeline"].includes(String(gate.adapter)),
+      );
+      if (gates.length !== after.gates.length) {
+        after.gates = gates;
+        changed = true;
+      }
+    }
+    return changed
+      ? {
+          event: { ...event, payload: { ...event.payload, settings: after } } as CanonicalEventV1,
+          category: "retired CI settings dropped",
+          before,
+          after,
+        }
+      : null;
+  },
+};
+
 export const settingsWalFlushMigration: EventShapeMigrationSpec = {
   name: "settings-wal-flush",
   // The rewrite never reads the cut, so every settings event stays in bulk rounds.
@@ -746,6 +783,7 @@ export const eventShapeMigrations: Readonly<Record<EventShapeMigrationKind, Even
   "schedule-definitions-migrate": scheduleDefinitionsMigration,
   "settings-wal-flush-migrate": settingsWalFlushMigration,
   "settings-roles-migrate": settingsRolesMigration,
+  "settings-ci-migrate": settingsCiMigration,
 };
 
 const generationShapeMigrations = [...Object.values(eventShapeMigrations)];

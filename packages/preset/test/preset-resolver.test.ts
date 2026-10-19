@@ -26,7 +26,7 @@ test("canonical resolver decodes one complete bundled package into a content-add
     if (!result.ok) return;
     assert.equal(result.snapshot.schema, "preset-snapshot/v1");
     assert.equal(result.snapshot.identity.layer, "bundled");
-    assert.deepEqual(result.snapshot.profile.completionGateIds, ["ci", "code-doc-reconciliation"]);
+    assert.deepEqual(result.snapshot.profile.completionGateIds, ["code-doc-reconciliation"]);
     assert.deepEqual(
       result.snapshot.templates.map((entry) => entry.path),
       ["task_plan.md", "closeout.md", "artifacts/.gitkeep"],

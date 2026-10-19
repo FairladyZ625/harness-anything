@@ -8,7 +8,7 @@ import {
   type TaskLifecycleSnapshot,
 } from "@harness-anything/kernel";
 
-import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import { emptyCompletionContract, retiredHostedCiSource } from "../../kernel/test/domain/completion.fixtures.ts";
 
 const actor = { principal: { personId: "owner" }, executor: { kind: "agent" as const, id: "worker" } };
 
@@ -62,7 +62,7 @@ function snapshot(commitSha: string | null): TaskLifecycleSnapshot {
                 appliesTo: "code",
                 witness: {
                   adapterId: "github-actions",
-                  ...completionSnapshot.completion.sources["github-actions"],
+                  ...retiredHostedCiSource,
                   adapterOptions: {
                     workflows: ["rewrite-ci"],
                     branch: "main",

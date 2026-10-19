@@ -51,6 +51,8 @@ export function convertCompletionManifest(value: unknown) {
         checkerProfile !== "software-coding-standard"
       )
         throw new Error(`No completion migration mapping for checkerProfile ${String(checkerProfile)}.`);
+      if (value.vertical === "software/coding" && Array.isArray(current.completionGates))
+        current.completionGates = current.completionGates.filter((gate) => gate !== "ci");
       return current;
     }),
   };

@@ -128,7 +128,11 @@ function validSource(value: Record<string, unknown>, fields = hasOnlyFields): bo
 }
 function validFrozenSource(value: Record<string, unknown>, fields = hasOnlyFields): boolean {
   if (value.kind === "github-actions" || value.kind === "gitlab-pipeline")
-    return fields(value, ["kind", "predicateType", "resultSchema"]);
+    return (
+      isNonEmptyString(value.predicateType) &&
+      isRecord(value.resultSchema) &&
+      fields(value, ["kind", "predicateType", "resultSchema"])
+    );
   return validSource(value, fields);
 }
 export function validateFrozenCompletionContract(
@@ -232,7 +236,7 @@ export function gateWitnessMappingIssues(mappings: readonly GateWitnessMappingV1
   return mappings.flatMap(({ gateId, adapter, ...options }) => {
     if (adapter === "none" && Object.keys(options).length) return [`settings.gates.${gateId}: none carries no options`];
     if (adapter === "github-actions" || adapter === "gitlab-pipeline")
-      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired`];
+      return [`settings.gates.${gateId}: hosted CI completion witnesses are retired; run ha migrate settings --help`];
     if (gateId === CODE_DOC_GATE_ID && adapter !== "none")
       return [`settings.gates.${CODE_DOC_GATE_ID} is internal; map it only to none`];
     return [];
@@ -276,13 +280,12 @@ export function resolveCompletionContract(
       allowOverride = mapping?.allowOverride ?? declared?.allowOverride;
     if (source.kind === "manual" && (mandatorySignoff || allowOverride))
       return { ok: false, message: `Gate ${gateId}: manual sources already require human testimony.` };
-    let witness: FrozenGateWitness;
     if (
       mapping &&
       [mapping.branch, mapping.event, mapping.coverage, mapping.selection].some((item) => item !== undefined)
     )
       return { ok: false, message: `Gate ${gateId}: hosted CI options cannot configure ${source.kind}.` };
-    witness = { adapterId: sourceId, ...source, adapterOptions: {} };
+    const witness: FrozenGateWitness = { adapterId: sourceId, ...source, adapterOptions: {} };
     gates.push({
       gateId,
       appliesTo,

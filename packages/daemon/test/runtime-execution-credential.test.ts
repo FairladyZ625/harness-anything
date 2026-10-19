@@ -672,7 +672,6 @@ test("execution credentials keep validator sources inside the dispatched reposit
             defaultPreset: "standard-task",
             locale: "en-US",
             scaffolds: { task: "t", repository: "r" },
-            ci: { workflows: [] },
           }),
         },
         store: { readHead: () => null },

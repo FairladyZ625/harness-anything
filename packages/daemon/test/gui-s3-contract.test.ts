@@ -40,7 +40,6 @@ test("daemon Settings reads use the exact canonical Settings shape", () => {
     values: {
       defaultVertical: settings.defaultVertical,
       reviewIndependence: settings.reviewIndependence,
-      ciWorkflows: [],
       closeoutProfile: "standard",
     },
     revision: 7,

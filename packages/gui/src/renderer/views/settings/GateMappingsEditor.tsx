@@ -11,8 +11,6 @@ const ISSUE_COPY: Readonly<Record<GateMappingIssue, MessageKey>> = {
   adapterFieldMissing: "views.settingsView.gateIssue.adapterFieldMissing",
   adapterFieldUnexpected: "views.settingsView.gateIssue.adapterFieldUnexpected",
   governanceNotAllowed: "views.settingsView.gateIssue.governanceNotAllowed",
-  coverageInvalid: "views.settingsView.gateIssue.coverageInvalid",
-  selectionInvalid: "views.settingsView.gateIssue.selectionInvalid",
   internalGateAdapter: "views.settingsView.gateIssue.internalGateAdapter",
 };
 
@@ -23,7 +21,7 @@ const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-[-2px] f
   selectCell = `${fieldLabel} [&_select]:w-full [&_select]:mt-0.5`;
 
 /**
- * 门映射编辑面:每个声明的门一行草稿,adapter 四选一(含 none=移除声明的门),option
+ * 门映射编辑面:每个声明的门一行草稿,adapter 来自声明(含 none=移除声明的门),option
  * 字段集由目录快照的 gateMappings 描述面(kernel completion-contract 投影)驱动——
  * adapter 必须声明的字段才渲染,治理修饰只在可承载的 adapter 上出现且只能为 true。
  * 非法组合在判定层(gate-mapping-form)算出,这里只如实显示并由调用方挡提交。
@@ -114,57 +112,6 @@ export function GateMappingsEditor({
                     />
                   </label>
                 )}
-                {fields.includes("branch") && (
-                  <label className={fieldLabel}>
-                    {t("views.settingsView.gateBranchLabel")}
-                    <GateTextField
-                      testId={`gate-mapping-${row}-branch`}
-                      value={draft.branch ?? ""}
-                      disabled={disabled}
-                      onChange={(value) => updateRow(row, { branch: value })}
-                    />
-                  </label>
-                )}
-                {fields.includes("event") && (
-                  <label className={fieldLabel}>
-                    {t("views.settingsView.gateEventLabel")}
-                    <GateTextField
-                      testId={`gate-mapping-${row}-event`}
-                      value={draft.event ?? ""}
-                      disabled={disabled}
-                      onChange={(value) => updateRow(row, { event: value })}
-                    />
-                  </label>
-                )}
-                {fields.includes("coverage") && (
-                  <label className={selectCell}>
-                    {t("views.settingsView.gateCoverageLabel")}
-                    <SettingSelect
-                      label={`gate-${row}-coverage`}
-                      testId={`gate-mapping-${row}-coverage`}
-                      value={draft.coverage ?? "descendant"}
-                      options={[
-                        { value: "exact", label: "exact" },
-                        { value: "descendant", label: "descendant" },
-                      ]}
-                      disabled={disabled}
-                      onChange={(value) => updateRow(row, { coverage: value })}
-                    />
-                  </label>
-                )}
-                {fields.includes("selection") && (
-                  <label className={selectCell}>
-                    {t("views.settingsView.gateSelectionLabel")}
-                    <SettingSelect
-                      label={`gate-${row}-selection`}
-                      testId={`gate-mapping-${row}-selection`}
-                      value="newest"
-                      options={[{ value: "newest", label: "newest" }]}
-                      disabled
-                      onChange={() => undefined}
-                    />
-                  </label>
-                )}
                 {governable && (
                   <>
                     <label
@@ -231,12 +178,7 @@ export function GateMappingsEditor({
               {
                 gateId: "",
                 adapter,
-                ...Object.fromEntries(
-                  (descriptor.adapterFields[adapter] ?? []).map((field) => [
-                    field,
-                    field === "selection" ? "newest" : "",
-                  ]),
-                ),
+                ...Object.fromEntries((descriptor.adapterFields[adapter] ?? []).map((field) => [field, ""])),
               },
             ]);
           }}
@@ -246,27 +188,5 @@ export function GateMappingsEditor({
         </button>
       </div>
     </div>
-  );
-}
-
-function GateTextField({
-  testId,
-  value,
-  disabled,
-  onChange,
-}: {
-  readonly testId: string;
-  readonly value: string;
-  readonly disabled: boolean;
-  readonly onChange: (value: string) => void;
-}) {
-  return (
-    <input
-      data-testid={testId}
-      className={`mt-0.5 ${fieldInput}`}
-      value={value}
-      disabled={disabled}
-      onChange={(event) => onChange(event.currentTarget.value)}
-    />
   );
 }

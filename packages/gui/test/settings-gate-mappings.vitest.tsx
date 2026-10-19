@@ -22,13 +22,9 @@ import {
 const REPO_ID = "settings-gates-probe";
 const GATES = [
   {
-    gateId: "ci",
-    adapter: "github-actions",
+    gateId: "lint",
+    adapter: "research/check",
     appliesTo: "code",
-    branch: "main",
-    event: "push",
-    coverage: "descendant",
-    selection: "newest",
   },
   { gateId: "code-doc-reconciliation", adapter: "none" },
 ];
@@ -41,7 +37,6 @@ const SETTINGS = {
   defaultProfile: "baseline",
   closeout: { profile: "standard", overrides: {} },
   scaffolds: { task: "governance/task-scaffold.json", repository: "governance/repository-scaffold.json" },
-  ci: { workflows: ["ci"] },
   gates: GATES,
 };
 const SNAPSHOT = {
@@ -59,7 +54,6 @@ const SNAPSHOT = {
   verticals: [],
   templates: [],
   scaffolds: { task: [], repository: [] },
-  ciWorkflows: ["ci"],
   bundledAgents: [],
   adapters: [],
   gateMappings: {
@@ -178,27 +172,22 @@ async function type(element: HTMLInputElement, value: string): Promise<void> {
 }
 
 describe("Settings 门映射编辑面", () => {
-  it("照实渲染既有 ci → github-actions 映射;gatesFromDocument 是导入动作不是设置行", async () => {
+  it("照实渲染既有 lint → research/check 映射;gatesFromDocument 是导入动作不是设置行", async () => {
     const container = await mountView();
     const gateRows = rows(container);
     expect(gateRows.length).toBe(2);
-    expect((gateRows[0].querySelector('[data-testid="gate-mapping-0-gateId"]') as HTMLInputElement).value).toBe("ci");
+    expect((gateRows[0].querySelector('[data-testid="gate-mapping-0-gateId"]') as HTMLInputElement).value).toBe("lint");
     expect((gateRows[0].querySelector('[data-testid="gate-mapping-0-adapter"]') as HTMLSelectElement).value).toBe(
-      "github-actions",
+      "research/check",
     );
     expect((gateRows[0].querySelector('[data-testid="gate-mapping-0-appliesTo"]') as HTMLSelectElement).value).toBe(
       "code",
     );
-    for (const [testId, expected] of [
-      ["gate-mapping-0-branch", "main"],
-      ["gate-mapping-0-event", "push"],
-    ] as const)
-      expect((gateRows[0].querySelector(`[data-testid="${testId}"]`) as HTMLInputElement).value).toBe(expected);
-    for (const [testId, expected] of [
-      ["gate-mapping-0-coverage", "descendant"],
-      ["gate-mapping-0-selection", "newest"],
-    ] as const)
-      expect((gateRows[0].querySelector(`[data-testid="${testId}"]`) as HTMLSelectElement).value).toBe(expected);
+    const adapters = [...gateRows[0].querySelectorAll("option")].map((option) => (option as HTMLOptionElement).value);
+    expect(adapters).not.toContain("github-actions");
+    expect(adapters).not.toContain("gitlab-pipeline");
+    for (const field of ["branch", "event", "coverage", "selection"])
+      expect(gateRows[0].querySelector(`[data-testid="gate-mapping-0-${field}"]`)).toBeNull();
     // 内部门只给 none。
     expect(
       [...gateRows[1].querySelectorAll('[data-testid="gate-mapping-1-adapter"] option')].map(
@@ -220,13 +209,13 @@ describe("Settings 门映射编辑面", () => {
     });
     expect(lastUpdatePayload()).not.toHaveProperty("gatesDraft");
     await choose(
-      rows(container)[0].querySelector('[data-testid="gate-mapping-0-coverage"]') as HTMLSelectElement,
-      "exact",
+      rows(container)[0].querySelector('[data-testid="gate-mapping-0-appliesTo"]') as HTMLSelectElement,
+      "submission",
     );
     await act(async () => {
       saveButton(container).click();
     });
-    expect(lastUpdatePayload().gatesDraft).toEqual([{ ...GATES[0], coverage: "exact" }, GATES[1]]);
+    expect(lastUpdatePayload().gatesDraft).toEqual([{ ...GATES[0], appliesTo: "submission" }, GATES[1]]);
   });
 
   it("manual-attest 加不了治理修饰:控件不渲染,切换 adapter 时非法键被剥离", async () => {
@@ -264,12 +253,8 @@ describe("Settings 门映射编辑面", () => {
         [
           {
             gateId: "g",
-            adapter: "github-actions",
+            adapter: "research/check",
             appliesTo: "code",
-            branch: "b",
-            event: "e",
-            coverage: "exact",
-            selection: "newest",
             allowOverride: false,
           },
         ],
@@ -288,8 +273,8 @@ describe("Settings 门映射编辑面", () => {
     expect(
       gateMappingRowIssues(
         [
-          { gateId: "ci", adapter: "none" },
-          { gateId: "ci", adapter: "none" },
+          { gateId: "lint", adapter: "none" },
+          { gateId: "lint", adapter: "none" },
         ],
         descriptor,
       ),
@@ -305,7 +290,7 @@ describe("Settings 门映射编辑面", () => {
     const gateRows = rows(container);
     expect(gateRows.length).toBe(3);
     const idInput = gateRows[2].querySelector('[data-testid="gate-mapping-2-gateId"]') as HTMLInputElement;
-    await type(idInput, "ci");
+    await type(idInput, "lint");
     expect(container.textContent).toContain("重复");
     expect(saveButton(container).disabled).toBe(true);
     await type(idInput, "bad id!");

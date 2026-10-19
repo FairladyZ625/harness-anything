@@ -97,22 +97,6 @@ test("Settings CLI no longer accepts the retired storage flush options", () => {
   if (kept.ok) assert.deepEqual(kept.command.action, { kind: "settings-update", restoreDrillRetention: 5 });
 });
 
-test("Settings CLI forwards CI workflow names and the none opt-out to the settings action", () => {
-  for (const [argv, ciWorkflows] of [
-    [["--ci-workflows", "rewrite-ci"], ["rewrite-ci"]],
-    [
-      ["--ci-workflows", "ci", "--ci-workflows", "nightly"],
-      ["ci", "nightly"],
-    ],
-    // The repeated flag cannot carry an empty list, so `none` is the CLI spelling of the opt-out.
-    [["--ci-workflows", "none"], ["none"]],
-  ] as const) {
-    const parsed = parseThinCommand(["settings", "update", ...argv]);
-    assert.equal(parsed.ok, true, JSON.stringify(argv));
-    if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "settings-update", ciWorkflows });
-  }
-});
-
 test("Settings CLI forwards ordered worktree setup steps and the none clear", () => {
   const parsed = parseThinCommand([
     "settings",
@@ -141,4 +125,22 @@ test("Settings CLI forwards --gates-from-document as a boolean action field", ()
   if (parsed.ok) assert.deepEqual(parsed.command.action, { kind: "settings-update", gatesFromDocument: true });
   // The flag carries no value: gate mappings are minted by the daemon from harness.yaml.
   assert.equal(parseThinCommand(["settings", "update", "--gates-from-document", "ci"]).ok, false);
+});
+
+test("Settings CLI rejects retired CI and permission switches while preserving credential mode", () => {
+  for (const [flag, value] of [
+    ["--ci-workflows", "ci"],
+    ["--delivery-platform", "github"],
+    ...["ci-read", "artifact-read", "push", "pull-request", "merge", "repository-settings", "gitlab"].map((name) => [
+      `--worker-permissions-${name}`,
+      "true",
+    ]),
+  ]) {
+    const parsed = parseThinCommand(["settings", "update", flag!, value!]);
+    assert.equal(parsed.ok, false, flag);
+    if (!parsed.ok) assert.equal(parsed.code, "unknown_field", flag);
+  }
+  const kept = parseThinCommand(["settings", "update", "--worker-permissions-mode", "restricted"]);
+  assert.equal(kept.ok, true);
+  if (kept.ok) assert.deepEqual(kept.command.action, { kind: "settings-update", workerPermissionsMode: "restricted" });
 });

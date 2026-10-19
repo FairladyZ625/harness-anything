@@ -1,6 +1,6 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
-import { completionSnapshot, emptyCompletionContract } from "../../kernel/test/domain/completion.fixtures.ts";
+import { emptyCompletionContract, retiredHostedCiSource } from "../../kernel/test/domain/completion.fixtures.ts";
 import {
   makeOfflineCompletionChain,
   makeSqliteTaskEventStore,
@@ -1400,7 +1400,7 @@ test("generation 1 pre-freeze gate evidence keeps provenance as historical accep
               gateId: "ci",
               appliesTo: "code",
               witness: {
-                ...completionSnapshot.completion.sources["github-actions"],
+                ...retiredHostedCiSource,
                 adapterId: "github-actions",
                 adapterOptions: {
                   workflows: ["rewrite-ci"],

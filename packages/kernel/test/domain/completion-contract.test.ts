@@ -9,12 +9,11 @@ import {
 import { validateSubmissionV1 } from "../../src/domain/execution.ts";
 import { readSettingsFacet, validateRepositorySettings, repositorySettings } from "../../src/domain/settings.ts";
 
-import { completionSnapshot, emptyCompletionContract } from "./completion.fixtures.ts";
+import { completionSnapshot, emptyCompletionContract, retiredHostedCiSource } from "./completion.fixtures.ts";
 const resolveCompletionContract = (gates: readonly string[], settings: Parameters<typeof resolve>[1]) =>
   resolve(gates, settings, completionSnapshot);
 
-const repositoryYaml = (gates: string, workflows = "[rewrite-ci]") =>
-  `schema: harness-anything/v1\nsettings:\n  ci:\n    workflows: ${workflows}\n${gates}`;
+const repositoryYaml = (gates: string) => `schema: harness-anything/v1\nsettings:\n${gates}`;
 
 const githubCi =
   "  gates:\n" +
@@ -24,7 +23,7 @@ const githubCi =
   "      event: push\n      coverage: descendant\n      selection: newest\n" +
   "      branch: main\n";
 
-const currentPresetContract: FrozenCompletionContract = {
+const historicalContract: FrozenCompletionContract = {
   ...emptyCompletionContract,
   closeoutGates: { ...emptyCompletionContract.closeoutGates, codeDoc: true },
   gates: [
@@ -33,7 +32,7 @@ const currentPresetContract: FrozenCompletionContract = {
       appliesTo: "code",
       witness: {
         adapterId: "github-actions",
-        ...completionSnapshot.completion.sources["github-actions"],
+        ...retiredHostedCiSource,
         adapterOptions: {
           workflows: ["rewrite-ci"],
           branch: "main",
@@ -51,44 +50,28 @@ const currentPresetContract: FrozenCompletionContract = {
   ],
 };
 
-test("the standard preset gates resolve gate by gate to today's GitHub CI and internal code/doc checker", () => {
-  const settings = readSettingsFacet(repositoryYaml(githubCi));
-
-  assert.deepEqual(settings.gates, [
-    {
-      gateId: "ci",
-      adapter: "github-actions",
-      appliesTo: "code",
-      branch: "main",
-      event: "push",
-      coverage: "descendant",
-      selection: "newest",
-    },
-  ]);
-  const resolved = resolveCompletionContract(["ci", "code-doc-reconciliation"], settings);
-  assert.deepEqual(resolved, { ok: true, contract: currentPresetContract });
-  assert.deepEqual(validateFrozenCompletionContract(currentPresetContract), []);
+test("the standard coding contract contains only the internal code/doc checker", () => {
+  const resolved = resolveCompletionContract(["code-doc-reconciliation"], readSettingsFacet(repositoryYaml("")));
+  assert.deepEqual(resolved, { ok: true, contract: { ...historicalContract, gates: [historicalContract.gates[1]] } });
+  assert.deepEqual(validateFrozenCompletionContract(historicalContract), [], "frozen hosted history remains readable");
 });
 
-test("a declared gate without a witness mapping fails closed instead of being skipped", () => {
-  const unmapped = readSettingsFacet(repositoryYaml(""));
-
-  assert.deepEqual(unmapped.gates, []);
-  const ci = resolveCompletionContract(["ci", "code-doc-reconciliation"], unmapped);
-  assert.equal(ci.ok, true, "the declared vertical default applies when settings omit a mapping");
-  const custom = resolveCompletionContract(["unknown"], readSettingsFacet(repositoryYaml(githubCi)));
+test("a declared local gate resolves its default source and an unknown gate fails closed", () => {
+  const settings = readSettingsFacet(repositoryYaml(""));
+  assert.deepEqual(settings.gates, []);
+  assert.equal(resolveCompletionContract(["lint"], settings).ok, true);
+  const custom = resolveCompletionContract(["unknown"], settings);
   assert.equal(custom.ok, false);
   assert.match(custom.ok ? "" : custom.message, /Gate unknown.*undeclared source/u);
-  const emptyRegistry = resolveCompletionContract(["ci"], readSettingsFacet(repositoryYaml(githubCi, "[]")));
-  assert.equal(emptyRegistry.ok, false);
-  assert.match(emptyRegistry.ok ? "" : emptyRegistry.message, /registered workflows/u);
 });
 
 test("new completion contracts cannot add hosted CI witnesses", () => {
-  const settings = readSettingsFacet(repositoryYaml(githubCi));
-  const hosted = resolveCompletionContract(["ci"], settings);
-  assert.equal(hosted.ok, false);
-  assert.match(hosted.ok ? "" : hosted.message, /hosted CI completion witnesses are retired/u);
+  assert.throws(() => readSettingsFacet(repositoryYaml(githubCi)), /hosted CI completion witnesses are retired/u);
+  for (const adapter of ["github-actions", "gitlab-pipeline"]) {
+    const result = resolveCompletionContract(["ci"], { gates: [{ gateId: "ci", adapter }] });
+    assert.equal(result.ok, false);
+    assert.match(result.ok ? "" : result.message, /Hosted CI completion witnesses are retired/u);
+  }
 });
 
 test("none removes a declared requirement without minting a witness, and undeclared mappings add nothing", () => {
@@ -108,12 +91,12 @@ test("none removes a declared requirement without minting a witness, and undecla
 
   assert.deepEqual(resolveCompletionContract(["ci", "code-doc-reconciliation"], settings), {
     ok: true,
-    contract: { ...currentPresetContract, gates: [] },
+    contract: { ...historicalContract, gates: [] },
   });
   assert.deepEqual(resolveCompletionContract(["lint", "signoff", "code-doc-reconciliation"], settings), {
     ok: true,
     contract: {
-      ...currentPresetContract,
+      ...historicalContract,
       gates: [
         {
           gateId: "lint",
@@ -146,20 +129,11 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
     `    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n      workflow: x\n`,
     /workflow/u,
   );
-  const unknown = resolveCompletionContract(
-    ["ci"],
-    readSettingsFacet(repositoryYaml("  gates:\n    ci:\n      appliesTo: code\n      adapter: gitlab-pipeline\n")),
-  );
+  const unknown = resolveCompletionContract(["lint"], {
+    gates: [{ gateId: "lint", adapter: "unknown", appliesTo: "code" }],
+  });
   assert.equal(unknown.ok, false);
-  assert.equal(
-    resolveCompletionContract(
-      ["ci"],
-      readSettingsFacet(
-        repositoryYaml("  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n"),
-      ),
-    ).ok,
-    true,
-  );
+  rejects("    ci:\n      appliesTo: code\n      adapter: gitlab-pipeline\n", /hosted CI.*retired/u);
   assert.equal(
     resolveCompletionContract(
       ["lint"],
@@ -174,7 +148,7 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
   assert.throws(() => readSettingsFacet(repositoryYaml("  gates: []\n")), /block of gate witness mappings/u);
   assert.match(
     validateRepositorySettings({
-      ...repositorySettings(readSettingsFacet(repositoryYaml(githubCi))),
+      ...repositorySettings(readSettingsFacet(repositoryYaml(""))),
       gates: [{ gateId: "ci", adapter: "none", appliesTo: "code" }],
     }).join("\n"),
     /none carries no options/u,
@@ -182,19 +156,24 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
 });
 
 test("the frozen contract schema fails closed on unknown fields and foreign adapter bindings", () => {
-  const [ci, codeDoc] = currentPresetContract.gates as [
+  const [ci, codeDoc] = historicalContract.gates as [
     FrozenCompletionContract["gates"][number],
     FrozenCompletionContract["gates"][number],
   ];
   const withOptions = (adapterOptions: Record<string, unknown>) => ({
-    ...currentPresetContract,
+    ...historicalContract,
     gates: [{ ...ci, witness: { ...ci.witness, adapterOptions } }],
   });
 
-  assert.equal(
-    validateFrozenCompletionContract({ ...currentPresetContract, gates: [{ ...ci, extra: true }] }).length,
-    1,
-  );
+  assert.equal(validateFrozenCompletionContract({ ...historicalContract, gates: [{ ...ci, extra: true }] }).length, 1);
+  for (const malformed of [{ predicateType: "" }, { resultSchema: null }])
+    assert.equal(
+      validateFrozenCompletionContract({
+        ...historicalContract,
+        gates: [{ ...ci, witness: { ...ci.witness, ...malformed } }],
+      }).length,
+      1,
+    );
   assert.equal(
     validateFrozenCompletionContract(withOptions({ ...ci.witness.adapterOptions, cancel: "skip" })).length,
     1,
@@ -209,15 +188,15 @@ test("the frozen contract schema fails closed on unknown fields and foreign adap
   );
   assert.equal(
     validateFrozenCompletionContract(
-      { ...currentPresetContract, gates: [{ ...ci, witness: { adapterId: "none", adapterOptions: {} } }] },
+      { ...historicalContract, gates: [{ ...ci, witness: { adapterId: "none", adapterOptions: {} } }] },
       true,
     ).length,
     1,
   );
-  assert.equal(validateFrozenCompletionContract({ ...currentPresetContract, gates: [ci, ci] }).length, 1);
+  assert.equal(validateFrozenCompletionContract({ ...historicalContract, gates: [ci, ci] }).length, 1);
   assert.equal(
     validateFrozenCompletionContract({
-      ...currentPresetContract,
+      ...historicalContract,
       gates: [
         {
           ...ci,
@@ -232,17 +211,16 @@ test("the frozen contract schema fails closed on unknown fields and foreign adap
     0,
   );
   assert.equal(
-    validateFrozenCompletionContract({ ...currentPresetContract, gates: [{ ...codeDoc, appliesTo: "artifacts" }] })
-      .length,
+    validateFrozenCompletionContract({ ...historicalContract, gates: [{ ...codeDoc, appliesTo: "artifacts" }] }).length,
     1,
   );
   assert.equal(
-    validateFrozenCompletionContract({ ...currentPresetContract, gates: [{ ...ci, witness: codeDoc.witness }] }).length,
+    validateFrozenCompletionContract({ ...historicalContract, gates: [{ ...ci, witness: codeDoc.witness }] }).length,
     1,
   );
   assert.equal(
     validateFrozenCompletionContract({
-      ...currentPresetContract,
+      ...historicalContract,
       gates: [
         {
           ...codeDoc,
@@ -267,7 +245,7 @@ test("a submission carries its frozen completion contract as a required field", 
     knownGaps: [],
     residualRisks: [],
     commitSha: "a".repeat(40),
-    completionContract: currentPresetContract,
+    completionContract: historicalContract,
   };
   const { completionContract: _completionContract, ...legacy } = submission;
 
@@ -279,11 +257,11 @@ test("a submission carries its frozen completion contract as a required field", 
 });
 
 test("unconverted history never infers requirements from the current settings", () => {
-  assert.equal(validateFrozenCompletionContract({ gates: currentPresetContract.gates }, true).length, 1);
+  assert.equal(validateFrozenCompletionContract({ gates: historicalContract.gates }, true).length, 1);
   assert.equal(
     validateFrozenCompletionContract(
       {
-        ...currentPresetContract,
+        ...historicalContract,
         gates: [{ gateId: "ci", appliesTo: "code", witness: { adapterId: "github-actions", adapterOptions: {} } }],
       },
       true,
@@ -295,12 +273,11 @@ test("unconverted history never infers requirements from the current settings", 
 test("governance modifiers freeze only as true, only on automated witnesses, and absence keeps automated-only", () => {
   const governedYaml =
       "  gates:\n" +
-      "    ci:\n      adapter: github-actions\n      appliesTo: code\n      event: push\n" +
-      "      coverage: descendant\n      selection: newest\n      branch: main\n      mandatorySignoff: true\n" +
+      "    check:\n      adapter: research/check\n      appliesTo: code\n      mandatorySignoff: true\n" +
       "    lint:\n      adapter: research/check\n      appliesTo: code\n" +
       "      allowOverride: true\n      mandatorySignoff: false\n" +
       "    review:\n      adapter: manual-attest\n      appliesTo: artifacts\n",
-    resolved = resolveCompletionContract(["ci", "lint", "review"], readSettingsFacet(repositoryYaml(governedYaml)));
+    resolved = resolveCompletionContract(["check", "lint", "review"], readSettingsFacet(repositoryYaml(governedYaml)));
   assert.equal(resolved.ok, true);
   if (!resolved.ok) return;
   const [ci, lint, review] = resolved.contract.gates;
@@ -311,11 +288,11 @@ test("governance modifiers freeze only as true, only on automated witnesses, and
   assert.equal(Object.hasOwn(lint!, "mandatorySignoff"), false);
   assert.deepEqual(Object.keys(review!).sort(), ["appliesTo", "gateId", "witness"]);
   assert.deepEqual(validateFrozenCompletionContract(resolved.contract), []);
-  assert.deepEqual(validateFrozenCompletionContract(currentPresetContract), []);
+  assert.deepEqual(validateFrozenCompletionContract(historicalContract), []);
 
   const invalid = (patch: Record<string, unknown>, index = 0) =>
     validateFrozenCompletionContract({
-      ...currentPresetContract,
+      ...historicalContract,
       gates: resolved.contract.gates.map((gate, at) => (at === index ? { ...gate, ...patch } : gate)),
     }).length > 0;
   assert.equal(invalid({ allowOverride: false }), true);

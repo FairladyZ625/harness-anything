@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AgentRole, SettingsV1, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
+import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";

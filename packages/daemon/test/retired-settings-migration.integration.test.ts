@@ -54,7 +54,9 @@ test("settings migration rejects the retired sample, preserves its source, and w
     assert.equal(current.delivery.requireMerged, true);
     assert.equal(current.delivery.targetBranch, "release/stable");
     assert.deepEqual(current.gates, [{ gateId: "human-review", adapter: "manual-attest" }]);
-    assert.throws(() => invoke("--source", source, "--mode", "convert", "--destination", candidate), /EEXIST/u);
+    const exists = invoke("--source", source, "--mode", "convert", "--destination", candidate);
+    assert.equal(exists.status, 1);
+    assert.match(JSON.stringify(exists.receipt), /EEXIST/u);
     assert.equal(readFileSync(source, "utf8"), oldSample);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -66,11 +68,12 @@ test("settings conversion requires a distinct new destination", () => {
   try {
     const source = path.join(root, "harness.yaml");
     writeFileSync(source, oldSample);
-    assert.throws(() => invoke("--source", source, "--mode", "convert"), /convert requires --destination/u);
-    assert.throws(
-      () => invoke("--source", source, "--mode", "convert", "--destination", source),
-      /must differ from --source/u,
-    );
+    const missing = invoke("--source", source, "--mode", "convert");
+    assert.equal(missing.status, 1);
+    assert.match(JSON.stringify(missing.receipt), /convert requires --destination/u);
+    const same = invoke("--source", source, "--mode", "convert", "--destination", source);
+    assert.equal(same.status, 1);
+    assert.match(JSON.stringify(same.receipt), /must differ from --source/u);
     assert.equal(readFileSync(source, "utf8"), oldSample);
   } finally {
     rmSync(root, { recursive: true, force: true });

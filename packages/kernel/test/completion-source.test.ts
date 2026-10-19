@@ -34,11 +34,7 @@ const declaration = {
   closeoutDefaults: { codeDoc: false },
 };
 const digest = `sha256:${"a".repeat(64)}`;
-const resolved = resolveCompletionContract(
-  ["version-pinned"],
-  { gates: [], ci: { workflows: [] } },
-  { digest, completion: declaration },
-);
+const resolved = resolveCompletionContract(["version-pinned"], { gates: [] }, { digest, completion: declaration });
 assert.equal(resolved.ok, true);
 if (!resolved.ok) throw new Error(resolved.message);
 const requirement = resolved.contract.gates[0]!;
@@ -59,11 +55,7 @@ test("source IDs are declarations and arbitrary additional IDs resolve without k
       sources: { [id]: declaration.sources["research/anchor-check"] },
       gates: { "version-pinned": { ...declaration.gates["version-pinned"], source: id } },
     };
-    const cut = resolveCompletionContract(
-      ["version-pinned"],
-      { gates: [], ci: { workflows: [] } },
-      { digest, completion },
-    );
+    const cut = resolveCompletionContract(["version-pinned"], { gates: [] }, { digest, completion });
     assert.equal(cut.ok && cut.contract.gates[0]!.witness.adapterId, id);
   }
 });
@@ -191,26 +183,31 @@ test("domain defaults are reachable only when the repository left a value unset,
   assert.equal(effectiveCloseoutGates({}, [], { fact: false }, defaults).fact, false);
   const frozen = resolveCompletionContract(
     [],
-    { gates: [], ci: { workflows: [] } },
+    { gates: [] },
     { digest, completion: { ...declaration, closeoutDefaults: defaults } },
   );
   assert.equal(frozen.ok && frozen.contract.closeoutGates.consent, true);
 });
 
 test("expired GitHub claims can be replaced while command claims and terminal verdicts stay fenced", () => {
-  const ci = resolveCompletionContract(
-    ["ci"],
-    { gates: [], ci: { workflows: ["rewrite-ci"] } },
-    {
-      digest,
-      completion: {
-        sources: { "github-actions": { kind: "github-actions", predicateType: "ci/v1" } },
-        gates: { ci: { source: "github-actions", appliesTo: "code" } },
+  const requirement = {
+    gateId: "ci",
+    appliesTo: "code" as const,
+    witness: {
+      adapterId: "github-actions",
+      kind: "github-actions" as const,
+      predicateType: "ci/v1",
+      resultSchema: { type: "object" },
+      adapterOptions: {
+        workflows: ["rewrite-ci"],
+        branch: "main",
+        event: "push",
+        coverage: "descendant" as const,
+        selection: "newest" as const,
       },
     },
-  );
-  assert.ok(ci.ok);
-  const requirement = ci.contract.gates[0]!;
+  };
+  const ci = { contract: { ...resolved.contract, gates: [requirement] } };
   const cut = {
     ...execution,
     submission: { ...execution.submission!, commitSha: "a".repeat(40), completionContract: ci.contract },

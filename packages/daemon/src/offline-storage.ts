@@ -62,6 +62,7 @@ export async function runOfflineStorageCommand(argv: readonly string[]): Promise
         ...(destination ? { destination: mode === "convert" ? destination : null } : {}),
         removedPaths: migrated.removedPaths,
         changed: migrated.removedPaths.length > 0,
+        next: "Review the candidate, copy it to the authored harness.yaml, then run ha settings update as the repository principal. Historical Settings events require ha migrate ledger --help before reopening.",
       });
       return 0;
     }

@@ -10,7 +10,7 @@ import {
   validateSettingsEvent,
   type SettingsEventV1,
 } from "../../src/domain/settings-event.ts";
-import { INITIAL_SETTINGS_V1, repositorySettings } from "../../src/domain/settings.ts";
+import { INITIAL_SETTINGS_V1, repositorySettings, writeRepositorySettingsFacet } from "../../src/domain/settings.ts";
 import { normalizeHistoricalSettingsRoles } from "../../src/domain/settings-history.ts";
 import { sha256Text } from "../../src/integrity/stable-hash.ts";
 import { makeTaskProjection } from "../../src/projection/rebuildable-task-projection.ts";
@@ -145,4 +145,102 @@ test("settings-roles migration preserves explicit roles, strips old keys, and co
     roles: { defaultReviewer: "old", defaultWorker: "worker" },
   });
   assert.throws(() => normalizeHistoricalSettingsRoles({ defaultReviewer: "old", roles: "invalid" }), /object/u);
+});
+
+test("offline settings conversion drops retired CI fields while preserving local gates and delivery policy", () => {
+  const current = bundle(1, historicalBody).event,
+    historical = {
+      ...current,
+      payload: {
+        ...current.payload,
+        settings: {
+          ...current.payload.settings,
+          workerPermissions: {
+            mode: "restricted",
+            ciRead: true,
+            artifactRead: true,
+            push: true,
+            pullRequest: true,
+            merge: true,
+            repositorySettings: true,
+            gitlab: true,
+          },
+          delivery: { requireMerged: true, targetBranch: "release/stable", platform: "github" },
+          ci: { workflows: ["rewrite-ci"] },
+          gates: [
+            { gateId: "ci", adapter: "github-actions" },
+            { gateId: "local", adapter: "manual-attest" },
+          ],
+        },
+      },
+    } as unknown as SettingsEventV1,
+    migration = eventShapeMigrations["settings-ci-migrate"],
+    cut = {} as EventShapeCut;
+  assert.notDeepEqual(validateCurrentSettingsEvent(historical), []);
+  const rewritten = migration.rewrite(historical, cut);
+  assert.ok(rewritten);
+  assert.deepEqual(validateCurrentSettingsEvent(rewritten.event), []);
+  const settings = (rewritten.event as SettingsEventV1).payload.settings;
+  assert.deepEqual(settings.workerPermissions, { mode: "restricted" });
+  assert.deepEqual(settings.delivery, { requireMerged: true, targetBranch: "release/stable" });
+  assert.deepEqual(settings.gates, [{ gateId: "local", adapter: "manual-attest" }]);
+  assert.equal(Object.hasOwn(settings, "ci"), false);
+  assert.deepEqual(rewritten.event.payload.harnessDocumentClaim, historical.payload.harnessDocumentClaim);
+  assert.equal(migration.rewrite(rewritten.event, cut), null);
+  assert.equal(Object.hasOwn(historical.payload.settings, "ci"), true, "conversion preserves the source");
+  withTempStore((rootDir) => {
+    const store = openSqliteEventStore({ repoId: "settings-ci", databasePath: path.join(rootDir, "ledger.sqlite") }),
+      fence = { repoId: "settings-ci", holder: "fixture", epoch: 1 };
+    const append = (event: SettingsEventV1, blobs: ReturnType<typeof bundle>["blobs"]) =>
+      store.appendCommand({
+        fence,
+        intent: {
+          opId: event.opId,
+          intentDigest: `sha256:${sha256Text(serializePersistedCanonicalEvent(event))}`,
+          summary: event.type,
+        },
+        events: [event],
+        blobs,
+      });
+    append(rewritten.event as SettingsEventV1, bundle(1, historicalBody).blobs);
+    const reader: EventStreamPort = {
+      readHead: () => ({ revision: store.revision() }),
+      readContentBlob: store.readContentObject,
+      readBatch: (cursor, maxItems) => {
+        const events = store.eventsAfter(Number(cursor ?? 0), maxItems),
+          revision = events.at(-1)?.workspaceRevision ?? Number(cursor ?? 0);
+        return {
+          sourceRevision: store.revision(),
+          events,
+          cursor: String(revision),
+          done: revision === store.revision(),
+          accessedItems: events.length,
+        };
+      },
+    };
+    const cold = makeTaskProjection({ rootDir, eventStore: reader, projectionPath: path.join(rootDir, "cold.sqlite") });
+    assert.equal(cold.rebuild().watermark, 1);
+    assert.deepEqual(cold.getEntity("settings", "repository")!.value, settings);
+    assert.equal(cold.readDocument("harness.yaml").document?.body, historicalBody);
+    cold.close();
+    const acceptedBody = writeRepositorySettingsFacet("settings:\n", settings),
+      next = compileSettingsChangedEvent({
+        settings,
+        baseDocumentBody: historicalBody,
+        candidateDocumentBody: acceptedBody,
+        eventId: "event-settings-current",
+        opId: "settings-current",
+        workspaceRevision: 2,
+        actor,
+        source: "local",
+        occurredAt: "2026-09-20T00:00:01.000Z",
+      });
+    append(next.event, next.blobs);
+    const reopened = makeTaskProjection({ rootDir, eventStore: reader, projectionPath: cold.path });
+    assert.equal(reopened.catchUp!().watermark, 2);
+    assert.deepEqual(reopened.getEntity("settings", "repository")!.value, settings);
+    assert.equal(reopened.readDocument("harness.yaml").document?.body, acceptedBody);
+    reopened.close();
+    store.close();
+  });
 });
