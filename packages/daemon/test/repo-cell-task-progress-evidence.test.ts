@@ -223,6 +223,7 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
           getEntity: () => null,
           readTaskChildCounts: () => ({}),
           readTaskCompletion: () => null,
+          readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape: "repository-diff" } } }),
           readRelationQuery: (query: { readonly relationType?: string }) =>
             query.relationType === "produces"
               ? { rows: [{ targetRef: "fact/one", state: "active" }], status: "ready" }
