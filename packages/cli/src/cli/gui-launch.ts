@@ -14,6 +14,7 @@ import { ensureCliDaemonRunning } from "../daemon/autostart.ts";
 import { startBrowserGuiBroker, type BrowserGuiBroker } from "./gui-browser-broker.ts";
 
 type ReceiptEmitter = (receipt: Record<string, unknown>, json: boolean) => void;
+type LockfileEntry = { readonly optional?: boolean; readonly resolved?: string; readonly version?: string };
 export interface GuiElectronRuntime {
   readonly binary?: string;
   readonly installScript?: string;
@@ -59,10 +60,16 @@ export async function runGuiLaunch(
         "Install it with `npm install -g @harness-anything/gui`, then retry `ha gui`.",
     );
   const bundle = refreshStaleGuiBundle(guiPackageRoot, dependencies);
-  if ("failure" in bundle)
+  if ("staleDependency" in bundle)
+    return reject(
+      "gui_dependencies_stale",
+      `package-lock.json requires ${bundle.staleDependency} but the installed dependencies do not provide it. ` +
+        "Install them with `npm install` in the checkout root, then retry `ha gui`.",
+    );
+  if ("rebuildFailure" in bundle)
     return reject(
       "gui_build_failed",
-      `The GUI bundle rebuild failed: ${bundle.failure} Fix the build with ` +
+      `The GUI bundle rebuild failed: ${bundle.rebuildFailure} Fix the build with ` +
         "`npm run build --workspace @harness-anything/gui`, then retry `ha gui`.",
     );
   const browser = launch.browser,
@@ -145,10 +152,12 @@ async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartRe
 function refreshStaleGuiBundle(
   guiPackageRoot: string,
   dependencies: GuiLaunchDependencies,
-): { readonly rebuilt: boolean } | { readonly failure: string } {
+): { readonly rebuilt: boolean } | { readonly staleDependency: string } | { readonly rebuildFailure: string } {
   if (!existsSync(path.join(guiPackageRoot, "src"))) return { rebuilt: false };
   const commit = (dependencies.sourceBuildId ?? daemonSourceBuildId)();
   if (commit === null || readDistBuildId(guiPackageRoot) === commit) return { rebuilt: false };
+  const staleDependency = uninstalledLockfileDependency(guiPackageRoot);
+  if (staleDependency) return { staleDependency };
   process.stderr.write(
     `The GUI bundle in ${guiPackageRoot} predates the current source build ${commit.slice(0, 12)}; ` +
       "rebuilding it before launch.\n",
@@ -156,9 +165,42 @@ function refreshStaleGuiBundle(
   try {
     (dependencies.rebuildGuiBundle ?? rebuildGuiBundleFromSource)(guiPackageRoot);
   } catch (error) {
-    return { failure: cliErrorMessage(error) };
+    return { rebuildFailure: cliErrorMessage(error) };
   }
   return { rebuilt: true };
+}
+// npm records the tree it last installed in node_modules/.package-lock.json. A pulled commit that
+// adds a dependency leaves that tree behind the root package-lock.json, and the rebuild then dies
+// on an unresolvable import instead of the real remedy. Optional entries are the ones npm skips
+// per platform, so their absence is expected; any other lockfile entry missing from the installed
+// tree — or present at a different identity — makes `npm install` the actual next step. Without
+// both lockfiles, or with an unreadable one, the check cannot decide and the rebuild proceeds
+// as before.
+function uninstalledLockfileDependency(guiPackageRoot: string): string | null {
+  const checkoutRoot = path.resolve(guiPackageRoot, "..", ".."),
+    lockfilePath = path.join(checkoutRoot, "package-lock.json"),
+    installedLockfilePath = path.join(checkoutRoot, "node_modules/.package-lock.json");
+  if (!existsSync(lockfilePath) || !existsSync(installedLockfilePath)) return null;
+  let lockfile: { readonly packages?: Readonly<Record<string, LockfileEntry>> },
+    installedLockfile: { readonly packages?: Readonly<Record<string, LockfileEntry>> };
+  try {
+    lockfile = JSON.parse(readFileSync(lockfilePath, "utf8"));
+    installedLockfile = JSON.parse(readFileSync(installedLockfilePath, "utf8"));
+  } catch (error) {
+    consumeKnownError(error);
+    return null;
+  }
+  for (const [entryPath, entry] of Object.entries(lockfile.packages ?? {})) {
+    if (entryPath === "" || entry.optional === true) continue;
+    const installed = installedLockfile.packages?.[entryPath];
+    if (!installed) return entryPath;
+    if (
+      (installed.version ?? null) !== (entry.version ?? null) ||
+      (installed.resolved ?? null) !== (entry.resolved ?? null)
+    )
+      return entryPath;
+  }
+  return null;
 }
 function daemonSourceBuildId(): string | null {
   return daemonBuildStamp().commit;
