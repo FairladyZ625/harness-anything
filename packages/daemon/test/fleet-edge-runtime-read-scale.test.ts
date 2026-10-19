@@ -218,3 +218,12 @@ test("legacy materialization marker without a base does not classify center diff
   assert.deepEqual(applied.dirtyPaths, []);
   assert.equal(readFileSync(localPath, "utf8"), "# document 0\n");
 });
+
+test("an unmarked worktree does not report unmaterialized center documents as deletions", async (t) => {
+  const fixture = await makeFixture(1);
+  t.after(() => rmSync(fixture.root, { recursive: true, force: true }));
+  const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId, fixture.nodeId);
+  assert.ok(view);
+  const scan = scanFleetMirrorWorktree(view, fixture.workspaceRoot);
+  assert.deepEqual(scan.deletedPaths, []);
+});

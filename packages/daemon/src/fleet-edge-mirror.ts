@@ -222,7 +222,7 @@ export function scanFleetMirrorWorktree(
     hasMarkerWithoutBaseline = markerExists && !hasMaterializationBaseline,
     materializedEntries: ReadonlySet<string> = hasMaterializationBaseline
       ? new Set(Object.keys(marker.entries ?? {}))
-      : new Set<string>(),
+      : new Set(hasMarkerWithoutBaseline ? view.entries.keys() : (selection ?? [])),
     wanted = selection ? new Set(selection) : null,
     changes: FleetMirrorDirtyFile[] = [],
     cleanPaths: string[] = [],
