@@ -139,7 +139,17 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
       writeDaemonStoppedMarker(userRoot, daemonId);
       const exchange = await requestCooperativeStop(userRoot, daemonId, pid);
       const outcome = await waitForDaemonStop(userRoot, daemonId, pid, exchange);
-      if (outcome === "stopped") return finish({ ok: true, command: "daemon-stop", pid }, 0);
+      if (outcome === "stopped")
+        return finish(
+          {
+            ok: true,
+            command: "daemon-stop",
+            pid,
+            summary: `daemon-stop: pid ${pid} stopped; an explicit stop does not autostart.`,
+            nextAction: "Restart it with `ha daemon start --service` when you need the daemon again.",
+          },
+          0,
+        );
       if (outcome === "draining") return finish(drainingStopReceipt(pid), 0);
       return finish(
         daemonFailure("daemon-stop", "daemon_stop_timeout", await stopTimeoutHint(userRoot, daemonId, pid, exchange)),

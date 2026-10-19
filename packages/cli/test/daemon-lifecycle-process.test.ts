@@ -65,6 +65,8 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
     const stopped = run(fixture.root, fixture.userRoot, ["daemon", "stop"]);
     assert.equal(stopped.ok, true, JSON.stringify(stopped));
     assert.notEqual(stopped.code, "daemon_stop_timeout");
+    // An explicit stop never autostarts, so the receipt is where the restart command lives.
+    assert.match(String(stopped.nextAction), /ha daemon start --service/u, JSON.stringify(stopped));
     assert.equal(
       existsSync(daemonPidPath(fixture.userRoot, "default")),
       false,
