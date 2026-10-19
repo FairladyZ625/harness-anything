@@ -1,5 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { Schema } from "effect";
 import { VerticalCompletionDeclarationSchema } from "../src/schemas/completion-source.ts";
@@ -72,6 +73,49 @@ test("source admission rejects invalid schemas, external references, and asynchr
         sources: { source: { ...declaration.sources["research/anchor-check"], resultSchema } },
       }),
     );
+});
+
+test("new vertical definitions and the published schema exclude hosted CI sources", () => {
+  assert.throws(() =>
+    Schema.decodeUnknownSync(VerticalCompletionDeclarationSchema)({
+      ...declaration,
+      sources: {
+        ...declaration.sources,
+        hosted: {
+          kind: "github-actions",
+          predicateType: "harness/ci/v1",
+          resultSchema: { type: "object" },
+        },
+      },
+    }),
+  );
+
+  const published = JSON.parse(
+      readFileSync(new URL("../schemas/json/vertical-definition.schema.json", import.meta.url), "utf8"),
+    ) as {
+      readonly properties: {
+        readonly completion: {
+          readonly properties: {
+            readonly sources: {
+              readonly patternProperties: Readonly<
+                Record<
+                  string,
+                  {
+                    readonly anyOf: readonly {
+                      readonly properties: { readonly kind: { readonly enum: readonly string[] } };
+                    }[];
+                  }
+                >
+              >;
+            };
+          };
+        };
+      };
+    },
+    sourceKinds = published.properties.completion.properties.sources.patternProperties[""]!.anyOf.map(
+      ({ properties }) => properties.kind.enum[0]!,
+    );
+  assert.deepEqual(sourceKinds.sort(), ["command", "external", "manual"]);
 });
 
 test("missing seed has a field path; mismatched metadata and substituted subjects never pass", () => {

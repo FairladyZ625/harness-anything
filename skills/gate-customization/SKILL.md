@@ -6,8 +6,8 @@ description: Define domain completion sources and task gates in vertical and pre
 # Completion Gate Customization
 
 Use this skill to define a domain completion contract. The package declaration
-names what must be checked; an installed preset entrypoint or an authorized
-human provides the witness. The task profile selects gate ids. Submit freezes
+names what must be checked; an installed command entrypoint, an authorized
+external runner, or a human provides the witness. The task profile selects gate ids. Submit freezes
 the selected source definitions and gate rules with the accepted submission.
 
 ```text
@@ -17,7 +17,7 @@ vertical/preset completion declaration
 profile.completionGates ───────────────────┘
                                            │ task submit freezes this cut
                                            ▼
-                   command / CI / human witness → schema + bindings → complete
+                   command / external / manual witness → schema + bindings → complete
 ```
 
 New domain gates belong in the package `completion` object, not in
@@ -40,8 +40,11 @@ in one package; a profile only lists gate ids.
 | `gates` | A record keyed by a gate id. Each gate selects a source and an `appliesTo` scope; it may select subjects and bind predicate fields to submitted artifacts. |
 | `closeoutDefaults` | Domain fallbacks for `review`, `consent`, `factDisposition`, and `codeDoc`. Explicit repository and task-profile choices take precedence. |
 
-The current source contract has four execution routes: CI (literal kinds
-`github-actions` and `gitlab-pipeline`), `command`, `external`, and `manual`.
+The current source contract has three execution routes: `command`, `external`,
+and `manual`. Hosted CI source kinds are retained only when reading frozen
+history; new vertical and preset declarations reject them. CI status is read
+from the hosting platform's pull request checks and is not copied into task
+completion.
 `external` declares a runner role and optional run-artifact outputs; declaring
 it does not install a runner or grant a node permission. Use an external source
 only when the target repository already has its authorized execution path.
@@ -267,10 +270,12 @@ or an incomplete subject set does not satisfy the frozen gate.
 
 | Source kind | Use |
 | --- | --- |
-| `github-actions`, `gitlab-pipeline` | CI-provider evidence. The source declaration carries its predicate type and schema; the provider path supplies the run evidence. |
 | `command` | A declared preset entrypoint checks frozen inputs and emits a `completion-witness`. It is not a shell string in repository settings. |
 | `manual` | A human provides the witness through `ha task attest <task-id> --gate <gate-id> --result pass`. A runtime executor cannot attest as a person. |
 | `external` | Declares a runner role and optional accepted run-artifact outputs. The declaration alone does not configure or authorize an external node. |
+
+Do not add hosted CI results as task witnesses. Review pull request checks on the
+hosting platform, where merge protection makes that result authoritative.
 
 Optional gate fields include `mandatorySignoff`, `allowOverride`, and
 `independentNode`. Use them only for a requirement that is part of the actual

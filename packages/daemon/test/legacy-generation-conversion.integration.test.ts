@@ -368,6 +368,7 @@ test("immutable generation-0 conversion retries into inactive generation-1 witho
         { name: "schedule-definitions", count: 0, firstRevision: null, lastRevision: null },
         { name: "settings-wal-flush", count: 1, firstRevision: 1, lastRevision: 1 },
         { name: "settings-roles", count: 0, firstRevision: null, lastRevision: null },
+        { name: "settings-ci", count: 0, firstRevision: null, lastRevision: null },
       ],
     );
     assert.equal(first.migratedEvents, 1);

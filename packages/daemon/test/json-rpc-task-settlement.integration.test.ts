@@ -122,11 +122,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       >;
     assert.deepEqual(
       { outcome: missingMerge.outcome, code: missingMerge.code, steps: missingMerge.steps },
-      { outcome: "op_rejected", code: "delivery_missing", steps: [] },
-    );
-    assert.equal(
-      (missingMerge.next as readonly { readonly action: string }[])[0]?.action,
-      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${taskId}.`,
+      { outcome: "op_rejected", code: "review_missing", steps: [] },
     );
     assert.deepEqual(store().read().events.slice(beforeMissingMerge), [], "an unmerged delivery returns guidance without writing a completion");
     assert.equal(
@@ -179,18 +175,12 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
       (completed.steps as { opId: string }[]).map((step) => store().readEvent(step.opId)?.type),
       ["task_completed"],
     );
-    assert.deepEqual(completed.gateChecks, [
-      {
-        gate: "ci",
-        status: "pass",
-        witnessRef: (completed.gateChecks as { witnessRef: string }[])[0]!.witnessRef,
-      },
-      {
-        gate: "code-doc-reconciliation",
-        status: "pass",
-        witnessRef: (completed.gateChecks as { witnessRef: string }[])[1]!.witnessRef,
-      },
-    ]);
+    const completedGateChecks = completed.gateChecks as { readonly gate: string; readonly status: string; readonly witnessRef?: string }[];
+    assert.deepEqual(
+      completedGateChecks.map(({ gate, status }) => ({ gate, status })),
+      [{ gate: "code-doc-reconciliation", status: "pass" }],
+    );
+    assert.ok(completedGateChecks[0]?.witnessRef, "the retained local completion gate keeps its witness");
     assert.deepEqual(completed.next, []);
     assert.equal(readFileSync(path.join(rootDir, "harness", closeoutPath), "utf8").includes("All checks passed"), true);
     assert.equal(readFileSync(path.join(rootDir, "harness", artifactPath), "utf8").includes("Canonical flow"), true);

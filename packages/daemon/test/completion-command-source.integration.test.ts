@@ -94,7 +94,10 @@ test("declared command checks submitted CSV/PNG/JSON without code: seed red, ame
     cpSync(new URL("../../preset/assets/software-coding", import.meta.url), invalidAssets, { recursive: true });
     const verticalPath = path.join(invalidAssets, "vertical.json"),
       vertical = JSON.parse(readFileSync(verticalPath, "utf8"));
-    vertical.completion.gates.ci.source = "research/undeclared";
+    vertical.completion.gates["research/undeclared-gate"] = {
+      source: "research/undeclared",
+      appliesTo: "code",
+    };
     writeFileSync(verticalPath, JSON.stringify(vertical));
     const unknown = await cell.run({ kind: "vertical-validate", verticalSource: invalidAssets }, worker);
     const unknownReport = JSON.parse(String(unknown.evidence));

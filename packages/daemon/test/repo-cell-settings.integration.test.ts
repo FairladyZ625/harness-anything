@@ -41,12 +41,12 @@ test("settings writes reject catalog-inconsistent vertical, preset, and profile 
     assert.equal(read.outcome, "applied", JSON.stringify(read));
     const catalogSettings = (
         read as typeof read & {
-          readonly settings?: { readonly locale?: string; readonly ci?: { readonly workflows: readonly string[] } };
+          readonly settings?: Readonly<Record<string, unknown>>;
         }
       ).settings,
       initialRevision = read.revision!;
     assert.equal(catalogSettings?.locale, "en-US");
-    assert.deepEqual(catalogSettings?.ci?.workflows, ["ci"]);
+    assert.equal(Object.hasOwn(catalogSettings ?? {}, "ci"), false);
     // The seeded bootstrap settings_changed event is the only change so far, and its provenance
     // (fixture actor, not the reader) surfaces on the read receipt.
     assert.deepEqual(read.lastChanged, {
