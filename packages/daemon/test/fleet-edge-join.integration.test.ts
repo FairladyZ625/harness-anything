@@ -31,6 +31,7 @@ test(
         .update(new X509Certificate(cert).publicKey.export({ type: "spki", format: "der" }))
         .digest("hex"),
       invites = createEdgeJoinStore(),
+      loginUrl = "https://keycloak.fixture",
       harnessYaml = readFileSync(path.join(f.repo, "harness/harness.yaml"), "utf8");
     // Stands in for the center's Keycloak check: the edge fixture's device token names person-one.
     const center = await f.openCenter(f.host, undefined, {
@@ -56,7 +57,7 @@ test(
         personId,
         permissionSnapshot: [{ groupId: "contributor", version: "scope-digest" }],
         spkiSha256: pin,
-        loginUrl: f.owners.url,
+        loginUrl,
         loginRealm: "harness",
         loginClientId: "harness-cli",
         createdBy: "person-center",
@@ -71,6 +72,9 @@ test(
           nodeId,
           registerBeforeOpen: false,
           writeEdgeConfig: false,
+          oidcPorts: {
+            loginAuthority: async () => ({ url: loginUrl, realm: "harness", clientId: "harness-cli" }),
+          },
         }),
         workspaceRoot = path.join(mkdtempSync(path.join(tmpdir(), "ha-edge-join-")), "workspace");
       const response = await edge.rpc.handle({
