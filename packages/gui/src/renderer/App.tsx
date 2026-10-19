@@ -52,6 +52,7 @@ import {
 import { useAgendaQuery } from "./agenda-data.ts";
 import { useOverviewArtifacts } from "./overview-data.ts";
 import {
+  FULL_TRIADIC_PROJECTION_VIEWS,
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
   useRuntimePlaneQuery,
@@ -79,7 +80,6 @@ import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useAppLocation } from "./navigation/useAppLocation.ts";
 import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
-import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { workspaceTitleIndex } from "./model/workspace-readable.ts";
@@ -97,19 +97,6 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
-/**
- * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
- * 只有这些视图挂载时才读完整投影;
- * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
- */
-const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
-  "workspace",
-  "graph",
-  "decisionPool",
-  "decisionDetail",
-  "factDetail",
-  "freshness",
-]);
 
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";

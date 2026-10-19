@@ -17,6 +17,21 @@ import { isAvailableAgentEntityRow } from "./agent-entity-client.ts";
 import type { ScheduleGuiRowDto } from "@harness-anything/daemon/protocol";
 import type { DecisionClaim, DecisionRow, DecisionState, FactRef, RelationEdge } from "./model/types.ts";
 import { activeProducesFactRefs } from "./model/triadic.ts";
+import type { ViewId } from "./navigation/viewHistory.ts";
+
+/**
+ * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
+ * 只有这些视图挂载时才读完整投影;
+ * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
+ */
+export const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
+  "workspace",
+  "graph",
+  "decisionPool",
+  "decisionDetail",
+  "factDetail",
+  "freshness",
+]);
 
 /**
  * 读面分层的键空间(fact F-D5605ABF 的消费者清单 + 2026-08-29 CEO 裁决):
