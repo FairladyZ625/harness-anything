@@ -9,6 +9,7 @@ import {
   dispatchMissionForWorkerPermissions,
   explicitPromptMission,
   livingDeliverableProtocol,
+  prBodyDeliveryProtocol,
   taskQueryGuidance,
 } from "../src/runtime-spawn-mission.ts";
 
@@ -117,6 +118,17 @@ test("PR body protocol follows the document slot, including lightweight explicit
     explicitPromptMission(null, null, "Go.", "baseline", "artifacts/pr-body.md"),
     /PR Body Delivery/u,
   );
+});
+
+test("the PR body protocol orders the delivery loop push before pr before submit", () => {
+  const protocol = prBodyDeliveryProtocol("artifacts/pr-body.md")!,
+    pushAt = protocol.indexOf("ha task push"),
+    prAt = protocol.indexOf("ha task pr"),
+    submitAt = protocol.indexOf("ha task submit");
+  assert.ok(pushAt >= 0, "the protocol tells the worker to publish the task branch");
+  assert.ok(prAt > pushAt, "the PR is created after the branch is published, from the doc-synced body");
+  assert.ok(submitAt > prAt, "submit comes last: the frozen post-submit cut rejects worker writes");
+  assert.doesNotMatch(protocol, /submit 回执/u, "PR creation no longer waits for the submit receipt");
 });
 
 test("reviewer task-bound missions keep the guidance and Reviewer Role but omit both worker delivery protocols", () => {
