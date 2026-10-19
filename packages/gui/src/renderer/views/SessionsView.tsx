@@ -6,7 +6,7 @@ import { Popover } from "../components/Popover.tsx";
 import { agentEntityClient, isAvailableSquadEntityRow } from "../agent-entity-client.ts";
 import { agentRuntimeClient, runtimeQueryKeys } from "../agent-runtime-client.ts";
 import { harnessClient } from "../api-client.ts";
-import { t } from "../i18n/index.tsx";
+import { t, type MessageKey } from "../i18n/index.tsx";
 import { workspaceTitleIndex } from "../model/workspace-readable.ts";
 import { useTasksQuery } from "../task-data.ts";
 import { Empty } from "../components/primitives/Empty.tsx";
@@ -76,6 +76,9 @@ const rangeToSince = (range: Range): string => {
   const span = RANGE_SPAN[range];
   return new Date(span === 0 ? 0 : Date.now() - span * 1000).toISOString();
 };
+/** 多计数句里每个计数各自选单/复数文案;整句语序仍由 i18n 目录持有。 */
+const countLabel = (count: number, oneKey: MessageKey, manyKey: MessageKey): string =>
+  t(count === 1 ? oneKey : manyKey, { count });
 
 export interface SessionsViewProps {
   readonly repoId: string;
@@ -553,22 +556,50 @@ export function SessionsView({
     <span data-testid="sessions-counts" className="truncate">
       {segment === "sessions"
         ? drill !== null
-          ? t("agentRuntime.sessionsDrillCounts", {
-              groups: related.totals.groups,
-              sessions: related.totals.sessions,
+          ? t("agentRuntime.sessionsDrillSummary", {
+              groups: countLabel(
+                related.totals.groups,
+                "agentRuntime.sessionsSummaryTaskGroup",
+                "agentRuntime.sessionsSummaryTaskGroups",
+              ),
+              sessions: countLabel(
+                related.totals.sessions,
+                "agentRuntime.sessionsSessionCountOne",
+                "agentRuntime.sessionsSessionCount",
+              ),
               label: drill.label,
             })
           : (groupBy === "work"
-              ? t("agentRuntime.sessionsWorkCounts", {
+              ? t("agentRuntime.sessionsWorkSummary", {
                   range: rangeLabel[range],
-                  works: workGroups.length,
-                  groups: totals.groups,
-                  sessions: totals.sessions,
+                  works: countLabel(
+                    workGroups.length,
+                    "agentRuntime.sessionsSummaryWork",
+                    "agentRuntime.sessionsSummaryWorks",
+                  ),
+                  groups: countLabel(
+                    totals.groups,
+                    "agentRuntime.sessionsSummaryTaskGroup",
+                    "agentRuntime.sessionsSummaryTaskGroups",
+                  ),
+                  sessions: countLabel(
+                    totals.sessions,
+                    "agentRuntime.sessionsSessionCountOne",
+                    "agentRuntime.sessionsSessionCount",
+                  ),
                 })
-              : t("agentRuntime.sessionsCounts", {
+              : t("agentRuntime.sessionsSummary", {
                   range: rangeLabel[range],
-                  groups: totals.groups,
-                  sessions: totals.sessions,
+                  groups: countLabel(
+                    totals.groups,
+                    "agentRuntime.sessionsSummaryGroup",
+                    "agentRuntime.sessionsSummaryGroups",
+                  ),
+                  sessions: countLabel(
+                    totals.sessions,
+                    "agentRuntime.sessionsSessionCountOne",
+                    "agentRuntime.sessionsSessionCount",
+                  ),
                 })) +
             // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
             // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
