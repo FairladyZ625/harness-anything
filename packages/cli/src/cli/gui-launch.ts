@@ -60,7 +60,18 @@ export async function runGuiLaunch(
         "Install it with `npm install -g @harness-anything/gui`, then retry `ha gui`.",
     );
   const bundle = refreshStaleGuiBundle(guiPackageRoot, dependencies);
-  if ("failure" in bundle) return reject(bundle.code, bundle.failure);
+  if ("staleDependency" in bundle)
+    return reject(
+      "gui_dependencies_stale",
+      `package-lock.json requires ${bundle.staleDependency} but the installed dependencies do not provide it. ` +
+        "Install them with `npm install` in the checkout root, then retry `ha gui`.",
+    );
+  if ("rebuildFailure" in bundle)
+    return reject(
+      "gui_build_failed",
+      `The GUI bundle rebuild failed: ${bundle.rebuildFailure} Fix the build with ` +
+        "`npm run build --workspace @harness-anything/gui`, then retry `ha gui`.",
+    );
   const browser = launch.browser,
     rendererBundle = path.join(guiPackageRoot, "dist/index.html"),
     preloadBundle = path.join(guiPackageRoot, "dist-electron/electron-preload.cjs"),
@@ -141,18 +152,12 @@ async function prepareGuiDaemon(invokingRoot: string): Promise<DaemonAutostartRe
 function refreshStaleGuiBundle(
   guiPackageRoot: string,
   dependencies: GuiLaunchDependencies,
-): { readonly rebuilt: boolean } | { readonly code: string; readonly failure: string } {
+): { readonly rebuilt: boolean } | { readonly staleDependency: string } | { readonly rebuildFailure: string } {
   if (!existsSync(path.join(guiPackageRoot, "src"))) return { rebuilt: false };
   const commit = (dependencies.sourceBuildId ?? daemonSourceBuildId)();
   if (commit === null || readDistBuildId(guiPackageRoot) === commit) return { rebuilt: false };
   const staleDependency = uninstalledLockfileDependency(guiPackageRoot);
-  if (staleDependency)
-    return {
-      code: "gui_dependencies_stale",
-      failure:
-        `package-lock.json requires ${staleDependency} but the installed dependencies do not provide it. ` +
-        "Install them with `npm install` in the checkout root, then retry `ha gui`.",
-    };
+  if (staleDependency) return { staleDependency };
   process.stderr.write(
     `The GUI bundle in ${guiPackageRoot} predates the current source build ${commit.slice(0, 12)}; ` +
       "rebuilding it before launch.\n",
@@ -160,12 +165,7 @@ function refreshStaleGuiBundle(
   try {
     (dependencies.rebuildGuiBundle ?? rebuildGuiBundleFromSource)(guiPackageRoot);
   } catch (error) {
-    return {
-      code: "gui_build_failed",
-      failure:
-        `The GUI bundle rebuild failed: ${cliErrorMessage(error)} Fix the build with ` +
-        "`npm run build --workspace @harness-anything/gui`, then retry `ha gui`.",
-    };
+    return { rebuildFailure: cliErrorMessage(error) };
   }
   return { rebuilt: true };
 }

@@ -30,6 +30,7 @@
    "packages/cli/src/cli-runtime-wait.ts#waitForStreamedRuntime",
    "packages/cli/src/cli/gui-launch.ts#guiElectronRuntime",
    "packages/cli/src/cli/gui-launch.ts#resolveGuiPackageRoot",
+   "packages/cli/src/cli/gui-launch.ts#uninstalledLockfileDependency",
    "packages/cli/src/cli/receipt-render-registry.ts#parseEvidence",
    "packages/cli/src/cli/thin-command-schedule.ts#renderScheduleList",
    "packages/cli/src/cli/thin-command-schedule.ts#renderScheduleRuns",
