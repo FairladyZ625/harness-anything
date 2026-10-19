@@ -2,7 +2,12 @@ import path from "node:path";
 import type { Snapshot } from "./repo-cell-types.ts";
 import type { TaskWorkspaceView } from "./protocol/daemon-protocol-gui-types.ts";
 import type { FleetTaskAction } from "./fleet/command-protocol.ts";
-import { pushWorkerBranch, readWorkerRemoteCommit, workerGitIdentityForPerson } from "./runtime-worker-push.ts";
+import {
+  pushWorkerBranch,
+  readWorkerRemoteCommit,
+  workerGitIdentityForPerson,
+  workerPushFailureCode,
+} from "./runtime-worker-push.ts";
 import { makeGitReadinessSource } from "./process-port.ts";
 
 export type FleetDeliveryTask = Snapshot & { readonly workspace: TaskWorkspaceView | null };
@@ -74,6 +79,8 @@ export async function prepareEdgeTaskDelivery(input: {
     expectedRemoteCommit,
   });
   if (!push.attempted || !push.ok)
-    throw Object.assign(new Error(push.attempted ? push.detail : push.reason), { code: "delivery_publish_failed" });
+    throw Object.assign(new Error(push.attempted ? push.detail : push.reason), {
+      code: workerPushFailureCode(push),
+    });
   return { ...input.action, executionId, commitSha: head.stdout };
 }
