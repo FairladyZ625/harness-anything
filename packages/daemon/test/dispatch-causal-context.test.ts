@@ -126,7 +126,6 @@ test("the block carries work, decision, and fact refs at one cut", () => {
     /<chosen ref="decision\/dec_ABC" anchor="CH1">Declarative evidence set — Verifiable without merge<\/chosen>/u,
   );
   assert.match(block, /<claims ref="decision\/dec_ABC">C1 submit supports artifact-only<\/claims>/u);
-  assert.match(block, /^<task-context>\n<note>/u, "the facts note opens the block whenever facts serve");
   assert.match(
     block,
     /<fact ref="fact\/F-0001">submit persists artifact-only receipts \(src:packages\/x.ts\)<\/fact>/u,
@@ -506,8 +505,8 @@ test("a details-only shed at the byte ceiling keeps the close tag instead of cla
   assert.ok(noteFits !== null);
   assert.match(
     noteFits,
-    /<omitted>fact\/F-2<\/omitted>/u,
-    "the fixed facts note is budgeted against the truncated root, so the omission line still fits",
+    /<omitted>fact\/F-3<\/omitted>/u,
+    "the note is budgeted against the truncated root, not against a root that is never emitted",
   );
 });
 
@@ -661,123 +660,4 @@ test("ASCII noise, long ids, and long source paths stay inside the byte budget",
   assert.match(block, /^<task-context[^>]*>\n/u);
   assert.match(block, /<refs>[^<]*fact\/F-long/u);
   assert.doesNotMatch(block, /ha graph/u, "the lookup guidance lives in the mission, not the refs tail");
-});
-
-test("facts served with an observed commit name its first 8 hex and the record time", () => {
-  const projection = stub({
-    readTaskIndex: () => ({
-      ...cut(),
-      rows: [{ taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: null }],
-    }),
-    readTaskRelationsByTargets: () => ({
-      ...cut(),
-      rows: [
-        {
-          relationId: "rel_1",
-          sourceRef: "decision/dec_ABC/CH1",
-          targetRef: "task/task_leaf",
-          relationType: "derives",
-          direction: "directed",
-          state: "active",
-        },
-      ],
-    }),
-    readDecisions: () => ({
-      ...cut(),
-      decisions: [
-        {
-          decisionId: "dec_ABC",
-          title: "Completion generalization",
-          question: "",
-          chosen: [{ id: "CH1", text: "Declarative evidence set" }],
-          claims: [{ id: "C1", text: "submit supports artifact-only", loadBearing: true }],
-        },
-      ],
-    }),
-    readRelationQuery: () => ({
-      ...cut(),
-      rows: [
-        {
-          relationId: "rel_2",
-          sourceRef: "decision/dec_ABC/C1",
-          targetRef: "fact/F-0001",
-          relationType: "evidenced-by",
-          direction: "directed",
-          state: "active",
-        },
-      ],
-    }),
-    searchFacts: () => ({
-      ...cut(),
-      facts: [
-        {
-          ref: "fact/F-0001",
-          statement: "submit persists artifact-only receipts",
-          evidenceSource: "packages/x.ts",
-          occurredAt: "2026-10-19T14:04:42.747Z",
-          observedCommit: "9f872eabf2075eab04328a239bf5c5d81a2c0e44",
-        },
-        {
-          ref: "fact/F-0002",
-          statement: "a fact recorded before the anchor decision",
-          evidenceSource: "packages/old.ts",
-          occurredAt: "2026-08-01T00:00:00.000Z",
-        },
-      ],
-    }),
-    readDocument: () => ({ ...cut(), document: null }),
-  });
-  const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
-  assert.ok(block !== null);
-  assertLineGrammar(block);
-  // Only facts reached through an evidenced-by edge serve; the anchor renders commit@8 + record time.
-  assert.match(
-    block,
-    /<fact ref="fact\/F-0001">submit persists artifact-only receipts \(src:packages\/x\.ts; recorded 2026-10-19T14:04:42\.747Z @ 9f872eab\)<\/fact>/u,
-  );
-  assert.doesNotMatch(block, /F-0002/u, "facts no decision claim evidences do not serve");
-  assert.match(block, /^<task-context>\n<note>fact 是历史观察，涉及代码时以现场为准。<\/note>\n/u);
-});
-
-test("a block with no served facts carries no facts note", () => {
-  const projection = stub({
-    readTaskIndex: () => ({
-      ...cut(),
-      rows: [
-        { taskId: "task_root", title: "Work goal", taskClass: "work", parentTaskId: null, packagePath: "tasks/root" },
-        { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_root", packagePath: null },
-      ],
-    }),
-    readTaskRelationsByTargets: () => ({
-      ...cut(),
-      rows: [
-        {
-          relationId: "rel_1",
-          sourceRef: "decision/dec_ABC/CH1",
-          targetRef: "task/task_leaf",
-          relationType: "derives",
-          direction: "directed",
-          state: "active",
-        },
-      ],
-    }),
-    readDecisions: () => ({
-      ...cut(),
-      decisions: [
-        {
-          decisionId: "dec_ABC",
-          title: "Completion generalization",
-          question: "",
-          chosen: [{ id: "CH1", text: "Declarative evidence set" }],
-          claims: [{ id: "C1", text: "submit supports artifact-only", loadBearing: true }],
-        },
-      ],
-    }),
-    readRelationQuery: () => ({ ...cut(), rows: [] }),
-    readDocument: () => ({ ...cut(), document: { body: "# Root\n\n## Goal\n\nShip.\n" } }),
-  });
-  const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
-  assert.ok(block !== null);
-  assert.match(block, /<decision ref="decision\/dec_ABC"/u);
-  assert.doesNotMatch(block, /<note>/u, "no facts served means no facts note");
 });

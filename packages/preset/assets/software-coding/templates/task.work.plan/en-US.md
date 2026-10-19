@@ -93,7 +93,7 @@ State the work's final deliverables, destinations, recipients, first consumer, a
 
 State the required usage proof and reviewer rejection conditions; when the task repairs a defect, also state its negative control or mutation check. Never replace actual runner output and consumption evidence with a summary claim.
 
-Close the loop when the work surfaces something worth preserving or a decision needs the evidence: record that observation with `ha fact record --task <task-id> ...` and preserve its receipt in the Execution outputs — no fixed count is owed at closeout. A fact is an evidence input to a decision, so attach it to the relevant claim with `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` before accepting or reckoning that decision. If a proposal has no fact evidence yet, `ha decision propose` still succeeds, but its receipt points to these two commands.
+Close the loop before work closeout: record at least one observation with `ha fact record --task <task-id> ...` and preserve its receipt in the Execution outputs. A fact is an evidence input to a decision, so attach it to the relevant claim with `ha relation relate --source-ref decision/<decision-id>/<claim-id> --target-ref fact/F-XXXXXXXX --type evidenced-by --rationale "<why>" --expected-version 0` before accepting or reckoning that decision. If a proposal has no fact evidence yet, `ha decision propose` still succeeds, but its receipt points to these two commands.
 
 ## Verification
 

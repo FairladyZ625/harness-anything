@@ -32,7 +32,7 @@
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }
       ],
-      "closeoutOverrides": { "review": false, "consent": false },
+      "closeoutOverrides": { "review": false, "consent": false, "fact": false },
       "archiveOnComplete": true
     }
   ],

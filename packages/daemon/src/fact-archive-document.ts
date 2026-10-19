@@ -62,7 +62,6 @@ export function factArchivePreload(
     statement: fact.statement,
     evidenceSource: fact.evidenceSource,
     observedAt: fact.observedAt,
-    ...(fact.observedCommit !== undefined ? { observedCommit: fact.observedCommit } : {}),
     confidence: fact.confidence,
     memoryClass: fact.memoryClass,
     memoryTags: fact.memoryTags,

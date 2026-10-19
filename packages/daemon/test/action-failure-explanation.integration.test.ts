@@ -191,13 +191,6 @@ test("Task execution rejects with the exact Action criterion and performs no rej
     );
     mkdirSync(path.dirname(selfReport), { recursive: true });
     writeFileSync(selfReport, "# Review self\n\nPhysical review findings.\n");
-    // Completion publishes eligible dirty documents before it judges readiness, so settle the
-    // report first: the assertion below is about the rejected completion, not that pre-step.
-    assert.equal(
-      (await cell!.run({ kind: "doc-submit", taskId }, owner)).outcome,
-      "applied",
-      "the physical review report settles before completion is attempted",
-    );
     await assertRejectedWithoutMutation(
       rootDir,
       repoId,

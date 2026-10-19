@@ -47,6 +47,7 @@ export function researchPackage(root: string, script = researchScript, outputSha
           title: "Experiment",
           completionGates: ["version-pinned"],
           templateSelections: [],
+          closeoutOverrides: { fact: false },
         },
       ],
       defaultProfile: "experiment",

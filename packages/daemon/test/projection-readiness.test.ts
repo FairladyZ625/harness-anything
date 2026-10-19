@@ -1,8 +1,6 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import path from "node:path";
 import test from "node:test";
 import type { TaskProjection } from "@harness-anything/kernel";
 import { listProjectedTaskDocuments, readProjectedDocument } from "../src/doc-sync-reads.ts";
@@ -10,7 +8,6 @@ import { requireCurrentTaskProjection } from "../src/projection-readiness.ts";
 import { readTaskCompletion } from "../src/task-completion-read.ts";
 import type { RepoCellOperationalContext } from "../src/repo-cell-action-context.ts";
 import { runFactAction } from "../src/repo-cell-fact-action.ts";
-import { initRepo } from "./task-surface.fixtures.ts";
 import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 import type { RuntimeSpawnerInput } from "../src/runtime-spawn-types.ts";
 import { makeRuntimeSpawner } from "../src/runtime-spawner.ts";
@@ -33,16 +30,10 @@ function projectionOf(read: TaskRead): Pick<TaskProjection, "read"> & { readonly
   };
 }
 
-// fact record resolves its observation commit against a real checkout HEAD.
-const observationRoot = mkdtempSync(path.join(tmpdir(), "ha-projection-readiness-"));
-initRepo(observationRoot);
-test.after(() => rmSync(observationRoot, { recursive: true, force: true }));
-
 function factCell(read: TaskRead) {
   const projection = projectionOf(read),
     executed: string[] = [],
     cell = {
-      rootDir: observationRoot,
       input: { repoId: "repository" },
       projection: {
         read: projection.read,

@@ -48,7 +48,7 @@ Write the transcript, identifiers, first-failure classification, final projectio
 
 ## Evidence Protocol
 
-Preserve command output verbatim. Record an observed fact through the public CLI when the run surfaces something worth preserving or a decision needs the evidence. Reject the run if the reviewer is not independent or any decoded filesystem operand targets a repository source path.
+Preserve command output verbatim. Record at least one observed fact through the public CLI before completion. Reject the run if the reviewer is not independent or any decoded filesystem operand targets a repository source path.
 
 ## Verification
 

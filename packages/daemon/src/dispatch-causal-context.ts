@@ -10,8 +10,6 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * The block is a `<task-context>` XML fragment whose grammar the
  * task-explainer-html skill documents for consumers: every element is complete
  * on one line, so any subset of detail lines the byte budget sheds still parses.
- * A fixed `<note>` line opens the block whenever facts are served: it is
- * guidance, not sheddable detail, so it never falls to the budget.
  * Text and attribute values are XML-escaped; the canonical ids ride `ref`
  * attributes and the final `<refs>` line. Every field is read from the canonical
  * projection at one verified cut; the block is task data for the worker, never
@@ -45,10 +43,7 @@ const MAX_DECISIONS = 2,
   MAX_EVIDENCE_ANCHORS = 6,
   ROOT_OPEN = "<task-context>",
   TRUNCATED_OPEN = '<task-context truncated="yes">',
-  ROOT_CLOSE = "</task-context>",
-  /** dec_BB2BCE9F995CD3A126E2918734 CH4: facts arrive named with the commit and time they
-   * were recorded against, so the reader is told up front they are historical observations. */
-  FACTS_NOTE = "<note>fact 是历史观察，涉及代码时以现场为准。</note>";
+  ROOT_CLOSE = "</task-context>";
 
 /** One detail line and the entity whose content it renders, so budget shedding can name what it dropped. */
 interface DetailLine {
@@ -193,11 +188,7 @@ export function assembleTaskCausalContext(input: {
       `<fact ref="${ref}">${
         fact === undefined
           ? "(statement not projected at this cut)"
-          : `${xmlText(fact.statement)} (src:${xmlText(fact.evidenceSource)}${
-              fact.observedCommit === undefined
-                ? ""
-                : `; recorded ${fact.occurredAt} @ ${fact.observedCommit.slice(0, 8)}`
-            })`
+          : `${xmlText(fact.statement)} (src:${xmlText(fact.evidenceSource)})`
       }</fact>`,
     );
   });
@@ -211,11 +202,8 @@ export function assembleTaskCausalContext(input: {
     ...decisionIds.slice(0, MAX_DECISIONS).map((decisionId) => `decision/${decisionId}`),
     ...servedFactRefs,
   ];
-  const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows),
-    factsNote = servedFactRefs.length > 0 ? FACTS_NOTE : null;
-  return [renderWithinBudget(details, refs, factsNote), ...(authorization === null ? [] : [authorization])].join(
-    "\n\n",
-  );
+  const authorization = decisionExecutionSurface(decisionRead?.decisions ?? [], derives.rows);
+  return [renderWithinBudget(details, refs), ...(authorization === null ? [] : [authorization])].join("\n\n");
 }
 
 /** Current deriving decisions supply authority; gate-file changes are declared for merge review. */
@@ -272,17 +260,13 @@ function decisionExecutionSurface(
  * (only a pathological id set can do that), refs are shed from the tail under the
  * widest root, so the refs line and every emitted line fit without a final clamp.
  */
-function renderWithinBudget(details: readonly DetailLine[], refs: readonly string[], factsNote: string | null): string {
-  const note = factsNote === null ? 0 : byteLength(factsNote) + 1;
+function renderWithinBudget(details: readonly DetailLine[], refs: readonly string[]): string {
   const mutable = [...refs];
   let refsLine = `<refs>${mutable.join(" ")}</refs>`;
   // Reserve the widest root the render can emit: shedding a detail — and so marking the
   // root truncated — is only known after the fit, so the refs line must fit under
   // `<task-context truncated="yes">` even when the final render keeps the short root.
-  while (
-    mutable.length > 0 &&
-    byteLength(`${TRUNCATED_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) + note > CAUSAL_CONTEXT_MAX_BYTES
-  ) {
+  while (mutable.length > 0 && byteLength(`${TRUNCATED_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) > CAUSAL_CONTEXT_MAX_BYTES) {
     mutable.pop();
     refsLine = `<refs>${mutable.join(" ")} …</refs>`;
   }
@@ -290,26 +274,15 @@ function renderWithinBudget(details: readonly DetailLine[], refs: readonly strin
   // 16-byte-longer truncated form; fitting the whole root while emitting the truncated one
   // would overshoot the cap and cut `</task-context>` off a details-only shed. A whole-root
   // fit that sheds nothing is emitted as measured.
-  const whole = fitWithinBudget(details, refsLine, ROOT_OPEN, factsNote);
-  if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine, factsNote);
-  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN, factsNote);
-  return renderBlock(TRUNCATED_OPEN, refsLine, truncated.kept, truncated.omittedLine, factsNote);
+  const whole = fitWithinBudget(details, refsLine, ROOT_OPEN);
+  if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine);
+  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN);
+  return renderBlock(TRUNCATED_OPEN, refsLine, truncated.kept, truncated.omittedLine);
 }
 
 /** Greedy detail fit against one concrete open tag, including whether the omission note still fits. */
-function fitWithinBudget(
-  details: readonly DetailLine[],
-  refsLine: string,
-  open: string,
-  factsNote: string | null,
-): BudgetFit {
-  let used =
-    byteLength(open) +
-    1 +
-    (factsNote === null ? 0 : byteLength(factsNote) + 1) +
-    byteLength(refsLine) +
-    1 +
-    byteLength(ROOT_CLOSE);
+function fitWithinBudget(details: readonly DetailLine[], refsLine: string, open: string): BudgetFit {
+  let used = byteLength(open) + 1 + byteLength(refsLine) + 1 + byteLength(ROOT_CLOSE);
   const kept: string[] = [],
     omitted: string[] = [];
   let dropped = false;
@@ -336,16 +309,9 @@ function fitWithinBudget(
   return { kept, omittedLine, dropped };
 }
 
-function renderBlock(
-  open: string,
-  refsLine: string,
-  kept: readonly string[],
-  omittedLine: string | null,
-  factsNote: string | null,
-): string {
-  const tail = omittedLine === null ? [refsLine] : [refsLine, omittedLine],
-    head = factsNote === null ? [] : [factsNote];
-  return `${open}\n${[...head, ...kept, ...tail].join("\n")}\n${ROOT_CLOSE}`;
+function renderBlock(open: string, refsLine: string, kept: readonly string[], omittedLine: string | null): string {
+  const tail = omittedLine === null ? [refsLine] : [refsLine, omittedLine];
+  return `${open}\n${[...kept, ...tail].join("\n")}\n${ROOT_CLOSE}`;
 }
 
 function detail(ref: string, line: string): DetailLine {

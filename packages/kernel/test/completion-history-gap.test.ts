@@ -54,6 +54,7 @@ test("missing snapshot is an explicit replayable gap, preserving acceptance with
     closeout: "ready",
     closeoutPath: "closeout.md",
     eligibleDirtyPaths: [],
+    producesFactCount: 1,
     projectionStatus: "ready",
   });
   assert.match(next.blocker!.next.reason, /Historical snapshot gap/);

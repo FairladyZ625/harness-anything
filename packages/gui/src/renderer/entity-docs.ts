@@ -456,7 +456,7 @@ const factDoc: EntityKindDoc = {
     "可复核观察:测到什么、在哪测的、怎么复现。append-only——事件本身不可改,推翻一条观察用新事实取代它,不删除旧的。",
   fields: [
     field("factId", true, "string", "稳定 ID(F- 加 8 位 Crockford Base32 字符,去 I/L/O/U);引用形 fact/{factId}。"),
-    field("taskId", false, "string", "归属任务;按需记录,不设收口配额。"),
+    field("taskId", false, "string", "归属任务;收口前至少要有一条真实 fact。"),
     field("type", true, "const", "事件类型,当前只有 fact_recorded。"),
     field("actor", true, "object", "谁记的:principal(人)+ 可选 executor(agent)。"),
     field("occurredAt", true, "string", "观察发生时间。"),

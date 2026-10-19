@@ -48,7 +48,7 @@ Task Contract: harness-task v1
 
 ## Evidence Protocol
 
-原样保留命令输出。运行中出现值得留存的现场、或某个 decision 需要证据时，通过公开 CLI 记录一条观察 fact。reviewer 不独立或任何解码后的文件系统操作数指向仓库源码路径时，必须拒收本次运行。
+原样保留命令输出。完成前通过公开 CLI 至少记录一条观察 fact。reviewer 不独立或任何解码后的文件系统操作数指向仓库源码路径时，必须拒收本次运行。
 
 ## Verification
 

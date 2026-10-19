@@ -383,7 +383,8 @@ test("a lightweight child bare-invocation execution closes without a review disp
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     assert.equal(
       String((submitted.next as readonly { readonly command: string }[])[0]?.command),
-      `ha task complete ${taskId}`,
+      `ha fact record --task ${taskId} --statement "<what changed and why it matters>"` +
+        ` --source "<evidence path or observation>" --confidence high`,
     );
     return;
     assert.equal(

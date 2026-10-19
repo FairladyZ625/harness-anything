@@ -287,13 +287,10 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       block,
       new RegExp(`<claims ref="decision/${decisionId}">C1 94% of dispatches skip read-set\\.</claims>`, "u"),
     );
-    // dec_BB2BCE9F995CD3A126E2918734 CH4: the injected fact names the commit and time it was
-    // recorded against (fixture-resolved, so matched loosely after the evidence source).
     assert.match(
       block,
-      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts; recorded [0-9TZ:.-]+ @ [0-9a-f]{8}\)<\/fact>/u,
+      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts\)<\/fact>/u,
     );
-    assert.match(block, /^<task-context>\n<note>fact 是历史观察，涉及代码时以现场为准。<\/note>\n/u);
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
     assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
     assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");

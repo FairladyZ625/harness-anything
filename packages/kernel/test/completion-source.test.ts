@@ -183,11 +183,12 @@ test("a cut has one claimed run and a terminal result cannot be replaced by arri
 
 test("domain defaults are reachable only when the repository left a value unset, then the cut freezes them", () => {
   const defaults = { review: true, consent: true, factDisposition: true, codeDoc: false };
-  assert.deepEqual(effectiveCloseoutGates({}, [], undefined, defaults), defaults);
+  assert.deepEqual(effectiveCloseoutGates({}, [], undefined, defaults), { ...defaults, fact: true });
   assert.equal(effectiveCloseoutGates({ profile: "standard" }, [], undefined, defaults).review, false);
   assert.equal(effectiveCloseoutGates({ overrides: { consent: false } }, [], undefined, defaults).consent, false);
   assert.equal(effectiveCloseoutGates({ profile: "strict" }, [], { review: false }, defaults).review, false);
   assert.equal(effectiveCloseoutGates({}, ["code-doc-reconciliation"], { codeDoc: false }, defaults).codeDoc, true);
+  assert.equal(effectiveCloseoutGates({}, [], { fact: false }, defaults).fact, false);
   const frozen = resolveCompletionContract(
     [],
     { gates: [], ci: { workflows: [] } },

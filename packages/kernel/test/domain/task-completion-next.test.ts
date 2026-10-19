@@ -17,6 +17,7 @@ const context = {
   closeout: "ready" as const,
   closeoutPath: "tasks/task-1/closeout.md",
   eligibleDirtyPaths: [],
+  producesFactCount: 1,
 };
 
 test("completion next is one pure judgment across lifecycle and unavailable-input fixtures", () => {
@@ -216,9 +217,16 @@ test("a nonempty delivery cut still requires a code/doc witness", () => {
   assert.equal(result.next!.action, "ha task code-doc reconcile task-1 --path 'src/delivery.ts'");
 });
 
-test("completion has no fact quota: a task with zero recorded facts still clears every blocker", () => {
-  // dec_BB2BCE9F995CD3A126E2918734 CH4 removed the per-task fact gate; facts are on-demand.
-  assert.equal(taskCompletionNext(at(6), context).blocker, null);
+test("missing facts guide an observable change while a recorded fact clears the blocker", () => {
+  const snapshot = at(6),
+    missing = taskCompletionNext(snapshot, { ...context, producesFactCount: 0 });
+  assert.equal(missing.blocker?.code, "fact_missing");
+  assert.match(missing.next!.action, /ha fact record --task task-1/);
+  assert.match(missing.next!.action, /--statement "<what changed and why it matters>"/);
+  assert.match(missing.next!.action, /--source "<evidence path or observation>" --confidence high/);
+  assert.match(missing.next!.reason, /observable change.*evidence/);
+  assert.match(missing.next!.reason, /execution recaps and test counts in closeout Verification/);
+  assert.equal(taskCompletionNext(snapshot, context).blocker, null);
 });
 
 test("a contract that declares no closeout starts completion with its migration", () => {
@@ -231,6 +239,22 @@ test("a contract that declares no closeout starts completion with its migration"
   const done = at(fixture.events.length);
   assert.equal(done.task?.status, "done");
   assert.equal(taskCompletionNext(done, undeclared).blocker, null);
+});
+
+test("a profile that lifted the fact gate completes without facts; the gate stays on by default", () => {
+  const snapshot = at(6),
+    lightweight = {
+      ...context,
+      producesFactCount: 0,
+      closeoutGates: { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
+    };
+  assert.equal(taskCompletionNext(snapshot, lightweight).blocker, null);
+  // Repository ceremony profiles cannot relax it: only the task-bound declaration did.
+  const repositoryRelaxed = {
+    ...lightweight,
+    closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
+  };
+  assert.equal(taskCompletionNext(snapshot, repositoryRelaxed).blocker?.code, "fact_missing");
 });
 
 // Q1-R1-003: an adverse verdict on the current cut is the owner's to adjudicate, not a missing review.
@@ -383,7 +407,7 @@ test("a missing executor blocks only while an independent review is still owed",
         actor: { ...execution.actor, executor: null },
       })),
     }),
-    reviewLifted = { review: false, consent: false, factDisposition: false, codeDoc: false };
+    reviewLifted = { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false };
   // A recorded review already judged independence, so the chain moves on to the remaining gates.
   assert.notEqual(taskCompletionNext(withoutExecutor(at(6)), context).blocker?.code, "executor_missing");
   // With the review gate lifted no reviewer independence is judged at all.
@@ -412,11 +436,12 @@ test("INDEX next uses the same completion judgment for strict and lightweight pr
       })[0]!.body,
     strict = {
       ...context,
-      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
     },
     lightweight = {
       ...context,
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+      producesFactCount: 0,
+      closeoutGates: { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
     };
   assert.match(index(submitted, strict), /ha task adjudicate task-1 --forward --note-file <path>/u);
   assert.match(index(submitted, lightweight), /ha task complete task-1/u);

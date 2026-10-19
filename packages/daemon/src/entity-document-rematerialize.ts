@@ -311,7 +311,6 @@ export function factDocumentRecord(projection: TaskProjection, fact: FactProject
     statement: fact.statement,
     evidenceSource: fact.evidenceSource,
     observedAt: fact.observedAt,
-    ...(fact.observedCommit !== undefined ? { observedCommit: fact.observedCommit } : {}),
     confidence: fact.confidence,
     state,
     supersededBy: incoming.map(({ source, rationale }) => ({ factRef: source, rationale })),
