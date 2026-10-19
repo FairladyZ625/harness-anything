@@ -30,9 +30,6 @@ jobs:
   production-delta:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
@@ -41,15 +38,9 @@ jobs:
         with:
           node-version: 24
       - name: Compute production delta
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_HEAD_REF: ${{ github.event.pull_request.head.ref || '' }}
-          PR_AUTHOR_LOGIN: ${{ github.event.pull_request.user.login || '' }}
         run: |
           git fetch --no-tags origin main
-          gh pr view "$PR_NUMBER" --json body --jq .body > "$RUNNER_TEMP/pr-body.md"
-          node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"
+          node tools/gates/production-delta.mjs --base origin/main
   evidence-contract:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest

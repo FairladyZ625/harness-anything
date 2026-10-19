@@ -428,7 +428,7 @@
     },
     {
       "id": "pr-body-lint",
-      "command": "node tools/check-pr-body-bilingual.mjs --env PR_BODY",
+      "command": "node tools/check-pr-body.mjs --env PR_BODY",
       "category": "meta-governance",
       "tier": "pr-required",
       "tierReason": null,
@@ -436,6 +436,7 @@
         ".github/pull_request_template.md",
         "harness/governance/standards/repo-governance-standard.md",
         "decision/dec_558977E9272F532D6DCFDB7F90#CH1",
+        "decision/dec_BB2BCE9F995CD3A126E2918734#CH3",
         "packages/daemon/src/protocol/daemon-protocol-commands-agent.ts:agentProtocolCommands"
       ],
       "consumerScope": [
@@ -459,7 +460,7 @@
         "requiresGovernanceEvidence": true,
         "protectedSurfaces": [
           ".github/pull_request_template.md",
-          "tools/check-pr-body-bilingual.mjs",
+          "tools/check-pr-body.mjs",
           "packages/kernel/fixtures/canonical-events/**/accepted*.json",
           "tools/gate-manifest.json"
         ]
@@ -488,7 +489,7 @@
       "deterministic": true,
       "positiveControl": {
         "status": "covered",
-        "evidence": ["tools/check-pr-body-bilingual.test.mjs"]
+        "evidence": ["tools/check-pr-body.test.mjs"]
       }
     },
     {
@@ -568,11 +569,11 @@
     },
     {
       "id": "production-delta",
-      "command": "node tools/gates/production-delta.mjs --base origin/main --pr-body-file \"$RUNNER_TEMP/pr-body.md\"",
+      "command": "node tools/gates/production-delta.mjs --base origin/main",
       "category": "meta-governance",
       "tier": "pr-advisory",
       "tierReason": "The computed production delta is reported on every PR-body workflow run but is not a required context.",
-      "authoritySource": ["tools/gates/production-delta.mjs", ".github/pull_request_template.md"],
+      "authoritySource": ["tools/gates/production-delta.mjs", "decision/dec_BB2BCE9F995CD3A126E2918734#CH3"],
       "consumerScope": ["GitHub job summary and structured CI observation"],
       "githubContext": {
         "requiredContexts": [],

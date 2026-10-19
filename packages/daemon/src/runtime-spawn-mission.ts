@@ -427,7 +427,7 @@ export function prBodyDeliveryProtocol(documentPath: string | null): string | nu
     "- 交付 SHA、base SHA 这类锚一律从冻结的 submission 记录派生（execution 的 Commit 字段）；" +
       "不要把任何 SHA 手抄进 closeout 或 PR 正文——追加一个 commit 再 submit 后，手抄的锚就会过期，" +
       "评审只以 submission 记录为准。",
-    `- 运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/${documentPath}，` +
+    `- 运行 node tools/check-pr-body.mjs --file <任务包根>/${documentPath}，` +
       "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
     "- 随 ha doc sync --submit --task 同步正文与 closeout，然后 `ha task push <task-id>` 发布本任务分支、" +
       "`ha task pr <task-id>` 创建 PR；后续正文修改先重新 doc sync，再用 `ha task pr --update` 更新，都仍在 submit 之前。",

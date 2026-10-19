@@ -10,7 +10,7 @@ import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.cont
 import { openBootstrappedRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
 import { git } from "./task-surface.fixtures.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
-import { checkPrBodyBilingual } from "../../../tools/check-pr-body-bilingual.mjs";
+import { checkPrBody } from "../../../tools/check-pr-body.mjs";
 import { actor, initRepo } from "./doc-sync-slice-a.fixtures.ts";
 
 const PR_TEMPLATE = `# English
@@ -141,7 +141,7 @@ test("worker PR body is synchronized before submit and the receipt names the fro
         .replace("## 改动内容\n\n-", "## 改动内容\n\n派工协议承担填写责任，提交回执展示正文的已接受版本。")
         .replace("- [ ]", "- [x]");
     assert.notEqual(body, PR_TEMPLATE);
-    assert.equal(checkPrBodyBilingual(body).ok, true);
+    assert.equal(checkPrBody(body).ok, true);
     assert.deepEqual(body.match(/^#{1,3} .+$/gmu), PR_TEMPLATE.match(/^#{1,3} .+$/gmu));
     await realizeTaskPlanFixture(rootDir, packagePath, async (planPath) => {
       const result = await cell.run({ kind: "doc-submit", paths: [planPath] }, binding);

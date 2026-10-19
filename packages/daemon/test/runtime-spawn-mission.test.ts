@@ -142,7 +142,7 @@ test("PR body protocol follows the document slot, including lightweight explicit
   assert.match(mission, /pull_request_template.md/u);
   assert.match(mission, /Production-Delta 用 node tools\/gates\/production-delta\.mjs/u);
   assert.match(mission, /确认没有遗漏、占位内容或未填写骨架/u);
-  assert.match(mission, /check-pr-body-bilingual/u);
+  assert.match(mission, /tools\/check-pr-body\.mjs/u);
   assert.match(mission, /从冻结的 submission 记录派生/u);
   assert.doesNotMatch(mission, /Artifact-Anchor/u);
   assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);

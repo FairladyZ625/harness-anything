@@ -21,7 +21,7 @@ function makeManifest() {
           requiresGovernanceEvidence: true,
           protectedSurfaces: [
             ".github/pull_request_template.md",
-            "tools/check-pr-body-bilingual.mjs",
+            "tools/check-pr-body.mjs",
             "tools/gate-manifest.json",
             "package.json:scripts.check",
             "tools/gate-allowlists/check-import-boundaries.json",
@@ -116,7 +116,7 @@ test("protected .github path fails without governance declaration", () => {
 test("protected path passes with governance declaration and authority reference", () => {
   const result = checkPrGovernance({
     body: bodyWithGovernance(),
-    changedFiles: ["tools/check-pr-body-bilingual.mjs"],
+    changedFiles: ["tools/check-pr-body.mjs"],
     manifest: makeManifest(),
   });
 

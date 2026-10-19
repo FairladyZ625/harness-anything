@@ -1,15 +1,15 @@
 # PR, review, and merge
 
-The canonical body-building, production-delta, bilingual-lint, PR creation,
+The canonical body-building, production-delta, PR-body lint, PR creation,
 review-triage, and merge-handoff steps live in
-[Prepare the bilingual PR body](../../../skills/harness-contributing/SKILL.md#prepare-the-bilingual-pr-body),
+[Prepare the PR body](../../../skills/harness-contributing/SKILL.md#prepare-the-pr-body),
 [Push and open the PR](../../../skills/harness-contributing/SKILL.md#push-and-open-the-pr),
 and [Review and merge](../../../skills/harness-contributing/SKILL.md#review-and-merge).
 
 ## PR contract
 
 The live [pull request template](../../../.github/pull_request_template.md) is
-the body authority. Its English and Chinese blocks are independently complete;
+the body authority. Fill every section it keeps;
 machine-readable declarations stay in the location and format the template
 specifies. Empty or deleted sections make a contribution harder to audit even
 when a lightweight lint happens to accept them.

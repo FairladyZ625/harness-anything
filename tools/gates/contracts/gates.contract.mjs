@@ -49,7 +49,7 @@ export default Object.freeze({
       phase: "P2",
       workflow: ".github/workflows/pr-body.yml",
       job: "production-delta",
-      command: 'node tools/gates/production-delta.mjs --base origin/main --pr-body-file "$RUNNER_TEMP/pr-body.md"',
+      command: "node tools/gates/production-delta.mjs --base origin/main",
     },
     { id: "G34", phase: "P4", job: "gate-contract-tests", command: "node --test tools/gates/test/*.test.mjs" },
     {

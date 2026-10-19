@@ -76,7 +76,7 @@ for (const update of [false, true])
     ]);
   });
 
-test("task PR runs the bilingual gate on the body before the provider", async () => {
+test("task PR runs the repository PR body gate on the body before the provider", async () => {
   const f = prFixture();
   let linted: string | null = null;
   const receipt = await createTaskPullRequest(
@@ -270,8 +270,8 @@ test("task PR runs the repository lint script itself and rejects a placeholder-o
     ),
     (error: Error & { code?: string; message: string }) =>
       error.code === "content_not_ready" &&
-      error.message.includes("# English ## Residual Risk") &&
-      error.message.includes("# 中文 ## 残余风险"),
+      error.message.includes("## Residual Risk") &&
+      error.message.includes("## 残余风险"),
   );
   const receipt = await createTaskPullRequest(
     withBody(filledBody) as never,
