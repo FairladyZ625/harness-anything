@@ -3,7 +3,16 @@ import assert from "node:assert/strict";
 import { adoptNativeProcess, launchNative } from "../src/runtime-spawn-process.ts";
 import { randomBytes } from "node:crypto";
 import net from "node:net";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -105,6 +114,7 @@ test(
         socket.once("connect", () => resolve(socket));
         socket.once("error", reject);
       });
+      assert.equal(statSync(path.dirname(spec.path)).mode & 0o777, 0o700);
       try {
         const response = new Promise<string>((resolve) =>
           client.once("data", (chunk) => resolve(chunk.toString("utf8"))),

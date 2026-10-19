@@ -132,16 +132,10 @@ function endpointIdentityMatches(route: RuntimeDaemonRoute, platform: NodeJS.Pla
 function mkdirSecurely(target: string): void {
   mkdirSync(target, { recursive: true, mode: 0o700 });
   const info = lstatSync(target);
-  // mkdirSync leaves a pre-existing directory's mode untouched, and sticky /tmp lets any user
-  // pre-create this name; a directory that is not a 0700 owner directory would silently void
-  // the per-user boundary the socket path claims.
-  if (
-    !info.isDirectory() ||
-    info.isSymbolicLink() ||
-    info.uid !== process.getuid?.() ||
-    (process.platform !== "win32" && (info.mode & 0o777) !== 0o700)
-  )
+  // Sticky /tmp lets any user pre-create this name; only tighten a real directory owned by us.
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.())
     throw new Error("runtime callback relay directory is unsafe");
+  if (process.platform !== "win32") chmodSync(target, 0o700);
 }
 
 function removeStaleRelay(target: string): void {
