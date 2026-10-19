@@ -327,7 +327,7 @@ test("executor declaration and completion context refusals name projection rebui
     const retry = await cell.run({ kind: "task-complete", taskId, executionId }, owner);
     assert.equal(retry.code, "delivery_missing", JSON.stringify(retry));
     const retryNext = (retry as Record<string, unknown>).next as readonly { action: string }[];
-    assert.match(retryNext[0]?.action ?? "", /Merge the delivery into origin\/main/u);
+    assert.match(retryNext[0]?.action ?? "", /Merge the delivery with node tools\/pr-merge\.mjs/u);
     assert.doesNotMatch(JSON.stringify(retry), /task ci|ci observe/u);
     await cell.close();
     cell = undefined;

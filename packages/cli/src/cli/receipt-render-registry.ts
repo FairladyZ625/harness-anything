@@ -251,9 +251,15 @@ function renderSettingsRead(receipt: Record<string, unknown>): string {
 function renderDecisionPropose(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt),
     summary = renderSuccessfulReceipt(receipt);
-  return typeof payload?.decisionId === "string"
-    ? `${summary}\nnext: ha explain decision/${payload.decisionId}`
-    : summary;
+  if (typeof payload?.decisionId !== "string") return summary;
+  // Acceptance's evidence floor rejects a claim set with no claim-to-evidence edge, so the
+  // proposal receipt names the edge command up front instead of letting accept fail later.
+  return [
+    summary,
+    `next: ha explain decision/${payload.decisionId}`,
+    `next: ha relation relate --source-ref decision/${payload.decisionId}/<claim-id> --target-ref fact/<fact-id> --type evidenced-by --rationale <why> --expected-version 0` +
+      " (accept requires an evidenced claim, or --judgment-only)",
+  ].join("\n");
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {
@@ -430,9 +436,13 @@ function renderInitReceipt(receipt: Record<string, unknown>): string {
 }
 
 function renderSuccessfulReceipt(receipt: Record<string, unknown>): string {
-  return String(
+  const text = String(
     contractMigrationDryRunSummary(receipt) ??
       receipt.summary ??
       `${receipt.command ?? "command"}: ${receipt.outcome ?? "applied"}`,
   );
+  // Settlement-none publications (task-push, task-pr) never reach the accepted_durable branch
+  // that renders `next` after the acceptance line, so they get the lane here instead.
+  if (receipt.status === "accepted_durable") return text;
+  return [text, ...renderReceiptNext(receipt.next, text)].join("\n");
 }

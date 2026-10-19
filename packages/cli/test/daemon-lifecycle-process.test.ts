@@ -62,9 +62,10 @@ test("#1565: a daemon whose shutdown never ran still yields a successful stop re
       "an ungraceful exit leaves the singleton lock behind",
     );
 
-    const stopped = run(fixture.root, fixture.userRoot, ["daemon", "stop"]);
-    assert.equal(stopped.ok, true, JSON.stringify(stopped));
-    assert.notEqual(stopped.code, "daemon_stop_timeout");
+    const stopped = runText(fixture.root, fixture.userRoot, ["daemon", "stop"]);
+    assert.match(stopped, /daemon-stop: pid \d+ stopped; an explicit stop does not autostart\./u);
+    // An explicit stop never autostarts, so its human-readable receipt must show the restart command.
+    assert.match(stopped, /ha daemon start --service/u, stopped);
     assert.equal(
       existsSync(daemonPidPath(fixture.userRoot, "default")),
       false,
@@ -720,6 +721,14 @@ function run(root: string, userRoot: string, args: readonly string[]): Record<st
   });
   assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
   return JSON.parse(result.stdout) as Record<string, unknown>;
+}
+function runText(root: string, userRoot: string, args: readonly string[]): string {
+  const result = spawnSync(process.execPath, [cli, "--root", root, ...args], {
+    encoding: "utf8",
+    env: cliEnv(root, userRoot),
+  });
+  assert.equal(result.status, 0, `${result.stderr}\n${result.stdout}`);
+  return result.stdout;
 }
 function stop(userRoot: string): void {
   const pid = readDaemonPid(userRoot, "default");
