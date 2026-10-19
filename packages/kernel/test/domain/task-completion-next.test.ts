@@ -197,7 +197,7 @@ test("a frozen CI gate reads configured merge evidence instead of an observation
     delivery = { required: true, targetBranch: "main", platform: "github" as const };
   const unmerged = taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: false } });
   assert.equal(unmerged.blocker?.code, "delivery_missing");
-  assert.match(unmerged.next!.action, /origin\/main/u);
+  assert.match(unmerged.next!.action, /node tools\/pr-merge\.mjs <PR-number-or-url>/u);
   assert.equal(taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: true } }).blocker, null);
 });
 
