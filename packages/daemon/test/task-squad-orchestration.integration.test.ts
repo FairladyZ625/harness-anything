@@ -380,6 +380,74 @@ test("failed child wakes the leader with the failure after its sibling settles",
   assertChildrenClosed(fixture, running.workerAttempts);
 });
 
+test(
+  "ended stage assignments release their WIP slot before the next stage admits a worker",
+  { timeout: 60_000 },
+  async (t) => {
+    // The limit fits the active parent plus one running assignment; a still-active
+    // ended-stage assignment would exhaust it and reject the next stage's worker.
+    const fixture = await openFixture(t, "stage-wip-release", false, 2);
+    const counted = async () =>
+      ((await fixture.cell.read("repo.tasks.wip", {}, binding)).counted as Array<{ taskId: string }>)
+        .map((row) => row.taskId)
+        .sort();
+    const dispatchStage = (turn: { dispatchId: string }, to: string, owned: string[]) =>
+      fixture.finish(
+        turn.dispatchId,
+        JSON.stringify({
+          schema: "runtime-batch/v1",
+          dispatches: [{ to, prompt: realizedTaskPlan(`stage ${to}`), ownedPaths: owned }],
+        }),
+      );
+    await dispatchStage((await fixture.status()).leaderTurns[0], "one", ["a.txt"]);
+    const stageOne = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 1 && state.workerAttempts[0].runtimeSessionId !== null,
+    );
+    const first = stageOne.workerAttempts[0];
+    assert.ok(first.taskId);
+    assert.equal(fixture.task(first.taskId!).snapshot.task?.status, "active");
+    assert.deepEqual(await counted(), [fixture.taskId, first.taskId!].sort());
+    fixture.finish(first.dispatchId!, "stage one delivered");
+    const secondTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 2);
+    const settledFirst = fixture.task(first.taskId!);
+    assert.equal(settledFirst.snapshot.task?.status, "cancelled", "ended stage assignment must leave the worktable");
+    assert.equal(settledFirst.snapshot.lease, null);
+    assert.deepEqual(await counted(), [fixture.taskId]);
+    await dispatchStage(secondTurn.leaderTurns[1], "two", ["b.txt"]);
+    const stageTwo = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 2 && state.workerAttempts[1].runtimeSessionId !== null,
+    );
+    const second = stageTwo.workerAttempts[1];
+    assert.ok(second.taskId);
+    assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "active");
+    assert.deepEqual(await counted(), [fixture.taskId, second.taskId!].sort());
+    fixture.finish(second.dispatchId!, "stage two delivered");
+    const thirdTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 3);
+    assert.equal(fixture.task(second.taskId!).snapshot.task?.status, "cancelled");
+    assert.deepEqual(await counted(), [fixture.taskId]);
+    await dispatchStage(thirdTurn.leaderTurns[2], "one", ["a.txt"]);
+    const stageThree = await fixture.waitStatus(
+      (state) => state.workerAttempts.length === 3 && state.workerAttempts[2].runtimeSessionId !== null,
+    );
+    const third = stageThree.workerAttempts[2];
+    assert.ok(third.taskId);
+    assert.deepEqual(await counted(), [fixture.taskId, third.taskId!].sort());
+    fixture.finish(third.dispatchId!, "stage three delivered");
+    const finalTurn = await fixture.waitStatus((state) => state.leaderTurns.length === 4);
+    fixture.finish(
+      finalTurn.leaderTurns[3].dispatchId,
+      JSON.stringify({
+        schema: "squad-decision/v1",
+        action: "converged",
+        report: "# Stages\n\nThree sequential stages each released their assignment slot.",
+      }),
+    );
+    await fixture.waitStatus((state) => state.status === "converged");
+    assertChildrenClosed(fixture, stageThree.workerAttempts);
+    assert.deepEqual(await counted(), [fixture.taskId]);
+  },
+);
+
 test("overlapping worker declarations reject the second child before execution", { timeout: 30_000 }, async (t) => {
   const fixture = await openFixture(t, "overlap");
   await fixture.plan(["src/"], ["SRC/a.txt"]);
@@ -442,7 +510,12 @@ test(
   },
 );
 
-async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: string, runtimeCaller = false) {
+async function openFixture(
+  t: { after(fn: () => Promise<void>): void },
+  slug: string,
+  runtimeCaller = false,
+  wipLimit?: number,
+) {
   const parent = mkdtempSync(path.join(tmpdir(), `ha-squad-e2e-${slug}-`)),
     root = path.join(parent, "repo"),
     repoId = workspaceId(`squad-e2e-${slug}`),
@@ -459,7 +532,8 @@ async function openFixture(t: { after(fn: () => Promise<void>): void }, slug: st
   mkdirSync(path.join(root, "harness"));
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: docs-task\n  defaultProfile: baseline\n",
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: docs-task\n  defaultProfile: baseline\n" +
+      (wipLimit === undefined ? "" : `  tasks:\n    wipLimit: ${wipLimit}\n`),
   );
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
   git(root, "add", ".gitignore");

@@ -104,6 +104,7 @@ function makeRecoveryFixture(
     resultBodies = new Map<string, Uint8Array>(),
     children = new Map<string, string>(),
     released: string[] = [],
+    settlements: Array<{ readonly taskId: string; readonly runtimeSessionId: string | null }> = [],
     childLeaseActors = new Map<string, ActorIdentity>(),
     sessionTasks = new Map<string, string>([
       [LEADER_SESSION_ID, TASK_ID],
@@ -286,6 +287,9 @@ function makeRecoveryFixture(
           "coordinator cannot release a foreign lease",
         );
         released.push(taskId);
+      },
+      settleChildTask: async (child) => {
+        settlements.push(child);
       },
       createChildTask: async (child) => {
         assert.equal(child.parentTaskId, TASK_ID);
