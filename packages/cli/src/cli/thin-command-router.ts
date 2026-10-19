@@ -24,7 +24,9 @@ type RoutedParser = (
   inputs: ThinCliInputDirectory,
 ) => ThinParseResult;
 
-function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>): Record<string, unknown> {
+type SuccessfulFlags = Extract<ReturnType<typeof readFlags>, { ok: true }>;
+
+function edgeJoinFields(f: SuccessfulFlags): Record<string, unknown> {
   return {
     ...(f.one.get("--join-id") ? { joinId: f.one.get("--join-id") } : {}),
     ...(f.many.get("--join-repo") ? { repoIds: f.many.get("--join-repo") } : {}),
@@ -35,6 +37,26 @@ function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>):
 
 const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
   parseProvider(route, args, rootDir, json, inputs);
+
+function validateEdgeJoinBootstrap(f: SuccessfulFlags, json: boolean): ThinParseResult | undefined {
+  const operation = f.one.get("--operation");
+  if (operation === "edge-join-create") {
+    const required = ["--username", "--email", "--display-name", "--person-id"];
+    if (
+      required.some((flag) => !f.one.get(flag)) ||
+      !f.many.get("--join-repo")?.length ||
+      !f.many.get("--join-group")?.length
+    )
+      return rejected(
+        "missing_field",
+        "Edge invitations require --username, --email, --display-name, --person-id, and at least one --join-repo and --join-group.",
+        json,
+      );
+  }
+  if (["edge-join-status", "edge-join-revoke"].includes(operation ?? "") && !f.one.get("--join-id"))
+    return rejected("missing_field", "Edge join status and revoke require --join-id.", json);
+  return undefined;
+}
 
 // Routes whose argv shape needs a dedicated parser, keyed by command id.
 const dedicatedRouteParsers = new Map<string, RoutedParser>([
@@ -111,21 +133,8 @@ function parseRbacBootstrap(
   const administratorFields = ["--username", "--email", "--display-name", "--person-id", "--password-file"];
   if (f.one.get("--operation") === "bootstrap-admin" && administratorFields.some((flag) => !f.one.get(flag)))
     return rejected("missing_field", `First administrator creation requires ${administratorFields.join(", ")}.`, json);
-  if (f.one.get("--operation") === "edge-join-create") {
-    const required = ["--username", "--email", "--display-name", "--person-id"];
-    if (
-      required.some((flag) => !f.one.get(flag)) ||
-      !f.many.get("--join-repo")?.length ||
-      !f.many.get("--join-group")?.length
-    )
-      return rejected(
-        "missing_field",
-        "Edge invitations require --username, --email, --display-name, --person-id, and at least one --join-repo and --join-group.",
-        json,
-      );
-  }
-  if (["edge-join-status", "edge-join-revoke"].includes(f.one.get("--operation") ?? "") && !f.one.get("--join-id"))
-    return rejected("missing_field", "Edge join status and revoke require --join-id.", json);
+  const edgeJoinError = validateEdgeJoinBootstrap(f, json);
+  if (edgeJoinError) return edgeJoinError;
   if (
     f.one.get("--operation") !== "bootstrap-admin" &&
     f.one.get("--operation") !== "edge-join-create" &&
