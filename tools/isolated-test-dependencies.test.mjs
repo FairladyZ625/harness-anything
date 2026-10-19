@@ -52,6 +52,8 @@ function install(root, args) {
     );
     mkdirSync(path.join(root, "packages/local/node_modules"));
     writeFileSync(path.join(root, "packages/local/node_modules/nested"), "nested dependency");
+    mkdirSync(path.join(root, ".test-runtime/playwright/chromium-1234"), { recursive: true });
+    writeFileSync(path.join(root, ".test-runtime/playwright/chromium-1234/marker"), "runtime");
   }
   writeFileSync(path.join(root, "packages/local/output"), readFileSync(path.join(root, "packages/local/source")));
 }
@@ -201,12 +203,14 @@ test("warm preparation completes while a cold preparation is still installing", 
     const install = (workspaceRoot) => {
       mkdirSync(path.join(workspaceRoot, "node_modules"), { recursive: true });
       writeFileSync(path.join(workspaceRoot, "node_modules/value"), "installed");
+      mkdirSync(path.join(workspaceRoot, ".test-runtime/playwright/chromium-1234"), { recursive: true });
+      writeFileSync(path.join(workspaceRoot, ".test-runtime/playwright/chromium-1234/marker"), "runtime");
     };
     prepareDependencies(warm, cache, install);
     const warmKey = readFileSync(path.join(cache, "current/key"), "utf8");
     // The cold preparation holds a different generation key and stops inside
     // its install until released; the warm one must not wait behind it.
-    const coldCreator = `import {prepareDependencies} from ${JSON.stringify(module)}; import {mkdirSync,writeFileSync,appendFileSync,existsSync} from 'node:fs'; import path from 'node:path'; prepareDependencies(process.argv[1],process.argv[2],(root,args)=>{if (args[0] !== 'ci') return; appendFileSync(path.join(process.argv[2],'cold-entered'),''); const latch=new Int32Array(new SharedArrayBuffer(4)); const deadline=Date.now()+60000; while (!existsSync(path.join(process.argv[2],'cold-release')) && Date.now()<deadline) Atomics.wait(latch,0,0,25); mkdirSync(path.join(root,'node_modules')); writeFileSync(path.join(root,'node_modules/value'),'installed'); appendFileSync(path.join(process.argv[2],'cold-exited'),'');});`;
+    const coldCreator = `import {prepareDependencies} from ${JSON.stringify(module)}; import {mkdirSync,writeFileSync,appendFileSync,existsSync} from 'node:fs'; import path from 'node:path'; prepareDependencies(process.argv[1],process.argv[2],(root,args)=>{if (args[0] !== 'ci') return; appendFileSync(path.join(process.argv[2],'cold-entered'),''); const latch=new Int32Array(new SharedArrayBuffer(4)); const deadline=Date.now()+60000; while (!existsSync(path.join(process.argv[2],'cold-release')) && Date.now()<deadline) Atomics.wait(latch,0,0,25); mkdirSync(path.join(root,'node_modules')); writeFileSync(path.join(root,'node_modules/value'),'installed'); mkdirSync(path.join(root,'.test-runtime/playwright/chromium-1234'),{recursive:true}); writeFileSync(path.join(root,'.test-runtime/playwright/chromium-1234/downloaded'),'runtime'); appendFileSync(path.join(process.argv[2],'cold-exited'),'');});`;
     const coldChild = spawnCreator(cache, coldCreator, cold);
     await waitForFile(path.join(cache, "cold-entered"));
     prepareDependencies(warm, cache, install);
@@ -219,6 +223,11 @@ test("warm preparation completes while a cold preparation is still installing", 
     assert.equal(await coldChild, 0);
     assert.notEqual(readFileSync(path.join(cache, "current/key"), "utf8"), warmKey);
     assert.equal(readFileSync(path.join(warm, "node_modules/value"), "utf8"), "installed");
+    assert.equal(readFileSync(path.join(warm, ".test-runtime/playwright/chromium-1234/marker"), "utf8"), "runtime");
+    assert.equal(
+      readFileSync(path.join(cache, "current/runtime/playwright/chromium-1234/downloaded"), "utf8"),
+      "runtime",
+    );
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

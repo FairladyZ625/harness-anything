@@ -249,11 +249,15 @@ export function prepareDependencies(
       // workspace already holds the same content.
       hit = true;
     } else {
+      mkdirSync(pending, { recursive: true });
+      // The workspace contains the cache seed plus any downloads completed by
+      // this run. Copy that final tree once; copying both sources into the same
+      // destination makes cpSync fail on overlapping runtime directories.
       mkdirSync(path.join(pending, "runtime"), { recursive: true });
-      if (existsSync(path.join(current, "runtime")))
-        copyDependencyTree(path.join(current, "runtime"), path.join(pending, "runtime"), current, pending);
       if (existsSync(path.join(root, ".test-runtime")))
         copyDependencyTree(path.join(root, ".test-runtime"), path.join(pending, "runtime"), root, current);
+      else if (existsSync(path.join(current, "runtime")))
+        copyDependencyTree(path.join(current, "runtime"), path.join(pending, "runtime"), current, pending);
       const npmRoots = ["", ...workspaces]
         .map((name) => path.join(name, "node_modules"))
         .filter((name) => existsSync(path.join(root, name)));
