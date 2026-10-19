@@ -1,11 +1,14 @@
 import {
   appendFileSync,
+  copyFileSync,
   existsSync,
+  linkSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   readdirSync,
   realpathSync,
-  symlinkSync,
+  rmdirSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
@@ -32,6 +35,8 @@ const adapters: Readonly<
     }
   >
 > = { "node-modules": nodeModulesSetupAdapter };
+
+const worktreeLedgerMarker = "harness-ledger-mirror/v1\n";
 
 /**
  * A `run:` step still running past Settings `worktree.setupStepTimeoutMs` fails like any other: the start is
@@ -67,11 +72,11 @@ export type WorktreeSetupResult =
     };
 
 /**
- * Links the ledger into the worktree, then runs every declared step that has not succeeded in this worktree yet;
- * stops at the first that fails.
+ * Mirrors the task package into the worktree, then runs every declared step that has not succeeded in this worktree
+ * yet; stops at the first that fails.
  */
 export async function runWorktreeSetup(input: WorktreeSetupInput): Promise<WorktreeSetupResult> {
-  linkWorktreeLedger(input.rootDir, input.cwd);
+  linkWorktreeLedger(input.rootDir, input.cwd, input.taskId);
   if (input.steps.length === 0) return { ok: true, ran: [] };
   const directory = await setupDirectory(input.cwd),
     succeeded = readSucceeded(directory),
@@ -227,12 +232,14 @@ function readSucceeded(directory: string): string[] {
 }
 
 // The project repository ignores its ledger, so a worktree checks none out, and a worker handed ledger paths that
-// resolve only under the canonical checkout takes that checkout for its repository root (F-3AC0AFF0). Every managed
-// worktree therefore holds, at the ledger's own repository-relative path, a directory of links to the ledger's
-// directories: each path a worker is given resolves under its own root. The directory is a real one, so the ignore
-// rule bootstrap wrote covers it and git reaches no path through a link; one link for the whole ledger would be a
-// file to git, outside that rule. Only directories are linked: a junction needs no privilege on Windows, a file
-// link does. The ledger's own git directory stays out.
+// resolve only under the canonical checkout takes that checkout for its repository root (F-3AC0AFF0). The worker
+// gets a real task-package directory containing hard links to its existing files: edits to those files remain the
+// doc-sync channel (the daemon scans the canonical working copy), while `..` stays inside the worker checkout and
+// cannot walk from the package into sibling ledger directories. New artifacts are created locally and published
+// through the task artifact command. Other ledger files handed to a runtime are copied into its private worktree
+// Git directory, so consumers can read and mutate them without reaching the canonical ledger. Worktrees materialized
+// while every ledger directory was linked are swept to this layout at the next setup. The private ledger's own Git
+// directory stays out.
 
 function ledgerMirror(rootDir: string, cwd: string): { readonly authoredRoot: string; readonly mirror: string } {
   const layout = resolveHarnessLayout(rootDir);
@@ -242,33 +249,149 @@ function ledgerMirror(rootDir: string, cwd: string): { readonly authoredRoot: st
   };
 }
 
-/** The links a worktree holds; null when its ledger directory is a copy the repository tracks, not ours to touch. */
-function mirrorLinks(mirror: string): readonly string[] | null {
-  const entries = existsSync(mirror) ? readdirSync(mirror, { withFileTypes: true }) : [];
-  return entries.every((entry) => entry.isSymbolicLink()) ? entries.map((entry) => entry.name) : null;
-}
-
-/** Links every ledger directory the worktree does not reach yet. A root without a ledger has nothing to link. */
-function linkWorktreeLedger(rootDir: string, cwd: string): void {
-  const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd),
-    linked = existsSync(authoredRoot) ? mirrorLinks(mirror) : null;
-  if (linked === null) return;
-  mkdirSync(mirror, { recursive: true });
-  for (const entry of readdirSync(authoredRoot, { withFileTypes: true }))
-    if (entry.isDirectory() && entry.name !== ".git" && !linked.includes(entry.name))
-      symlinkSync(path.join(authoredRoot, entry.name), path.join(mirror, entry.name), "junction");
-}
-
-/** Removes the links themselves before a worktree is reclaimed, so no removal ever walks into the ledger. */
-export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
-  const { mirror } = ledgerMirror(rootDir, cwd);
-  for (const name of mirrorLinks(mirror) ?? []) unlinkSync(path.join(mirror, name));
+/** The dispatch's own task package in the ledger, named by the unique `<taskId>-` prefix of its compiled path. */
+function ownPackageDirectory(authoredRoot: string, taskId: string): string | null {
+  const tasksRoot = path.join(authoredRoot, "tasks"),
+    name = existsSync(tasksRoot) ? readdirSync(tasksRoot).find((entry) => entry.startsWith(`${taskId}-`)) : undefined;
+  return name === undefined ? null : path.join(tasksRoot, name);
 }
 
 /**
- * A ledger path as the worker reaches it: under its own root when the same file is there. A worker in the canonical
- * checkout, a cwd that does not reach this ledger (an explicitly requested directory, a checkout of a repository
- * that tracks its own copy) and a path outside the ledger keep the path as it is.
+ * Whether the mirror at a worktree is this daemon's to manage: absent, the old layout of links for every ledger
+ * directory, or the current layout marked in this worktree's private Git directory. A real, unmarked ledger
+ * directory that the repository tracks is not ours to touch.
+ */
+function mirrorOwnership(mirror: string, marker: string | null): "absent" | "legacy" | "ours" | "foreign" {
+  const markerEntry = marker === null ? null : lstatSync(marker, { throwIfNoEntry: false });
+  if (markerEntry !== null && markerEntry !== undefined)
+    return markerEntry.isFile() &&
+      !markerEntry.isSymbolicLink() &&
+      readFileSync(marker!, "utf8") === worktreeLedgerMarker
+      ? "ours"
+      : "foreign";
+  const mirrorEntry = lstatSync(mirror, { throwIfNoEntry: false });
+  if (!mirrorEntry) return "absent";
+  if (!mirrorEntry.isDirectory() || mirrorEntry.isSymbolicLink()) return "foreign";
+  const entries = readdirSync(mirror, { withFileTypes: true });
+  if (entries.length === 0) return "absent";
+  return entries.every((entry) => entry.isSymbolicLink()) ? "legacy" : "foreign";
+}
+
+/** Clears this worktree's old ledger aliases and stale package mirrors, retaining only its current real package dir. */
+function clearWorktreeLedgerMirror(mirror: string, keepPackage: string | null): void {
+  const mirrorEntry = lstatSync(mirror, { throwIfNoEntry: false });
+  if (!mirrorEntry) return;
+  if (!mirrorEntry.isDirectory() || mirrorEntry.isSymbolicLink()) {
+    removeMirrorEntry(mirror);
+    return;
+  }
+  for (const entry of readdirSync(mirror, { withFileTypes: true })) {
+    const entryPath = path.join(mirror, entry.name);
+    if (entry.name !== "tasks") {
+      removeMirrorEntry(entryPath);
+      continue;
+    }
+    if (entry.isSymbolicLink() || !entry.isDirectory()) {
+      removeMirrorEntry(entryPath);
+      continue;
+    }
+    for (const nested of readdirSync(entryPath, { withFileTypes: true })) {
+      const nestedPath = path.join(entryPath, nested.name);
+      if (nested.name === keepPackage && nested.isDirectory() && !nested.isSymbolicLink()) continue;
+      removeMirrorEntry(nestedPath);
+    }
+    if (readdirSync(entryPath).length === 0) rmdirSync(entryPath);
+  }
+}
+
+function removeMirrorEntry(target: string): void {
+  const entry = lstatSync(target);
+  if (!entry.isDirectory() || entry.isSymbolicLink()) {
+    unlinkSync(target);
+    return;
+  }
+  for (const child of readdirSync(target)) removeMirrorEntry(path.join(target, child));
+  rmdirSync(target);
+}
+
+/**
+ * Mirrors the dispatch's own task package into the worktree, and nothing else: out-of-package ledger content must
+ * not resolve under the worktree root, or a worker's writes there reach the canonical checkout. A root without a
+ * ledger, an occurrence without a task, and a task without a package get no mirror.
+ */
+function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null): void {
+  const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
+  if (mirror === authoredRoot || !existsSync(authoredRoot)) return;
+  const marker = worktreeLedgerMarkerPath(cwd);
+  if (marker === null) return;
+  const own = taskId === null ? null : ownPackageDirectory(authoredRoot, taskId),
+    ownership = mirrorOwnership(mirror, marker);
+  if (ownership === "foreign") return;
+  if (ownership === "legacy") {
+    for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
+  } else if (ownership === "ours") {
+    clearWorktreeLedgerMirror(mirror, own === null ? null : path.basename(own));
+    clearWorktreeLedgerCopies(marker);
+  }
+  if (own === null) {
+    if (existsSync(marker)) unlinkSync(marker);
+    return;
+  }
+  const packageMirror = path.join(mirror, "tasks", path.basename(own));
+  mkdirSync(path.dirname(packageMirror), { recursive: true });
+  mkdirSync(path.dirname(marker), { recursive: true });
+  writeFileSync(marker, worktreeLedgerMarker);
+  mirrorTaskPackage(own, packageMirror);
+}
+
+function mirrorTaskPackage(source: string, destination: string): void {
+  if (!existsSync(destination)) mkdirSync(destination, { recursive: true });
+  else if (lstatSync(destination).isSymbolicLink() || !lstatSync(destination).isDirectory())
+    throw new Error(`Task package directory ${destination} must be a real directory.`);
+  for (const entry of readdirSync(source, { withFileTypes: true })) {
+    const from = path.join(source, entry.name),
+      to = path.join(destination, entry.name);
+    if (entry.isDirectory()) {
+      mirrorTaskPackage(from, to);
+      continue;
+    }
+    if (!entry.isFile()) throw new Error(`Task package entry ${from} is not a regular file or directory.`);
+    if (!existsSync(to)) linkSync(from, to);
+    else if (lstatSync(to).isSymbolicLink()) throw new Error(`Task package mirror ${to} must not be a symbolic link.`);
+  }
+}
+
+function worktreeLedgerMarkerPath(cwd: string): string | null {
+  const gitFile = path.join(cwd, ".git");
+  if (!existsSync(gitFile) || !lstatSync(gitFile).isFile()) return null;
+  const match = /^gitdir: (.+)$/mu.exec(readFileSync(gitFile, "utf8"));
+  return match === null ? null : path.join(path.resolve(cwd, match[1]!.trim()), "harness-ledger-mirror");
+}
+
+/** Removes the worker-local mirror before a worktree is reclaimed; hard links leave canonical files untouched. */
+export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
+  const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
+  if (mirror === authoredRoot) return;
+  const marker = worktreeLedgerMarkerPath(cwd),
+    ownership = mirrorOwnership(mirror, marker);
+  if (ownership === "legacy") {
+    for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
+  } else if (ownership === "ours") {
+    clearWorktreeLedgerMirror(mirror, null);
+    if (marker !== null) clearWorktreeLedgerCopies(marker);
+  }
+  if (ownership === "ours" && marker !== null && lstatSync(marker, { throwIfNoEntry: false })) unlinkSync(marker);
+}
+
+function clearWorktreeLedgerCopies(marker: string): void {
+  const copies = path.join(path.dirname(marker), "harness-ledger-files");
+  if (lstatSync(copies, { throwIfNoEntry: false })) removeMirrorEntry(copies);
+}
+
+/**
+ * A ledger path as the worker reaches it: its task package is the doc-sync channel; other files are worker-local
+ * copies so a runtime given a private skill path cannot write through to the canonical ledger. A worker in the
+ * canonical checkout, a cwd that does not reach this ledger, and a path outside the ledger keep the path as it is.
  */
 export function workerLedgerPath(rootDir: string, cwd: string, target: string): string {
   const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
@@ -276,6 +399,60 @@ export function workerLedgerPath(rootDir: string, cwd: string, target: string): 
   const real = realpathSync(target),
     relative = path.relative(realpathSync(authoredRoot), real);
   if (relative.startsWith("..") || path.isAbsolute(relative)) return target;
-  const reached = path.join(mirror, relative);
-  return existsSync(reached) && realpathSync(reached) === real ? reached : target;
+  const marker = worktreeLedgerMarkerPath(cwd),
+    parts = relative.split(path.sep),
+    packagePath = path.join(mirror, relative);
+  if (marker === null || mirrorOwnership(mirror, marker) !== "ours") return target;
+  if (
+    parts[0] === "tasks" &&
+    parts.length >= 2 &&
+    existsSync(path.join(mirror, "tasks", parts[1]!)) &&
+    existsSync(packagePath)
+  )
+    return packagePath;
+  const reached = workerLedgerCopyPath(marker, relative);
+  ensureRealDirectory(path.dirname(marker), path.dirname(reached));
+  copyWorkerLedgerEntry(real, reached);
+  return reached;
+}
+
+function workerLedgerCopyPath(marker: string, relative: string): string {
+  return path.join(path.dirname(marker), "harness-ledger-files", relative);
+}
+
+/** Creates a worker-owned copy path without following directories a worker may have replaced with symlinks. */
+function ensureRealDirectory(root: string, directory: string): void {
+  if (directory === root) return;
+  const relative = path.relative(root, directory);
+  if (relative.startsWith("..") || path.isAbsolute(relative))
+    throw new Error(`Worker ledger copy ${directory} escapes ${root}.`);
+  let current = root;
+  for (const part of relative.split(path.sep)) {
+    current = path.join(current, part);
+    const entry = lstatSync(current, { throwIfNoEntry: false });
+    if (entry?.isSymbolicLink()) unlinkSync(current);
+    else if (entry && !entry.isDirectory())
+      throw new Error(`Worker ledger copy parent ${current} must be a directory.`);
+    if (!entry || entry.isSymbolicLink()) mkdirSync(current);
+  }
+}
+
+function copyWorkerLedgerEntry(source: string, destination: string): void {
+  const sourceEntry = lstatSync(source),
+    destinationEntry = lstatSync(destination, { throwIfNoEntry: false });
+  if (destinationEntry?.isFile() && sourceEntry.isFile()) return;
+  if (destinationEntry?.isDirectory() && sourceEntry.isDirectory()) {
+    for (const entry of readdirSync(source))
+      copyWorkerLedgerEntry(path.join(source, entry), path.join(destination, entry));
+    return;
+  }
+  if (destinationEntry) removeMirrorEntry(destination);
+  if (sourceEntry.isFile()) {
+    copyFileSync(source, destination);
+    return;
+  }
+  if (!sourceEntry.isDirectory()) throw new Error(`Worker ledger path ${source} is not a regular file or directory.`);
+  mkdirSync(destination);
+  for (const entry of readdirSync(source))
+    copyWorkerLedgerEntry(path.join(source, entry), path.join(destination, entry));
 }
