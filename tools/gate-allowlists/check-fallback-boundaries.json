@@ -177,6 +177,7 @@
    "packages/daemon/src/runtime-spawn-process.ts#signalRuntimeTargets",
    "packages/daemon/src/runtime-spawn-process.ts#terminateRuntimePid",
    "packages/daemon/src/runtime-spawn-process.ts#terminateRuntimeTree",
+   "packages/daemon/src/runtime-spawn-deepseek-session.ts#deepSeekSessionUsageTotals",
    "packages/daemon/src/runtime-spawn-provider-frames.ts#isStructuredSuccessResult",
    "packages/daemon/src/runtime-spawn-provider-stream.ts#consumeProviderLine",
    "packages/daemon/src/runtime-spawn-settlement.ts#publishExit",

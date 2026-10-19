@@ -6,6 +6,7 @@ import path from "node:path";
 import type { SessionIdentity } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
+import { deepSeekSessionUsageTotals } from "./runtime-spawn-deepseek-session.ts";
 import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
@@ -83,7 +84,7 @@ export async function consumeProviderChunk(
   active.buffer = flush ? "" : trailing;
   for (const line of lines) if (line.trim()) await context.consumeLine(active, line, persisted);
   if (flush && trailing.trim()) await context.consumeLine(active, trailing, persisted);
-  if (flush) observeCodexSessionMetrics(active);
+  if (flush) observeProviderSessionMetrics(active);
 }
 
 export async function consumeProviderLine(
@@ -232,14 +233,12 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
       numberValue(usage.outputTokens) ??
       numberValue(usage.output) ??
       numberValue(usage.completion_tokens) ??
-      numberValue(usage.completionTokens),
-    total =
-      numberValue(usage.total_tokens) ??
-      numberValue(usage.totalTokens) ??
-      numberValue(usage.total) ??
-      numberValue(usage.used);
-  if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null || total !== null)
-    active.usageReported = true;
+      numberValue(usage.completionTokens);
+  // A frame counts as reported usage only when it carries a consumption counter (input,
+  // cache read/write, output). Context-window occupancy — ACP usage_update `used`/`size`
+  // (agentclientprotocol.com/rfds/session-usage) — is not consumption and feeds no counter:
+  // a dialect with none of the counters settles usageUnavailable, never reported-with-zeros.
+  if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null) active.usageReported = true;
   const isInclusive = ["codex", "codex-acp", "zcode", "gemini", "devin", "cursor", "opencode"].includes(active.kindId);
   if (input !== null || cacheRead !== null || cacheCreation !== null)
     active.inputTokens += (input ?? 0) + (isInclusive ? 0 : (cacheRead ?? 0) + (cacheCreation ?? 0));
@@ -271,9 +270,22 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function observeCodexSessionMetrics(active: ActiveRuntime): void {
+/** Provider session files settle a complete session total (a rollout running total,
+ * or the transcript fold), so they replace stream samples before normalizing the
+ * snapshot through the shared usage observer. */
+function replaceRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknown>): void {
+  active.inputTokens = 0;
+  active.cacheReadTokens = 0;
+  active.cacheWriteTokens = 0;
+  active.outputTokens = 0;
+  active.usageReported = false;
+  active.rawUsage = {};
+  observeRuntimeUsage(active, usage);
+}
+
+function observeProviderSessionMetrics(active: ActiveRuntime): void {
   if (
-    active.kindId !== "codex" ||
+    !["codex", "deepseek-harness"].includes(active.kindId) ||
     !active.providerUsageEmpty ||
     active.providerSessionId === null ||
     !/^[a-z0-9-]+$/iu.test(active.providerSessionId)
@@ -283,6 +295,19 @@ function observeCodexSessionMetrics(active: ActiveRuntime): void {
   // witness (pre-field streams, home-less environments) simply keeps its empty usage.
   const providerHome = active.resolvedProviderDirectory;
   if (!providerHome) return;
+  if (active.kindId === "deepseek-harness") {
+    const totals = deepSeekSessionUsageTotals(providerHome, active.providerSessionId);
+    if (totals === null) return;
+    // dsh folds disjoint billing buckets. The shared runtime usage observer expects
+    // uncached input plus explicit cache buckets and builds its inclusive input total.
+    replaceRuntimeUsage(active, {
+      input_tokens: totals.uncachedInputTokens,
+      cacheReadTokens: totals.cacheReadTokens,
+      cacheWriteTokens: totals.cacheWriteTokens,
+      output_tokens: totals.outputTokens,
+    });
+    return;
+  }
   const sessionsRoot = path.join(providerHome, "sessions"),
     matches = globSync(`**/rollout-*-${active.providerSessionId}.jsonl`, { cwd: sessionsRoot });
   if (matches.length !== 1) return;
@@ -304,11 +329,11 @@ function observeCodexSessionMetrics(active: ActiveRuntime): void {
       cached = numberValue(usage.cached_input_tokens),
       output = numberValue(usage.output_tokens);
     if (input === null || cached === null || output === null) return;
-    active.inputTokens = input;
-    active.cacheReadTokens = cached;
-    active.outputTokens = output;
-    active.rawUsage = { ...usage };
-    active.usageReported = true;
+    replaceRuntimeUsage(active, {
+      input_tokens: input,
+      cached_input_tokens: cached,
+      output_tokens: output,
+    });
     return;
   }
 }
