@@ -56,7 +56,11 @@ import { registerFirstRunIpcHandlers } from "./first-run-ipc.ts";
 import { DESKTOP_FIRST_RUN_UPDATED_CHANNEL, type DesktopSetupFailure } from "../api/first-run-contract.ts";
 import { desktopRuntimePaths, desktopFirstRunReport, runDesktopSetup } from "./desktop-first-run.ts";
 import { registerUpdaterIpc } from "./update-service.ts";
-import { autoUpdater } from "electron-updater";
+// electron-updater is CommonJS: a named import breaks direct source launches under Node ESM
+// type stripping ("Named export 'autoUpdater' not found"); default-import and destructure.
+import electronUpdater from "electron-updater";
+
+const { autoUpdater } = electronUpdater;
 
 process.on("uncaughtException", (err) => console.error("[FATAL] uncaughtException:", err));
 process.on("unhandledRejection", (err) => console.error("[FATAL] unhandledRejection:", err));
