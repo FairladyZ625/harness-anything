@@ -751,7 +751,6 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
     daemonId: input.daemonId,
     onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
-    readFleetCenterConfig: () => readFleetCenterConfig(input.userRoot, input.daemonId),
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
