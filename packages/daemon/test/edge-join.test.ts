@@ -95,7 +95,7 @@ test("revocation, expiration, and consumption are terminal invite states", () =>
 
   // Return to the fixed time for the non-expired record's successful single consumption.
   current = "2026-10-16T00:00:00.000Z";
-  const settled = store.consume(consumed.record.joinId, consumed.link.token!, "node-one");
+  const settled = store.consume(consumed.record.joinId, "node-one");
   assert.equal(settled.consumedAt, current);
   assert.equal(store.status(consumed.record.joinId).state, "consumed");
   assert.equal(store.status(consumed.record.joinId).nodeId, "node-one");
@@ -118,7 +118,7 @@ test("restoring the writer journal preserves invite state without the plaintext 
   assert.equal(JSON.stringify(journal).includes("opaque-token"), false);
   const restored = createEdgeJoinStore({ records: journal, now: () => current });
   assert.equal(restored.status(created.record.joinId).state, "pending");
-  restored.consume(created.record.joinId, created.link.token!, "node-restored");
+  restored.consume(created.record.joinId, "node-restored");
   assert.equal(restored.status(created.record.joinId).state, "consumed");
 });
 
@@ -183,6 +183,63 @@ test("admission binds the invited person, validates the snapshot, and serializes
       (error: unknown) => error,
     );
   assert.equal((rejected as { code?: string }).code, "person_mismatch");
+});
+
+test("an invitation crossing its TTL during snapshot validation mints no node", async () => {
+  let current = "2026-10-16T00:00:00.000Z";
+  const store = createEdgeJoinStore({ now: () => current, randomToken: () => "opaque-token" }),
+    created = store.create({ ...inviteInput, ttlMs: 60_000 }),
+    oidc = {
+      bind: async () => ({ oidcPrincipal: { personId: "person-a" } }),
+      serialize: async <T>(operation: () => Promise<T>) => operation(),
+    };
+  let registered = 0;
+  const rejected = await admitEdgeJoin({
+    joinId: created.record.joinId,
+    inviteToken: created.link.token!,
+    accessToken: "human-access-token",
+    oidc: oidc as never,
+    edgeJoins: store,
+    validateSnapshot: async () => {
+      current = "2026-10-16T00:01:00.001Z";
+    },
+    registerNode: async () => {
+      registered += 1;
+      return "credential";
+    },
+  }).then(
+    () => null,
+    (error: unknown) => error,
+  );
+  assert.equal((rejected as { code?: string }).code, "join_token_expired");
+  assert.equal(registered, 0, "an invitation expired before minting leaves no registered node");
+  assert.equal(store.status(created.record.joinId).state, "expired");
+});
+
+test("an invitation that lapses while its node is minted still settles the admission", async () => {
+  let current = "2026-10-16T00:00:00.000Z";
+  const store = createEdgeJoinStore({ now: () => current, randomToken: () => "opaque-token" }),
+    created = store.create({ ...inviteInput, ttlMs: 60_000 }),
+    oidc = {
+      bind: async () => ({ oidcPrincipal: { personId: "person-a" } }),
+      serialize: async <T>(operation: () => Promise<T>) => operation(),
+    };
+  const admitted = await admitEdgeJoin({
+    joinId: created.record.joinId,
+    inviteToken: created.link.token!,
+    accessToken: "human-access-token",
+    oidc: oidc as never,
+    edgeJoins: store,
+    validateSnapshot: async () => {},
+    registerNode: async (_record, nodeId) => {
+      // The final check already passed inside the same critical section; minting may outlast the TTL.
+      current = "2026-10-16T00:01:00.001Z";
+      return `credential-${nodeId}`;
+    },
+  });
+  assert.equal(admitted.credential.startsWith("credential-"), true);
+  assert.equal(store.status(created.record.joinId).state, "consumed");
+  assert.equal(store.status(created.record.joinId).nodeId, admitted.nodeId);
 });
 
 test("the join result carries layouts for every invited repository", () => {

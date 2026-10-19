@@ -138,6 +138,20 @@ export function fakeKeycloak() {
         // Keycloak 26.7.3 names the two refusals differently; both are HTTP 401.
         return json({ error: client ? "unauthorized_client" : "invalid_client" }, 401);
       }
+      if (form.get("grant_type") === "refresh_token") {
+        // A refresh returns the subject's realm roles in a JWT the daemon can decode.
+        const subject = tokens.get(form.get("refresh_token") ?? "");
+        if (!subject) return json({ error: "invalid_grant" }, 400);
+        const roles = [...realmRoles.values()].filter((role) => role.members.has(subject)).map((role) => role.name),
+          accessToken = `x.${Buffer.from(JSON.stringify({ realm_access: { roles } })).toString("base64url")}.x`;
+        tokens.set(accessToken, subject);
+        return json({
+          access_token: accessToken,
+          refresh_token: form.get("refresh_token"),
+          expires_in: 3_600,
+          refresh_expires_in: 21_600,
+        });
+      }
       return decide(tokens.get(bearer ?? ""), form.get("permission") ?? "");
     }
     const route = url.pathname.replace(`/admin/realms/${keycloakRealm}`, ""),

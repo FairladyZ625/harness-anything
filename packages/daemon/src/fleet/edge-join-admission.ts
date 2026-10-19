@@ -55,8 +55,10 @@ export async function admitEdgeJoin(input: {
     if (record.personId !== initial.personId)
       throw coded("edge_join_invalid", "The edge join invitation changed during admission.");
     await input.validateSnapshot(record);
+    // The last look before minting: an invitation crossing its TTL during snapshot validation must leave no node.
+    input.edgeJoins.assertConsumable(input.joinId, input.inviteToken);
     const credential = await input.registerNode(record, nodeId);
-    input.edgeJoins.consume(input.joinId, input.inviteToken, nodeId);
+    input.edgeJoins.consume(input.joinId, nodeId);
     return { joinId: record.joinId, nodeId, personId: record.personId, credential, repoIds: record.repoIds };
   });
 }
