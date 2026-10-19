@@ -72,7 +72,10 @@ export async function fleetEdgeHostFixture(
       mode: "remote-edge",
       createConvenienceLinks: false,
     });
-  const signIn = (personId: string) =>
+  const signIn = (
+    personId: string,
+    authority: { readonly url: string; readonly realm: string; readonly clientId?: string },
+  ) =>
     managedRbacSessionStore(edgeUser).write(
       JSON.stringify({
         schema: "harness-oidc-session/v2",
@@ -87,10 +90,13 @@ export async function fleetEdgeHostFixture(
         sessionExpiresAt: Date.now() + 21_600_000,
         roles: [],
         loginTarget: edgeRoot,
-        authority: { url: f.owners.url, realm: "harness" },
+        authority,
       }),
     );
-  signIn(options.personId ?? "person-one");
+  const authority = options.oidcPorts?.loginAuthority
+    ? await options.oidcPorts.loginAuthority(edgeRoot)
+    : { url: f.owners.url, realm: "harness" };
+  signIn(options.personId ?? "person-one", authority);
   const config = {
     schema: "fleet-edge-config/v1",
     repoId: options.repoId ?? "lease-repo",
