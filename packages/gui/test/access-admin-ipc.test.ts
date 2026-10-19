@@ -35,7 +35,7 @@ function fixture() {
             ok: true,
             joinId: "invite-1",
             state: "pending",
-            link: "harness-edge://join/eyJ2ZXJzaW9uIjoyLCJjZW50ZXJVcmwiOiJodHRwczovL2NlbnRlci50ZXN0In0",
+            link: "harness-edge://join/eyJ2ZXJzaW9uIjoyLCJjZW50ZXJVcmwiOiJodHRwczovL2NlbnRlci50ZXN0IiwiaW52aXRlSWQiOiJpbnZpdGUtMSIsInBlcnNvbklkIjoicGVyc29uLWd1aSIsIm5vZGVJZCI6ImVkZ2UtYSIsInNwa2lTaGEyNTYiOiJzaGEyNTY6cGluIiwiZXhwaXJlc0F0IjoiMjAyNi0xMC0yMVQwMDowMDowMC4wMDBaIiwidG9rZW4iOiJzZWNyZXQtdG9rZW4ifQ",
           };
         return { ok: true };
       },
