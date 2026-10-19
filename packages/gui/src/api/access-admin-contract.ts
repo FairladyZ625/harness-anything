@@ -119,12 +119,12 @@ export interface AccessSessionLifetimeReply {
   readonly maximumSeconds: number;
 }
 
-/** One signed edge invitation. The main process encodes the daemon's link struct as an HTTPS fragment. */
+/** One signed edge invitation. The daemon returns the pasteable link as a harness-edge URI string. */
 export interface EdgeJoinIssued {
   readonly joinId: string;
   readonly state: "pending";
   readonly expiresAt: string;
-  readonly inviteLink: string;
+  readonly link: string;
 }
 
 /** Status contains no token or credential. */

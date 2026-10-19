@@ -12,7 +12,8 @@ owner and setuid mode (using `sudo` when needed). The repository is source distr
 packages are not claimed.
 
 In the center GUI, open **Settings → Repositories and Connections → Center** and create an invitation for the new
-member. Select one or more repositories and the permission groups to include. Send the resulting link to that person
+member. Select one or more repositories and the permission groups to include. Send the resulting
+`harness-edge://join/...` link to that person
 through a separate channel. The invitation expires after 72 hours, can be consumed once, and can be revoked while it
 is pending. Do not post the link publicly.
 

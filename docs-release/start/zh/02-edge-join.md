@@ -17,7 +17,7 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 `sudo`）。本项目当前分发源码，不宣称已提供签名安装包或 registry package。
 
 在中心 GUI 中打开「设置 → 仓库与连接 → 中心」，为新成员创建邀请，选择一个或多个仓库以及要授予的权限组，
-再通过独立渠道把链接交给该成员。邀请有效期为 72 小时，只能消费一次；处于 pending 状态时可以撤销。不要公开发布邀请链接。
+再通过独立渠道把 `harness-edge://join/...` 链接交给该成员。邀请有效期为 72 小时，只能消费一次；处于 pending 状态时可以撤销。不要公开发布邀请链接。
 
 受邀成员运行：
 

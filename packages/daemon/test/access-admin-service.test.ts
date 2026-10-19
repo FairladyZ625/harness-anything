@@ -776,14 +776,15 @@ test("edge invitations grant each selected repository and reject inherited permi
     }),
     issuedLink = issued.link;
   assert.equal(typeof issuedLink, "string", "CLI and GUI receive the encoded invitation link");
-  const linkParams = new URL(String(issuedLink)).hash.slice(1),
-    linkFields = new URLSearchParams(linkParams),
-    link = {
-      joinId: linkFields.get("join")!,
-      token: linkFields.get("token")!,
-      repoIds: linkFields.get("repo")!.split(","),
-      loginClientId: linkFields.get("login_client_id")!,
-    };
+  assert.match(String(issuedLink), /^harness-edge:\/\/join\/[A-Za-z0-9_-]+$/u);
+  const link = JSON.parse(
+    Buffer.from(String(issuedLink).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+  ) as {
+    readonly joinId: string;
+    readonly token?: string;
+    readonly repoIds: readonly string[];
+    readonly loginClientId: string;
+  };
   assert.ok(link.token);
   assert.deepEqual([issued.ok, issued.state, link.repoIds], [true, "pending", ["repo-a", "repo-b"]]);
   assert.equal(
@@ -839,7 +840,9 @@ test("edge invitations grant each selected repository and reject inherited permi
   });
   await run({ operation: "edge-join-revoke", joinId: String(second.joinId) });
   assert.equal(typeof second.link, "string", "a second CLI invitation also returns a string link");
-  const revokedToken = new URLSearchParams(new URL(String(second.link)).hash.slice(1)).get("token")!;
+  const revokedToken = JSON.parse(
+    Buffer.from(String(second.link).slice("harness-edge://join/".length), "base64url").toString("utf8"),
+  ).token as string;
   await assert.rejects(
     admin.admitEdgeJoin({ joinId: String(second.joinId), inviteToken: revokedToken, accessToken: "invited-token" }),
     { code: "join_revoked" },

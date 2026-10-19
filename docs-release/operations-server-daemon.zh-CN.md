@@ -267,7 +267,7 @@ ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname c
 
 每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，直到它们信任新的 listener 证书。
 
-新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付链接。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
+新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付 `harness-edge://join/...` 链接。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
 
 ```bash
 ha edge join '<邀请链接>'

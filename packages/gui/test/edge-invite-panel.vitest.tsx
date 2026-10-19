@@ -17,7 +17,7 @@ vi.mock("motion/react", async (original) => {
   };
 });
 
-const LINK = "https://center.example/join#v=1&join=join-1&token=opaque-token";
+const LINK = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEiLCJ0b2tlbiI6Im9wYXF1ZS10b2tlbiJ9";
 const REPOS = [{ repoId: "repo-a" }, { repoId: "repo-b" }] as const;
 const GROUPS = [
   { id: "viewer", displayName: "Viewer", effectiveScopes: ["repo-read"], version: "viewer-v1" },
@@ -35,7 +35,7 @@ function issuedReply(joinId = "join-1") {
     joinId,
     state: "pending",
     expiresAt: "2026-10-21T00:00:00.000Z",
-    inviteLink: LINK,
+    link: LINK,
   };
 }
 
@@ -244,7 +244,7 @@ describe("EdgeInvitePanel", () => {
     expect(refused.container.textContent).not.toContain(LINK);
   });
 
-  it("copies the HTTPS invite from the one-time display through an isolated clipboard", async () => {
+  it("copies the pasteable harness-edge link from the one-time display through an isolated clipboard", async () => {
     const writes: string[] = [];
     Object.defineProperty(globalThis.navigator, "clipboard", {
       configurable: true,

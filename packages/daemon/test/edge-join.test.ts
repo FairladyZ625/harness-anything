@@ -24,19 +24,17 @@ const inviteInput = {
   ttlMs: 72 * 60 * 60 * 1000,
 } as const;
 
-test("an invitation uses an HTTPS fragment and persists only a token digest", () => {
+test("an invitation uses a pasteable harness-edge string and persists only a token digest", () => {
   const store = createEdgeJoinStore({
       now: () => "2026-10-16T00:00:00.000Z",
       randomToken: () => "opaque-token",
     }),
     created = store.create(inviteInput),
-    url = new URL(encodeEdgeJoinLink(created.link));
+    link = encodeEdgeJoinLink(created.link);
 
-  assert.equal(url.protocol, "https:");
-  assert.equal(url.pathname, "/join");
-  assert.equal(url.search, "");
-  assert.equal(url.hash.includes("token=opaque-token"), true);
-  assert.deepEqual(decodeEdgeJoinLink(url.toString()), created.link);
+  assert.match(link, /^harness-edge:\/\/join\/[A-Za-z0-9_-]+$/u);
+  assert.equal(typeof link, "string");
+  assert.deepEqual(decodeEdgeJoinLink(link), created.link);
   assert.equal(created.record.repoIds.length, 2);
   assert.deepEqual(created.record.permissionSnapshot, inviteInput.permissionSnapshot);
   assert.deepEqual(store.list()[0]?.groupIds, ["contributor"]);
@@ -45,33 +43,31 @@ test("an invitation uses an HTTPS fragment and persists only a token digest", ()
   assert.equal(created.record.tokenDigest.length, 64);
   assert.equal(store.status(created.record.joinId).state, "pending");
   assert.throws(
-    () => decodeEdgeJoinLink("harness-edge://join/eyJ2ZXJzaW9uIjoxfQ"),
+    () => decodeEdgeJoinLink("https://center.example:8443/join#v=1&join=join-id"),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
   );
 });
 
-test("an invitation link rejects duplicate fields and embedded URL credentials", () => {
+test("an invitation link rejects malformed fields and embedded URL credentials", () => {
   const created = createEdgeJoinStore({ randomToken: () => "opaque-token" }).create(inviteInput),
-    link = new URL(encodeEdgeJoinLink(created.link));
+    makeLink = (changes: Record<string, unknown>) =>
+      `harness-edge://join/${Buffer.from(JSON.stringify({ ...created.link, ...changes }), "utf8").toString("base64url")}`;
   assert.throws(
-    () => decodeEdgeJoinLink(`${link.toString()}&join=other`),
+    () => decodeEdgeJoinLink(makeLink({ unsupported: true })),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
   );
 
-  const centerCredentials = new URL(link.toString());
-  centerCredentials.username = "operator";
-  centerCredentials.password = "secret";
   assert.throws(
-    () => decodeEdgeJoinLink(centerCredentials.toString()),
+    () => decodeEdgeJoinLink(makeLink({ centerOrigin: "https://operator:secret@center.example:8443" })),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
   );
 
-  const loginCredentials = new URL(link.toString()),
-    params = new URLSearchParams(loginCredentials.hash.slice(1));
-  params.set("login_url", "https://operator:secret@login.example");
-  loginCredentials.hash = params.toString();
   assert.throws(
-    () => decodeEdgeJoinLink(loginCredentials.toString()),
+    () => decodeEdgeJoinLink(makeLink({ loginUrl: "https://operator:secret@login.example" })),
+    (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
+  );
+  assert.throws(
+    () => decodeEdgeJoinLink(makeLink({ centerOrigin: "http://center.example:8443" })),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
   );
 });

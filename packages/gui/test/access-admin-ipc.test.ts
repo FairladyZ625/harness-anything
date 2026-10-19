@@ -36,9 +36,7 @@ function fixture() {
             joinId: "invite-1",
             state: "pending",
             expiresAt: "2026-10-21T00:00:00.000Z",
-            link:
-              "https://center.test/join#v=1&join=invite-1&center=https%3A%2F%2Fcenter.test&repo=repo-a%2Crepo-b&spki_sha256=" +
-              "a".repeat(64),
+            link: "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJpbnZpdGUtMSJ9",
           };
         return { ok: true };
       },
@@ -263,9 +261,7 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
 });
 
 test("edge-join-create passes the daemon's pasteable string link to the renderer once", async () => {
-  const daemonLink =
-    "https://center.test/join#v=1&join=invite-9&center=https%3A%2F%2Fcenter.test&repo=repo-a%2Crepo-b&spki_sha256=" +
-    "b".repeat(64);
+  const daemonLink = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJpbnZpdGUtOSJ9";
   let handler!: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>;
   registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
     daemonRequest: async () => ({

@@ -109,9 +109,7 @@ test("bootstrap CLI preserves the daemon-issued edge invitation link as a string
   const root = mkdtempSync(path.join(tmpdir(), "ha-edge-bootstrap-rpc-")),
     userRoot = path.join(root, "user"),
     endpoint = localUserDaemonEndpoint(userRoot, "default"),
-    link =
-      "https://center.test/join#v=1&join=join-1&center=https%3A%2F%2Fcenter.test&repo=repo-a&spki_sha256=" +
-      "a".repeat(64),
+    link = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEifQ",
     requests: Array<{ method: string; params: Record<string, unknown> }> = [],
     server = createServer((socket) => {
       const lines = createInterface({ input: socket });
@@ -176,6 +174,7 @@ test("bootstrap CLI preserves the daemon-issued edge invitation link as a string
     assert.equal(status, 0, output);
     const receipt = JSON.parse(output.trim()) as Record<string, unknown>;
     assert.equal(typeof receipt.link, "string");
+    assert.match(String(receipt.link), /^harness-edge:\/\/join\/[A-Za-z0-9_-]+$/u);
     assert.equal(receipt.link, link);
     assert.equal(requests[1]?.params.operation, "edge-join-create");
   } finally {

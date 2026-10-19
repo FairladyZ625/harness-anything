@@ -61,15 +61,15 @@ export function readIssued(value: unknown): EdgeJoinIssued {
     value.ok !== true ||
     typeof value.joinId !== "string" ||
     typeof value.expiresAt !== "string" ||
-    typeof value.inviteLink !== "string" ||
-    !value.inviteLink.startsWith("https://")
+    typeof value.link !== "string" ||
+    !value.link.startsWith("harness-edge://join/")
   )
     throw rendererReadError(value, "Edge join creation returned an invalid result.");
   return {
     joinId: value.joinId,
     state: "pending",
     expiresAt: value.expiresAt,
-    inviteLink: value.inviteLink,
+    link: value.link,
   };
 }
 

@@ -201,13 +201,13 @@ export function EdgeInvitePanel({ repos }: { readonly repos: readonly { readonly
         <div className="mt-3 rounded border border-border bg-surface-raised p-3" data-testid="edge-invite-issued">
           <p className="ui-meta text-text-muted">{t("views.repositories.inviteLinkHint")}</p>
           <pre className="mt-2 overflow-x-auto whitespace-pre-wrap break-all font-mono ui-micro text-text">
-            {issued.inviteLink}
+            {issued.link}
           </pre>
           <div className="mt-2 flex items-center gap-2">
             <CopyContextButton
               label={t("views.repositories.inviteCopyAction")}
               title={t("views.repositories.inviteCopyTitle")}
-              buildText={() => issued.inviteLink}
+              buildText={() => issued.link}
               testId="edge-invite-copy"
             />
             <Button testId="edge-invite-done" onClick={() => setIssued(null)}>

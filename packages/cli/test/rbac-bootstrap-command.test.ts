@@ -121,7 +121,7 @@ test("ha bootstrap exposes edge invitation, status, list, and revoke operations 
 });
 
 test("ha edge join is one operation of the managed RBAC surface", () => {
-  const link = "https://center.test/join#v=1&join=join-123&repo=repo-a&spki_sha256=" + "a".repeat(64);
+  const link = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEyMyJ9";
   const parsed = parseThinCommand(["edge", "join", link], "/edge");
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;

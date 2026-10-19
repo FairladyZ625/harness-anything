@@ -307,7 +307,7 @@ ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname c
 
 Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections until they trust the new listener certificate.
 
-The supported new-edge path is a one-time invitation. In the center GUI, open **Settings → Repositories and Connections → Center**, invite the person, select one or more repositories and permission groups, then deliver the link separately. The pending invitation can be revoked there and expires after 72 hours. The edge owner runs:
+The supported new-edge path is a one-time invitation. In the center GUI, open **Settings → Repositories and Connections → Center**, invite the person, select one or more repositories and permission groups, then deliver the resulting `harness-edge://join/...` link separately. The pending invitation can be revoked there and expires after 72 hours. The edge owner runs:
 
 ```bash
 ha edge join '<invite-link>'

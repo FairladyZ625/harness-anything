@@ -57,7 +57,7 @@ export interface EdgeJoinStoreOptions {
   readonly randomToken?: () => string;
 }
 
-const LINK_PATH = "/join";
+const LINK_PREFIX = "harness-edge://join/";
 const TOKEN_BYTES = 32;
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
@@ -79,78 +79,69 @@ export class EdgeJoinError extends Error {
 }
 
 export function encodeEdgeJoinLink(link: EdgeJoinLink): string {
-  const url = new URL(LINK_PATH, link.centerOrigin),
-    fields: [string, string][] = [
-      ["v", "1"],
-      ["join", link.joinId],
-      ["center", link.centerOrigin],
-      ["repo", link.repoIds.join(",")],
-      ["spki_sha256", link.spkiSha256],
-      ...(link.token ? ([["token", link.token]] as [string, string][]) : []),
-      ["login_url", link.loginUrl],
-      ["login_realm", link.loginRealm],
-      ["login_client_id", link.loginClientId],
-    ];
-  url.hash = new URLSearchParams(fields).toString();
-  return url.toString();
+  return `${LINK_PREFIX}${Buffer.from(JSON.stringify(link), "utf8").toString("base64url")}`;
 }
 
 export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
   try {
-    const url = new URL(value),
-      params = new URLSearchParams(url.hash.slice(1)),
-      centerOrigin = params.get("center"),
-      repoIds = params.get("repo")?.split(","),
-      keys = [...params.keys()];
+    if (!value.startsWith(LINK_PREFIX)) throw new Error("prefix");
+    const decoded: unknown = JSON.parse(Buffer.from(value.slice(LINK_PREFIX.length), "base64url").toString("utf8"));
+    if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) throw new Error("shape");
+    const candidate = decoded as Record<string, unknown>,
+      centerOrigin = candidate.centerOrigin,
+      repoIds = candidate.repoIds,
+      loginUrl = candidate.loginUrl;
     if (
-      url.protocol !== "https:" ||
-      url.username !== "" ||
-      url.password !== "" ||
-      url.pathname !== LINK_PATH ||
-      url.search !== "" ||
-      !centerOrigin ||
-      url.origin !== centerOrigin ||
-      params.get("v") !== "1" ||
-      new Set(keys).size !== keys.length ||
-      !isText(params.get("join")) ||
-      !repoIds?.length ||
-      repoIds.some((repoId) => !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)) ||
+      candidate.version !== 1 ||
+      !isText(candidate.joinId) ||
+      !isText(centerOrigin) ||
+      !Array.isArray(repoIds) ||
+      repoIds.length === 0 ||
+      repoIds.some((repoId) => typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)) ||
       new Set(repoIds).size !== repoIds.length ||
-      !/^[0-9a-f]{64}$/u.test(params.get("spki_sha256") ?? "") ||
-      !isText(params.get("login_url")) ||
-      !isText(params.get("login_realm")) ||
-      !isText(params.get("login_client_id")) ||
-      [...params.keys()].some(
+      !/^[0-9a-f]{64}$/u.test(String(candidate.spkiSha256)) ||
+      (candidate.token !== undefined && !isText(candidate.token)) ||
+      !isText(loginUrl) ||
+      !isText(candidate.loginRealm) ||
+      !isText(candidate.loginClientId) ||
+      Object.keys(candidate).some(
         (key) =>
           ![
-            "v",
-            "join",
-            "center",
-            "repo",
-            "spki_sha256",
+            "version",
+            "joinId",
+            "centerOrigin",
+            "repoIds",
+            "spkiSha256",
             "token",
-            "login_url",
-            "login_realm",
-            "login_client_id",
+            "loginUrl",
+            "loginRealm",
+            "loginClientId",
           ].includes(key),
       )
     )
       throw new Error("shape");
-    const loginUrl = new URL(params.get("login_url")!);
-    if (loginUrl.protocol !== "https:" || loginUrl.username !== "" || loginUrl.password !== "")
+    const center = new URL(centerOrigin),
+      login = new URL(loginUrl);
+    if (
+      center.protocol !== "https:" ||
+      center.origin !== centerOrigin ||
+      center.username !== "" ||
+      center.password !== "" ||
+      login.protocol !== "https:" ||
+      login.username !== "" ||
+      login.password !== ""
+    )
       throw new Error("login URL");
-    const token = params.get("token");
-    if (token !== null && !isText(token)) throw new Error("token");
     return {
       version: 1,
-      joinId: params.get("join")!,
+      joinId: candidate.joinId as string,
       centerOrigin,
-      repoIds,
-      spkiSha256: params.get("spki_sha256")!,
-      ...(token ? { token } : {}),
-      loginUrl: loginUrl.toString().replace(/\/$/u, ""),
-      loginRealm: params.get("login_realm")!,
-      loginClientId: params.get("login_client_id")!,
+      repoIds: repoIds as string[],
+      spkiSha256: candidate.spkiSha256 as string,
+      ...(candidate.token ? { token: candidate.token as string } : {}),
+      loginUrl: login.toString().replace(/\/$/u, ""),
+      loginRealm: candidate.loginRealm as string,
+      loginClientId: candidate.loginClientId as string,
     };
   } catch {
     throw new EdgeJoinError("edge_join_invalid", "The edge join link is invalid.");

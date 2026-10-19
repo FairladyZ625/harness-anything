@@ -81,13 +81,12 @@ export default {
       );
     }
     const linkText = await issued.locator("pre").innerText(),
-      link = new URL(linkText),
-      linkParams = new URLSearchParams(link.hash.slice(1));
-    assert.equal(link.protocol, "https:");
-    assert.equal(link.pathname, "/join");
-    assert.equal(link.search, "");
-    assert.equal(linkParams.has("token"), true);
-    assert.equal(linkParams.has("credential"), false);
+      linkPrefix = "harness-edge://join/";
+    assert.ok(linkText.startsWith(linkPrefix));
+    const link = JSON.parse(Buffer.from(linkText.slice(linkPrefix.length), "base64url").toString("utf8"));
+    assert.equal(link.version, 1);
+    assert.equal(typeof link.token, "string");
+    assert.equal(Object.hasOwn(link, "credential"), false);
 
     await page.getByTestId("edge-invite-done").click();
     const audit = page.getByTestId("edge-invite-list");
