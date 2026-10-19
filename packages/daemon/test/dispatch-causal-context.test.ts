@@ -431,6 +431,85 @@ test("an over-budget neighborhood sheds whole facts from the far end and notes e
   assertLineGrammar(block);
 });
 
+test("a details-only shed at the byte ceiling keeps the close tag instead of clamping it off", () => {
+  // A fit measured against `<task-context>` (14 B) but emitted as
+  // `<task-context truncated="yes">` (30 B) can pass its budget checks and then overshoot
+  // by 16 B. These statement lengths put the block in that window: at 7,512 the omission
+  // note passed the old whole-root arithmetic and at 7,520/7,540 the block itself reached
+  // the ceiling, so the old final clamp cut `</task-context>` off a details-only shed.
+  // Fitting against the root actually emitted must leave every line whole.
+  const nearCeiling = (statementBytes: number): TaskProjection => {
+    const facts = [100, 100, statementBytes, 2_000].map((length, index) => ({
+      ref: `fact/F-${String(index)}`,
+      statement: "s".repeat(length),
+      evidenceSource: "src",
+    }));
+    return stub({
+      readTaskIndex: () => ({
+        ...cut(),
+        rows: [
+          { taskId: "task_root", title: "Work title", taskClass: "work", parentTaskId: null, packagePath: null },
+          { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_root", packagePath: null },
+        ],
+      }),
+      readTaskRelationsByTargets: () => ({
+        ...cut(),
+        rows: [
+          {
+            relationId: "rel_1",
+            sourceRef: "decision/dec_X/CH1",
+            targetRef: "task/task_leaf",
+            relationType: "derives",
+            direction: "directed",
+            state: "active",
+          },
+        ],
+      }),
+      readDecisions: () => ({
+        ...cut(),
+        decisions: [
+          {
+            decisionId: "dec_X",
+            title: "Decision X",
+            question: "Q?",
+            chosen: [{ id: "CH1", text: "chosen", rationale: "why" }],
+            claims: [{ id: "C1", text: "claim", loadBearing: true }],
+          },
+        ],
+      }),
+      readRelationQuery: () => ({
+        ...cut(),
+        rows: facts.map((fact) => ({
+          relationId: `rel_${fact.ref}`,
+          sourceRef: "decision/dec_X/C1",
+          targetRef: fact.ref,
+          relationType: "evidenced-by",
+          direction: "directed",
+          state: "active",
+        })),
+      }),
+      searchFacts: () => ({ ...cut(), facts }),
+    });
+  };
+  for (const statementBytes of [7_512, 7_520, 7_540]) {
+    const block = assembleTaskCausalContext({ projection: nearCeiling(statementBytes), taskId: "task_leaf" });
+    assert.ok(block !== null);
+    assert.ok(
+      Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
+      `${String(statementBytes)}: block is ${String(Buffer.byteLength(block, "utf8"))} bytes`,
+    );
+    assert.ok(block.endsWith("</task-context>"), `${String(statementBytes)}: the close tag survives`);
+    assertLineGrammar(block);
+  }
+  const noteFits = assembleTaskCausalContext({ projection: nearCeiling(7_512), taskId: "task_leaf" });
+  assert.ok(noteFits !== null);
+  assert.match(
+    noteFits,
+    /<omitted>fact\/F-3<\/omitted>/u,
+    "the note is budgeted against the truncated root, not against a root that is never emitted",
+  );
+});
+
 test("shed detail lines mark the root truncated while every kept line stays parseable", () => {
   // Pathological id set: two long-id decisions and five long-id facts leave the 8,192-byte
   // budget no room past the identity layer and the refs line — the fit sheds every detail

@@ -42,12 +42,20 @@ const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
   ROOT_OPEN = "<task-context>",
+  TRUNCATED_OPEN = '<task-context truncated="yes">',
   ROOT_CLOSE = "</task-context>";
 
 /** One detail line and the entity whose content it renders, so budget shedding can name what it dropped. */
 interface DetailLine {
   readonly line: string;
   readonly ref: string;
+}
+
+/** The fit for one candidate open tag: kept detail lines, the omission note, and whether anything was shed. */
+interface BudgetFit {
+  readonly kept: readonly string[];
+  readonly omittedLine: string | null;
+  readonly dropped: boolean;
 }
 
 export function assembleTaskCausalContext(input: {
@@ -249,21 +257,35 @@ function decisionExecutionSurface(
  * order, deduplicated, and itself shrunk from the tail when pathological ids leave
  * no room to name them (an unnameable omission still marks the root truncated).
  * The byte cap is a promise, not a hope — if the root plus refs alone exceed it
- * (only a pathological id set can do that), refs are shed from the tail and the
- * output is hard-clamped to the ceiling on a character boundary.
+ * (only a pathological id set can do that), refs are shed from the tail under the
+ * widest root, so the refs line and every emitted line fit without a final clamp.
  */
 function renderWithinBudget(details: readonly DetailLine[], refs: readonly string[]): string {
-  const kept: string[] = [],
-    mutable = [...refs],
-    omitted: string[] = [];
+  const mutable = [...refs];
   let refsLine = `<refs>${mutable.join(" ")}</refs>`;
-  while (mutable.length > 0 && byteLength(`${ROOT_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) > CAUSAL_CONTEXT_MAX_BYTES) {
+  // Reserve the widest root the render can emit: shedding a detail — and so marking the
+  // root truncated — is only known after the fit, so the refs line must fit under
+  // `<task-context truncated="yes">` even when the final render keeps the short root.
+  while (mutable.length > 0 && byteLength(`${TRUNCATED_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) > CAUSAL_CONTEXT_MAX_BYTES) {
     mutable.pop();
     refsLine = `<refs>${mutable.join(" ")} …</refs>`;
   }
-  const usedBase = byteLength(ROOT_OPEN) + 1 + byteLength(refsLine) + 1 + byteLength(ROOT_CLOSE);
-  let used = usedBase,
-    dropped = false;
+  // Measure against the root actually emitted. Any shed detail switches the root to the
+  // 16-byte-longer truncated form; fitting the whole root while emitting the truncated one
+  // would overshoot the cap and cut `</task-context>` off a details-only shed. A whole-root
+  // fit that sheds nothing is emitted as measured.
+  const whole = fitWithinBudget(details, refsLine, ROOT_OPEN);
+  if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine);
+  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN);
+  return renderBlock(TRUNCATED_OPEN, refsLine, truncated.kept, truncated.omittedLine);
+}
+
+/** Greedy detail fit against one concrete open tag, including whether the omission note still fits. */
+function fitWithinBudget(details: readonly DetailLine[], refsLine: string, open: string): BudgetFit {
+  let used = byteLength(open) + 1 + byteLength(refsLine) + 1 + byteLength(ROOT_CLOSE);
+  const kept: string[] = [],
+    omitted: string[] = [];
+  let dropped = false;
   for (const entry of details) {
     const cost = byteLength(entry.line) + 1;
     if (used + cost > CAUSAL_CONTEXT_MAX_BYTES) {
@@ -284,20 +306,12 @@ function renderWithinBudget(details: readonly DetailLine[], refs: readonly strin
     }
     noteParts.pop();
   }
-  const open = dropped ? `<task-context truncated="yes">` : ROOT_OPEN;
-  const out = `${open}\n${[...kept, refsLine, ...(omittedLine === null ? [] : [omittedLine])].join("\n")}\n${ROOT_CLOSE}`;
-  if (byteLength(out) > CAUSAL_CONTEXT_MAX_BYTES) {
-    let clamped = "",
-      size = 0;
-    for (const char of out) {
-      const next = byteLength(char);
-      if (size + next > CAUSAL_CONTEXT_MAX_BYTES) break;
-      clamped += char;
-      size += next;
-    }
-    return clamped;
-  }
-  return out;
+  return { kept, omittedLine, dropped };
+}
+
+function renderBlock(open: string, refsLine: string, kept: readonly string[], omittedLine: string | null): string {
+  const tail = omittedLine === null ? [refsLine] : [refsLine, omittedLine];
+  return `${open}\n${[...kept, ...tail].join("\n")}\n${ROOT_CLOSE}`;
 }
 
 function detail(ref: string, line: string): DetailLine {
