@@ -291,7 +291,7 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     // recorded against (fixture-resolved, so matched loosely after the evidence source).
     assert.match(
       block,
-      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts; recorded [0-9TZ:.\-]+ @ [0-9a-f]{8}\)<\/fact>/u,
+      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts; recorded [0-9TZ:.-]+ @ [0-9a-f]{8}\)<\/fact>/u,
     );
     assert.match(block, /^<task-context>\n<note>fact 是历史观察，涉及代码时以现场为准。<\/note>\n/u);
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
