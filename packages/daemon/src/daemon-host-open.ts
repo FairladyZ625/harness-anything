@@ -86,7 +86,7 @@ import { canonicalRoot, workspaceId } from "./protocol/daemon-protocol.contract.
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { currentDaemonProtocolVersion } from "./protocol/version.ts";
 import { makeRecoveryProbe } from "./recovery-state.ts";
-import { openRuntimeProviderHealthStore } from "./runtime-provider-health.ts";
+import { openDaemonRuntimePorts } from "./daemon-runtime-ports.ts";
 import { causeClassOf, latchReprobeThrottleMs, openRepoCell, type RepoCell, type RepoCellStatus } from "./repo-cell.ts";
 import { type RepoModeAdmission } from "./repo-mode.ts";
 import type { RuntimeLauncher } from "./runtime-spawn.ts";
@@ -97,7 +97,7 @@ import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
-import { openDecisionPointExecutor } from "./decision-point-executor.ts";
+import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -196,31 +196,13 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               Object.values(config.hostingCredentialRefs ?? {}).includes(reference),
           ),
     }),
-    runtimePorts = {
-      runtimeInstances: instances.listPublic,
-      runtimeProviderHealth: openRuntimeProviderHealthStore(input.userRoot),
-      prepareRuntimeLaunch: instances.prepareLaunch,
-      reclaimRuntimeTempDirectory: instances.reclaimRuntimeTempDirectory,
-      reclaimSettledRuntimeTempDirectories: instances.reclaimSettledRuntimeTempDirectories,
-      prepareDaemonGitEnvironment: instances.prepareDaemonGitEnvironment,
-    },
+    runtimePorts = openDaemonRuntimePorts({ userRoot: input.userRoot, instances }),
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),
-    decisionPointExecutors = new Map<
-      string,
-      { readonly rootDir: string; readonly executor: ReturnType<typeof openDecisionPointExecutor> }
-    >(),
-    decisionPointExecutorFor = (repoId: string, rootDir: string) => {
-      const current = decisionPointExecutors.get(repoId);
-      if (current?.rootDir === rootDir) return current.executor;
-      const executor = openDecisionPointExecutor({
-        rootDir,
-        providers: { list: decisionProviders.list, port: decisionProviders.port },
-        now,
-      });
-      decisionPointExecutors.set(repoId, { rootDir, executor });
-      return executor;
-    },
+    decisionPointExecutorFor = openDecisionPointExecutorFactory({
+      providers: { list: decisionProviders.list, port: decisionProviders.port },
+      now,
+    }),
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();

@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  consumeKnownError,
   decisionPointBindingDigest,
   decisionEventDescriptor,
   decisionWhenMatches,
@@ -133,6 +134,7 @@ export function openDecisionPointExecutor(input: {
               ? error.code
               : "decision_error";
           await annotations.fail(key, code, input.now());
+          consumeKnownError(error);
           continue;
         }
         await annotations.succeed(
@@ -226,4 +228,21 @@ export function decisionPointBindingDigestForVertical(vertical: VerticalDefiniti
   const point = vertical.decisions?.points[pointId],
     question = point && vertical.decisions?.questions[point.question];
   return point && question ? decisionPointBindingDigest(pointId, point, question) : null;
+}
+
+export function openDecisionPointExecutorFactory(input: {
+  readonly providers: { readonly list: () => readonly DecisionProviderRecord[]; readonly port: DecisionPort };
+  readonly now: () => string;
+}) {
+  const executors = new Map<
+    string,
+    { readonly rootDir: string; readonly executor: ReturnType<typeof openDecisionPointExecutor> }
+  >();
+  return (repoId: string, rootDir: string) => {
+    const current = executors.get(repoId);
+    if (current?.rootDir === rootDir) return current.executor;
+    const executor = openDecisionPointExecutor({ ...input, rootDir });
+    executors.set(repoId, { rootDir, executor });
+    return executor;
+  };
 }

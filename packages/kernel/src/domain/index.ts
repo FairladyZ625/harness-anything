@@ -19,21 +19,10 @@ export {
   type DecisionEventName,
   type DecisionInputField,
   type DecisionReadSurface,
-  type DecisionWhen,
-  type DecisionWhenField,
   type DecisionQuestionDeclaration,
   type DecisionPointDeclaration,
-  type VerticalDecisionDeclarations,
 } from "./decision-point.ts";
-export {
-  DECISION_EVENT_CATALOG,
-  decisionEventNames,
-  decisionEventDescriptor,
-  decisionInputFields,
-  decisionReadSurfaces,
-  type DecisionEventDescriptor,
-  type DecisionEventFieldDescriptor,
-} from "./decision-event-catalog.ts";
+export { decisionEventDescriptor } from "./decision-event-catalog.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   validateEntityActionExplainRequest,
