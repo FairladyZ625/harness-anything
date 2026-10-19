@@ -9,6 +9,7 @@ import {
   type ScheduleActiveRunV1,
 } from "@harness-anything/kernel";
 import type { ScheduleTriggerV1 } from "@harness-anything/kernel";
+import type { AgentRuntimeSessionResult } from "./agent-runtime-contract.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import {
   daemonCommandReceiptRejectionCode,
@@ -18,6 +19,7 @@ import {
 } from "./protocol/daemon-protocol-validate-results.ts";
 import { fleetEdgeBackoffMs } from "./fleet-edge-task.ts";
 import { cellErrorCode } from "./repo-cell-errors.ts";
+import { scheduleOutcomeFromRuntime } from "./schedule-runtime-outcome.ts";
 import type { RepoCell, RepoCellBinding } from "./repo-cell.ts";
 
 type TimerHandle = ReturnType<typeof setTimeout>;
@@ -25,6 +27,7 @@ type ScheduleAction = Readonly<Record<string, unknown>> & { readonly kind: strin
 type ScheduleTarget = {
   readonly repoId: string;
   readonly execute: (action: ScheduleAction) => Promise<Readonly<Record<string, unknown>>>;
+  readonly readRuntimeSession: (runtimeSessionId: string) => Promise<AgentRuntimeSessionResult>;
 };
 type DueOccurrence = {
   readonly target: ScheduleTarget;
@@ -235,11 +238,87 @@ export function makeScheduleScheduler(input: {
         console.warn(`[schedule-scheduler] ${repoId} refresh failed: ${errorMessage(error)}`);
         continue;
       }
-      for (const schedule of schedules) {
+      for (let schedule of schedules) {
+        if (schedule.state !== "invalid") {
+          const active = schedule.status.activeRun as ScheduleActiveRunV1 | null;
+          if (active?.runtimeSessionId) {
+            let runtime: AgentRuntimeSessionResult | null = null;
+            try {
+              runtime = await target.readRuntimeSession(active.runtimeSessionId);
+            } catch (error) {
+              consumeKnownError(error);
+              if (cellErrorCode(error) === "projection_pending") {
+                pending = true;
+                continue;
+              }
+              console.warn(
+                `[schedule-scheduler] ${target.repoId}/${schedule.scheduleId} runtime read failed: ${errorMessage(error)}`,
+              );
+            }
+            if (runtime?.settlement) {
+              const terminal = runtime.settlement;
+              let rejectionCode: string | null;
+              try {
+                const settlement = makeDaemonCommandReceipt(
+                  "schedule-settle",
+                  await target.execute({
+                    kind: "schedule-settle",
+                    scheduleId: schedule.scheduleId,
+                    claimFence: active.claimFence,
+                    outcome: scheduleOutcomeFromRuntime(terminal.outcome, runtime.result?.text ?? null),
+                    endedAt: runtime.session.activity.lastObservedAt,
+                    ...(terminal.reason ? { detail: terminal.reason } : {}),
+                    idempotencyKey: `${active.runtimeSessionId}:schedule-terminal-recovery`,
+                  }),
+                );
+                rejectionCode = daemonCommandReceiptRejectionCode(settlement);
+              } catch (error) {
+                consumeKnownError(error);
+                console.warn(
+                  `[schedule-scheduler] ${target.repoId}/${schedule.scheduleId} terminal settlement failed: ${errorMessage(error)}`,
+                );
+                pending = true;
+                continue;
+              }
+              if (!rejectionCode || rejectionCode === "schedule_claim_stale") {
+                let refreshed: readonly ScheduleListRow[];
+                try {
+                  refreshed = await listSchedules(target);
+                } catch (error) {
+                  consumeKnownError(error);
+                  pending = true;
+                  continue;
+                }
+                const current = refreshed.find(({ scheduleId }) => scheduleId === schedule.scheduleId);
+                if (!current) {
+                  pending = true;
+                  continue;
+                }
+                schedule = current;
+                if (
+                  schedule.state !== "invalid" &&
+                  (schedule.status.activeRun as ScheduleActiveRunV1 | null)?.claimFence === active.claimFence
+                ) {
+                  // A Fleet edge can see the center's applied receipt before its replica cut
+                  // includes that settlement. Never record single-flight against that stale claim.
+                  pending = true;
+                  continue;
+                }
+              } else {
+                console.warn(
+                  `[schedule-scheduler] ${target.repoId}/${schedule.scheduleId} terminal settlement rejected: ${rejectionCode}.`,
+                );
+                pending = true;
+                continue;
+              }
+            }
+          }
+        }
+        if (schedule.state === "invalid") continue;
         // A builtin occurrence executes on the node holding the canonical cell; a remote-edge
         // mirror must never claim one (the kernel also rejects assignment-sourced claims). Every
         // other occurrence executes where its runtime lives, which is never a remote-center.
-        const builtin = schedule.state !== "invalid" && schedule.spec.target.kind === "builtin";
+        const builtin = schedule.spec.target.kind === "builtin";
         if (mode === "remote-edge" ? builtin : mode === "remote-center" && !builtin) continue;
         if (
           builtin &&
@@ -295,11 +374,20 @@ export function makeScheduleScheduler(input: {
           cell.run(action, await input.localBinding(repoId, rootDir, action)) as unknown as Promise<
             Readonly<Record<string, unknown>>
           >,
+        readRuntimeSession: (runtimeSessionId) =>
+          cell.read("repo.agentRuntime.sessions.read", {
+            runtimeSessionId,
+          }) as unknown as Promise<AgentRuntimeSessionResult>,
       };
     if (!input.remoteEdgeAction) return null;
     return {
       repoId,
       execute: (action) => input.remoteEdgeAction!(repoId, rootDir, action as JsonObject),
+      readRuntimeSession: (runtimeSessionId) =>
+        input.remoteEdgeAction!(repoId, rootDir, {
+          kind: "runtime-session-read",
+          runtimeSessionId,
+        }) as unknown as Promise<AgentRuntimeSessionResult>,
     };
   }
 

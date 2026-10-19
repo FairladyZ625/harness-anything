@@ -649,6 +649,11 @@ export function openFleetEdgeRuntime(input: {
     ): Promise<JsonObject> => {
       if (method === "repo.agentRuntime.overview" || method === "repo.agentRuntime.sessions.read")
         return readReplica(method, action);
+      if (method === "repo.schedule.run" && action.kind === "runtime-session-read") {
+        if (typeof action.runtimeSessionId !== "string" || !action.runtimeSessionId)
+          throw edgeRuntimeError("runtime_read_invalid", "Schedule runtime read requires a session id.");
+        return readReplica("repo.agentRuntime.sessions.read", { runtimeSessionId: action.runtimeSessionId });
+      }
       const readBinding = await input.readBinding();
       if (
         method === "repo.schedule.run" &&
