@@ -380,6 +380,61 @@ test("first administrator closes after one success and access-admin can invite",
   );
 });
 
+test("an invitation inside the OIDC write queue renews a lapsing session in place", { timeout: 10_000 }, async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-oidc-inwriter-")),
+    rbac = path.join(root, "rbac");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(rbac, { recursive: true });
+  writeFileSync(path.join(rbac, "config.json"), JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }));
+  writeFileSync(path.join(rbac, "center-client-secret"), "fixture-secret");
+  let refreshes = 0;
+  const adminJwt = `x.${Buffer.from(JSON.stringify({ realm_access: { roles: ["access-admin"] } })).toString("base64url")}.x`,
+    service = new OidcSessionService(root, {
+      fetch: (async (input, init) => {
+        const url = String(input),
+          method = init?.method ?? "GET";
+        if (url.endsWith("/protocol/openid-connect/token")) {
+          const form = init?.body as URLSearchParams;
+          if (form.get("grant_type") === "refresh_token") {
+            refreshes += 1;
+            return Response.json({
+              access_token: adminJwt,
+              refresh_token: form.get("refresh_token"),
+              expires_in: 3_600,
+              refresh_expires_in: 21_600,
+            });
+          }
+          return Response.json({ access_token: "center-token" });
+        }
+        if (url.endsWith("/users") && method === "POST")
+          return new Response(null, { status: 201, headers: { location: `${url}/user-invited` } });
+        if (url.endsWith("/execute-actions-email")) return new Response(null, { status: 204 });
+        return new Response(null, { status: 204 });
+      }) as typeof fetch,
+    });
+  // The stored session sits inside the 30s renewal margin, so its next use must renew before authorizing.
+  managedRbacSessionStore(root).write(
+    JSON.stringify({
+      schema: "harness-oidc-session/v2",
+      accessToken: "stale-admin-token",
+      refreshToken: "stale-admin-token",
+      subject: "admin-subject",
+      personId: "person-admin",
+      expiresAt: Date.now() + 10_000,
+      sessionExpiresAt: Date.now() + 3_600_000,
+      roles: ["access-admin"],
+    }),
+  );
+  const invitation = await service.serialize(() =>
+    service.invite(
+      { username: "alice", email: "alice@example.invalid", displayName: "Alice", personId: "person-alice" },
+      true,
+    ),
+  );
+  assert.deepEqual(invitation, { ok: true, invited: true, personId: "person-alice" });
+  assert.equal(refreshes, 1, "the lapsing session renewed once in place, never queued behind the caller");
+});
+
 const remoteAuthority: OidcLoginAuthority = {
   url: "https://center.example.test",
   realm: "harness",

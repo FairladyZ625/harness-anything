@@ -85,7 +85,8 @@ export class EdgeJoinAdminService {
       });
 
     if (!(await session.adapter.findUserId(session.token, personId)))
-      await this.#oidc.invite({ username, email, displayName, personId });
+      // Already inside the edge-join-create write queue; invite renews the session in place.
+      await this.#oidc.invite({ username, email, displayName, personId }, true);
     const userId = await requiredUserId(session.adapter, session.token, personId),
       grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
     for (const repoId of repoIds) {
@@ -162,12 +163,8 @@ export class EdgeJoinAdminService {
   }
 
   revoke(joinId: string, actor: string): Record<string, unknown> {
-    return {
-      ok: true,
-      ...this.#joins.revoke(joinId, actor),
-      joinId,
-      state: "revoked",
-    };
+    this.#joins.revoke(joinId, actor);
+    return { ok: true, joinId, state: "revoked" };
   }
 
   async #validateSnapshot(record: EdgeJoinRecord): Promise<void> {

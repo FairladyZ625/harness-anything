@@ -231,9 +231,11 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
         throw new EdgeJoinError("already_consumed", "The edge join invitation was already consumed.");
       return clone(record);
     },
-    consume(joinId: string, suppliedToken: string, nodeId: string): EdgeJoinRecord {
-      const record = this.assertConsumable(joinId, suppliedToken),
-        consumed = { ...record, consumedAt: now(), nodeId };
+    /** Bare transition: the caller must have run assertConsumable for this same critical section. */
+    consume(joinId: string, nodeId: string): EdgeJoinRecord {
+      const record = records.get(joinId);
+      if (!record) throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+      const consumed = { ...record, consumedAt: now(), nodeId };
       records.set(joinId, consumed);
       options.onChange?.(clone(consumed));
       return clone(consumed);

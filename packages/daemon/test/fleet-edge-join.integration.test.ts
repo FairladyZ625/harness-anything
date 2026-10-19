@@ -40,7 +40,7 @@ test(
         const personId = accessToken?.startsWith("device-token-") ? "person-one" : "unknown";
         if (personId !== invite.personId) throw new FleetFault("person_mismatch", "another person's invitation");
         const issuedNodeId = `issued-${invite.joinId}`;
-        invites.consume(invite.joinId, inviteToken, issuedNodeId);
+        invites.consume(invite.joinId, issuedNodeId);
         f.owners.keycloak.node(issuedNodeId, personId);
         f.owners.keycloak.interactiveSession(
           personId,

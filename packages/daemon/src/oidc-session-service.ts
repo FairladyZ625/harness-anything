@@ -646,14 +646,17 @@ export class OidcSessionService {
       if (
         existsSync(path.join(this.#rbacRoot, "config.json")) &&
         !(await this.#bootstrapRequired(await this.#centerToken()))
-      ) {
-        // Already in the write queue: renew directly rather than enqueueing behind ourselves.
-        const { session, unavailable } = await this.#useCurrent();
-        if (unavailable) throw unavailable;
-        this.#requireRole("access-admin", session);
-      }
+      )
+        await this.#requireRoleInWriter("access-admin");
       return operation();
     });
+  }
+
+  /** Role check for a caller already inside the write queue: renewal runs directly, never queued behind itself. */
+  async #requireRoleInWriter(role: string): Promise<StoredSession> {
+    const { session, unavailable } = await this.#useCurrent();
+    if (unavailable) throw unavailable;
+    return this.#requireRole(role, session);
   }
 
   async #bootstrapRequired(token: string): Promise<boolean> {
@@ -690,13 +693,18 @@ export class OidcSessionService {
     });
   }
 
-  async invite(input: {
-    readonly username: string;
-    readonly email: string;
-    readonly displayName: string;
-    readonly personId: string;
-  }): Promise<Record<string, unknown>> {
-    await this.requireRole("access-admin");
+  async invite(
+    input: {
+      readonly username: string;
+      readonly email: string;
+      readonly displayName: string;
+      readonly personId: string;
+    },
+    withinWriter = false,
+  ): Promise<Record<string, unknown>> {
+    // A caller already inside the write queue must not re-queue its own session renewal.
+    if (withinWriter) await this.#requireRoleInWriter("access-admin");
+    else await this.requireRole("access-admin");
     const token = await this.#centerToken(),
       userId = await this.#createUser(token, input, true);
     await this.#adminJson("PUT", `/users/${encodeURIComponent(userId)}/execute-actions-email`, token, [
