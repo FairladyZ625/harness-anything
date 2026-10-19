@@ -135,7 +135,12 @@ function mkdirSecurely(target: string): void {
   // mkdirSync leaves a pre-existing directory's mode untouched, and sticky /tmp lets any user
   // pre-create this name; a directory that is not a 0700 owner directory would silently void
   // the per-user boundary the socket path claims.
-  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.())
+  if (
+    !info.isDirectory() ||
+    info.isSymbolicLink() ||
+    info.uid !== process.getuid?.() ||
+    (process.platform !== "win32" && (info.mode & 0o777) !== 0o700)
+  )
     throw new Error("runtime callback relay directory is unsafe");
 }
 
