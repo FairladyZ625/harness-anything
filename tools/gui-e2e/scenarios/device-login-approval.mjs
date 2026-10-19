@@ -110,9 +110,18 @@ export default {
       }
       await page.getByTestId("device-approve-node-two").click();
       await page.getByTestId("account-login").waitFor();
-      await page.waitForFunction(() =>
-        document.querySelector('[data-testid="in-app-browser-webview"]')?.getURL().includes("/realms/harness/device"),
-      );
+      // webview 元素先挂进 DOM、guest 随后才 attach;attach 前 getURL() 会抛
+      // "WebView must be attached to the DOM"。把它当作「还没到」继续轮询,
+      // 而不是让 waitForFunction 立即失败——终态断言不变。
+      await page.waitForFunction(() => {
+        const webview = document.querySelector('[data-testid="in-app-browser-webview"]');
+        if (webview === null) return false;
+        try {
+          return webview.getURL().includes("/realms/harness/device");
+        } catch {
+          return false;
+        }
+      });
       const approval = await app.evaluate(async ({ webContents }) => {
         const guest = webContents.getAllWebContents().find((content) => content.getType() === "webview");
         return { url: guest?.getURL(), text: guest ? await guest.executeJavaScript("document.body.innerText") : null };

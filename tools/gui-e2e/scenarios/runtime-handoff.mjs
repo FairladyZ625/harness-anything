@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { nav } from "./helpers.mjs";
+import { groupSessionsByTask, nav } from "./helpers.mjs";
 
 export default {
   id: "runtime-handoff",
@@ -14,6 +14,7 @@ export default {
     );
     assert.equal(visible, false);
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
+    await groupSessionsByTask(page);
     const group = page.getByTestId("session-group-task-e2e-single");
     await group.waitFor();
     await page.getByTestId("session-group-toggle-task-e2e-single").click();

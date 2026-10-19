@@ -52,9 +52,10 @@ export default {
     await page.getByTestId("board-task-card").first().waitFor();
     await shot("preview-drawer-single-esc-back-to-board");
 
-    // 历史栈整栈只剩最后一张卡的预览条目,没有中间预览。
+    // 历史栈整栈只剩最后一张卡的预览条目,没有中间预览。运行期栈写在每窗口的
+    // sessionStorage(PR #3686);localStorage 只在 pagehide 交接时才有内容。
     const previews = await page.evaluate(() =>
-      Object.entries(globalThis.localStorage)
+      Object.entries(globalThis.sessionStorage)
         .filter(([key]) => key.startsWith("harness-view-history:"))
         .flatMap(([, raw]) =>
           JSON.parse(raw)

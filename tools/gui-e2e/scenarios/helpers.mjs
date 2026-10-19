@@ -13,6 +13,17 @@ export async function nav(page, name, testId) {
   await page.getByTestId(testId).first().waitFor();
 }
 
+/**
+ * 会话页在常驻工作索引有工作时默认按「工作 → 任务 → 会话」分组(PR #3790),
+ * 任务组被折叠在工作桶里。只断言任务组的场景显式选「任务」维度;没有工作时
+ * 默认已经是任务,这次点击是幂等的。
+ */
+export async function groupSessionsByTask(page) {
+  const task = page.getByTestId("sessions-group-task");
+  await task.waitFor();
+  if ((await task.getAttribute("aria-pressed")) !== "true") await task.click();
+}
+
 // 对动画浮层断言/截图前必须等入场真正完成:Modal 等原语的面板自身是 motion 元素,
 // 入场把计算样式 opacity 从 0 拉到 1(「减弱动态效果」下仍有更短的纯淡入,不取消),
 // 取在中途就是半透明面板(task_2e9dedde 返工根因:机检只读声明背景 alpha,假绿)。
