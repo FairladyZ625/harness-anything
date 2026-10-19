@@ -89,12 +89,17 @@ function resolveTaskWriteTarget(
   const field = contract.execution.targetIdField ?? "taskId",
     requested = action[field];
   if (typeof requested !== "string" || requested === "") return { action, resolved: true };
-  const read = context.projection.read(requested);
+  const read =
+    action.kind === "task-contract-migrate"
+      ? context.projection.readForTaskContractMigration(requested)
+      : context.projection.read(requested);
   if (read.snapshot.task) return { action, resolved: true };
   if (read.watermark < read.sourceRevision) return { action, resolved: false };
   const prefixed = resolveUniquePrefix(
     requested,
-    context.projection.readTaskIndex().rows.map(({ taskId }) => taskId),
+    action.kind === "task-contract-migrate"
+      ? context.projection.readTaskIdsForTaskContractMigration()
+      : context.projection.readTaskIndex().rows.map(({ taskId }) => taskId),
   );
   if (prefixed.matched) return { action: { ...action, [field]: prefixed.id } as RepoTaskAction, resolved: true };
   if (options.deferInvalidTarget) return { action, resolved: false };

@@ -7,6 +7,8 @@ import {
   isTerminalStatus,
   requireEntityStoreKindContract,
   retiredTaskClassRestatements,
+  validateTaskV2,
+  type TaskV2,
   type TaskProjectionListQuery,
   type WriteReceiptDraft as WriteReceipt,
 } from "@harness-anything/kernel";
@@ -207,20 +209,51 @@ export function migrateTaskContracts(
   binding: RepoCellBinding,
 ): WriteReceipt {
   if (action.toPresetId !== undefined) return migrateTaskPreset(cell, action, binding);
-  const migratedTaskIds = new Set(
+  const projectedTaskIds = cell.projection.readTaskIdsForTaskContractMigration(),
+    projectedTaskIdSet = new Set(projectedTaskIds),
+    migratedTaskIds = new Set(
       cell.store
         .read()
         .events.filter(isMigrationImportEvent)
         .flatMap((event) => (event.payload.entity.kind === "task" ? [event.payload.entity.task.taskId] : [])),
     ),
-    candidates = typeof action.taskId === "string" ? [action.taskId] : [...cell.projectedTaskIds()],
+    candidates = typeof action.taskId === "string" ? [action.taskId] : [...projectedTaskIds],
     repairs = new Map<string, ContractRepair>(),
+    migrationReads = new Map<
+      string,
+      ReturnType<RepoCellOperationalContext["projection"]["readForTaskContractMigration"]>
+    >(),
     contractRow = (taskId: string): ContractMigrationRow => {
-      const current = cell.projection.read(taskId),
-        task = current.snapshot.task;
+      const current = taskContractMigrationRead(cell, taskId),
+        originalTask = current.snapshot.task;
+      let task = originalTask;
       if (!task) return { taskId, status: "manual", reason: "task_not_found" };
+      const cleanedTask = withoutRetiredFactCloseoutOverride(task);
+      if (cleanedTask) {
+        const validation = validateTaskV2(cleanedTask, true);
+        if (validation.length)
+          return {
+            taskId,
+            status: "manual",
+            reason: "task_invalid_after_retired_fact_override_removal",
+            detail: validation.map(({ code, message }) => `${code}: ${message}`).join("; "),
+          };
+        task = cleanedTask;
+        const sanitizedRead = { ...current, snapshot: { ...current.snapshot, task } };
+        migrationReads.set(taskId, sanitizedRead);
+        mergeContractRepair(repairs, taskId, { factOverrideRemoved: true, migrationRead: sanitizedRead });
+      } else migrationReads.set(taskId, current);
+      const validation = validateTaskV2(task, true);
+      if (validation.length)
+        return {
+          taskId,
+          status: "manual",
+          reason: "task_invalid_for_contract_migration",
+          detail: validation.map(({ code, message }) => `${code}: ${message}`).join("; "),
+        };
+      const migrationCell = taskContractMigrationCell(cell, taskId, migrationReads.get(taskId)!, projectedTaskIdSet);
       if (migratedTaskIds.has(taskId) && current.packagePath) {
-        const projected = cell.projection.readDocument(`${current.packagePath}/task-contract.json`);
+        const projected = migrationCell.projection.readDocument(`${current.packagePath}/task-contract.json`);
         if (!cell.projectionReady(projected))
           return { taskId, status: "manual", reason: "contract_projection_pending" };
         let restated: RestatedTaskContract,
@@ -271,7 +304,7 @@ export function migrateTaskContracts(
             contractPresetSnapshotDigest: restated.presetSnapshotDigest,
           };
         if (digestBefore === null || packagePathBefore !== current.packagePath || (task.contractVersion ?? 0) < 1) {
-          repairs.set(taskId, {
+          mergeContractRepair(repairs, taskId, {
             body: restated.body,
             digest: restated.presetSnapshotDigest,
             ...(restated.repair ? { repair: restated.repair } : {}),
@@ -298,7 +331,7 @@ export function migrateTaskContracts(
         return { taskId, status: "current" };
       }
       return (task.contractVersion ?? 0) >= 1
-        ? withBackfilledContractDocuments(cell, taskId, { taskId, status: "current" }, repairs)
+        ? withBackfilledContractDocuments(migrationCell, taskId, { taskId, status: "current" }, repairs)
         : !task.metadata || !task.presetSnapshotDigest || !current.packagePath
           ? {
               taskId,
@@ -308,12 +341,23 @@ export function migrateTaskContracts(
           : { taskId, status: "backfill" };
     },
     report: readonly ContractMigrationRow[] = [
-      ...candidates.map((taskId) => withRetiredTaskClass(cell, taskId, contractRow(taskId))),
+      ...candidates.map((taskId) => {
+        const row = contractRow(taskId),
+          repair = repairs.get(taskId),
+          migrationRead = migrationReads.get(taskId),
+          taskCell = migrationRead ? taskContractMigrationCell(cell, taskId, migrationRead, projectedTaskIdSet) : cell,
+          factCleanupRow = repair?.factOverrideRemoved
+            ? row.status === "current"
+              ? { ...row, status: "repair", disposition: "retired-fact-closeout-override" }
+              : { ...row, retiredFactCloseoutOverrideRemoved: true }
+            : row;
+        return withRetiredTaskClass(taskCell, taskId, factCleanupRow);
+      }),
       // Worktrees live on the node that checked them out; a forwarded migrate leaves them to that node.
       ...(binding.source === "local"
         ? renameLegacyTaskWorktrees(
             cell.rootDir,
-            candidates.map((taskId) => cell.projection.read(taskId).snapshot.task),
+            candidates.map((taskId) => migrationReads.get(taskId)?.snapshot.task ?? null),
             presetSnapshotReader(cell.projection),
             action.mode === "apply",
           )
@@ -348,13 +392,18 @@ export function migrateTaskContracts(
   const headRevision = cell.store.readHead()?.revision ?? 0,
     outerOpId = cell.operationId(action, binding, cell.input.repoId, headRevision),
     prepared = backfills.map(({ taskId, taskClassAfter }, index) => {
-      const repair = repairs.get(taskId) ?? null;
+      const repair = repairs.get(taskId) ?? null,
+        migrationRead = repair?.factOverrideRemoved
+          ? taskContractMigrationRead(cell, taskId)
+          : migrationReads.get(taskId),
+        taskCell = migrationRead ? taskContractMigrationCell(cell, taskId, migrationRead, projectedTaskIdSet) : cell;
       return requirePrepared(
         prepareTaskSurfaceWriteAt(
-          cell,
+          taskCell,
           {
             kind: "task-contract-migrate",
             taskId,
+            ...(repair?.factOverrideRemoved ? { removeRetiredFactCloseoutOverride: true } : {}),
             ...(repair?.digest ? { repairPresetSnapshotDigest: repair.digest } : {}),
             ...(repair ? { repairTaskContractBody: repair.body } : {}),
             ...(repair?.repair
@@ -392,10 +441,54 @@ export function migrateTaskContracts(
 type ContractMigrationRow = { readonly taskId: string; readonly status: string; readonly [field: string]: unknown };
 
 type ContractRepair = {
-  readonly body: string;
-  readonly digest: `sha256:${string}` | null;
+  readonly body?: string;
+  readonly digest?: `sha256:${string}` | null;
+  readonly factOverrideRemoved?: boolean;
+  readonly migrationRead?: ReturnType<RepoCellOperationalContext["projection"]["readForTaskContractMigration"]>;
   readonly repair?: RestatedTaskContract["repair"];
 };
+
+function mergeContractRepair(repairs: Map<string, ContractRepair>, taskId: string, repair: ContractRepair): void {
+  repairs.set(taskId, { ...repairs.get(taskId), ...repair });
+}
+
+function withoutRetiredFactCloseoutOverride(task: TaskV2): TaskV2 | null {
+  const overrides = task.closeoutOverrides as Readonly<Record<string, unknown>> | undefined;
+  if (overrides === undefined || !Object.hasOwn(overrides, "fact")) return null;
+  const { fact: _retiredFact, ...currentOverrides } = overrides;
+  if (Object.keys(currentOverrides).length > 0)
+    return { ...task, closeoutOverrides: currentOverrides as TaskV2["closeoutOverrides"] };
+  const { closeoutOverrides: _emptyOverrides, ...withoutOverrides } = task;
+  return withoutOverrides;
+}
+
+function taskContractMigrationRead(cell: RepoCellOperationalContext, taskId: string) {
+  const read = cell.projection.readForTaskContractMigration(taskId);
+  if (!cell.projectionReady(read))
+    throw cell.cellCodedError("content_not_ready", `Task ${taskId} projection is not ready for contract migration.`);
+  return read;
+}
+
+function taskContractMigrationCell(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  migrationRead: NonNullable<ContractRepair["migrationRead"]>,
+  taskIds: ReadonlySet<string>,
+): RepoCellOperationalContext {
+  const context = Object.create(cell) as RepoCellOperationalContext,
+    projection = Object.create(cell.projection) as RepoCellOperationalContext["projection"];
+  Object.defineProperties(projection, {
+    read: {
+      value: (candidateId: string, presentationStatus?: boolean) =>
+        candidateId === taskId ? migrationRead : cell.projection.read(candidateId, presentationStatus),
+    },
+  });
+  Object.defineProperties(context, {
+    projection: { value: projection },
+    projectedTaskIds: { value: () => new Set(taskIds) },
+  });
+  return context;
+}
 
 /**
  * The package compiler, not the preset definition, owns the task.explainer slot,
@@ -450,7 +543,7 @@ export function withBackfilledContractDocuments(
     };
   }
   if (backfill === null) return row;
-  repairs.set(taskId, { body: backfill.body, digest: null });
+  mergeContractRepair(repairs, taskId, { body: backfill.body, digest: null });
   return {
     ...row,
     status: "repair",

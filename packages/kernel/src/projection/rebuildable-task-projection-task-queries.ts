@@ -25,7 +25,12 @@ import type { TaskProjection } from "./task-projection-port.ts";
 import type { ProjectionContext } from "./rebuildable-task-projection-types.ts";
 import { withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
-import { readDocument, readPresetSnapshot } from "./rebuildable-task-projection-reads.ts";
+import {
+  readDocument,
+  readForTaskContractMigration,
+  readPresetSnapshot,
+  readTaskIdsForTaskContractMigration,
+} from "./rebuildable-task-projection-reads.ts";
 import {
   prepareQuery,
   readProjectionCut,
@@ -74,6 +79,8 @@ export function taskQueryApi(
   context: ProjectionContext,
 ): Pick<
   TaskProjection,
+  | "readForTaskContractMigration"
+  | "readTaskIdsForTaskContractMigration"
   | "readTaskRelations"
   | "readTaskRelationNeighborhood"
   | "readTaskIndex"
@@ -121,8 +128,11 @@ export function taskQueryApi(
   | "readPresetSnapshot"
   | "readProgress"
 > {
-  const { eventStore, limit, projectionPath, readHead } = context;
+  const { eventStore, limit, now, projectionPath, readHead } = context;
   return {
+    readForTaskContractMigration: (taskId) =>
+      readForTaskContractMigration(projectionPath, readHead, taskId, limit, now),
+    readTaskIdsForTaskContractMigration: () => readTaskIdsForTaskContractMigration(projectionPath, readHead),
     ...repositoryEventQueries((read) =>
       withDatabase(projectionPath, readHead, (db) => read(db, readProjectionCut(db, readHead))),
     ),

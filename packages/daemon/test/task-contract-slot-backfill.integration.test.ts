@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
   makeTaskEventReader,
@@ -132,6 +133,66 @@ test("contract migrate backfills the compiler explainer slot a legacy contract p
       readonly report: readonly { readonly status: string }[];
     };
     assert.equal(migratedReport.report[0]!.status, "current", "a second run finds nothing left to backfill");
+    await reader.drain();
+  } finally {
+    await cell?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("contract migrate removes a retired fact override before projection reads validate stored tasks", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-retired-fact-override-migrate-")),
+    repoId = workspaceId("retired-fact-override-migrate"),
+    taskId = "task_retired_fact_override",
+    binding = withPolicyGroup({ actor, source: "local" as const }, "admin");
+  let cell: Awaited<ReturnType<typeof openRepoCell>> | undefined;
+  try {
+    initRepo(rootDir);
+    seedSettingsEvent({ repoId: "retired-fact-override-migrate", rootDir });
+    cell = await openRepoCell({ repoId, rootDir: canonicalRoot(rootDir), ownerId: "retired-fact-override-migrate" });
+    const created = await cell.run({ kind: "task-create", taskId, title: "Retired fact override" }, binding);
+    assert.equal(created.outcome, "applied", JSON.stringify(created));
+    await waitForFixturePublication(cell, created.opId, binding);
+    const reader = makeTaskEventReader({ repoId, rootDir }),
+      projection = makeTaskProjection({ rootDir, eventStore: reader }),
+      current = projection.read(taskId),
+      oldTask = {
+        ...current.snapshot.task!,
+        closeoutOverrides: { ...current.snapshot.task!.closeoutOverrides, fact: false },
+      },
+      oldSnapshot = { ...current.snapshot, task: oldTask },
+      db = new DatabaseSync(projection.path);
+    try {
+      db.prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?").run(
+        JSON.stringify(oldSnapshot),
+        taskId,
+      );
+    } finally {
+      db.close();
+    }
+
+    assert.throws(() => projection.read(taskId), /projection snapshot mismatch/u);
+    const dryRun = await cell.run({ kind: "task-contract-migrate", taskId, mode: "dry-run" }, binding);
+    assert.equal(dryRun.outcome, "pending", JSON.stringify(dryRun));
+    const dryRunReport = JSON.parse(String(dryRun.evidence!)) as {
+      readonly report: readonly { readonly taskId: string; readonly status: string; readonly disposition?: string }[];
+    };
+    assert.deepEqual(dryRunReport.report, [
+      { taskId, status: "repair", disposition: "retired-fact-closeout-override" },
+    ]);
+
+    const applied = await cell.run({ kind: "task-contract-migrate", taskId, mode: "apply" }, binding);
+    assert.equal(applied.outcome, "applied", JSON.stringify(applied));
+    await waitForFixturePublication(cell, applied.opId, binding);
+    assert.equal(Object.hasOwn(projection.read(taskId).snapshot.task!, "closeoutOverrides"), false);
+    const migration = reader
+      .read()
+      .events.findLast((event) => event.type === "task_contract_migrated" && event.taskId === taskId);
+    assert.ok(migration, "cleanup is recorded as a task lifecycle event");
+    assert.ok(migration.payload.mutation.fields.includes("closeoutOverrides.fact"));
+
+    projection.rebuild();
+    assert.doesNotThrow(() => projection.read(taskId));
     await reader.drain();
   } finally {
     await cell?.close();

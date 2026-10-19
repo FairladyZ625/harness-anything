@@ -78,7 +78,7 @@ import {
 import {
   readRuntimeInstallation,
   readRuntimeSession,
-  readSnapshot,
+  readSnapshotForTaskEventReduction,
   refreshRuntimeSessionAssociations,
   replayClaim,
   replayRelease,
@@ -589,7 +589,7 @@ export function applyEvent(
     return;
   }
   if (isPresetSnapshotUpgradeEvent(event)) {
-    const current = readSnapshot(db, event.taskId),
+    const current = readSnapshotForTaskEventReduction(db, event.taskId),
       snapshotBytes = readBlob(event.payload.presetSnapshotClaim.sha256),
       contractBytes = readBlob(event.payload.taskContractClaim.sha256);
     if (
@@ -760,7 +760,7 @@ export function applyTaskEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
-  const snapshot = reduceTaskEvent(readSnapshot(db, event.taskId), event);
+  const snapshot = reduceTaskEvent(readSnapshotForTaskEventReduction(db, event.taskId), event);
   runSql(
     db,
     "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",

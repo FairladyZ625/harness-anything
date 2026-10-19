@@ -108,6 +108,9 @@ export interface TaskProjection {
   readonly getEntity: (entityKind: string, entityId: string) => EntityProjectionRow | null;
   readonly listPinnedEntities: () => readonly PinnedEntityProjectionRow[];
   readonly read: (taskId: string, presentationStatus?: boolean) => TaskProjectionRead;
+  /** Migration-only access to the aggregate before TaskV2 validation. Normal reads must use `read`. */
+  readonly readForTaskContractMigration: (taskId: string) => TaskProjectionRead;
+  readonly readTaskIdsForTaskContractMigration: () => readonly string[];
   readonly list: (query?: TaskProjectionListQuery) => TaskProjectionListRead;
   readonly readTaskIndex: (
     query?: TaskProjectionListQuery,
