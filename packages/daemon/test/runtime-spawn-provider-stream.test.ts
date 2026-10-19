@@ -25,6 +25,7 @@ import {
   parseZcodeFrame,
 } from "../src/runtime-spawn-provider-frames.ts";
 import { discoverRuntimeModelCatalog } from "../src/agent-runtime-installation-discovery.ts";
+import { publishExit } from "../src/runtime-spawn-settlement.ts";
 
 function active(kindId = "codex", process = {} as never, extras: Record<string, unknown> = {}) {
   return createActiveRuntime({
@@ -878,7 +879,7 @@ test("an adopted session settles usage recovered from the persisted provider str
   }
 });
 
-test("a usage dialect with only context occupancy settles unavailable instead of reported zeros", async () => {
+test("a usage dialect with only context occupancy settles unavailable instead of reported zeros", async (t) => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-context-occupancy-"));
   try {
     const dispatchId = "dispatch_0123456789abcdef55555555";
@@ -893,7 +894,26 @@ test("a usage dialect with only context occupancy settles unavailable instead of
     // Frames as runtime-worker-acp persists them (trimmed from a real deepseek-harness
     // session, dispatch_3360193ce5356e273a499ad8): usage_update carries only the context
     // occupancy, and the prompt result carries no usage record at all.
-    const runtime = active("deepseek-harness", {} as never, { dispatchId, stream: writer });
+    const runtime = active("deepseek-harness", { release: () => undefined } as never, {
+      dispatchId,
+      instanceId: "deepseek-harness",
+      stream: writer,
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaaaaaaaaaaaaaaaaaaaaaaa" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      squadId: null,
+      delegatedBy: null,
+      decisionReviewTarget: null,
+      providerSessionId: "deepseek-session",
+      finalText: "Review complete.",
+      providerOutcome: "succeeded",
+    });
     await consumeProviderLine(
       context(),
       runtime,
@@ -914,31 +934,52 @@ test("a usage dialect with only context occupancy settles unavailable instead of
         finalText: "Review complete.",
       }),
     );
-    assert.equal(runtime.usageReported, false, "context occupancy alone is not reported usage");
     assert.deepEqual(
       { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
       { input: 0, cacheRead: 0, output: 0 },
     );
-    // Settlement (usageUnavailable: !usageReported) must call the session unavailable — the
-    // usage read renders it unavailable, never a real zero — while raw keeps the occupancy
-    // as the provider's only consumption signal.
-    runtime.stream.appendRuntimeMetrics?.(
+    runtime.toolCallCount = 85;
+    await publishExit(
       {
-        inputTokens: runtime.inputTokens,
-        cacheReadTokens: runtime.cacheReadTokens,
-        outputTokens: runtime.outputTokens,
-        totalTokens: runtime.inputTokens + runtime.outputTokens,
-        toolCallCount: runtime.toolCallCount,
-        compacted: runtime.compacted,
-        raw: runtime.rawUsage,
-        usageUnavailable: !runtime.usageReported,
-      },
-      "2026-10-19T03:30:55.396Z",
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-19T03:30:55.396Z",
+          stream: { publish: () => undefined },
+        },
+        resultMediaType: "text/plain",
+        runtimeResultText: () => "Review complete.",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as never,
+      runtime,
+      0,
     );
     const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
-    assert.equal(settled?.usageUnavailable, true);
-    assert.equal(settled?.inputTokens, 0);
-    assert.deepEqual(settled?.raw, { used: 27997, context_size: 1048576 });
+    t.diagnostic(`settled runtime_metrics=${JSON.stringify(settled)}`);
+    assert.deepEqual(
+      {
+        inputTokens: settled?.inputTokens,
+        cacheReadTokens: settled?.cacheReadTokens,
+        outputTokens: settled?.outputTokens,
+        totalTokens: settled?.totalTokens,
+        toolCallCount: settled?.toolCallCount,
+        usageUnavailable: settled?.usageUnavailable,
+        raw: settled?.raw,
+      },
+      {
+        inputTokens: 0,
+        cacheReadTokens: 0,
+        outputTokens: 0,
+        totalTokens: 0,
+        toolCallCount: 85,
+        usageUnavailable: true,
+        raw: { used: 27997, context_size: 1048576 },
+      },
+    );
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
