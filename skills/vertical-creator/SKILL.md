@@ -1,6 +1,6 @@
 ---
 name: vertical-creator
-description: Create, review, or update Harness Anything verticals. Use when designing vertical-definition JSON, vertical template catalogs, entity kinds, package scaffolds, checker profiles, projection schemas, and preset layering for a new Harness Anything domain such as coding, QA, docs, design, or operations.
+description: Create, review, or update Harness Anything verticals. Use when designing vertical-definition JSON, declarative completion sources and gates, template catalogs, entity kinds, package scaffolds, projection schemas, and preset layering for a new Harness Anything domain such as coding, QA, docs, design, or operations.
 ---
 
 # Vertical Creator
@@ -17,7 +17,14 @@ The CLI may provide only generic vertical infrastructure:
 - Settings/dev-mode gating.
 - Generic preset and profile selection.
 
-Vertical-specific behavior belongs in vertical assets, template catalogs, preset manifests, and process scripts.
+Vertical-specific behavior belongs in vertical assets, template catalogs, preset manifests, and declared process scripts. A vertical's `completion.sources`, `completion.gates`, and `completion.closeoutDefaults` describe domain checks; a preset profile selects gate ids. Keep the source and gate declarations in the package that owns their domain meaning, and keep execution inside a declared preset entrypoint.
+
+A vertical asset root must include `vertical.json`, `template-catalog.json`, and
+`capabilities.json`. The catalogs are required even when a vertical has no
+templates or command providers; use empty arrays for those catalogs. When a
+completion command emits `completion-witness`, declare its provider in
+`capabilities.json` with the action kind and exact payload fields, as shown
+below.
 
 ## Workflow
 
@@ -27,11 +34,11 @@ Vertical-specific behavior belongs in vertical assets, template catalogs, preset
 4. Put template bodies in Markdown assets under `assets/<vertical>/templates/<slot>/<locale>.md`.
 5. Register those assets in `template-catalog/v2` with `bodyPath`; do not use inline `body`.
 6. Define required documents as `templateSelections` that point at catalog refs.
-7. Choose the checker profile and projection schemas.
-8. Define applicable presets separately as `preset-manifest/v3`; do not bury preset behavior in the vertical.
-9. Run `ha vertical validate --source <package-directory>` before publishing the vertical.
-10. Add validation tests for schema shape, materialized paths, catalog body paths, and default preset/profile behavior.
-11. Add integration tests only for real CLI/filesystem behavior.
+7. Define domain completion sources, gates, and closeout defaults in `completion`; profiles select gates by id.
+8. Define applicable presets separately as `preset-manifest/v3`; put profile-specific gate selection in `profiles[].completionGates`.
+9. Run `ha vertical validate --source <vertical-directory> --preset <installed-preset-id>` to check the vertical and its completion source catalog.
+10. Add validation tests for schema shape, source/entrypoint references, materialized paths, catalog body paths, and default preset/profile behavior.
+11. Add integration tests only for real CLI/filesystem behavior. See [gate-customization](../gate-customization/SKILL.md) for a complete artifact-only research gate.
 
 ## Entity Declaration Tuple
 
@@ -90,10 +97,38 @@ A vertical package contains `vertical.json` and its catalog/assets. Validate the
   },
   "scripts": [],
   "templateSelections": [],
-  "checkerProfile": "standard",
+  "completion": {
+    "sources": {},
+    "gates": {},
+    "closeoutDefaults": {}
+  },
   "projectionSchemas": []
 }
 ```
+
+The same package root also needs both runtime catalogs. For an artifact-only
+command gate, the provider declaration is:
+
+```json
+{
+  "schema": "preset-capabilities/v1",
+  "providers": [
+    {
+      "id": "completion-witness",
+      "kind": "checker",
+      "version": "1",
+      "actionKind": "completion-witness",
+      "payloadFields": ["result", "subjects", "predicateType", "predicate", "diagnostic"]
+    }
+  ]
+}
+```
+
+`template-catalog.json` uses `template-catalog/v2`, a package record, and a
+`documents` array. A vertical with no templates may use `"documents": []`;
+otherwise register each Markdown body under its `bodyPath` as shown in the
+Template Catalog v2 example. Do not omit either catalog file: runtime loading
+requires both before it can validate the vertical and its completion sources.
 
 Validate it:
 
@@ -175,7 +210,6 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 {
   "id": "baseline",
   "title": "Baseline",
-  "checkerProfile": "standard",
   "completionGates": [],
   "templateSelections": [
     {
@@ -194,6 +228,11 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 - Use presets for optional process or content overlays.
 - Use `preset-manifest/v3` for all new preset examples.
 - Use `template-catalog/v2` with `bodyPath`; never teach inline template `body`.
+- Keep domain source and gate IDs in the declarative `completion` object; do not add a vertical-id branch to the CLI.
+- For command-backed completion, point a source at an installed preset entrypoint that produces `completion-witness`; the declaration alone does not grant runtime permissions.
+- Use `resultSchema.required` for required predicate fields and `gates.<id>.bindings` when a predicate value must equal a JSON Pointer value in a frozen submitted artifact.
+- `completion.closeoutDefaults` may set `review`, `consent`, `factDisposition`, and `codeDoc`; repository and task-profile choices take precedence over domain defaults.
+- Keep template `requiredAnchors` in the template catalog. They validate document structure and are separate from completion predicate schema requirements.
 - Keep project/user overrides additive and fail closed on invalid active overrides.
 - Do not promise unattended conversion when the system supports Legacy Intake plus explicit rebuild only.
 - Keep private harness operating state out of public docs unless explicitly designing public product documentation.
@@ -213,5 +252,8 @@ Preset overlays should reference the same catalog documents from `preset-manifes
 - The vertical works without CLI branches keyed by vertical id.
 - Template refs exist in the catalog and materialize to stable paths.
 - Default preset/profile behavior is explicit.
+- Every `completion.gates.<id>.source` resolves to one declared source, and every command source resolves to an installed preset entrypoint.
+- Predicate JSON Schemas and artifact bindings express only domain checks; authorization and runner authority remain outside the vertical package.
+- The completion example's profile selects the declared gate id; it does not duplicate source or gate declarations.
 - Custom verticals remain gated by user dev mode and project settings.
 - Tests are placed in the proper tier manifest when new test files are added.
