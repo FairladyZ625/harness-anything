@@ -985,6 +985,120 @@ test("a usage dialect with only context occupancy settles unavailable instead of
   }
 });
 
+test("DeepSeek Harness settlement reads disjoint billing totals from its session projection", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-")),
+    providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-"));
+  try {
+    const dispatchId = "dispatch_123456789abcdef055555555",
+      sessionId = "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+      writer = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+        instanceId: "deepseek-harness",
+        startedAt: "2026-10-19T03:25:06.717Z",
+      }),
+      projectionPath = path.join(providerHome, "storages", "session_projcache", "sessions", `${sessionId}.json`);
+    mkdirSync(path.dirname(projectionPath), { recursive: true });
+    writeFileSync(
+      projectionPath,
+      JSON.stringify({
+        version: 1,
+        record: {
+          rows: {
+            tokenUsage: {
+              ver: 2,
+              seq: 590,
+              val: {
+                totals: {
+                  uncachedInputTokens: 132572,
+                  outputTokens: 55534,
+                  cacheReadTokens: 6664320,
+                  cacheWriteTokens: 0,
+                },
+              },
+            },
+          },
+        },
+      }),
+    );
+    const runtime = active("deepseek-harness", { release: () => undefined } as never, {
+      dispatchId,
+      instanceId: "deepseek-harness",
+      resolvedProviderDirectory: providerHome,
+      stream: writer,
+      binding: {
+        actor: {
+          principal: { kind: "human", id: "operator" },
+          executor: { kind: "agent", id: "runtime-session:runtime_aaaaaaaaaaaaaaaaaaaaaaaa" },
+        },
+        source: "local",
+      },
+      task: null,
+      schedule: null,
+      squadId: null,
+      delegatedBy: null,
+      decisionReviewTarget: null,
+      providerSessionId: sessionId,
+      finalText: "Review complete.",
+      providerOutcome: "succeeded",
+    });
+    runtime.providerUsageEmpty = true;
+    await consumeProviderChunk(context(), runtime, "", true);
+    assert.equal(runtime.usageReported, true);
+    assert.deepEqual(
+      {
+        inputTokens: runtime.inputTokens,
+        cacheReadTokens: runtime.cacheReadTokens,
+        outputTokens: runtime.outputTokens,
+      },
+      { inputTokens: 6796892, cacheReadTokens: 6664320, outputTokens: 55534 },
+    );
+    runtime.toolCallCount = 85;
+    await publishExit(
+      {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-19T03:30:55.396Z",
+          stream: { publish: () => undefined },
+        },
+        resultMediaType: "text/plain",
+        runtimeResultText: () => "Review complete.",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as never,
+      runtime,
+      0,
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    t.diagnostic(`settled runtime_metrics=${JSON.stringify(settled)}`);
+    assert.deepEqual(
+      {
+        inputTokens: settled?.inputTokens,
+        cacheReadTokens: settled?.cacheReadTokens,
+        outputTokens: settled?.outputTokens,
+        totalTokens: settled?.totalTokens,
+        usageUnavailable: settled?.usageUnavailable,
+      },
+      {
+        inputTokens: 6796892,
+        cacheReadTokens: 6664320,
+        outputTokens: 55534,
+        totalTokens: 6852426,
+        usageUnavailable: false,
+      },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(providerHome, { recursive: true, force: true });
+  }
+});
+
 test("context-occupancy updates do not suppress real usage frames of the same session", async () => {
   const runtime = active("deepseek-harness");
   await consumeProviderLine(
@@ -1010,6 +1124,90 @@ test("context-occupancy updates do not suppress real usage frames of the same se
     { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
     { input: 100, cacheRead: 40, output: 3 },
   );
+});
+
+test("DeepSeek Harness settlement stays unavailable when its session projection is absent", async (t) => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-deepseek-session-metrics-missing-")),
+    providerHome = mkdtempSync(path.join(tmpdir(), "ha-deepseek-provider-home-missing-"));
+  try {
+    const dispatchId = "dispatch_223456789abcdef055555555",
+      sessionId = "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+      writer = openDispatchStream(rootDir, {
+        dispatchId,
+        taskId: null,
+        executionId: null,
+        runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+        instanceId: "deepseek-harness",
+        startedAt: "2026-10-19T03:25:06.717Z",
+      }),
+      runtime = active("deepseek-harness", { release: () => undefined } as never, {
+        dispatchId,
+        instanceId: "deepseek-harness",
+        resolvedProviderDirectory: providerHome,
+        stream: writer,
+        binding: {
+          actor: {
+            principal: { kind: "human", id: "operator" },
+            executor: { kind: "agent", id: "runtime-session:runtime_aaaaaaaaaaaaaaaaaaaaaaaa" },
+          },
+          source: "local",
+        },
+        task: null,
+        schedule: null,
+        squadId: null,
+        delegatedBy: null,
+        decisionReviewTarget: null,
+        providerSessionId: sessionId,
+        finalText: "Review complete.",
+        providerOutcome: "succeeded",
+      });
+    runtime.providerUsageEmpty = true;
+    await consumeProviderLine(
+      context(),
+      runtime,
+      JSON.stringify({
+        sessionId,
+        type: "acp.update",
+        update: { sessionUpdate: "usage_update", used: 27997, size: 1048576 },
+        usage: { used: 27997, context_size: 1048576 },
+      }),
+    );
+    await consumeProviderChunk(context(), runtime, "", true);
+    runtime.toolCallCount = 85;
+    await publishExit(
+      {
+        exiting: new Set<string>(),
+        processes: new Map([[runtime.runtimeSessionId, runtime]]),
+        input: {
+          repoId: "canonical",
+          rootDir,
+          now: () => "2026-10-19T03:30:55.396Z",
+          stream: { publish: () => undefined },
+        },
+        resultMediaType: "text/plain",
+        runtimeResultText: () => "Review complete.",
+        markProtocolError: () => undefined,
+        publishRuntimeEvent: async () => ({}),
+        settleFallback: async () => undefined,
+      } as never,
+      runtime,
+      0,
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    t.diagnostic(`settled runtime_metrics=${JSON.stringify(settled)}`);
+    assert.equal(settled?.usageUnavailable, true);
+    assert.deepEqual(
+      {
+        inputTokens: settled?.inputTokens,
+        cacheReadTokens: settled?.cacheReadTokens,
+        outputTokens: settled?.outputTokens,
+      },
+      { inputTokens: 0, cacheReadTokens: 0, outputTokens: 0 },
+    );
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+    rmSync(providerHome, { recursive: true, force: true });
+  }
 });
 
 test("durable drains wait for the first record while the worker runs, then consume it once", async () => {

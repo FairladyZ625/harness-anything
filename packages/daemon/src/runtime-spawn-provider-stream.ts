@@ -83,7 +83,7 @@ export async function consumeProviderChunk(
   active.buffer = flush ? "" : trailing;
   for (const line of lines) if (line.trim()) await context.consumeLine(active, line, persisted);
   if (flush && trailing.trim()) await context.consumeLine(active, trailing, persisted);
-  if (flush) observeCodexSessionMetrics(active);
+  if (flush) observeProviderSessionMetrics(active);
 }
 
 export async function consumeProviderLine(
@@ -269,9 +269,21 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function observeCodexSessionMetrics(active: ActiveRuntime): void {
+/** Provider session files contain a complete session total, so replace stream samples before
+ * normalizing the snapshot through the shared usage observer. */
+function replaceRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknown>): void {
+  active.inputTokens = 0;
+  active.cacheReadTokens = 0;
+  active.cacheWriteTokens = 0;
+  active.outputTokens = 0;
+  active.usageReported = false;
+  active.rawUsage = {};
+  observeRuntimeUsage(active, usage);
+}
+
+function observeProviderSessionMetrics(active: ActiveRuntime): void {
   if (
-    active.kindId !== "codex" ||
+    !["codex", "deepseek-harness"].includes(active.kindId) ||
     !active.providerUsageEmpty ||
     active.providerSessionId === null ||
     !/^[a-z0-9-]+$/iu.test(active.providerSessionId)
@@ -281,6 +293,41 @@ function observeCodexSessionMetrics(active: ActiveRuntime): void {
   // witness (pre-field streams, home-less environments) simply keeps its empty usage.
   const providerHome = active.resolvedProviderDirectory;
   if (!providerHome) return;
+  if (active.kindId === "deepseek-harness") {
+    const projectionPath = path.join(
+      providerHome,
+      "storages",
+      "session_projcache",
+      "sessions",
+      `${active.providerSessionId}.json`,
+    );
+    let projection: unknown;
+    try {
+      projection = JSON.parse(readFileSync(projectionPath, "utf8"));
+    } catch (error) {
+      consumeKnownError(error);
+      return;
+    }
+    const rows = providerRecord(projection) && providerRecord(projection.record) ? projection.record.rows : null,
+      tokenUsage = providerRecord(rows) ? rows.tokenUsage : null,
+      value = providerRecord(tokenUsage) ? tokenUsage.val : null,
+      totals = providerRecord(value) ? value.totals : null;
+    if (!providerRecord(totals)) return;
+    const uncachedInput = numberValue(totals.uncachedInputTokens),
+      cacheRead = numberValue(totals.cacheReadTokens),
+      cacheWrite = numberValue(totals.cacheWriteTokens),
+      output = numberValue(totals.outputTokens);
+    if (uncachedInput === null || cacheRead === null || cacheWrite === null || output === null) return;
+    // dsh persists disjoint billing buckets. The shared runtime usage observer expects
+    // uncached input plus explicit cache buckets and builds its inclusive input total.
+    replaceRuntimeUsage(active, {
+      input_tokens: uncachedInput,
+      cacheReadTokens: cacheRead,
+      cacheWriteTokens: cacheWrite,
+      output_tokens: output,
+    });
+    return;
+  }
   const sessionsRoot = path.join(providerHome, "sessions"),
     matches = globSync(`**/rollout-*-${active.providerSessionId}.jsonl`, { cwd: sessionsRoot });
   if (matches.length !== 1) return;
@@ -302,11 +349,11 @@ function observeCodexSessionMetrics(active: ActiveRuntime): void {
       cached = numberValue(usage.cached_input_tokens),
       output = numberValue(usage.output_tokens);
     if (input === null || cached === null || output === null) return;
-    active.inputTokens = input;
-    active.cacheReadTokens = cached;
-    active.outputTokens = output;
-    active.rawUsage = { ...usage };
-    active.usageReported = true;
+    replaceRuntimeUsage(active, {
+      input_tokens: input,
+      cached_input_tokens: cached,
+      output_tokens: output,
+    });
     return;
   }
 }
