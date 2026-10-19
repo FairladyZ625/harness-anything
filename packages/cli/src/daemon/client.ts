@@ -130,6 +130,15 @@ function repoScopedDaemonEndpoint(
   });
 }
 
+// The autostart spawns the daemon from the invoking root as its cwd, so edge join prepares that
+// workspace root before the first request. The write itself lives in the daemon-side client
+// module — the thin CLI performs no local writes — and rides the lazy autostart import seam.
+async function prepareEdgeJoinWorkspace(command: ThinCommand, params: JsonObject): Promise<void> {
+  if (params.operation !== "edge-join") return;
+  const { ensureDaemonSpawnRoot } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
+  ensureDaemonSpawnRoot(command.rootDir);
+}
+
 export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
@@ -154,6 +163,7 @@ export async function runCommandThroughDaemon(
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
       params = bootstrapParams(command.action, socketPath);
+    await prepareEdgeJoinWorkspace(command, params);
     const request = (paramsOverride?: JsonObject) =>
       withAutostart(
         () =>

@@ -103,10 +103,11 @@ test("daemon backup rejects an unavailable registered source through human rende
     receipt = JSON.parse(result.stdout.trim()) as Record<string, unknown>;
   try {
     assert.equal(result.status, 1);
-    assert.equal(receipt.code, "daemon_spawn_not_found");
+    // The registered root was deleted, so the daemon spawn fails on its missing cwd, not on the launcher.
+    assert.equal(receipt.code, "daemon_spawn_root_missing");
     const rendered = renderCliReceipt(receipt);
     assert.equal(rendered.stream, "stderr");
-    assert.match(rendered.text, /daemon_spawn_not_found/u);
+    assert.match(rendered.text, /daemon_spawn_root_missing/u);
   } finally {
     rmSync(backupDir, { recursive: true, force: true });
     rmSync(userRoot, { recursive: true, force: true });
