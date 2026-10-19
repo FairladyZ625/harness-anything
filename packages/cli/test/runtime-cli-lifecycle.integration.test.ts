@@ -271,9 +271,13 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
   ]);
   assert.equal(resumedDispatch.status, 1, `${resumedDispatch.stderr}\n${JSON.stringify(resumedDispatch.receipt)}`);
   const resumedDispatchId = String((resumedDispatch.receipt.spawn as Record<string, unknown>).dispatchId),
-    resumedText = String((resumedDispatch.receipt.result as Record<string, unknown>).text);
+    resumedText = String((resumedDispatch.receipt.result as Record<string, unknown>).text),
+    stopGuidance =
+      `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
+      `Reopen the execution to re-dispatch with: ha task start ${taskId}`;
   assert.ok(resumedText.startsWith("resumed:provider-cli-session:"), resumedText);
-  assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length), {
+  assert.ok(resumedText.endsWith(stopGuidance), "an unsubmitted resume must carry its continuation entry");
+  assertTaskMissionPrompt(resumedText.slice("resumed:provider-cli-session:".length, -stopGuidance.length), {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(workerRoot),
@@ -458,7 +462,9 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
   assert.match(wildcardText, /# Worker Role/u);
   assert.ok(
     wildcardText.endsWith(
-      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nwildcard prompt`,
+      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nwildcard prompt` +
+        `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
+        `Reopen the execution to re-dispatch with: ha task start ${taskId}`,
     ),
     wildcardText,
   );
