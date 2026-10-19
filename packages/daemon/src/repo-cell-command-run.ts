@@ -73,26 +73,31 @@ function failAction(
     : (result as WriteReceipt);
 }
 
-// Task write actions address an existing task, so their id gets the read faces' git-style
-// short-id resolution at the runner ingress — before executor-claim binding, authorization,
-// and the opId digest see the action, so a unique prefix and its full form are one operation.
-// `task-create` is excluded: its taskId names the task to create, not an existing target.
-// A current cut with no such task is the family's entity_not_found; a lagging cut stays the
-// action's own pending case, because not-found must not race a projection that could still
-// apply the task.
-function resolveTaskWriteTarget(context: RepoCellApiContext, action: RepoTaskAction): RepoTaskAction {
+// Task write actions address an existing task, so a unique prefix gets the read faces' git-style
+// resolution at runner ingress — before executor-claim binding and opId derivation. Missing and
+// ambiguous ids stay unresolved until authorization succeeds, so rejected callers cannot use
+// lookup errors to learn whether a task id exists. `task-create` is excluded: its taskId names
+// the task to create. A lagging cut stays the action's own pending case.
+function resolveTaskWriteTarget(
+  context: RepoCellApiContext,
+  action: RepoTaskAction,
+  options: { deferInvalidTarget?: boolean } = {},
+): { action: RepoTaskAction; resolved: boolean } {
   const contract = getExecutableEntityAction(action.kind);
-  if (action.kind === "task-create" || contract?.target.kind !== "task" || !contract.execution) return action;
+  if (action.kind === "task-create" || contract?.target.kind !== "task" || !contract.execution)
+    return { action, resolved: true };
   const field = contract.execution.targetIdField ?? "taskId",
     requested = action[field];
-  if (typeof requested !== "string" || requested === "") return action;
+  if (typeof requested !== "string" || requested === "") return { action, resolved: true };
   const read = context.projection.read(requested);
-  if (read.snapshot.task || read.watermark < read.sourceRevision) return action;
+  if (read.snapshot.task) return { action, resolved: true };
+  if (read.watermark < read.sourceRevision) return { action, resolved: false };
   const prefixed = resolveUniquePrefix(
     requested,
     context.projection.readTaskIndex().rows.map(({ taskId }) => taskId),
   );
-  if (prefixed.matched) return { ...action, [field]: prefixed.id } as RepoTaskAction;
+  if (prefixed.matched) return { action: { ...action, [field]: prefixed.id } as RepoTaskAction, resolved: true };
+  if (options.deferInvalidTarget) return { action, resolved: false };
   if (prefixed.candidates.length > 1)
     throw context.cellCodedError(
       "task_ambiguous_id",
@@ -116,6 +121,7 @@ export function makeRepoCellCommandRunner(
     action: RepoTaskAction,
     binding: RepoCellBinding,
     signal?: AbortSignal,
+    resolveTargetAfterAuthorization = false,
   ): Promise<WriteReceipt | SquadControlResult> => {
     if (context.state !== "attached")
       await context.attemptRecovery(recoveryCommandPolicy(action.kind, context.causeClass)?.settlesLatch === true);
@@ -285,6 +291,17 @@ export function makeRepoCellCommandRunner(
         assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
         context.activeWriterEpochFence = binding.withWriterEpochFence ?? null;
         context.activeWriterEpochFenceDescriptor = binding.writerEpochFence ?? null;
+        if (resolveTargetAfterAuthorization) {
+          try {
+            action = resolveTaskWriteTarget(context, action).action;
+          } catch (error) {
+            // A target lookup rejection is still a durable queued outcome: record it and wake
+            // replicas through the same path as action-level no-event rejections.
+            const receipt = recordRejection(failAction(context, action, binding, error, queuedDecision));
+            context.replica.kick();
+            return receipt;
+          }
+        }
         requireSquadBusinessAction(context.projection, action, binding);
         // Ingested reads are their own accepted commands, recorded before the execution interval
         // opens: a failed execution must never adopt one of them as its accepted outcome.
@@ -392,7 +409,7 @@ export function makeRepoCellCommandRunner(
       action.kind === "task-complete" && typeof action.taskId === "string"
         ? authorizeAtCurrentCut()!.then(async (authorization) => {
             const warnings =
-              authorization.outcome === "allowed"
+              authorization.outcome === "allowed" && context.projection.read(action.taskId as string).snapshot.task
                 ? await runCompletionSources(context, action.taskId as string, binding)
                 : [];
             return async (nextAction, nextBinding) => {
@@ -420,13 +437,15 @@ export function makeRepoCellCommandRunner(
     );
   };
   return async (action: RepoTaskAction, binding: RepoCellBinding, signal?: AbortSignal) => {
+    let resolution: ReturnType<typeof resolveTaskWriteTarget>;
     try {
-      action = resolveTaskWriteTarget(context, action);
+      resolution = resolveTaskWriteTarget(context, action, { deferInvalidTarget: true });
     } catch (error) {
       const rejected = failAction(context, action, binding, error);
       return rejected;
     }
-    const receipt = await run(action, binding, signal);
+    action = resolution.action;
+    const receipt = await run(action, binding, signal, !resolution.resolved);
     if (
       (action.kind === "task-submit" || action.kind === "task-settle" || action.kind === "task-witness-rerun") &&
       typeof action.taskId === "string" &&
