@@ -1,6 +1,8 @@
-import { existsSync, readdirSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, realpathSync, rmSync } from "node:fs";
 import path from "node:path";
 import { resolveHarnessLayout } from "@harness-anything/kernel";
+import { readDispatchStreamHeaders } from "./dispatch-stream.ts";
+import { removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 
 const derivedDirectories = [
   "cache",
@@ -26,20 +28,15 @@ export const cachePurgePreservedPaths = Object.freeze([
 export function purgeRepoCache(rootDir: string): readonly string[] {
   const canonicalRoot = realpathSync(rootDir),
     localRoot = resolveHarnessLayout(canonicalRoot).localRoot,
+    dispatchIds = readDispatchStreamHeaders(canonicalRoot, true).map((header) => header.dispatchId),
     removed: string[] = [];
+  for (const dispatchId of dispatchIds) removeRuntimeCallbackRelay(dispatchId);
   for (const relative of derivedDirectories) {
     const target = path.join(localRoot, ...relative.split("/"));
     if (!existsSync(target)) continue;
     rmSync(target, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
     removed.push(`.harness/${relative}`);
   }
-  if (existsSync(localRoot))
-    for (const entry of readdirSync(localRoot)
-      .filter((name) => /^r-.*\.sock$/u.test(name))
-      .sort()) {
-      rmSync(path.join(localRoot, entry), { force: true });
-      removed.push(`.harness/${entry}`);
-    }
   return removed.sort();
 }
 

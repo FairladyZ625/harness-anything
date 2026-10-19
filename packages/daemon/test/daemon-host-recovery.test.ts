@@ -2,6 +2,7 @@
 import { signInPolicyTestUser } from "./keycloak-policy.fixtures.ts";
 import { signInAt, signOutAt } from "./keycloak.fixtures.ts";
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 import { spawnSync } from "node:child_process";
 import {
@@ -31,7 +32,10 @@ import { WRITE_RECEIPT_SCHEMA } from "@harness-anything/kernel/internal/domain/r
 import { validateWriteReceipt } from "../../kernel/test/contracts/receipt-acceptance.fixtures.ts";
 import { lifecycleFixture } from "../../kernel/test/store/task-lifecycle-fixture.ts";
 import { openDaemonHost } from "../src/daemon-host.ts";
+import { openDispatchStream } from "../src/dispatch-stream.ts";
 import { backupRepo, drillRepoBackup } from "../src/repo-all-purge.ts";
+import { localUserDaemonEndpoint, perUserSocketRoot } from "../src/client/local-daemon-target.ts";
+import { runtimeCallbackRelaySpec } from "../src/runtime-callback-relay.ts";
 import { openPersistentWriterEpoch } from "../src/writer-epoch.ts";
 import { localSystemBinding } from "../src/daemon-host-binding.ts";
 import { rejectHostAction, rejectPresetRun } from "../src/daemon-host-errors.ts";
@@ -404,13 +408,39 @@ test("a missing-root repository can be unbound through daemon-level local author
 test("cache purge removes only derived local state and unbinds the repository", async () => {
   const parent = mkdtempSync(path.join(tmpdir(), "ha-host-cache-purge-")),
     rootDir = path.join(parent, "repo"),
+    otherRoot = path.join(parent, "other-repo"),
     userRoot = path.join(parent, "user"),
-    repoId = "host-cache-purge";
+    repoId = "host-cache-purge",
+    relayDispatchId = `dispatch_${randomBytes(12).toString("hex")}`,
+    otherDispatchId = `dispatch_${randomBytes(12).toString("hex")}`;
   rosterRepo(rootDir, repoId);
+  rosterRepo(otherRoot, "host-cache-purge-other");
   registerDaemonRepo({ canonicalRoot: rootDir, repoId, userRoot, createConvenienceLinks: false });
   const host = await openSignedInHost({ daemonId: repoId, userRoot });
   await host.attachmentsSettled();
   await host.settleMaterialization(repoId, "cache purge fixture ready");
+  const relayRoute = {
+      userRoot,
+      daemonId: repoId,
+      endpoint: localUserDaemonEndpoint(userRoot, repoId),
+    },
+    relayPath = runtimeCallbackRelaySpec(relayDispatchId, relayRoute).path,
+    otherRelayPath = runtimeCallbackRelaySpec(otherDispatchId, relayRoute).path;
+  for (const [root, dispatchId] of [
+    [rootDir, relayDispatchId],
+    [otherRoot, otherDispatchId],
+  ] as const)
+    openDispatchStream(root, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: `runtime-${dispatchId}`,
+      instanceId: "fixture-instance",
+      startedAt: new Date(0).toISOString(),
+    });
+  mkdirSync(perUserSocketRoot(), { recursive: true, mode: 0o700 });
+  writeFileSync(relayPath, "owned relay\n");
+  writeFileSync(otherRelayPath, "other repository relay\n");
   const derived = ["cache", "adopt-claims", "runtime/dispatches", "presets"];
   for (const relative of derived) {
     const directory = path.join(rootDir, ".harness", relative);
@@ -430,11 +460,15 @@ test("cache purge removes only derived local state and unbinds the repository", 
       ".gitignore",
     ]);
     assert.equal(readDaemonRegistry({ userRoot }).repos.length, 0);
+    assert.equal(existsSync(relayPath), false, "cache purge removes this repository's relay by dispatch id");
+    assert.equal(existsSync(otherRelayPath), true, "cache purge preserves another repository's relay");
     for (const relative of derived) assert.equal(existsSync(path.join(rootDir, ".harness", relative)), false);
     assert.equal(existsSync(path.join(rootDir, ".harness/store")), true);
     assert.equal(existsSync(path.join(rootDir, "harness")), true);
   } finally {
     await host.close();
+    rmSync(relayPath, { force: true });
+    rmSync(otherRelayPath, { force: true });
     rmSync(parent, { recursive: true, force: true });
   }
 });

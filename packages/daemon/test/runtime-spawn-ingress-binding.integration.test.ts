@@ -190,9 +190,9 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
       assert.equal(launchedEnv?.HARNESS_DAEMON_REPO_ID, repoId);
       const cliBinDir = daemonCliBinDirectory();
       if (cliBinDir) assert.ok(String(launchedEnv?.PATH).split(path.delimiter).includes(cliBinDir));
-      assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /[\\/]\.harness[\\/]r-[a-f0-9]{24}\.sock$/u);
+      assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u);
       assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
-      assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+      assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /daemon-[a-f0-9-]*\.sock$/u);
       assert.equal(launchedPersistence?.callbackRelay?.path, launchedEnv?.HARNESS_DAEMON_ENDPOINT);
       assert.equal(launchedPersistence?.callbackRelay?.endpoint, endpoint);
       assert.match(launchedPrompt, new RegExp(`Repository id: ${repoId}`, "u"));
@@ -414,9 +414,12 @@ test("daemon ingress preserves executor-scoped task-bound runtime spawn", async 
         assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
         const receivesRelay = runtime.kindId === "codex" && runtime.isolationState === "enforced";
         if (receivesRelay) {
-          assert.match(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /[\\/]\.harness[\\/]r-[a-f0-9]{24}\.sock$/u);
+          assert.match(
+            String(launchedEnv?.HARNESS_DAEMON_ENDPOINT),
+            /\/tmp\/harness-anything-\d+\/r-[a-f0-9]{24}\.sock$/u,
+          );
           assert.equal(launchedEnv?.HARNESS_DAEMON_RELAY, "1");
-          assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /harness-anything/u);
+          assert.doesNotMatch(String(launchedEnv?.HARNESS_DAEMON_ENDPOINT), /daemon-[a-f0-9-]*\.sock$/u);
           assert.equal(launchedPersistence?.callbackRelay?.path, launchedEnv?.HARNESS_DAEMON_ENDPOINT);
           assert.equal(launchedPersistence?.callbackRelay?.endpoint, directEndpoint);
           assert.ok(launchedPrompt.includes(`Daemon endpoint: ${launchedEnv?.HARNESS_DAEMON_ENDPOINT}`));
