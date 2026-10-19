@@ -536,6 +536,22 @@ test("settings update field surface has one source: the catalog input is the exp
   assert.ok(names.has("worktreeSetup"));
 });
 
+test("retired CI and worker permission leaves are absent from the settings contract", () => {
+  const paths = SETTINGS_FIELD_DECLARATIONS.map(({ path }) => path.join("."));
+  for (const retired of [
+    "workerPermissions.ciRead",
+    "workerPermissions.artifactRead",
+    "workerPermissions.push",
+    "workerPermissions.pullRequest",
+    "workerPermissions.merge",
+    "workerPermissions.repositorySettings",
+    "workerPermissions.gitlab",
+    "delivery.platform",
+    "ci.workflows",
+  ])
+    assert.equal(paths.includes(retired), false, `${retired} must not be exposed as a setting`);
+});
+
 test("Settings update writes positive task WIP and root thresholds", () => {
   const draft = compile({ wipLimit: 12, rootThreshold: 4 });
   if (draft.kind !== "settings" || draft.result.kind !== "event") throw new Error("missing settings event");

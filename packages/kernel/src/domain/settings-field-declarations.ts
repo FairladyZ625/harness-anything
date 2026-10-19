@@ -60,8 +60,8 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
     title: "Code delivery",
   },
   {
-    id: "ci-gates",
-    title: "CI and completion gates",
+    id: "hosting-gates",
+    title: "Hosting and completion gates",
   },
   {
     id: "capacity-agenda",
@@ -147,7 +147,6 @@ export const DEFAULT_PROVIDER_HANDSHAKE_TIMEOUT_MS = 30_000;
 export const DEFAULT_GUI_CONNECT_TIMEOUT_MS = 2_000;
 /** The GUI default answer deadline: 200ms, 2s and 10s all failed live before 30s held (泽宇 2026-09-01/02). */
 export const DEFAULT_GUI_REQUEST_TIMEOUT_MS = 30_000;
-export const DEFAULT_CI_WORKFLOWS = Object.freeze([] as const);
 export const worktreeSetupAdapters = ["node-modules"] as const;
 export const worktreeSetupStepPattern = `^(?:${worktreeSetupAdapters.join("|")}|run: \\S.*)$`;
 
@@ -250,38 +249,12 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     valueKind: "enum",
     defaultValue: "full",
     allowedValues: ["full", "restricted"],
-    description: "Whether workers inherit the operator's hosting and Git credentials or receive restricted guidance.",
-    effect: "Full lets workers use the operator's credentials; restricted adds the selected limits to their mission.",
+    description: "Whether workers inherit the operator's hosting and Git credentials.",
+    effect: "Full inherits the operator's credentials; restricted removes Git credentials from the worker environment.",
     group: "worker-permissions",
     action: { field: "workerPermissionsMode", type: "string" },
     cli: { name: "--worker-permissions-mode", kind: "single", enum: ["full", "restricted"] },
   }),
-  ...(
-    [
-      ["ciRead", "Read CI results and logs"],
-      ["artifactRead", "Read hosted artifacts"],
-      ["push", "Push branches"],
-      ["pullRequest", "Open pull requests"],
-      ["merge", "Merge pull requests"],
-      ["repositorySettings", "Change repository settings"],
-      ["gitlab", "Use equivalent GitLab operations"],
-    ] as const
-  ).map(([field, label]) =>
-    defineSettingsField({
-      path: ["workerPermissions", field],
-      ownership: repository,
-      valueKind: "boolean",
-      defaultValue: true,
-      description: label,
-      effect: `Restricted workers are instructed whether they may ${label.toLowerCase()}.`,
-      group: "worker-permissions",
-      action: { field: `workerPermissions${field[0].toUpperCase()}${field.slice(1)}`, type: "boolean" },
-      cli: {
-        name: `--worker-permissions-${field.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}`,
-        kind: "boolean",
-      },
-    }),
-  ),
   defineSettingsField({
     path: ["reviewIndependence"],
     ownership: repository,
@@ -453,18 +426,6 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     },
   }),
   defineSettingsField({
-    path: ["delivery", "platform"],
-    ownership: repository,
-    valueKind: "enum",
-    defaultValue: "github",
-    allowedValues: ["github", "gitlab"],
-    description: "Hosting platform that enforces required checks when code is merged.",
-    effect: "Completion reports the configured platform and target branch when merge evidence is still missing.",
-    group: "delivery",
-    action: { field: "deliveryPlatform", type: "string" },
-    cli: { name: "--delivery-platform", kind: "single", enum: ["github", "gitlab"] },
-  }),
-  defineSettingsField({
     path: ["hosting", "provider"],
     ownership: repository,
     valueKind: "enum",
@@ -474,7 +435,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     description:
       "Hosting provider for repositories whose remote host does not identify GitHub or GitLab automatically.",
     effect: "Selects the provider adapter used for task push and CI reads.",
-    group: "ci-gates",
+    group: "hosting-gates",
     action: { field: "hostingProvider", type: "string" },
   }),
   defineSettingsField({
@@ -486,29 +447,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     pattern: "^[a-zA-Z0-9.-]+(?::[0-9]+)?$",
     description: "Host name for the GitHub or GitLab instance used by this repository.",
     effect: "Combines with hosting.provider to identify self-hosted GitLab instances.",
-    group: "ci-gates",
+    group: "hosting-gates",
     action: { field: "hostingHost", type: "string" },
-  }),
-  defineSettingsField({
-    path: ["ci", "workflows"],
-    ownership: repository,
-    valueKind: "string-array",
-    defaultValue: DEFAULT_CI_WORKFLOWS,
-    pattern: settingValuePattern,
-    forbiddenPattern: "\\.ya?ml$",
-    uniqueItems: true,
-    description: "CI workflows whose runs count as proof that a task's code passed CI.",
-    effect: "Only runs of these workflows count; with none selected, tasks are not checked against CI.",
-    group: "ci-gates",
-    action: { field: "ciWorkflows", type: "string-array" },
-    cli: {
-      name: "--ci-workflows",
-      kind: "repeated",
-      regex: settingValuePattern,
-      format: "workflow names, or none to stop checking CI (the default)",
-    },
-    noneMeansEmpty: true,
-    yamlStyle: "inline",
   }),
   defineSettingsField({
     path: ["gates"],
@@ -517,7 +457,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     defaultValue: Object.freeze([] as readonly GateWitnessMappingV1[]),
     description: "Canonical gate-to-witness mappings imported from the authored document.",
     effect: "Each completion gate is attested by its mapped witness adapter; none disables that gate.",
-    group: "ci-gates",
+    group: "hosting-gates",
     action: { field: "gates", type: "json-object-array", internal: true },
   }),
   defineSettingsField({

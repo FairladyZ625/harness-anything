@@ -84,6 +84,13 @@ test("a declared gate without a witness mapping fails closed instead of being sk
   assert.match(emptyRegistry.ok ? "" : emptyRegistry.message, /registered workflows/u);
 });
 
+test("new completion contracts cannot add hosted CI witnesses", () => {
+  const settings = readSettingsFacet(repositoryYaml(githubCi));
+  const hosted = resolveCompletionContract(["ci"], settings);
+  assert.equal(hosted.ok, false);
+  assert.match(hosted.ok ? "" : hosted.message, /hosted CI completion witnesses are retired/u);
+});
+
 test("none removes a declared requirement without minting a witness, and undeclared mappings add nothing", () => {
   const settings = readSettingsFacet(
     repositoryYaml(
