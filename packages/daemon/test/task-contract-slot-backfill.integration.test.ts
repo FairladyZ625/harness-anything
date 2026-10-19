@@ -155,12 +155,42 @@ test("contract migrate removes a retired fact override before projection reads v
     await waitForFixturePublication(cell, created.opId, binding);
     const reader = makeTaskEventReader({ repoId, rootDir }),
       projection = makeTaskProjection({ rootDir, eventStore: reader }),
-      current = projection.read(taskId),
-      oldTask = {
-        ...current.snapshot.task!,
-        closeoutOverrides: { ...current.snapshot.task!.closeoutOverrides, fact: false },
+      createdEvent = reader
+        .read()
+        .events.find((event) => event.type === "task_bootstrapped" && event.taskId === taskId);
+    assert.ok(createdEvent, "task bootstrap is present in the canonical event stream");
+    const legacyEvent = {
+        ...createdEvent,
+        payload: {
+          ...createdEvent.payload,
+          task: {
+            ...createdEvent.payload.task,
+            closeoutOverrides: { ...createdEvent.payload.task.closeoutOverrides, fact: false },
+          },
+        },
       },
-      oldSnapshot = { ...current.snapshot, task: oldTask },
+      legacyEventJson = `${JSON.stringify(legacyEvent)}\n`,
+      ledger = new DatabaseSync(path.join(rootDir, ".harness/store/generations/3/ledger.sqlite"));
+    try {
+      ledger
+        .prepare("UPDATE event SET event_json = ?, digest = ? WHERE revision = ?")
+        .run(legacyEventJson, `sha256:${sha256Text(legacyEventJson)}`, createdEvent.workspaceRevision);
+    } finally {
+      ledger.close();
+    }
+    projection.rebuild();
+    assert.equal(
+      Object.hasOwn(projection.read(taskId).snapshot.task!, "closeoutOverrides"),
+      false,
+      "replaying a stored Task/v2 event drops the retired fact override before projection validation",
+    );
+
+    const refreshed = projection.read(taskId),
+      oldTask = {
+        ...refreshed.snapshot.task!,
+        closeoutOverrides: { ...refreshed.snapshot.task!.closeoutOverrides, fact: false },
+      },
+      oldSnapshot = { ...refreshed.snapshot, task: oldTask },
       db = new DatabaseSync(projection.path);
     try {
       db.prepare("UPDATE task_snapshot SET snapshot_json = ? WHERE task_id = ?").run(

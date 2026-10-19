@@ -297,10 +297,7 @@ export function taskMutation(
         typeof action.repairPresetId === "string" && action.repairPresetId.trim() ? action.repairPresetId.trim() : null,
       repairedMetadata =
         repairedPresetId === null || !task.metadata ? task.metadata : { ...task.metadata, presetId: repairedPresetId },
-      removeRetiredFactCloseoutOverride =
-        action.removeRetiredFactCloseoutOverride === true &&
-        task.closeoutOverrides !== undefined &&
-        Object.hasOwn(task.closeoutOverrides, "fact"),
+      removeRetiredFactCloseoutOverride = action.removeRetiredFactCloseoutOverride === true,
       remainingCloseoutOverrides = removeRetiredFactCloseoutOverride
         ? Object.fromEntries(Object.entries(task.closeoutOverrides ?? {}).filter(([gateId]) => gateId !== "fact"))
         : task.closeoutOverrides,

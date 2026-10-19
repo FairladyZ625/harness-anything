@@ -207,12 +207,7 @@ export function readProjection(
     return {
       status: cut.status,
       snapshot: presentationStatus ? presentSnapshot(snapshot, readTaskPresentationStatus(db, taskId)) : snapshot,
-      packagePath:
-        (
-          prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
-            /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
-          ).get(taskId) as { readonly package_path: string } | undefined
-        )?.package_path ?? null,
+      packagePath: readTaskPackagePath(db, taskId),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
       warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
@@ -223,6 +218,16 @@ export function readProjection(
       },
     };
   });
+}
+
+function readTaskPackagePath(db: DatabaseSync, taskId: string): string | null {
+  return (
+    (
+      prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
+        /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
+      ).get(taskId) as { readonly package_path: string } | undefined
+    )?.package_path ?? null
+  );
 }
 
 export function readForTaskContractMigration(
@@ -239,12 +244,7 @@ export function readForTaskContractMigration(
     return {
       status: cut.status,
       snapshot,
-      packagePath:
-        (
-          prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
-            /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
-          ).get(taskId) as { readonly package_path: string } | undefined
-        )?.package_path ?? null,
+      packagePath: readTaskPackagePath(db, taskId),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
       warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],

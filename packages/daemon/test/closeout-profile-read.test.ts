@@ -149,10 +149,10 @@ test("strict profile read side keeps demanding review and consent", () => {
   assert.deepEqual(context.closeoutGates, {
     review: true,
     consent: true,
-    fact: true,
     factDisposition: true,
     codeDoc: true,
   });
+  assert.equal(Object.hasOwn(context.closeoutGates, "fact"), false);
   // The strict cut sits in `submitted`: the blocker names the owner's triage, not a reviewer.
   assert.equal(taskCompletionNext(submitted, context).blocker?.code, "not_in_review");
 });
@@ -246,14 +246,14 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
   );
 });
 
-/** A review/consent/fact-lifted submitted cut whose submission carries a recorded delivery commit:
+/** A review/consent-lifted submitted cut whose submission carries a recorded delivery commit:
  * the shape a stale artifact-only submit left behind (submit once recorded the then main HEAD). */
 function liftedCutWithCommit(sha: string): TaskLifecycleSnapshot {
-  const lifted = frozenCut({ profile: "standard" }, { review: false, consent: false, fact: false });
+  const lifted = frozenCut({ profile: "standard" }, { review: false, consent: false });
   return codeDelivery(
     {
       ...lifted,
-      task: { ...lifted.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+      task: { ...lifted.task!, closeoutOverrides: { review: false, consent: false } },
     },
     sha,
   );

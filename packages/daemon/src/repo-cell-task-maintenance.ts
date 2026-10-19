@@ -394,7 +394,7 @@ export function migrateTaskContracts(
     prepared = backfills.map(({ taskId, taskClassAfter }, index) => {
       const repair = repairs.get(taskId) ?? null,
         migrationRead = repair?.factOverrideRemoved
-          ? taskContractMigrationRead(cell, taskId)
+          ? (repair.migrationRead ?? taskContractMigrationRead(cell, taskId))
           : migrationReads.get(taskId),
         taskCell = migrationRead ? taskContractMigrationCell(cell, taskId, migrationRead, projectedTaskIdSet) : cell;
       return requirePrepared(
@@ -479,8 +479,15 @@ function taskContractMigrationCell(
     projection = Object.create(cell.projection) as RepoCellOperationalContext["projection"];
   Object.defineProperties(projection, {
     read: {
-      value: (candidateId: string, presentationStatus?: boolean) =>
-        candidateId === taskId ? migrationRead : cell.projection.read(candidateId, presentationStatus),
+      value: (candidateId: string) => {
+        const candidate =
+            candidateId === taskId ? migrationRead : cell.projection.readForTaskContractMigration(candidateId),
+          task = candidate.snapshot.task,
+          cleanedTask = task ? withoutRetiredFactCloseoutOverride(task) : null;
+        return cleanedTask === null
+          ? candidate
+          : { ...candidate, snapshot: { ...candidate.snapshot, task: cleanedTask } };
+      },
     },
   });
   Object.defineProperties(context, {

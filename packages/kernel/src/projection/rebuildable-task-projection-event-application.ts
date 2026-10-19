@@ -2,6 +2,11 @@ import { projectArtifactEntityState } from "./artifact-entity-state-projection.t
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
+import {
+  hasRetiredFactCloseoutOverride,
+  normalizeRetiredFactCloseoutOverride,
+  withoutRetiredFactCloseoutOverride,
+} from "./retired-task-event-normalization.ts";
 // @write-boundary-exemption rebuildable-projection
 import { DatabaseSync } from "node:sqlite";
 import { parse as parseYaml } from "yaml";
@@ -21,6 +26,7 @@ import {
   type PersistedCanonicalEventV1,
   type DocumentState,
 } from "../domain/doc-sync.contract.ts";
+import { serializeCanonicalEventUnchecked } from "../domain/doc-sync-canonical-events.ts";
 import { isEntityDocumentEvent } from "../domain/entity-document-event.ts";
 import { isEntityPinEvent } from "../domain/entity-pin-event.ts";
 import { isLedgerLayoutMigrationEvent } from "../domain/ledger-layout-migration-event.ts";
@@ -139,6 +145,8 @@ export function applyEvent(
   eventJson: string,
   readBlob: EventStreamPort["readContentBlob"],
 ): void {
+  const hadRetiredFactCloseoutOverride = hasRetiredFactCloseoutOverride(event);
+  if (hadRetiredFactCloseoutOverride) event = normalizeRetiredFactCloseoutOverride(event);
   if (isRetiredCiRunObservationEvent(event)) return;
   projectEventSummary(db, event);
   projectArtifactEntityState(db, event);
@@ -606,7 +614,10 @@ export function applyEvent(
       // The task-bound closeout override set tracks the profile declaration on upgrade; a profile
       // that no longer declares one drops the field entirely rather than freezing a stale value.
       baseTask = { ...currentTaskForWrite(current.task) },
-      closeoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides,
+      declaredCloseoutOverrides = (snapshot.profile as { readonly closeoutOverrides?: unknown }).closeoutOverrides,
+      closeoutOverrides = hadRetiredFactCloseoutOverride
+        ? withoutRetiredFactCloseoutOverride(declaredCloseoutOverrides)
+        : declaredCloseoutOverrides,
       archiveOnComplete = (snapshot.profile as { readonly archiveOnComplete?: unknown }).archiveOnComplete;
     if (closeoutOverrides !== undefined && !isValidCloseoutOverrides(closeoutOverrides))
       throw new Error(`preset snapshot upgrade declared invalid closeoutOverrides for ${event.taskId}`);
@@ -1012,7 +1023,12 @@ export function catchUpRound(
 }
 
 function stageEvent(db: DatabaseSync, event: PersistedCanonicalEventV1): void {
-  const eventJson = serializePersistedCanonicalEvent(event).trimEnd();
+  // Historical ledger rows predate the removed fact gate. New writes still use the strict serializer.
+  const eventJson = (
+    hasRetiredFactCloseoutOverride(event)
+      ? serializeCanonicalEventUnchecked(event)
+      : serializePersistedCanonicalEvent(event)
+  ).trimEnd();
   const applied = prepareQuery(db, "SELECT event_json FROM event_index WHERE op_id = ?", (sql) =>
     /* @gate-identity check-bypass-write-boundary/bypass-write-004 */ db.prepare(sql),
   ).get(event.opId) as { readonly event_json: string } | undefined;

@@ -164,14 +164,13 @@ test("a forwarded cut owes its review verdict even when the profile lifted revie
   const lifted = Object.freeze({
       review: false,
       consent: false,
-      fact: false,
       factDisposition: false,
       codeDoc: false,
     }),
     forwarded = closeout("pass"),
     awaiting = {
       ...forwarded,
-      task: { ...forwarded.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+      task: { ...forwarded.task!, closeoutOverrides: { review: false, consent: false } },
       forwardedCuts: [{ executionId: "exe-1", iteration: 0 }],
       reviews: [],
       consents: [],
@@ -465,7 +464,7 @@ test("closeout readiness gates work and long_running completion on an active dec
       decisionRelations: edge("derives", "active"),
     },
     undefined,
-    { review: false, consent: false, fact: false, factDisposition: false, codeDoc: false },
+    { review: false, consent: false, factDisposition: false, codeDoc: false },
     mergedDelivery,
   );
   assert.equal(gateFirst.readiness, "incomplete");
