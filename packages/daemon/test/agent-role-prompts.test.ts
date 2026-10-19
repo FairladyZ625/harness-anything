@@ -78,7 +78,7 @@ const writeGrants = [
   "temporary WIP commit",
   "rebase onto the latest default branch",
 ];
-for (const role of [undefined, "worker", "commander"] as const)
+for (const role of [undefined, "worker"] as const)
   test(`${role ?? "undeclared"} retains worktree ownership and the delivery loop`, () => {
     const prompt = assembleUnboundPrompt("Do the mission.", role);
     for (const grant of writeGrants) assert.ok(prompt.includes(grant), grant);
@@ -92,6 +92,13 @@ for (const role of [undefined, "worker", "commander"] as const)
     assert.match(prompt, /Final merge authority belongs to the CEO/u);
     assert.doesNotMatch(prompt, /mutate only the declared execution surface|ha task pr|git push origin|gh pr create/u);
   });
+
+test("commander keeps worktree ownership without the worker delivery loop", () => {
+  const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
+  for (const grant of writeGrants) assert.ok(prompt.includes(grant), grant);
+  assert.match(prompt, /Worktrees share one git stash stack/u);
+  assert.doesNotMatch(prompt, /task delivery commands/u);
+});
 
 test("the bundled reviewer stays read-only and bound to its exact review cut", () => {
   const reviewer = readBundledAgentDeclaration("closeout-reviewer");
@@ -137,7 +144,7 @@ for (const role of [undefined, "worker"] as const)
     assert.doesNotMatch(prompt, /ha runtime status|ha squad status|ha task dispatches/u);
   });
 
-test("commander owns child waiting and final integration without merge authority", () => {
+test("commander owns child waiting, the CEO delivery contract and final integration", () => {
   const prompt = assembleUnboundPrompt("Integrate the mission.", "commander");
   assert.match(prompt, /Your attention is the budget/u);
   assert.match(prompt, /Give workers a map/u);
@@ -150,9 +157,15 @@ test("commander owns child waiting and final integration without merge authority
   assert.match(prompt, /Git merge preserving its commit SHA/u);
   assert.match(prompt, /do not cherry-pick or rebase child commits/u);
   assert.match(prompt, /targeted and integration regressions.*final integrated commit/u);
+  assert.match(
+    prompt,
+    /delivery contract with the CEO: which packages you split the mission into, which agent each was dispatched to/u,
+  );
+  assert.match(prompt, /Synthesize by filtering.*never forward a worker claim as an established fact/u);
+  assert.match(prompt, /Report upward when a ruling is needed.*plan itself leads to the wrong result/u);
   assert.match(prompt, /ha task adjudicate --forward/u);
   assert.match(prompt, /Do not merge the PR or main/u);
-  assert.doesNotMatch(prompt, /ha task pr|ha task push|closeout.md/u);
+  assert.doesNotMatch(prompt, /ha task pr|ha task push|closeout.md|task delivery commands/u);
   assert.doesNotMatch(assembleUnboundPrompt("Review.", "reviewer"), /ha runtime status|ha task dispatches/u);
 });
 
