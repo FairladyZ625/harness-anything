@@ -40,46 +40,15 @@ import { attestGateWitness } from "./repo-cell-witness-adapters.ts";
 import { applyTaskWorktreeLifecycle, presetSnapshotReader, type TaskWorktreeLifecycleInput } from "./task-worktree.ts";
 import { runEntityPinAction } from "./entity-pin-action.ts";
 import { readWork } from "./work-read.ts";
-import { candidateSample, resolveUniquePrefix } from "./unique-id-prefix.ts";
 
 export async function executeAction(
   cell: RepoCellOperationalContext,
   action: RepoTaskAction,
   binding: RepoCellBinding,
 ): Promise<WriteReceipt> {
-  const resolved = resolveTaskWriteTarget(cell, action);
-  return applyTaskWorktreeLifecycle(taskWorktreeInput(cell), resolved, binding.source, () =>
-    Promise.resolve(executeRepoAction(cell, resolved, binding)),
+  return applyTaskWorktreeLifecycle(taskWorktreeInput(cell), action, binding.source, () =>
+    Promise.resolve(executeRepoAction(cell, action, binding)),
   );
-}
-
-// Task write actions address an existing task, so their id gets the read faces' git-style
-// short-id resolution (resolveUniquePrefix): a unique prefix rewrites the action to the full id
-// before the worktree wrapper and the opId see it, so a prefix and its full form are one
-// operation. `task-create` is excluded — its taskId names the task to create, not an existing
-// target. A current cut with no such task is the family's entity_not_found; a lagging cut stays
-// the action's own pending case, because not-found must not race a projection that could still
-// apply the task.
-function resolveTaskWriteTarget(cell: RepoCellOperationalContext, action: RepoTaskAction): RepoTaskAction {
-  const contract = getExecutableEntityAction(action.kind);
-  if (action.kind === "task-create" || contract?.target.kind !== "task" || !contract.execution) return action;
-  const field = contract.execution.targetIdField ?? "taskId",
-    requested = action[field];
-  if (typeof requested !== "string" || requested === "") return action;
-  const read = cell.projection.read(requested);
-  if (read.snapshot.task || read.watermark < read.sourceRevision) return action;
-  const prefixed = resolveUniquePrefix(
-    requested,
-    cell.projection.readTaskIndex().rows.map(({ taskId }) => taskId),
-  );
-  if (prefixed.matched) return { ...action, [field]: prefixed.id } as RepoTaskAction;
-  if (prefixed.candidates.length > 1)
-    throw cell.cellCodedError(
-      "task_ambiguous_id",
-      `Task id ${requested} is a prefix of ${String(prefixed.candidates.length)} task ids ` +
-        `(${candidateSample(prefixed.candidates)}). Use a longer prefix or the full id.`,
-    );
-  throw cell.cellCodedError("entity_not_found", `Task ${requested} does not exist.`);
 }
 
 export function taskWorktreeInput(
