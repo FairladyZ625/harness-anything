@@ -2,7 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import path from "node:path";
-import { setTimeout as sleep } from "node:timers/promises";
+import { setTimeout as defaultSleep } from "node:timers/promises";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { consumeKnownError, type WriteReceiptDraft } from "@harness-anything/kernel";
@@ -39,10 +39,12 @@ export const waitCiDefaultTimeoutMinutes = 60;
 
 type ChecksReader = (provider: HostingProvider, query: HostingChecksQuery) => Promise<HostingChecksSnapshot>;
 
-/** Injectable seams of the wait loop; every default is the production behavior. Dependency and
- * helper names stay task-prefixed or collision-free on purpose: the durable-authorization gate
- * resolves calls by bare function name across the daemon, so a generic name like `delay` would
- * graft unrelated functions onto this path and break its disconnect audits. */
+/** Injectable seams of the wait loop; every default is the production behavior. The injectable seam
+ * is `waitCiDelay` because the durable-authorization gate resolves calls by bare function name
+ * across the daemon, and a generic `delay` grafted unrelated same-named functions onto this path
+ * and broke its disconnect audits. The awaited local helper stays named `sleep`: that is a wait
+ * alias the poll-spin gate recognizes (so the loop must keep its exact allowlist entry), and no
+ * daemon function is named `sleep`, so the authorization gate has nothing same-named to graft. */
 export type WaitCiDeps = {
   /** Defaults to detecting the provider from the repository root. */
   readonly hosting?: HostingProvider;
@@ -99,7 +101,7 @@ export async function waitTaskPullRequestChecks(
     ),
     redact = (text: string) => secrets.reduce((scrubbed, secret) => scrubbed.replaceAll(secret, "[REDACTED]"), text),
     readChecks = deps.readChecks ?? readHostingChecks,
-    waitCiDelay = deps.waitCiDelay ?? sleep,
+    sleep = deps.waitCiDelay ?? defaultSleep,
     nowMs = deps.nowMs ?? (() => Date.now()),
     timeoutMinutes =
       typeof action.timeoutMinutes === "number" &&
@@ -141,7 +143,7 @@ export async function waitTaskPullRequestChecks(
         timeoutMinutes,
         lastReadError === null ? null : redact(lastReadError),
       );
-    await waitCiDelay(waitCiPollIntervalMs);
+    await sleep(waitCiPollIntervalMs);
   }
 }
 
