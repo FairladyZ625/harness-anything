@@ -146,7 +146,7 @@ export async function runDaemonControl(argv: readonly string[], renderReceipt: R
             command: "daemon-stop",
             pid,
             summary: `daemon-stop: pid ${pid} stopped; an explicit stop does not autostart.`,
-            nextAction: "Restart it with `ha daemon start --service` when you need the daemon again.",
+            next: [{ command: "ha daemon start --service", reason: "Restart the daemon when you need it again." }],
           },
           0,
         );
