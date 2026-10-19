@@ -1,5 +1,5 @@
 import { runtimeCredentialInput } from "../cli/runtime-credential-input.ts";
-import { mkdirSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
@@ -130,6 +130,15 @@ function repoScopedDaemonEndpoint(
   });
 }
 
+// The autostart spawns the daemon from the invoking root as its cwd, so edge join prepares that
+// workspace root before the first request. The write itself lives in the daemon-side client
+// module — the thin CLI performs no local writes — and rides the lazy autostart import seam.
+async function prepareEdgeJoinWorkspace(command: ThinCommand, params: JsonObject): Promise<void> {
+  if (params.operation !== "edge-join") return;
+  const { ensureDaemonSpawnRoot } = await import("@harness-anything/daemon/internal/client/daemon-autostart");
+  ensureDaemonSpawnRoot(command.rootDir);
+}
+
 export async function runCommandThroughDaemon(
   command: ThinCommand,
   onPhase: (receipt: JsonObject) => void = () => undefined,
@@ -154,9 +163,7 @@ export async function runCommandThroughDaemon(
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
       params = bootstrapParams(command.action, socketPath);
-    // The autostart spawns the daemon from the invoking root as its cwd; edge join owns preparing
-    // that workspace root so one command also works on a machine where it does not exist yet.
-    if (params.operation === "edge-join") mkdirSync(command.rootDir, { recursive: true });
+    await prepareEdgeJoinWorkspace(command, params);
     const request = (paramsOverride?: JsonObject) =>
       withAutostart(
         () =>

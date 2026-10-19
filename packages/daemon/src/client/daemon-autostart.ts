@@ -425,6 +425,11 @@ export function daemonCheckoutRoot(rootDir: string): string {
     current = parent;
   }
 }
+// One-command workspace preparation (edge join) needs the spawn cwd to exist before the first
+// spawn; callers decide which root qualifies, this only makes it real.
+export function ensureDaemonSpawnRoot(invokingRoot: string): void {
+  mkdirSync(invokingRoot, { recursive: true });
+}
 function sameGitRepository(left: string, right: string): boolean {
   const leftCommon = gitCommonDirectory(left),
     rightCommon = gitCommonDirectory(right);
