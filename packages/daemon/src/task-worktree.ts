@@ -51,7 +51,7 @@ export function presetSnapshotReader(projection: Pick<TaskProjection, "readPrese
 
 /** The task's declared output shape: the compiled preset snapshot's profile field, or null before it compiles. */
 export function taskOutputShape(
-  task: TaskV2 | null | undefined,
+  task: { readonly presetSnapshotDigest?: string | null } | null | undefined,
   readPresetSnapshot: PresetSnapshotRead,
 ): string | null {
   if (!task?.presetSnapshotDigest) return null;
