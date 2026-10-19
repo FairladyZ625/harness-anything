@@ -10,6 +10,7 @@ import test from "node:test";
 import { makeTaskEventReader } from "@harness-anything/kernel";
 import { openRuntimeInstanceStore, type RuntimeInstallationWitness } from "../src/agent-runtime-instances.ts";
 import { readDispatchStream } from "../src/dispatch-stream.ts";
+import type { RuntimeProcess } from "../src/runtime-spawn-types.ts";
 import { realizeTaskPlanFixture } from "../../../tools/fixtures/task-plan.mjs";
 import { canonicalRoot, workspaceId } from "../src/protocol/daemon-protocol.contract.ts";
 import { openBootstrappedRepoCell as openRepoCell, waitForFixturePublication } from "./repo-settings.fixture.ts";
@@ -78,6 +79,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
 
     let taskBoundLaunches = 0;
     let mainPush: ReturnType<typeof spawnSync> | null = null;
+    let finishTask: ((code: number | null) => void) | undefined;
     cell = await openRepoCell({
       repoId: workspaceId(repoId),
       rootDir: canonicalRoot(root),
@@ -123,7 +125,13 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
           assert.equal(prepared.env.GIT_COMMITTER_NAME, undefined);
           assert.equal(prepared.env.GIT_COMMITTER_EMAIL, undefined);
         }
-        return successfulRuntimeProcess();
+        return successfulRuntimeProcess(
+          taskBound
+            ? (listener) => {
+                finishTask = listener;
+              }
+            : undefined,
+        );
       },
     });
 
@@ -158,6 +166,29 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
       },
       binding,
     );
+    // A branch commit is progress. Only the accepted submission lets settlement publish it.
+    const executor = { kind: "agent", id: `runtime-session:${spawned.runtimeSessionId}` } as const,
+      closeoutPath = `${String(created.packagePath)}/closeout.md`;
+    writeFileSync(
+      path.join(root, "harness", closeoutPath),
+      "## Summary\nDelivered the worker change.\n## Verification\nBound credential and main push isolation asserted.\n" +
+        "## Residual Risk\nLocal bare remote only.\n## Same Mechanism Elsewhere\nSettlement witnesses the accepted submission.\n",
+    );
+    const closeout = await cell.run({ kind: "doc-submit", paths: [closeoutPath], executor }, binding);
+    assert.equal(closeout.outcome, "applied", JSON.stringify(closeout));
+    const submitted = await cell.run(
+      {
+        kind: "task-submit",
+        taskId,
+        executionId,
+        executor,
+        commitSha: gitText(workerRoot, "rev-parse", "HEAD").trim(),
+      },
+      binding,
+    );
+    assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
+    assert.ok(finishTask, "the task runtime must remain live until submission is accepted");
+    finishTask(0);
     await runtimeOutcome(root, repoId, String(spawned.runtimeSessionId));
 
     assert.equal(taskBoundLaunches, 1);
@@ -192,7 +223,7 @@ test("task-bound runtime settlement pushes only its own codex branch with the bo
   }
 });
 
-function successfulRuntimeProcess() {
+function successfulRuntimeProcess(onExit?: RuntimeProcess["onExit"]) {
   return {
     pid: process.pid,
     onOutput: (listener: (chunk: string) => void) => {
@@ -212,7 +243,7 @@ function successfulRuntimeProcess() {
       );
     },
     onErrorOutput: () => undefined,
-    onExit: (listener: (code: number | null) => void) => queueMicrotask(() => listener(0)),
+    onExit: onExit ?? ((listener: (code: number | null) => void) => queueMicrotask(() => listener(0))),
     terminate: () => undefined,
   };
 }
