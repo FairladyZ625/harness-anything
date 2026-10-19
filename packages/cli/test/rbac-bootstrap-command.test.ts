@@ -1,10 +1,13 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { parseThinCommand } from "../src/cli/thin-command.ts";
 import { renderCliReceipt } from "../src/cli/receipt-render-registry.ts";
 import { awaitDeviceLogin } from "../src/daemon/device-login.ts";
+import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 
 test("device polling follows pending replies and ends at the device deadline", async () => {
   let polls = 0;
@@ -383,5 +386,26 @@ test("work team commands carry the native team id and observed version", () => {
       expectedVersion: "v1",
       operationId: "edit-1",
     });
+  }
+});
+
+test("edge join prepares its workspace root before reaching the daemon", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-edge-join-root-")),
+    workspaceRoot = path.join(userRoot, "edge", "workspace");
+  try {
+    const parsed = parseThinCommand(["edge", "join", "harness-edge://join/test", "--root", workspaceRoot], userRoot);
+    assert.equal(parsed.ok, true);
+    if (!parsed.ok) return;
+    // The autostart spawns the daemon from the invoking root as its cwd, so edge join creates the
+    // missing --root before the first connection attempt; the request itself then fails offline.
+    await assert.rejects(
+      runCommandThroughDaemon(parsed.command, () => undefined, {
+        autostart: false,
+        env: { HARNESS_DAEMON_USER_ROOT: userRoot, HARNESS_DAEMON_ID: "edge-join-root" },
+      }),
+    );
+    assert.equal(existsSync(workspaceRoot), true, "edge join creates the missing --root in one command");
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
   }
 });

@@ -270,6 +270,34 @@ test("a launcher that is missing fails fast as daemon_spawn_not_found without a 
   assert.match(result.hint, /ENOENT/u);
 });
 
+test("a missing spawn cwd is classified as the workspace root being missing, not the launcher", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-autostart-root-missing-")),
+    missingRoot = path.join(userRoot, "edge", "workspace");
+  try {
+    // The default spawn detached path spawns from the invoking root; a root that does not exist
+    // reaches Node's spawn as a plain ENOENT on the binary and must not read as a missing launcher.
+    const result = await ensureLocalDaemonRunning({
+      socketPath: "/tmp/ha-autostart-missing-cwd.sock",
+      invokingRoot: missingRoot,
+      launch: () => ({
+        command: process.execPath,
+        args: ["index.ts", "serve", "--user-root", userRoot, "--daemon-id", "missing-root"],
+        env: {},
+      }),
+      probe: async () => false,
+      probeIntervalMs: 1,
+      readyTimeoutMs: 5,
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.code, "daemon_spawn_root_missing");
+    assert.equal(result.attempts, 1);
+    assert.doesNotMatch(result.hint, /launcher binary was not found/u);
+    assert.match(result.hint, new RegExp(missingRoot.replaceAll(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
 test("a permission-denied launcher is classified as daemon_spawn_permission", async () => {
   const result = await ensureLocalDaemonRunning({
     socketPath: "/tmp/ha-autostart-eacces.sock",

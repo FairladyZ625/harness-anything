@@ -1,5 +1,5 @@
 import { runtimeCredentialInput } from "../cli/runtime-credential-input.ts";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { createRequire } from "node:module";
 import type { JsonObject } from "@harness-anything/daemon/internal/protocol/json-rpc-types";
@@ -154,6 +154,9 @@ export async function runCommandThroughDaemon(
       daemonId = daemonIdFromEnv(env),
       socketPath = repoScopedDaemonEndpoint(env, command, userRoot, daemonId),
       params = bootstrapParams(command.action, socketPath);
+    // The autostart spawns the daemon from the invoking root as its cwd; edge join owns preparing
+    // that workspace root so one command also works on a machine where it does not exist yet.
+    if (params.operation === "edge-join") mkdirSync(command.rootDir, { recursive: true });
     const request = (paramsOverride?: JsonObject) =>
       withAutostart(
         () =>
