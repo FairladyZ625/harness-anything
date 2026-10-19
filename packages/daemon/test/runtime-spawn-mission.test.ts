@@ -9,6 +9,7 @@ import {
   dispatchMissionForWorkerPermissions,
   explicitPromptMission,
   livingDeliverableProtocol,
+  prBodyDeliveryProtocol,
   taskQueryGuidance,
 } from "../src/runtime-spawn-mission.ts";
 
@@ -108,15 +109,27 @@ test("PR body protocol follows the document slot, including lightweight explicit
   const mission = explicitPromptMission("task_x", null, "Go.", "lightweight", "artifacts/pr-body.md");
   assert.match(mission, /# PR Body Delivery Protocol/u);
   assert.match(mission, /pull_request_template.md/u);
-  assert.match(mission, /实测适用成本与 Production-Delta/u);
+  assert.match(mission, /Production-Delta 用 node tools\/gates\/production-delta\.mjs/u);
+  assert.match(mission, /确认没有遗漏、占位内容或未填写骨架/u);
   assert.match(mission, /check-pr-body-bilingual/u);
-  assert.match(mission, /交付与基准锚由 submission 派生/u);
+  assert.match(mission, /从冻结的 submission 记录派生/u);
   assert.doesNotMatch(mission, /Artifact-Anchor/u);
   assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);
   assert.doesNotMatch(
     explicitPromptMission(null, null, "Go.", "baseline", "artifacts/pr-body.md"),
     /PR Body Delivery/u,
   );
+});
+
+test("the PR body protocol orders the delivery loop push before pr before submit", () => {
+  const protocol = prBodyDeliveryProtocol("artifacts/pr-body.md")!,
+    pushAt = protocol.indexOf("ha task push"),
+    prAt = protocol.indexOf("ha task pr"),
+    submitAt = protocol.indexOf("ha task submit");
+  assert.ok(pushAt >= 0, "the protocol tells the worker to publish the task branch");
+  assert.ok(prAt > pushAt, "the PR is created after the branch is published, from the doc-synced body");
+  assert.ok(submitAt > prAt, "submit comes last: the frozen post-submit cut rejects worker writes");
+  assert.doesNotMatch(protocol, /submit 回执/u, "PR creation no longer waits for the submit receipt");
 });
 
 test("reviewer task-bound missions keep the guidance and Reviewer Role but omit both worker delivery protocols", () => {
