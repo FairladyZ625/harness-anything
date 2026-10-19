@@ -145,6 +145,10 @@ export async function performOpenRegistered(
   },
 ): Promise<void> {
   const started = performance.now(),
+    pendingDecisionOutcomes: Extract<
+      import("@harness-anything/kernel").AgentRuntimeEventV1,
+      { readonly type: "runtime_session_outcome_observed" }
+    >[] = [],
     lifecycle = {
       repoId: repo.repoId,
       rootDir: repo.canonicalRoot,
@@ -166,6 +170,23 @@ export async function performOpenRegistered(
       authoredBranch: repo.authoredBranch,
       ...(context.input.shutdownRequested ? { shouldStop: context.input.shutdownRequested } : {}),
       ...(context.input.recordLifecycle ? { recordLifecycle: context.input.recordLifecycle } : {}),
+      ...(repo.mode === "local"
+        ? {
+            onRuntimeOutcome: (
+              event: Extract<
+                import("@harness-anything/kernel").AgentRuntimeEventV1,
+                { readonly type: "runtime_session_outcome_observed" }
+              >,
+            ) => {
+              const cell = context.cells.get(repo.repoId);
+              if (!cell) {
+                pendingDecisionOutcomes.push(event);
+                return;
+              }
+              settleDecision(event, cell);
+            },
+          }
+        : {}),
       onAttemptTerminal: (_terminal: RuntimeAttemptTerminal) => void context.scheduleScheduler.refresh(),
       onStatus: (status) => {
         const previousState = publishedState;
@@ -200,6 +221,7 @@ export async function performOpenRegistered(
     const cell = opened;
     opened = undefined;
     context.cells.set(repo.repoId, cell);
+    for (const event of pendingDecisionOutcomes.splice(0)) settleDecision(event, cell);
     await context.scheduleScheduler.refresh();
     context.settleWarming(repo.repoId);
     context.unavailable.delete(repo.repoId);
@@ -220,6 +242,19 @@ export async function performOpenRegistered(
       error: error instanceof Error ? (error.stack ?? error.message) : String(error),
     });
     throw error;
+  }
+
+  function settleDecision(
+    event: Extract<
+      import("@harness-anything/kernel").AgentRuntimeEventV1,
+      { readonly type: "runtime_session_outcome_observed" }
+    >,
+    cell: RepoCell,
+  ): void {
+    void context
+      .decisionPointExecutorFor(repo.repoId, repo.canonicalRoot)
+      .settle(cell, event)
+      .catch((error: unknown) => console.error(error));
   }
 }
 

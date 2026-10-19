@@ -30,6 +30,7 @@ export type DecisionQuestion =
       readonly prompt: string;
       readonly options: readonly DecisionOption[];
       readonly criteria: Readonly<Record<string, string>>;
+      readonly abstainOptionId?: string;
     }
   | {
       readonly type: "score";
@@ -40,6 +41,7 @@ export type DecisionQuestion =
 
 export type DecisionRequest = {
   readonly subjectRef: string;
+  readonly providerId: string;
   readonly questionSetVersion: string;
   readonly state: readonly [string];
   readonly question: DecisionQuestion;

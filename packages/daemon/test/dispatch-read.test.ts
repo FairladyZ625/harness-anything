@@ -2,6 +2,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { syncBuiltinESMExports } from "node:module";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
 import {
@@ -12,6 +14,7 @@ import {
   taskDispatchesOutcome,
   taskDispatchRowsSettled,
 } from "../src/dispatch-read.ts";
+import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -203,6 +206,58 @@ test("canonical archive preserves result, artifact, delegation and provider quot
   assert.equal(row.reportPath, undefined);
   assert.match(row.nextAction!, /--resume-dispatch/u);
   assert.equal(row.reviewTarget?.kind, "decision");
+});
+
+test("dispatch rows expose successful advisory fields from the center-local annotation store", async (t) => {
+  const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-advisory-"));
+  t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
+  const store = openDecisionAnnotationStore(rootDir),
+    advisory = {
+      pointId: "dispatch-stop-reason",
+      questionVersion: "pilot2-choice-v2",
+      selected: "environment_unavailable",
+      distribution: { environment_unavailable: 0.9, insufficient_information: 0.1 },
+      options: [
+        { id: "environment_unavailable", text: "Environment unavailable" },
+        { id: "insufficient_information", text: "Insufficient information" },
+      ],
+      provider: {
+        providerId: "dp-openrouter-mercury",
+        vendor: "openrouter" as const,
+        requestedModel: "model-a",
+        resolvedModel: "model-a",
+        modelVersion: null,
+        providerRoute: null,
+      },
+      usage: { inputTokens: 12, outputTokens: 3, reportedCost: null },
+      latencyMs: 24,
+    };
+  await store.reserve({
+    key: "advisory-key",
+    pointId: advisory.pointId,
+    questionVersion: advisory.questionVersion,
+    bindingDigest: "b".repeat(64),
+    event: "dispatch.settled",
+    show: ["task.dispatches"],
+    dispatchId,
+    subjectRef: `dispatch/${dispatchId}`,
+    now: "2026-10-19T00:00:00.000Z",
+    egress: {
+      subjectRef: `dispatch/${dispatchId}`,
+      dispatchId,
+      pointId: advisory.pointId,
+      fields: ["report.body"],
+      providerId: advisory.provider.providerId,
+      model: advisory.provider.requestedModel,
+      sentAt: "2026-10-19T00:00:00.000Z",
+      inputDigest: "c".repeat(64),
+    },
+  });
+  await store.succeed("advisory-key", advisory, "2026-10-19T00:00:01.000Z");
+
+  const row = readTaskDispatches({ projection: fixture(session("exited", "succeeded")).projection, taskId, rootDir })
+    .dispatches[0]!;
+  assert.deepEqual(row.advisories, [advisory]);
 });
 
 test("normal exit with a result is stopped rather than unknown", () => {

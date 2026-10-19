@@ -21,6 +21,41 @@ the kernel does not change by a single line. A sprint is a coding idea; a
 research project might have *phases* instead. The kernel never learns either
 word.
 
+## Optional decision points
+
+A vertical may also declare advisory decision points under `decisions` in its
+`vertical.json`. A question defines a closed set of options and criteria; a
+point binds that question to one product event, a deterministic `when` filter,
+an explicit input field list, and the read surfaces where its advisory may be
+shown. The product owns the event catalog, including each field's length cap
+and redaction rule, so a vertical cannot publish arbitrary data.
+
+The software coding preset's first point is `dispatch-stop-reason` on the final
+`dispatch.settled` outcome. It uses the frozen `pilot2-choice-v2` question and
+the report-summary projection (collapsed whitespace, capped at 2,000
+characters, with a head/tail split when longer). Empty or explicitly truncated
+reports are left unclassified without a provider call.
+
+Decision points are dormant unless repository settings name a Decisions Provider
+and enable a point with its binding digest prefix:
+
+```yaml
+settings:
+  decisions:
+    provider: dp-openrouter-mercury
+    enabledPoints:
+      - dispatch-stop-reason@<binding-digest-prefix>
+```
+
+The digest covers the point revision, question, event fields and projections,
+and deterministic filters. Changing any of those requires a new explicit
+binding. The `decisions` field has been supported since S1; a vertical package
+that includes it is not compatible with earlier product versions, as expected.
+Evaluation happens asynchronously after the center records the final
+outcome; provider failures do not alter the dispatch. Results are advisory
+annotations kept in the center-local store and are exposed as typed fields by
+`ha task dispatches`. They are never inputs to gates or lifecycle transitions.
+
 ## Convention over declaration
 
 The naive way to extend a system is to make you declare everything. That path

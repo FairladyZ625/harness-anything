@@ -427,7 +427,7 @@ interface RuntimePayloads {
       readonly reason: string;
       readonly faultClass?: "quota_exhausted" | "rate_limited";
       readonly resetAt?: string;
-      /** Retained for strict replay of events written before 160230b1c. */
+      /** The dispatch stream's settled fallback state, published for center-side consumers. */
       readonly fallbackState?: "scheduled" | "exhausted" | null;
     };
   };

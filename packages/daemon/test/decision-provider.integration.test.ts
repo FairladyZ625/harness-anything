@@ -72,6 +72,7 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
 
     const request = {
       subjectRef: "task/review-1",
+      providerId: "review-choice",
       questionSetVersion: "review/v1",
       state: ["A commit changes the GUI provider catalog."] as const,
       question: {
@@ -114,7 +115,7 @@ test("Decisions provider CRUD, probe, and port keep credentials private and retu
     await assert.rejects(
       service.port.decide(request),
       (error: unknown) =>
-        typeof error === "object" && error !== null && "code" in error && error.code === "provider_not_found",
+        typeof error === "object" && error !== null && "code" in error && error.code === "provider_disabled",
     );
     const deleted = await service.command({ kind: "provider-delete", providerId: "review-choice" });
     assert.equal(deleted.deletedProviderId, "review-choice");
@@ -175,6 +176,7 @@ test("Decisions provider maps credential unavailability and propagates other vau
     await assert.rejects(
       service.port.decide({
         subjectRef: "task/a",
+        providerId: "decision-a",
         questionSetVersion: "choice/v1",
         state: ["text"],
         question: {
@@ -223,6 +225,7 @@ test("DecisionPort rejects malformed distributions as protocol failures", async 
     await assert.rejects(
       service.port.decide({
         subjectRef: "task/a",
+        providerId: "decision-a",
         questionSetVersion: "choice/v1",
         state: ["text"],
         question: {

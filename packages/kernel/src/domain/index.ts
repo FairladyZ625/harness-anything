@@ -14,6 +14,16 @@ export type {
   DecisionUsage,
 } from "./decision-provider.ts";
 export {
+  decisionWhenMatches,
+  decisionPointBindingDigest,
+  type DecisionEventName,
+  type DecisionInputField,
+  type DecisionReadSurface,
+  type DecisionQuestionDeclaration,
+  type DecisionPointDeclaration,
+} from "./decision-point.ts";
+export { decisionEventDescriptor } from "./decision-event-catalog.ts";
+export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   validateEntityActionExplainRequest,
   validateEntityActionExplanationSet,

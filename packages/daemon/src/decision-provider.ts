@@ -271,8 +271,11 @@ export function openDecisionProviderService(input: {
     decide: async (request) => {
       validateDecisionRequest(request);
       const selected = await enqueue(async () => {
-        const provider = read().find((entry) => entry.enabled);
-        if (!provider) throw providerError("provider_not_found", "No enabled Decisions provider is configured.");
+        const provider = read().find((entry) => entry.providerId === request.providerId);
+        if (!provider)
+          throw providerError("provider_not_found", `Decisions provider ${request.providerId} does not exist.`);
+        if (!provider.enabled)
+          throw providerError("provider_disabled", `Decisions provider ${request.providerId} is disabled.`);
         let apiKey: string;
         try {
           apiKey = await vault.resolve(provider.auth.credentialRef);
@@ -360,6 +363,8 @@ function validateDecisionRequest(request: DecisionRequest): void {
     !request ||
     typeof request.subjectRef !== "string" ||
     request.subjectRef.trim() === "" ||
+    typeof request.providerId !== "string" ||
+    request.providerId.trim() === "" ||
     typeof request.questionSetVersion !== "string" ||
     request.questionSetVersion.trim() === "" ||
     !Array.isArray(request.state) ||
@@ -369,7 +374,7 @@ function validateDecisionRequest(request: DecisionRequest): void {
   )
     throw providerError(
       "invalid_decision_request",
-      "Decision request requires a subject, question-set version, and one text state.",
+      "Decision request requires a subject, provider, question-set version, and one text state.",
     );
   const question = request.question;
   if (!question || typeof question.prompt !== "string" || question.prompt.trim() === "")
