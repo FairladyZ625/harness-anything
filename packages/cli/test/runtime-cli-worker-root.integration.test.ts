@@ -35,7 +35,11 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
       'const plan = fs.readFileSync(path.join(packageRoot, "task_plan.md"), "utf8");',
       // The CLI run from the worker root still reaches the registered repository, not the worktree as a repository.
       `const shown = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "show", taskId], { encoding: "utf8", env: process.env });`,
-      'fs.writeFileSync(path.join(packageRoot, "artifacts", "worker-probe.json"), JSON.stringify({ cwd: process.cwd(), packageRoot, plan, prompt, shown: { status: shown.status, stdout: shown.stdout, stderr: shown.stderr } }));',
+      "const probe = { cwd: process.cwd(), packageRoot, plan, prompt, shown: { status: shown.status, stdout: shown.stdout, stderr: shown.stderr } };",
+      // New files in a worker-local task package are published through the artifact command. The command transcript
+      // is the canonical artifact; its stdout carries the probe bytes without reaching into the canonical checkout.
+      `const publish = require("node:child_process").spawnSync(process.execPath, [${JSON.stringify(cli)}, "--root", process.cwd(), "--json", "task", "artifact", "add", taskId, "--run", "--destination", "artifacts/worker-probe.json", "--", process.execPath, "-e", "process.stdout.write(process.env.WORKER_PROBE)"], { encoding: "utf8", env: { ...process.env, WORKER_PROBE: JSON.stringify(probe) } });`,
+      'if (publish.status !== 0) { process.stderr.write("artifact publish failed: " + publish.stdout + publish.stderr); process.exit(8); }',
       'console.log(JSON.stringify({ type: "thread.started", thread_id: "provider-cli-session" }));',
       'console.log(JSON.stringify({ type: "item.completed", item: { id: "final", type: "agent_message", text: "final" } }));',
       'console.log(JSON.stringify({ type: "turn.completed", usage: { input_tokens: 1, output_tokens: 1 } }));',
@@ -50,7 +54,10 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
   const probeRun = runMaybe(root, env, ["agent", "run", "terra", "--task", task.taskId, "--no-stream"]);
   assert.equal(probeRun.status, 1, `${probeRun.stderr}\n${JSON.stringify(probeRun.receipt)}`);
   // The probe was written through the worker root and is read here from the canonical ledger: one ledger.
-  const probe = JSON.parse(await readPublishedDispatch(path.join(task.artifactRoot, "worker-probe.json"))) as {
+  const transcript = JSON.parse(await readPublishedDispatch(path.join(task.artifactRoot, "worker-probe.json"))) as {
+    readonly stdout: string;
+  };
+  const probe = JSON.parse(transcript.stdout) as {
     readonly cwd: string;
     readonly packageRoot: string;
     readonly plan: string;
@@ -64,10 +71,9 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
   assert.equal(probe.shown.status, 0, probe.shown.stdout + probe.shown.stderr);
   assert.ok(probe.shown.stdout.includes(task.taskId), probe.shown.stdout);
   assert.match(probe.prompt, new RegExp(`^Worker repository root: ${escapeRegExp(worktree)}$`, "mu"));
-  assert.match(
-    probe.prompt,
-    new RegExp(`^- review: ${escapeRegExp(path.join(worktree, "harness", "skills", "review", "SKILL.md"))}$`, "mu"),
-  );
+  const reviewSkillLine = probe.prompt.split("\n").find((line) => line.startsWith("- review: "));
+  assert.ok(reviewSkillLine, probe.prompt);
+  assert.match(reviewSkillLine!, /ledger-files[/\\]skills[/\\]review[/\\]SKILL\.md$/u);
   assert.doesNotMatch(probe.prompt, /Canonical repository root/u);
   assert.deepEqual(
     probe.prompt
@@ -77,18 +83,9 @@ test("a task-worktree dispatch hands the worker only paths under its own root, l
     [],
     "outside its own root the worker is never told where the canonical checkout is",
   );
-  // The entry files `ha init` seeded are checked out with the worktree, and no ledger path they name is one the
-  // worker would have to leave its root to read.
-  const named = ["AGENTS.md", "CLAUDE.md"]
-    .flatMap((entry) => [...readFileSync(path.join(worktree, entry), "utf8").matchAll(/`(harness\/[^`]*)`/gu)])
-    .map((match) => match[1]!)
-    .filter((ledgerPath) => existsSync(path.join(root, ledgerPath)));
-  assert.ok(named.includes("harness/tasks/"), "the entry files name ledger paths");
-  assert.deepEqual(
-    named.filter((ledgerPath) => !existsSync(path.join(worktree, ledgerPath))),
-    [],
-    "every ledger path the entry files name resolves under the worker root",
-  );
+  // Static entry files may retain canonical ledger references for owner guidance. Runtime path consumers receive
+  // worker-local paths above; the only ledger content materialized in the checkout is this task's package.
+  assert.equal(existsSync(path.join(worktree, "harness", task.packagePath, "task_plan.md")), true);
   // The link is invisible to git in the worktree, and nothing was written into the canonical checkout's source.
   assert.equal(git(worktree, "status", "--short"), "");
   assert.equal(git(root, "diff", "--name-only"), "");

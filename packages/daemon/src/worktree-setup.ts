@@ -236,10 +236,10 @@ function readSucceeded(directory: string): string[] {
 // gets a real task-package directory containing hard links to its existing files: edits to those files remain the
 // doc-sync channel (the daemon scans the canonical working copy), while `..` stays inside the worker checkout and
 // cannot walk from the package into sibling ledger directories. New artifacts are created locally and published
-// through the task artifact command. Other ledger files handed to a runtime are copied into its private worktree
-// Git directory, so consumers can read and mutate them without reaching the canonical ledger. Worktrees materialized
-// while every ledger directory was linked are swept to this layout at the next setup. The private ledger's own Git
-// directory stays out.
+// through the task artifact command. Other ledger files handed to a runtime are copied into an ignored private
+// directory inside the worktree, so consumers can read and mutate them without reaching the canonical ledger or
+// being told the canonical checkout path. Worktrees materialized while every ledger directory was linked are swept
+// to this layout at the next setup.
 
 function ledgerMirror(rootDir: string, cwd: string): { readonly authoredRoot: string; readonly mirror: string } {
   const layout = resolveHarnessLayout(rootDir);
@@ -258,7 +258,7 @@ function ownPackageDirectory(authoredRoot: string, taskId: string): string | nul
 
 /**
  * Whether the mirror at a worktree is this daemon's to manage: absent, the old layout of links for every ledger
- * directory, or the current layout marked in this worktree's private Git directory. A real, unmarked ledger
+ * directory, or the current layout marked in this worktree's private directory. A real, unmarked ledger
  * directory that the repository tracks is not ours to touch.
  */
 function mirrorOwnership(mirror: string, marker: string | null): "absent" | "legacy" | "ours" | "foreign" {
@@ -324,8 +324,11 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null)
   if (mirror === authoredRoot || !existsSync(authoredRoot)) return;
   const marker = worktreeLedgerMarkerPath(cwd);
   if (marker === null) return;
-  const own = taskId === null ? null : ownPackageDirectory(authoredRoot, taskId),
-    ownership = mirrorOwnership(mirror, marker);
+  ensureRealDirectory(cwd, path.dirname(marker));
+  const legacyMarker = legacyWorktreeLedgerMarkerPath(cwd),
+    ownershipMarker = lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
+    own = taskId === null ? null : ownPackageDirectory(authoredRoot, taskId),
+    ownership = mirrorOwnership(mirror, ownershipMarker);
   if (ownership === "foreign") return;
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
@@ -335,6 +338,7 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null)
   }
   if (own === null) {
     if (existsSync(marker)) unlinkSync(marker);
+    if (legacyMarker !== null && lstatSync(legacyMarker, { throwIfNoEntry: false })) unlinkSync(legacyMarker);
     return;
   }
   const packageMirror = path.join(mirror, "tasks", path.basename(own));
@@ -342,6 +346,10 @@ function linkWorktreeLedger(rootDir: string, cwd: string, taskId: string | null)
   mkdirSync(path.dirname(marker), { recursive: true });
   writeFileSync(marker, worktreeLedgerMarker);
   mirrorTaskPackage(own, packageMirror);
+  if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
+    clearWorktreeLedgerCopies(legacyMarker);
+    unlinkSync(legacyMarker);
+  }
 }
 
 function mirrorTaskPackage(source: string, destination: string): void {
@@ -363,6 +371,12 @@ function mirrorTaskPackage(source: string, destination: string): void {
 
 function worktreeLedgerMarkerPath(cwd: string): string | null {
   const gitFile = path.join(cwd, ".git");
+  return existsSync(gitFile) && lstatSync(gitFile).isFile() ? path.join(cwd, ".harness", "ledger-mirror") : null;
+}
+
+/** Marker path used by the old layout; it is cleaned after a worktree is next prepared or reclaimed. */
+function legacyWorktreeLedgerMarkerPath(cwd: string): string | null {
+  const gitFile = path.join(cwd, ".git");
   if (!existsSync(gitFile) || !lstatSync(gitFile).isFile()) return null;
   const match = /^gitdir: (.+)$/mu.exec(readFileSync(gitFile, "utf8"));
   return match === null ? null : path.join(path.resolve(cwd, match[1]!.trim()), "harness-ledger-mirror");
@@ -373,7 +387,9 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
   const { authoredRoot, mirror } = ledgerMirror(rootDir, cwd);
   if (mirror === authoredRoot) return;
   const marker = worktreeLedgerMarkerPath(cwd),
-    ownership = mirrorOwnership(mirror, marker);
+    legacyMarker = legacyWorktreeLedgerMarkerPath(cwd),
+    ownershipMarker = marker !== null && lstatSync(marker, { throwIfNoEntry: false }) ? marker : legacyMarker,
+    ownership = mirrorOwnership(mirror, ownershipMarker);
   if (ownership === "legacy") {
     for (const entry of readdirSync(mirror)) unlinkSync(path.join(mirror, entry));
   } else if (ownership === "ours") {
@@ -381,10 +397,17 @@ export function unlinkWorktreeLedger(rootDir: string, cwd: string): void {
     if (marker !== null) clearWorktreeLedgerCopies(marker);
   }
   if (ownership === "ours" && marker !== null && lstatSync(marker, { throwIfNoEntry: false })) unlinkSync(marker);
+  if (legacyMarker !== null && legacyMarker !== marker && lstatSync(legacyMarker, { throwIfNoEntry: false })) {
+    clearWorktreeLedgerCopies(legacyMarker);
+    unlinkSync(legacyMarker);
+  }
 }
 
 function clearWorktreeLedgerCopies(marker: string): void {
-  const copies = path.join(path.dirname(marker), "harness-ledger-files");
+  const copies = path.join(
+    path.dirname(marker),
+    path.basename(marker) === "ledger-mirror" ? "ledger-files" : "harness-ledger-files",
+  );
   if (lstatSync(copies, { throwIfNoEntry: false })) removeMirrorEntry(copies);
 }
 
@@ -417,7 +440,7 @@ export function workerLedgerPath(rootDir: string, cwd: string, target: string): 
 }
 
 function workerLedgerCopyPath(marker: string, relative: string): string {
-  return path.join(path.dirname(marker), "harness-ledger-files", relative);
+  return path.join(path.dirname(marker), "ledger-files", relative);
 }
 
 /** Creates a worker-owned copy path without following directories a worker may have replaced with symlinks. */
