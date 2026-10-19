@@ -803,16 +803,16 @@ test("task show renders lifecycle status before the secondary graph cursor", () 
   assert.doesNotMatch(legacy.text, /expected-version/u);
 });
 
-test("task show renders the completion blocker as an appended completion gate", () => {
+test("task show renders the current fact prerequisite as a completion gate", () => {
   const rendered = renderCliReceipt({
     ok: true,
     command: "task-show",
     evidence: JSON.stringify({
       task: { status: "in_review", currentNode: "review", completionGateIds: [] },
-      completionBlocker: { code: "gate_witness_missing", gate: "lint" },
+      completionBlocker: { code: "fact_missing", gate: "facts" },
     }),
   });
-  assert.match(rendered.text, /completion gates: lint \(gate_witness_missing\)/u);
+  assert.match(rendered.text, /completion gates: facts \(fact_missing\)/u);
 });
 
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {

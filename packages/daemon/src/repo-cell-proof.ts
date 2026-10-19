@@ -595,7 +595,7 @@ export function completeProof(
       capabilityRef: authorizationDecision.policyRef,
       actorRole: "owner",
       noActiveLease: true,
-      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false },
       gateReceipts: [],
       siblingResolution: {
         sourceTaskId: command.resolution.resolvedByTaskId,

@@ -147,7 +147,7 @@ test("real CLI reaches one resident multi-workspace daemon and accepts in SQLite
     assert.equal(
       lowRisk([]),
       "would create task task-low at harness/tasks/task-low-low\nshort path: a low-risk small change can take " +
-        "--profile lightweight on this preset — short plan and closeout, no review or consent at closeout; " +
+        "--profile lightweight on this preset — short plan and closeout, no review, consent, or fact at closeout; " +
         "a code change still lands through the PR's CI. The profile is fixed at creation.",
     );
     assert.match(

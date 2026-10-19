@@ -841,7 +841,7 @@ test("task-create help renders recommended presets only from effective catalog r
   assert.doesNotMatch(help, /reference-task|long-running-task/u);
   assert.match(
     renderThinHelp([], "task", "ha task create"),
-    /--profile — optional; value; format: <profile; lightweight = short plan and closeout with no review or consent at closeout, for a low-risk small change \(a code change still lands through the PR's CI\)/u,
+    /--profile — optional; value; format: <profile; lightweight = short plan and closeout with no review, consent, or fact at closeout, for a low-risk small change \(a code change still lands through the PR's CI\)/u,
   );
   // The one-focus title advice rides --title help in both create commands (task and work alias).
   for (const help of [renderThinHelp([], "task", "ha task create"), renderThinHelp([], "work", "ha work create")]) {

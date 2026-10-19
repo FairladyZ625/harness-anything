@@ -381,7 +381,7 @@ function shortPathSummary(compiled: PreparedTaskCreate["compiled"]): string {
     : `--preset ${lightweightPresetIds.join(" | ")} (not ${snapshot.identity.id})`;
   return (
     `\nshort path: a low-risk small change can take --profile lightweight on ${where} — short plan and ` +
-    "closeout, no review or consent at closeout; a code change still lands through the PR's CI. " +
+    "closeout, no review, consent, or fact at closeout; a code change still lands through the PR's CI. " +
     "The profile is fixed at creation."
   );
 }

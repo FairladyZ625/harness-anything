@@ -156,10 +156,6 @@ export const factFieldContracts = {
     "observation time is provenance-bearing evidence and cannot be amended",
     show("fact.observedAt"),
   ),
-  observedCommit: immutable(
-    "the observation commit is resolved by the daemon at record time and cannot be amended",
-    show("fact.observedCommit"),
-  ),
   confidence: immutable(
     "confidence is captured with the observation; later doubt is expressed by another fact or invalidation",
     show("fact.confidence"),
