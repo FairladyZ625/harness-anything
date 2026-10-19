@@ -35,6 +35,7 @@ import {
   squadRunSummaryRow,
 } from "./squad-run-fixtures.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import type { WorkIndex, WorkRef } from "../src/renderer/model/work-collections.ts";
 
 const definition = {
   schema: "agent-definition-snapshot/v1",
@@ -142,6 +143,40 @@ const sessionGroups = {
       },
     },
   ],
+};
+const workIndexFor = (entries: Readonly<Record<string, WorkRef>>): WorkIndex => ({
+  ready: true,
+  hasWorks: Object.keys(entries).length > 0,
+  isWorkRoot: (taskId) => taskId in entries,
+  workOf: (taskId) => entries[taskId] ?? null,
+});
+/** 两个任务组各归一个工作:页头三个计数同时 >1 的一侧。 */
+const twoTaskWorkGroups = {
+  ...sessionGroups,
+  totals: { groups: 2, sessions: 2 },
+  groups: [
+    { ...sessionGroups.groups[0], key: "task-a", taskId: "task-a", label: "Task A", sessionCount: 1, roundCount: 1 },
+    { ...sessionGroups.groups[0], key: "task-b", taskId: "task-b", label: "Task B", sessionCount: 1, roundCount: 1 },
+  ],
+};
+const singleWork = workIndexFor({ "task-bound": { taskId: "task-work", title: "Work" } });
+const twoWorks = workIndexFor({
+  "task-a": { taskId: "task-work-a", title: "Work A" },
+  "task-b": { taskId: "task-work-b", title: "Work B" },
+});
+/** Agent 组头是钻入按钮,钻入后的页头显示该执行者的汇总。 */
+const agentGroup = {
+  ...sessionGroups.groups[0],
+  key: "agent-terra",
+  kind: "agent" as const,
+  agentId: "terra",
+  label: "terra",
+};
+const drilledGroups = { ...sessionGroups, totals: { groups: 1, sessions: 1 }, groups: [agentGroup] };
+const drilledGroupsMany = {
+  ...sessionGroups,
+  totals: { groups: 2, sessions: 2 },
+  groups: [agentGroup, { ...agentGroup, key: "agent-luna", agentId: "luna", label: "luna" }],
 };
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }] as const;
 const agents = [{ id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user" }] as const;
@@ -629,6 +664,50 @@ describe("runtime entry split (W6 IA)", () => {
     const calls = vi.mocked(agentRuntimeClient.sessionGroups).mock.calls;
     expect(calls.at(-1)?.[1]).toMatchObject({ groupBy: "agent" });
     expect(calls.filter(([, query]) => query?.groupBy === "task").length).toBeGreaterThan(0);
+  });
+
+  it("uses singular count copy in the sessions header when every count is one", async () => {
+    await mountSessions(null, {}, undefined, { ...sessionGroups, totals: { groups: 1, sessions: 1 } });
+    const counts = byTestId("sessions-counts").textContent ?? "";
+    expect(counts).toContain("1 group / 1 session in");
+    expect(counts).not.toContain("1 groups");
+    expect(counts).not.toContain("1 sessions");
+  });
+
+  it("keeps plural count copy in the sessions header above one", async () => {
+    await mountSessions(null, {}, undefined, { ...sessionGroups, totals: { groups: 2, sessions: 3 } });
+    const counts = byTestId("sessions-counts").textContent ?? "";
+    expect(counts).toContain("2 groups / 3 sessions in");
+  });
+
+  it("selects each work summary count independently", async () => {
+    await mountSessions(null, {}, undefined, sessionGroups, undefined, singleWork);
+    const counts = byTestId("sessions-counts").textContent ?? "";
+    expect(counts).toContain("1 work · 1 task group / 2 sessions in");
+    expect(counts).not.toContain("1 works");
+    expect(counts).not.toContain("1 task groups");
+  });
+
+  it("pluralizes every work summary count above one", async () => {
+    await mountSessions(null, {}, undefined, twoTaskWorkGroups, undefined, twoWorks);
+    const counts = byTestId("sessions-counts").textContent ?? "";
+    expect(counts).toContain("2 works · 2 task groups / 2 sessions in");
+  });
+
+  it("uses singular count copy in the drilled sessions header", async () => {
+    await mountSessions(null, {}, undefined, drilledGroups);
+    await click("session-group-drill-agent-terra");
+    const counts = byTestId("sessions-counts").textContent ?? "";
+    expect(counts).toContain("1 task group / 1 session · all sessions of terra");
+    expect(counts).not.toContain("1 task groups");
+    expect(counts).not.toContain("1 sessions");
+  });
+
+  it("keeps plural count copy in the drilled sessions header above one", async () => {
+    await mountSessions(null, {}, undefined, drilledGroupsMany);
+    await click("session-group-drill-agent-terra");
+    const counts = byTestId("sessions-counts").textContent ?? "";
+    expect(counts).toContain("2 task groups / 2 sessions · all sessions of terra");
   });
 
   it("defaults the squad segment to 30d and opens the flow detail from a run row (G12 §2a/§2b/§2c)", async () => {
@@ -1361,6 +1440,7 @@ async function mountSessions(
   ) => Promise<Awaited<ReturnType<typeof harnessClient.tailObservability>>>,
   sessionGroupsResult = sessionGroups,
   listSquadRuns?: () => Promise<Awaited<ReturnType<typeof squadRunsClient.list>>>,
+  works?: WorkIndex,
 ) {
   const element = createElement(RuntimeRefHarness, {
     initialRef: focusedEntityRef,
@@ -1381,6 +1461,7 @@ async function mountSessions(
         onSelectEntity,
         onOpenTask: handlers.onOpenTask ?? (() => undefined),
         onBack,
+        ...(works === undefined ? {} : { works }),
       }),
   });
   return mountView(element, tailImpl, sessionGroupsResult, listSquadRuns);
