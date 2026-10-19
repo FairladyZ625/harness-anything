@@ -84,7 +84,8 @@ export class EdgeJoinAdminService {
         return { groupId, version: edgeJoinPermissionVersion(groupId, effectiveScopes) };
       });
 
-    await this.#oidc.invite({ username, email, displayName, personId });
+    if (!(await session.adapter.findUserId(session.token, personId)))
+      await this.#oidc.invite({ username, email, displayName, personId });
     const userId = await requiredUserId(session.adapter, session.token, personId),
       grants: readonly KeycloakGrant[] = await session.adapter.readGrants(session.token);
     for (const repoId of repoIds) {

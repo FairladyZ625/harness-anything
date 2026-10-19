@@ -774,7 +774,12 @@ test("edge invitations grant each selected repository and reject inherited permi
       groupIds: ["edge-selected"],
       nodeLabel: "edge-test",
     }),
-    link = issued.link as { readonly joinId: string; readonly token: string; readonly repoIds: readonly string[] };
+    link = issued.link as {
+      readonly joinId: string;
+      readonly token: string;
+      readonly repoIds: readonly string[];
+      readonly loginClientId: string;
+    };
   assert.deepEqual([issued.ok, issued.state, link.repoIds], [true, "pending", ["repo-a", "repo-b"]]);
   assert.equal(
     JSON.stringify(journal()).includes(link.token),
@@ -805,7 +810,7 @@ test("edge invitations grant each selected repository and reject inherited permi
     composites: ["contributor"],
     expectedVersion: source.version,
   });
-  keycloak.interactiveSession("person-invited", "edge-device", keycloakUrl, "invited-token", "edge-client");
+  keycloak.interactiveSession("person-invited", "edge-device", keycloakUrl, "invited-token", link.loginClientId);
   const nodeCount = keycloak.nodeClients.size;
   await assert.rejects(
     admin.admitEdgeJoin({ joinId: link.joinId, inviteToken: link.token, accessToken: "invited-token" }),
