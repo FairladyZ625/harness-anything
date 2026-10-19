@@ -331,6 +331,17 @@ test("GUI client reaches every shipped read through a real resident daemon", asy
       defaultVertical: "software/coding",
       defaultPreset: "standard-task",
       defaultProfile: "baseline",
+      // dec_522BA3AABB6D06201E9A8B0D33/CH1: full inheritance with every switch on is the default policy.
+      workerPermissions: {
+        mode: "full",
+        ciRead: true,
+        artifactRead: true,
+        push: true,
+        pullRequest: true,
+        merge: true,
+        repositorySettings: true,
+        gitlab: true,
+      },
       reviewIndependence: "execution",
       decisionReviewRequirement: "off",
       reviewReturnBudget: 3,

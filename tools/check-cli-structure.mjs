@@ -44,6 +44,7 @@ const allowedStaticGraph = new Set([
   "packages/daemon/src/protocol/json-rpc-types.ts",
   "packages/daemon/src/protocol/schedule-runs-contract.ts",
   "packages/preset/src/preset-command-contract.ts",
+  "packages/preset/src/settings-field-projection.generated.ts",
   "packages/preset/src/task-action-projection.generated.ts",
   "packages/preset/src/task-create-projection.generated.ts",
 ]);
@@ -168,6 +169,7 @@ function checkDaemonTransportImportGraph() {
     "packages/daemon/src/protocol/daemon-protocol-validate-task.ts",
     "packages/daemon/src/protocol/daemon-protocol-vocabulary.ts",
     "packages/preset/src/preset-command-contract.ts",
+    "packages/preset/src/settings-field-projection.generated.ts",
     "packages/preset/src/task-action-projection.generated.ts",
     "packages/preset/src/task-create-projection.generated.ts",
   ]);

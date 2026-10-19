@@ -44,6 +44,10 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
     title: "Dispatch roles",
   },
   {
+    id: "worker-permissions",
+    title: "Worker permissions",
+  },
+  {
     id: "review-closeout",
     title: "Review and closeout",
   },
@@ -234,6 +238,44 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
       action: { field: "roles", type: "json-object", key: role },
       ...(index === 0 ? { cli: { name: "--roles", kind: "single" as const, projection: "json-object" as const } } : {}),
       ...(role === "defaultReviewer" ? { legacyPath: ["defaultReviewer"] as const } : {}),
+    }),
+  ),
+  defineSettingsField({
+    path: ["workerPermissions", "mode"],
+    ownership: repository,
+    valueKind: "enum",
+    defaultValue: "full",
+    allowedValues: ["full", "restricted"],
+    description: "Whether workers inherit the operator's hosting and Git credentials or receive restricted guidance.",
+    effect: "Full lets workers use the operator's credentials; restricted adds the selected limits to their mission.",
+    group: "worker-permissions",
+    action: { field: "workerPermissionsMode", type: "string" },
+    cli: { name: "--worker-permissions-mode", kind: "single", enum: ["full", "restricted"] },
+  }),
+  ...(
+    [
+      ["ciRead", "Read CI results and logs"],
+      ["artifactRead", "Read hosted artifacts"],
+      ["push", "Push branches"],
+      ["pullRequest", "Open pull requests"],
+      ["merge", "Merge pull requests"],
+      ["repositorySettings", "Change repository settings"],
+      ["gitlab", "Use equivalent GitLab operations"],
+    ] as const
+  ).map(([field, label]) =>
+    defineSettingsField({
+      path: ["workerPermissions", field],
+      ownership: repository,
+      valueKind: "boolean",
+      defaultValue: true,
+      description: label,
+      effect: `Restricted workers are instructed whether they may ${label.toLowerCase()}.`,
+      group: "worker-permissions",
+      action: { field: `workerPermissions${field[0].toUpperCase()}${field.slice(1)}`, type: "boolean" },
+      cli: {
+        name: `--worker-permissions-${field.replace(/[A-Z]/gu, (letter) => `-${letter.toLowerCase()}`)}`,
+        kind: "boolean",
+      },
     }),
   ),
   defineSettingsField({

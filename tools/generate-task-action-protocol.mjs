@@ -9,7 +9,8 @@ import { getEntityKindContract } from "../packages/kernel/src/index.ts";
 import { SETTINGS_DECLARATION_RUNTIME, SETTINGS_FIELD_GROUPS } from "../packages/kernel/src/domain/settings.ts";
 
 const target = path.resolve(import.meta.dirname, "../packages/preset/src/task-action-projection.generated.ts"),
-  createTarget = path.resolve(import.meta.dirname, "../packages/preset/src/task-create-projection.generated.ts");
+  createTarget = path.resolve(import.meta.dirname, "../packages/preset/src/task-create-projection.generated.ts"),
+  settingsTarget = path.resolve(import.meta.dirname, "../packages/preset/src/settings-field-projection.generated.ts");
 
 function projectField(field) {
   if (!field.type) throw new Error(`Task Action ${field.field} field type is missing.`);
@@ -168,29 +169,29 @@ export async function renderTaskActionProtocolProjection() {
   );
 }
 
+/** Repository Settings field protocol: the settings half of the Task Action transport projection. */
 export async function renderSettingsFieldProtocolProjection() {
-  return `export const settingsFieldProtocolProjection = ${readableJson(projectSettingsFields())} as const satisfies GeneratedSettingsFieldProtocolProjection;`;
+  return renderProjection(
+    "GeneratedSettingsFieldProtocolProjection",
+    "settingsFieldProtocolProjection",
+    projectSettingsFields(),
+  );
 }
 
 /** Task creation input and its result fields. */
 export async function renderTaskCreateProjection() {
   const { taskCreateResultFields, actions } = projectTaskActions();
-  return renderProjection(
-    "GeneratedTaskCreateProjection",
-    "taskCreateDescriptorProjection",
-    {
-      taskCreateResultFields,
-      action: actions.find(({ id }) => id === "create"),
-    },
-    [await renderSettingsFieldProtocolProjection()],
-    ["GeneratedSettingsFieldProtocolProjection"],
-  );
+  return renderProjection("GeneratedTaskCreateProjection", "taskCreateDescriptorProjection", {
+    taskCreateResultFields,
+    action: actions.find(({ id }) => id === "create"),
+  });
 }
 
 export async function generateTaskActionProtocolProjection(check = false) {
   for (const [file, expected] of [
     [target, await renderTaskActionProtocolProjection()],
     [createTarget, await renderTaskCreateProjection()],
+    [settingsTarget, await renderSettingsFieldProtocolProjection()],
   ]) {
     if (!check) {
       writeFileSync(file, expected);

@@ -209,6 +209,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         env: {
           HOME: "/isolated/codex-review/home",
           OPENAI_API_KEY: "resolved-only-in-daemon",
+          HARNESS_WORKER_PERMISSION_MODE: "full",
         },
         cwd: canonicalRoot(root),
         prompt: "Inspect the repository",
@@ -340,6 +341,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         env: {
           HOME: "/isolated/codex-review/home",
           OPENAI_API_KEY: "resolved-only-in-daemon",
+          HARNESS_WORKER_PERMISSION_MODE: "full",
         },
         cwd: canonicalRoot(root),
         prompt: "Inspect with alternate model",
@@ -370,6 +372,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         env: {
           HOME: "/isolated/codex-review/home",
           OPENAI_API_KEY: "resolved-only-in-daemon",
+          HARNESS_WORKER_PERMISSION_MODE: "full",
         },
         cwd: canonicalRoot(root),
         prompt: "Mechanical task",
@@ -427,6 +430,7 @@ test("runtime spawn publishes a canonical session and makes it visible in overvi
         env: {
           HOME: "/isolated/codex-review/home",
           OPENAI_API_KEY: "resolved-only-in-daemon",
+          HARNESS_WORKER_PERMISSION_MODE: "full",
         },
         cwd: canonicalRoot(root),
         prompt: "Hard task",

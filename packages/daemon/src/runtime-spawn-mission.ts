@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { AgentRole, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
+import type { AgentRole, SettingsV1, TaskLifecycleSnapshot, TaskProjection } from "@harness-anything/kernel";
 import { consumeKnownError, resolveHarnessLayout } from "@harness-anything/kernel";
 import { agentRolePrompt } from "./agent-role-prompts.ts";
 import { agentRuntimeTargetSummary, agentRuntimeKindMatches } from "./agent-runtime-contract.ts";
@@ -91,6 +91,30 @@ export function dispatchMissionForPermission(mission: string, permissionMode: st
     "Repository writes and daemon-ledger commands are unavailable in this runtime.",
     "Do not call `ha task progress append`, `ha fact record`, or `ha doc sync --submit`;",
     "return the complete report in final stdout for the dispatcher to persist.",
+  ].join("\n");
+}
+
+export function dispatchMissionForWorkerPermissions(mission: string, settings: SettingsV1 | undefined): string {
+  const policy = settings?.workerPermissions;
+  if (!policy || policy.mode === "full") return mission;
+  const labels: ReadonlyArray<readonly [string, string]> = [
+    ["ciRead", "read CI results and logs"],
+    ["artifactRead", "read hosted artifacts"],
+    ["push", "push branches"],
+    ["pullRequest", "open pull requests"],
+    ["merge", "merge pull requests"],
+    ["repositorySettings", "change repository settings"],
+    ["gitlab", "use equivalent GitLab operations"],
+  ];
+  return [
+    mission,
+    "",
+    "# Worker Permissions Policy",
+    "",
+    "This dispatch uses the restricted worker permissions selected in repository Settings.",
+    ...labels.map(
+      ([key, label]) => `- ${label}: ${policy[key as keyof typeof policy] === true ? "allowed" : "not allowed"}`,
+    ),
   ].join("\n");
 }
 

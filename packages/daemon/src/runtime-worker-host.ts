@@ -44,29 +44,36 @@ const providerGitCredentialEnvironment = new Set([
 ]);
 
 /**
- * Provider processes retain their own authentication environment, while Git gets no host
- * credential sources. Settlement invokes the daemon-side push path with its own environment.
+ * Full-permission providers inherit the operator environment. Restricted providers lose host
+ * Git credential sources; settlement still invokes the daemon-side push path independently.
  */
 export function runtimeWorkerProviderEnvironment(
   source: NodeJS.ProcessEnv,
   platform: NodeJS.Platform = process.platform,
+  permissionMode: "full" | "restricted" = "full",
 ): NodeJS.ProcessEnv {
   const environment = { ...source };
-  for (const name of providerGitCredentialEnvironment) delete environment[name];
-  for (const name of Object.keys(environment)) {
-    if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)) delete environment[name];
+  if (permissionMode === "restricted") {
+    for (const name of providerGitCredentialEnvironment) delete environment[name];
+    for (const name of Object.keys(environment)) {
+      if (/^GIT_CONFIG_(?:KEY|VALUE)_\d+$/u.test(name)) delete environment[name];
+    }
   }
   const nullDevice = platform === "win32" ? "NUL" : "/dev/null";
   return {
     ...environment,
-    GIT_CONFIG_GLOBAL: nullDevice,
-    GIT_CONFIG_SYSTEM: nullDevice,
-    GIT_CONFIG_NOSYSTEM: "1",
-    GIT_CONFIG_COUNT: "1",
-    GIT_CONFIG_KEY_0: "credential.helper",
-    GIT_CONFIG_VALUE_0: "",
-    GIT_SSH_COMMAND: `ssh -F ${nullDevice} -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none -o IdentityFile=${nullDevice}`,
-    GIT_TERMINAL_PROMPT: "0",
+    ...(permissionMode === "restricted"
+      ? {
+          GIT_CONFIG_GLOBAL: nullDevice,
+          GIT_CONFIG_SYSTEM: nullDevice,
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_COUNT: "1",
+          GIT_CONFIG_KEY_0: "credential.helper",
+          GIT_CONFIG_VALUE_0: "",
+          GIT_SSH_COMMAND: `ssh -F ${nullDevice} -o BatchMode=yes -o IdentitiesOnly=yes -o IdentityAgent=none -o IdentityFile=${nullDevice}`,
+          GIT_TERMINAL_PROMPT: "0",
+        }
+      : {}),
   };
 }
 
@@ -124,6 +131,8 @@ export async function runRuntimeWorkerHost(): Promise<void> {
       // The callback route is provenance, not authority. The CLI still needs its registry namespace.
       providerEnv = runtimeWorkerProviderEnvironment(
         relay ? { ...hostEnvironment, HARNESS_DAEMON_ENDPOINT: relay.endpoint } : hostEnvironment,
+        process.platform,
+        manifest.env.HARNESS_WORKER_PERMISSION_MODE === "restricted" ? "restricted" : "full",
       );
     const declaration = manifest.kindId ? runtimeKindForId(manifest.kindId) : null;
     const baseArgs = [...manifest.args];
