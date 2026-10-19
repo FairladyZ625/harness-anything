@@ -4,7 +4,6 @@ import type { EntityDocumentJsonSchema, EntityJsonSchemaNode } from "./entity-js
 import { gateAppliesTo, gateWitnessMappingIssues, type GateWitnessMappingV1 } from "./completion-contract.ts";
 import { validateEntityJsonSchema } from "./entity-json-schema.ts";
 import {
-  DEFAULT_CI_WORKFLOWS,
   DEFAULT_RESTORE_DRILL_RETENTION,
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
   DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
@@ -33,7 +32,6 @@ import {
 } from "./settings-field-declarations.ts";
 
 export {
-  DEFAULT_CI_WORKFLOWS,
   DEFAULT_RESTORE_DRILL_RETENTION,
   DEFAULT_WORKTREE_SETUP_STEP_TIMEOUT_MS,
   DEFAULT_BACKUP_EXECUTION_LIMIT_MS,
@@ -175,6 +173,47 @@ export function writeRepositorySettingsFacet(body: string, settings: RepositoryS
   if (stableStringify(repositorySettings(readSettingsFacet(next))) !== stableStringify(repository))
     throw new Error("repository settings facet replacement did not round-trip exactly");
   return next;
+}
+
+/** Settings retired with the ledger-side hosted CI witness flow. */
+export const RETIRED_SETTINGS_PATHS = Object.freeze([
+  ["workerPermissions", "ciRead"],
+  ["workerPermissions", "artifactRead"],
+  ["workerPermissions", "push"],
+  ["workerPermissions", "pullRequest"],
+  ["workerPermissions", "merge"],
+  ["workerPermissions", "repositorySettings"],
+  ["workerPermissions", "gitlab"],
+  ["delivery", "platform"],
+  ["ci", "workflows"],
+] as const);
+
+/** Create a validated candidate without changing the source settings document. */
+export function migrateRetiredSettingsCandidate(body: string): {
+  readonly candidate: string;
+  readonly removedPaths: readonly string[];
+} {
+  const document = parseAuthoredDocument(body),
+    authored = authoredSettings(document),
+    removedPaths: string[] = [];
+  for (const path of RETIRED_SETTINGS_PATHS) {
+    if (valueAtPath(authored, path) === undefined) continue;
+    deleteDocumentPath(document, path);
+    removedPaths.push(path.join("."));
+  }
+  const gates = valueAtPath(authored, ["gates"]);
+  if (gates && typeof gates === "object" && !Array.isArray(gates)) {
+    for (const [gateId, value] of Object.entries(gates)) {
+      if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+      const adapter = (value as Readonly<Record<string, unknown>>).adapter;
+      if (adapter !== "github-actions" && adapter !== "gitlab-pipeline") continue;
+      deleteDocumentPath(document, ["gates", gateId]);
+      removedPaths.push(`gates.${gateId}`);
+    }
+  }
+  const candidate = stringifyAuthoredDocument(document, body);
+  readSettingsFacet(candidate);
+  return { candidate, removedPaths };
 }
 
 type SettingsRecord = Record<string, unknown>;
