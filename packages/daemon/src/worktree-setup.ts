@@ -206,6 +206,15 @@ export function readWorktreeSetupSucceeded(cwd: string): string[] {
   return readSucceeded(path.join(path.resolve(cwd, gitDir.trim()), "harness-setup"));
 }
 
+/**
+ * Whether a managed worktree is materialized at the path: a linked checkout holds a `.git` file. Residue a late
+ * writer left at a reclaimed path (a Node compile cache recreated after the removal) is not a worktree — a reader
+ * takes it as already reclaimed instead of failing on the missing `.git`.
+ */
+export function isLinkedWorktree(cwd: string): boolean {
+  return existsSync(cwd) && existsSync(path.join(cwd, ".git"));
+}
+
 function setupDirectory(cwd: string): Promise<string> {
   return runProcessTextAsync("git", ["-C", cwd, "rev-parse", "--absolute-git-dir"]).then((gitDir) =>
     path.join(gitDir.trim(), "harness-setup"),
