@@ -1,6 +1,5 @@
 import type { IpcMainInvokeEvent } from "electron";
 import type { JsonObject } from "@harness-anything/daemon";
-import { encodeEdgeJoinLink } from "@harness-anything/daemon/internal/fleet/edge-join";
 import { ACCESS_ADMIN_CHANNEL } from "../api/access-admin-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
@@ -104,29 +103,8 @@ export function registerAccessAdminIpc(
   registrar.handle(ACCESS_ADMIN_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
     const params = accessAdminParams(input, ports.operationId);
-    const reply = await ports.daemonRequest(params);
-    return params.operation === "edge-join-create" ? edgeJoinIssuedReply(reply) : reply;
+    return await ports.daemonRequest(params);
   });
-}
-
-/**
- * The daemon's edge-join-create success carries the invitation as a struct — token included. The
- * renderer receives the closed form instead: the HTTPS fragment link plus the
- * facts the panel displays, so the token crosses the IPC boundary exactly once and never as a
- * second struct copy. Refusals pass through untouched.
- */
-function edgeJoinIssuedReply(reply: JsonObject): JsonObject {
-  if (reply.ok !== true) return reply;
-  const link = reply.link;
-  if (typeof link !== "object" || link === null || Array.isArray(link))
-    throw new Error("Edge join creation returned no invitation link.");
-  return {
-    ok: true,
-    joinId: reply.joinId,
-    state: reply.state,
-    expiresAt: reply.expiresAt,
-    inviteLink: encodeEdgeJoinLink(link as unknown as Parameters<typeof encodeEdgeJoinLink>[0]),
-  };
 }
 
 export function accessAdminParams(input: unknown, operationId: () => string): JsonObject {

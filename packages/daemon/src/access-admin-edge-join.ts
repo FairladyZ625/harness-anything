@@ -11,7 +11,7 @@ import { KeycloakPolicyAdapter, type KeycloakGrant } from "./keycloak-policy-ada
 import type { AccessAdminPorts, AccessAdminRequest } from "./access-admin-contract.ts";
 import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
-import { createEdgeJoinStore, type EdgeJoinRecord } from "./fleet/edge-join.ts";
+import { createEdgeJoinStore, encodeEdgeJoinLink, type EdgeJoinRecord } from "./fleet/edge-join.ts";
 import { readFleetCenterConfig } from "./fleet-center-config.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
 
@@ -121,7 +121,7 @@ export class EdgeJoinAdminService {
       joinId: created.record.joinId,
       state: "pending",
       expiresAt: created.record.expiresAt,
-      link: created.link,
+      link: encodeEdgeJoinLink(created.link),
     };
   }
 

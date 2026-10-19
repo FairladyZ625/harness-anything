@@ -36,17 +36,9 @@ function fixture() {
             joinId: "invite-1",
             state: "pending",
             expiresAt: "2026-10-21T00:00:00.000Z",
-            link: {
-              version: 1,
-              joinId: "invite-1",
-              centerOrigin: "https://center.test",
-              repoIds: ["repo-a", "repo-b"],
-              spkiSha256: "a".repeat(64),
-              token: "secret-token",
-              loginUrl: "https://login.test",
-              loginRealm: "harness",
-              loginClientId: "edge-client",
-            },
+            link:
+              "https://center.test/join#v=1&join=invite-1&center=https%3A%2F%2Fcenter.test&repo=repo-a%2Crepo-b&spki_sha256=" +
+              "a".repeat(64),
           };
         return { ok: true };
       },
@@ -270,18 +262,10 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
   );
 });
 
-test("edge-join-create hands the renderer the HTTPS fragment link once, never the token struct", async () => {
-  const daemonLink = {
-    version: 1,
-    joinId: "invite-9",
-    centerOrigin: "https://center.test",
-    repoIds: ["repo-a", "repo-b"],
-    spkiSha256: "b".repeat(64),
-    token: "secret-token",
-    loginUrl: "https://login.test",
-    loginRealm: "harness",
-    loginClientId: "edge-client",
-  };
+test("edge-join-create passes the daemon's pasteable string link to the renderer once", async () => {
+  const daemonLink =
+    "https://center.test/join#v=1&join=invite-9&center=https%3A%2F%2Fcenter.test&repo=repo-a%2Crepo-b&spki_sha256=" +
+    "b".repeat(64);
   let handler!: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>;
   registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
     daemonRequest: async () => ({
@@ -302,32 +286,12 @@ test("edge-join-create hands the renderer the HTTPS fragment link once, never th
     repoIds: ["repo-a", "repo-b"],
     groupIds: ["contributor"],
   })) as Record<string, unknown>;
-  assert.equal(reply.link, undefined, "the token-bearing struct never crosses to the renderer");
-  assert.equal(reply.token, undefined);
+  assert.equal(typeof reply.link, "string");
+  assert.equal(reply.link, daemonLink);
+  assert.equal(reply.inviteLink, undefined, "the main process does not re-encode the daemon's link");
   assert.equal(reply.joinId, "invite-9");
   assert.equal(reply.state, "pending");
   assert.equal(reply.expiresAt, "2026-10-21T00:00:00.000Z");
-  assert.match(String(reply.inviteLink), /^https:\/\/center\.test\/join#/u);
-  // The string is the daemon codec's own encoding of the same invitation: it decodes back to it.
-  const { decodeEdgeJoinLink } = await import("@harness-anything/daemon/internal/fleet/edge-join");
-  assert.deepEqual(decodeEdgeJoinLink(String(reply.inviteLink)), daemonLink);
-  // A success without a link is not a shape the panel can honor; it surfaces instead of half-issuing.
-  registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
-    daemonRequest: async () => ({ ok: true, joinId: "invite-9", state: "pending" }),
-    operationId: () => "operation",
-  });
-  await assert.rejects(
-    handler(event, {
-      operation: "edge-join-create",
-      personId: "person-gui",
-      username: "edge.operator",
-      email: "edge@example.test",
-      displayName: "Edge Operator",
-      repoIds: ["repo-a"],
-      groupIds: ["contributor"],
-    }),
-    /returned no invitation link/u,
-  );
 });
 
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),

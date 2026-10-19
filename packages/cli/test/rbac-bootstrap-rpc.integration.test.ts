@@ -104,3 +104,86 @@ test("bootstrap CLI sends the password file contents only in transient local RPC
     rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
   }
 });
+
+test("bootstrap CLI preserves the daemon-issued edge invitation link as a string", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-bootstrap-rpc-")),
+    userRoot = path.join(root, "user"),
+    endpoint = localUserDaemonEndpoint(userRoot, "default"),
+    link =
+      "https://center.test/join#v=1&join=join-1&center=https%3A%2F%2Fcenter.test&repo=repo-a&spki_sha256=" +
+      "a".repeat(64),
+    requests: Array<{ method: string; params: Record<string, unknown> }> = [],
+    server = createServer((socket) => {
+      const lines = createInterface({ input: socket });
+      lines.on("line", (line) => {
+        const request = JSON.parse(line) as { id: number; method: string; params: Record<string, unknown> };
+        requests.push(request);
+        const result =
+          request.method === "protocol.hello"
+            ? { protocolVersion: { major: 1, minor: 0 } }
+            : {
+                ok: true,
+                command: "rbac-bootstrap",
+                outcome: "applied",
+                link,
+                joinId: "join-1",
+                state: "pending",
+              };
+        socket.write(`${JSON.stringify({ jsonrpc: "2.0", id: request.id, result })}\n`);
+      });
+      socket.on("close", () => lines.close());
+    });
+  try {
+    mkdirSync(path.dirname(endpoint), { recursive: true });
+    server.listen(endpoint);
+    await once(server, "listening");
+    const child = spawn(
+      process.execPath,
+      [
+        path.resolve("packages/cli/src/index.ts"),
+        "--root",
+        root,
+        "--json",
+        "bootstrap",
+        "--operation",
+        "edge-join-create",
+        "--username",
+        "edge.operator",
+        "--email",
+        "edge@example.invalid",
+        "--display-name",
+        "Edge Operator",
+        "--person-id",
+        "person-edge",
+        "--join-repo",
+        "repo-a",
+        "--join-group",
+        "viewer",
+      ],
+      {
+        env: { ...process.env, HOME: path.join(root, "home"), HARNESS_DAEMON_USER_ROOT: userRoot },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    let output = "";
+    child.stdout.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+    });
+    child.stderr.on("data", (chunk: Buffer) => {
+      output += String(chunk);
+    });
+    const [status] = await once(child, "close", { signal: AbortSignal.timeout(10_000) });
+    assert.equal(status, 0, output);
+    const receipt = JSON.parse(output.trim()) as Record<string, unknown>;
+    assert.equal(typeof receipt.link, "string");
+    assert.equal(receipt.link, link);
+    assert.equal(requests[1]?.params.operation, "edge-join-create");
+  } finally {
+    if (server.listening) {
+      const closed = once(server, "close", { signal: AbortSignal.timeout(5_000) });
+      server.close();
+      await closed;
+    }
+    rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 20 });
+  }
+});

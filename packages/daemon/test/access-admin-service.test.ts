@@ -774,12 +774,17 @@ test("edge invitations grant each selected repository and reject inherited permi
       groupIds: ["edge-selected"],
       nodeLabel: "edge-test",
     }),
-    link = issued.link as {
-      readonly joinId: string;
-      readonly token: string;
-      readonly repoIds: readonly string[];
-      readonly loginClientId: string;
+    issuedLink = issued.link;
+  assert.equal(typeof issuedLink, "string", "CLI and GUI receive the encoded invitation link");
+  const linkParams = new URL(String(issuedLink)).hash.slice(1),
+    linkFields = new URLSearchParams(linkParams),
+    link = {
+      joinId: linkFields.get("join")!,
+      token: linkFields.get("token")!,
+      repoIds: linkFields.get("repo")!.split(","),
+      loginClientId: linkFields.get("login_client_id")!,
     };
+  assert.ok(link.token);
   assert.deepEqual([issued.ok, issued.state, link.repoIds], [true, "pending", ["repo-a", "repo-b"]]);
   assert.equal(
     JSON.stringify(journal()).includes(link.token),
@@ -833,7 +838,8 @@ test("edge invitations grant each selected repository and reject inherited permi
     groupIds: ["edge-selected"],
   });
   await run({ operation: "edge-join-revoke", joinId: String(second.joinId) });
-  const revokedToken = (second.link as { readonly token: string }).token;
+  assert.equal(typeof second.link, "string", "a second CLI invitation also returns a string link");
+  const revokedToken = new URLSearchParams(new URL(String(second.link)).hash.slice(1)).get("token")!;
   await assert.rejects(
     admin.admitEdgeJoin({ joinId: String(second.joinId), inviteToken: revokedToken, accessToken: "invited-token" }),
     { code: "join_revoked" },
