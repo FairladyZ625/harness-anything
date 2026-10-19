@@ -112,6 +112,24 @@ test("successful Decision proposals point to the canonical action explanation", 
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");
 });
 
+test("settlement-none publication receipts render their next lane in text mode", () => {
+  // task-push and task-pr settle without canonical acceptance, so they reach the generic
+  // successful-receipt renderer instead of the accepted_durable branch that appends `next`.
+  assert.deepEqual(
+    renderCliReceipt({
+      ok: true,
+      command: "task-push",
+      outcome: "applied",
+      evidence: "Worker branch pushed: task_x @ 0123456789.",
+      next: [{ command: "ha task pr task_x", reason: "publish the pushed branch as the task's pull request" }],
+    }),
+    {
+      stream: "stdout",
+      text: "task-push: applied\nnext: ha task pr task_x (publish the pushed branch as the task's pull request)",
+    },
+  );
+});
+
 test("fact record receipts advise conclusion-first statements and leave tight ones alone", () => {
   // The first sentence is the conclusion the work page surfaces; cut at the first terminator.
   assert.equal(factFirstSentence("门禁绿了。At commit 3c6e7594 下复测三次。"), "门禁绿了");

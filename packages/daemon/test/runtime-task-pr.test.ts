@@ -68,6 +68,12 @@ for (const update of [false, true])
     );
     assert.equal(calls, 1);
     assert.match(receipt.evidence!, /pull\/1/u);
+    assert.deepEqual(receipt.next, [
+      {
+        command: `gh pr checks https://github.com/fixture/repo/pull/1 --watch`,
+        reason: "the PR's checks are the delivery authority; read and fix failures before ha task submit",
+      },
+    ]);
   });
 
 test("task PR runs the bilingual gate on the body before the provider", async () => {

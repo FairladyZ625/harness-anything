@@ -121,12 +121,20 @@ export async function createTaskPullRequest(
         ? ["pr", "edit", taskId, ...(title ? ["--title", title] : []), "--body", document.body]
         : ["pr", "create", "--head", taskId, "--title", title!, "--body", document.body];
     const url = redact(await provider(args, env, context.rootDir)).trim();
+    // `next` rides the receipt the same way the lifecycle settlement receipts carry it: as a
+    // draft extension outside the kernel receipt schema.
     return context.withHumanSummary({
       outcome: "applied",
       opId: `task-pr:${taskId}`,
       revision: context.store.readHead()?.revision ?? 0,
       evidence: `Pull request ${action.update === true ? "updated" : "created"} for ${taskId}: ${url}`,
-    });
+      next: [
+        {
+          command: `gh pr checks ${url} --watch`,
+          reason: "the PR's checks are the delivery authority; read and fix failures before ha task submit",
+        },
+      ],
+    } as WriteReceiptDraft);
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     throw context.cellCodedError("delivery_publish_failed", redact(detail).slice(0, 2048));

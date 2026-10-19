@@ -106,12 +106,20 @@ export function readBeforeWriteQueue(
             workerPushFailureCode(pushed),
             pushed.attempted ? pushed.detail : `Task branch push refused: ${pushed.reason}.`,
           );
+        // `next` rides the receipt the same way the lifecycle settlement receipts carry it: as a
+        // draft extension outside the kernel receipt schema.
         return context.withHumanSummary({
           outcome: "applied",
           opId: `task-push:${taskId}:${pushed.pushedCommit}`,
           revision: context.store.readHead()?.revision ?? 0,
           evidence: `Worker branch pushed: ${pushed.branch} @ ${pushed.pushedCommit}.`,
-        });
+          next: [
+            {
+              command: `ha task pr ${taskId}`,
+              reason: "publish the pushed branch as the task's pull request",
+            },
+          ],
+        } as WriteReceiptDraft);
       };
     })();
   }

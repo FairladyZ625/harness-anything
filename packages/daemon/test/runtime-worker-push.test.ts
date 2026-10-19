@@ -12,6 +12,9 @@ import {
   readWorkerGitIdentity,
   squadWorkerBranchHasDelivery,
 } from "../src/runtime-worker-push.ts";
+import { readBeforeWriteQueue } from "../src/write-queue-external-reads.ts";
+import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
+import type { RepoCellBinding } from "../src/repo-cell-types.ts";
 
 test("squad delivery is witnessed only on a squad-cut branch, never on an ordinary branch with a similar name", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-squad-witness-"));
@@ -547,6 +550,62 @@ test("a workflow-scope rejection reports the dedicated code and the CEO handoff 
       "u",
     ),
   );
+});
+
+test("the queued task-push receipt points the publisher at ha task pr", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-receipt-")),
+    bare = path.join(root, "remote.git");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  const canonical = path.join(root, "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  const worktree = path.join(canonical, ".worktrees", "task_push_receipt");
+  git(canonical, "worktree", "add", "--quiet", worktree, "-b", "task_push_receipt");
+  writeFileSync(path.join(worktree, "change.txt"), "worker\n");
+  git(worktree, "add", "change.txt");
+  git(worktree, "commit", "--quiet", "-m", "feat: worker change");
+
+  const cell = {
+    rootDir: canonical,
+    projection: {
+      read: () => ({
+        snapshot: {
+          task: { taskId: "task_push_receipt", taskClass: "standard", presetSnapshotDigest: "digest" },
+        },
+      }),
+      readPresetSnapshot: () => ({ snapshot: { profile: { outputShape: "repository-diff" } } }),
+    },
+    store: { readHead: () => ({ revision: 7 }) },
+    cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
+    withHumanSummary: (receipt: unknown) => receipt,
+    input: {},
+  } as unknown as RepoCellApiContext;
+  const publication = await readBeforeWriteQueue(cell, { kind: "task-push", taskId: "task_push_receipt" }, {
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+  } satisfies RepoCellBinding);
+  assert.ok(publication, "task-push prepares its publication outside the write queue");
+  const receipt = (await publication({ kind: "task-push", taskId: "task_push_receipt" }, {
+    actor: { principal: { personId: "person-owner" }, executor: null },
+    source: "local",
+  } satisfies RepoCellBinding)) as {
+    readonly evidence: string;
+    readonly next: readonly { readonly command: string }[];
+  };
+  assert.match(receipt.evidence, /Worker branch pushed: task_push_receipt @/u);
+  assert.deepEqual(receipt.next, [
+    {
+      command: "ha task pr task_push_receipt",
+      reason: "publish the pushed branch as the task's pull request",
+    },
+  ]);
 });
 
 function git(root, ...args) {
