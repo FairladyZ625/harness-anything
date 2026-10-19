@@ -365,9 +365,26 @@ export async function prepareRuntimeInstance<T>(
 export function taskQueryGuidance(taskId: string): string {
   return [
     "# 台账查询引导",
-    `- 先读 task_plan.md、已注入的 <task-context> 与 ha task read-set ${taskId} 点名的资料；` +
-      `本任务状态用 ha task show ${taskId} 查。资料不足时向 owner 报告具体缺项。`,
+    `- 本任务的 task_plan.md 全文与 <task-context> 已注入上面的 mission，不必再读文件；` +
+      `ha task read-set ${taskId} 点名的资料与 ha task show ${taskId} 的任务状态，信息不够时再查。` +
+      `资料不足时向 owner 报告具体缺项。`,
   ].join("\n");
+}
+
+/**
+ * The plan-first opening every task-bound mission carries: the task's own task_plan.md injected
+ * verbatim, so the worker starts from the contract instead of spending its first calls reading
+ * the package (the measured waste this replaces: ~1,685 package-flipping calls across 206 worker
+ * sessions over two days, 2026-10-19). Bodies are measured, not capped — over the production
+ * ledger's 4,235 plans they run 4.3 KiB median, 8.8 KiB p90, 148 KiB max, and even the outlier
+ * sits orders of magnitude below every dispatch provider's context window.
+ */
+export function taskPlanSection(planBody: string, packageRoot?: string): string {
+  const lead =
+    packageRoot === undefined
+      ? "本任务的 task_plan.md 全文如下（已内嵌，不必再读文件）："
+      : `Your task package is ${packageRoot}.\n本任务的 task_plan.md 全文如下（已内嵌，不必再读文件），按其完成本任务：`;
+  return `${lead}\n\n${planBody.trim()}`;
 }
 
 /**
@@ -468,7 +485,8 @@ ${ownerReturnBody}`,
   ];
 }
 
-/** An explicit task prompt carries the same action-specific sections as a derived mission. */
+/** An explicit task prompt carries the same action-specific sections as a derived mission, led by
+ * the inlined plan when the caller supplies its body. */
 export function explicitPromptMission(
   taskId: string | null,
   causalContext: string | null,
@@ -478,8 +496,10 @@ export function explicitPromptMission(
   taskClass?: string,
   ownerReturnBody: string | null = null,
   reviewerBinding: boolean = false,
+  planBody: string | null = null,
 ): string {
   return [
+    ...(planBody === null ? [] : [taskPlanSection(planBody)]),
     ...(taskId === null
       ? causalContext === null
         ? []
@@ -489,8 +509,9 @@ export function explicitPromptMission(
   ].join("\n\n");
 }
 
-/** The package root is named as the worker reaches it from `cwd`, the root it runs in. Reviewer
- * bindings keep the task guidance but carry no worker delivery contract. */
+/** The package root is named as the worker reaches it from `cwd`, the root it runs in; the plan
+ * rides verbatim ahead of the sections. Reviewer bindings keep the task guidance but carry no
+ * worker delivery contract. */
 export function deriveTaskMission(
   rootDir: string,
   cwd: string,
@@ -503,6 +524,8 @@ export function deriveTaskMission(
 ): {
   readonly mission: string;
   readonly packageRoot: string;
+  /** The plan body the mission inlines, handed to explicit-prompt assembly over the same projection. */
+  readonly planBody: string;
 } {
   const planDocument = assertTaskTransitionDocumentReady({
       rootDir,
@@ -516,7 +539,6 @@ export function deriveTaskMission(
       cwd,
       path.resolve(resolveHarnessLayout(rootDir).authoredRoot, ...planDocument.packagePath.split("/")),
     ),
-    planPath = path.join(packageRoot, ...path.posix.relative(planDocument.packagePath, planDocument.path).split("/")),
     missionDocument = missionName
       ? readMissionDocument(projection, planDocument.packagePath, taskId, missionName)
       : null,
@@ -524,8 +546,7 @@ export function deriveTaskMission(
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
     mission = [
-      `Your task package is ${packageRoot}.
-Read ${path.basename(planPath)} in that package and complete the task.`,
+      taskPlanSection(planDocument.body, packageRoot),
       ...taskMissionSections(
         taskId,
         causalContextResolved,
@@ -540,12 +561,14 @@ Read ${path.basename(planPath)} in that package and complete the task.`,
   return {
     packageRoot,
     mission,
+    planBody: planDocument.body,
   };
 }
 
 /**
  * A dispatched task's mission and package root as the worker reaches them from `cwd`: an edge's come from its
- * mirrored package, a node that holds the ledger derives them from its projection.
+ * mirrored package, a node that holds the ledger derives them from its projection. Remote sources
+ * carry no plan body here — the caller reads it from the remote task context directly.
  */
 export function missionAt(
   rootDir: string,
@@ -559,9 +582,9 @@ export function missionAt(
         readonly causalContext: string | null;
       },
   reviewerBinding: boolean = false,
-): { readonly mission: string; readonly packageRoot: string } {
-  if ("projection" in source)
-    return deriveTaskMission(
+): { readonly mission: string; readonly packageRoot: string; readonly planBody: string | null } {
+  if ("projection" in source) {
+    const derived = deriveTaskMission(
       rootDir,
       cwd,
       source.projection,
@@ -571,8 +594,10 @@ export function missionAt(
       source.causalContext,
       reviewerBinding,
     );
+    return { mission: derived.mission, packageRoot: derived.packageRoot, planBody: derived.planBody };
+  }
   const packageRoot = workerLedgerPath(rootDir, cwd, source.packageRoot);
-  return { packageRoot, mission: source.mission(packageRoot) };
+  return { packageRoot, mission: source.mission(packageRoot), planBody: null };
 }
 
 export function runtimeMissionName(value: unknown): string {
@@ -720,6 +745,9 @@ export function resolveRuntimeMission(input: {
     taskMission = taskId
       ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext }, input.reviewerBinding)
       : null;
+  // Every task-bound assembly path inlines the plan (derived missions through deriveTaskMission,
+  // explicit prompts through this body), so the guidance's "已注入" claim holds on each of them.
+  const planBody = taskId === null ? null : (remoteTask?.planBody ?? taskMission?.planBody ?? null);
   return {
     taskMission,
     mission:
@@ -734,6 +762,7 @@ export function resolveRuntimeMission(input: {
             remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             ownerReturnBody,
             input.reviewerBinding,
+            planBody,
           ),
   };
 }

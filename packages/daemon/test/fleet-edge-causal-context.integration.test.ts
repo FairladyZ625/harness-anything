@@ -263,7 +263,10 @@ test(
     assert.ok(explicitPrompt !== undefined, "the provider launch captured no prompt");
     assert.doesNotMatch(explicitPrompt, /ha (?:graph|work show|task create)/u);
     assert.ok(explicitPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
-    assert.match(explicitPrompt, /已注入的 <task-context>/u);
+    assert.match(explicitPrompt, /task_plan\.md 全文与 <task-context> 已注入上面的 mission，不必再读文件/u);
+    assert.doesNotMatch(explicitPrompt, /Read task_plan\.md in that package/u);
+    assert.match(explicitPrompt, /# Fleet\n/u, "the mirrored plan body rides the edge mission verbatim");
+    assert.match(explicitPrompt, /Exercise the fixture's task lifecycle through canonical repository commands\./u);
     assert.match(explicitPrompt, /# Living Deliverable Protocol/u);
     assert.match(explicitPrompt, /# PR Body Delivery Protocol/u);
     assert.match(explicitPrompt, /资料不足[\s\S]*owner/u);
@@ -328,6 +331,7 @@ test(
     assert.match(taskBoundPrompt, /# PR Body Delivery Protocol/u);
     assert.doesNotMatch(taskBoundPrompt, /ha (?:graph|work show|task create)/u);
     assert.ok(taskBoundPrompt.includes(`ha task read-set ${fixture.subject.taskId}`));
+    assert.match(taskBoundPrompt, /# Fleet\n/u, "the task-bound edge mission inlines the mirrored plan too");
     assert.match(taskBoundPrompt, /资料不足[\s\S]*owner/u);
     const taskBoundBlock = causalBlock(taskBoundPrompt);
     assert.ok(taskBoundBlock !== null, "task-bound remote-edge dispatch lost the causal block");
