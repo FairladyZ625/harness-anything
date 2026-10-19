@@ -1,17 +1,29 @@
-import type { EdgeJoinIssued, EdgeJoinStatusReply } from "../api/access-admin-contract.ts";
+import type {
+  AccessPolicyGroup,
+  EdgeJoinIssued,
+  EdgeJoinStatusReply,
+  EdgeJoinSummary,
+} from "../api/access-admin-contract.ts";
 import { guiHostBridge } from "./gui-transport.ts";
 import { isRendererRecord, rendererReadError } from "./result-validation.ts";
 
-/**
- * 中心面板「邀请边缘节点」的 renderer 客户端:签发与状态都走 preload 的 access 通道
- * (daemon.rbac.manage 的 edge-join-create / edge-join-status),GUI 不另写签发逻辑。
- * 邀请链接是凭据:这里不缓存、不落存储,字符串只随签发回执进面板一次;
- * 后续状态只凭 joinId 查询,链接不需要在场。拒绝按 access 面同一口径折叠成带 code 的 Error。
- */
-
+/** Invitation create, status, list, and revoke all use the center typed access-admin channel. */
+type CreateJoinInput = {
+  readonly username: string;
+  readonly email: string;
+  readonly displayName: string;
+  readonly personId: string;
+  readonly repoIds: readonly string[];
+  readonly groupIds: readonly string[];
+  readonly nodeLabel?: string;
+  readonly platform?: "darwin" | "linux";
+};
 type AccessBridge = {
-  readonly issueEdgeJoin: (input: { readonly nodeId: string; readonly centerUrl?: string }) => Promise<unknown>;
-  readonly edgeJoinStatus: (input: { readonly inviteId: string }) => Promise<unknown>;
+  readonly groups: () => Promise<unknown>;
+  readonly issueEdgeJoin: (input: CreateJoinInput) => Promise<unknown>;
+  readonly edgeJoinStatus: (input: { readonly joinId: string }) => Promise<unknown>;
+  readonly edgeJoinList: () => Promise<unknown>;
+  readonly revokeEdgeJoin: (input: { readonly joinId: string }) => Promise<unknown>;
 };
 
 function accessBridge(): AccessBridge {
@@ -20,11 +32,27 @@ function accessBridge(): AccessBridge {
   return bridge.access;
 }
 
-export async function issueEdgeJoin(input: {
-  readonly nodeId: string;
-  readonly centerUrl?: string;
-}): Promise<EdgeJoinIssued> {
+export async function issueEdgeJoin(input: CreateJoinInput): Promise<EdgeJoinIssued> {
   return readIssued(await accessBridge().issueEdgeJoin(input));
+}
+
+export async function fetchEdgeJoinGroups(): Promise<{ readonly groups: readonly AccessPolicyGroup[] }> {
+  const value = await accessBridge().groups();
+  if (!isRendererRecord(value) || value.ok !== true || !Array.isArray(value.groups))
+    throw rendererReadError(value, "Edge join permission groups returned an invalid result.");
+  const groups = value.groups.map((group) => {
+    if (
+      !isRendererRecord(group) ||
+      typeof group.id !== "string" ||
+      typeof group.displayName !== "string" ||
+      !Array.isArray(group.effectiveScopes) ||
+      !group.effectiveScopes.every((scope) => typeof scope === "string") ||
+      typeof group.version !== "string"
+    )
+      throw rendererReadError(group, "Edge join permission groups returned an invalid group.");
+    return group as unknown as AccessPolicyGroup;
+  });
+  return { groups };
 }
 
 export function readIssued(value: unknown): EdgeJoinIssued {
@@ -32,41 +60,69 @@ export function readIssued(value: unknown): EdgeJoinIssued {
     !isRendererRecord(value) ||
     value.ok !== true ||
     typeof value.joinId !== "string" ||
-    value.state !== "pending" ||
-    typeof value.link !== "string" ||
-    !value.link.startsWith("harness-edge://join/")
+    typeof value.expiresAt !== "string" ||
+    typeof value.inviteLink !== "string" ||
+    !value.inviteLink.startsWith("https://")
   )
     throw rendererReadError(value, "Edge join creation returned an invalid result.");
   return {
     joinId: value.joinId,
     state: "pending",
-    inviteLink: value.link,
+    expiresAt: value.expiresAt,
+    inviteLink: value.inviteLink,
   };
 }
 
-export async function fetchEdgeJoinStatus(inviteId: string): Promise<EdgeJoinStatusReply> {
-  return readJoinStatus(await accessBridge().edgeJoinStatus({ inviteId }));
+export async function fetchEdgeJoinStatus(joinId: string): Promise<EdgeJoinStatusReply> {
+  return readJoinStatus(await accessBridge().edgeJoinStatus({ joinId }));
+}
+
+export async function fetchEdgeJoinList(): Promise<readonly EdgeJoinSummary[]> {
+  const value = await accessBridge().edgeJoinList();
+  if (!isRendererRecord(value) || value.ok !== true || !Array.isArray(value.joins))
+    throw rendererReadError(value, "Edge join list returned an invalid result.");
+  return value.joins.map(readJoinSummary);
+}
+
+export async function revokeEdgeJoin(joinId: string): Promise<EdgeJoinStatusReply> {
+  return readJoinStatus(await accessBridge().revokeEdgeJoin({ joinId }));
 }
 
 export function readJoinStatus(value: unknown): EdgeJoinStatusReply {
-  const status = isRendererRecord(value) ? String(value.status) : "";
   if (
     !isRendererRecord(value) ||
     value.ok !== true ||
-    !["pending", "consumed", "expired"].includes(status) ||
-    typeof value.inviteId !== "string" ||
-    typeof value.personId !== "string" ||
-    typeof value.nodeId !== "string" ||
-    typeof value.expiresAt !== "string" ||
-    !(value.consumedAt === null || typeof value.consumedAt === "string")
+    typeof value.joinId !== "string" ||
+    !["pending", "consumed", "expired", "revoked"].includes(String(value.state)) ||
+    (value.nodeId !== undefined && typeof value.nodeId !== "string")
   )
     throw rendererReadError(value, "Edge join status returned an invalid result.");
   return {
-    inviteId: value.inviteId,
-    status: status as EdgeJoinStatusReply["status"],
+    joinId: value.joinId,
+    state: value.state as EdgeJoinStatusReply["state"],
+    ...(typeof value.nodeId === "string" ? { nodeId: value.nodeId } : {}),
+  };
+}
+
+function readJoinSummary(value: unknown): EdgeJoinSummary {
+  const status = readJoinStatus({ ok: true, ...(isRendererRecord(value) ? value : {}) });
+  if (
+    !isRendererRecord(value) ||
+    typeof value.personId !== "string" ||
+    !Array.isArray(value.repoIds) ||
+    !value.repoIds.every((repoId) => typeof repoId === "string") ||
+    !Array.isArray(value.groupIds) ||
+    !value.groupIds.every((groupId) => typeof groupId === "string") ||
+    typeof value.createdAt !== "string" ||
+    typeof value.expiresAt !== "string"
+  )
+    throw rendererReadError(value, "Edge join list returned an invalid invitation.");
+  return {
+    ...status,
     personId: value.personId,
-    nodeId: value.nodeId,
+    repoIds: value.repoIds as string[],
+    groupIds: value.groupIds as string[],
+    createdAt: value.createdAt,
     expiresAt: value.expiresAt,
-    consumedAt: value.consumedAt,
   };
 }

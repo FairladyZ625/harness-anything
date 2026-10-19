@@ -39,6 +39,19 @@ test("daemon repo registration derives its closed mode enum at the wire boundary
   for (const mode of [undefined, "local", "remote-proxy", "remote-center", "remote-edge"]) assert.equal(parseDaemonRpcParams("daemon.repo.register", { ...base, ...(mode ? { mode } : {}) }).ok, true, String(mode));
   const invalid = parseDaemonRpcParams("daemon.repo.register", { ...base, mode: "invalid" }); assert.equal(invalid.ok, false); if (!invalid.ok) assert.deepEqual(invalid.errors, ["params.mode must be one of local, remote-proxy, remote-center, remote-edge"]);
 });
+test("edge invitation fields cross the shared daemon.rbac.manage wire contract", () => {
+  const result = parseDaemonRpcParams("daemon.rbac.manage", {
+    operation: "edge-join-create",
+    personId: "person-edge",
+    username: "edge.operator",
+    email: "edge@example.test",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["contributor"],
+    nodeLabel: "edge-west",
+  });
+  assert.equal(result.ok, true, result.ok ? "" : result.errors.join("; "));
+});
 // prettier-ignore
 
 test("local Fleet runtime envelope admits the paged overview read", async () => {

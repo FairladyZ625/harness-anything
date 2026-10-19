@@ -299,25 +299,21 @@ ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-For edge synchronization, bind the Fleet listener to the LAN address and include that address in the certificate SAN. The daemon validates the certificate SAN before opening the listener; bind failures such as an occupied, unavailable, or permission-denied address are returned with their error code:
+For edge synchronization, set the Fleet listener to a reachable address and include its hostname in the certificate SAN. Use `listener-set`; the daemon validates the SAN before opening the listener and reports bind failures such as an occupied, unavailable, or permission-denied address:
 
 ```bash
-ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 9443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections, which resume only after the edge trusts the new certificate and runs `ha daemon fleet edge sync` again.
+Read the listener again after a change and use the returned version for the next change. Re-signing with the same key keeps existing invitation pins valid. Replacing the key changes the SPKI pin: create a new invitation after the replacement; an old link is rejected with `pin_mismatch`. A listener replacement interrupts current edge connections until they trust the new listener certificate.
 
-The supported edge path is an invitation link. A signed-in center administrator creates one, and the edge owner consumes it once; the link carries the center URL and certificate pin, never a machine credential:
+The supported new-edge path is a one-time invitation. In the center GUI, open **Settings → Repositories and Connections → Center**, invite the person, select one or more repositories and permission groups, then deliver the link separately. The pending invitation can be revoked there and expires after 72 hours. The edge owner runs:
 
 ```bash
-ha bootstrap --operation edge-join-create --node-id <node-id>
-ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
-ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+ha edge join '<invite-link>'
 ```
 
-`edge-join-create` requires a fleet center listener on this daemon and is rejected with `fleet_center_unavailable` without one. The command reads the listener certificate itself, pins its SPKI SHA-256 fingerprint into the invitation, and returns the finished `harness-edge://join/...` link in the receipt; the administrator never computes a fingerprint by hand. `--center-url` is optional and only overrides the listener's own `https://<bind-address>:<port>` address.
-
-The edge command must use the certificate authority (and `--servername` when the certificate name differs from the DNS name). TLS hostname verification rejects a certificate that does not cover the requested server name. A closed port fails the connection; an expired link, wrong signed-in person, or changed pin is rejected by join admission. Credentials are written by the local daemon and are not placed in the invitation URL.
+The join command signs in to the center's device-login service, validates the link's SPKI pin before sending either the invitation token or login access token, and completes the first sync for every selected repository. A changed repository or permission-group snapshot, an expired or revoked invitation, a mismatched login person, or a changed certificate key is rejected. The machine credential is written locally by the edge daemon; it is never returned by a status query or command receipt.
 
 ### Install, upgrade, and development rescue
 

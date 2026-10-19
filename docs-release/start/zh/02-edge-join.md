@@ -16,25 +16,18 @@ curl -fsSL https://raw.githubusercontent.com/FairladyZ625/harness-anything/main/
 `npm link` 生成 `ha` 入口。Linux 会设置 Electron 所需的 `chrome-sandbox` 属主与 setuid 权限（必要时使用
 `sudo`）。本项目当前分发源码，不宣称已提供签名安装包或 registry package。
 
-然后消费中心邀请链接：
+在中心 GUI 中打开「设置 → 仓库与连接 → 中心」，为新成员创建邀请，选择一个或多个仓库以及要授予的权限组，
+再通过独立渠道把链接交给该成员。邀请有效期为 72 小时，只能消费一次；处于 pending 状态时可以撤销。不要公开发布邀请链接。
+
+受邀成员运行：
 
 ```bash
 ha edge join '<邀请链接>'
 ```
 
-中心管理员先在已登录的中心仓库中签发邀请：
-
-```bash
-ha bootstrap --operation edge-join-create --node-id <node-id>
-```
-
-邀请同时绑定 Fleet listener 的证书 SPKI 与 Keycloak HTTPS listener 的公开证书；链接不包含私钥或用户令牌。
-中心端须分别配置可达的 Fleet TLS listener 与带 HTTPS 证书的 Keycloak listener。
-
-`--center-url` 可选；省略时由中心监听地址推导，外部可达地址不同于监听地址时再显式覆盖。
-
-命令从邀请读取 Fleet 指纹，使用邀请中的 Keycloak 证书验证设备登录连接，再向中心发送一次 `edge.join` 准入请求。
-该信任仅用于邀请指定的登录 authority，系统 TLS 校验仍保持开启。中心在签发机器凭据前会校验交互式登录令牌与邀请归属。
+命令先登录中心的设备登录服务；发送邀请令牌或登录访问令牌之前，会先验证邀请链接绑定的中心 TLS 公钥。随后命令消费邀请，
+并完成每个所选仓库的首次同步。机器凭据只写入本机边缘配置；加入回执与状态查询不返回凭据。如果所选仓库或权限组快照已改变，
+中心会拒绝加入，需要由邀请人按最新权限重新签发。
 
 Wayland 会话启动 GUI 时使用 `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`。加入后可运行
-`ha gui --root <边缘仓库>` 查看中心任务，再从该仓库使用通常的 `ha runtime run` 派出 Agent。
+`ha gui --root <边缘仓库>` 查看中心台账，再从该仓库使用通常的 `ha runtime run` 派出 Agent。

@@ -1,5 +1,6 @@
 import type { IpcMainInvokeEvent } from "electron";
 import type { JsonObject } from "@harness-anything/daemon";
+import { encodeEdgeJoinLink } from "@harness-anything/daemon/internal/fleet/edge-join";
 import { ACCESS_ADMIN_CHANNEL } from "../api/access-admin-contract.ts";
 import { assertTrustedIpcSender } from "./ipc-handlers.ts";
 import type { IpcWebContentsTrustPolicy } from "./security-policy.ts";
@@ -50,12 +51,20 @@ const operationFields: Readonly<Record<string, Readonly<Record<string, Field>>>>
   "effective-permissions": { personId: "text", resource: "text" },
   "receipt-reconcile": { operationId: "text" },
   "session-lifetime-set": { sessionLifetimeSeconds: "seconds", expectedVersion: "text" },
-  // The edge invitation the daemon signs itself; the same fields `ha bootstrap --operation
-  // edge-join-create` takes — it reads its own listener certificate to pin, so no fingerprint
-  // input exists. Not in `writes`: the daemon serializes and journals it without an
-  // operationId, and the reply is not a command receipt.
-  "edge-join-create": { nodeId: "text", centerUrl: "optional-text" },
-  "edge-join-status": { inviteId: "text" },
+  // The center typed join method owns invite, repository grants, snapshots, and the one-time link.
+  "edge-join-create": {
+    username: "text",
+    email: "text",
+    displayName: "text",
+    personId: "text",
+    repoIds: "names",
+    groupIds: "names",
+    nodeLabel: "optional-text",
+    platform: "optional-text",
+  },
+  "edge-join-status": { joinId: "text" },
+  "edge-join-list": {},
+  "edge-join-revoke": { joinId: "text" },
 };
 
 /** Operations that change Keycloak; the main process names each one so a lost receipt can be reconciled. */
@@ -95,11 +104,29 @@ export function registerAccessAdminIpc(
   registrar.handle(ACCESS_ADMIN_CHANNEL, async (event, input) => {
     assertTrustedIpcSender(event, trustPolicy);
     const params = accessAdminParams(input, ports.operationId);
-    // The daemon's edge-join-create reply already carries the invitation as the encoded
-    // `harness-edge://join/…` string — the only form in which the token exists anywhere on
-    // this side — so every answer, it included, crosses to the renderer exactly once, untouched.
-    return await ports.daemonRequest(params);
+    const reply = await ports.daemonRequest(params);
+    return params.operation === "edge-join-create" ? edgeJoinIssuedReply(reply) : reply;
   });
+}
+
+/**
+ * The daemon's edge-join-create success carries the invitation as a struct — token included. The
+ * renderer receives the closed form instead: the HTTPS fragment link plus the
+ * facts the panel displays, so the token crosses the IPC boundary exactly once and never as a
+ * second struct copy. Refusals pass through untouched.
+ */
+function edgeJoinIssuedReply(reply: JsonObject): JsonObject {
+  if (reply.ok !== true) return reply;
+  const link = reply.link;
+  if (typeof link !== "object" || link === null || Array.isArray(link))
+    throw new Error("Edge join creation returned no invitation link.");
+  return {
+    ok: true,
+    joinId: reply.joinId,
+    state: reply.state,
+    expiresAt: reply.expiresAt,
+    inviteLink: encodeEdgeJoinLink(link as unknown as Parameters<typeof encodeEdgeJoinLink>[0]),
+  };
 }
 
 export function accessAdminParams(input: unknown, operationId: () => string): JsonObject {

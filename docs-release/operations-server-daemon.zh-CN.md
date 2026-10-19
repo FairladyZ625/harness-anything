@@ -259,25 +259,21 @@ ha bootstrap --operation listener
 ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 8443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-边缘同步服务把 Fleet listener 绑定到局域网地址，并把该地址加入证书 SAN。daemon 在打开 listener 前校验证书 SAN；地址已占用、不可用或权限不足时，回执会返回对应错误码：
+边缘同步服务需要将 Fleet listener 设为可达地址，并确保其证书 SAN 覆盖公开主机名。使用 `listener-set`；daemon 会在打开 listener 前校验证书 SAN，地址占用、不可用或权限不足等绑定失败会返回对应错误码：
 
 ```bash
-ha daemon fleet center start --bind 192.168.1.20 --port 9443 --key /etc/harness/center-key.pem --cert /etc/harness/center.pem --repo <repo-id> --quota-bytes 1073741824
+ha bootstrap --operation listener-set --listen-address 192.168.1.20 --hostname center.example.test --port 9443 --certificate-file /etc/harness/center.pem --certificate-key-file /etc/harness/center-key.pem --expected-version <version>
 ```
 
-每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，edge 信任新证书并再次运行 `ha daemon fleet edge sync` 后才会恢复。
+每次变更后重新读取 listener，并把返回的 version 用于下一次变更。使用同一私钥重签时，已有邀请链接的 pin 仍然有效。替换私钥会改变 SPKI pin：换钥后重新创建邀请；旧链接会以 `pin_mismatch` 拒绝。替换 listener 会中断现有 edge 连接，直到它们信任新的 listener 证书。
 
-受支持的 edge 路径是邀请链接。中心管理员登录后创建链接，edge 所有人登录并消费一次；链接只携带中心 URL 与证书 pin，不携带机器凭据：
+新 edge 通过一次性邀请接入。在中心 GUI 打开「设置 → 仓库与连接 → 中心」，邀请成员、选择一个或多个仓库及权限组，然后通过独立渠道交付链接。pending 邀请可以在此撤销，有效期为 72 小时。edge 所有人运行：
 
 ```bash
-ha bootstrap --operation edge-join-create --node-id <node-id>
-ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
-ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
+ha edge join '<邀请链接>'
 ```
 
-`edge-join-create` 要求本 daemon 已配置 fleet center listener，否则以 `fleet_center_unavailable` 拒绝。命令自己读取 listener 证书、把该证书的 SPKI SHA-256 指纹写入邀请，并在回执里直接给出可用的 `harness-edge://join/...` 链接，管理员无需手算指纹。`--center-url` 可选，仅用于覆盖 listener 自身的 `https://<bind-address>:<port>` 地址。
-
-edge 命令必须使用证书 CA；证书名与 DNS 名不同时加 `--servername`。证书未覆盖请求的 server name 时，TLS 主机名校验会拒绝连接；端口关闭会导致连接失败；链接过期、登录人不匹配或 pin 改变会由加入准入拒绝。凭据由本机 daemon 写入，不放进邀请 URL。
+加入命令登录中心的设备登录服务，并在发送加入令牌或登录令牌前验证链接中的 SPKI pin；随后为每个所选仓库完成首次同步。仓库或权限组快照已改变、邀请过期或撤销、登录人不匹配、中心证书密钥改变时，加入都会被拒绝。机器凭据由 edge daemon 写在本机，状态查询和命令回执都不返回凭据。
 
 ### 安装、升级与开发救援
 

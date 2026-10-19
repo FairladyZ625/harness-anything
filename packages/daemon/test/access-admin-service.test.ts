@@ -1,10 +1,10 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { createHash, randomUUID, X509Certificate } from "node:crypto";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import test, { type TestContext } from "node:test";
 import { actionDeclarations } from "@harness-anything/kernel";
 import { AccessAdminService, type AccessAdminRequest } from "../src/access-admin-service.ts";
@@ -13,9 +13,10 @@ import { KeycloakPolicyAdapter } from "../src/keycloak-policy-adapter.ts";
 import { alignSessionLifetime, sessionLifetimeBounds } from "../src/keycloak-session-lifetime.ts";
 import { managedRbacReceiptJournal } from "../src/managed-rbac-service.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
+import { saveFleetCenterConfig } from "../src/fleet-center-config.ts";
+import { registerBootstrappedDaemonRepo } from "./repo-settings.fixture.ts";
 import { evaluateRepoCellAction } from "../src/repo-cell-authorization.ts";
 import type { RepoTaskAction } from "../src/repo-cell-types.ts";
-import { decodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
 import { fakeKeycloak, keycloakRealm, keycloakUrl, keycloakUserRoot } from "./keycloak.fixtures.ts";
 
 async function fixture(t: TestContext) {
@@ -695,19 +696,12 @@ test("host-level actions answer to the fleet grant of the signed-in person, neve
   await assert.rejects(attempt(), { code: "authentication_required" });
 });
 
-test("edge-join-create pins the listening certificate itself and answers one decodable join link", async (t) => {
-  const { keycloak, oidc, root } = await fixture(t),
-    material = mkdtempSync(path.join(tmpdir(), "ha-edge-invite-"));
-  t.after(() => rmSync(material, { recursive: true, force: true }));
-  const listener = {
-    port: 9443,
-    bind: "127.0.0.1",
-    repoId: "repo-a",
-    keyPath: path.join(material, "tls.key"),
-    certPath: path.join(material, "tls.crt"),
-    stateRoot: path.join(material, "state"),
-    quotaBytes: 1,
-  };
+test("edge invitations grant each selected repository and reject inherited permission drift or revocation", async (t) => {
+  const { keycloak, admin, run, root, signIn, journal } = await fixture(t),
+    work = mkdtempSync(path.join(tmpdir(), "ha-edge-invitation-")),
+    certificate = path.join(work, "center.crt"),
+    key = path.join(work, "center.key");
+  t.after(() => rmSync(work, { recursive: true, force: true }));
   execFileSync(
     "openssl",
     [
@@ -717,53 +711,127 @@ test("edge-join-create pins the listening certificate itself and answers one dec
       "rsa:2048",
       "-nodes",
       "-keyout",
-      listener.keyPath,
+      key,
       "-out",
-      listener.certPath,
+      certificate,
       "-subj",
-      "/CN=localhost",
+      "/CN=127.0.0.1",
       "-days",
       "1",
       "-addext",
-      "subjectAltName=DNS:localhost",
+      "subjectAltName=IP:127.0.0.1",
     ],
     { stdio: "ignore" },
   );
-  const issuing = new AccessAdminService(oidc, root, {
-    fetch: keycloak.fetch,
-    readFleetCenterConfig: () => listener,
+  for (const repoId of ["repo-a", "repo-b"]) {
+    const canonicalRoot = path.join(work, repoId);
+    mkdirSync(path.join(canonicalRoot, "harness"), { recursive: true });
+    writeFileSync(
+      path.join(canonicalRoot, "harness", "harness.yaml"),
+      "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings: {}\n",
+    );
+    execFileSync("git", ["init", "-q", "-b", "main"], { cwd: canonicalRoot });
+    execFileSync("git", ["add", "harness/harness.yaml"], { cwd: canonicalRoot });
+    execFileSync(
+      "git",
+      ["-c", "user.name=Edge invite test", "-c", "user.email=edge-invite@example.invalid", "commit", "-qm", "seed"],
+      { cwd: canonicalRoot },
+    );
+    registerBootstrappedDaemonRepo({ canonicalRoot, repoId, userRoot: root, createConvenienceLinks: false });
+  }
+  saveFleetCenterConfig(root, "default", {
+    bind: "127.0.0.1",
+    port: 8443,
+    repoId: "repo-a",
+    keyPath: key,
+    certPath: certificate,
+    stateRoot: path.join(work, "fleet-state"),
+    quotaBytes: 1024 * 1024,
   });
-  const receipt = await issuing.run({ operation: "edge-join-create", nodeId: "edge-a" });
-  assert.equal(receipt.ok, true);
-  assert.match(String(receipt.link), /^harness-edge:\/\/join\//u);
-  const link = decodeEdgeJoinLink(String(receipt.link));
-  assert.equal(link.nodeId, "edge-a");
-  assert.equal(link.personId, "person-admin");
-  // The listener this daemon saved is the address the invitation carries when --center-url is absent.
-  assert.equal(link.centerUrl, "https://127.0.0.1:9443");
-  // The pin the edge verifies (peer.ts) over the same certificate, computed here by the raw steps:
-  // sha256 over the SPKI DER, base64, with the sha256: prefix.
-  const edgePin = `sha256:${createHash("sha256")
-    .update(new X509Certificate(readFileSync(listener.certPath)).publicKey.export({ type: "spki", format: "der" }))
-    .digest("base64")}`;
-  assert.equal(link.spkiSha256, edgePin);
-  // The receipt carries the invitation exactly once, as the encoded link; the token rides only inside it.
-  assert.equal(JSON.stringify(receipt).includes(link.token), false);
-  assert.equal(
-    (await issuing.run({ operation: "edge-join-status", inviteId: String(receipt.joinId) })).status,
-    "pending",
-  );
-  const overridden = await issuing.run({
-    operation: "edge-join-create",
-    nodeId: "edge-b",
-    centerUrl: "https://center.example",
+  keycloak.account("person-admin");
+  await run({
+    operation: "group-create",
+    groupId: "edge-source",
+    displayName: "Edge source",
+    scopes: [],
+    composites: ["viewer"],
   });
-  assert.equal(decodeEdgeJoinLink(String(overridden.link)).centerUrl, "https://center.example");
-});
+  await run({
+    operation: "group-create",
+    groupId: "edge-selected",
+    displayName: "Edge selected",
+    scopes: [],
+    composites: ["edge-source"],
+  });
 
-test("edge-join-create refuses to issue when no fleet center listener is configured", async (t) => {
-  const { admin } = await fixture(t);
-  await assert.rejects(admin.run({ operation: "edge-join-create", nodeId: "edge-a" }), {
-    code: "fleet_center_unavailable",
+  const issued = await run({
+      operation: "edge-join-create",
+      personId: "person-invited",
+      username: "edge-operator",
+      email: "edge@example.invalid",
+      displayName: "Edge Operator",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["edge-selected"],
+      nodeLabel: "edge-test",
+    }),
+    link = issued.link as { readonly joinId: string; readonly token: string; readonly repoIds: readonly string[] };
+  assert.deepEqual([issued.ok, issued.state, link.repoIds], [true, "pending", ["repo-a", "repo-b"]]);
+  assert.equal(
+    JSON.stringify(journal()).includes(link.token),
+    false,
+    "the writer journal stores no plaintext invite token",
+  );
+  const grants = (await run({ operation: "grant-list" })).grants as {
+    readonly personId: string;
+    readonly groupId: string;
+    readonly resource: string;
+  }[];
+  assert.deepEqual(
+    grants.filter((grant) => grant.personId === "person-invited").map((grant) => [grant.groupId, grant.resource]),
+    [
+      ["edge-selected", "repo-a"],
+      ["edge-selected", "repo-b"],
+    ],
+  );
+
+  const source = (
+    (await run({ operation: "group-list" })).groups as { readonly id: string; readonly version: string }[]
+  ).find((group) => group.id === "edge-source")!;
+  await run({
+    operation: "group-update",
+    groupId: source.id,
+    displayName: "Edge source",
+    scopes: [],
+    composites: ["contributor"],
+    expectedVersion: source.version,
   });
+  keycloak.interactiveSession("person-invited", "edge-device", keycloakUrl, "invited-token", "edge-client");
+  const nodeCount = keycloak.nodeClients.size;
+  await assert.rejects(
+    admin.admitEdgeJoin({ joinId: link.joinId, inviteToken: link.token, accessToken: "invited-token" }),
+    { code: "permission_snapshot_changed" },
+  );
+  assert.equal(keycloak.nodeClients.size, nodeCount, "permission drift fails before minting an edge credential");
+  assert.deepEqual(
+    (await admin.run({ operation: "edge-join-status", joinId: link.joinId })).state,
+    "pending",
+    "a refused admission leaves the invite available for a fresh decision",
+  );
+
+  const second = await run({
+    operation: "edge-join-create",
+    personId: "person-invited",
+    username: "edge-operator-2",
+    email: "edge@example.invalid",
+    displayName: "Edge Operator",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["edge-selected"],
+  });
+  await run({ operation: "edge-join-revoke", joinId: String(second.joinId) });
+  const revokedToken = (second.link as { readonly token: string }).token;
+  await assert.rejects(
+    admin.admitEdgeJoin({ joinId: String(second.joinId), inviteToken: revokedToken, accessToken: "invited-token" }),
+    { code: "join_revoked" },
+  );
+  signIn("person-admin");
 });
