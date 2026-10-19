@@ -18,9 +18,9 @@ This document defines repository operating rules and the system ontology. In thi
 
 - **Single Source of Truth vs Read Projections (SSoT)**: The resident daemon's single-writer event stream and SQLite Outbox maintain authoritative state; markdown files under `harness/` are read projections. Always use `ha` semantic commands instead of manually editing machine-read metadata.
 - **The Triad Causal Loop in Software Engineering**:
-  - **Fact**: Ground truth observations from the objective world. In software engineering, "unmeasured modification is blind guessing": failing test outputs, benchmark numbers, dependency versions, and verified inputs/outputs are Facts. Load-bearing claims must anchor to Facts; default completion gates require at least one real Fact.
+  - **Fact**: Ground truth observations from the objective world. In software engineering, "unmeasured modification is blind guessing": failing test outputs, benchmark numbers, dependency versions, and verified inputs/outputs are Facts. Load-bearing claims must anchor to Facts; record one when you observe something worth preserving or a decision needs the evidence — never as a completion quota.
   - **Decision**: Irreversible technical choices and architectural trade-offs (why choose Option A over Option B, why introduce a dependency, system boundaries). Load-bearing claims must be grounded in Facts (`evidenced-by`), rejecting arbitrary assumptions.
-  - **Task**: The minimal verifiable delivery slice derived from a Decision. Follow verification-first/red-green cycles; task completion must yield new Facts (e.g. passing tests, verified metrics) to close the causal loop.
+  - **Task**: The minimal verifiable delivery slice derived from a Decision. Follow verification-first/red-green cycles; when the delivery surfaces a load-bearing observation, record it as a Fact to close the causal loop.
   - **Causal Spiral**: Objective observation forms a **Fact** → Fact grounds a **Decision** → Decision derives a **Task** → Task produces a new **Fact** to verify hypotheses and establish a new baseline.
 - Casual mentions in prose do not replace canonical Facts, Decisions, or Relations.
 
