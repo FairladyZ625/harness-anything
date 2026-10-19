@@ -6,6 +6,7 @@ import path from "node:path";
 import type { SessionIdentity } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
 import { dispatchStreamPath, parseRecord, readDispatchStreamIncrement, scrubProviderValue } from "./dispatch-stream.ts";
+import { deepSeekSessionUsageTotals } from "./runtime-spawn-deepseek-session.ts";
 import { observeRuntimeModels } from "./agent-runtime-installation-discovery.ts";
 import type { ActiveRuntime, ProviderFrame, RuntimeBinding } from "./runtime-spawn-types.ts";
 import type { FleetRuntimeDispatchContext } from "./fleet/command-protocol.ts";
@@ -269,8 +270,9 @@ function numberValue(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-/** Provider session files contain a complete session total, so replace stream samples before
- * normalizing the snapshot through the shared usage observer. */
+/** Provider session files settle a complete session total (a rollout running total,
+ * or the transcript fold), so they replace stream samples before normalizing the
+ * snapshot through the shared usage observer. */
 function replaceRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknown>): void {
   active.inputTokens = 0;
   active.cacheReadTokens = 0;
@@ -294,37 +296,15 @@ function observeProviderSessionMetrics(active: ActiveRuntime): void {
   const providerHome = active.resolvedProviderDirectory;
   if (!providerHome) return;
   if (active.kindId === "deepseek-harness") {
-    const projectionPath = path.join(
-      providerHome,
-      "storages",
-      "session_projcache",
-      "sessions",
-      `${active.providerSessionId}.json`,
-    );
-    let projection: unknown;
-    try {
-      projection = JSON.parse(readFileSync(projectionPath, "utf8"));
-    } catch (error) {
-      consumeKnownError(error);
-      return;
-    }
-    const rows = providerRecord(projection) && providerRecord(projection.record) ? projection.record.rows : null,
-      tokenUsage = providerRecord(rows) ? rows.tokenUsage : null,
-      value = providerRecord(tokenUsage) ? tokenUsage.val : null,
-      totals = providerRecord(value) ? value.totals : null;
-    if (!providerRecord(totals)) return;
-    const uncachedInput = numberValue(totals.uncachedInputTokens),
-      cacheRead = numberValue(totals.cacheReadTokens),
-      cacheWrite = numberValue(totals.cacheWriteTokens),
-      output = numberValue(totals.outputTokens);
-    if (uncachedInput === null || cacheRead === null || cacheWrite === null || output === null) return;
-    // dsh persists disjoint billing buckets. The shared runtime usage observer expects
+    const totals = deepSeekSessionUsageTotals(providerHome, active.providerSessionId);
+    if (totals === null) return;
+    // dsh folds disjoint billing buckets. The shared runtime usage observer expects
     // uncached input plus explicit cache buckets and builds its inclusive input total.
     replaceRuntimeUsage(active, {
-      input_tokens: uncachedInput,
-      cacheReadTokens: cacheRead,
-      cacheWriteTokens: cacheWrite,
-      output_tokens: output,
+      input_tokens: totals.uncachedInputTokens,
+      cacheReadTokens: totals.cacheReadTokens,
+      cacheWriteTokens: totals.cacheWriteTokens,
+      output_tokens: totals.outputTokens,
     });
     return;
   }
