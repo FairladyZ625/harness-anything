@@ -8,6 +8,7 @@ import {
   type RuntimeInstallationState,
 } from "@harness-anything/daemon/protocol";
 import type { TaskDispatchProjectionRow } from "../api/renderer-dto.ts";
+import type { WorkIndex, WorkRef } from "./model/work-collections.ts";
 import type { RelationEdge } from "./model/types.ts";
 
 /**
@@ -15,8 +16,132 @@ import type { RelationEdge } from "./model/types.ts";
  * 纯投影——组与检索在 daemon 侧完成(sessionGroups / squad.runs.list),前端不拉全会话、
  * 不做前端分组。这里只做展示级派生:状态词表映射、短码、相对时间、轮次编号。
  */
-export type SessionGroupBy = "task" | "squad" | "agent" | "day";
+/** `work` is a GUI-only grouping: the daemon read stays `groupBy=task` and the page buckets by the
+ *  resident work index (dec_5F7E74F1). Never pass `work` to `sessionGroups`. */
+export type SessionGroupBy = "work" | "task" | "squad" | "agent" | "day";
+export type DaemonSessionGroupBy = Exclude<SessionGroupBy, "work">;
 export type SessionGroup = AgentRuntimeSessionGroupDto;
+
+export function daemonSessionGroupBy(groupBy: SessionGroupBy): DaemonSessionGroupBy {
+  return groupBy === "work" ? "task" : groupBy;
+}
+
+/** 可钻入的组头:只有台账带真实 agentId/squadId 的组才有「看它的全部会话」读面。 */
+export type SessionDrillTarget = {
+  readonly kind: "agent" | "squad";
+  readonly id: string;
+  readonly label: string;
+};
+
+export function sessionDrillTarget(group: SessionGroup): SessionDrillTarget | null {
+  if (group.kind === "agent" && group.agentId !== undefined)
+    return { kind: "agent", id: group.agentId, label: group.label };
+  if (group.kind === "squad" && group.squadId !== undefined)
+    return { kind: "squad", id: group.squadId, label: group.label };
+  return null;
+}
+
+/** 工作层的一个桶:一个工作根,或「散件」/Decision 评审两个诚实特例。 */
+export type SessionWorkGroup = {
+  /** `work:<taskId>` / `loose` / `decision-review`. */
+  readonly key: string;
+  readonly kind: "work" | "loose" | "decision";
+  /** 工作标题;`loose` 与 `decision` 桶留给视图按 i18n 命名。 */
+  readonly label: string;
+  readonly workTaskId: string | null;
+  readonly taskGroups: readonly SessionGroup[];
+  readonly taskCount: number;
+  readonly sessionCount: number;
+  readonly roundCount: number;
+  readonly runningCount: number;
+  readonly latestStatus: SessionStatus;
+  readonly latestActivityAt: string;
+};
+
+const LOOSE_WORK_KEY = "loose",
+  DECISION_WORK_KEY = "decision-review";
+
+/**
+ * 把 daemon 的 task 组按常驻工作索引归桶(方案 A / task_4b83acdd):
+ * 工作 → 任务 → 会话。无工作归属的任务组落「散件」,Decision 评审组没有 taskId,
+ * 单独成桶而不是冒充任务。桶按「有在跑优先 → 最新活动」排,两个特例桶殿后。
+ */
+export function sessionWorkGroups(groups: readonly SessionGroup[], works: WorkIndex): readonly SessionWorkGroup[] {
+  const byWork = new Map<string, { readonly work: WorkRef; readonly groups: SessionGroup[] }>(),
+    loose: SessionGroup[] = [],
+    decisions: SessionGroup[] = [];
+  for (const group of groups) {
+    if (group.kind === "decision") {
+      decisions.push(group);
+      continue;
+    }
+    const work = group.taskId === undefined ? null : works.workOf(group.taskId);
+    if (work === null) {
+      loose.push(group);
+      continue;
+    }
+    const bucket = byWork.get(work.taskId) ?? { work, groups: [] };
+    bucket.groups.push(group);
+    byWork.set(work.taskId, bucket);
+  }
+  const summarize = (
+    key: string,
+    kind: SessionWorkGroup["kind"],
+    label: string,
+    workTaskId: string | null,
+    taskGroups: readonly SessionGroup[],
+  ): SessionWorkGroup => {
+    let sessionCount = 0,
+      roundCount = 0,
+      runningCount = 0,
+      latestActivityAt = "",
+      latestStatus: SessionStatus = "unknown";
+    for (const group of taskGroups) {
+      sessionCount += group.sessionCount;
+      roundCount += group.roundCount;
+      runningCount += group.runningCount;
+      if (group.latestActivityAt > latestActivityAt) {
+        latestActivityAt = group.latestActivityAt;
+        latestStatus = group.latestStatus;
+      }
+    }
+    return {
+      key,
+      kind,
+      label,
+      workTaskId,
+      taskGroups,
+      taskCount: taskGroups.length,
+      sessionCount,
+      roundCount,
+      runningCount: runningCount,
+      latestStatus: runningCount > 0 ? "running" : latestStatus,
+      latestActivityAt,
+    };
+  };
+  const workBuckets = [...byWork.values()]
+    .map(({ work, groups: taskGroups }) =>
+      summarize(`work:${work.taskId}`, "work", work.title, work.taskId, taskGroups),
+    )
+    .sort(
+      (left, right) =>
+        Number(right.runningCount > 0) - Number(left.runningCount > 0) ||
+        right.latestActivityAt.localeCompare(left.latestActivityAt) ||
+        left.key.localeCompare(right.key),
+    );
+  return [
+    ...workBuckets,
+    ...(decisions.length > 0 ? [summarize(DECISION_WORK_KEY, "decision", "", null, decisions)] : []),
+    ...(loose.length > 0 ? [summarize(LOOSE_WORK_KEY, "loose", "", null, loose)] : []),
+  ];
+}
+
+/** 一个任务属于哪个工作桶(搜索命中单组时用来展开它的工作)。 */
+export function sessionWorkKeyForTask(works: WorkIndex, taskId: string | undefined): string | null {
+  if (taskId === undefined) return LOOSE_WORK_KEY;
+  const work = works.workOf(taskId);
+  return work === null ? LOOSE_WORK_KEY : `work:${work.taskId}`;
+}
 /** 单会话段的状态词表:daemon 语义状态 + 台账侧 unknown/lost,一个总映射,新词表必须落位。 */
 export type SessionStatus = AgentRuntimeSessionGroupStatus;
 export const sessionStatusDot: Readonly<Record<SessionStatus, "live" | "failed" | "idle">> = {
@@ -142,6 +267,24 @@ export function sessionRounds(
     nextAction: row.nextAction ?? null,
     delegation: sessionDelegation(row),
   }));
+}
+
+/** 钻入读面已批量取回该执行者的派工行:按任务组分好轮次,组头一展开即有行,不再二次读。 */
+export function sessionRoundsByTask(
+  groups: readonly SessionGroup[],
+  dispatches: readonly TaskDispatchProjectionRow[],
+): ReadonlyMap<string, readonly SessionRound[]> {
+  const byTask = new Map<string, TaskDispatchProjectionRow[]>();
+  for (const row of dispatches) {
+    const rows = byTask.get(row.taskId);
+    if (rows === undefined) byTask.set(row.taskId, [row]);
+    else rows.push(row);
+  }
+  const result = new Map<string, readonly SessionRound[]>();
+  for (const group of groups)
+    if (group.taskId !== undefined)
+      result.set(group.taskId, sessionRounds(group.taskId, group.label, byTask.get(group.taskId) ?? []));
+  return result;
 }
 
 /** 与任务绑定但派工台账没有记录的会话:组尾「无派工记录」小节的来源。 */

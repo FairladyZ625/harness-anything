@@ -15,6 +15,7 @@ import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { LiveDot } from "../runtime/parts.tsx";
+import { RowTime } from "../primitives/DenseRow.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 
 /**
@@ -57,6 +58,23 @@ export function SquadRunDetail({
         <StatusTag tone="neutral" tip={run.projectionError.hint} label={t("agentRuntime.catalogInvalid")} />
       </div>
     );
+  // 「第 N 轮」只有 leader 轮次一个含义:worker 行用它回指派发它的 leader 轮,
+  // 不再把 runtime session id / attemptId 拼进句子里。
+  const turnNumber = new Map(run.leaderTurns.map((turn, index) => [turn.turnId, index + 1])),
+    workerRound = new Map(
+      run.workerAttempts.flatMap((attempt) => {
+        const round = turnNumber.get(attempt.leaderTurnId);
+        return attempt.runtimeSessionId !== null && round !== undefined
+          ? [[attempt.runtimeSessionId, round] as const]
+          : [];
+      }),
+    ),
+    attemptRound = new Map(
+      run.workerAttempts.flatMap((attempt) => {
+        const round = turnNumber.get(attempt.leaderTurnId);
+        return round === undefined ? [] : [[attempt.attemptId, round] as const];
+      }),
+    );
   return (
     <div data-testid="squad-run-detail" className="flex flex-col gap-4 px-4 pt-3.5 pb-6">
       <header className="flex flex-col gap-1">
@@ -77,17 +95,11 @@ export function SquadRunDetail({
             {t("agentRuntime.sessionsTaskDetail")} ↗
           </EntityRefLink>
         </span>
-        <p data-testid="squad-run-observation" className="font-mono ui-micro text-text-faint">
-          {t("agentRuntime.squadRunObservation", {
-            at: formatTime(run.acceptedAt, { style: "date-time" }) ?? run.acceptedAt,
-            execution: run.executionId,
-            iteration: String(run.iteration ?? "—"),
-            current: String(run.currentIteration ?? "—"),
-            revision: run.runRevision,
-          })}
-        </p>
-        <p data-testid="squad-run-detail-mission" className="ui-micro text-text-muted">
+        <p data-testid="squad-run-detail-mission" className="ui-body text-text">
           {run.mission}
+        </p>
+        <p data-testid="squad-run-observation" className="ui-micro text-text-faint">
+          {t("agentRuntime.squadRunLastReport")} <RowTime at={run.acceptedAt} />
         </p>
         {run.error !== null && (
           <p className="font-mono ui-micro text-status-blocked" data-testid="squad-run-detail-run-error">
@@ -108,6 +120,8 @@ export function SquadRunDetail({
               turn={turn}
               attempts={run.workerAttempts.filter((attempt) => attempt.leaderTurnId === turn.turnId)}
               active={turn.runtimeSessionId === run.currentLeaderRuntimeSessionId}
+              workerRound={workerRound}
+              attemptRound={attemptRound}
               onSelectEntity={onSelectEntity}
             />
           ))
@@ -124,11 +138,15 @@ function TurnSection({
   turn,
   attempts,
   active,
+  workerRound,
+  attemptRound,
   onSelectEntity,
 }: {
   readonly turn: SquadRunLeaderTurnDto;
   readonly attempts: readonly SquadRunWorkerAttemptDto[];
   readonly active: boolean;
+  readonly workerRound: ReadonlyMap<string, number>;
+  readonly attemptRound: ReadonlyMap<string, number>;
   readonly onSelectEntity: (ref: string) => void;
 }) {
   const frame = active ? "border-accent/40 bg-accent/[0.14]" : "border-border";
@@ -138,7 +156,7 @@ function TurnSection({
         <span className="shrink-0 font-mono ui-micro text-text-faint">{turn.turnId}</span>
         <StatusWord status={turn.status} />
         <span className="min-w-0 flex-1 truncate ui-micro">
-          {triggerLabel(turn.trigger)}
+          <span title={triggerDetail(turn.trigger)}>{triggerLabel(turn.trigger, workerRound, attemptRound)}</span>
           <span className="ml-1.5 ui-micro text-text-muted">{decisionLabel(turn.decision)}</span>
         </span>
         <span className="shrink-0 font-mono ui-micro text-text-faint">
@@ -189,15 +207,20 @@ function AttemptRow({
   return (
     <div
       data-testid={`squad-run-attempt-${attempt.attemptId}`}
+      title={attempt.attemptId}
       className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-surface-raised"
     >
       <span aria-hidden className="shrink-0 font-mono ui-micro text-text-faint">
         ├─
       </span>
-      <span className="shrink-0 font-mono ui-micro text-text-faint">{attempt.attemptId}</span>
       <StatusWord status={attempt.status} />
       <span className="min-w-0 flex-1 truncate ui-micro">
         {attempt.workerId}
+        {attempt.taskId !== null && (
+          <span className="ml-1.5 ui-micro text-text-muted" title={attempt.taskId}>
+            {t("agentRuntime.squadRunWorkerTask", { ref: shortRef(attempt.taskId, 14) })}
+          </span>
+        )}
         {attempt.rejection !== null && (
           <span className="ml-1.5 ui-micro text-status-blocked" title={attempt.rejection}>
             {t("agentRuntime.squadRunRejection", { reason: attempt.rejection })}
@@ -234,13 +257,39 @@ function StatusWord({ status }: { readonly status: SessionStatus | null }) {
   );
 }
 
-function triggerLabel(trigger: SquadRunLeaderTurnDto["trigger"]): string {
+/** 触发语用「第 N 轮」而不是裸 runtime/attempt id;id 留在 title(triggerDetail)。 */
+function triggerLabel(
+  trigger: SquadRunLeaderTurnDto["trigger"],
+  workerRound: ReadonlyMap<string, number>,
+  attemptRound: ReadonlyMap<string, number>,
+): string {
   if (trigger.kind === "initial") return t("agentRuntime.squadRunTriggerInitial");
   if (trigger.kind === "leader_retry") return t("agentRuntime.squadRunTriggerLeaderRetry", { ref: trigger.turnId });
-  if (trigger.kind === "worker_wait") return trigger.reason;
-  return trigger.kind === "worker_outcome"
-    ? t("agentRuntime.squadRunTriggerWorkerOutcome", { ref: shortRef(trigger.runtimeSessionId, 10) })
-    : t("agentRuntime.squadRunTriggerWorkerRejected", { ref: trigger.attemptId });
+  if (trigger.kind === "worker_wait") {
+    const round = workerRound.get(trigger.runtimeSessionId);
+    return round === undefined
+      ? trigger.reason
+      : `${t("agentRuntime.squadRunTriggerWorkerWaitRound", { round })} · ${trigger.reason}`;
+  }
+  if (trigger.kind === "worker_outcome") {
+    const round = workerRound.get(trigger.runtimeSessionId);
+    return round === undefined
+      ? t("agentRuntime.squadRunTriggerWorkerOutcome", { ref: shortRef(trigger.runtimeSessionId, 10) })
+      : t("agentRuntime.squadRunTriggerWorkerOutcomeRound", { round });
+  }
+  const round = attemptRound.get(trigger.attemptId);
+  return round === undefined
+    ? t("agentRuntime.squadRunTriggerWorkerRejected", { ref: trigger.attemptId })
+    : t("agentRuntime.squadRunTriggerWorkerRejectedRound", { round });
+}
+
+/** 机器 id 不进行内句子,但必须可达:触发语悬停给原始 id。 */
+function triggerDetail(trigger: SquadRunLeaderTurnDto["trigger"]): string | undefined {
+  if (trigger.kind === "initial") return undefined;
+  if (trigger.kind === "leader_retry") return `${trigger.turnId} · ${trigger.reason}`;
+  if (trigger.kind === "worker_wait") return `${trigger.runtimeSessionId} · ${trigger.reason}`;
+  if (trigger.kind === "worker_outcome") return trigger.runtimeSessionId;
+  return trigger.attemptId;
 }
 
 function decisionLabel(decision: SquadRunLeaderTurnDto["decision"]): string {

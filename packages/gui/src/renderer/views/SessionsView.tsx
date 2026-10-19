@@ -15,10 +15,15 @@ import { PageHeader } from "../components/primitives/PageHeader.tsx";
 import { Button } from "../components/primitives/Button.tsx";
 import {
   runtimeSelectionFromRef,
+  useRelatedDispatches,
   useSessionsWorkspace,
   useSquadRunDetail,
 } from "../components/runtime/useRuntimeWorkspace.ts";
-import { SessionGroupList, type DecisionGroupRows } from "../components/sessions/SessionGroupList.tsx";
+import {
+  SessionGroupList,
+  type DecisionGroupRows,
+  type SessionGroupRows,
+} from "../components/sessions/SessionGroupList.tsx";
 import { DecisionReviewSessionCard } from "../components/sessions/DecisionReviewSessionCard.tsx";
 import { decisionReviewRounds } from "../model/decision-review.ts";
 import { decisionSessionsLocation } from "../navigation/decisionReviewRoutes.ts";
@@ -32,14 +37,19 @@ import {
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
+  sessionRoundsByTask,
   sessionStatusFilterWords,
   sessionStatusKey,
+  sessionWorkGroups,
+  sessionWorkKeyForTask,
+  type SessionDrillTarget,
   type SessionGroup,
   type SessionGroupBy,
   type SessionOrphan,
   type SessionRound,
   type SessionStatus,
 } from "../sessions-model.ts";
+import { NO_WORKS, type WorkIndex } from "../model/work-collections.ts";
 
 /**
  * 会话页(设计稿 §2–§5;标准 §2.5 v2 与 Agent 页同构:左列表、右常驻详情,不用抽屉):顶层两大段——单会话(默认,按 Task 分组)与小队编排
@@ -75,6 +85,8 @@ export interface SessionsViewProps {
   readonly onOpenTask: (taskId: string) => void;
   /** 窄容器返回键:全局导航弹栈(App 注入,与顶栏后退/侧键同一条路径)。 */
   readonly onBack: () => void;
+  /** App 层常驻的工作索引(dec_5F7E74F1):「工作」层只归桶,不另起读。 */
+  readonly works?: WorkIndex;
 }
 
 /** 页头插槽:计数结论与主动作由工作区实况派生,页面/面板各自决定要不要装。 */
@@ -94,13 +106,28 @@ export function SessionsView({
   onSelectEntity,
   onOpenTask,
   onBack,
+  works = NO_WORKS,
   renderHeader = renderSessionsPageHeader,
 }: SessionsViewProps & {
   /** 页面组合的页头渲染;工作台面板传空渲染(面板标签即标题)。 */
   readonly renderHeader?: (slot: SessionsHeaderSlot) => ReactNode;
 }) {
   const [segment, setSegment] = useState<Segment>("sessions");
-  const [groupBy, setGroupBy] = useState<SessionGroupBy>("task");
+  // 「工作」是默认层,但只在索引已答且确有工作时:空仓/未加载时退回 Task,不把
+  // 全部任务塞进一个「散件」桶当首屏。用户在索引到达前手动改过分组就不覆盖。
+  // 工作索引已在 App 层缓存时直接以工作开局,避免「先闪一帧 Task 再切工作」;
+  // 首次加载(索引未答)仍从 Task 起,由下面的 effect 在索引到达后补切。
+  const [groupBy, setGroupBy] = useState<SessionGroupBy>(() => (works.ready && works.hasWorks ? "work" : "task"));
+  const groupingPicked = useRef(false);
+  const workDefaultApplied = useRef(false);
+  useEffect(() => {
+    if (workDefaultApplied.current || groupingPicked.current || !works.ready) return;
+    workDefaultApplied.current = true;
+    // 深链(tasksessions/session/decisionsessions)必须原地展开它指向的组,不能被默认
+    // 工作层盖掉;无深链时才把首屏换成工作。
+    if (focusedEntityRef !== null) return;
+    if (works.hasWorks) setGroupBy("work");
+  }, [focusedEntityRef, works.ready, works.hasWorks]);
   const [rangeBySegment, setRangeBySegment] = useState<Readonly<Record<Segment, Range>>>(DEFAULT_RANGE);
   const range = rangeBySegment[segment],
     setRange = (value: Range) => setRangeBySegment((current) => ({ ...current, [segment]: value }));
@@ -110,6 +137,9 @@ export function SessionsView({
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [inspector, setInspector] = useState(true);
   const [expandedGroups, setExpandedGroups] = useState<ReadonlySet<string>>(new Set());
+  const [workExpandedKeys, setWorkExpandedKeys] = useState<ReadonlySet<string>>(new Set());
+  // 钻入不是路由(不打断当前台账切面):面包屑 + 返回留在列表顶部,点会话仍可深链。
+  const [drill, setDrill] = useState<SessionDrillTarget | null>(null);
   const [sessionTaskScope, setSessionTaskScope] = useState<{
     readonly runtimeSessionId: string;
     readonly taskId: string;
@@ -191,28 +221,48 @@ export function SessionsView({
     status,
     ...(scopedTaskId === undefined ? {} : { taskId: scopedTaskId }),
   });
-  const groups = workspace.groups.data?.groups ?? [],
+  const groups = useMemo(() => workspace.groups.data?.groups ?? [], [workspace.groups.data]),
     totals = workspace.groups.data?.totals ?? { groups: 0, sessions: 0 },
     truncated = workspace.groups.data?.truncated ?? false;
-  const runs = workspace.squadRuns.data?.runs ?? [],
+  // 钻入复用 Agent/Squad 页现役的 useRelatedDispatches(同一条 sessionGroups 精确
+  // 过滤 + 同一批 task.dispatches),不写第三份同形读。
+  const related = useRelatedDispatches(repoId, drill);
+  // 工作层只是把 task 组按常驻索引归桶(groupBy=work 的读仍由 useSessionsWorkspace 映射到 task)。
+  const workGroups = useMemo(
+    () => (groupBy === "work" && drill === null ? sessionWorkGroups(groups, works) : []),
+    [groupBy, drill, groups, works],
+  );
+  const displayedGroups = drill === null ? groups : related.groups,
+    displayedTruncated = drill === null ? truncated : related.truncated;
+  const runs = useMemo(() => workspace.squadRuns.data?.runs ?? [], [workspace.squadRuns.data]),
     runTotals = workspace.squadRuns.data?.totals ?? { runs: 0 };
 
-  // 检索单组命中时自动展开(设计稿 §7.1:命中 1 组 1 轮,组自动展开)。
+  // 检索单组命中时自动展开(设计稿 §7.1:命中 1 组 1 轮,组自动展开)。工作层还要
+  // 展开该任务所属的工作,否则命中的组藏在收起的工作里。
   useEffect(() => {
-    if (debouncedSearch === "" || groupBy !== "task" || groups.length !== 1 || groups[0]?.kind !== "task") return;
-    const key = groups[0]!.key;
+    if (debouncedSearch === "" || groups.length !== 1 || groups[0]?.kind !== "task") return;
+    if (groupBy !== "task" && groupBy !== "work") return;
+    const [group] = groups;
+    const key = group.key;
     setExpandedGroups((current) => (current.has(key) ? current : new Set([...current, key])));
-  }, [debouncedSearch, groupBy, groups]);
+    if (groupBy !== "work") return;
+    const workKey = sessionWorkKeyForTask(works, group.taskId);
+    if (workKey !== null)
+      setWorkExpandedKeys((current) => (current.has(workKey) ? current : new Set([...current, workKey])));
+  }, [debouncedSearch, groupBy, groups, works]);
 
   // 组展开行集:每个已展开任务组两次读(task.dispatches 全部轮次 + overview { taskId }
   // 绑定会话做孤儿判定)。数据在页级持有,组列表、主区与 inspector 共用缓存键。
+  // 钻入时轮次已随 useRelatedDispatches 的批量读返回,不再发这两组读。
   const expandedTasks = useMemo(
     () =>
-      groups.filter(
-        (group): group is SessionGroup & { readonly taskId: string } =>
-          group.kind === "task" && group.taskId !== undefined && expandedGroups.has(group.key),
-      ),
-    [groups, expandedGroups],
+      drill === null
+        ? groups.filter(
+            (group): group is SessionGroup & { readonly taskId: string } =>
+              group.kind === "task" && group.taskId !== undefined && expandedGroups.has(group.key),
+          )
+        : [],
+    [drill, groups, expandedGroups],
   );
   const roundsQueries = useQueries({
     queries: expandedTasks.map((group) => ({
@@ -265,14 +315,32 @@ export function SessionsView({
     return rows;
   }, [expandedTasks, roundsQueries, taskSessionQueries]);
 
+  // 钻入的轮次来自同一批派工行:按任务组分好即挂到组体,点开组头不再二次读。
+  const drillRowsByGroup = useMemo(() => {
+    if (drill === null) return new Map<string, SessionGroupRows>();
+    const rounds = sessionRoundsByTask(related.groups, related.dispatchRows),
+      rows = new Map<string, SessionGroupRows>();
+    for (const group of related.groups) {
+      if (group.taskId === undefined) continue;
+      rows.set(group.taskId, {
+        rounds: rounds.get(group.taskId) ?? [],
+        orphans: [],
+        pending: related.pending,
+        error: related.error,
+      });
+    }
+    return rows;
+  }, [drill, related.groups, related.dispatchRows, related.pending, related.error]);
+  const displayedRowsByGroup = drill === null ? groupRows : drillRowsByGroup;
+
   // Decision 组:daemon 组行只带 decisionId,组头标题与展开行都取 Decision full 行(标题、
   // reviewDispatches),与决策池/详情共用同一缓存键;列表里有 Decision 组或落 Decision 会话深链时才读。
   const decisionGroupIds = useMemo(
     () =>
-      groups.flatMap((group) =>
+      displayedGroups.flatMap((group) =>
         group.kind === "decision" && group.decisionId !== undefined ? [group.decisionId] : [],
       ),
-    [groups],
+    [displayedGroups],
   );
   const decisionRowsQuery = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId),
@@ -320,15 +388,26 @@ export function SessionsView({
   // 深链 session/<id> 始终先成为精确选择;存在性与 task binding 由同一个
   // repo.agentRuntime.sessions.read 判定,绝不因组尚未展开而改选首组 latestRound。
   const allRows = useMemo(
-    () => [...groupRows.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
-    [groupRows],
+    () => [...displayedRowsByGroup.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
+    [displayedRowsByGroup],
   );
   const defaultSessionId =
       (
         groups.find((group) => group.latestRound !== null && ATTENTION_STATUSES.has(group.latestStatus)) ??
         groups.find((group) => group.latestRound !== null)
       )?.latestRound?.runtimeSessionId ?? null,
-    selectedSessionId = decisionFocus?.runtimeSessionId ?? focusedSessionId ?? defaultSessionId;
+    // 钻入后先落该执行者「最新需要关注的会话」;若当前深链会话不在其列,不让右侧停
+    // 在别的执行者上。dockRows 已按 startedAt 倒序。
+    drillDefaultSessionId =
+      (related.dockRows.find((row) => ATTENTION_STATUSES.has(row.status as SessionStatus)) ?? related.dockRows[0])
+        ?.runtimeSessionId ?? null,
+    focusedSessionVisible =
+      focusedSessionId !== null &&
+      (drill === null || related.dockRows.some((row) => row.runtimeSessionId === focusedSessionId)),
+    selectedSessionId =
+      decisionFocus?.runtimeSessionId ??
+      (focusedSessionVisible ? focusedSessionId : null) ??
+      (drill === null ? defaultSessionId : drillDefaultSessionId);
   const selectedSession = useQuery({
     queryKey: runtimeQueryKeys.session(repoId, selectedSessionId ?? ""),
     queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
@@ -342,6 +421,11 @@ export function SessionsView({
   useEffect(() => {
     if (focusedSessionId === null) {
       appliedFocusRef.current = null;
+      return;
+    }
+    // 钻入中点击会话只是选中右侧,不应把分组压回 Task、也不应把面包屑踢掉。
+    if (drill !== null) {
+      appliedFocusRef.current = focusedSessionId;
       return;
     }
     const session = selectedSession.data?.session;
@@ -366,7 +450,7 @@ export function SessionsView({
         ? current
         : { runtimeSessionId: focusedSessionId, taskId: taskIds[0]! },
     );
-  }, [focusedSessionId, groups, selectedSession.data, workspace.groups.data]);
+  }, [drill, focusedSessionId, groups, selectedSession.data, workspace.groups.data]);
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
   const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;
@@ -376,9 +460,11 @@ export function SessionsView({
       : allRows.filter(
           (row) => row.taskId === selectedRow.taskId && row.runtimeSessionId !== selectedRow.runtimeSessionId,
         );
-  const liveCount = groups.reduce((total, group) => total + group.runningCount, 0);
+  const liveCount = displayedGroups.reduce((total, group) => total + group.runningCount, 0);
   const availableRuns = runs.filter(isAvailableSquadRunSummary);
-  const activeRunCount = availableRuns.filter((run) => run.phase !== "converged" && run.phase !== "failed").length;
+  const activeRunCount = availableRuns.filter(
+    (run) => run.phase !== "converged" && run.phase !== "failed" && run.phase !== "cancelled",
+  ).length;
 
   const squads = useQuery({
     queryKey: ["squads", repoId],
@@ -429,6 +515,20 @@ export function SessionsView({
       return next;
     });
   }, []);
+  const toggleWork = useCallback((key: string) => {
+    setWorkExpandedKeys((current) => {
+      const next = new Set(current);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+  // 钻入:列表原地切到「该执行者的全部会话(按任务分组)」,不清导航栈;返回只清本地状态。
+  const drillInto = useCallback((target: SessionDrillTarget) => {
+    setDrill(target);
+    setExpandedGroups(new Set());
+  }, []);
+  const backFromDrill = useCallback(() => setDrill(null), []);
 
   // 小队编排详情(G12 §2b/§2c):选中行(可寻址 squadrun/<id>)的 repo.squad.run.read,
   // 渲染 leader 轮次 → worker 派工链扇出树;只有显式点击行才读取详情(深链引用不在
@@ -452,25 +552,54 @@ export function SessionsView({
   const countsNote = (
     <span data-testid="sessions-counts" className="truncate">
       {segment === "sessions"
-        ? t("agentRuntime.sessionsCounts", {
-            range: rangeLabel[range],
-            groups: totals.groups,
-            sessions: totals.sessions,
-          }) +
-          // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
-          // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
-          (status.length === 0
-            ? ""
-            : t("agentRuntime.sessionsStatusFilterNote", {
-                statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
-              })) +
-          " · " +
-          t("agentRuntime.liveSessions", { count: liveCount })
+        ? drill !== null
+          ? t("agentRuntime.sessionsDrillCounts", {
+              groups: related.totals.groups,
+              sessions: related.totals.sessions,
+              label: drill.label,
+            })
+          : (groupBy === "work"
+              ? t("agentRuntime.sessionsWorkCounts", {
+                  range: rangeLabel[range],
+                  works: workGroups.length,
+                  groups: totals.groups,
+                  sessions: totals.sessions,
+                })
+              : t("agentRuntime.sessionsCounts", {
+                  range: rangeLabel[range],
+                  groups: totals.groups,
+                  sessions: totals.sessions,
+                })) +
+            // 计数是 daemon 按过滤后的集合算的,所以筛选生效时把它说出来——
+            // 否则用户读到的是「会话消失了」而不是「这是筛后的数」。
+            (status.length === 0
+              ? ""
+              : t("agentRuntime.sessionsStatusFilterNote", {
+                  statuses: status.map((word) => t(sessionStatusKey[word] as never)).join(" / "),
+                })) +
+            " · " +
+            t("agentRuntime.liveSessions", { count: liveCount })
         : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs }) +
           " · " +
           t("agentRuntime.squadRunsActive", { count: activeRunCount })}
     </span>
   );
+  const drillHeader =
+    drill === null ? undefined : (
+      <div data-testid="sessions-drill-breadcrumb" className="flex min-w-0 items-center gap-2">
+        <button
+          type="button"
+          data-testid="sessions-drill-back"
+          onClick={backFromDrill}
+          className="shrink-0 rounded border border-border px-2 py-0.5 ui-micro text-text-muted hover:border-accent hover:text-accent"
+        >
+          ← {t("agentRuntime.sessionsDrillBack")}
+        </button>
+        <span className="min-w-0 truncate ui-meta text-text-muted">
+          {t("agentRuntime.sessionsDrillAll")} <span aria-hidden>›</span> <b className="text-text">{drill.label}</b>
+        </span>
+      </div>
+    );
   const headerActions =
     segment === "sessions" && selectedSessionId !== null ? (
       <Button
@@ -492,32 +621,48 @@ export function SessionsView({
         <SegCtl
           label={t("agentRuntime.sessionsSegmentLabel")}
           value={segment}
-          onChange={setSegment}
+          onChange={(value) => {
+            setSegment(value);
+            if (value === "squads") setDrill(null);
+          }}
           options={[
-            { value: "sessions", label: t("agentRuntime.sessionsSegmentSingle") },
-            { value: "squads", label: t("agentRuntime.sessionsSegmentSquad") },
+            { value: "sessions", label: t("agentRuntime.sessionsSegmentSingle"), testId: "sessions-segment-sessions" },
+            { value: "squads", label: t("agentRuntime.sessionsSegmentSquad"), testId: "sessions-segment-squads" },
           ]}
         />
         {segment === "sessions" && (
           <SegCtl
             label={t("agentRuntime.sessionsGroupByLabel")}
             value={groupBy}
-            onChange={(value) => setGroupBy(value)}
+            onChange={(value) => {
+              groupingPicked.current = true;
+              setGroupBy(value);
+              setDrill(null);
+            }}
             options={[
-              { value: "task", label: t("agentRuntime.sessionsGroupTask") },
-              { value: "squad", label: t("agentRuntime.sessionsGroupSquad") },
-              { value: "agent", label: t("agentRuntime.sessionsGroupAgent") },
-              { value: "day", label: t("agentRuntime.sessionsGroupDay") },
+              { value: "work", label: t("agentRuntime.sessionsGroupWork"), testId: "sessions-group-work" },
+              { value: "task", label: t("agentRuntime.sessionsGroupTask"), testId: "sessions-group-task" },
+              { value: "agent", label: t("agentRuntime.sessionsGroupAgent"), testId: "sessions-group-agent" },
+              { value: "squad", label: t("agentRuntime.sessionsGroupSquad"), testId: "sessions-group-squad" },
+              { value: "day", label: t("agentRuntime.sessionsGroupDay"), testId: "sessions-group-day" },
             ]}
           />
         )}
-        <SegCtl
-          label={t("agentRuntime.sessionsRangeLabel")}
-          value={range}
-          onChange={(value) => setRange(value)}
-          options={(Object.keys(RANGE_SPAN) as Range[]).map((value) => ({ value, label: rangeLabel[value] }))}
-        />
-        {segment === "sessions" && (
+        {/* 钻入是“该执行者的全部会话”:范围/状态/检索都不作用于这条读,收起来而不是
+            留一个改了没反应的控件。 */}
+        {drill === null && (
+          <SegCtl
+            label={t("agentRuntime.sessionsRangeLabel")}
+            value={range}
+            onChange={(value) => setRange(value)}
+            options={(Object.keys(RANGE_SPAN) as Range[]).map((value) => ({
+              value,
+              label: rangeLabel[value],
+              testId: `sessions-range-${value}`,
+            }))}
+          />
+        )}
+        {segment === "sessions" && drill === null && (
           <>
             {/* 状态词表实测 ~795px:容器 ≥1100px 时平铺(放不下时换行,不横向滚动);
                 更窄时平铺 + 检索放不进一行,收纳进下拉让工具条一行放下(标准 §1.9②)。 */}
@@ -570,19 +715,30 @@ export function SessionsView({
             </Popover>
           </>
         )}
-        <input
-          type="search"
-          data-testid="sessions-search"
-          aria-label={t("agentRuntime.sessionsSearchLabel")}
-          placeholder={t("agentRuntime.sessionsSearchPlaceholder")}
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          className={
-            "ml-auto min-w-36 flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 ui-meta text-text " +
-            "outline-none placeholder:text-text-faint focus:border-border-strong"
-          }
-        />
+        {drill === null && (
+          <input
+            type="search"
+            data-testid="sessions-search"
+            aria-label={t("agentRuntime.sessionsSearchLabel")}
+            placeholder={t("agentRuntime.sessionsSearchPlaceholder")}
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            className={
+              "ml-auto min-w-36 flex-1 rounded-xs border border-border bg-surface-raised px-3 py-1.5 ui-meta text-text " +
+              "outline-none placeholder:text-text-faint focus:border-border-strong"
+            }
+          />
+        )}
       </div>
+      {drill !== null && related.error !== null && (
+        <p
+          role="alert"
+          data-testid="sessions-drill-error"
+          className="shrink-0 border-b border-border bg-status-blocked/10 px-3.5 py-1.5 font-mono ui-micro text-status-blocked"
+        >
+          {t("agentRuntime.readFailed", { error: related.error })}
+        </p>
+      )}
       {visibleRead.isError && (
         <p
           role="alert"
@@ -609,19 +765,24 @@ export function SessionsView({
       {segment === "sessions" ? (
         <CatalogSplit detailOpen={narrow.detailOpen} className="px-2 pb-2">
           <SessionGroupList
-            pending={workspace.groups.isPending}
-            groups={groups}
-            truncated={truncated}
+            pending={drill === null ? workspace.groups.isPending : related.pending}
+            groups={displayedGroups}
+            truncated={displayedTruncated}
             expandedKeys={expandedGroups}
-            rowsByGroup={groupRows}
+            rowsByGroup={displayedRowsByGroup}
             decisionRowsByGroup={decisionGroupRows}
             selectedId={selectedSessionId}
-            query={debouncedSearch}
+            query={drill === null ? debouncedSearch : ""}
             decisionRefsFor={groupDecisionRefsFor}
             onSelectSession={selectSessionFromRail}
             onToggleGroup={toggleGroup}
             onOpenTask={onOpenTask}
             onSelectEntity={onSelectEntity}
+            onDrill={drillInto}
+            workGroups={groupBy === "work" && drill === null ? workGroups : undefined}
+            workExpandedKeys={workExpandedKeys}
+            onToggleWork={toggleWork}
+            railHeader={drillHeader}
           />
           <main
             data-testid="sessions-detail"
@@ -630,7 +791,13 @@ export function SessionsView({
           >
             <CatalogBackButton testId="sessions-back-to-list" onBack={onBack} />
             {selectedSessionId === null ? (
-              <Empty>{t(workspace.groups.isPending ? "agentRuntime.loading" : "agentRuntime.noSessions")}</Empty>
+              <Empty>
+                {t(
+                  (drill === null ? workspace.groups.isPending : related.pending)
+                    ? "agentRuntime.loading"
+                    : "agentRuntime.noSessions",
+                )}
+              </Empty>
             ) : (
               <>
                 {selectedReviewRound && (
