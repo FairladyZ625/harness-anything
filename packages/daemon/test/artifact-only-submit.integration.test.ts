@@ -156,6 +156,12 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     );
     assert.equal(fact.outcome, "applied", JSON.stringify(fact));
     await waitForFixturePublication(cell, fact.opId, holder);
+    // dec_BB2BCE9F995CD3A126E2918734 CH4: the daemon anchors the record to the worktree HEAD.
+    const recordedFactId = String((fact as { readonly factId?: unknown }).factId);
+    assert.match(
+      readFileSync(path.join(ledger, "facts", `${recordedFactId}.md`), "utf8"),
+      new RegExp(`- Observed commit: ${deliveryHead}`),
+    );
     const reviewId = "review-public-cut",
       reportPath = `${packagePath}/artifacts/reports/public-cut.md`;
     mkdirSync(path.join(ledger, packagePath, "artifacts/reports"), { recursive: true });

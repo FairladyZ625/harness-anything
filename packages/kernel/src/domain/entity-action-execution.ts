@@ -140,7 +140,8 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
     domainTypes = stringList(action.domainTypes),
     memoryClass = action.memoryClass as FactMemoryClass,
     memoryTags = stringList(action.memoryTags),
-    observedAt = typeof action.observedAt === "string" ? action.observedAt : input.occurredAt;
+    observedAt = typeof action.observedAt === "string" ? action.observedAt : input.occurredAt,
+    observedCommit = typeof action.observedCommit === "string" ? action.observedCommit : undefined;
   if (
     !(["low", "medium", "high"] as const).includes(confidence) ||
     !(["semantic", "episodic", "procedural"] as const).includes(memoryClass) ||
@@ -150,6 +151,8 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
     invalid(input, "Fact classification is invalid.");
   if (!timestamp(input.occurredAt) || !timestamp(observedAt))
     invalid(input, "Fact timestamps must be ISO-8601 UTC values ending in Z.");
+  if (observedCommit !== undefined && !/^[0-9a-f]{40}$/u.test(observedCommit))
+    invalid(input, "Fact observedCommit must be a 40-character lowercase hex commit id.");
   if (action.supersedes !== undefined) {
     if (
       !plainRecordValue(action.supersedes) ||
@@ -189,6 +192,7 @@ export function compileFactRecordAction(input: EntityActionCompileInput): Entity
         statement: requiredText(input, action.statement, "statement"),
         evidenceSource: requiredText(input, action.evidenceSource, "evidenceSource"),
         observedAt,
+        ...(observedCommit !== undefined ? { observedCommit } : {}),
         confidence,
         ...(domainTypes.length ? { domainTypes } : {}),
         ...(typeof action.registersDomainType === "string" ? { registersDomainType: action.registersDomainType } : {}),
