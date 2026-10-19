@@ -93,6 +93,31 @@ export function makeFleetSquadCoordinator(input: {
           reason: "Squad workers hold independent child leases.",
         });
     },
+    settleChildTask: async (child) => {
+      await input.sync();
+      const lease = query((projection) => projection.read(child.taskId).snapshot).lease;
+      if (lease) {
+        await command({
+          kind: "task-release",
+          taskId: child.taskId,
+          executionId: lease.executionId,
+          squadRunId: child.squadRunId,
+          reason: child.reason,
+          ...(child.runtimeSessionId
+            ? { terminalExecutionId: lease.executionId, terminalRuntimeSessionId: child.runtimeSessionId }
+            : {}),
+        });
+      }
+      await command({
+        kind: "task-transition",
+        taskId: child.taskId,
+        status: "cancelled",
+        force: true,
+        squadRunId: child.squadRunId,
+        reason: child.reason,
+      });
+      await input.sync();
+    },
     createChildTask: async (child) => {
       const parentPlan = query((projection) => {
         const parent = projection.read(child.parentTaskId);

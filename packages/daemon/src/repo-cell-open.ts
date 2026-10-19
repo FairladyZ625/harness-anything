@@ -96,6 +96,7 @@ import {
   createSquadChild,
   publishSquadChildDocument,
   reacquireSquadTaskLease,
+  settleSquadChildAssignment,
 } from "./repo-cell-squad-child.ts";
 import { makeAgentActionRuntime, makeSquadActionRuntime } from "./squad-action-runtime.ts";
 import type { DaemonLifecycleRecorder } from "./lifecycle-log.ts";
@@ -577,6 +578,7 @@ export async function openRepoWriterCell(
       if (receipt.outcome !== "applied")
         throw cellCodedError(receipt.code ?? "lease_conflict", `Squad could not release ${taskId}.`);
     },
+    settleChildTask: (child, binding) => settleSquadChildAssignment(extracted, child, binding, authorizeRuntimeAction),
     recordOwnershipCheck: async (child, binding) => {
       const packagePath = projection.read(child.taskId).packagePath;
       if (!packagePath) throw cellCodedError("task_not_found", child.taskId);

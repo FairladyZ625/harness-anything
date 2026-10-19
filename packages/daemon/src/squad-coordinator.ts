@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import {
   consumeKnownError,
   isSameExecution,
+  isTerminalStatus,
   localGitObjectRefStore,
   parseSquadDeclarationV1,
   type AgentRuntimeEventV1,
@@ -68,6 +69,21 @@ export function makeSquadCoordinator(input: {
     binding: RuntimeBinding,
     executionId: string,
     squadRunId: string,
+  ) => Promise<void>;
+  /**
+   * Closes an ended assignment task (release any held lease, then cancel) so its execution
+   * worktable slot leaves at stage end, not at squad convergence. Called only for attempts
+   * whose dispatch already reached an outcome or was rejected.
+   */
+  readonly settleChildTask: (
+    child: {
+      readonly squadRunId: string;
+      readonly taskId: string;
+      readonly workerId: string;
+      readonly runtimeSessionId: string | null;
+      readonly reason: string;
+    },
+    binding: RuntimeBinding,
   ) => Promise<void>;
   readonly createChildTask: (
     child: {
@@ -653,6 +669,38 @@ export function makeSquadCoordinator(input: {
     }
   }
 
+  /**
+   * Settles assignment tasks of ended attempts before the next leader turn: each leader
+   * callback drains the finished stage's worktable slots, so later stages and parallel
+   * squads are not blocked by assignments this run will never run again. A settlement
+   * failure is reported and retried on the next leader callback (the terminal-status
+   * check keeps it idempotent); it must not stall the run's progression.
+   */
+  async function settleEndedAssignments(state: SquadState): Promise<void> {
+    for (const { attempt, row } of workerRows(state)) {
+      if (!attempt.taskId || (attempt.rejection === null && (row === undefined || row.outcome === null))) continue;
+      const settled = input.query((projection) => projection.read(attempt.taskId!).snapshot.task?.status);
+      if (settled !== undefined && isTerminalStatus(settled)) continue;
+      try {
+        await input.settleChildTask(
+          {
+            squadRunId: state.squadRunId,
+            taskId: attempt.taskId,
+            workerId: attempt.workerId,
+            runtimeSessionId: attempt.runtimeSessionId,
+            reason: `Squad ${state.squadRunId} ended attempt ${attempt.attemptId} for worker ${attempt.workerId}; assignment lifecycle belongs to this run.`,
+          },
+          state.binding,
+        );
+      } catch (error) {
+        consumeKnownError(error);
+        console.warn(
+          `[squad] settling ended assignment ${attempt.taskId} failed: ${errorText(error)}; retrying on the next leader callback.`,
+        );
+      }
+    }
+  }
+
   function recordWorkerWait(state: SquadState, attempt: WorkerAttempt): SquadState {
     if (
       attempt.runtimeSessionId === null ||
@@ -700,6 +748,7 @@ export function makeSquadCoordinator(input: {
         });
         await writeState(state);
       }
+      await settleEndedAssignments(state);
       return await spawnLeader(state, trigger);
     } catch (error) {
       const failed = revise(state, {
