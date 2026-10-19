@@ -123,13 +123,17 @@ function parseTaskPublication(
   if (!nonEmpty(taskId)) return rejected("missing_field", `Run ha task ${id.slice("task-".length)} <task-id>.`, json);
   const flags = readFlags(id, args.slice(3), inputs);
   if (!flags.ok) return rejected(flags.code, flags.nextAction, json);
-  if (id === "task-pr" && !flags.booleans.has("--update") && !flags.one.has("--title"))
+  const waitCi = flags.booleans.has("--wait-ci"),
+    timeout = flags.one.get("--timeout");
+  if (id === "task-pr" && !waitCi && !flags.booleans.has("--update") && !flags.one.has("--title"))
     return rejected("missing_field", "Creating a task PR requires --title '<type>(<scope>): <summary>'.", json);
   return accepted(rootDir, repoId, json, {
     kind: id,
     taskId,
     ...(flags.booleans.has("--update") ? { update: true } : {}),
     ...(flags.one.has("--title") ? { title: flags.one.get("--title") } : {}),
+    ...(waitCi ? { waitCi: true } : {}),
+    ...(timeout !== undefined ? { timeoutMinutes: Number(timeout) } : {}),
   });
 }
 

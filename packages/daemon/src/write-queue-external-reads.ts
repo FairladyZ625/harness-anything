@@ -10,7 +10,7 @@ import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } f
 import { pushTaskWorkerBranch, workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
-import { createTaskPullRequest } from "./runtime-task-pr.ts";
+import { createTaskPullRequest, waitTaskPullRequestChecks } from "./runtime-task-pr.ts";
 import { cellCriterionError } from "./repo-cell-errors.ts";
 
 type QueuedPublication = ((
@@ -124,6 +124,10 @@ export function readBeforeWriteQueue(
     })();
   }
   if (action.kind === "task-pr") {
+    // --wait-ci parks this request for the whole CI run: the poll loop runs here, outside the write
+    // queue, and the queued turn only publishes the terminal receipt.
+    if (action.waitCi === true)
+      return waitTaskPullRequestChecks(context, action, binding).then((verdict) => async () => verdict);
     return (async () => {
       return async (_action: RepoTaskAction, _binding: RepoCellBinding) => {
         return createTaskPullRequest(context, _action, _binding);
