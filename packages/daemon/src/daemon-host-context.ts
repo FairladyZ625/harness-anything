@@ -20,6 +20,7 @@ import type { makeWarmingSettlement } from "./daemon-host-errors.ts";
 import type { RuntimeProviderHealthStore } from "./runtime-provider-health.ts";
 import type { RemoteProxyManager } from "./remote-proxy.ts";
 import type { WriterEpochFenceDescriptor, WriterEpochLease } from "./writer-epoch.ts";
+import type { openDecisionProviderService } from "./decision-provider.ts";
 
 export interface DaemonPoint extends JsonObject {
   readonly daemonId: string;
@@ -165,6 +166,7 @@ export interface DaemonHostApiContext extends HostMaps, DaemonHostAdmissionConte
   readonly scheduleScheduler: ReturnType<typeof makeScheduleScheduler>;
   readonly edgeRuntimeFor: (request: FleetEdgeRuntimeRequest["payload"]) => ReturnType<typeof openFleetEdgeRuntime>;
   readonly instances: ReturnType<typeof openRuntimeInstanceStore>;
+  readonly decisionProviders: ReturnType<typeof openDecisionProviderService>;
   readonly requiredText: typeof import("./daemon-host-status.ts").requiredText;
   readonly refreshRegistry: () => Promise<void>;
   /** Starts, restarts (changed fleet-edge.json) or stops each remote-edge replica stream. */

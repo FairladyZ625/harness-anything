@@ -2,6 +2,17 @@ export { currentActionEnvelopeVersion, validateActionEnvelope } from "./action-e
 export { validateRetiredCiRunObservationEvent } from "./ci-run-observation-retired-event.ts";
 export type { ActionEnvelope } from "./action-envelope.ts";
 export type { AuthorizationDecision } from "./receipt-frame.ts";
+export type {
+  AdvisoryDecision,
+  DecisionOption,
+  DecisionPortFailureCode,
+  DecisionProviderMetadata,
+  DecisionProviderProbe,
+  DecisionProviderRecord,
+  DecisionQuestion,
+  DecisionRequest,
+  DecisionUsage,
+} from "./decision-provider.ts";
 export {
   ENTITY_ACTION_EXPLANATION_SCHEMA,
   validateEntityActionExplainRequest,

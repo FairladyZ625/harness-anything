@@ -107,7 +107,15 @@ function writeDeclaredEntitySource(rootDir) {
   );
 }
 
-export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver, runtimeInstance }) {
+export async function openLane({
+  lane,
+  workspaceRoot,
+  env,
+  runRoot,
+  startDriver,
+  runtimeInstance,
+  decisionProviderCredentials,
+}) {
   if (lane === "canonical") {
     await warmDaemonProjection({ rootDir: workspaceRoot, workspaceRoot, env });
     const endpoint = resolveLocalDaemonEndpoint({
@@ -147,6 +155,7 @@ export async function openLane({ lane, workspaceRoot, env, runRoot, startDriver,
             daemonId: "g",
             repoId: "gui-e2e-catalog",
             runtimeInstance,
+            decisionProviderCredentials,
           }
         : {
             prefix: "hg-",

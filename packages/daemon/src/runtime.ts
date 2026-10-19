@@ -52,6 +52,7 @@ export async function startDaemon(input: {
   readonly openCell?: DaemonHostOpenInput["openCell"];
   readonly runtimeDiscover?: DaemonHostOpenInput["runtimeDiscover"];
   readonly runtimeEnv?: NodeJS.ProcessEnv;
+  readonly runtimeCredentialPort?: DaemonHostOpenInput["runtimeCredentialPort"];
   readonly managedRbac?: DaemonHostOpenInput["managedRbac"];
   /** Called after a build-superseded exit released everything, so the resident entry can hand the
    * slot to the disk build. */

@@ -29,6 +29,7 @@ import {
   isRepoGuiReadCall,
   isRuntimeInstanceAuthCall,
   isRuntimeInstanceCall,
+  isProviderCall,
   isTerminalActionCall,
   daemonStopRefusal,
   daemonStoppingRefusal,
@@ -444,6 +445,16 @@ export function createJsonRpcProtocolServer(options: {
         return reply(method, await options.host.runtimeInstance(method, params.payload, options.authContext));
       } catch (error) {
         return reply(method, protocolFailure(method, error));
+      }
+    }
+    if (isProviderCall(call)) {
+      try {
+        return reply(
+          call.method,
+          await options.host.decisionProvider(call.method, call.params.payload, options.authContext),
+        );
+      } catch (error) {
+        return reply(call.method, protocolFailure(call.method, error));
       }
     }
     if (isRuntimeInstanceAuthCall(call)) {

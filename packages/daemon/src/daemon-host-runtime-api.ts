@@ -51,6 +51,7 @@ export function createDaemonHostRuntimeApi(
   | "fleet"
   | "system"
   | "runtimeInstance"
+  | "decisionProvider"
   | "runtimeInstanceAuth"
 > {
   // Runtime orchestration (bounded batch window) is a host-level composer of
@@ -463,6 +464,29 @@ export function createDaemonHostRuntimeApi(
         ...(operation === "update" && payload.clearFreeze === true ? { providerHealthCleared: true } : {}),
         authorizationDecision: authorizationDecision as unknown as JsonObject,
       } as JsonObject;
+    },
+    decisionProvider: async (method, payload, auth) => {
+      context.localOnly(auth);
+      const operation = method.replace("daemon.provider.", ""),
+        actionKind = ["create", "list", "show", "update", "probe", "delete"].includes(operation)
+          ? `provider-${operation}`
+          : null;
+      if (!actionKind) throw context.hostCodedError("unsupported_command", `Unsupported provider method: ${method}.`);
+      const authorizeProvider = (kind: string) =>
+        requireAuthorizedFleetAction({
+          kind,
+          userRoot: context.input.userRoot,
+          auth,
+          actionId: `${kind}:${String(payload.providerId ?? "current")}`,
+          evaluatedAtCut: "host:current",
+        });
+      const authorizationDecision = await (actionKind === "provider-show"
+        ? authorizeProvider("provider-show")
+        : authorizeProvider(actionKind));
+      return {
+        ...((await context.decisionProviders.command({ ...payload, kind: actionKind })) as JsonObject),
+        authorizationDecision: authorizationDecision as unknown as JsonObject,
+      };
     },
     runtimeInstanceAuth: async (repoId, method, payload, auth) => {
       context.requireHostMode(repoId, ledgerWriteCommandTopology, auth);

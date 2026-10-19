@@ -60,6 +60,76 @@ test("permission request CLI parses self-request inputs and directs decisions to
   if (!decision.ok) assert.equal(decision.code, "unsupported_command");
 });
 
+test("Decisions provider CLI accepts only the approved provider type and credential inputs", () => {
+  const create = parseThinCommand([
+    "provider",
+    "create",
+    "--type",
+    "decisions",
+    "--id",
+    "review-choice",
+    "--name",
+    "Review choice",
+    "--model",
+    "openrouter/model-a",
+    "--credential-ref",
+    "credential:v1:test-key",
+    "--base-url",
+    "https://openrouter.ai",
+  ]);
+  assert.equal(create.ok, true);
+  if (create.ok) {
+    assert.equal(create.command.method, "daemon.provider.create");
+    assert.deepEqual(create.command.action, {
+      kind: "provider-create",
+      type: "decisions",
+      providerId: "review-choice",
+      name: "Review choice",
+      model: "openrouter/model-a",
+      baseUrl: "https://openrouter.ai",
+      credentialRef: "credential:v1:test-key",
+      enabled: true,
+    });
+  }
+  assert.equal(
+    parseThinCommand([
+      "provider",
+      "create",
+      "--type",
+      "llm",
+      "--id",
+      "a",
+      "--name",
+      "A",
+      "--model",
+      "m",
+      "--credential-ref",
+      "credential:v1:key",
+    ]).ok,
+    false,
+  );
+  assert.equal(
+    parseThinCommand(["provider", "create", "--type", "decisions", "--id", "a", "--name", "A", "--model", "m"]).ok,
+    false,
+  );
+  const update = parseThinCommand(["provider", "update", "review-choice", "--disable", "--clear-base-url"]);
+  assert.equal(update.ok, true);
+  if (update.ok)
+    assert.deepEqual(update.command.action, {
+      kind: "provider-update",
+      providerId: "review-choice",
+      baseUrl: "",
+      enabled: false,
+    });
+  assert.equal(parseThinCommand(["provider", "update", "review-choice"]).ok, false);
+  for (const operation of ["list", "show", "probe", "delete"]) {
+    const args = operation === "list" ? ["provider", operation] : ["provider", operation, "review-choice"],
+      parsed = parseThinCommand(args);
+    assert.equal(parsed.ok, true, `provider ${operation} should parse`);
+    if (parsed.ok) assert.equal(parsed.command.method, `daemon.provider.${operation}`);
+  }
+});
+
 test("top-level help renders a derived domain directory and domain help filters commands", () => {
   const help = renderThinHelp();
   assert.equal(
@@ -491,6 +561,14 @@ test("capabilities is an exact-set projection of the command contract", () => {
       "preset-uninstall",
       "preset-upgrade",
       "preset-validate",
+    ],
+    provider: [
+      "provider-create",
+      "provider-delete",
+      "provider-list",
+      "provider-probe",
+      "provider-show",
+      "provider-update",
     ],
     receipt: ["receipt-show"],
     relation: ["relation-list", "relation-reconfirm", "relation-relate", "relation-triples", "relation-unrelate"],

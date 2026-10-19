@@ -6,6 +6,7 @@ import {
   daemonGuiActionMethods,
   daemonGuiInvokeFacets,
   daemonStreamFacets,
+  providerMethods,
   runtimeInstanceAuthMethods,
   runtimeInstanceMethods,
 } from "./daemon-protocol-gui-actions.ts";
@@ -365,7 +366,7 @@ export const daemonProtocolMethods = Object.freeze([
 ] as const);
 
 /* Runtime instance method descriptors live in the browser-safe protocol graph. */
-export { daemonGuiInvokeFacets, runtimeInstanceAuthMethods, runtimeInstanceMethods };
+export { daemonGuiInvokeFacets, providerMethods, runtimeInstanceAuthMethods, runtimeInstanceMethods };
 
 export const fleetProtocolMethods = Object.freeze([
   {
@@ -483,6 +484,7 @@ export const fleetProtocolMethods = Object.freeze([
 export const allDaemonProtocolMethods = Object.freeze([
   ...daemonProtocolMethods,
   ...runtimeInstanceMethods,
+  ...providerMethods,
   ...runtimeInstanceAuthMethods,
   ...fleetProtocolMethods,
   ...presetMethods,
@@ -719,6 +721,7 @@ export default Object.freeze({
     "W5-GUI-S3",
     "Runtime-Instances-S1",
     "Runtime-Instances-S3",
+    "Decision-Provider",
     "Fleet-Wiring",
     "B2-S1",
     "G6-A",
@@ -751,6 +754,7 @@ export default Object.freeze({
   methods: Object.freeze([
     ...daemonProtocolMethods,
     ...runtimeInstanceMethods,
+    ...providerMethods,
     ...runtimeInstanceAuthMethods,
     ...fleetProtocolMethods,
     ...daemonGuiReadMethods,

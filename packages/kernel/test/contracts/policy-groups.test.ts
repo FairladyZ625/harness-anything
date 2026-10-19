@@ -24,8 +24,8 @@ test("every declaration has one minimum Base tier and one unique Keycloak scope"
   // dec_F01770FD0DCF72683B7C4C7A47/CH4: permission request lifecycle adds three host actions.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: runtime steering is a canonical action declaration.
-  // dec_4C06F7F902E91C4210020A9E75/CH2 removes the CI observation action declaration.
-  assert.equal(actionDeclarations.length, 152);
+  // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
+  assert.equal(actionDeclarations.length, 158);
   assert.equal(
     actionDeclarations.some(({ kind }) => kind === "ci-observe-pull" || kind === "task-ci"),
     false,

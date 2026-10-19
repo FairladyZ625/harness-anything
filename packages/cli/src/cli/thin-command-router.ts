@@ -10,6 +10,7 @@ import { accepted, nonEmpty, readFlags, rejected, rejectInput } from "./thin-com
 import { parsePreset } from "./thin-command-preset.ts";
 import { parseProjected, projectFlags } from "./thin-command-projection.ts";
 import { parseRuntimeInstance } from "./thin-command-runtime-instance.ts";
+import { parseProvider } from "./thin-command-provider.ts";
 import { parseRuntime } from "./thin-command-runtime.ts";
 import { parseSchedule } from "./thin-command-schedule.ts";
 import type { ProtocolCommand, ThinCliInputDirectory, ThinParseResult } from "./thin-command-types.ts";
@@ -34,6 +35,9 @@ function edgeJoinFields(f: Extract<ReturnType<typeof readFlags>, { ok: true }>):
   };
 }
 
+const parseProviderRoute: RoutedParser = (route, args, rootDir, _repoId, json, inputs) =>
+  parseProvider(route, args, rootDir, json, inputs);
+
 // Routes whose argv shape needs a dedicated parser, keyed by command id.
 const dedicatedRouteParsers = new Map<string, RoutedParser>([
   [
@@ -48,6 +52,12 @@ const dedicatedRouteParsers = new Map<string, RoutedParser>([
   ["work-list", parseWorkRead],
   ["work-show", parseWorkRead],
   ["agent-retire", parseAgentRetire],
+  ["provider-create", parseProviderRoute],
+  ["provider-delete", parseProviderRoute],
+  ["provider-list", parseProviderRoute],
+  ["provider-probe", parseProviderRoute],
+  ["provider-show", parseProviderRoute],
+  ["provider-update", parseProviderRoute],
 ]);
 
 function parseEdgeJoin(

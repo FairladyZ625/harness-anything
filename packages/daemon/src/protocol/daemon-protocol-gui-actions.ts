@@ -684,9 +684,88 @@ export const runtimeInstanceAuthMethods = Object.freeze([
   },
 ] as const);
 
+export const providerMethods = Object.freeze([
+  {
+    id: "daemon.provider.create",
+    phase: "Decision-Provider",
+    method: "daemon.provider.create",
+    requiresRepo: false,
+    commandClass: "admin",
+    params: shape({
+      payload: shape({
+        type: "string",
+        providerId: "string",
+        name: "string",
+        model: "string",
+        baseUrl: "string-or-empty?",
+        apiKey: "string?",
+        credentialRef: "string?",
+        enabled: "boolean?",
+      }),
+    }),
+    guiBridgeMethod: "createDecisionProvider",
+  },
+  {
+    id: "daemon.provider.list",
+    phase: "Decision-Provider",
+    method: "daemon.provider.list",
+    requiresRepo: false,
+    commandClass: "admin",
+    params: shape({ payload: shape({}) }),
+    guiBridgeMethod: "listDecisionProviders",
+  },
+  {
+    id: "daemon.provider.show",
+    phase: "Decision-Provider",
+    method: "daemon.provider.show",
+    requiresRepo: false,
+    commandClass: "admin",
+    params: shape({ payload: shape({ providerId: "string" }) }),
+    guiBridgeMethod: "showDecisionProvider",
+  },
+  {
+    id: "daemon.provider.update",
+    phase: "Decision-Provider",
+    method: "daemon.provider.update",
+    requiresRepo: false,
+    commandClass: "admin",
+    params: shape({
+      payload: shape({
+        providerId: "string",
+        name: "string?",
+        model: "string?",
+        baseUrl: "string-or-empty?",
+        apiKey: "string?",
+        credentialRef: "string?",
+        enabled: "boolean?",
+      }),
+    }),
+    guiBridgeMethod: "updateDecisionProvider",
+  },
+  {
+    id: "daemon.provider.probe",
+    phase: "Decision-Provider",
+    method: "daemon.provider.probe",
+    requiresRepo: false,
+    commandClass: "admin",
+    params: shape({ payload: shape({ providerId: "string" }) }),
+    guiBridgeMethod: "probeDecisionProvider",
+  },
+  {
+    id: "daemon.provider.delete",
+    phase: "Decision-Provider",
+    method: "daemon.provider.delete",
+    requiresRepo: false,
+    commandClass: "admin",
+    params: shape({ payload: shape({ providerId: "string" }) }),
+    guiBridgeMethod: "deleteDecisionProvider",
+  },
+] as const);
+
 export const daemonGuiInvokeFacets = Object.freeze([
   ...daemonGuiReadMethods,
   ...daemonGuiActionMethods,
   ...runtimeInstanceMethods.filter((method) => "guiBridgeMethod" in method),
   ...runtimeInstanceAuthMethods,
+  ...providerMethods,
 ]);
