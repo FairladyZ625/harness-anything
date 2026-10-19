@@ -141,9 +141,7 @@ test("Task explanations distinguish lifecycle state, actor capability, invocatio
       ownerComplete = row(explain(harness, ready, owner), "complete"),
       reviewerComplete = row(explain(harness, ready, reviewer), "complete");
     assert.equal(ownerComplete.available, true);
-    const missingFact = row(explain(harness, ready, owner, "allowed", 0), "complete");
-    assert.equal(missingFact.available, false);
-    assert.equal(criterion(missingFact, "closeout-readiness/closeoutReadiness").status, "unmet");
+    // dec_BB2BCE9F995CD3A126E2918734 CH4: no fact quota — completion readiness has no fact dimension.
     // Who may complete is the authorization decision's answer, not the task creator's identity.
     assert.equal(reviewerComplete.available, true);
     assert.equal(criterion(reviewerComplete, "task-lifecycle-review-transitions/complete.validate").status, "met");
@@ -187,7 +185,6 @@ function explain(
   snapshotValue: TaskLifecycleSnapshot,
   actor: ActorIdentity,
   outcome: "allowed" | "denied" = "allowed",
-  producesFactCount = 1,
 ): EntityActionExplanationSetV1 {
   const event = harness.eventStore
     .read()
@@ -227,9 +224,8 @@ function explain(
     completionContext: {
       closeout: "ready",
       closeoutPath: "tasks/task-1/closeout.md",
-      closeoutGates: { review: true, consent: true, fact: true, factDisposition: false, codeDoc: false },
+      closeoutGates: { review: true, consent: true, factDisposition: false, codeDoc: false },
       eligibleDirtyPaths: [],
-      producesFactCount,
     } satisfies CompletionReadinessContext,
   });
 }

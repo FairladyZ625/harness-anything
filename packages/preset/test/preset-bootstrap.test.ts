@@ -396,11 +396,10 @@ test("the lightweight profile materializes the minimal plan and closeout and fre
       assert.deepEqual(compiled.event.payload.task.closeoutOverrides, {
         review: false,
         consent: false,
-        fact: false,
       });
       const contract = JSON.parse(compiled.documents[1]!.body) as Record<string, unknown>;
       assert.equal(contract.archiveOnComplete, true);
-      assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false, fact: false });
+      assert.deepEqual(contract.closeoutOverrides, { review: false, consent: false });
       assert.deepEqual(compiled.snapshot.profile.completionGateIds, presetId === "docs-task" ? [] : ["ci"]);
       assert.deepEqual(compiled.lightweightPresetIds, ["docs-task", "standard-task", "worker-dispatch"]);
     }

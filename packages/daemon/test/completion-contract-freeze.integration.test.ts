@@ -132,7 +132,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
         .events.flatMap((event) =>
           event.schema === "task-bootstrap-event/v1" ? [event.payload.presetSnapshotClaim.digest] : [],
         )[0]!,
-      closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
+      closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
       gates: [
         {
           gateId: "ci",

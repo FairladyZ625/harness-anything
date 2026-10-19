@@ -38,7 +38,6 @@ export type CompletionBlockerCode =
   | "lease_held"
   | "doc_sync_required"
   | "gate_witness_missing"
-  | "fact_missing"
   | "fact_retirement_undeclared";
 export interface CompletionNext {
   readonly reason: string;
@@ -61,7 +60,6 @@ export interface CompletionReadinessContext {
   readonly closeoutPath: string;
   readonly closeoutMissingSections?: readonly TransitionDocumentMissingSection[];
   readonly eligibleDirtyPaths: readonly string[];
-  readonly producesFactCount: number;
   readonly projectionStatus?: "ready" | "pending";
   readonly preparedGateIds?: readonly string[];
   readonly authorization?: "allowed" | "denied";
@@ -279,7 +277,6 @@ function evaluateCompletion(
   const closeoutGates = context.closeoutGates ?? {
       review: true,
       consent: true,
-      fact: true,
       factDisposition: true,
       codeDoc: true,
     },
@@ -332,16 +329,6 @@ function evaluateCompletion(
       "lineage",
       `Identify the authorizing Decision claim in harness/${context.closeoutPath} Summary.`,
       `A ${task.taskClass} task completes only with an active decision derives edge; no active edge names this task.`,
-    );
-  // The Fact-production requirement is task-bound: a profile that declared `fact: false`
-  // (lightweight) closes its loop with the closeout verification record instead.
-  if (closeoutGates.fact !== false && context.producesFactCount < 1)
-    return one(
-      "fact_missing",
-      "facts",
-      `ha fact record --task ${task.taskId} --statement "<what changed and why it matters>" --source "<evidence path or observation>" --confidence high`,
-      "Describe the system's observable change and cite its evidence in a Fact. " +
-        "Keep execution recaps and test counts in closeout Verification; the Fact should explain what is now true.",
     );
   if (context.closeout !== "ready" && context.closeout !== "dirty_eligible")
     return one(
