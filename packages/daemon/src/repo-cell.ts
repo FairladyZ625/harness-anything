@@ -10,10 +10,13 @@ import {
   makeTaskEventStore,
   makeTaskProjection,
   resolveHarnessLayout,
+  resolveActiveGeneration,
+  sqliteLedgerPath,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import { removeFileDurably } from "./durable-file.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
@@ -91,6 +94,31 @@ export interface RepoCellCore {
 
 export async function initializeRepoCell(context: RepoCellCoreInput): Promise<RepoCellCore> {
   let projection: ReturnType<typeof makeTaskProjection> | null = null;
+  // A remote edge is read-only against the center's replica. Its prior local ledger is disposable;
+  // canonical repositories still go through the kernel's strict offline-conversion requirement.
+  if (context.mode === "remote-edge") {
+    try {
+      resolveActiveGeneration({ rootInput: context.rootDir, repoId: context.input.repoId });
+    } catch (error) {
+      consumeKnownError(error);
+      const generationTwo = sqliteLedgerPath(context.rootDir, 2);
+      const isIncompleteUpgrade =
+        error instanceof Error &&
+        error.name === "TaskEventStoreError" &&
+        "code" in error &&
+        error.code === "invalid_store" &&
+        error.message.startsWith("generation 3 upgrade is incomplete;");
+      if (!isIncompleteUpgrade || !existsSync(generationTwo)) throw error;
+      for (const stalePath of [
+        generationTwo,
+        `${generationTwo}-wal`,
+        `${generationTwo}-shm`,
+        `${generationTwo}.activation.json`,
+        `${generationTwo}.import-source.json`,
+      ])
+        removeFileDurably(stalePath);
+    }
+  }
   // Maintenance pins and the commit guard both belong to the ledger repository, never the project
   // repository around it: the pins tune the WAL write path, and refusing a project commit is the
   // exact harm the guard exists to prevent.
