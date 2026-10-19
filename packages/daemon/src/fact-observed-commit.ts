@@ -1,7 +1,6 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { makeGitReadinessSource } from "./process-port.ts";
-import { reject } from "./entity-action-relation.ts";
 
 /**
  * dec_BB2BCE9F995CD3A126E2918734 CH4: every recorded Fact names the commit it was observed
@@ -9,7 +8,9 @@ import { reject } from "./entity-action-relation.ts";
  * execution has its managed worktree under this node's `.worktrees/<taskId>` and that
  * checkout's HEAD is the observation point; every other record is observed against the
  * canonical checkout's HEAD (the default-branch checkout this cell serves). A checkout that
- * exists but cannot name its HEAD fails closed instead of recording an unanchored Fact.
+ * cannot name a commit (a git-less workspace, or a freshly initialized one with an unborn
+ * HEAD — the quickstart path) records without an anchor, exactly like every fact recorded
+ * before this field existed; the anchor is observed metadata, never a write precondition.
  */
 export function withObservedCommit<T extends Readonly<Record<string, unknown>>>(
   rootDir: string,
@@ -21,20 +22,8 @@ export function withObservedCommit<T extends Readonly<Record<string, unknown>>>(
     worktree = taskId ? path.join(rootDir, ".worktrees", taskId) : null;
   if (worktree !== null && existsSync(worktree)) {
     const head = git.run(worktree, ["rev-parse", "HEAD"]);
-    if (!head.ok) {
-      reject(
-        "invalid_command",
-        `Cannot resolve the observation commit: git rev-parse HEAD failed in the task worktree ${worktree}.`,
-      );
-    }
-    return { ...action, observedCommit: head.stdout };
+    if (head.ok) return { ...action, observedCommit: head.stdout };
   }
   const canonical = git.run(rootDir, ["rev-parse", "HEAD"]);
-  if (!canonical.ok) {
-    reject(
-      "invalid_command",
-      `Cannot resolve the observation commit: git rev-parse HEAD failed in the canonical checkout ${rootDir}.`,
-    );
-  }
-  return { ...action, observedCommit: canonical.stdout };
+  return canonical.ok ? { ...action, observedCommit: canonical.stdout } : action;
 }
