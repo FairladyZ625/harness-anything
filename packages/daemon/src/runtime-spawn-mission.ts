@@ -429,7 +429,7 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
   return body ? body : null;
 }
 
-/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. */
+/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. Reviewer bindings keep the guidance but carry no worker delivery contract: their role is read-only review, not delivery. */
 export function explicitPromptMission(
   taskId: string | null,
   causalContext: string | null,
@@ -438,9 +438,10 @@ export function explicitPromptMission(
   prBodyPath: string | null = null,
   taskClass?: string,
   ownerReturnBody: string | null = null,
+  reviewerBinding: boolean = false,
 ): string {
-  const protocol = taskId === null ? null : livingDeliverableProtocol(profileId, taskClass),
-    prProtocol = taskId === null ? null : prBodyDeliveryProtocol(prBodyPath);
+  const protocol = taskId === null || reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass),
+    prProtocol = taskId === null || reviewerBinding ? null : prBodyDeliveryProtocol(prBodyPath);
   return [
     ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
     ...(prProtocol === null ? [] : [prProtocol]),
@@ -450,7 +451,8 @@ export function explicitPromptMission(
   ].join("\n\n");
 }
 
-/** The package root is named as the worker reaches it from `cwd`, the root it runs in. */
+/** The package root is named as the worker reaches it from `cwd`, the root it runs in. Reviewer
+ * bindings keep the task guidance but carry no worker delivery contract. */
 export function deriveTaskMission(
   rootDir: string,
   cwd: string,
@@ -459,6 +461,7 @@ export function deriveTaskMission(
   transition: "runtime.run" | "squad.run",
   missionName?: string,
   causalContext?: string | null,
+  reviewerBinding: boolean = false,
 ): {
   readonly mission: string;
   readonly packageRoot: string;
@@ -482,8 +485,10 @@ export function deriveTaskMission(
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
-    livingProtocol = livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
-    prProtocol = prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
+    livingProtocol = reviewerBinding
+      ? null
+      : livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
+    prProtocol = reviewerBinding ? null : prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
     ownerReturnBody = priorOwnerReturnBody(projection, taskId),
     mission = [
       `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
@@ -515,6 +520,7 @@ export function missionAt(
         readonly missionName: string | undefined;
         readonly causalContext: string | null;
       },
+  reviewerBinding: boolean = false,
 ): { readonly mission: string; readonly packageRoot: string } {
   if ("projection" in source)
     return deriveTaskMission(
@@ -525,6 +531,7 @@ export function missionAt(
       "runtime.run",
       source.missionName,
       source.causalContext,
+      reviewerBinding,
     );
   const packageRoot = workerLedgerPath(rootDir, cwd, source.packageRoot);
   return { packageRoot, mission: source.mission(packageRoot) };
@@ -663,7 +670,9 @@ export function resolveRuntimeMission(input: {
     missionProfileId = remoteTask?.profileId ?? taskSnapshot?.task?.metadata?.profileId ?? null,
     // A re-dispatched worker answers the latest owner return, so its mission carries the managed
     // rework record verbatim — from the center's serving read remotely, from the projection
-    // locally. Reviewers bind to a submitted cut instead, so their missions never carry it.
+    // locally. Reviewers bind to a submitted cut instead, so their missions never carry it, and
+    // the same binding omits the worker delivery contracts (living deliverable, PR body) from
+    // every task-bound assembly path.
     ownerReturnBody =
       taskId === null || input.reviewerBinding
         ? null
@@ -671,7 +680,7 @@ export function resolveRuntimeMission(input: {
           ? remoteTask.ownerReturnBody
           : priorOwnerReturnBody(projection, taskId),
     taskMission = taskId
-      ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext })
+      ? missionAt(rootDir, cwd, remoteTask ?? { projection, taskId, missionName, causalContext }, input.reviewerBinding)
       : null;
   return {
     taskMission,
@@ -686,6 +695,7 @@ export function resolveRuntimeMission(input: {
             remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection, taskId) : null,
             remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             ownerReturnBody,
+            input.reviewerBinding,
           ),
   };
 }

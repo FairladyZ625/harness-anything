@@ -188,6 +188,11 @@ test(
       assert.equal(read.outcome, "applied", JSON.stringify(read));
       assert.equal(read.evidence, "Corrected job=41; SQL range 0–336h.\n");
       assert.match(f.launches[0]!.prompt, /ha task show.*--json/u);
+      assert.doesNotMatch(
+        f.launches[0]!.prompt,
+        /# Living Deliverable Protocol|# PR Body Delivery Protocol/u,
+        "reviewer dispatches carry no worker delivery protocols",
+      );
     } finally {
       await f.close();
     }

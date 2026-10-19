@@ -5,6 +5,7 @@ import { INITIAL_SETTINGS_V1 } from "@harness-anything/kernel";
 import {
   assembleScheduledMission,
   assembleTaskMission,
+  assembleUnboundPrompt,
   dispatchMissionForWorkerPermissions,
   explicitPromptMission,
   livingDeliverableProtocol,
@@ -122,6 +123,33 @@ test("PR body protocol follows the document slot, including lightweight explicit
     explicitPromptMission(null, null, "Go.", "baseline", "artifacts/pr-body.md"),
     /PR Body Delivery/u,
   );
+});
+
+test("reviewer task-bound missions keep the guidance and Reviewer Role but omit both worker delivery protocols", () => {
+  const reviewerMission = explicitPromptMission(
+      "task_x",
+      null,
+      "Review the submitted cut.",
+      "baseline",
+      "artifacts/pr-body.md",
+      undefined,
+      null,
+      true,
+    ),
+    reviewerPrompt = assembleUnboundPrompt(reviewerMission, "reviewer");
+  assert.match(reviewerPrompt, /# Reviewer Role/u, "the reviewer role contract still rides the dispatch");
+  assert.match(reviewerMission, /# 台账查询引导/u, "the lookup guidance is not reviewer-specific");
+  assert.doesNotMatch(reviewerMission, /# Living Deliverable Protocol/u);
+  assert.doesNotMatch(reviewerMission, /explainer\.html/u);
+  assert.doesNotMatch(reviewerMission, /# PR Body Delivery Protocol/u);
+  assert.doesNotMatch(reviewerMission, /ha task push/u, "reviewers never publish the task branch");
+  assert.ok(reviewerMission.endsWith("Review the submitted cut."), "explicit caller text stays intact");
+
+  const workerPrompt = assembleUnboundPrompt(
+    explicitPromptMission("task_x", null, "Do the work.", "baseline", "artifacts/pr-body.md"),
+  );
+  assert.match(workerPrompt, /# Living Deliverable Protocol/u, "worker dispatches keep the living protocol");
+  assert.match(workerPrompt, /# PR Body Delivery Protocol/u, "worker dispatches keep the PR body protocol");
 });
 
 test("work missions omit the task maintenance protocol because work explainers are derived", () => {
