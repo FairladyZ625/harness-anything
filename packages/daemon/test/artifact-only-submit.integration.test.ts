@@ -133,10 +133,11 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
     assert.equal(forward.outcome, "applied", JSON.stringify(forward));
     await waitForFixturePublication(cell, forward.opId, holder);
     if (!artifact && !hasPublicDiff) {
+      // dec_BB2BCE9F995CD3A126E2918734 CH4: no fact quota — the strict cut waits on review, not facts.
       const completed = await cell.run({ kind: "task-complete", taskId, executionId }, holder);
       assert.equal(completed.outcome, "op_rejected", JSON.stringify(completed));
-      assert.equal(completed.code, "fact_missing");
-      assert.doesNotMatch(JSON.stringify(completed), /code_doc_missing/);
+      assert.equal(completed.code, "review_missing");
+      assert.doesNotMatch(JSON.stringify(completed), /fact_missing|code_doc_missing/);
       assert.deepEqual(completed.gateChecks, [
         { gate: "code-doc-reconciliation", status: "not_applicable", witnessRef: null },
       ]);
@@ -208,7 +209,7 @@ async function submitBaselineTask(artifact: boolean, publicChange?: "add" | "del
 
 test("a real artifact-only task submits without claiming its baseline merge paths", () => submitBaselineTask(true));
 
-test("a closeout-only no-diff task completes after review, consent and a Fact", () => submitBaselineTask(false));
+test("a closeout-only no-diff task completes after review and consent", () => submitBaselineTask(false));
 
 test("an empty public commit cannot force a merge requirement for a no-diff delivery", () =>
   submitBaselineTask(true, "empty-commit"));

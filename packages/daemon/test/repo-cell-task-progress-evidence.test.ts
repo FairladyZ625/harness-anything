@@ -201,9 +201,8 @@ test("complete without a code-doc witness stops on code_doc_missing under its ow
         closeout: "ready",
         closeoutPath: `${packagePath}/closeout.md`,
         eligibleDirtyPaths: [],
-        producesFactCount: 1,
         projectionStatus: "ready",
-        closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
+        closeoutGates: { review: false, consent: false, factDisposition: false, codeDoc: true },
       },
       cell = {
         rootDir: root,
