@@ -88,9 +88,10 @@ references it.
 GitHub and GitLab task delivery are supported. GitHub tokens need repository
 contents write access for pushes; GitLab tokens need `write_repository` for
 pushes. The daemon resolves the provider-specific reference and supplies the
-token only to its own git/API operation. Workers need their own authenticated
-platform CLI session to inspect checks and failure logs (for GitHub, `gh pr
-checks` and `gh run view --log-failed`). Provider selection is inferred from
+token only to its own git/API operation. Workers wait for checks with
+`ha task pr <task-id> --wait-ci`, which reads through the daemon-held
+credential; inspecting a failure with `gh run view --log-failed` uses the
+worker's own platform CLI session. Provider selection is inferred from
 `origin`; declare `hosting.provider` and `hosting.host` in repository settings
 for an unrecognized or self-hosted GitLab host. GitLab CI uses REST API v4 and
 does not require `glab` for daemon-managed publishing (see [Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)).

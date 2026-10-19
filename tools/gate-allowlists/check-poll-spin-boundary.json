@@ -116,6 +116,12 @@
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",
         "reason": "Existing polling or synchronous bridge at the CH3 baseline."
+      },
+      {
+        "key": "packages/daemon/src/runtime-task-pr.ts#waitTaskPullRequestChecks#await-in-loop",
+        "event": "GitHub Checks and GitLab pipelines expose no push event for check completion; the hosting-provider port only answers on read, so the single CI wait loop polls it on a fixed interval (task_304b2182cddabb68f2f5fadfed)",
+        "ref": "dec_EF5F3820E81FB8A5266F1F3342",
+        "reason": "New daemon-side CI wait loop for ha task pr --wait-ci; interval and timeout are constants, no settings. Owner-approved direction, 2026-10-19."
       }
     ]
   }

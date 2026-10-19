@@ -431,7 +431,9 @@ export function prBodyDeliveryProtocol(documentPath: string | null): string | nu
       "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
     "- 随 ha doc sync --submit --task 同步正文与 closeout，然后 `ha task push <task-id>` 发布本任务分支、" +
       "`ha task pr <task-id>` 创建 PR；后续正文修改先重新 doc sync，再用 `ha task pr --update` 更新，都仍在 submit 之前。",
-    "- 等该交付 SHA 的 PR CI 全绿后才执行 ha task submit：submit 冻结 cut，之后工人写入一律被拒，所以 submit 是最后一步；" +
+    "- PR 创建后用 `ha task pr <task-id> --wait-ci` 阻塞等该交付 SHA 的 CI 出结论（退出码 0 绿 / 1 红 / 2 超时，输出一行），" +
+      "不要自己用 gh、curl 或平台 API 反复轮询 checks；全绿后才执行 ha task submit：" +
+      "submit 冻结 cut，之后工人写入一律被拒，所以 submit 是最后一步；" +
       "提交自动冻结中心已接受的任务 artifacts，无需在 Summary 手写交付物锚；CEO 负责评审与合并。",
   ].join("\n");
 }

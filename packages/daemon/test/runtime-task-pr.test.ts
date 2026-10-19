@@ -70,8 +70,8 @@ for (const update of [false, true])
     assert.match(receipt.evidence!, /pull\/1/u);
     assert.deepEqual(receipt.next, [
       {
-        command: `gh pr checks https://github.com/fixture/repo/pull/1 --watch`,
-        reason: "the PR's checks are the delivery authority; read and fix failures before ha task submit",
+        command: `ha task pr task-pr --wait-ci`,
+        reason: "the single quiet CI wait; it prints one line and its exit 0/1/2 says green/failed/timeout",
       },
     ]);
   });

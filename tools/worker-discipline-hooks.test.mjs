@@ -180,7 +180,10 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.doesNotMatch(body, /ha doc sync --submit .*--(?:path|execution-id)/u);
     assert.doesNotMatch(body, /Do not push|不要 push/u);
     // The CI loop is the only delivery path: wait for a verdict, triage red against main, fix.
-    assert.match(body, /gh pr checks <PR-number> --watch/u);
+    // The wait is the CLI's quiet blocking command; the template must not teach worker-side polling.
+    assert.match(body, /ha task pr <task-id> --wait-ci/u);
+    assert.doesNotMatch(body, /gh pr checks <PR-number> --watch/u);
+    assert.match(body, /Do not poll checks yourself|不要自己用/u);
     assert.match(body, /ha task pr <task-id>/u);
     assert.match(body, /unverified/u);
     assert.match(body, /PR 冲突|conflicting pull request/u);
