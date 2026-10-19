@@ -1044,7 +1044,7 @@ test("terminal settlement reports the branch and head its worker push published"
       }
       return {};
     });
-  await publishExit({ ...settleContext, input: centerWitnessInput(fixture) }, runtime, 0);
+  await publishExit(settleContext, runtime, 0);
   const head = git(fixture.worker, "rev-parse", "HEAD").trim(),
     expectedBody = `worker delivery\n\nWorker branch pushed at settlement: ${fixtureTaskId} @ ${head}`;
   assert.deepEqual(outcomeBodies, [expectedBody]);
@@ -1076,7 +1076,6 @@ test("terminal settlement publishes the submitted commit when worker HEAD advanc
   await publishExit(
     {
       ...settleContext,
-      input: centerWitnessInput(fixture),
       requiredRuntimeProjection: () => deliveryProjection(submittedCommitSha, "repository-diff", [], [], true),
     },
     runtime,
@@ -1124,39 +1123,43 @@ test("an edge settlement cannot overwrite the submit cut with a later worker HEA
   assert.equal(git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(), accepted);
 });
 
-test("terminal settlement marks a pushed-branch exit without submission as an undelivered stop", async (context) => {
-  // The incident this pins: the worker pushed its branch mid-work, said "I will add one more test",
-  // and exited; branch commits must not restate an undelivered stop as succeeded
-  // (dec_614F7BBB18C8687E7EFC72173D RJ1).
-  const fixture = workerGitFixture(context, "settle-unsubmitted-closeout", { reachableRemote: true }),
-    runtime = workerSettlementRuntime(fixture, { finalText: "我会再加一个 admission 层回归测试，然后再跑一遍" }),
-    outcomeBodies: string[] = [],
-    outcomes: Record<string, unknown>[] = [],
-    settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
-      if (type === "runtime_session_outcome_observed") {
-        outcomes.push(payload);
-        outcomeBodies.push(String(body));
-      }
-      return {};
-    });
-  await publishExit(
-    {
-      ...settleContext,
-      input: centerWitnessInput(fixture),
-      requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], true),
-    },
-    runtime,
-    0,
-  );
-  assert.equal(outcomes[0]?.outcome, "stopped");
-  assert.match(outcomeBodies[0]!, /Task task_0123456789abcdef01234567 is not submitted/u);
-  assert.match(outcomeBodies[0]!, /ha task start task_0123456789abcdef01234567/u);
-  assert.equal(
-    git(fixture.bare, "for-each-ref", "--format=%(refname)", `refs/heads/${fixtureTaskId}`),
-    "",
-    "an undelivered stop publishes no branch",
-  );
-});
+for (const closeoutRecorded of [false, true]) {
+  test(`terminal settlement marks a pushed-branch exit without submission as stopped (closeout: ${closeoutRecorded})`, async (context) => {
+    // The incident this pins: the worker pushed its branch mid-work, said "I will add one more test",
+    // and exited; branch commits must not restate an undelivered stop as succeeded
+    // (dec_614F7BBB18C8687E7EFC72173D RJ1).
+    const fixture = workerGitFixture(context, "settle-unsubmitted-closeout", { reachableRemote: true }),
+      runtime = workerSettlementRuntime(fixture, { finalText: "我会再加一个 admission 层回归测试，然后再跑一遍" }),
+      outcomeBodies: string[] = [],
+      outcomes: Record<string, unknown>[] = [],
+      settleContext = workerSettlementContext(fixture, async (type, payload = {}, _opId?, _binding?, body?) => {
+        if (type === "runtime_session_outcome_observed") {
+          outcomes.push(payload);
+          outcomeBodies.push(String(body));
+        }
+        return {};
+      });
+    const pushed = git(fixture.worker, "rev-parse", "HEAD").trim();
+    git(fixture.worker, "push", "--quiet", "origin", `HEAD:refs/heads/${fixtureTaskId}`);
+    git(fixture.worker, "commit", "--allow-empty", "-qm", "later unsubmitted work");
+    await publishExit(
+      {
+        ...settleContext,
+        requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], closeoutRecorded),
+      },
+      runtime,
+      0,
+    );
+    assert.equal(outcomes[0]?.outcome, "stopped");
+    assert.match(outcomeBodies[0]!, /Task task_0123456789abcdef01234567 is not submitted/u);
+    assert.match(outcomeBodies[0]!, /ha task start task_0123456789abcdef01234567/u);
+    assert.equal(
+      git(fixture.bare, "rev-parse", `refs/heads/${fixtureTaskId}`).trim(),
+      pushed,
+      "an undelivered stop must not advance the published branch",
+    );
+  });
+}
 
 test("terminal settlement keeps a clean task exit unknown without its execution delivery", async (context) => {
   const fixture = workerGitFixture(context, "settle-no-delivery", { reachableRemote: true, delivery: false }),
@@ -1182,7 +1185,6 @@ test("terminal settlement accepts an already submitted commitless task delivery"
   await publishExit(
     {
       ...settleContext,
-      input: centerWitnessInput(fixture),
       requiredRuntimeProjection: () => deliveryProjection(null, "repository-diff", [], [], false, true),
     },
     runtime,
@@ -1206,7 +1208,6 @@ test("terminal settlement accepts a center-accepted task-package artifact", asyn
   await publishExit(
     {
       ...settleContext,
-      input: centerWitnessInput(fixture),
       requiredRuntimeProjection: () =>
         deliveryProjection(
           null,
@@ -1527,7 +1528,7 @@ test("terminal settlement names the branch when the worker push fails", async (c
       }
       return {};
     });
-  await publishExit({ ...settleContext, input: centerWitnessInput(fixture) }, runtime, 0);
+  await publishExit(settleContext, runtime, 0);
   assert.equal(outcomeBodies.length, 1);
   assert.match(
     outcomeBodies[0],
@@ -1561,7 +1562,7 @@ test("terminal settlement refuses to publish a worker commit outside the convent
     "feat: stale worker change",
   );
   const staleHead = git(fixture.worker, "rev-parse", "HEAD").trim();
-  await publishExit({ ...settleContext, input: centerWitnessInput(fixture) }, runtime, 0);
+  await publishExit(settleContext, runtime, 0);
   assert.equal(outcomeBodies.length, 1);
   assert.match(
     outcomeBodies[0],
@@ -1757,7 +1758,6 @@ function workerSettlementContext(
       rootDir: fixture.canonical,
       now: () => "2026-09-14T00:01:00.000Z",
       stream: { publish: () => ({}) },
-      remote: { archive: async () => ({ outcome: "applied" }) },
       // This node holds a projection; `requiredRuntimeProjection` below is the read every test steers.
       projection: () => deliveryProjection(null),
       remote: { archive: async () => ({ outcome: "applied" }) },
@@ -1772,19 +1772,6 @@ function workerSettlementContext(
     requiredRuntimeStore: () => ({}) as never,
     publishRuntimeEvent,
   } as unknown as RuntimeSpawnerContext;
-}
-
-/** Center-faithful settlement input: the delivery witness sees no remote transport (a center has
- * none), while the archive still travels it. The first read happens inside the witness. */
-function centerWitnessInput(fixture: WorkerGitFixture): Record<string, unknown> {
-  const remoteArchive = { archive: async () => ({ outcome: "applied" }) };
-  return {
-    ...workerSettlementContext(fixture, async () => ({})).input,
-    remoteReads: 0,
-    get remote() {
-      return this.remoteReads++ === 0 ? undefined : remoteArchive;
-    },
-  };
 }
 
 function deliveryProjection(

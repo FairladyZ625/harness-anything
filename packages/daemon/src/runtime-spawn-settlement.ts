@@ -559,7 +559,7 @@ async function runtimeDeliveryWitness(context: RuntimeSpawnerContext, active: Ac
     return true;
   // Remote-edge settlement has no local canonical projection. Its repo-root fixtures also have no
   // repository-diff witness; absence must settle unknown rather than abort terminal publication.
-  if (context.input.remote) return false;
+  if (!context.input.projection) return false;
   const projection = context.requiredRuntimeProjection(context.input),
     snapshot = projection.read(active.task.taskId).snapshot,
     submission = snapshot.executions.find(

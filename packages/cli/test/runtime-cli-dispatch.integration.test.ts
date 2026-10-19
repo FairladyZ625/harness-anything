@@ -553,6 +553,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   const { parent, root, env, userRoot, daemonId } = fixture;
   installIdentities(parent, root, env);
   const { taskId, executionId, packagePath, artifactRoot } = seedTask(root, env, "mission");
+  const stopGuidance =
+    `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
+    `Reopen the execution to re-dispatch with: ha task start ${taskId}`;
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const existingMissionPath = `${packagePath}/artifacts/missions/existing-mission.md`;
   const pathLikeMission = runMaybe(root, env, [
@@ -611,7 +614,8 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assert.equal(promptFile.status, 1, JSON.stringify(promptFile));
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
-      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nexisting mission`,
+      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nexisting mission` +
+        stopGuidance,
     ),
   );
   const promptFileDispatchId = String((promptFile.receipt.spawn as Record<string, unknown>).dispatchId);
@@ -648,7 +652,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     readdirSync(path.join(artifactRoot, "missions")).sort(),
     ["existing-mission.md", `${promptFileDispatchId}.md`, `${reusedDispatchId}.md`].sort(),
   );
-  assert.equal(reusedReport, `final:${reusedMission}`);
+  assert.equal(reusedReport, `final:${reusedMission}${stopGuidance}`);
   assertTaskMissionPrompt(reusedMission, {
     repoId: "runtime-cli",
     taskId,
@@ -678,7 +682,8 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     derivedText,
     /^final:# Agent Identity: Terra \(terra\).*# Harness Execution Discipline.*# Worker Role/su,
   );
-  assertTaskMissionPrompt(derivedText.slice("final:".length), {
+  assert.ok(derivedText.endsWith(stopGuidance), "an unsubmitted exit must carry its continuation entry");
+  assertTaskMissionPrompt(derivedText.slice("final:".length, -stopGuidance.length), {
     repoId: "runtime-cli",
     taskId,
     workerRoot: realpathSync(root),
