@@ -107,16 +107,10 @@ test("the guidance points at the injected <task-context> block and the protocol 
 test("PR body protocol follows the document slot, including lightweight explicit dispatch", () => {
   const mission = explicitPromptMission("task_x", null, "Go.", "lightweight", "artifacts/pr-body.md");
   assert.match(mission, /# PR Body Delivery Protocol/u);
-  assert.match(mission, /Architectural Justification/u);
-  assert.match(mission, /cost-budget\.mjs/u);
-  assert.match(mission, /production-delta\.mjs/u);
-  assert.match(mission, /check-pr-body-bilingual\.mjs --file/u);
-  assert.match(mission, /自动冻结/u);
-  // Delivery and base anchors stay machine-derived: a hand-copied SHA goes stale the moment
-  // a commit is appended and re-submitted (PR #3546 rejection).
-  assert.match(mission, /从冻结的 submission 记录派生/u);
-  assert.match(mission, /execution 的 Commit 字段/u);
-  assert.match(mission, /不要把任何 SHA 手抄进 closeout 或 PR 正文/u);
+  assert.match(mission, /pull_request_template.md/u);
+  assert.match(mission, /实测适用成本与 Production-Delta/u);
+  assert.match(mission, /check-pr-body-bilingual/u);
+  assert.match(mission, /交付与基准锚由 submission 派生/u);
   assert.doesNotMatch(mission, /Artifact-Anchor/u);
   assert.doesNotMatch(explicitPromptMission("task_x", null, "Go.", "baseline"), /# PR Body Delivery Protocol/u);
   assert.doesNotMatch(
@@ -133,7 +127,7 @@ test("reviewer task-bound missions keep the guidance and Reviewer Role but omit 
       "baseline",
       "artifacts/pr-body.md",
       undefined,
-      null,
+      "Fix the implementation first.",
       true,
     ),
     reviewerPrompt = assembleUnboundPrompt(reviewerMission, "reviewer");
@@ -142,6 +136,7 @@ test("reviewer task-bound missions keep the guidance and Reviewer Role but omit 
   assert.doesNotMatch(reviewerMission, /# Living Deliverable Protocol/u);
   assert.doesNotMatch(reviewerMission, /explainer\.html/u);
   assert.doesNotMatch(reviewerMission, /# PR Body Delivery Protocol/u);
+  assert.doesNotMatch(reviewerMission, /# Owner rework instruction|Fix the implementation first./u);
   assert.doesNotMatch(reviewerMission, /ha task push/u, "reviewers never publish the task branch");
   assert.ok(reviewerMission.endsWith("Review the submitted cut."), "explicit caller text stays intact");
 

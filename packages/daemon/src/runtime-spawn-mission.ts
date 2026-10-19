@@ -349,14 +349,8 @@ export async function prepareRuntimeInstance<T>(
 export function taskQueryGuidance(taskId: string): string {
   return [
     "# 台账查询引导",
-    "- 动手前先读任务包 task_plan.md 与已注入的 <task-context> 因果上下文；其中 work、parent、decision、fact 和 refs " +
-      "提供本任务的关系背景，不要求先查询全仓图。",
-    `- 本任务阅读集合用 ha task read-set ${taskId} 查；按任务契约、read-set 和注入上下文点名的路径读取资料。`,
-    `- 需要核对本任务状态时用 ha task show ${taskId}；其他命令仅按本次 dispatch 已授权范围调用。`,
-    "- 受限执行凭据绑定本 task/execution，不授予 graph、Work 全貌、跨任务查询或创建任务的权限；" +
-      "不得清除凭据、切换身份或申请扩大权限来执行这些查询。",
-    "- 未注入因果块不表示查询故障，也不要求补查图。资料不足或需要跨任务背景时，向 owner 报告具体缺项，" +
-      "由 owner 按已授权范围提供；不要猜测。",
+    `- 先读 task_plan.md、已注入的 <task-context> 与 ha task read-set ${taskId} 点名的资料；` +
+      `本任务状态用 ha task show ${taskId} 查。资料不足时向 owner 报告具体缺项。`,
   ].join("\n");
 }
 
@@ -391,19 +385,10 @@ export function prBodyDeliveryProtocol(documentPath: string | null): string | nu
   return [
     "# PR Body Delivery Protocol",
     `- 本任务持有 task.pr-body 文档槽：\`${documentPath}\`（任务包内路径）。`,
-    "- 在 closeout 与 ha task submit 之前，按 .github/pull_request_template.md 完整填写该正文；" +
-      "保留全部模板标题与 English / 中文 两块，填写真实交付事实，包括 Architectural Justification / 架构辩护。",
-    "- 涉及写入路径时，在同一隔离环境分别对 base 与 head 运行 node tools/gates/cost-budget.mjs，" +
-      "将实测 200/2000 的 G1 全操作、五指标前后计数填入 Per-Write Cost 表；不得用预算值或猜测值代替。",
-    "- Production-Delta 用 node tools/gates/production-delta.mjs --base origin/main 实算；" +
-      "机读声明只写真实适用项。未运行的验证、CI 与现场验收明确标为 unverified。",
-    "- 交付 SHA、base SHA 这类锚一律从冻结的 submission 记录派生（execution 的 Commit 字段）；" +
-      "不要把任何 SHA 手抄进 closeout 或 PR 正文——追加一个 commit 再 submit 后，手抄的锚就会过期，" +
-      "评审只以 submission 记录为准。",
-    `- 运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/${documentPath}，` +
-      "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
-    "- 随 ha doc sync --submit --task 同步正文与 closeout，再执行 ha task submit；" +
-      "提交自动冻结中心已接受的任务 artifacts，无需在 Summary 手写交付物锚。",
+    "- 按 .github/pull_request_template.md 完整填写双语正文，实测适用成本与 Production-Delta；" +
+      "交付与基准锚由 submission 派生。运行 node tools/check-pr-body-bilingual.mjs --file <任务包根>/" +
+      documentPath +
+      "，随 closeout 通过 ha doc sync --submit --task 同步。",
     "- submit 回执中的 prBody 指向已冻结正文；worker 经 `ha task push <task-id>` 发布本任务分支，再运行 `ha task pr <task-id>` 创建 PR；CEO 负责评审与合并。",
   ].join("\n");
 }
@@ -429,7 +414,35 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
   return body ? body : null;
 }
 
-/** An explicit prompt on a task-bound dispatch still owes the worker the same lookup guidance and living-deliverable contract as a derived mission. Reviewer bindings keep the guidance but carry no worker delivery contract: their role is read-only review, not delivery. */
+/** Dynamic sections follow the dispatch action: review, delivery, or rework.
+ * reviewerBinding is the spawner's existing review judgment; the document slot declares PR delivery. */
+export function taskMissionSections(
+  taskId: string,
+  causalContext: string | null,
+  profileId: string | null | undefined,
+  prBodyPath: string | null,
+  taskClass: string | undefined,
+  ownerReturnBody: string | null,
+  reviewerBinding: boolean,
+): string[] {
+  const living = reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass),
+    pr = reviewerBinding ? null : prBodyDeliveryProtocol(prBodyPath);
+  return [
+    taskQueryGuidance(taskId),
+    ...(living === null ? [] : [living]),
+    ...(pr === null ? [] : [pr]),
+    ...(causalContext === null ? [] : [causalContext]),
+    ...(reviewerBinding || ownerReturnBody === null
+      ? []
+      : [
+          `# Owner rework instruction
+
+${ownerReturnBody}`,
+        ]),
+  ];
+}
+
+/** An explicit task prompt carries the same action-specific sections as a derived mission. */
 export function explicitPromptMission(
   taskId: string | null,
   causalContext: string | null,
@@ -440,13 +453,12 @@ export function explicitPromptMission(
   ownerReturnBody: string | null = null,
   reviewerBinding: boolean = false,
 ): string {
-  const protocol = taskId === null || reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass),
-    prProtocol = taskId === null || reviewerBinding ? null : prBodyDeliveryProtocol(prBodyPath);
   return [
-    ...(taskId === null ? [] : [taskQueryGuidance(taskId), ...(protocol === null ? [] : [protocol])]),
-    ...(prProtocol === null ? [] : [prProtocol]),
-    ...(causalContext === null ? [] : [causalContext]),
-    ...(taskId === null || ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
+    ...(taskId === null
+      ? causalContext === null
+        ? []
+        : [causalContext]
+      : taskMissionSections(taskId, causalContext, profileId, prBodyPath, taskClass, ownerReturnBody, reviewerBinding)),
     prompt,
   ].join("\n\n");
 }
@@ -485,18 +497,18 @@ export function deriveTaskMission(
     causalContextResolved =
       causalContext === undefined ? assembleTaskCausalContext({ projection, taskId }) : causalContext,
     snapshot = projection.read(taskId).snapshot,
-    livingProtocol = reviewerBinding
-      ? null
-      : livingDeliverableProtocol(snapshot.task?.metadata?.profileId, snapshot.task?.taskClass),
-    prProtocol = reviewerBinding ? null : prBodyDeliveryProtocol(taskPrBodyPath(projection, taskId)),
-    ownerReturnBody = priorOwnerReturnBody(projection, taskId),
     mission = [
-      `Your task package is ${packageRoot}.\nRead ${path.basename(planPath)} in that package and complete the task.`,
-      ...(ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
-      taskQueryGuidance(taskId),
-      ...(livingProtocol === null ? [] : [livingProtocol]),
-      ...(prProtocol === null ? [] : [prProtocol]),
-      ...(causalContextResolved === null ? [] : [causalContextResolved]),
+      `Your task package is ${packageRoot}.
+Read ${path.basename(planPath)} in that package and complete the task.`,
+      ...taskMissionSections(
+        taskId,
+        causalContextResolved,
+        snapshot.task?.metadata?.profileId,
+        reviewerBinding ? null : taskPrBodyPath(projection, taskId),
+        snapshot.task?.taskClass,
+        reviewerBinding ? null : priorOwnerReturnBody(projection, taskId),
+        reviewerBinding,
+      ),
       ...(missionDocument ? [`# Mission: ${missionName}\n\n${missionDocument.trim()}`] : []),
     ].join("\n\n");
   return {

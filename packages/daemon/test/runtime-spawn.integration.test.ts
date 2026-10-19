@@ -578,7 +578,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     assert.match(launched?.prompt ?? "", /AGENT_INSTRUCTIONS_WITNESS/u);
     assert.match(
       launched?.prompt ?? "",
-      /# Harness Execution Discipline.*configured commit identity.*conventional type prefix.*do not mention AI.*share one `git stash` stack.*temporary WIP commit.*Do not use `git stash` in concurrent work.*# Worker Role.*Deliver at a local commit.*ha task push <task-id>.*gh pr checks <PR-number> --watch.*gh run view <run-id> --log-failed.*Pending checks are not green.*bounded implementation.*local commit.*residual risks/su,
+      /# Harness Execution Discipline.*canonical repository root read-only.*temporary WIP commit.*# Worker Role.*a fix deletes or narrows by default.*PR checks for that delivery commit.*Pending is not green.*residual risks/su,
     );
     assert.match(launched?.prompt ?? "", /# Standard Task/u);
     assert.ok(
@@ -660,7 +660,7 @@ test("runtime spawn resolves command model, Agent model, then instance default w
     assert.equal(launched?.definition.model, "instance-default");
     assert.match(
       launched?.prompt ?? "",
-      /# Harness Execution Discipline.*<very_important>.*# Commander Context.*attention.*run the gate yourself.*<\/very_important>/su,
+      /# Harness Execution Discipline.*<very_important>.*# Commander Context.*attention.*applicable gates.*<\/very_important>/su,
     );
     for (const kindId of ["claude", "codex", "agy"] as const) {
       await cell.spawnRuntime(
