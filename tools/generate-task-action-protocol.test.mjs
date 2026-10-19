@@ -73,6 +73,8 @@ test("Task Action transport has one current build-time projection", async () => 
       "reviewIndependence",
       "decisionReviewRequirement",
       "reviewReturnBudget",
+      "decisionsProvider",
+      "decisionsEnabledPoints",
       "locale",
       "guiConnectTimeoutMs",
       "guiRequestTimeoutMs",

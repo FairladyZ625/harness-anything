@@ -49,7 +49,9 @@ settings:
 
 The digest covers the point revision, question, event fields and projections,
 and deterministic filters. Changing any of those requires a new explicit
-binding. Evaluation happens asynchronously after the center records the final
+binding. The `decisions` field has been supported since S1; a vertical package
+that includes it is not compatible with earlier product versions, as expected.
+Evaluation happens asynchronously after the center records the final
 outcome; provider failures do not alter the dispatch. Results are advisory
 annotations kept in the center-local store and are exposed as typed fields by
 `ha task dispatches`. They are never inputs to gates or lifecycle transitions.

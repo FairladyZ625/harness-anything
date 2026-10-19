@@ -601,7 +601,7 @@ test("Settings update rejects invalid or duplicate worktree setup steps", () => 
 test("repositorySettingsActionValues covers every repository field for a fully populated settings", () => {
   const populated = repositorySettings(
     readSettingsFacet(
-      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n`,
+      `${documentBody}  closeout:\n    profile: standard\n  roles:\n    defaultReviewer: arch-reviewer\n  ci:\n    workflows: [ci]\n  decisions:\n    provider: dp-openrouter-mercury\n    enabledPoints: [dispatch-stop-reason@0123456789ab]\n  hosting:\n    provider: gitlab\n    host: gitlab.example.test\n  restoreDrillRetention: 5\n  runtime:\n    allowedInstances:\n      - machine-codex\n`,
     ),
   );
   const values = repositorySettingsActionValues(populated),
