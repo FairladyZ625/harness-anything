@@ -106,7 +106,11 @@ test("successful Decision proposals point to the canonical action explanation", 
   };
   assert.deepEqual(renderCliReceipt(receipt), {
     stream: "stdout",
-    text: "Decision proposed\nnext: ha explain decision/dec_example",
+    text:
+      "Decision proposed\n" +
+      "next: ha explain decision/dec_example\n" +
+      "next: ha relation relate --source-ref decision/dec_example/<claim-id> --target-ref fact/<fact-id> --type evidenced-by --rationale <why> --expected-version 0" +
+      " (accept requires an evidenced claim, or --judgment-only)",
   });
   assert.equal(renderCliReceipt({ ...receipt, ok: false, code: "invalid_command" }).stream, "stderr");
   assert.equal(renderCliReceipt({ ...receipt, command: "decision-show" }).text, "Decision proposed");

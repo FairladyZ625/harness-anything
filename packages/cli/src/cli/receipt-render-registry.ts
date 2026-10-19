@@ -251,9 +251,15 @@ function renderSettingsRead(receipt: Record<string, unknown>): string {
 function renderDecisionPropose(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt),
     summary = renderSuccessfulReceipt(receipt);
-  return typeof payload?.decisionId === "string"
-    ? `${summary}\nnext: ha explain decision/${payload.decisionId}`
-    : summary;
+  if (typeof payload?.decisionId !== "string") return summary;
+  // Acceptance's evidence floor rejects a claim set with no claim-to-evidence edge, so the
+  // proposal receipt names the edge command up front instead of letting accept fail later.
+  return [
+    summary,
+    `next: ha explain decision/${payload.decisionId}`,
+    `next: ha relation relate --source-ref decision/${payload.decisionId}/<claim-id> --target-ref fact/<fact-id> --type evidenced-by --rationale <why> --expected-version 0` +
+      " (accept requires an evidenced claim, or --judgment-only)",
+  ].join("\n");
 }
 
 function renderPresetListReceipt(receipt: Record<string, unknown>): string {
