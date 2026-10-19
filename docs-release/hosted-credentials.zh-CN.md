@@ -76,8 +76,9 @@ token 在 `ha task push` 失败；缺 pull request 权限的 token 在 `ha task 
 
 GitHub 与 GitLab 任务发布均受支持。GitHub token 推送需要仓库内容写权限；GitLab
 token 推送需要 `write_repository`。daemon 按 provider 解析绑定引用，仅向自身 git/API
-操作提供 token。Worker 需要自己的托管平台 CLI 登录来读取检查与失败日志（GitHub
-使用 `gh pr checks` 和 `gh run view --log-failed`）。provider 默认从 `origin` 推断；无法识别或自建 GitLab host 时，
+操作提供 token。Worker 用 `ha task pr <task-id> --wait-ci` 等检查（经 daemon
+代持凭据，无需自己的平台登录）；用 `gh run view --log-failed` 查看失败日志时需要
+自己的托管平台 CLI 登录。provider 默认从 `origin` 推断；无法识别或自建 GitLab host 时，
 在仓库 settings 声明 `hosting.provider` 与 `hosting.host`。GitLab CI 使用 REST API
 v4；daemon 管理的发布无需 `glab`（见
 [Provider credentials](provider-credentials.md#github-and-gitlab-task-delivery)）。

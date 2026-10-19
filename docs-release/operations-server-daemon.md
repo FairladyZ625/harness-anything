@@ -169,9 +169,9 @@ ha task push <task-id>        # publish the task branch through the daemon-held 
 ha task pr <task-id>          # create the pull request (--update edits the existing one)
 ```
 
-Workers read checks with their hosting-platform CLI and their own platform
-credentials. For GitHub, use `gh pr checks <PR-number> --watch` and
-`gh run view <run-id> --log-failed`.
+Workers wait for checks with `ha task pr <task-id> --wait-ci` and read only its
+one-line verdict (exit 0 green, 1 failed, 2 timeout). On a failure, inspect it
+with `gh run view <run-id> --log-failed`.
 
 Every bound worker gets `ha` from the CLI bin directory belonging to the
 running daemon's installation, with its dispatched repository root and daemon

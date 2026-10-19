@@ -152,8 +152,8 @@ ha task push <task-id>        # 经 daemon 代持凭据发布任务分支
 ha task pr <task-id>          # 创建 pull request（--update 更新已有）
 ```
 
-Worker 使用托管平台 CLI 和自己的平台凭据读取检查。GitHub 使用
-`gh pr checks <PR-number> --watch`，并用 `gh run view <run-id> --log-failed` 查看失败日志。
+Worker 用 `ha task pr <task-id> --wait-ci` 等待检查并只读它的一行结论（退出 0 绿 /
+1 红 / 2 超时）；失败时再用 `gh run view <run-id> --log-failed` 查看日志。
 
 每个绑定 worker 都从正在运行的 daemon 安装中取得 `ha`，并通过 worker 环境收到本次
 派工仓库 root 与 daemon 路由。中心与边缘 daemon 使用同一路径，不使用固定 canonical
