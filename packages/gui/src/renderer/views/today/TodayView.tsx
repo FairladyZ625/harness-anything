@@ -242,34 +242,12 @@ export function TodayView({
       {/* 单层抽屉:等你处理行(非就地答复类)与正在跑行的摘要层,内给「打开完整详情」。 */}
       <Drawer open={waitingDetail !== null} onClose={() => setWaitingDetail(null)} ariaLabel={waitingDetail?.title}>
         {waitingDetail !== null ? (
-          <div className="flex flex-col gap-3">
-            <StatusTag tone={GROUP_TONE[waitingDetail.group]} label={t(GROUP_LABEL[waitingDetail.group])} />
-            <h2 className="ui-title text-text">
-              <TitleText title={waitingDetail.title} />
-            </h2>
-            <p className="ui-meta text-text-muted">{waitingDetail.hint}</p>
-            {waitingDetail.since !== null ? (
-              <p className="font-mono ui-meta text-text-faint">
-                {t("views.today.waitingSince", { age: formatRelative(waitingDetail.since, { now }) })}
-              </p>
-            ) : null}
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {waitingDetail.target !== null ? (
-                <button
-                  type="button"
-                  data-testid="today-drawer-open"
-                  onClick={() => {
-                    const target = waitingDetail.target;
-                    setWaitingDetail(null);
-                    onNavigateEntity(target);
-                  }}
-                  className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
-                >
-                  {t("views.today.actionOpenDetail")}
-                </button>
-              ) : null}
-            </div>
-          </div>
+          <WaitingDetail
+            detail={waitingDetail}
+            now={now}
+            onClose={() => setWaitingDetail(null)}
+            onNavigateEntity={onNavigateEntity}
+          />
         ) : null}
       </Drawer>
       <Drawer open={runningDetail !== null} onClose={() => setRunningDetail(null)} ariaLabel={runningDetail?.title}>
@@ -341,6 +319,51 @@ function regionTitle(label: string, value: number | string, valueClass: string) 
         }
         onClick={onOpenDetail}
       />
+    </div>
+  );
+}
+
+/** 等你处理行的抽屉体:结论一行,首要动作之外给「打开完整详情」。 */
+function WaitingDetail({
+  detail,
+  now,
+  onClose,
+  onNavigateEntity,
+}: {
+  readonly detail: AgendaRow;
+  readonly now: string;
+  readonly onClose: () => void;
+  readonly onNavigateEntity: (ref: string) => void;
+}) {
+  // target 提为 const 保留 null 收窄进闭包;等待区行不含审计发现(target 恒非空),守卫只为类型完备。
+  const target = detail.target;
+  return (
+    <div className="flex flex-col gap-3">
+      <StatusTag tone={GROUP_TONE[detail.group]} label={t(GROUP_LABEL[detail.group])} />
+      <h2 className="ui-title text-text">
+        <TitleText title={detail.title} />
+      </h2>
+      <p className="ui-meta text-text-muted">{detail.hint}</p>
+      {detail.since !== null ? (
+        <p className="font-mono ui-meta text-text-faint">
+          {t("views.today.waitingSince", { age: formatRelative(detail.since, { now }) })}
+        </p>
+      ) : null}
+      <div className="mt-1 flex flex-wrap gap-1.5">
+        {target !== null ? (
+          <button
+            type="button"
+            data-testid="today-drawer-open"
+            onClick={() => {
+              onClose();
+              onNavigateEntity(target);
+            }}
+            className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
+          >
+            {t("views.today.actionOpenDetail")}
+          </button>
+        ) : null}
+      </div>
     </div>
   );
 }

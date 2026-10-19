@@ -77,6 +77,7 @@ import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useAppLocation } from "./navigation/useAppLocation.ts";
+import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
 import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
