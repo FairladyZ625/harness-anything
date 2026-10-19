@@ -43,9 +43,11 @@ const WORKER_ENVIRONMENT_VARIABLES = [
 // Reuse type-strip/compile output across the test host and every CLI
 // subprocess it spawns (integration tests cold-start `node src/index.ts` per
 // assertion). Native Node compile cache — no build step. Children inherit the
-// env, so the cache is shared. Lives under node_modules/.cache (already
-// git-ignored).
-process.env.NODE_COMPILE_CACHE ||= resolve(repoRoot, "node_modules/.cache/harness-node-compile");
+// env, so the cache is shared. The cache lives in the OS temp dir, not the
+// checkout: a task worktree is reclaimed when its task closes, and a process
+// from an earlier run that outlives the reclaim would re-create directories
+// under the dead path on its next lazy cache write.
+process.env.NODE_COMPILE_CACHE ||= join(tmpdir(), "harness-node-compile");
 process.env.HARNESS_ACTOR = "agent:harness-test";
 process.env.HARNESS_GIT_AUTHOR_NAME ||= "Harness Test";
 process.env.HARNESS_GIT_AUTHOR_EMAIL ||= "harness@example.test";

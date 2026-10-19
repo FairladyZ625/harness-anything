@@ -23,6 +23,7 @@ import {
   type WorktreeReclaim,
 } from "./schedule-occurrence-workspace.ts";
 import {
+  isLinkedWorktree,
   runWorktreeSetup,
   worktreeSetupFailure,
   type WorktreeSetupResult,
@@ -94,7 +95,7 @@ export function taskWorkspaceView(
 ): TaskWorkspaceView | null {
   const binding = taskWorktreeBinding(task, readPresetSnapshot);
   if (task && binding) {
-    const present = existsSync(path.join(rootDir, binding.path));
+    const present = isLinkedWorktree(path.join(rootDir, binding.path));
     return {
       kind: "worktree",
       ...binding,

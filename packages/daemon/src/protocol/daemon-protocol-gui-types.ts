@@ -839,8 +839,9 @@ export type DaemonWorkspaceSummaryResult = {
 
 /**
  * Where a task works (dec_8B3FCCD256CAC5B0BF3CCEDE58 CH4): its worktree binding with what the answering node's
- * filesystem shows of it (dec_BBA713052997C3EF5F5D3DD952; a node that never ran the task reads "bound"), or, for a
- * task that does not change repository files, its own task package directory. Paths are repository-relative.
+ * filesystem shows of it (dec_BBA713052997C3EF5F5D3DD952; a node that never ran the task reads "bound"; residue a
+ * late writer left at a reclaimed path is not a worktree and reads as reclaimed), or, for a task that does not
+ * change repository files, its own task package directory. Paths are repository-relative.
  */
 export type TaskWorkspaceView =
   | {
