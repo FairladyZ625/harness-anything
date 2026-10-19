@@ -830,49 +830,26 @@ function verifyPrCommand(root: string) {
     receipt = path.join(root, "pr-command.json");
   const sections: Record<string, string> = {
     Summary: "Integrate the two child commits after inspecting the delivered files and ownership finding.",
-    "Architectural Justification": "Use the existing squad coordinator and independent child tasks. No new scheduler.",
     "What Changed": "The integration branch contains src/a.txt, docs/b.txt, and the reported outside.txt finding.",
-    "Gate Harvest / 门收割": "Deleted-Production-Paths: none\nDeleted-Gates-Fixtures: none",
     "Machine-Readable Declarations": "This isolated fixture changes no dependencies or event schema.",
     "Optional Evidence Claims": "This is a local command protocol observation, not a GitHub CI claim.",
-    "Task And Scope": "Task: isolated squad fixture. Branch: codex/mission-delivery. Scope: the child commits.",
-    "Version Impact": "No version change: isolated fixture delivery only.",
     "Governance Declaration":
       "Protected surface touched: no. Break-glass: no. Test artifacts stay in the temporary repository.",
     Verification:
       "Both children submitted through task-submit. File contents were inspected; the bare remote ref equals integration HEAD.",
-    "Per-Write Cost": "Not applicable: this fixture PR contains document files only.",
-    "Review Evidence": "Assigned fixture-reviewer. Reviewer approval and GitHub CI remain unverified.",
     "Residual Risk": "outside.txt is an ownership finding requiring integration review. No real GitHub PR is created.",
-    References: "Evidence: child submission events, ownership report, and the captured local PR command receipt.",
-    概要: "检查两个子任务提交与所有权发现后，将其合流到集成分支。",
-    架构辩护: "复用现有小队协调器和独立子任务，没有新增调度器。",
-    改动内容: "集成分支包含 src/a.txt、docs/b.txt 以及已报告的 outside.txt 越界文件。",
-    "门收割 / Gate Harvest": "本演练没有删除生产路径或门。",
-    机读声明说明: "演练不修改依赖或事件 schema。",
-    任务与范围: "任务为隔离小队演练，分支 codex/mission-delivery，范围为两个子任务提交。",
-    版本影响: "只交付隔离夹具，不修改版本。",
-    治理声明: "没有修改 protected surface，也没有 break-glass。产物仅存临时仓库。",
-    验证: "两个子任务真实调用 task-submit；核验交付文件和 bare remote 的集成 HEAD。",
-    单次写入成本: "不适用：本演练 PR 只有文档文件。",
-    审查证据: "已传入 fixture-reviewer 参数。实际评审批准与 GitHub CI 均为 unverified。",
-    残余风险: "outside.txt 的越界发现需要集成审查。本测试没有创建真实 GitHub PR。",
-    关联材料: "证据为子任务提交事件、所有权报告与本地 PR 命令回执。",
-    "PR Gate Checklist / PR 门禁清单":
-      "Local integration and command arguments checked. Real CI and reviewer approval unverified.\n本地集成与命令参数已核验，真实 CI 和评审批准未验证。",
   };
   const body = [...template.matchAll(/^(#{1,3}) (.+)$/gmu)]
     .map(([, level, heading]) => {
-      if (heading === "English" || heading === "中文") return `${level} ${heading}\n`;
+      if (heading === "English") return `${level} ${heading}\n`;
       assert.ok(sections[heading], `fixture must fill template section ${heading}`);
       return `${level} ${heading}\n\n${sections[heading]}\n`;
     })
-    .join("\n")
-    .replace("# 中文", "---\n\n# 中文");
+    .join("\n");
   writeFileSync(bodyPath, body);
   writeFileSync(
     script,
-    `const fs = require('node:fs'); const args = process.argv.slice(2);\nif(args[0] !== 'pr' || args[1] !== 'create' || !args.includes('--reviewer')) process.exit(2);\nconst body = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');\nif(!body.includes('# English') || !body.includes('# 中文') || !body.includes('## Verification')) process.exit(3);\nfs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({args, body}));\n`,
+    `const fs = require('node:fs'); const args = process.argv.slice(2);\nif(args[0] !== 'pr' || args[1] !== 'create' || !args.includes('--reviewer')) process.exit(2);\nconst body = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');\nif(!body.includes('# English') || !body.includes('## Verification') || !body.includes('## Residual Risk')) process.exit(3);\nfs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({args, body}));\n`,
   );
   assert.throws(() => execFileSync(process.execPath, [script, "pr", "create", "--body-file", bodyPath]));
   execFileSync(process.execPath, [

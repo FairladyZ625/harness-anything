@@ -23,7 +23,7 @@ import {
   seedSettingsEvent,
   waitForFixturePublication,
 } from "./repo-settings.fixture.ts";
-import { checkPrBodyBilingual } from "../../../tools/check-pr-body-bilingual.mjs";
+import { checkPrBody } from "../../../tools/check-pr-body.mjs";
 
 const PR_TEMPLATE =
   "# English\n\n## Summary\n\n-\n\n## What Changed\n\n-\n\n---\n\n# 中文\n\n## 概要\n\n-\n\n## 改动内容\n\n-\n";
@@ -160,7 +160,7 @@ test("contract migrate backfills compiler document slots a legacy contract preda
     assert.equal(prBody.body, PR_BODY);
     assert.equal(prBody.path, `${packagePath}/artifacts/pr-body.md`);
     assert.equal(
-      checkPrBodyBilingual(prBody.body).ok,
+      checkPrBody(prBody.body).ok,
       true,
       "the body the task PR precondition reads passes the bilingual gate",
     );

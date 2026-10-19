@@ -2,7 +2,7 @@
 
 Harness Anything accepts public contributions through ordinary git review,
 required GitHub CI, and maintainer-controlled merge. A useful contribution has
-a narrow public scope, reproducible evidence, a complete bilingual PR, and no
+a narrow public scope, reproducible evidence, a complete PR body, and no
 private or machine-local context in its diff.
 
 ## The workflow authority

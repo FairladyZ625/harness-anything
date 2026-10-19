@@ -224,12 +224,12 @@ function requireTaskPrTitle(title: unknown, required: boolean): string | undefin
  * Runs the repository PR body gate — the same script CI's pr-body-lint job runs — on the task's
  * PR body before the pull request exists, so placeholder-only required sections are named here
  * instead of in review. Base and head are pinned to HEAD: this canonical-root diff is not the
- * task branch's diff, so the git-context checks (Per-Write Cost table, churn thresholds) stay
+ * task branch's diff, so the git-context checks (Event-Migration on accepted-sample changes) stay
  * authoritative on CI while this call judges the body itself. The gate belongs to the repository being
  * delivered, so it resolves from that repository's root; a repository without the script has no such gate.
  */
 const runPrBodyLint: PrBodyLintProvider = async (body, rootDir) => {
-  const script = path.join(rootDir, "tools", "check-pr-body-bilingual.mjs");
+  const script = path.join(rootDir, "tools", "check-pr-body.mjs");
   if (!existsSync(script)) return;
   await execFileAsync(process.execPath, [script, "--env", "PR_BODY"], {
     cwd: rootDir,
@@ -301,7 +301,7 @@ export async function createTaskPullRequest(
       detail = String(failure.stderr ?? failure.message ?? error);
     throw context.cellCodedError(
       "content_not_ready",
-      `Task ${taskId} PR body failed the bilingual gate (placeholder-only required sections are named below); ` +
+      `Task ${taskId} PR body failed the repository PR body gate (placeholder-only required sections are named below); ` +
         `fix artifacts/pr-body.md, re-submit it, then retry the PR.\n${detail.slice(0, 2048)}`,
     );
   }
