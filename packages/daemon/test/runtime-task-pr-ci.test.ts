@@ -54,7 +54,7 @@ function fakeClock() {
   return {
     nowMs: () => now,
     ticks: () => ticks,
-    delay: async (ms: number) => {
+    waitCiDelay: async (ms: number) => {
       assert.equal(ms, waitCiPollIntervalMs);
       ticks += 1;
       now += ms;
@@ -111,7 +111,7 @@ test("wait-ci reports green in one line after a pending poll turns terminal", as
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly outcome: string; readonly summary: string; readonly evidence: string };
   assert.equal(receipt.outcome, "applied");
   assert.equal(receipt.summary, "all green (2 pass, 1 skipped)");
@@ -140,7 +140,7 @@ test("wait-ci reports red with the failing check names and exits failed", async 
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly outcome: string; readonly code: string; readonly exitCode: number; readonly summary: string };
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "ci_checks_failed");
@@ -159,7 +159,7 @@ test("wait-ci times out with the pending count and never polls past its deadline
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true, timeoutMinutes: 1 },
     binding,
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly outcome: string; readonly code: string; readonly exitCode: number; readonly summary: string };
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "ci_wait_timeout");
@@ -181,7 +181,7 @@ test("wait-ci default timeout is the constant, not a setting", async () => {
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly summary: string };
   assert.match(receipt.summary, /timeout after 60 minutes/u);
   assert.equal(scripted.calls.length, (waitCiDefaultTimeoutMinutes * 60_000) / waitCiPollIntervalMs + 1);
@@ -198,7 +198,7 @@ test("wait-ci fails fast when no pull request exists for the task branch", async
     waitTaskPullRequestChecks(context as never, { kind: "task-pr", taskId: "task-pr", waitCi: true }, binding, {
       hosting: github(),
       readChecks: scripted.port,
-      delay: clock.delay,
+      waitCiDelay: clock.waitCiDelay,
       nowMs: clock.nowMs,
     }),
     (error: Error & { code?: string }) => error.code === "ci_pull_request_missing",
@@ -217,7 +217,7 @@ test("wait-ci rethrows a vanished pull request instead of waiting out the clock"
     waitTaskPullRequestChecks(context as never, { kind: "task-pr", taskId: "task-pr", waitCi: true }, binding, {
       hosting: github(),
       readChecks: scripted.port,
-      delay: clock.delay,
+      waitCiDelay: clock.waitCiDelay,
       nowMs: clock.nowMs,
     }),
     (error: Error & { code?: string }) => error.code === "ci_pull_request_missing",
@@ -232,7 +232,7 @@ test("wait-ci rides out a transient read failure inside the same budget", async 
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly outcome: string };
   assert.equal(receipt.outcome, "applied");
   assert.equal(scripted.calls.length, 3);
@@ -246,7 +246,7 @@ test("wait-ci names the last read error when the budget expires without a verdic
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true, timeoutMinutes: 1 },
     binding,
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly summary: string };
   assert.match(receipt.summary, /last read error: 502 from the provider/u);
 });
@@ -259,7 +259,7 @@ test("wait-ci refuses a worker without a hosting credential before reading anyth
     waitTaskPullRequestChecks(context as never, { kind: "task-pr", taskId: "task-pr", waitCi: true }, binding, {
       hosting: github(),
       readChecks: scripted.port,
-      delay: clock.delay,
+      waitCiDelay: clock.waitCiDelay,
       nowMs: clock.nowMs,
     }),
     (error: Error & { code?: string }) =>
@@ -276,7 +276,7 @@ test("wait-ci supports GitLab with the daemon-held GITLAB_TOKEN", async () => {
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
-    { hosting: gitlab(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: gitlab(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly outcome: string };
   assert.equal(receipt.outcome, "applied");
   assert.equal(scripted.calls[0]?.env.GITLAB_TOKEN, secret);
@@ -303,7 +303,7 @@ test("wait-ci for a human principal uses ambient repository authentication", asy
     context as never,
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     { actor: { principal: { personId: "person-owner" }, executor: null }, source: "local" },
-    { hosting: github(), readChecks: scripted.port, delay: clock.delay, nowMs: clock.nowMs },
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
   )) as { readonly outcome: string; readonly summary: string };
   assert.equal(prepared, false);
   assert.equal(receipt.outcome, "applied");

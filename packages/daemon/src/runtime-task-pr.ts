@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import path from "node:path";
+import { setTimeout as sleep } from "node:timers/promises";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { consumeKnownError, type WriteReceiptDraft } from "@harness-anything/kernel";
@@ -38,14 +39,17 @@ export const waitCiDefaultTimeoutMinutes = 60;
 
 type ChecksReader = (provider: HostingProvider, query: HostingChecksQuery) => Promise<HostingChecksSnapshot>;
 
-/** Injectable seams of the wait loop; every default is the production behavior. */
+/** Injectable seams of the wait loop; every default is the production behavior. Dependency and
+ * helper names stay task-prefixed or collision-free on purpose: the durable-authorization gate
+ * resolves calls by bare function name across the daemon, so a generic name like `delay` would
+ * graft unrelated functions onto this path and break its disconnect audits. */
 export type WaitCiDeps = {
   /** Defaults to detecting the provider from the repository root. */
   readonly hosting?: HostingProvider;
   /** Defaults to the hosting-provider port's readHostingChecks. */
   readonly readChecks?: ChecksReader;
   /** Defaults to a real timer; tests advance a fake clock instead of sleeping. */
-  readonly delay?: (ms: number) => Promise<void>;
+  readonly waitCiDelay?: (ms: number) => Promise<void>;
   readonly nowMs?: () => number;
 };
 
@@ -95,7 +99,7 @@ export async function waitTaskPullRequestChecks(
     ),
     redact = (text: string) => secrets.reduce((scrubbed, secret) => scrubbed.replaceAll(secret, "[REDACTED]"), text),
     readChecks = deps.readChecks ?? readHostingChecks,
-    delay = deps.delay ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms))),
+    waitCiDelay = deps.waitCiDelay ?? sleep,
     nowMs = deps.nowMs ?? (() => Date.now()),
     timeoutMinutes =
       typeof action.timeoutMinutes === "number" &&
@@ -137,7 +141,7 @@ export async function waitTaskPullRequestChecks(
         timeoutMinutes,
         lastReadError === null ? null : redact(lastReadError),
       );
-    await delay(waitCiPollIntervalMs);
+    await waitCiDelay(waitCiPollIntervalMs);
   }
 }
 
