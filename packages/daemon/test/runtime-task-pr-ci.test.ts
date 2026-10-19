@@ -6,7 +6,12 @@ import {
   waitCiDefaultTimeoutMinutes,
   waitCiPollIntervalMs,
 } from "../src/runtime-task-pr.ts";
-import type { HostingChecksSnapshot, HostingProvider } from "../src/hosting-provider.ts";
+import {
+  readHostingChecks,
+  type HostingChecksQuery,
+  type HostingChecksSnapshot,
+  type HostingProvider,
+} from "../src/hosting-provider.ts";
 import { fixture, secret } from "./runtime-task-pr.fixtures.ts";
 
 const github = (repository = "fixture/repo"): HostingProvider => ({
@@ -171,6 +176,104 @@ test("wait-ci times out with the pending count and never polls past its deadline
   // 60s read sees the deadline reached — the loop must not sleep past the answer it already has.
   assert.equal(scripted.calls.length, 5);
   assert.equal(clock.ticks(), 4);
+});
+
+test("wait-ci holds a zero-check GitHub snapshot until the checks register", async () => {
+  // The false-green race from review dispatch_cb7adce3ad7786321c63541a: `ha task pr` returns
+  // before GitHub registers any check run, and the first read folds `statusCheckRollup: []` into
+  // an empty list that must wait, not report green.
+  let reads = 0;
+  const port = (provider: HostingProvider, query: HostingChecksQuery) =>
+      readHostingChecks(provider, query, {
+        runProvider: async () =>
+          JSON.stringify({
+            url: prUrl,
+            headRefOid: "head-1",
+            statusCheckRollup:
+              reads++ === 0
+                ? []
+                : [
+                    {
+                      __typename: "CheckRun",
+                      name: "gate",
+                      status: "COMPLETED",
+                      conclusion: "SUCCESS",
+                      detailsUrl: null,
+                    },
+                  ],
+          }),
+      }),
+    clock = fakeClock(),
+    { context, binding } = waitContext();
+  const receipt = (await waitTaskPullRequestChecks(
+    context as never,
+    { kind: "task-pr", taskId: "task-pr", waitCi: true },
+    binding,
+    { hosting: github(), readChecks: port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
+  )) as { readonly outcome: string; readonly summary: string };
+  assert.equal(receipt.outcome, "applied");
+  assert.equal(receipt.summary, "all green (1 pass, 0 skipped)");
+  assert.equal(reads, 2);
+  assert.equal(clock.ticks(), 1);
+});
+
+test("wait-ci times out naming the missing registration when no GitHub check ever appears", async () => {
+  let reads = 0;
+  const port = (provider: HostingProvider, query: HostingChecksQuery) =>
+      readHostingChecks(provider, query, {
+        runProvider: async () => {
+          reads += 1;
+          return JSON.stringify({ url: prUrl, headRefOid: "head-1", statusCheckRollup: [] });
+        },
+      }),
+    clock = fakeClock(),
+    { context, binding } = waitContext();
+  const receipt = (await waitTaskPullRequestChecks(
+    context as never,
+    { kind: "task-pr", taskId: "task-pr", waitCi: true, timeoutMinutes: 1 },
+    binding,
+    { hosting: github(), readChecks: port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
+  )) as { readonly outcome: string; readonly code: string; readonly exitCode: number; readonly summary: string };
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "ci_wait_timeout");
+  assert.equal(receipt.exitCode, 2);
+  assert.match(receipt.summary, /timeout after 1 minute: no checks registered for the head/u);
+  assert.doesNotMatch(receipt.summary, /checks still pending/u);
+  assert.equal(reads, 5);
+  assert.equal(clock.ticks(), 4);
+});
+
+test("wait-ci times out on a pipeline-less GitLab merge request instead of reading it green", async () => {
+  const mergeRequest = {
+      iid: 14,
+      sha: "gitlab-head",
+      web_url: "https://git.example.test/group/project/-/merge_requests/14",
+      head_pipeline: null,
+    },
+    mrUrl = mergeRequest.web_url;
+  let reads = 0;
+  const port = (provider: HostingProvider, query: HostingChecksQuery) =>
+      readHostingChecks(provider, query, {
+        fetchJson: async (url: string) => {
+          // A pipeline-less merge request answers the lookup only; no jobs page exists to read.
+          assert.match(url, /\/merge_requests\?/u);
+          reads += 1;
+          return { status: 200, body: [mergeRequest], nextPage: null };
+        },
+      }),
+    clock = fakeClock(),
+    { context, binding } = waitContext({ credential: { GITLAB_TOKEN: secret }, provider: "gitlab" });
+  const receipt = (await waitTaskPullRequestChecks(
+    context as never,
+    { kind: "task-pr", taskId: "task-pr", waitCi: true, timeoutMinutes: 1 },
+    binding,
+    { hosting: gitlab(), readChecks: port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
+  )) as { readonly outcome: string; readonly code: string; readonly summary: string };
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "ci_wait_timeout");
+  assert.match(receipt.summary, /no checks registered for the head/u);
+  assert.match(receipt.summary, new RegExp(mrUrl.replace(/\//gu, "\\$&"), "u"));
+  assert.equal(reads, 5);
 });
 
 test("wait-ci default timeout is the constant, not a setting", async () => {

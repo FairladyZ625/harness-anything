@@ -66,7 +66,9 @@ type WaitCiContext = Pick<RepoCellApiContext, "rootDir" | "projection" | "now" |
 
 /**
  * Blocks until the open pull request (GitHub) or merge request (GitLab) of the task branch has a
- * verdict on its current head: green, failed, or the wait budget expiring. The single implementation
+ * verdict on its current head: green, failed, or the wait budget expiring. A head whose checks are
+ * not registered yet (an empty snapshot) is not a verdict — it waits under the same budget, and the
+ * expiry names the missing registration. The single implementation
  * of CI waiting — interval and default timeout are constants, no settings. Terminal answers come
  * back as one receipt; intermediate states never leave the loop. Exit codes distinguish the three
  * results: green applies (exit 0), a red verdict is `ci_checks_failed` (exit 1), a budget expiry is
@@ -129,7 +131,10 @@ export async function waitTaskPullRequestChecks(
     }
     const checks = snapshot!.checks,
       pending = checks.filter((check) => check.state === "pending");
-    if (pending.length === 0) {
+    // An empty check list is "not registered yet", not a verdict: GitHub takes seconds to
+    // register check runs after PR creation, and a GitLab MR without a head pipeline folds to the
+    // same empty list. It waits like any pending state; the expired budget names it explicitly.
+    if (checks.length > 0 && pending.length === 0) {
       const failed = checks.filter((check) => check.state === "failed");
       return failed.length > 0
         ? failedVerdict(taskId, failed, snapshot!.subjectUrl)
@@ -141,6 +146,7 @@ export async function waitTaskPullRequestChecks(
         pending.length,
         snapshot!.subjectUrl,
         timeoutMinutes,
+        checks.length === 0,
         lastReadError === null ? null : redact(lastReadError),
       );
     await sleep(waitCiPollIntervalMs);
@@ -184,11 +190,14 @@ function timeoutVerdict(
   pendingCount: number,
   subjectUrl: string | null,
   timeoutMinutes: number,
+  noChecksRegistered: boolean,
   lastReadError: string | null,
 ): WriteReceiptDraft {
   const line =
     `timeout after ${String(timeoutMinutes)} minute${timeoutMinutes === 1 ? "" : "s"}: ` +
-    `${String(pendingCount)} check${pendingCount === 1 ? "" : "s"} still pending` +
+    (noChecksRegistered
+      ? "no checks registered for the head"
+      : `${String(pendingCount)} check${pendingCount === 1 ? "" : "s"} still pending`) +
     `${subjectUrl ? ` ${subjectUrl}` : ""}` +
     `${lastReadError ? `; last read error: ${lastReadError}` : ""}`;
   return {

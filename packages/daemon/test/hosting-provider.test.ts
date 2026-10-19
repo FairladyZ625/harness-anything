@@ -108,6 +108,21 @@ test("github check rollup maps completed, pending, skipped, and status contexts"
   assert.equal(stateOf("mystery"), "pending");
 });
 
+test("an unregistered GitHub rollup folds to the empty not-ready snapshot", () => {
+  // The wait reads an empty check list as "checks not registered yet" — never as green — so the
+  // fold's empty output for an empty, null, or absent rollup is the not-ready signal itself.
+  for (const payload of [
+    { url: pullUrl, headRefOid: "abc123", statusCheckRollup: [] },
+    { url: pullUrl, headRefOid: "abc123", statusCheckRollup: null },
+    { url: pullUrl, headRefOid: "abc123" },
+  ]) {
+    const snapshot = hostingChecksFromGitHub(payload);
+    assert.equal(snapshot.subjectUrl, pullUrl);
+    assert.equal(snapshot.headSha, "abc123");
+    assert.deepEqual(snapshot.checks, []);
+  }
+});
+
 test("github checks read through gh and classify a missing pull request", async () => {
   let args: readonly string[] = [];
   const snapshot = await readHostingChecks(
