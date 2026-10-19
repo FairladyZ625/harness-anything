@@ -51,7 +51,7 @@ import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
-import { taskMissionSections, runtimeMissionName } from "./runtime-spawn-mission.ts";
+import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -418,12 +418,9 @@ export function openFleetEdgeRuntime(input: {
           taskClass: current.task!.taskClass,
           prBodyPath,
           ownerReturnBody,
+          planBody: plan,
           mission: (reachedPackageRoot) =>
-            [
-              `Your task package is ${reachedPackageRoot}.\n` +
-                "Read task_plan.md in that package and complete the task.",
-              ...missionAfterPackage,
-            ].join("\n\n"),
+            [taskPlanSection(plan, reachedPackageRoot), ...missionAfterPackage].join("\n\n"),
           causalContext,
           worktree,
         };

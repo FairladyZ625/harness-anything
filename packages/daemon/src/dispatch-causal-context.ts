@@ -20,25 +20,43 @@ import { requireSameProjectionCut, type ProjectionCut } from "./task-query-read.
  * the same block from the center's canonical read — a stale mirrored markdown
  * is never summarized as fact.
  *
- * Token budget: no tokenizer ships in this dependency set, so the block is
- * capped at 2,048 UTF-8 bytes — a provable hard bound the tests assert on real
- * dispatch captures; byte↔token ratios are deliberately not claimed. The size
- * is measured, not guessed: over the production ledger's 1,541 parented tasks
- * (2026-09-18) a full block is 351 B mean, 776 B p90, 1,709 B max, while the
- * old 500 B cap dropped at least one line in 16% of blocks — usually the
- * evidence Facts or the work Goal under CJK text. 2 KiB covers the
- * observed maximum with headroom. Canonical refs are never truncated away —
- * the fixed lookup guidance every task-bound mission carries (see
- * taskQueryGuidance) directs the worker to task-scoped reads and the owner for
- * any missing cross-task details; the block does not grant query permissions.
+ * Byte budget: no tokenizer ships in this dependency set, so the block is capped
+ * in UTF-8 bytes — a provable hard bound the tests assert on real dispatch
+ * captures; byte↔token ratios are deliberately not claimed. Fields render at
+ * full length (a truncated clause is worse than an absent one), so the bound
+ * falls on whole entries: a greedy fit in relation-distance order (identity,
+ * first deriving decision, its evidence facts, remaining decisions, tails) sheds
+ * entries from the far end and names every dropped ref in a closing `<omitted>`
+ * line, and the root is marked `truncated="yes"`. The size is measured, not
+ * guessed: over the production ledger's 3,053 causal-neighborhood blocks
+ * (2026-10-19) the full-length render is 850 B mean, 2,299 B p90, 5,441 B p99,
+ * 17,229 B max — 8 KiB keeps 3,051 of them intact and bounds the two outliers
+ * with an omission note. Canonical refs are never truncated away — the fixed
+ * lookup guidance every task-bound mission carries (see taskQueryGuidance)
+ * directs the worker to task-scoped reads and the owner for any missing
+ * cross-task details; the block does not grant query permissions.
  */
-export const CAUSAL_CONTEXT_MAX_BYTES = 2048;
+export const CAUSAL_CONTEXT_MAX_BYTES = 8192;
 
 const MAX_DECISIONS = 2,
   MAX_FACTS = 5,
   MAX_EVIDENCE_ANCHORS = 6,
   ROOT_OPEN = "<task-context>",
+  TRUNCATED_OPEN = '<task-context truncated="yes">',
   ROOT_CLOSE = "</task-context>";
+
+/** One detail line and the entity whose content it renders, so budget shedding can name what it dropped. */
+interface DetailLine {
+  readonly line: string;
+  readonly ref: string;
+}
+
+/** The fit for one candidate open tag: kept detail lines, the omission note, and whether anything was shed. */
+interface BudgetFit {
+  readonly kept: readonly string[];
+  readonly omittedLine: string | null;
+  readonly dropped: boolean;
+}
 
 export function assembleTaskCausalContext(input: {
   readonly projection: TaskProjectionQueries;
@@ -112,49 +130,71 @@ export function assembleTaskCausalContext(input: {
   }
   requireSameProjectionCut("dispatch causal context", reads);
   if (work === null && parent === null && decisionIds.length === 0) return null;
-  // Priority order: identity lines first, then each decision's header, chosen
-  // anchor and load-bearing claims, then the evidence layer — a fat work
-  // title can never starve the facts of all budget. Goal, question and any
-  // second decision are detail tails the greedy fit may drop.
-  const details: string[] = [],
-    tails: string[] = [];
+  // Priority order is relation distance from the dispatched task: identity lines first,
+  // then the first deriving decision's header, chosen anchor and load-bearing claims,
+  // then the evidence layer — a fat work title can never starve the facts of all
+  // budget. The remaining decisions, the work goal and the framing question are detail
+  // tails the greedy fit sheds first.
+  const details: DetailLine[] = [],
+    tails: DetailLine[] = [];
   // The refs line already carries every canonical id, so identity lines stay
   // title-only — repeating the id in an attribute would spend budget twice.
-  if (work !== null) details.push(`<work ref="task/${work.taskId}">${xmlField(work.title, 48)}</work>`);
+  if (work !== null)
+    details.push(detail(`task/${work.taskId}`, `<work ref="task/${work.taskId}">${xmlText(work.title)}</work>`));
   if (parent !== null && parent.taskId !== work?.taskId)
-    details.push(`<parent ref="task/${parent.taskId}">${xmlField(parent.title, 48)}</parent>`);
-  const decisionBlocks: string[][] = [];
+    details.push(
+      detail(`task/${parent.taskId}`, `<parent ref="task/${parent.taskId}">${xmlText(parent.title)}</parent>`),
+    );
+  const decisionBlocks: DetailLine[][] = [];
   for (const decisionId of decisionIds.slice(0, MAX_DECISIONS)) {
     const decision = decisions.get(decisionId);
     if (decision === undefined) continue;
-    const block = [`<decision ref="decision/${decisionId}" title="${xmlField(decision.title, 48)}"/>`],
+    const block = [
+        detail(`decision/${decisionId}`, `<decision ref="decision/${decisionId}" title="${xmlText(decision.title)}"/>`),
+      ],
       anchorId = derivingAnchor.get(decisionId),
       chosen = decision.chosen.find((entry) => entry.id === anchorId) ?? decision.chosen[0],
       claims = decision.claims.filter((claim) => claim.loadBearing);
     if (chosen !== undefined) {
       const summary = chosen.rationale ? `${chosen.text} — ${chosen.rationale}` : chosen.text;
-      block.push(`<chosen ref="decision/${decisionId}" anchor="${chosen.id}">${xmlField(summary, 96)}</chosen>`);
+      block.push(
+        detail(
+          `decision/${decisionId}`,
+          `<chosen ref="decision/${decisionId}" anchor="${chosen.id}">${xmlText(summary)}</chosen>`,
+        ),
+      );
     }
     if (claims.length > 0)
       block.push(
-        `<claims ref="decision/${decisionId}">${xmlField(claims.map((claim) => `${claim.id} ${claim.text}`).join("; "), 96)}</claims>`,
+        detail(
+          `decision/${decisionId}`,
+          `<claims ref="decision/${decisionId}">${xmlText(claims.map((claim) => `${claim.id} ${claim.text}`).join("; "))}</claims>`,
+        ),
       );
     if (decision.question.trim())
-      tails.push(`<question ref="decision/${decisionId}">${xmlField(decision.question, 64)}</question>`);
+      tails.push(
+        detail(
+          `decision/${decisionId}`,
+          `<question ref="decision/${decisionId}">${xmlText(decision.question)}</question>`,
+        ),
+      );
     decisionBlocks.push(block);
   }
   details.push(...(decisionBlocks[0] ?? []));
   const factLines = servedFactRefs.slice(0, MAX_FACTS).map((ref) => {
     const fact = facts.get(ref);
-    return `<fact ref="${ref}">${
-      fact === undefined
-        ? "(statement not projected at this cut)"
-        : `${xmlField(fact.statement, 64)} (src:${xmlField(fact.evidenceSource, 35)})`
-    }</fact>`;
+    return detail(
+      ref,
+      `<fact ref="${ref}">${
+        fact === undefined
+          ? "(statement not projected at this cut)"
+          : `${xmlText(fact.statement)} (src:${xmlText(fact.evidenceSource)})`
+      }</fact>`,
+    );
   });
   details.push(...factLines);
   if (workGoal !== null && work !== null)
-    tails.unshift(`<goal ref="task/${work.taskId}">${xmlField(workGoal, 64)}</goal>`);
+    tails.unshift(detail(`task/${work.taskId}`, `<goal ref="task/${work.taskId}">${xmlText(workGoal)}</goal>`));
   details.push(...(decisionBlocks[1] ?? []), ...tails);
   const refs = [
     ...(work === null ? [] : [`task/${work.taskId}`]),
@@ -211,62 +251,76 @@ function decisionExecutionSurface(
 }
 
 /**
- * Greedy fit in priority order under a reserved refs line: `<refs>` keeps every
- * layer's canonical id queryable even when the detail lines must drop. The
- * byte cap is a promise, not a hope — if the root plus refs alone exceed it
- * (only a pathological id set can do that), refs are shed from the tail and
- * the output is hard-clamped to the ceiling on a character boundary. A shed
- * detail marks the root `truncated="yes"` instead of breaking the grammar.
+ * Greedy fit in priority (relation-distance) order under a reserved refs line: `<refs>`
+ * keeps every layer's canonical id queryable even when the detail entries must drop,
+ * and a closing `<omitted>` line names the refs whose content was shed — in drop
+ * order, deduplicated, and itself shrunk from the tail when pathological ids leave
+ * no room to name them (an unnameable omission still marks the root truncated).
+ * The byte cap is a promise, not a hope — if the root plus refs alone exceed it
+ * (only a pathological id set can do that), refs are shed from the tail under the
+ * widest root, so the refs line and every emitted line fit without a final clamp.
  */
-function renderWithinBudget(details: readonly string[], refs: readonly string[]): string {
-  const kept: string[] = [],
-    mutable = [...refs];
+function renderWithinBudget(details: readonly DetailLine[], refs: readonly string[]): string {
+  const mutable = [...refs];
   let refsLine = `<refs>${mutable.join(" ")}</refs>`;
-  while (mutable.length > 0 && byteLength(`${ROOT_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) > CAUSAL_CONTEXT_MAX_BYTES) {
+  // Reserve the widest root the render can emit: shedding a detail — and so marking the
+  // root truncated — is only known after the fit, so the refs line must fit under
+  // `<task-context truncated="yes">` even when the final render keeps the short root.
+  while (mutable.length > 0 && byteLength(`${TRUNCATED_OPEN}\n${refsLine}\n${ROOT_CLOSE}`) > CAUSAL_CONTEXT_MAX_BYTES) {
     mutable.pop();
     refsLine = `<refs>${mutable.join(" ")} …</refs>`;
   }
-  const usedBase = byteLength(ROOT_OPEN) + 1 + byteLength(refsLine) + 1 + byteLength(ROOT_CLOSE);
-  let used = usedBase,
-    dropped = false;
-  for (const line of details) {
-    const cost = byteLength(line) + 1;
-    if (used + cost > CAUSAL_CONTEXT_MAX_BYTES) {
-      dropped = true;
-      continue;
-    }
-    kept.push(line);
-    used += cost;
-  }
-  const open = dropped ? `<task-context truncated="yes">` : ROOT_OPEN;
-  const out = `${open}\n${[...kept, refsLine].join("\n")}\n${ROOT_CLOSE}`;
-  if (byteLength(out) > CAUSAL_CONTEXT_MAX_BYTES) {
-    let clamped = "",
-      size = 0;
-    for (const char of out) {
-      const next = byteLength(char);
-      if (size + next > CAUSAL_CONTEXT_MAX_BYTES) break;
-      clamped += char;
-      size += next;
-    }
-    return clamped;
-  }
-  return out;
+  // Measure against the root actually emitted. Any shed detail switches the root to the
+  // 16-byte-longer truncated form; fitting the whole root while emitting the truncated one
+  // would overshoot the cap and cut `</task-context>` off a details-only shed. A whole-root
+  // fit that sheds nothing is emitted as measured.
+  const whole = fitWithinBudget(details, refsLine, ROOT_OPEN);
+  if (!whole.dropped) return renderBlock(ROOT_OPEN, refsLine, whole.kept, whole.omittedLine);
+  const truncated = fitWithinBudget(details, refsLine, TRUNCATED_OPEN);
+  return renderBlock(TRUNCATED_OPEN, refsLine, truncated.kept, truncated.omittedLine);
 }
 
-/** Collapse whitespace, XML-escape, and bound one free-text field so CJK prose cannot eat the block. */
-function xmlField(text: string, maxBytes = 96): string {
-  const compact = text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
-  if (byteLength(escapeXml(compact)) <= maxBytes) return escapeXml(compact);
-  let out = "",
-    used = 0;
-  for (const char of compact) {
-    const size = byteLength(escapeXml(char));
-    if (used + size > maxBytes - byteLength("…")) break;
-    out += escapeXml(char);
-    used += size;
+/** Greedy detail fit against one concrete open tag, including whether the omission note still fits. */
+function fitWithinBudget(details: readonly DetailLine[], refsLine: string, open: string): BudgetFit {
+  let used = byteLength(open) + 1 + byteLength(refsLine) + 1 + byteLength(ROOT_CLOSE);
+  const kept: string[] = [],
+    omitted: string[] = [];
+  let dropped = false;
+  for (const entry of details) {
+    const cost = byteLength(entry.line) + 1;
+    if (used + cost > CAUSAL_CONTEXT_MAX_BYTES) {
+      dropped = true;
+      if (!omitted.includes(entry.ref)) omitted.push(entry.ref);
+      continue;
+    }
+    kept.push(entry.line);
+    used += cost;
   }
-  return `${out}…`;
+  const noteParts = [...omitted];
+  let omittedLine: string | null = null;
+  while (noteParts.length > 0) {
+    const candidate = `<omitted>${noteParts.join(" ")}</omitted>`;
+    if (used + byteLength(candidate) + 1 <= CAUSAL_CONTEXT_MAX_BYTES) {
+      omittedLine = candidate;
+      break;
+    }
+    noteParts.pop();
+  }
+  return { kept, omittedLine, dropped };
+}
+
+function renderBlock(open: string, refsLine: string, kept: readonly string[], omittedLine: string | null): string {
+  const tail = omittedLine === null ? [refsLine] : [refsLine, omittedLine];
+  return `${open}\n${[...kept, ...tail].join("\n")}\n${ROOT_CLOSE}`;
+}
+
+function detail(ref: string, line: string): DetailLine {
+  return { ref, line };
+}
+
+/** Collapse whitespace and XML-escape one free-text field; length is bounded by the block budget, not per field. */
+function xmlText(text: string): string {
+  return escapeXml(text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim());
 }
 
 function escapeXml(text: string): string {
@@ -289,7 +343,7 @@ export function planGoalSummary(body: string): string | null {
         .filter(Boolean)
         .slice(0, 2)
         .join(" ");
-    if (text) return plainField(text, 120);
+    if (text) return text.replace(/\*\*/gu, "").replace(/\s+/gu, " ").trim();
   }
   return null;
 }

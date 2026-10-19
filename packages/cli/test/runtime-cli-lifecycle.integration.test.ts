@@ -5,7 +5,11 @@ import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub.ts";
 import { eventuallyValue } from "../../daemon/test/fixtures/runtime-ingress.ts";
-import { livingDeliverableProtocol, taskQueryGuidance } from "@harness-anything/daemon/internal/runtime-spawn-mission";
+import {
+  livingDeliverableProtocol,
+  taskPlanSection,
+  taskQueryGuidance,
+} from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { safePath } from "@harness-anything/daemon/internal/protocol/daemon-protocol.contract";
 import { runCommandThroughDaemon } from "../src/daemon/client.ts";
 import { realizedTaskPlan as realizedPlan } from "../../../tools/fixtures/task-plan.mjs";
@@ -197,7 +201,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: detachedSessionId,
-    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nhold`,
+    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nhold`,
   });
   // A cancelled run authored no dispatch report; archiving its interrupted text as one left a
   // daemon-managed fragment the worker could not retire. The dispatch record and mission still
@@ -285,7 +289,7 @@ test("Cancellation is idempotent, notifies once and resumes the archived provide
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(resumedDispatch.receipt.runtimeSessionId),
-    mission: `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nfollow up`,
+    mission: `${taskPlanSection(realizedPlan("cancel-resume"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nfollow up`,
   });
   const resumedRow = (
     runMaybe(root, env, ["task", "dispatches", taskId]).receipt.dispatches as Array<Record<string, unknown>>
@@ -462,7 +466,7 @@ test("CLI installs identities, updates squads and assembles wildcard worker prom
   assert.match(wildcardText, /# Worker Role/u);
   assert.ok(
     wildcardText.endsWith(
-      `# Assigned Mission\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nwildcard prompt` +
+      `# Assigned Mission\n${taskPlanSection(realizedPlan("identity"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nwildcard prompt` +
         `\n\nTask ${taskId} is not submitted: the worker exited without a submitted delivery. ` +
         `Reopen the execution to re-dispatch with: ha task start ${taskId}`,
     ),

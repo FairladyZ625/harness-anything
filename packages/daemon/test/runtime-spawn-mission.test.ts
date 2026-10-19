@@ -10,6 +10,7 @@ import {
   explicitPromptMission,
   livingDeliverableProtocol,
   prBodyDeliveryProtocol,
+  taskPlanSection,
   taskQueryGuidance,
 } from "../src/runtime-spawn-mission.ts";
 
@@ -90,8 +91,12 @@ test("the task mission wrapper still seals preconditions around the mission", ()
   assert.match(mission, /# Assigned Mission\nDo the work\./u);
 });
 
-test("the guidance points at the injected <task-context> block and the protocol delegates to template comments", () => {
-  assert.match(taskQueryGuidance("task_x"), /已注入的 <task-context>/u);
+test("the guidance says the inlined plan and task-context need no lookup until they run short", () => {
+  const guidance = taskQueryGuidance("task_x");
+  assert.match(guidance, /task_plan\.md 全文与 <task-context> 已注入上面的 mission，不必再读文件/u);
+  assert.match(guidance, /ha task read-set task_x/u, "the read-set escape hatch stays named");
+  assert.match(guidance, /ha task show task_x/u);
+  assert.match(guidance, /资料不足[\s\S]*owner/u);
   const protocol = livingDeliverableProtocol("baseline")!;
   assert.match(protocol, /# Living Deliverable Protocol/u);
   assert.match(protocol, /artifacts\/explainer\.html/u);
@@ -103,6 +108,32 @@ test("the guidance points at the injected <task-context> block and the protocol 
   assert.match(protocol, /顶部注释/u, "the authoring how-to stays in the template comment");
   assert.doesNotMatch(protocol, /#faf7f0|零外网依赖/u);
   assert.match(protocol, /closeout 时冻结/u);
+});
+
+test("the task plan rides the mission verbatim ahead of the guidance and the caller text", () => {
+  const plan = "# Plan title\n\n## Brief\n\nShip the fixture lifecycle.\n",
+    mission = explicitPromptMission("task_x", null, "Go.", "baseline", null, undefined, null, false, plan),
+    planAt = mission.indexOf("Ship the fixture lifecycle."),
+    guidanceAt = mission.indexOf(taskQueryGuidance("task_x"));
+  assert.ok(mission.startsWith("本任务的 task_plan.md 全文如下"), "the plan opens the mission");
+  assert.ok(mission.includes(plan.trim()), "the plan body rides verbatim, not summarized");
+  assert.ok(planAt >= 0 && guidanceAt > planAt, "the inlined plan precedes the lookup guidance");
+  assert.ok(mission.endsWith("Go."), "explicit caller text stays last");
+  assert.doesNotMatch(
+    explicitPromptMission("task_x", null, "Go.", "baseline"),
+    /task_plan\.md 全文如下/u,
+    "a dispatch with no plan body inlines no plan section",
+  );
+});
+
+test("taskPlanSection names the package root once and carries the body trimmed and verbatim", () => {
+  const body = "# Title\n\n## Goal\n\nDo it.\n\n\n";
+  const opening = taskPlanSection(body, "/repo/harness/tasks/task_x-pkg");
+  assert.ok(opening.startsWith("Your task package is /repo/harness/tasks/task_x-pkg.\n"));
+  assert.match(opening, /本任务的 task_plan\.md 全文如下（已内嵌，不必再读文件），按其完成本任务：\n\n# Title/u);
+  assert.ok(opening.endsWith("Do it."), "trailing whitespace is trimmed, content is not");
+  assert.doesNotMatch(opening, /Read task_plan\.md/u, "the file-read instruction is gone");
+  assert.match(taskPlanSection(body), /^本任务的 task_plan\.md 全文如下/u, "package root is optional");
 });
 
 test("PR body protocol follows the document slot, including lightweight explicit dispatch", () => {

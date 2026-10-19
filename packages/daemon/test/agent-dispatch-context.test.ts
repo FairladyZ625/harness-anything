@@ -22,7 +22,8 @@ import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
 function assertScopedGuidance(prompt: string, taskId: string): void {
   assert.doesNotMatch(prompt, /ha (?:graph|work show|task create)/u);
   assert.match(prompt, new RegExp(`ha task read-set ${taskId}`, "u"));
-  assert.match(prompt, /已注入的 <task-context>/u);
+  assert.match(prompt, /task_plan\.md 全文与 <task-context> 已注入上面的 mission，不必再读文件/u);
+  assert.doesNotMatch(prompt, /Read task_plan\.md in that package/u, "the plan is inlined, not assigned as a read");
   assert.match(prompt, /# Living Deliverable Protocol/u);
   assert.match(prompt, /资料不足[\s\S]*owner/u);
   for (const role of ["implementation", "reviewer"] as const) {
@@ -288,11 +289,16 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     );
     assert.match(
       block,
-      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spaw…\)<\/fact>/u,
+      /<fact ref="fact\/F-00CA05A1">Dispatch prompts previously carried no causal topology\. \(src:packages\/daemon\/src\/runtime-spawner\.ts\)<\/fact>/u,
     );
     assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES, "causal block exceeds the byte budget");
     assert.doesNotMatch(block, /ha graph/u, "the causal block no longer spends budget on a bare command word");
     assert.match(prompt!, /# 台账查询引导/u, "the lookup guidance rides every task-bound mission");
+    assert.match(
+      prompt!,
+      /Exercise the fixture's task lifecycle through canonical repository commands\./u,
+      "the plan body rides the mission verbatim instead of a read instruction",
+    );
     assert.match(
       prompt!,
       /# Living Deliverable Protocol/u,
@@ -315,6 +321,11 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
     assert.equal(explicit.outcome, "applied", JSON.stringify(explicit));
     const explicitBlock = causalBlock(prompt!);
     assert.ok(explicitBlock !== null, "explicit-prompt dispatch lost the causal block");
+    assert.match(
+      prompt!,
+      /Exercise the fixture's task lifecycle through canonical repository commands\./u,
+      "an explicit prompt carries the inlined plan too",
+    );
     assertScopedGuidance(prompt!, "task_ctx_explicit");
     assert.ok(prompt!.endsWith("Finish the leaf task."), "explicit caller text stays intact");
 
@@ -698,7 +709,18 @@ test("oversized CJK causal context stays inside the byte budget on a real dispat
       Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
       `causal block is ${Buffer.byteLength(block, "utf8")} bytes`,
     );
-    assert.match(block, /…/u);
+    assert.match(
+      block,
+      /^<task-context truncated="yes">/u,
+      "an over-budget neighborhood marks the root truncated instead of field-cutting",
+    );
+    assert.doesNotMatch(block, /…/u, "no field inside the kept entries is truncated anymore");
+    assert.match(
+      block,
+      new RegExp(`${"承重裁决理由与证据陈述".repeat(60)} — ${"理由".repeat(90)}`, "u"),
+      "the kept chosen clause rides at full length",
+    );
+    assert.match(block, /<omitted>[^<]*F-CJKBAAA0[^<]*F-CJKAAAA0[^<]*<\/omitted>/u, "shed refs are named");
     assert.match(block, new RegExp(decisionIds[0]!.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&"), "u"));
   } finally {
     await cell?.close();

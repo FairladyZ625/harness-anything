@@ -259,50 +259,55 @@ test("a cut advancing mid-read is rejected instead of serving a mixed view", () 
   );
 });
 
-test("oversized CJK content truncates inside the byte budget and keeps refs", () => {
-  const long = "承".repeat(400);
+test("decision chosen, claims, question, fact statements, and titles render at full length", () => {
+  const long = "满".repeat(120);
   const projection = stub({
     readTaskIndex: () => ({
       ...cut(),
       rows: [
         { taskId: "task_root", title: long, taskClass: "work", parentTaskId: null, packagePath: "tasks/root" },
         {
-          taskId: "task_leaf",
-          title: "Leaf",
+          taskId: "task_mid",
+          title: long,
           taskClass: "standard",
           parentTaskId: "task_root",
-          packagePath: "tasks/leaf",
+          packagePath: "tasks/mid",
         },
+        { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_mid" },
       ],
     }),
     readTaskRelationsByTargets: () => ({
       ...cut(),
-      rows: [0, 1].map((index) => ({
-        relationId: `rel_${index}`,
-        sourceRef: `decision/dec_${index}/CH1`,
-        targetRef: "task/task_leaf",
-        relationType: "derives",
-        direction: "directed",
-        state: "active",
-      })),
+      rows: [
+        {
+          relationId: "rel_1",
+          sourceRef: "decision/dec_FULL/CH1",
+          targetRef: "task/task_leaf",
+          relationType: "derives",
+          direction: "directed",
+          state: "active",
+        },
+      ],
     }),
     readDecisions: () => ({
       ...cut(),
-      decisions: [0, 1].map((index) => ({
-        decisionId: `dec_${index}`,
-        title: long,
-        question: long,
-        chosen: [{ id: "CH1", text: long, rationale: long }],
-        claims: [0, 1, 2].map((c) => ({ id: `C${c + 1}`, text: long, loadBearing: true })),
-      })),
+      decisions: [
+        {
+          decisionId: "dec_FULL",
+          title: long,
+          question: long,
+          chosen: [{ id: "CH1", text: long, rationale: long }],
+          claims: [{ id: "C1", text: long, loadBearing: true }],
+        },
+      ],
     }),
     readRelationQuery: () => ({
       ...cut(),
       rows: [
         {
-          relationId: "rel_f",
-          sourceRef: "decision/dec_0/C1",
-          targetRef: "fact/F-1",
+          relationId: "rel_2",
+          sourceRef: "decision/dec_FULL/C1",
+          targetRef: "fact/F-FULL",
           relationType: "evidenced-by",
           direction: "directed",
           state: "active",
@@ -311,7 +316,97 @@ test("oversized CJK content truncates inside the byte budget and keeps refs", ()
     }),
     searchFacts: () => ({
       ...cut(),
-      facts: [{ ref: "fact/F-1", statement: long, evidenceSource: long }],
+      facts: [
+        {
+          ref: "fact/F-FULL",
+          statement: long,
+          evidenceSource: "packages/deeply/nested/source/directory/tree/leaf/file.ts",
+        },
+      ],
+    }),
+    readDocument: () => ({
+      ...cut(),
+      document: { body: `# Root\n\n## Goal\n\n${long}\n\n## Other\n\nignored\n` },
+    }),
+  });
+  const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
+  assert.ok(block !== null);
+  assertLineGrammar(block);
+  assert.ok(!block.includes("…"), "nothing inside the budget is field-truncated anymore");
+  assert.match(block, new RegExp(`<work ref="task/task_root">${long}</work>`, "u"));
+  assert.match(block, new RegExp(`<parent ref="task/task_mid">${long}</parent>`, "u"));
+  assert.match(block, new RegExp(`<decision ref="decision/dec_FULL" title="${long}"/>`, "u"));
+  assert.match(block, new RegExp(`<chosen ref="decision/dec_FULL" anchor="CH1">${long} — ${long}</chosen>`, "u"));
+  assert.match(block, new RegExp(`<claims ref="decision/dec_FULL">C1 ${long}</claims>`, "u"));
+  assert.match(
+    block,
+    new RegExp(
+      `<fact ref="fact/F-FULL">${long} \\(src:packages/deeply/nested/source/directory/tree/leaf/file.ts\\)</fact>`,
+      "u",
+    ),
+  );
+  assert.match(block, new RegExp(`<question ref="decision/dec_FULL">${long}</question>`, "u"));
+  assert.match(block, new RegExp(`<goal ref="task/task_root">${long}</goal>`, "u"));
+  assert.ok(Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES);
+});
+
+test("an over-budget neighborhood sheds whole facts from the far end and notes every omitted ref", () => {
+  // Facts are the farthest layer (task ← derives ← decision ← evidenced-by): with five
+  // ~2.1 KB statements the 8,192-byte budget holds identity, the deriving decision, and
+  // the first three facts, sheds the last two whole, and names each dropped ref.
+  const heavy = `重${"承".repeat(699)}`;
+  const projection = stub({
+    readTaskIndex: () => ({
+      ...cut(),
+      rows: [
+        { taskId: "task_root", title: "Budget work", taskClass: "work", parentTaskId: null, packagePath: null },
+        { taskId: "task_mid", title: "Budget parent", taskClass: "standard", parentTaskId: "task_root" },
+        { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_mid" },
+      ],
+    }),
+    readTaskRelationsByTargets: () => ({
+      ...cut(),
+      rows: [
+        {
+          relationId: "rel_1",
+          sourceRef: "decision/dec_BUDGET/CH1",
+          targetRef: "task/task_leaf",
+          relationType: "derives",
+          direction: "directed",
+          state: "active",
+        },
+      ],
+    }),
+    readDecisions: () => ({
+      ...cut(),
+      decisions: [
+        {
+          decisionId: "dec_BUDGET",
+          title: "Budget decision",
+          question: "Which layer sheds first?",
+          chosen: [{ id: "CH1", text: "The one contract that derives this task", rationale: "Kept whole" }],
+          claims: [{ id: "C1", text: "chosen clauses are never field-truncated", loadBearing: true }],
+        },
+      ],
+    }),
+    readRelationQuery: () => ({
+      ...cut(),
+      rows: [0, 1, 2, 3, 4].map((index) => ({
+        relationId: `rel_f${index}`,
+        sourceRef: "decision/dec_BUDGET/C1",
+        targetRef: `fact/F-${index}`,
+        relationType: "evidenced-by",
+        direction: "directed",
+        state: "active",
+      })),
+    }),
+    searchFacts: () => ({
+      ...cut(),
+      facts: [0, 1, 2, 3, 4].map((index) => ({
+        ref: `fact/F-${index}`,
+        statement: heavy,
+        evidenceSource: "packages/x.ts",
+      })),
     }),
   });
   const block = assembleTaskCausalContext({ projection, taskId: "task_leaf" });
@@ -320,21 +415,110 @@ test("oversized CJK content truncates inside the byte budget and keeps refs", ()
     Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
     `block is ${Buffer.byteLength(block, "utf8")} bytes`,
   );
-  assert.match(block, /dec_0/u);
-  assert.match(block, /…/u, "dropped detail is honestly marked");
-  assert.match(block, /ref="fact\/F-1"/u, "the evidence layer survives the widened budget");
-  assert.match(block, /<refs>[^<]*task_root/u, "canonical refs stay queryable");
+  assert.match(block, /^<task-context truncated="yes">\n/u, "shed entries mark the root truncated");
+  assert.match(block, /<work ref="task\/task_root">Budget work<\/work>/u, "identity lines outrank facts");
+  assert.match(block, /The one contract that derives this task — Kept whole/u, "the decision layer survives");
+  assert.ok(block.includes(heavy), "the first facts ride at full length");
+  assert.match(block, /<fact ref="fact\/F-2">/u);
+  assert.doesNotMatch(block, /<fact ref="fact\/F-[34]">/u, "the farthest facts are shed whole");
+  assert.match(block, /<omitted>[^<]*fact\/F-3[^<]*fact\/F-4[^<]*<\/omitted>/u, "omitted refs are named at the end");
+  assert.match(
+    block,
+    /<refs>[^<]*fact\/F-4[^<]*<\/refs>\n<omitted>/u,
+    "shed refs stay queryable ahead of the omission note",
+  );
   assert.doesNotMatch(block, /ha graph/u, "the lookup guidance lives in the mission, not the refs tail");
+  assertLineGrammar(block);
+});
+
+test("a details-only shed at the byte ceiling keeps the close tag instead of clamping it off", () => {
+  // A fit measured against `<task-context>` (14 B) but emitted as
+  // `<task-context truncated="yes">` (30 B) can pass its budget checks and then overshoot
+  // by 16 B. These statement lengths put the block in that window: at 7,512 the omission
+  // note passed the old whole-root arithmetic and at 7,520/7,540 the block itself reached
+  // the ceiling, so the old final clamp cut `</task-context>` off a details-only shed.
+  // Fitting against the root actually emitted must leave every line whole.
+  const nearCeiling = (statementBytes: number): TaskProjection => {
+    const facts = [100, 100, statementBytes, 2_000].map((length, index) => ({
+      ref: `fact/F-${String(index)}`,
+      statement: "s".repeat(length),
+      evidenceSource: "src",
+    }));
+    return stub({
+      readTaskIndex: () => ({
+        ...cut(),
+        rows: [
+          { taskId: "task_root", title: "Work title", taskClass: "work", parentTaskId: null, packagePath: null },
+          { taskId: "task_leaf", title: "Leaf", taskClass: "standard", parentTaskId: "task_root", packagePath: null },
+        ],
+      }),
+      readTaskRelationsByTargets: () => ({
+        ...cut(),
+        rows: [
+          {
+            relationId: "rel_1",
+            sourceRef: "decision/dec_X/CH1",
+            targetRef: "task/task_leaf",
+            relationType: "derives",
+            direction: "directed",
+            state: "active",
+          },
+        ],
+      }),
+      readDecisions: () => ({
+        ...cut(),
+        decisions: [
+          {
+            decisionId: "dec_X",
+            title: "Decision X",
+            question: "Q?",
+            chosen: [{ id: "CH1", text: "chosen", rationale: "why" }],
+            claims: [{ id: "C1", text: "claim", loadBearing: true }],
+          },
+        ],
+      }),
+      readRelationQuery: () => ({
+        ...cut(),
+        rows: facts.map((fact) => ({
+          relationId: `rel_${fact.ref}`,
+          sourceRef: "decision/dec_X/C1",
+          targetRef: fact.ref,
+          relationType: "evidenced-by",
+          direction: "directed",
+          state: "active",
+        })),
+      }),
+      searchFacts: () => ({ ...cut(), facts }),
+    });
+  };
+  for (const statementBytes of [7_512, 7_520, 7_540]) {
+    const block = assembleTaskCausalContext({ projection: nearCeiling(statementBytes), taskId: "task_leaf" });
+    assert.ok(block !== null);
+    assert.ok(
+      Buffer.byteLength(block, "utf8") <= CAUSAL_CONTEXT_MAX_BYTES,
+      `${String(statementBytes)}: block is ${String(Buffer.byteLength(block, "utf8"))} bytes`,
+    );
+    assert.ok(block.endsWith("</task-context>"), `${String(statementBytes)}: the close tag survives`);
+    assertLineGrammar(block);
+  }
+  const noteFits = assembleTaskCausalContext({ projection: nearCeiling(7_512), taskId: "task_leaf" });
+  assert.ok(noteFits !== null);
+  assert.match(
+    noteFits,
+    /<omitted>fact\/F-3<\/omitted>/u,
+    "the note is budgeted against the truncated root, not against a root that is never emitted",
+  );
 });
 
 test("shed detail lines mark the root truncated while every kept line stays parseable", () => {
-  // Pathological id set: two long-id decisions and five long-id facts give the
-  // greedy fit more detail lines than the 2,048-byte budget can hold — the fit
-  // must shed whole lines, mark the root truncated, and still parse per line.
-  const longWork = `task_${"W".repeat(150)}`,
-    longParent = `task_${"P".repeat(150)}`,
-    longDecisions = [0, 1].map((index) => `dec_${String(index)}${"D".repeat(150)}`),
-    longFacts = [0, 1, 2, 3, 4].map((index) => `fact/F-${String(index)}${"E".repeat(150)}`);
+  // Pathological id set: two long-id decisions and five long-id facts leave the 8,192-byte
+  // budget no room past the identity layer and the refs line — the fit sheds every detail
+  // entry whole, marks the root truncated, and (the ids themselves cannot fit) degrades
+  // the omission note to nothing rather than breaking the budget or the grammar.
+  const longWork = `task_${"W".repeat(700)}`,
+    longParent = `task_${"P".repeat(700)}`,
+    longDecisions = [0, 1].map((index) => `dec_${String(index)}${"D".repeat(700)}`),
+    longFacts = [0, 1, 2, 3, 4].map((index) => `fact/F-${String(index)}${"E".repeat(700)}`);
   const projection = stub({
     readTaskIndex: () => ({
       ...cut(),
@@ -391,6 +575,7 @@ test("shed detail lines mark the root truncated while every kept line stays pars
   assert.match(block, /<work ref="task\/task_W+">Long-id work<\/work>/u, "identity lines outrank detail tails");
   assert.match(block, /<parent ref="task\/task_P+">Long-id parent<\/parent>/u, "both identity lines fit");
   assert.doesNotMatch(block, /Long-id decision/u, "the decision detail layer was shed whole");
+  assert.doesNotMatch(block, /<omitted>/u, "ids too long for the note degrade it to nothing, not past the budget");
   assert.match(
     block,
     /<refs>[^<]*task\/task_W+[^<]*decision\/dec_0D+[^<]*fact\/F-0E+[^<]*<\/refs>/u,
