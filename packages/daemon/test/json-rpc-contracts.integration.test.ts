@@ -54,6 +54,46 @@ test("edge invitation fields cross the shared daemon.rbac.manage wire contract",
 });
 // prettier-ignore
 
+test("JSON-RPC failures retain the underlying fetch cause in the CLI rejection explanation", async () => {
+  const cause = Object.assign(new Error("self-signed certificate"), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" }),
+    failure = new TypeError("fetch failed", { cause }),
+    server = createJsonRpcProtocolServer({
+      host: {
+        manageRbac: async () => {
+          throw failure;
+        },
+      } as never,
+      build: { commit: null },
+      authContext: { transportKind: "unix-socket" },
+      emit: async () => undefined,
+    });
+  try {
+    await server.handle({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "protocol.hello",
+      params: { protocolVersion: currentDaemonProtocolVersion },
+    });
+    const response = await server.handle({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "daemon.rbac.manage",
+      params: { operation: "login" },
+    });
+    assert.ok(response && !Array.isArray(response) && "result" in response);
+    const result = response && !Array.isArray(response) && "result" in response ? response.result : null;
+    assert.ok(result && typeof result === "object");
+    assert.match(
+      String((result as Record<string, unknown>).rejectionExplanation),
+      /fetch failed.*self-signed certificate \[DEPTH_ZERO_SELF_SIGNED_CERT\]/u,
+    );
+  } finally {
+    server.close();
+  }
+});
+
+// prettier-ignore
+
 test("local Fleet runtime envelope admits the paged overview read", async () => {
   let observed: Record<string, unknown> | null = null;
   const host = { fleet: { edgeRuntime: async (payload: Record<string, unknown>) => { observed = payload; return { ok: true, command: "fleet-runtime-overview" }; } }, status: () => ({ daemonId: "fleet-overview", pid: process.pid, repos: [] }) } as never,

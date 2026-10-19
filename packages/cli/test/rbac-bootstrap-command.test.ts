@@ -29,6 +29,64 @@ test("device polling follows pending replies and ends at the device deadline", a
   assert.equal(polls, 2, "an expired device code never starts a token request");
 });
 
+test("device polling re-announces a replacement code and preserves the last transport cause at expiry", async () => {
+  const phases: string[] = [];
+  let polls = 0;
+  const signed = await awaitDeviceLogin(
+    {
+      ok: true,
+      pending: true,
+      userCode: "OLD-CODE",
+      interval: 0.001,
+      expiresAt: Date.now() + 2_000,
+    },
+    async () => {
+      polls += 1;
+      return polls === 1
+        ? {
+            ok: false,
+            code: "oidc_device_transport_unavailable",
+            rejectionExplanation:
+              "The Keycloak device authorization request failed (cause: read ECONNRESET [ECONNRESET]).",
+          }
+        : polls === 2
+          ? {
+              ok: true,
+              pending: true,
+              userCode: "NEW-CODE",
+              verificationUri: "https://identity.example.test/device",
+              interval: 0.001,
+              expiresAt: Date.now() + 2_000,
+            }
+          : { ok: true, authenticated: true, personId: "alice" };
+    },
+    (receipt) => phases.push(String(receipt.userCode ?? "")),
+  );
+  assert.equal(signed.personId, "alice");
+  assert.deepEqual(phases, ["OLD-CODE", "NEW-CODE"]);
+
+  let failedPolls = 0;
+  const expired = await awaitDeviceLogin(
+    {
+      ok: true,
+      pending: true,
+      interval: 0.01,
+      expiresAt: Date.now() + 100,
+    },
+    async () => {
+      failedPolls += 1;
+      return {
+        ok: false,
+        code: "oidc_device_transport_unavailable",
+        rejectionExplanation: "The Keycloak device authorization request failed (cause: read ECONNRESET [ECONNRESET]).",
+      };
+    },
+    () => undefined,
+  );
+  assert.ok(failedPolls > 0, "the existing CLI interval retries before its deadline");
+  assert.match(String(expired.rejectionExplanation), /read ECONNRESET \[ECONNRESET\]/u);
+});
+
 test("device login prints the browser entry, code and expiry while session receipts show identity and the session deadline", () => {
   const pending = renderCliReceipt({
     ok: true,

@@ -39,31 +39,44 @@ test("edge device login trusts only the invitation's self-signed Keycloak certif
   };
   const listener = certificate("keycloak"),
     wrong = certificate("other"),
-    server = createServer(listener, (_request, response) => {
+    server = createServer(listener, (request, response) => {
       response.writeHead(200, { "content-type": "application/json" });
       response.end(
-        JSON.stringify({
-          device_code: "private-device",
-          user_code: "ABCD-EFGH",
-          verification_uri: "https://localhost/realms/harness/device",
-          expires_in: 600,
-          interval: 5,
-        }),
+        JSON.stringify(
+          request.url?.endsWith("/auth/device")
+            ? {
+                device_code: "private-device",
+                user_code: "ABCD-EFGH",
+                verification_uri: "https://localhost/realms/harness/device",
+                expires_in: 600,
+                interval: 5,
+              }
+            : request.url?.endsWith("/token")
+              ? { access_token: "x.e30.x", refresh_token: "private-refresh", expires_in: 300, refresh_expires_in: 600 }
+              : { sub: "person-one", harness_person_id: "person-one" },
+        ),
       );
     });
   await new Promise<void>((resolve) => server.listen(0, resolve));
   t.after(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
   const address = server.address();
   assert.ok(address && typeof address === "object");
+  let now = 0;
   const authority = {
       url: `https://localhost:${address.port}`,
       realm: "harness",
       clientId: "harness-node-one",
     },
-    service = new OidcSessionService(root);
+    service = new OidcSessionService(root, { now: () => now });
 
   await assert.rejects(service.beginDevice(undefined, authority), /fetch failed/u);
   const accepted = await service.beginDevice(undefined, { ...authority, certificate: listener.cert });
   assert.equal(accepted.userCode, "ABCD-EFGH");
+  now = 5_000;
+  assert.equal(
+    (await service.pollDevice()).authenticated,
+    true,
+    "userinfo must trust only the invitation certificate too",
+  );
   await assert.rejects(service.beginDevice(undefined, { ...authority, certificate: wrong.cert }), /fetch failed/u);
 });

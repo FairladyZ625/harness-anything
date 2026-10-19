@@ -2,6 +2,7 @@ import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import type { DaemonRequestLogEntry } from "../request-log.ts";
 import { daemonProtocolError } from "./daemon-protocol-validate-results.ts";
 import type { DaemonProtocolErrorResult } from "./daemon-protocol-gui-types.ts";
+import { errorMessageWithCause } from "../error-cause.ts";
 import {
   isDaemonGuiActionMethod,
   isDaemonGuiReadMethod,
@@ -155,8 +156,8 @@ type ProtocolDispatchError =
 
 export function protocolErrorMessage(error: unknown): string {
   let normalized: ProtocolDispatchError;
-  if (error instanceof Error) normalized = { _tag: "NativeError", message: error.message };
-  else normalized = { _tag: "UnknownThrownValue", message: String(error) };
+  if (error instanceof Error) normalized = { _tag: "NativeError", message: errorMessageWithCause(error) };
+  else normalized = { _tag: "UnknownThrownValue", message: errorMessageWithCause(error) };
   switch (normalized._tag) {
     case "NativeError":
     case "UnknownThrownValue":
