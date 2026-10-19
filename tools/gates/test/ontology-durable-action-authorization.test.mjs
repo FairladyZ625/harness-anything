@@ -223,7 +223,7 @@ test("G0-2 traces all 157 declared writes, including queued task catalog ingress
   // dec_F01770FD0DCF72683B7C4C7A47/CH4 authorizes the three permission request lifecycle actions.
   // dec_CF96A3C910B31D2D7498F32DDD CH1: daemon-mediated task PR creation.
   // dec_12A87C0F08E4B8304C4BC25BA7/CH1,CH4: authorized runtime steering action.
-  // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; task_72d27e77a6004768bddbb0f7fe adds six Provider actions.
+  // dec_4C06F7F902E91C4210020A9E75/CH2 retires task-ci; dec_FC266F3F44CD241481B7066540/CH1 authorizes six Decisions Provider actions.
   assert.equal(result.rows.length, 157);
   assert.equal(
     result.rows.some(({ action }) => action === "task-ci" || action === "ci-observe-pull"),
