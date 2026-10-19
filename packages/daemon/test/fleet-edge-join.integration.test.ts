@@ -41,6 +41,14 @@ test(
         if (personId !== invite.personId) throw new FleetFault("person_mismatch", "another person's invitation");
         const issuedNodeId = `issued-${invite.joinId}`;
         invites.consume(invite.joinId, inviteToken, issuedNodeId);
+        f.owners.keycloak.node(issuedNodeId, personId);
+        f.owners.keycloak.interactiveSession(
+          personId,
+          issuedNodeId,
+          f.owners.url,
+          `device-token-${issuedNodeId}`,
+          "harness-cli",
+        );
         return {
           joinId: invite.joinId,
           nodeId: issuedNodeId,
