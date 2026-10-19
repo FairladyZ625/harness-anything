@@ -204,6 +204,10 @@ describe("EdgeInvitePanel", () => {
       expect(container.textContent).toContain("Pending");
       await act(async () => vi.advanceTimersByTimeAsync(10_000));
       await settle();
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toContain("Pending");
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      await settle();
       expect(container.textContent).toContain("Consumed");
       const callsAtTerminal = list.mock.calls.length;
       await act(async () => vi.advanceTimersByTimeAsync(10_000));
