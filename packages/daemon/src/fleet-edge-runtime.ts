@@ -51,12 +51,7 @@ import { readReplicaGeneration } from "./fleet/replica-generation.ts";
 import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
-import {
-  livingDeliverableProtocol,
-  prBodyDeliveryProtocol,
-  runtimeMissionName,
-  taskQueryGuidance,
-} from "./runtime-spawn-mission.ts";
+import { taskMissionSections, runtimeMissionName } from "./runtime-spawn-mission.ts";
 
 export interface FleetEdgeRuntimeRequest {
   readonly payload: {
@@ -337,10 +332,7 @@ export function openFleetEdgeRuntime(input: {
           planPath = path.join(packageRoot, "task_plan.md"),
           // Causal context, profile and worktree binding share the just-confirmed replica cut.
           // Authored task files remain the explicitly synchronized local workspace.
-          { causalContext, profileId, worktree } = runtimeContext,
-          // A reviewer binding (the spawner passes `review` only for role=reviewer) keeps the task
-          // guidance but carries no worker delivery contract, matching the local projection paths.
-          livingProtocol = review === undefined ? livingDeliverableProtocol(profileId, current.task?.taskClass) : null;
+          { causalContext, profileId, worktree } = runtimeContext;
         let plan: string;
         try {
           plan = readFileSync(planPath, "utf8");
@@ -350,8 +342,7 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
-        const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId),
-          prProtocol = review === undefined ? prBodyDeliveryProtocol(prBodyPath) : null;
+        const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId);
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         // A re-dispatched worker answers the latest owner return: the mirrored managed
         // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the
@@ -403,11 +394,15 @@ export function openFleetEdgeRuntime(input: {
               })()
             : null,
           missionAfterPackage = [
-            ...(ownerReturnBody === null ? [] : [`# Owner rework instruction\n\n${ownerReturnBody}`]),
-            taskQueryGuidance(taskId),
-            ...(livingProtocol === null ? [] : [livingProtocol]),
-            ...(prProtocol === null ? [] : [prProtocol]),
-            ...(causalContext === null ? [] : [causalContext]),
+            ...taskMissionSections(
+              taskId,
+              causalContext,
+              profileId,
+              prBodyPath,
+              current.task?.taskClass,
+              ownerReturnBody,
+              review !== undefined,
+            ),
             ...(mission ? [`# Mission: ${missionName}\n\n${mission.trim()}`] : []),
           ];
         return {

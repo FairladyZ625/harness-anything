@@ -166,7 +166,7 @@ export function assembleTaskCausalContext(input: {
   return [renderWithinBudget(details, refs), ...(authorization === null ? [] : [authorization])].join("\n\n");
 }
 
-/** The center's current chosen decision grants only replacement of its superseded contract. */
+/** Current deriving decisions supply authority; gate-file changes are declared for merge review. */
 function decisionExecutionSurface(
   decisions: readonly DecisionProjectionRow[],
   derives: ReturnType<TaskProjectionQueries["readTaskRelationsByTargets"]>["rows"],
@@ -203,16 +203,10 @@ function decisionExecutionSurface(
   return [
     "# 本任务授权范围 / Decision-Derived Execution Surface",
     ...sources,
-    "决策授权范围 / Authorized surface: 可把编码被上述决策取代的旧契约的门禁 / 测试断言更新为新契约；" +
-      "仅限该决策覆盖的本任务执行面，摘要不是完整范围，具体边界以源决策为准。 " +
-      "Update gates and test assertions encoding contracts replaced by these decisions, within this task's decision-covered surface.",
-    "条件 / Conditions: 保留并补齐负例、引用决策 id、closeout 列出改动的门禁文件。 " +
-      "Preserve and complete negative cases, cite the decision id, and list changed gate files in closeout.",
-    "硬红线 / Hard prohibitions: CI workflow、阈值与预算、required checks、凭据与宿主服务、删除断言、allowlist 计数变化。 " +
-      "CI workflows, thresholds and budgets, required checks, credentials and host services, assertion deletion, and allowlist count changes remain prohibited.",
-    "范围内直接执行并报备；范围外或硬红线停手，列出精确请求。 " +
-      "Proceed and report within scope; stop with an exact request outside scope or at a hard prohibition. " +
-      "This section grants no additional daemon command or ledger permissions.",
+    "决策条款写到的面按条款做；条款没写到的门禁文件改动照做，在 closeout 和 PR 治理声明里逐个列出，" +
+      "引用决策 id、保留并补齐负例；没有决策依据的写明‘需要业主授权’。" +
+      "凭据、宿主服务、对外发布这类收不回的动作，未经明确授权就停手并报告精确请求。" +
+      " This section grants no additional daemon command or ledger permissions.",
   ].join("\n\n");
 }
 

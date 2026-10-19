@@ -17,6 +17,8 @@ import {
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { agentRolePrompt } from "../packages/daemon/src/agent-role-prompts.ts";
+import { explicitPromptMission } from "../packages/daemon/src/runtime-spawn-mission.ts";
 import { spawnWithDeadline } from "./fixtures/deadline-spawn.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
@@ -185,12 +187,35 @@ test("worker handoff templates carry framework-owned publication rules", () => {
     assert.match(body, /排队|queued/u);
     assert.match(body, /main 也红|main-red/u);
   }
-  const prompt = readFileSync(path.join(repositoryRoot, "packages/daemon/src/agent-role-prompts.ts"), "utf8");
+});
+
+test("worker publication commands belong to the delivery mission while review carries none", () => {
+  const prompt = agentRolePrompt("worker"),
+    mission = (reviewerBinding) =>
+      explicitPromptMission(
+        "task-handoff",
+        null,
+        "Inspect the package.",
+        "baseline",
+        "artifacts/pr-body.md",
+        "standard",
+        null,
+        reviewerBinding,
+      ),
+    delivery = mission(false),
+    review = mission(true);
   assert.match(prompt, /canonical repository root/u);
-  assert.match(prompt, /ha doc sync --submit --task <task-id>/u);
-  assert.doesNotMatch(prompt, /ha doc sync --submit .*--(?:path|execution-id)/u);
-  assert.match(prompt, /gh pr checks <PR-number> --watch/u);
-  assert.match(prompt, /Pending checks are not green/u);
+  assert.match(prompt, /Sync delivery documents before task submit, which freezes the cut/u);
+  assert.match(prompt, /PR checks for that delivery commit/u);
+  assert.match(prompt, /Pending is not green/u);
+  assert.doesNotMatch(prompt, /ha doc sync|ha task push|ha task pr|gh pr checks/u);
+  assert.match(delivery, /ha doc sync --submit --task/u);
+  assert.doesNotMatch(delivery, /ha doc sync --submit .*--(?:path|execution-id)/u);
+  assert.match(delivery, /ha task push <task-id>.*ha task pr <task-id>/su);
+  assert.doesNotMatch(
+    review,
+    /Living Deliverable Protocol|PR Body Delivery Protocol|ha doc sync|ha task push|ha task pr/u,
+  );
 });
 
 function makeRepo(context, prefix) {
