@@ -140,7 +140,28 @@ export function createDaemonHostRuntimeApi(
       context.requireHostMode(repoId, commandDescriptorForAction("runtime-run"), auth);
       await context.attemptHostRecovery(repoId);
       const cell = context.requiredCell(context.cells, context.warming, context.unavailable, repoId);
-      return cell.runtimeIngress(action, await context.binding(cell.status().rootDir, auth, undefined, repoId));
+      const receipt = await cell.runtimeIngress(
+        action,
+        await context.binding(cell.status().rootDir, auth, undefined, repoId),
+      );
+      if (
+        cell.status().mode === "local" &&
+        action.kind === "event" &&
+        action.type === "runtime_session_outcome_observed" &&
+        receipt.outcome === "applied"
+      ) {
+        void context
+          .decisionPointExecutorFor(repoId, cell.status().rootDir)
+          .settle(
+            cell,
+            receipt.event as unknown as Extract<
+              import("@harness-anything/kernel").AgentRuntimeEventV1,
+              { readonly type: "runtime_session_outcome_observed" }
+            >,
+          )
+          .catch((error: unknown) => console.error(error));
+      }
+      return receipt;
     },
     terminalAttach: async (repoId, sessionId, afterSeq, auth) => {
       context.requireHostMode(repoId, repoReadCommandTopology, auth);

@@ -3,6 +3,49 @@
   "id": "software/coding",
   "title": "Software Coding",
   "version": "1.4.0",
+  "decisions": {
+    "questions": {
+      "stop-reason": {
+        "version": "pilot2-choice-v2",
+        "type": "choice",
+        "prompt": "以下文本来自一次无头软件工程派工中 worker 的收尾报告（或其中关键句）。判断这次派工的收场类别，选唯一最佳选项。文本不支持任何列出类别时选 insufficient_information。",
+        "options": [
+          { "id": "no_stop_completed", "text": "正常完成" },
+          { "id": "environment_unavailable", "text": "环境不可用" },
+          { "id": "coordination_needed", "text": "需要协调" },
+          { "id": "prompt_rule_stopped", "text": "规则吓停" },
+          { "id": "mixed", "text": "多因并存" },
+          { "id": "other_stop", "text": "其他中途停止" },
+          { "id": "unverified_empty", "text": "空报告" },
+          { "id": "insufficient_information", "text": "信息不足" }
+        ],
+        "criteria": {
+          "no_stop_completed": "当次派工正常完成：报告以任务提交或推送回执收尾。即使报告还列出不影响交付的未验证项或非阻塞的工具错误，只要交付回执在、没有挡住交付的未解决阻塞，仍属此类。",
+          "environment_unavailable": "真实环境/工具/配额不可用：worker 实际尝试动作后被系统或供应商拒绝。包括：供应商错误响应或配额上限（含原始错误文本/退出码）；CI/测试设施排队、超时、未出结论或出现与本改动无关的失败；台账/发布工具报错（如推送、提交、远端分支 404）；运行期凭据拒绝。即使工作本身已做完、只是提交或验收被上述原因挡住，也属此类。",
+          "coordination_needed": "需上级协调/授权/裁决：继续推进需要业主/CEO/维护者的动作，如共享面或 protected surface 的授权、超出注入授权范围、业主裁决，或等待业主提供参数、补充证据、验收材料。",
+          "prompt_rule_stopped": "提示词/角色规则吓停：环境本身可用，但任务书或角色规则文本直接禁止了完成所需的动作，worker 未实际尝试即停下；典型句式是 worker 自述「按角色约束/按规则我不能做某动作」。",
+          "mixed": "同一报告同时写出环境故障与协调请求两类内容。",
+          "other_stop": "运行中途截断或工作未完成：报告是进行中状态、运行被中途取消、工作自身未做完或测试仍红，且没有任何外部系统拒绝、排队或故障的描述。",
+          "unverified_empty": "空报告，不可核：输入文本为空，无从判断。",
+          "insufficient_information": "文本存在但不支持上述任何类别。"
+        },
+        "abstainOptionId": "insufficient_information"
+      }
+    },
+    "points": {
+      "dispatch-stop-reason": {
+        "revision": "1",
+        "on": "dispatch.settled",
+        "when": {
+          "outcome": ["failed", "cancelled", "succeeded"],
+          "classification": ["worker_stop", "gate_red"]
+        },
+        "input": ["report.body", "dispatch.reason", "dispatch.classification"],
+        "question": "stop-reason",
+        "show": ["task.dispatches"]
+      }
+    }
+  },
   "entityFieldExtensions": [
     {
       "extends": "task",

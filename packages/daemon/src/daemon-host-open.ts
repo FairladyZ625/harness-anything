@@ -97,6 +97,7 @@ import { openRemoteProxyManager } from "./remote-proxy.ts";
 import { credentialPort, type CredentialPort } from "./agent-runtime-credential-port.ts";
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
+import { openDecisionPointExecutor } from "./decision-point-executor.ts";
 import {
   openPersistentWriterEpoch,
   readLedgerWriterEpoch,
@@ -205,6 +206,21 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     },
     startedAt = input.startedAt ?? new Date().toISOString(),
     now = input.now ?? (() => new Date().toISOString()),
+    decisionPointExecutors = new Map<
+      string,
+      { readonly rootDir: string; readonly executor: ReturnType<typeof openDecisionPointExecutor> }
+    >(),
+    decisionPointExecutorFor = (repoId: string, rootDir: string) => {
+      const current = decisionPointExecutors.get(repoId);
+      if (current?.rootDir === rootDir) return current.executor;
+      const executor = openDecisionPointExecutor({
+        rootDir,
+        providers: { list: decisionProviders.list, port: decisionProviders.port },
+        now,
+      });
+      decisionPointExecutors.set(repoId, { rootDir, executor });
+      return executor;
+    },
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
@@ -496,6 +512,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     openCell,
     writerEpochFence,
     runtimePorts,
+    decisionPointExecutorFor,
     runtimeDaemonRoute,
     keycloakCenter,
     keycloakSession,
@@ -661,6 +678,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     unavailable,
     input,
     runtimePorts,
+    decisionPointExecutorFor,
     failedConfigureVerify,
     hostCodedError,
     binding: hostBinding,

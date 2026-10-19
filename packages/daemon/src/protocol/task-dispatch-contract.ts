@@ -3,6 +3,28 @@ export type TaskDispatchResume = {
   readonly agentId: string | null;
 };
 
+export interface TaskDispatchAdvisory {
+  readonly pointId: string;
+  readonly questionVersion: string;
+  readonly selected: string;
+  readonly distribution: Readonly<Record<string, number>>;
+  readonly options: readonly { readonly id: string; readonly text: string }[];
+  readonly provider: {
+    readonly providerId: string;
+    readonly vendor: "openrouter";
+    readonly requestedModel: string;
+    readonly resolvedModel: string;
+    readonly modelVersion: null;
+    readonly providerRoute: string | null;
+  };
+  readonly usage: {
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly reportedCost: number | null;
+  };
+  readonly latencyMs: number;
+}
+
 export interface TaskDispatchRow {
   readonly reviewTarget?:
     | { readonly kind: "task"; readonly taskId: string; readonly executionId: string; readonly digest: string }
@@ -47,6 +69,7 @@ export interface TaskDispatchRow {
   readonly exitCode?: number | null;
   readonly dispatchPath?: string | null;
   readonly reportPath?: string | null;
+  readonly advisories?: readonly TaskDispatchAdvisory[];
 }
 
 export type TaskDispatchAttempt = Pick<

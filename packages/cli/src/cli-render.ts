@@ -103,6 +103,7 @@ export function renderDispatchRow(value: unknown): string {
     `next:${renderOptional(row.nextAction)}`,
     `exit:${String(row.exitCode ?? "-")}`,
     `result:${String(row.resultRef ?? "-")}`,
+    `advisories:${JSON.stringify(row.advisories ?? [])}`,
     `dispatch:${String(row.dispatchPath ?? "-")}`,
     `report:${String(row.reportPath ?? "-")}`,
   ].join("\t");

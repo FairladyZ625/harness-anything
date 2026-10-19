@@ -372,6 +372,10 @@ export async function publishExit(
         attempt: {
           classification: attemptOutcome.classification,
           reason: attemptOutcome.reason,
+          ...(() => {
+            const fallbackState = readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState;
+            return fallbackState === "scheduled" || fallbackState === "exhausted" ? { fallbackState } : {};
+          })(),
           ...(attemptOutcome.faultClass ? { faultClass: attemptOutcome.faultClass } : {}),
           ...(attemptOutcome.resetAt ? { resetAt: attemptOutcome.resetAt } : {}),
         },

@@ -4,6 +4,12 @@ import { RelationTypeSchema } from "./entity-relations.ts";
 import { isRecord } from "../domain/write-chain.contract.ts";
 import type { VerticalDeclarationDocumentV1 } from "../domain/vertical-declaration.ts";
 import {
+  decisionEventDescriptor,
+  decisionEventNames,
+  decisionInputFields,
+  decisionReadSurfaces,
+} from "../domain/decision-event-catalog.ts";
+import {
   artifactLocatorKinds,
   type ArtifactEntityKindDefinition,
   type VerticalDefinition,
@@ -122,6 +128,51 @@ const EntityFieldExtensionSchema = Schema.Struct({
   reason: Schema.String,
 });
 
+const DecisionOptionSchema = Schema.Struct({ id: NonBlankStringSchema, text: NonBlankStringSchema });
+const DecisionCriteriaSchema = Schema.Record({ key: NonBlankStringSchema, value: NonBlankStringSchema });
+const DecisionQuestionDeclarationSchema = Schema.Union(
+  Schema.Struct({
+    version: NonBlankStringSchema,
+    type: Schema.Literal("noul"),
+    prompt: NonBlankStringSchema,
+    criteria: Schema.Struct({ true: NonBlankStringSchema, false: NonBlankStringSchema }),
+  }),
+  Schema.Struct({
+    version: NonBlankStringSchema,
+    type: Schema.Literal("choice"),
+    prompt: NonBlankStringSchema,
+    options: Schema.Array(DecisionOptionSchema).pipe(Schema.minItems(2)),
+    criteria: DecisionCriteriaSchema,
+    abstainOptionId: Schema.optional(NonBlankStringSchema),
+  }),
+  Schema.Struct({
+    version: NonBlankStringSchema,
+    type: Schema.Literal("score"),
+    prompt: NonBlankStringSchema,
+    levels: Schema.Array(DecisionOptionSchema).pipe(Schema.minItems(2)),
+    criteria: DecisionCriteriaSchema,
+  }),
+);
+
+const DecisionWhenSchema = Schema.Struct({
+  outcome: Schema.optional(Schema.Array(Schema.Union(Schema.String, Schema.Null))),
+  classification: Schema.optional(Schema.Array(Schema.Union(Schema.String, Schema.Null))),
+});
+
+const DecisionPointDeclarationSchema = Schema.Struct({
+  revision: NonBlankStringSchema,
+  on: Schema.Literal(...decisionEventNames),
+  when: DecisionWhenSchema,
+  input: Schema.Array(Schema.Literal(...decisionInputFields)).pipe(Schema.minItems(1)),
+  question: NonBlankStringSchema,
+  show: Schema.Array(Schema.Literal(...decisionReadSurfaces)).pipe(Schema.minItems(1)),
+});
+
+const VerticalDecisionDeclarationsSchema = Schema.Struct({
+  questions: Schema.Record({ key: NonBlankStringSchema, value: DecisionQuestionDeclarationSchema }),
+  points: Schema.Record({ key: NonBlankStringSchema, value: DecisionPointDeclarationSchema }),
+});
+
 export { artifactLocatorKinds };
 
 const ArtifactRelationSchema = Schema.Struct({
@@ -194,6 +245,7 @@ export const VerticalDefinitionSchema = Schema.Struct({
   id: Schema.String,
   title: Schema.String,
   version: Schema.String,
+  decisions: Schema.optional(VerticalDecisionDeclarationsSchema),
   entityFieldExtensions: Schema.optional(Schema.Array(EntityFieldExtensionSchema)),
   entityKinds: Schema.Array(
     Schema.Union(
@@ -250,11 +302,47 @@ export type EntityAttributeDeclaration = EntityKindSchemaVersion["attributes"][s
 /** Decode once, fail closed on every unknown field, and preserve that exact value for compilation consumers. */
 export function decodeVerticalDefinition(input: unknown): VerticalDefinition {
   try {
-    return Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
+    const definition = Schema.decodeUnknownSync(VerticalDefinitionSchema, { onExcessProperty: "error" })(input);
+    validateDecisionDeclarations(definition);
+    return definition;
   } catch (error) {
     throw new Error(`${String(error)}\nFor a pre-completion declaration, run ha migrate completion --help.`, {
       cause: error,
     });
+  }
+}
+
+function validateDecisionDeclarations(definition: VerticalDefinition): void {
+  const decisions = definition.decisions;
+  if (!decisions) return;
+  for (const [questionId, question] of Object.entries(decisions.questions)) {
+    const optionRows = question.type === "choice" ? question.options : question.type === "score" ? question.levels : [];
+    if (optionRows.length) {
+      const optionIds = optionRows.map(({ id }) => id),
+        criteriaIds = Object.keys(question.criteria);
+      if (
+        new Set(optionIds).size !== optionIds.length ||
+        new Set(criteriaIds).size !== criteriaIds.length ||
+        optionIds.length !== criteriaIds.length ||
+        optionIds.some((id) => !Object.hasOwn(question.criteria, id))
+      )
+        throw new Error(`Vertical decision question ${questionId} must describe every option exactly once.`);
+      if (question.type === "choice" && question.abstainOptionId && !optionIds.includes(question.abstainOptionId))
+        throw new Error(`Vertical decision question ${questionId} names an unknown abstainOptionId.`);
+    }
+  }
+  for (const [pointId, point] of Object.entries(decisions.points)) {
+    const event = decisionEventDescriptor(point.on);
+    if (!event || !event.finalOnly)
+      throw new Error(`Vertical decision point ${pointId} references an unsupported or non-final event.`);
+    if (!Object.hasOwn(decisions.questions, point.question))
+      throw new Error(`Vertical decision point ${pointId} references missing question ${point.question}.`);
+    if (new Set(point.input).size !== point.input.length || point.input.some((field) => !(field in event.inputFields)))
+      throw new Error(`Vertical decision point ${pointId} requests fields not declared by ${point.on}.`);
+    if (point.show.some((surface) => !event.readSurfaces.includes(surface)))
+      throw new Error(`Vertical decision point ${pointId} names a read surface not declared by ${point.on}.`);
+    if (Object.keys(point.when).some((field) => !(event.whenFields as readonly string[]).includes(field)))
+      throw new Error(`Vertical decision point ${pointId} filters a field not declared by ${point.on}.`);
   }
 }
 

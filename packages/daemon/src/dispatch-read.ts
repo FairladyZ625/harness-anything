@@ -1,10 +1,12 @@
 import {
   consumeKnownError,
+  decisionEventDescriptor,
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type RuntimeSession,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
+import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
 import {
   readDispatchStreamSummary,
   type RuntimeMetrics,
@@ -90,12 +92,27 @@ export function readTaskDispatches(
     !batch.rows.find((row) => row.taskId === singleTaskId)?.packagePath
   )
     throw Object.assign(new Error(`Task ${singleTaskId} has no projected package.`), { code: "task_not_found" });
-  for (const event of projection.readRuntimeDispatches())
-    if (event.payload.taskId && tasks.has(event.payload.taskId))
-      rows.set(
-        event.payload.dispatchId,
-        canonicalDispatchRow(projection, event, sessions.get(event.payload.runtimeSessionId), rootDir),
-      );
+  const dispatchEvents = projection
+      .readRuntimeDispatches()
+      .filter((event) => event.payload.taskId && tasks.has(event.payload.taskId)),
+    annotations = rootDir
+      ? readDecisionAnnotationsByDispatch(
+          rootDir,
+          dispatchEvents.map((event) => event.payload.dispatchId),
+          "task.dispatches",
+        )
+      : new Map();
+  for (const event of dispatchEvents)
+    rows.set(
+      event.payload.dispatchId,
+      canonicalDispatchRow(
+        projection,
+        event,
+        sessions.get(event.payload.runtimeSessionId),
+        rootDir,
+        annotations.get(event.payload.dispatchId) ?? [],
+      ),
+    );
   const dispatches = [...rows.values()].sort((left, right) => left.startedAt.localeCompare(right.startedAt)),
     resumed = new Map(dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : []))),
     terminal = taskDispatchesOutcome(dispatches, resumed);
@@ -271,6 +288,7 @@ function canonicalDispatchRow(
   event: DispatchEvent,
   session: RuntimeSession | undefined,
   rootDir?: string,
+  annotations: readonly import("./decision-annotations.ts").DecisionAnnotationEntry[] = [],
 ): TaskDispatchRow {
   const payload = event.payload,
     packagePath = payload.taskId ? projection.read(payload.taskId).packagePath : null,
@@ -357,7 +375,10 @@ function canonicalDispatchRow(
     ...(outcomeEvent?.payload.attempt?.faultClass ? { faultClass: outcomeEvent.payload.attempt.faultClass } : {}),
     ...(outcomeEvent?.payload.attempt?.resetAt ? { resetAt: outcomeEvent.payload.attempt.resetAt } : {}),
     ...resumeDispatch(payload, providerSessionId, resumed, classification),
-    fallbackState: dispatchStream?.fallbackState ?? (successor ? "dispatched" : null),
+    fallbackState:
+      outcomeEvent?.payload.attempt?.fallbackState ??
+      dispatchStream?.fallbackState ??
+      (successor ? "dispatched" : null),
     nextDispatchId: successor?.payload.dispatchId ?? null,
     ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
     ...(payload.agentId ? { agentId: payload.agentId, agentName: payload.agentName ?? payload.agentId } : {}),
@@ -377,6 +398,14 @@ function canonicalDispatchRow(
     exitCode,
     ...(documentPath && document ? { dispatchPath: documentPath } : {}),
     ...(reportPath && projection.readDocument(reportPath).document ? { reportPath } : {}),
+    ...(annotations.length > 0
+      ? {
+          advisories: annotations.flatMap((entry) => {
+            const descriptor = decisionEventDescriptor(entry.event);
+            return descriptor?.readSurfaces.includes("task.dispatches") && entry.advisory ? [entry.advisory] : [];
+          }),
+        }
+      : {}),
   };
 }
 

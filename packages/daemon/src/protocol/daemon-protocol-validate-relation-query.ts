@@ -208,7 +208,38 @@ export function validTaskDispatchRow(value: unknown): value is TaskDispatchRow {
     [value.resultRef, value.dispatchPath, value.reportPath].every(
       (field) => field === undefined || dispatchNullableText(field),
     ) &&
+    (value.advisories === undefined ||
+      (Array.isArray(value.advisories) && value.advisories.every(validTaskDispatchAdvisory))) &&
     (value.exitCode === undefined || value.exitCode === null || dispatchInteger(value.exitCode))
+  );
+}
+
+function validTaskDispatchAdvisory(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    dispatchText(value.pointId) &&
+    dispatchText(value.questionVersion) &&
+    dispatchText(value.selected) &&
+    isJsonObject(value.distribution) &&
+    Object.values(value.distribution).every(
+      (probability) =>
+        typeof probability === "number" && Number.isFinite(probability) && probability >= 0 && probability <= 1,
+    ) &&
+    Array.isArray(value.options) &&
+    value.options.every((option) => isJsonObject(option) && dispatchText(option.id) && dispatchText(option.text)) &&
+    isJsonObject(value.provider) &&
+    dispatchText(value.provider.providerId) &&
+    value.provider.vendor === "openrouter" &&
+    dispatchText(value.provider.requestedModel) &&
+    dispatchText(value.provider.resolvedModel) &&
+    value.provider.modelVersion === null &&
+    dispatchNullableText(value.provider.providerRoute) &&
+    isJsonObject(value.usage) &&
+    dispatchInteger(value.usage.inputTokens) &&
+    dispatchInteger(value.usage.outputTokens) &&
+    (value.usage.reportedCost === null ||
+      (typeof value.usage.reportedCost === "number" && Number.isFinite(value.usage.reportedCost))) &&
+    dispatchInteger(value.latencyMs)
   );
 }
 
