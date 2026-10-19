@@ -19,7 +19,7 @@ import { noWorktreeSetup } from "../src/worktree-setup.ts";
 
 const taskId = "task_e0000000000000000000beef",
   binding: TaskWorktreeBindingV1 = { branch: taskId, path: `.worktrees/${taskId}` },
-  packagePath = path.join("harness", "tasks", taskId),
+  packagePath = path.join("harness", "tasks", `${taskId}-edge`),
   edgeBinding = {
     actor: { principal: { personId: "fleet-edge" }, executor: null },
     source: { kind: "node" as const, nodeId: "node-a" },
