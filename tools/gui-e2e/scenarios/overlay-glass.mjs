@@ -151,10 +151,12 @@ export default {
       await shot(`overlay-agent-${theme}`);
       await page.keyboard.press("Escape");
 
-      // 3d. 新建 Provider 对话框。
+      // 3d. 新建 Provider 对话框。入口先是类型选择(PR #3760):选 LLM 才进表单。
       await page.getByRole("button", { name: /^(?:Provider|Providers)$/u }).click();
       await page.getByTestId("providers-view").waitFor();
       await page.getByTestId("runtime-new-runtimes").click();
+      await page.getByTestId("provider-type-dialog").waitFor();
+      await page.getByTestId("provider-type-llm").click();
       await page.getByTestId("new-runtime-dialog").waitFor();
       await waitForEntrySettled(page, '[data-testid="new-runtime-dialog"] .glass-overlay');
       await assertReadableModal(page, '[data-testid="new-runtime-dialog"] .glass-overlay', "新建 Provider");
