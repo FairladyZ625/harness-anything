@@ -1,15 +1,18 @@
-import { memo, useRef } from "react";
+import { memo, useMemo, useRef, type ReactNode } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { AgentRuntimeUnattributedGroupKey } from "@harness-anything/daemon/protocol";
 import { agentRuntimeSearchMatches } from "@harness-anything/daemon/protocol";
 import {
+  sessionDrillTarget,
   sessionStatusKey,
   sessionUnattributedKey,
   shortRef,
+  type SessionDrillTarget,
   type SessionGroup,
   type SessionOrphan,
   type SessionRound,
   type SessionStatus,
+  type SessionWorkGroup,
 } from "../../sessions-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatListTime, formatTime } from "../../model/time.ts";
@@ -68,6 +71,11 @@ export function SessionGroupList({
   onToggleGroup,
   onOpenTask,
   onSelectEntity,
+  onDrill,
+  workGroups,
+  workExpandedKeys,
+  onToggleWork,
+  railHeader,
 }: {
   readonly groups: readonly SessionGroup[];
   readonly pending?: boolean;
@@ -82,19 +90,47 @@ export function SessionGroupList({
   readonly onToggleGroup: (key: string) => void;
   readonly onOpenTask: (taskId: string) => void;
   readonly onSelectEntity: (ref: string) => void;
+  /** Agent/小队组头钻入;无此回调时组头保持诚实静态。 */
+  readonly onDrill?: (target: SessionDrillTarget) => void;
+  /** 工作层:非空时列表以工作为第一层,任务组作为已展开工作的子项。 */
+  readonly workGroups?: readonly SessionWorkGroup[];
+  readonly workExpandedKeys?: ReadonlySet<string>;
+  readonly onToggleWork?: (key: string) => void;
+  /** 列表顶部常驻条(钻入面包屑);随列表滚动吸顶。 */
+  readonly railHeader?: ReactNode;
 }) {
   const scrollRef = useRef<HTMLElement | null>(null);
+  // 工作层把「工作头 + 已展开工作的任务组」摊平成同一份虚拟行;任务组仍是原来的
+  // GroupSection(头 56px、轮次 40px),展开工作不会一次挂上几百个组。
+  const railItems = useMemo<readonly RailItem[]>(
+    () =>
+      workGroups === undefined
+        ? groups.map((group) => ({ kind: "group" as const, key: group.key, group, nested: false }))
+        : workGroups.flatMap((work) => [
+            { kind: "work" as const, key: `work:${work.key}`, work },
+            ...(workExpandedKeys?.has(work.key) === true
+              ? work.taskGroups.map((group) => ({
+                  kind: "group" as const,
+                  key: `${work.key}/${group.key}`,
+                  group,
+                  nested: true,
+                }))
+              : []),
+          ]),
+    [groups, workGroups, workExpandedKeys],
+  );
   // 列内 windowing(与看板列同构):DOM 组数 = 视口内 + 两侧 overscan,不随组总数
   // 线性增长(harness 仓 858+ 组全挂载是每 2s 轮询整列表重渲的载体)。组 key 稳定,
   // 轮询刷新时未变组由 memo(GroupSection) 跳过重渲染。
   const virtualizer = useVirtualizer({
-    count: groups.length,
+    count: railItems.length,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => GROUP_HEADER_ESTIMATE_PX,
     overscan: GROUP_OVERSCAN,
-    getItemKey: (index) => groups[index]!.key,
+    getItemKey: (index) => railItems[index]!.key,
     initialRect: GROUP_INITIAL_RECT,
   });
+  const empty = railItems.length === 0;
   return (
     <nav
       ref={scrollRef}
@@ -103,7 +139,12 @@ export function SessionGroupList({
       aria-label={t("agentRuntime.segSessions")}
       className={catalogRailClass}
     >
-      {groups.length === 0 ? (
+      {railHeader !== undefined && (
+        <div className="sticky top-0 z-10 shrink-0 border-b border-border bg-surface-raised px-3.5 py-2">
+          {railHeader}
+        </div>
+      )}
+      {empty ? (
         <p className="px-3.5 py-3 ui-meta text-text-faint">
           {t(
             pending
@@ -117,29 +158,42 @@ export function SessionGroupList({
         // spacer 带 shrink-0:nav 是 flex 列也是滚动容器,spacer 作为 flex item 会被默认的
         // flex-shrink 压回视口高,滚动范围就只剩首屏(实测 scrollHeight 被压到 2031px)。
         <div className="relative shrink-0" style={{ height: virtualizer.getTotalSize() }}>
-          {virtualizer.getVirtualItems().map((item) => (
-            <div
-              key={item.key}
-              data-index={item.index}
-              ref={virtualizer.measureElement}
-              className="absolute inset-x-0 top-0"
-              style={{ transform: `translateY(${item.start}px)` }}
-            >
-              <GroupSection
-                group={groups[item.index]!}
-                rows={rowsByGroup.get(groups[item.index]!.key)}
-                decisionRows={decisionRowsByGroup.get(groups[item.index]!.key)}
-                expanded={expandedKeys.has(groups[item.index]!.key)}
-                selectedId={selectedId}
-                query={query}
-                decisionRefsFor={decisionRefsFor}
-                onSelectSession={onSelectSession}
-                onToggleGroup={onToggleGroup}
-                onOpenTask={onOpenTask}
-                onSelectEntity={onSelectEntity}
-              />
-            </div>
-          ))}
+          {virtualizer.getVirtualItems().map((item) => {
+            const row = railItems[item.index]!;
+            return (
+              <div
+                key={item.key}
+                data-index={item.index}
+                ref={virtualizer.measureElement}
+                className="absolute inset-x-0 top-0"
+                style={{ transform: `translateY(${item.start}px)` }}
+              >
+                {row.kind === "work" ? (
+                  <WorkSection
+                    work={row.work}
+                    expanded={workExpandedKeys?.has(row.work.key) === true}
+                    onToggleWork={onToggleWork}
+                  />
+                ) : (
+                  <GroupSection
+                    group={row.group}
+                    nested={row.nested}
+                    rows={rowsByGroup.get(row.group.key)}
+                    decisionRows={decisionRowsByGroup.get(row.group.key)}
+                    expanded={expandedKeys.has(row.group.key)}
+                    selectedId={selectedId}
+                    query={query}
+                    decisionRefsFor={decisionRefsFor}
+                    onSelectSession={onSelectSession}
+                    onToggleGroup={onToggleGroup}
+                    onOpenTask={onOpenTask}
+                    onSelectEntity={onSelectEntity}
+                    onDrill={onDrill}
+                  />
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
       {truncated && (
@@ -154,11 +208,63 @@ export function SessionGroupList({
   );
 }
 
+type RailItem =
+  | { readonly kind: "work"; readonly key: string; readonly work: SessionWorkGroup }
+  | { readonly kind: "group"; readonly key: string; readonly group: SessionGroup; readonly nested: boolean };
+
+/** 工作层第一行:标题 + 任务/会话/在跑计数 + 最新活动;点开才见任务组。 */
+/** 工作层第一行:标题 + 任务/会话/在跑计数 + 最新活动。子任务组是虚拟列表里的
+ *  独立行(railItems 已摊平),不在这里一次性挂上几百个组。 */
+function WorkSection({
+  work,
+  expanded,
+  onToggleWork,
+}: {
+  readonly work: SessionWorkGroup;
+  readonly expanded: boolean;
+  readonly onToggleWork: ((key: string) => void) | undefined;
+}) {
+  const label =
+    work.label !== ""
+      ? work.label
+      : work.kind === "decision"
+        ? t("agentRuntime.sessionsWorkDecision")
+        : t("agentRuntime.sessionsWorkLoose");
+  return (
+    <section data-testid={`session-work-${work.key}`}>
+      <button
+        type="button"
+        data-testid={`session-work-toggle-${work.key}`}
+        aria-expanded={expanded}
+        onClick={() => onToggleWork?.(work.key)}
+        className="w-full text-left hover:bg-surface-raised"
+      >
+        <DenseRow
+          index={expanded ? "▾" : "▸"}
+          tag={<SessionStatusTag status={work.latestStatus} />}
+          title={<span className="font-semibold">{label}</span>}
+          hoverTitle={label}
+          reason={[
+            t("agentRuntime.sessionsWorkTasks", { count: work.taskCount }),
+            t("agentRuntime.sessionsWorkSessions", { count: work.sessionCount }),
+            work.runningCount > 0 ? t("agentRuntime.liveSessions", { count: work.runningCount }) : undefined,
+            formatListTime(work.latestActivityAt),
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+          relaxed
+        />
+      </button>
+    </section>
+  );
+}
+
 /** 行级 memo(与看板 Card 同构):比较键是组对象引用 + 标量 props。台账 cut 扇出
  * 每 ~2s 失效一次 sessionGroups,react-query 结构共享让内容未变的组保持同一引用,
  * 回调由页级 useCallback 稳定——「数据刷新但组没变」时挂载中的组行不再重渲染。 */
 const GroupSection = memo(function GroupSection({
   group,
+  nested,
   rows,
   decisionRows,
   expanded,
@@ -169,8 +275,11 @@ const GroupSection = memo(function GroupSection({
   onToggleGroup,
   onOpenTask,
   onSelectEntity,
+  onDrill,
 }: {
   readonly group: SessionGroup;
+  /** 工作层子行:缩进 + 连续细竖线,和工作头形成父子关系。 */
+  readonly nested: boolean;
   readonly rows: SessionGroupRows | undefined;
   readonly decisionRows: DecisionGroupRows | undefined;
   readonly expanded: boolean;
@@ -181,10 +290,12 @@ const GroupSection = memo(function GroupSection({
   readonly onToggleGroup: (key: string) => void;
   readonly onOpenTask: (taskId: string) => void;
   readonly onSelectEntity: (ref: string) => void;
+  readonly onDrill: ((target: SessionDrillTarget) => void) | undefined;
 }) {
-  const decisionGroup = group.kind === "decision",
-    expandable = group.kind === "task" || decisionGroup,
+  const decisionGroup = group.kind === "decision" && group.decisionId !== undefined,
+    expandable = (group.kind === "task" && group.taskId !== undefined) || decisionGroup,
     open = expanded && expandable,
+    drill = expandable || onDrill === undefined ? null : sessionDrillTarget(group),
     decisions = expandable && group.taskId ? decisionRefsFor(group.taskId) : [],
     // 检索命中时轮次行按同一词表过滤;无检索词时整组渲染。
     terms = query.trim() === "" ? [] : query.trim().toLocaleLowerCase().split(/\s+/u),
@@ -192,22 +303,21 @@ const GroupSection = memo(function GroupSection({
     visibleOrphans = (rows?.orphans ?? []).filter((row) =>
       agentRuntimeSearchMatches([row.runtimeSessionId, row.instanceId, row.taskId, row.taskTitle, row.status], terms),
     );
-  // 展开是 Task 组的能力(一次 task.dispatches 拿全部轮次,设计稿 §6.5 预算);
-  // Squad/Agent/时间组没有单次往返的成员读面,头部按静态行呈现,不提供假展开。
-  // 组头两行:标题一行半粗(组头与子行的层次主判别,不止靠缩进);执行者·轮数·
-  // 最新活动一行弱色。任务短码只进详情,不进行。
+  // 组头只有三种形态:任务/Decision 展开;有 agentId/squadId 的 Agent/小队钻入
+  // (读面已存在,见 sessionDrillTarget);时间组与没有 id 的 Direct/未归属桶静态。
+  // 时间组的日期是主体,不再挂「当天最新一轮的执行者」——那读起来像这一天属于某个 agent。
   const headerLabel =
     group.kind === "unattributed"
       ? t(sessionUnattributedKey[group.key as AgentRuntimeUnattributedGroupKey] as never)
       : (decisionRows?.title ?? group.label);
   const headerBody = (
     <DenseRow
-      index={expandable ? (open ? "▾" : "▸") : undefined}
+      index={expandable ? (open ? "▾" : "▸") : drill !== null ? "›" : undefined}
       tag={<SessionStatusTag status={group.latestStatus} />}
       title={<span className="font-semibold">{headerLabel}</span>}
       hoverTitle={group.kind === "unattributed" ? undefined : headerLabel}
       reason={[
-        group.latestRound?.agentName,
+        group.kind === "day" ? undefined : group.latestRound?.agentName,
         t("agentRuntime.sessionsRoundCount", { count: group.roundCount }),
         group.sessionCount > group.roundCount
           ? t("agentRuntime.sessionsSessionCount", { count: group.sessionCount })
@@ -220,7 +330,10 @@ const GroupSection = memo(function GroupSection({
     />
   );
   return (
-    <section data-testid={`session-group-${group.key}`} className={open ? "pb-5" : undefined}>
+    <section
+      data-testid={`session-group-${group.key}`}
+      className={`${nested ? "ml-3.5 border-l border-border pl-1.5" : ""} ${open ? "pb-5" : ""}`.trim() || undefined}
+    >
       {expandable ? (
         <button
           type="button"
@@ -232,8 +345,20 @@ const GroupSection = memo(function GroupSection({
         >
           {headerBody}
         </button>
+      ) : drill !== null ? (
+        <button
+          type="button"
+          data-testid={`session-group-drill-${group.key}`}
+          title={t("agentRuntime.sessionsGroupDrill", { label: headerLabel })}
+          onClick={() => onDrill?.(drill)}
+          className="w-full text-left hover:bg-surface-raised"
+        >
+          {headerBody}
+        </button>
       ) : (
-        <div className="cursor-default">{headerBody}</div>
+        <div data-testid={`session-group-static-${group.key}`} className="cursor-default">
+          {headerBody}
+        </div>
       )}
       {open && decisionGroup && group.decisionId && (
         <DecisionGroupBody

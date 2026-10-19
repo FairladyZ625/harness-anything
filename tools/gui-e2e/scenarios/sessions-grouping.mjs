@@ -53,11 +53,37 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
    * 只读截图覆盖。 */
   ROUNDS_TASK = "task-e2e-rounds",
   SINGLE_TASK = "task-e2e-single",
+  WORK_TASK = "task-e2e-work",
+  /** 工作层夹具:两个任务挂在同一个工作根下;task-gui-smoke 无父任务 → 散件桶。 */
+  squadRunIds = {
+    converged: `squad_${identity("squad-run-converged").slice(0, 24)}`,
+    failed: `squad_${identity("squad-run-failed").slice(0, 24)}`,
+    active: `squad_${identity("squad-run-active").slice(0, 24)}`,
+  },
   roundsFixture = [
     { key: "round-4", status: "failed", agent: "GLM-5.3", startedAt: "2026-10-02T13:30:00.000Z" },
-    { key: "round-3", status: "succeeded", agent: "GLM-5.3", startedAt: "2026-10-02T13:00:00.000Z" },
-    { key: "round-2", status: "cancelled", agent: "GLM-5.3", startedAt: "2026-10-02T12:30:00.000Z" },
-    { key: "round-1", status: "succeeded", agent: "GLM-5.3", startedAt: "2026-10-02T12:00:00.000Z" },
+    {
+      key: "round-3",
+      status: "succeeded",
+      agent: "GLM-5.3",
+      startedAt: "2026-10-02T13:00:00.000Z",
+      squadId: "squad-e2e",
+      squadRunKey: "converged",
+    },
+    {
+      key: "round-2",
+      status: "cancelled",
+      agent: "GLM-5.3",
+      startedAt: "2026-10-02T12:30:00.000Z",
+      squadRunKey: "failed",
+    },
+    {
+      key: "round-1",
+      status: "succeeded",
+      agent: "GLM-5.3",
+      startedAt: "2026-10-02T12:00:00.000Z",
+      squadRunKey: "active",
+    },
   ],
   singleFixture = [{ key: "single-1", status: "succeeded", agent: "Astra", startedAt: "2026-10-02T11:00:00.000Z" }],
   roundIds = (rows) =>
@@ -71,6 +97,56 @@ const identity = (key) => createHash("sha256").update(`gui-e2e-catalog\0${key}`)
       ]),
     ),
   ROUNDS = roundIds(roundsFixture);
+
+/** 小队编排夹具:同一个 squad 两次 run + 另一个 squad 在编,让「先小队后 run」可判别。
+ *  派工事件先带 squadRun 上下文(state 初始 revision 0),随后 observed 事件推进到 12。 */
+const squadRunFixtures = {
+  converged: {
+    squadId: "squad-e2e",
+    phase: "converged",
+    mission: "把会话页的小队编排段改成先见小队再见 run",
+    error: null,
+    leaderTurns: [
+      {
+        turnId: "leader-1",
+        trigger: { kind: "initial" },
+        dispatchId: ROUNDS["round-3"].dispatchId,
+        runtimeSessionId: ROUNDS["round-3"].runtimeSessionId,
+        decision: { kind: "converged" },
+      },
+    ],
+    workerAttempts: [
+      {
+        attemptId: "worker-1",
+        workerId: "terra",
+        leaderTurnId: "leader-1",
+        taskId: ROUNDS_TASK,
+        executionId: "exe-round-3",
+        dispatchId: ROUNDS["round-3"].dispatchId,
+        runtimeSessionId: ROUNDS["round-3"].runtimeSessionId,
+        rejection: null,
+        branch: null,
+        baseSha: null,
+      },
+    ],
+  },
+  failed: {
+    squadId: "squad-e2e",
+    phase: "failed",
+    mission: "复核第二条编排:失败也必须按小队归并,不能散成两行",
+    error: "worker 在预算内没有结算",
+    leaderTurns: [],
+    workerAttempts: [],
+  },
+  active: {
+    squadId: "squad-e2e-other",
+    phase: "leader_running",
+    mission: "另一支小队仍在编:状态要能在第一层读出来",
+    error: null,
+    leaderTurns: [],
+    workerAttempts: [],
+  },
+};
 
 const definitionSnapshot = (instanceId, installationId) => ({
   schema: "agent-definition-snapshot/v1",
@@ -238,6 +314,19 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
           executionId: `exe-${row.key}`,
           agentId: row.agent === "Astra" ? "astra" : "glm",
           agentName: row.agent,
+          ...(row.squadId === undefined ? {} : { squadId: row.squadId }),
+          ...(row.squadRunKey === undefined
+            ? {}
+            : {
+                squadRun: {
+                  squadRunId: squadRunIds[row.squadRunKey],
+                  squadId: squadRunFixtures[row.squadRunKey].squadId,
+                  taskId: task,
+                  executionId: `exe-${row.key}`,
+                  mission: squadRunFixtures[row.squadRunKey].mission,
+                  leaderAgentId: row.agent === "Astra" ? "astra" : "glm",
+                },
+              }),
           startedAt: row.startedAt,
           instanceId,
           installationId,
@@ -294,6 +383,33 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
       });
     store.append({ event: archiveWrite.event, plan: archiveWrite.plan, blobs: archiveWrite.blobs });
     projection.apply(archiveWrite.event);
+    // E:小队编排段夹具——同一小队两次 run(收敛/失败)+ 另一小队在编,证明列表中
+    // 先见小队再见 run;run 行只留 phase/mission/相对时间。事件走 canonical 读面,
+    // 与生产 `runtime_squad_run_observed` 同形,不 mock 视图。
+    // 派工事件已带 squadRun 上下文(revision 0, planning);observed 事件把三条 run
+    // 推进到收敛/失败/在编。run 的 ownerDispatchId 必须指向它自己的派工事件。
+    const ownerRound = { converged: "round-3", failed: "round-2", active: "round-1" };
+    for (const [runKey, run] of Object.entries(squadRunFixtures)) {
+      const owner = ROUNDS[ownerRound[runKey]];
+      append("runtime_squad_run_observed", {
+        squadRunId: squadRunIds[runKey],
+        squadId: run.squadId,
+        taskId: ROUNDS_TASK,
+        executionId: `exe-${ownerRound[runKey]}`,
+        mission: run.mission,
+        leaderAgentId: "glm",
+        ownerDispatchId: owner.dispatchId,
+        runRevision: 12,
+        phase: run.phase,
+        error: run.error,
+        currentLeaderRuntimeSessionId: null,
+        leaderTurns: run.leaderTurns,
+        workerAttempts: run.workerAttempts,
+        workerCallbackCount: run.workerAttempts.length,
+        pendingLeaderCallbackCount: 0,
+        synthesisReportPath: null,
+      });
+    }
   } finally {
     projection.close();
     await store.drain();
@@ -305,19 +421,23 @@ export async function seedGuiE2eRuntimeSessions(rootDir, repoId, writerFence, ta
  * create 派生(不等于 tasks/<taskId>),派工归档必须落在真实包路径下。 */
 export async function seedGuiE2eSessionTasks(endpoint, repoId) {
   const packagePaths = {};
-  for (const [taskId, title] of [
-    [ROUNDS_TASK, "恢复可用的性能统计窗口"],
-    [SINGLE_TASK, "页面分区换位与紧凑布局"],
-  ]) {
+  const create = async (taskId, title, parentTaskId) => {
     const created = await requestDaemonJsonRpcAt(
       endpoint,
       "repo.task.create",
-      { repo: { repoId }, payload: { taskId, title } },
+      { repo: { repoId }, payload: { taskId, title, ...(parentTaskId === undefined ? {} : { parentTaskId }) } },
       5_000,
     );
     assert.equal(created.ok, true, `task fixture ${taskId} create failed: ${JSON.stringify(created)}`);
     packagePaths[taskId] = String(created.packagePath);
-  }
+  };
+  // 工作层夹具:根任务 + 两个成员任务;工作索引会把两个任务组归到根任务的工作下。
+  await create(WORK_TASK, "GUI 会话页工作层");
+  for (const [taskId, title] of [
+    [ROUNDS_TASK, "恢复可用的性能统计窗口"],
+    [SINGLE_TASK, "页面分区换位与紧凑布局"],
+  ])
+    await create(taskId, title, WORK_TASK);
   return packagePaths;
 }
 
@@ -380,6 +500,33 @@ export default {
       await page.waitForTimeout(500);
     }
     await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
+
+    // 0. 默认首屏按「工作」分组:工作根一行,无归属的任务组在「散件」;任务组藏在
+    // 收起的工作里,不先铺一屏任务。
+    await page.getByTestId(`session-work-work:${WORK_TASK}`).waitFor();
+    await page.getByTestId("session-work-loose").waitFor();
+    assert.equal(
+      await page.getByTestId(`session-group-${ROUNDS_TASK}`).count(),
+      0,
+      "work grouping must not flatten task groups before the work is expanded",
+    );
+    await shot("sessions-work-default");
+    await page.getByTestId(`session-work-toggle-work:${WORK_TASK}`).click();
+    await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();
+    await page.getByTestId(`session-group-${SINGLE_TASK}`).waitFor();
+    await shot("sessions-work-expanded");
+
+    // 后续层次/筛选断言在 Task 分组下做:工作组与任务组共用同一份 sessionGroups 读。
+    await page.getByTestId("sessions-group-task").click();
+    const grouping = await page.evaluate(() => ({
+      work: globalThis.document.querySelector('[data-testid="sessions-group-work"]')?.getAttribute("aria-pressed"),
+      task: globalThis.document.querySelector('[data-testid="sessions-group-task"]')?.getAttribute("aria-pressed"),
+      workRows: globalThis.document.querySelectorAll('[data-testid^="session-work-toggle-"]').length,
+    }));
+    writeFileSync(path.join(runRoot, "grouping-after-task.json"), `${JSON.stringify(grouping, null, 2)}\n`);
+    assert.equal(grouping.task, "true", `the Task grouping control must be selected: ${JSON.stringify(grouping)}`);
+    assert.equal(grouping.work, "false", `the Work grouping control must be deselected: ${JSON.stringify(grouping)}`);
+    await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();
 
     // 1. 按缺失原因命名的桶 + task 组:判别式在 key(dec_054C39DA50CAD4D4E0D62B726E)。
     await page.getByTestId(`session-group-${FIXTURE_TASK}`).waitFor();
@@ -450,6 +597,70 @@ export default {
     await page.setViewportSize(originalViewport);
     writeFileSync(path.join(runRoot, "sessions-toolbar-layout.json"), `${JSON.stringify(layouts, null, 2)}\n`);
 
+    // 2. 组头三分法:Agent/小队有 id → 钻入;时间组诚实静态;没有 id 的桶静态。
+    await page.getByTestId("sessions-group-agent").click();
+    await page.getByTestId("session-group-drill-glm").waitFor();
+    await settleSegControl(page);
+    await shot("sessions-agent-groups");
+    await page.getByTestId("session-group-drill-glm").click();
+    await page.getByTestId("sessions-drill-breadcrumb").waitFor();
+    await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();
+    await settleSegControl(page);
+    await shot("sessions-agent-drill");
+    await page.getByTestId("sessions-drill-back").click();
+    await page.getByTestId("sessions-drill-breadcrumb").waitFor({ state: "detached" });
+    // 没有 agentId 的 Direct(instance) 组是静态行:存在,但不是 drill 按钮。
+    await page.locator('[data-testid^="session-group-static-"]').first().waitFor();
+
+    await page.getByTestId("sessions-group-squad").click();
+    await page.getByTestId("session-group-drill-squad-e2e").waitFor();
+    await page.getByTestId("session-group-static-unattributed:no-squad").waitFor();
+    await page.getByTestId("session-group-drill-squad-e2e").click();
+    await page.getByTestId("sessions-drill-breadcrumb").waitFor();
+    await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();
+    await settleSegControl(page);
+    await shot("sessions-squad-drill");
+    await page.getByTestId("sessions-drill-back").click();
+    await page.getByTestId("sessions-drill-breadcrumb").waitFor({ state: "detached" });
+
+    await page.getByTestId("sessions-group-day").click();
+    const dayHeader = page.locator('[data-testid^="session-group-static-"]').first();
+    await dayHeader.waitFor();
+    assert.equal(await dayHeader.evaluate((node) => node.tagName), "DIV");
+    assert.equal(
+      await dayHeader.evaluate((node) => node.querySelector(".cursor-pointer")),
+      null,
+      "the day header must not advertise a click it does not have",
+    );
+    assert.ok(
+      !(await dayHeader.innerText()).includes("GLM-5.3"),
+      "the day header must not wear the latest round's executor name",
+    );
+    await settleSegControl(page);
+    await shot("sessions-day-static");
+
+    // 3. 小队编排段:先小队后 run;run 行只留 phase/mission/相对时间;详情头只有
+    // 「最后报告」与 LEADER 轮次一个「轮次」含义。
+    await page.getByTestId("sessions-segment-squads").click();
+    await page.getByTestId("squad-group-squad-e2e").waitFor();
+    await page.getByTestId("squad-group-squad-e2e-other").waitFor();
+    await page.getByTestId(`squad-run-toggle-${squadRunIds.converged}`).waitFor();
+    await page.getByTestId(`squad-run-toggle-${squadRunIds.failed}`).waitFor();
+    const convergedRow = await page.getByTestId(`squad-run-toggle-${squadRunIds.converged}`).innerText();
+    assert.ok(convergedRow.includes("先见小队"));
+    assert.ok(!convergedRow.includes("task-e2e-rounds"), "the run row must not carry the task short code");
+    assert.ok(!convergedRow.includes("revision"), "the run row must not carry the run revision");
+    await settleSegControl(page);
+    await shot("sessions-squad-runs");
+    await page.getByTestId(`squad-run-toggle-${squadRunIds.converged}`).click();
+    await page.getByTestId("squad-run-detail-mission").waitFor();
+    assert.ok((await page.getByTestId("squad-run-detail-mission").innerText()).includes("先见小队"));
+    const observation = await page.getByTestId("squad-run-observation").innerText();
+    assert.ok(observation.includes("Last report") || observation.includes("最后报告"));
+    for (const noise of ["iteration", "revision", "执行 execution"]) assert.ok(!observation.includes(noise));
+    await settleSegControl(page);
+    await shot("sessions-squad-run-detail");
+
     // 4. 各维度 totals.sessions 相等:对照 daemon 的 runtime-session-groups 读命令。
     const { endpoint, repoId } = await isolatedDaemonTarget(app);
     const byDimension = new Map(
@@ -482,6 +693,39 @@ async function toggleFailedFilter(page) {
   await page.keyboard.press("Escape");
 }
 
+/** 默认分组是「工作」:任何离开会话页再回来的动作(主题切换)都会重挂页面并回到
+ *  工作层。层次断言前显式把分组切回 Task,不依赖上一次挂载的本地状态。 */
+/** SegCtl 的选中块是 180ms 的共享元素动画:截图前等它停在稳定位置,避免证据照片
+ *  恰好拍到滑块盖住选项文字。等待的是动画自己的几何,不是墙钟。 */
+async function settleSegControl(page) {
+  await page.evaluate(async () => {
+    const frame = () => new Promise((resolve) => globalThis.requestAnimationFrame(() => resolve()));
+    const lefts = () =>
+      [...globalThis.document.querySelectorAll('[data-testid="seg-ctl-thumb"]')]
+        .map((node) => node.getBoundingClientRect().left)
+        .join(",");
+    let previous = lefts();
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      await frame();
+      await frame();
+      const current = lefts();
+      if (current === previous) return;
+      previous = current;
+    }
+  });
+}
+
+async function ensureTaskGrouping(page) {
+  // 无条件点一次:页面重挂后初始态可能已是 Task,但「工作」默认 effect 尚未跑;
+  // 点一下把用户的显式选择写进页面状态,effect 就不会再把视图切回工作。
+  await page.getByTestId("sessions-group-task").click();
+  // 虚拟列表只挂视口附近的组:回到会话页后先回顶,再等目标组进 DOM。
+  await page.getByTestId("sessions-group-list").evaluate((element) => {
+    element.scrollTop = 0;
+  });
+  await page.getByTestId(`session-group-${ROUNDS_TASK}`).waitFor();
+}
+
 /** 展开一个任务组(已展开则不动):组内轮次行挂上即视为展开完成——旧形态没有
  * 组体容器 testid,等待点不绑在实现细节上。 */
 async function expandGroup(page, taskKey) {
@@ -499,6 +743,7 @@ async function setTheme(page, theme) {
   await page.getByRole("button", { name: theme === "light" ? /亮色|Light/u : /暗色|Dark/u }).click();
   assert.equal(await page.locator("html").getAttribute("data-theme"), theme);
   await nav(page, /^(?:会话|Sessions)$/u, "sessions-view");
+  await ensureTaskGrouping(page);
   await expandGroup(page, ROUNDS_TASK);
   await expandGroup(page, SINGLE_TASK);
 }
@@ -651,6 +896,8 @@ async function assertRoundInteractions(page) {
     .getByRole("button", { name: /^(?:会话|Sessions)$/u })
     .click();
   await page.getByTestId("sessions-view").first().waitFor();
+  // 回程重挂会话页:默认又落工作层,先切回 Task 再展开。
+  await ensureTaskGrouping(page);
   await expandGroup(page, ROUNDS_TASK);
 
   // 检索仍返回正确轮次:按 dispatch id 检索,命中组的该轮可见,别的组退场(轮次行

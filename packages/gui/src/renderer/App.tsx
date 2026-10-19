@@ -911,6 +911,7 @@ function AppShell() {
                 <SessionsView
                   repoId={projectId}
                   relations={edgeRelations}
+                  works={works}
                   focusedEntityRef={focusedEntityRef}
                   onSelectEntity={selectRuntimeEntity}
                   // 窄容器返回键走全局弹栈;栈底(孤立深链条目)无处可退时原地清引用回列表。

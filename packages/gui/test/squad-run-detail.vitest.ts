@@ -118,7 +118,10 @@ describe("sessions page: squad run detail", () => {
     expect(markup).toContain("initial mission");
     expect(markup).toContain("plan · 2 dispatches");
     expect(markup).toContain("leader-2");
-    expect(markup).toContain("after worker session");
+    // 触发语用人话第几轮,不再把裸 runtime session id 放在句子里;id 留在 title。
+    expect(markup).toContain("after worker round 1");
+    expect(markup).not.toContain("after worker session runtime-worker-1");
+    expect(markup).toContain('title="runtime-worker-1"');
     expect(markup).toContain("decision pending");
     expect(markup).toMatch(/data-testid="squad-run-turn-leader-2"/u);
     // 当前 leader 轮高亮;轮次行直达 session/<id>(EntityRefLink 是 button 出口),
@@ -136,6 +139,22 @@ describe("sessions page: squad run detail", () => {
     expect(attemptAt).toBeLessThan(leader2At);
     // worker attempt 直达 session 详情(短名 title 前缀 + 完整引用同场)。
     expect(markup).toContain('title="runtime-worker-1 · session/runtime-worker-1"');
+  });
+
+  it("has one meaning of 轮次 in the header: last report only, never iteration/execution/revision", () => {
+    const markup = detailView();
+    const header = markup.slice(
+      markup.indexOf('data-testid="squad-run-detail"'),
+      markup.indexOf('data-testid="squad-run-observation"'),
+    );
+    expect(header).toContain("Ship the ontology work");
+    expect(markup).toContain('data-testid="squad-run-observation"');
+    expect(markup).toContain("Last report");
+    for (const noise of ["execution execution-squad", "iteration", "revision", "task: 2"]) {
+      expect(markup).not.toContain(noise);
+    }
+    // 「轮次」只剩 LEADER 轮次这一处计数。
+    expect(markup.match(/Leader turns/gu)).toHaveLength(1);
   });
 
   it("shows each leader turn's receipt verbatim in a collapsible block", () => {
