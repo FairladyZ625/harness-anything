@@ -222,7 +222,10 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       const repo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId);
       // The lease database allocates epochs above the accepting ledger's enforced fence floor. Init
       // takes its lease before the registry row exists, so the caller passes the root it will write.
-      const lease = daemonWriterEpoch.acquire(repoId, readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir));
+      // An edge's local ledger is a center-owned mirror; it cannot establish that edge's epoch floor.
+      const observedLedgerEpoch =
+        repo?.mode === "remote-edge" ? 0 : readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir);
+      const lease = daemonWriterEpoch.acquire(repoId, observedLedgerEpoch);
       daemonWriterLeases.set(repoId, lease);
       return lease;
     },

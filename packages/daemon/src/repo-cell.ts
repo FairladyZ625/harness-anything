@@ -12,7 +12,6 @@ import {
   resolveHarnessLayout,
   resolveActiveGeneration,
   sqliteLedgerPath,
-  TaskEventStoreError,
   type DaemonRepoMode,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
@@ -100,14 +99,15 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
     try {
       resolveActiveGeneration({ rootInput: context.rootDir, repoId: context.input.repoId });
     } catch (error) {
+      consumeKnownError(error);
       const generationTwo = sqliteLedgerPath(context.rootDir, 2);
-      if (
-        !(error instanceof TaskEventStoreError) ||
-        error.code !== "invalid_store" ||
-        !error.message.startsWith("generation 3 upgrade is incomplete;") ||
-        !existsSync(generationTwo)
-      )
-        throw error;
+      const isIncompleteUpgrade =
+        error instanceof Error &&
+        error.name === "TaskEventStoreError" &&
+        "code" in error &&
+        error.code === "invalid_store" &&
+        error.message.startsWith("generation 3 upgrade is incomplete;");
+      if (!isIncompleteUpgrade || !existsSync(generationTwo)) throw error;
       for (const stalePath of [
         generationTwo,
         `${generationTwo}-wal`,

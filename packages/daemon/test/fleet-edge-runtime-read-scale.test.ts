@@ -199,6 +199,8 @@ test("legacy materialization marker without a base does not classify center diff
   const localPath = path.join(fixture.workspaceRoot, "harness/tasks/task-scale/artifacts/doc-0.md");
   mkdirSync(path.dirname(localPath), { recursive: true });
   writeFileSync(localPath, "legacy local bytes\n");
+  const localOnlyPath = path.join(fixture.workspaceRoot, "harness/tasks/task-scale/artifacts/local-only.md");
+  writeFileSync(localOnlyPath, "edge-only bytes\n");
   mkdirSync(path.join(fixture.workspaceRoot, ".harness"), { recursive: true });
   writeFileSync(path.join(fixture.workspaceRoot, ".harness/fleet-materialized.json"), JSON.stringify({ revision: 1 }));
   const view = locateFleetMirrorView(fixture.viewRoot, fixture.repoId, fixture.nodeId);
@@ -207,7 +209,10 @@ test("legacy materialization marker without a base does not classify center diff
   t.diagnostic(
     JSON.stringify({ changes: scan.changes.map(({ path: logical }) => logical), cleanPaths: scan.cleanPaths }),
   );
-  assert.deepEqual(scan.changes, []);
+  assert.deepEqual(
+    scan.changes.map(({ path: logical }) => logical),
+    ["tasks/task-scale/artifacts/local-only.md"],
+  );
   assert.deepEqual(scan.cleanPaths, ["tasks/task-scale/artifacts/doc-0.md"]);
   const applied = applyFleetMirrorCut(fixture.viewRoot, fixture.repoId, fixture.workspaceRoot, "pull");
   assert.deepEqual(applied.dirtyPaths, []);
