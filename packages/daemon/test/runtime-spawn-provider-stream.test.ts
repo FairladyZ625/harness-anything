@@ -878,6 +878,99 @@ test("an adopted session settles usage recovered from the persisted provider str
   }
 });
 
+test("a usage dialect with only context occupancy settles unavailable instead of reported zeros", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-context-occupancy-"));
+  try {
+    const dispatchId = "dispatch_0123456789abcdef55555555";
+    const writer = openDispatchStream(rootDir, {
+      dispatchId,
+      taskId: null,
+      executionId: null,
+      runtimeSessionId: "runtime_aaaaaaaaaaaaaaaaaaaaaaaa",
+      instanceId: "deepseek-harness",
+      startedAt: "2026-10-19T03:25:06.717Z",
+    });
+    // Frames as runtime-worker-acp persists them (trimmed from a real deepseek-harness
+    // session, dispatch_3360193ce5356e273a499ad8): usage_update carries only the context
+    // occupancy, and the prompt result carries no usage record at all.
+    const runtime = active("deepseek-harness", {} as never, { dispatchId, stream: writer });
+    await consumeProviderLine(
+      context(),
+      runtime,
+      JSON.stringify({
+        sessionId: "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+        type: "acp.update",
+        update: { sessionUpdate: "usage_update", used: 27997, size: 1048576 },
+        usage: { used: 27997, context_size: 1048576 },
+      }),
+    );
+    await consumeProviderLine(
+      context(),
+      runtime,
+      JSON.stringify({
+        sessionId: "e96a1c92-c0e9-47b9-bc11-046aa8c11733",
+        type: "acp.result",
+        stopReason: "end_turn",
+        finalText: "Review complete.",
+      }),
+    );
+    assert.equal(runtime.usageReported, false, "context occupancy alone is not reported usage");
+    assert.deepEqual(
+      { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
+      { input: 0, cacheRead: 0, output: 0 },
+    );
+    // Settlement (usageUnavailable: !usageReported) must call the session unavailable — the
+    // usage read renders it unavailable, never a real zero — while raw keeps the occupancy
+    // as the provider's only consumption signal.
+    runtime.stream.appendRuntimeMetrics?.(
+      {
+        inputTokens: runtime.inputTokens,
+        cacheReadTokens: runtime.cacheReadTokens,
+        outputTokens: runtime.outputTokens,
+        totalTokens: runtime.inputTokens + runtime.outputTokens,
+        toolCallCount: runtime.toolCallCount,
+        compacted: runtime.compacted,
+        raw: runtime.rawUsage,
+        usageUnavailable: !runtime.usageReported,
+      },
+      "2026-10-19T03:30:55.396Z",
+    );
+    const settled = readDispatchStream(rootDir, dispatchId)?.runtimeMetrics;
+    assert.equal(settled?.usageUnavailable, true);
+    assert.equal(settled?.inputTokens, 0);
+    assert.deepEqual(settled?.raw, { used: 27997, context_size: 1048576 });
+  } finally {
+    rmSync(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("context-occupancy updates do not suppress real usage frames of the same session", async () => {
+  const runtime = active("deepseek-harness");
+  await consumeProviderLine(
+    context(),
+    runtime,
+    JSON.stringify({
+      type: "acp.update",
+      update: { sessionUpdate: "usage_update", used: 27997, size: 1048576 },
+      usage: { used: 27997, context_size: 1048576 },
+    }),
+  );
+  await consumeProviderLine(
+    context(),
+    runtime,
+    JSON.stringify({
+      type: "acp.update",
+      update: { sessionUpdate: "usage_update" },
+      usage: { prompt_tokens: 60, prompt_cache_hit_tokens: 40, completion_tokens: 3 },
+    }),
+  );
+  assert.equal(runtime.usageReported, true);
+  assert.deepEqual(
+    { input: runtime.inputTokens, cacheRead: runtime.cacheReadTokens, output: runtime.outputTokens },
+    { input: 100, cacheRead: 40, output: 3 },
+  );
+});
+
 test("durable drains wait for the first record while the worker runs, then consume it once", async () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-durable-wait-"));
   try {

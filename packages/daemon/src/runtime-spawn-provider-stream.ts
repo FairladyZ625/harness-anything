@@ -232,14 +232,12 @@ function observeRuntimeUsage(active: ActiveRuntime, usage: Record<string, unknow
       numberValue(usage.outputTokens) ??
       numberValue(usage.output) ??
       numberValue(usage.completion_tokens) ??
-      numberValue(usage.completionTokens),
-    total =
-      numberValue(usage.total_tokens) ??
-      numberValue(usage.totalTokens) ??
-      numberValue(usage.total) ??
-      numberValue(usage.used);
-  if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null || total !== null)
-    active.usageReported = true;
+      numberValue(usage.completionTokens);
+  // A frame counts as reported usage only when it carries a consumption counter (input,
+  // cache read/write, output). Context-window occupancy — ACP usage_update `used`/`size`
+  // (agentclientprotocol.com/rfds/session-usage) — is not consumption and feeds no counter:
+  // a dialect with none of the counters settles usageUnavailable, never reported-with-zeros.
+  if (input !== null || cacheRead !== null || cacheCreation !== null || output !== null) active.usageReported = true;
   const isInclusive = ["codex", "codex-acp", "zcode", "gemini", "devin", "cursor", "opencode"].includes(active.kindId);
   if (input !== null || cacheRead !== null || cacheCreation !== null)
     active.inputTokens += (input ?? 0) + (isInclusive ? 0 : (cacheRead ?? 0) + (cacheCreation ?? 0));
