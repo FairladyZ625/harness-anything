@@ -22,6 +22,8 @@ export interface FactProjectionRow {
   readonly statement: string;
   readonly evidenceSource: string;
   readonly observedAt: string;
+  /** The commit the observation was made against; absent on facts recorded before dec_BB2BCE9F CH4. */
+  readonly observedCommit?: string;
   readonly confidence: FactConfidence;
   readonly domainTypes?: readonly FactDomainType[];
   readonly memoryClass: FactMemoryClass;
@@ -140,6 +142,7 @@ export function assertFactAdmission(db: DatabaseSync, event: FactEventV1): void 
       row.statement !== event.payload.statement ||
       row.evidenceSource !== event.payload.evidenceSource ||
       row.observedAt !== event.payload.observedAt ||
+      row.observedCommit !== event.payload.observedCommit ||
       row.confidence !== event.payload.confidence ||
       row.memoryClass !== event.payload.memoryClass ||
       JSON.stringify(row.memoryTags) !== JSON.stringify(event.payload.memoryTags)
@@ -227,6 +230,7 @@ export function reduceFactEvent(db: DatabaseSync, event: FactEventV1): void {
     statement: event.payload.statement,
     evidenceSource: event.payload.evidenceSource,
     observedAt: event.payload.observedAt,
+    ...(event.payload.observedCommit !== undefined ? { observedCommit: event.payload.observedCommit } : {}),
     confidence: event.payload.confidence,
     ...(event.payload.domainTypes ? { domainTypes: event.payload.domainTypes } : {}),
     memoryClass: event.payload.memoryClass,

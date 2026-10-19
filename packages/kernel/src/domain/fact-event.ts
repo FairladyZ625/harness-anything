@@ -52,6 +52,8 @@ export interface FactDocumentRecord {
   readonly statement: string;
   readonly evidenceSource: string;
   readonly observedAt: string;
+  /** The commit the observation was made against; absent on facts recorded before dec_BB2BCE9F CH4. */
+  readonly observedCommit?: string;
   readonly confidence: FactConfidence;
   readonly state: FactLiveness;
   readonly supersededBy?: readonly { readonly factRef: string; readonly rationale: string }[];
@@ -68,6 +70,8 @@ export interface FactEventPayload {
   readonly statement: string;
   readonly evidenceSource: string;
   readonly observedAt: string;
+  /** Resolved by the daemon at record time (task worktree HEAD, else canonical checkout HEAD). */
+  readonly observedCommit?: string;
   readonly confidence: FactConfidence;
   readonly domainTypes?: readonly FactDomainType[];
   readonly registersDomainType?: FactDomainType;
@@ -115,6 +119,7 @@ export interface SupersededFactDocumentSource {
   readonly statement: string;
   readonly evidenceSource: string;
   readonly observedAt: string;
+  readonly observedCommit?: string;
   readonly confidence: FactConfidence;
 }
 
@@ -134,6 +139,9 @@ export function compileFactWrite(input: {
       statement: input.event.payload.statement,
       evidenceSource: input.event.payload.evidenceSource,
       observedAt: input.event.payload.observedAt,
+      ...(input.event.payload.observedCommit !== undefined
+        ? { observedCommit: input.event.payload.observedCommit }
+        : {}),
       confidence: input.event.payload.confidence,
       state: "standing",
       workspaceRevision: input.event.workspaceRevision,
@@ -259,7 +267,7 @@ export function renderFactsDocument(records: readonly FactDocumentRecord[]): str
             `- Superseded by: ${replacement} (${escapeFactDocumentScalar(rationale)})\n`,
         )
         .join("");
-      return `### ${fact.factId}\n\n- Statement: ${escapeFactDocumentScalar(fact.statement)}\n- Evidence source: ${escapeFactDocumentScalar(fact.evidenceSource)}\n- Observed at: ${fact.observedAt}\n- Confidence: ${fact.confidence}\n- State: ${fact.state}\n${supersededBy}${fact.taskId === undefined ? "" : `- Task: ${fact.taskId}\n`}\n`;
+      return `### ${fact.factId}\n\n- Statement: ${escapeFactDocumentScalar(fact.statement)}\n- Evidence source: ${escapeFactDocumentScalar(fact.evidenceSource)}\n- Observed at: ${fact.observedAt}\n${fact.observedCommit === undefined ? "" : `- Observed commit: ${fact.observedCommit}\n`}- Confidence: ${fact.confidence}\n- State: ${fact.state}\n${supersededBy}${fact.taskId === undefined ? "" : `- Task: ${fact.taskId}\n`}\n`;
     })
     .join("")}`;
 }
@@ -363,6 +371,7 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
       [
         "domainTypes",
         "registersDomainType",
+        "observedCommit",
         "supersedes",
         "factsDocumentClaim",
         "supersededFactsDocumentClaim",
@@ -381,6 +390,8 @@ function validateFactEventFields(value: unknown, allowUnknownFields: boolean): r
     !isNonEmptyString(payload.statement) ||
     !isNonEmptyString(payload.evidenceSource) ||
     !timestamp(payload.observedAt) ||
+    (payload.observedCommit !== undefined &&
+      (typeof payload.observedCommit !== "string" || !/^[0-9a-f]{40}$/u.test(payload.observedCommit))) ||
     !includes(factConfidenceLevels, payload.confidence) ||
     (payload.domainTypes !== undefined &&
       (!Array.isArray(payload.domainTypes) ||
