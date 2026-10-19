@@ -41,12 +41,13 @@ test("a fact record anchors to the task worktree HEAD while the worktree is chec
   }
 });
 
-test("a checkout that cannot name its HEAD fails closed instead of recording an unanchored fact", () => {
+test("a checkout that cannot name a commit records without an anchor", () => {
   const rootDir = mkdtempSync(path.join(tmpdir(), "ha-observed-commit-none-"));
   try {
-    // A repository with zero commits: rev-parse HEAD has nothing to resolve.
+    // A repository with zero commits (the quickstart path): unborn HEAD has nothing to resolve,
+    // and the anchor is observed metadata, never a write precondition.
     git(rootDir, "init", "-q");
-    assert.throws(() => withObservedCommit(rootDir, { kind: "fact-record" }), /Cannot resolve the observation commit/u);
+    assert.equal("observedCommit" in withObservedCommit(rootDir, { kind: "fact-record" }), false);
   } finally {
     rmSync(rootDir, { recursive: true, force: true });
   }
