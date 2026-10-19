@@ -375,9 +375,12 @@ function canonicalDispatchRow(
     ...(outcomeEvent?.payload.attempt?.faultClass ? { faultClass: outcomeEvent.payload.attempt.faultClass } : {}),
     ...(outcomeEvent?.payload.attempt?.resetAt ? { resetAt: outcomeEvent.payload.attempt.resetAt } : {}),
     ...resumeDispatch(payload, providerSessionId, resumed, classification),
+    // The event's fallback state describes the state at settlement, when it can still be
+    // "scheduled". The dispatch stream is updated to "dispatched" after the successor launches,
+    // so prefer that current projection when reading the row later.
     fallbackState:
-      outcomeEvent?.payload.attempt?.fallbackState ??
       dispatchStream?.fallbackState ??
+      outcomeEvent?.payload.attempt?.fallbackState ??
       (successor ? "dispatched" : null),
     nextDispatchId: successor?.payload.dispatchId ?? null,
     ...(metrics ? { metrics: { ...metrics, compacted: null } } : {}),
