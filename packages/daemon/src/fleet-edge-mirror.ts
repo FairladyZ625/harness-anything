@@ -208,16 +208,18 @@ export function scanFleetMirrorWorktree(
 ): FleetMirrorScan {
   const root = materializedRoot(workspaceRoot),
     markerPath = path.join(resolveHarnessLayout(workspaceRoot).localRoot, "fleet-materialized.json"),
+    markerExists = existsSync(markerPath),
     marker: {
       readonly revision?: number | null;
       readonly generation?: number;
       readonly entries?: Record<string, string>;
-    } = existsSync(markerPath) ? JSON.parse(readFileSync(markerPath, "utf8")) : {},
+    } = markerExists ? JSON.parse(readFileSync(markerPath, "utf8")) : {},
     hasMaterializationBaseline =
       marker.revision !== null &&
       marker.revision !== undefined &&
       marker.entries !== undefined &&
       (marker.generation === undefined || marker.generation === view.ledgerGeneration),
+    hasMarkerWithoutBaseline = markerExists && !hasMaterializationBaseline,
     materializedEntries: ReadonlySet<string> = hasMaterializationBaseline
       ? new Set(Object.keys(marker.entries ?? {}))
       : new Set<string>(),
@@ -271,7 +273,7 @@ export function scanFleetMirrorWorktree(
       continue;
     }
     if (base && base.size === bytes.byteLength && base.sha256 === sha256Bytes(bytes)) cleanPaths.push(logical);
-    else if (!hasMaterializationBaseline && base) cleanPaths.push(logical);
+    else if (hasMarkerWithoutBaseline && base) cleanPaths.push(logical);
     else
       changes.push({
         path: logical,

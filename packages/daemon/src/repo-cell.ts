@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { makeTaskLifecycleService } from "@harness-anything/application/internal/task-lifecycle-service";
 import {
   blockingOf,
@@ -16,6 +16,7 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel } from "./agent-runtime-read.ts";
+import { removeFileDurably } from "./durable-file.ts";
 import { readRuntimeAttemptChain, readSessionGroupDispatches, readTaskDispatchSession } from "./dispatch-read.ts";
 import { makeEntityActionCatalogExecutor } from "./entity-action-catalog-executor.ts";
 import { cellErrorCode, cellErrorMessage } from "./repo-cell-errors.ts";
@@ -115,7 +116,7 @@ export async function initializeRepoCell(context: RepoCellCoreInput): Promise<Re
         `${generationTwo}.activation.json`,
         `${generationTwo}.import-source.json`,
       ])
-        rmSync(stalePath, { force: true });
+        removeFileDurably(stalePath);
     }
   }
   // Maintenance pins and the commit guard both belong to the ledger repository, never the project
