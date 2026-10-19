@@ -1,4 +1,4 @@
-import { randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes, randomUUID, X509Certificate } from "node:crypto";
 
 export type EdgeJoinInviteStatus = "pending" | "consumed" | "expired";
 export interface EdgeJoinInviteLink {
@@ -57,6 +57,14 @@ export class EdgeJoinError extends Error {
 
 export function encodeEdgeJoinLink(link: EdgeJoinInviteLink): string {
   return `${LINK_PREFIX}${Buffer.from(JSON.stringify(link), "utf8").toString("base64url")}`;
+}
+
+/** The pin an invitation carries and an edge verifies against the center's presented certificate:
+ * one function computes it on both sides, so the formats can never drift apart. */
+export function spkiSha256Fingerprint(certificate: Buffer): string {
+  return `sha256:${createHash("sha256")
+    .update(new X509Certificate(certificate).publicKey.export({ type: "spki", format: "der" }))
+    .digest("base64")}`;
 }
 
 export function decodeEdgeJoinLink(value: string): EdgeJoinInviteLink {

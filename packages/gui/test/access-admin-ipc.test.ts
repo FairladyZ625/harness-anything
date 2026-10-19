@@ -35,16 +35,7 @@ function fixture() {
             ok: true,
             joinId: "invite-1",
             state: "pending",
-            link: {
-              version: 2,
-              centerUrl: "https://center.test",
-              inviteId: "invite-1",
-              personId: "person-gui",
-              nodeId: "edge-a",
-              spkiSha256: "sha256:pin",
-              expiresAt: "2026-10-21T00:00:00.000Z",
-              token: "secret-token",
-            },
+            link: "harness-edge://join/eyJ2ZXJzaW9uIjoyLCJjZW50ZXJVcmwiOiJodHRwczovL2NlbnRlci50ZXN0IiwiaW52aXRlSWQiOiJpbnZpdGUtMSIsInBlcnNvbklkIjoicGVyc29uLWd1aSIsIm5vZGVJZCI6ImVkZ2UtYSIsInNwa2lTaGEyNTYiOiJzaGEyNTY6cGluIiwiZXhwaXJlc0F0IjoiMjAyNi0xMC0yMVQwMDowMDowMC4wMDBaIiwidG9rZW4iOiJzZWNyZXQtdG9rZW4ifQ",
           };
         return { ok: true };
       },
@@ -90,7 +81,7 @@ test("every preload method reaches the daemon as one operation the protocol cont
   await api.requestPermission({ groupId: "viewer", resource: "repo-a" });
   await api.decidePermissionRequest({ requestId: "request-1", requestVersion: 1, decision: "reject" });
   await api.withdrawPermissionRequest({ requestId: "request-1", requestVersion: 1 });
-  await api.issueEdgeJoin({ nodeId: "edge-a", centerUrl: "https://center.test", spkiSha256: "sha256:pin" });
+  await api.issueEdgeJoin({ nodeId: "edge-a", centerUrl: "https://center.test" });
   await api.edgeJoinStatus({ inviteId: "invite-1" });
   const baselineSent = sent.filter(({ operation }) => !operation.startsWith("permission-request-"));
   assert.deepEqual(baselineSent, [
@@ -143,8 +134,9 @@ test("every preload method reaches the daemon as one operation the protocol cont
     { operation: "device-resume", ...device, operationId: "operation-14" },
     { operation: "device-remove", ...device, operationId: "operation-15" },
     { operation: "device-logout-all", expectedVersion: "list-v2", operationId: "operation-16" },
-    // The invitation the daemon signs and journals itself: the renderer names no operation id.
-    { operation: "edge-join-create", nodeId: "edge-a", centerUrl: "https://center.test", spkiSha256: "sha256:pin" },
+    // The invitation the daemon signs and journals itself: the renderer names no operation id,
+    // and the pin comes from the daemon's own listener — no fingerprint field exists to send.
+    { operation: "edge-join-create", nodeId: "edge-a", centerUrl: "https://center.test" },
     { operation: "edge-join-status", inviteId: "invite-1" },
   ]);
   assert.equal(Object.keys(api).length, sent.length, "the test covers every method the page can call");
@@ -180,9 +172,12 @@ test("a request outside the typed contract is refused before it reaches the daem
       { operation: "session-lifetime-set", sessionLifetimeSeconds: 1.5, expectedVersion: "1" },
       /requires sessionLifetimeSeconds/u,
     ],
-    [{ operation: "edge-join-create", nodeId: "a", centerUrl: "u" }, /requires spkiSha256/u],
+    [{ operation: "edge-join-create", centerUrl: "u" }, /requires nodeId/u],
+    [{ operation: "edge-join-create", nodeId: "a", centerUrl: " " }, /requires centerUrl/u],
+    // The hand-computed pin input the daemon no longer accepts: refused before it reaches the daemon.
+    [{ operation: "edge-join-create", nodeId: "a", spkiSha256: "p" }, /does not take spkiSha256/u],
     [{ operation: "edge-join-status", inviteId: " " }, /requires inviteId/u],
-    [{ operation: "edge-join-create", nodeId: "a", centerUrl: "u", spkiSha256: "p", ttlMs: 1 }, /does not take ttlMs/u],
+    [{ operation: "edge-join-create", nodeId: "a", centerUrl: "u", ttlMs: 1 }, /does not take ttlMs/u],
   ] as const)
     await assert.rejects(invoke(input), refusal);
   await assert.rejects(
@@ -211,13 +206,10 @@ test("the handler returns the daemon's answer as it is, refusals and conflicts i
     conflict,
   );
   // An invitation refusal is a refusal too: it crosses unchanged, nothing is encoded onto it.
-  assert.deepEqual(
-    await handler(event, { operation: "edge-join-create", nodeId: "a", centerUrl: "u", spkiSha256: "p" }),
-    conflict,
-  );
+  assert.deepEqual(await handler(event, { operation: "edge-join-create", nodeId: "a", centerUrl: "u" }), conflict);
 });
 
-test("edge-join-create hands the renderer the encoded link once, never the token struct", async () => {
+test("edge-join-create hands the renderer the daemon's encoded link exactly once, never a token struct", async () => {
   const daemonLink = {
     version: 2,
     centerUrl: "https://center.test",
@@ -228,35 +220,23 @@ test("edge-join-create hands the renderer the encoded link once, never the token
     expiresAt: "2026-10-21T00:00:00.000Z",
     token: "secret-token",
   };
+  // The daemon encodes the invitation itself; the reply's link is already the closed form.
+  const { encodeEdgeJoinLink, decodeEdgeJoinLink } = await import("@harness-anything/daemon/internal/fleet/edge-join"),
+    encoded = encodeEdgeJoinLink(daemonLink);
+  const reply = { ok: true, link: encoded, joinId: "invite-9", state: "pending" };
   let handler!: (event: IpcMainInvokeEvent, input?: unknown) => Promise<unknown>;
   registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
-    daemonRequest: async () => ({ ok: true, link: daemonLink, joinId: "invite-9", state: "pending" }),
+    daemonRequest: async () => reply,
     operationId: () => "operation",
   });
-  const reply = (await handler(event, {
-    operation: "edge-join-create",
-    nodeId: "edge-b",
-    centerUrl: "https://center.test",
-    spkiSha256: "sha256:pin",
-  })) as Record<string, unknown>;
-  assert.equal(reply.link, undefined, "the token-bearing struct never crosses to the renderer");
-  assert.equal(reply.token, undefined);
-  assert.equal(reply.joinId, "invite-9");
-  assert.equal(reply.state, "pending");
-  assert.equal(reply.expiresAt, "2026-10-21T00:00:00.000Z");
-  assert.match(String(reply.inviteLink), /^harness-edge:\/\/join\//u);
-  // The string is the daemon codec's own encoding of the same invitation: it decodes back to it.
-  const { decodeEdgeJoinLink } = await import("@harness-anything/daemon/internal/fleet/edge-join");
-  assert.deepEqual(decodeEdgeJoinLink(String(reply.inviteLink)), daemonLink);
-  // A success without a link is not a shape the panel can honor; it surfaces instead of half-issuing.
-  registerAccessAdminIpc({ handle: (_channel, listener) => (handler = listener) }, policy, {
-    daemonRequest: async () => ({ ok: true, joinId: "invite-9", state: "pending" }),
-    operationId: () => "operation",
-  });
-  await assert.rejects(
-    handler(event, { operation: "edge-join-create", nodeId: "b", centerUrl: "u", spkiSha256: "p" }),
-    /returned no invitation link/u,
+  // The answer crosses untouched: the token exists only inside the one encoded string.
+  assert.deepEqual(
+    await handler(event, { operation: "edge-join-create", nodeId: "edge-b", centerUrl: "https://center.test" }),
+    reply,
   );
+  assert.match(encoded, /^harness-edge:\/\/join\//u);
+  // The string is the daemon codec's own encoding of the same invitation: it decodes back to it.
+  assert.deepEqual(decodeEdgeJoinLink(encoded), daemonLink);
 });
 
 const rendererRoot = path.resolve(import.meta.dirname, "../src/renderer"),

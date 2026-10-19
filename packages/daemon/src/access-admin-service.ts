@@ -1,4 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   actionDeclarations,
@@ -24,7 +25,7 @@ import {
 import type { OidcSessionService } from "./oidc-session-service.ts";
 import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
-import { createEdgeJoinStore } from "./fleet/edge-join.ts";
+import { createEdgeJoinStore, encodeEdgeJoinLink, spkiSha256Fingerprint } from "./fleet/edge-join.ts";
 export { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
 type Expectation =
@@ -196,19 +197,29 @@ export class AccessAdminService {
         return this.#mutate(request, actor, (session) => this.#planNodeRemoval(session, request));
       case "edge-join-create": {
         return this.#oidc.serialize(async () => {
+          // The invitation pins the certificate this daemon's fleet listener actually serves, so the
+          // operator never hand-computes a fingerprint; the pin check lives at the edge (peer.ts).
+          const listener = this.#ports.readFleetCenterConfig?.() ?? null;
+          if (!listener)
+            throw coded(
+              "fleet_center_unavailable",
+              "No fleet center listener is configured on this daemon; start one before issuing an edge invitation.",
+            );
           const login = await this.#oidc.interactiveAuthority();
           const link = this.#edgeJoins.create({
-            centerUrl: text(request.centerUrl, "centerUrl"),
+            centerUrl: request.centerUrl ?? `https://${listener.bind}:${listener.port}`,
             personId: actor,
             nodeId: text(request.nodeId, "nodeId"),
-            spkiSha256: text(request.spkiSha256, "spkiSha256"),
+            spkiSha256: spkiSha256Fingerprint(readFileSync(listener.certPath)),
             ttlMs: request.ttlMs ?? 72 * 60 * 60 * 1000,
             loginUrl: login.url,
             loginRealm: login.realm,
             loginClientId: login.clientId,
             ...(login.certificate ? { loginCertificate: login.certificate } : {}),
           });
-          return { ok: true, link, joinId: link.inviteId, state: "pending" };
+          // The encoded link is the one shape the receipt carries; the invite object itself (with its
+          // token) stays in the store, and no log line repeats it.
+          return { ok: true, link: encodeEdgeJoinLink(link), joinId: link.inviteId, state: "pending" };
         });
       }
       case "edge-join-consume": {

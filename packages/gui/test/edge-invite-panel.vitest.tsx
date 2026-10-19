@@ -9,7 +9,8 @@ import { EdgeInvitePanel } from "../src/renderer/views/settings/EdgeInvitePanel.
 
 /**
  * 「邀请边缘节点」面板(task gui-edge-invite)的行为判据:
- * ①签发 = 三个输入直达 access 通道的 edge-join-create,回执链接显示一次 + 有效期;
+ * ①签发 = 节点名(+可选中心地址)直达 access 通道的 edge-join-create,回执链接显示一次,
+ *   有效期来自状态回执;指纹没有输入位,由 daemon 读自己的监听证书钉住;
  * ②「完成」后链接从 DOM 与内存消失,行只剩 joinId 侧事实与状态——链接不可再取出;
  * ③状态按 inviteId 轮询,pending → consumed 变化如实呈现,终态后不再发请求;
  * ④拒绝按 access 面口径显示说明;复制走隔离的模拟剪贴板断言(不动系统剪贴板)。
@@ -31,8 +32,7 @@ function issuedReply(inviteId = "invite-1") {
     ok: true,
     joinId: inviteId,
     state: "pending",
-    expiresAt: "2026-10-21T00:00:00.000Z",
-    inviteLink: LINK,
+    link: LINK,
   };
 }
 
@@ -131,17 +131,12 @@ async function click(container: HTMLElement, testId: string): Promise<void> {
 }
 
 describe("EdgeInvitePanel", () => {
-  it("issues through the access bridge, shows the link once with its expiry", async () => {
+  it("issues through the access bridge, shows the link once; expiry arrives with the status", async () => {
     const { container, issue, status } = await mountPanel();
     await fill(container, "edge-invite-node-id", "edge-a");
     await fill(container, "edge-invite-center-url", "https://center.test");
-    await fill(container, "edge-invite-spki", "sha256:pin");
     await click(container, "edge-invite-issue");
-    expect(issue).toHaveBeenCalledWith({
-      nodeId: "edge-a",
-      centerUrl: "https://center.test",
-      spkiSha256: "sha256:pin",
-    });
+    expect(issue).toHaveBeenCalledWith({ nodeId: "edge-a", centerUrl: "https://center.test" });
     const link = container.querySelector('[data-testid="edge-invite-link-edge-a"]');
     expect(link).not.toBeNull();
     expect(link!.textContent).toContain(LINK);
@@ -150,18 +145,25 @@ describe("EdgeInvitePanel", () => {
     expect(container.textContent).toContain("Pending");
   });
 
+  it("issues with an empty center address: the daemon derives it from its listener", async () => {
+    const { container, issue } = await mountPanel();
+    await fill(container, "edge-invite-node-id", "edge-a");
+    await click(container, "edge-invite-issue");
+    expect(issue).toHaveBeenCalledWith({ nodeId: "edge-a" });
+    expect(container.querySelector('[data-testid="edge-invite-link-edge-a"]')).not.toBeNull();
+  });
+
   it("drops the link on Done: the row survives by joinId facts only, the link is gone for good", async () => {
     const { container } = await mountPanel();
     await fill(container, "edge-invite-node-id", "edge-a");
     await fill(container, "edge-invite-center-url", "https://center.test");
-    await fill(container, "edge-invite-spki", "sha256:pin");
     await click(container, "edge-invite-issue");
     expect(container.querySelector('[data-testid="edge-invite-link-edge-a"]')).not.toBeNull();
     await click(container, "edge-invite-done-edge-a");
     expect(container.querySelector('[data-testid="edge-invite-link-edge-a"]')).toBeNull();
     expect(container.textContent).not.toContain(LINK);
     expect(container.querySelector('[data-testid="edge-invite-row-edge-a"]')).not.toBeNull();
-    // The two center facts stay for the next invitation in the same session; only the node name resets.
+    // The center address stays for the next invitation in the same session; only the node name resets.
     expect(container.querySelector<HTMLInputElement>('[data-testid="edge-invite-node-id"]')!.value).toBe("");
     expect(container.querySelector<HTMLInputElement>('[data-testid="edge-invite-center-url"]')!.value).toBe(
       "https://center.test",
@@ -186,7 +188,6 @@ describe("EdgeInvitePanel", () => {
       });
       await fill(container, "edge-invite-node-id", "edge-a");
       await fill(container, "edge-invite-center-url", "https://center.test");
-      await fill(container, "edge-invite-spki", "sha256:pin");
       await click(container, "edge-invite-issue");
       expect(container.textContent).toContain("Pending");
       expect(container.textContent).not.toContain("Consumed");
@@ -222,7 +223,6 @@ describe("EdgeInvitePanel", () => {
     });
     await fill(container, "edge-invite-node-id", "edge-a");
     await fill(container, "edge-invite-center-url", "https://center.test");
-    await fill(container, "edge-invite-spki", "sha256:pin");
     await click(container, "edge-invite-issue");
     expect(container.querySelector('[data-testid="edge-invite-feedback"]')!.textContent).toContain(
       "Sign in as an access administrator.",
@@ -230,13 +230,26 @@ describe("EdgeInvitePanel", () => {
     expect(container.querySelector('[data-testid="edge-invite-list"]')).toBeNull();
   });
 
-  it("requires all three fields before calling the daemon", async () => {
-    const { container, issue } = await mountPanel();
+  it("surfaces an issued reply without a join link instead of half-issuing a row", async () => {
+    const { container, issue } = await mountPanel({
+      issueResult: { ok: true, joinId: "invite-1", state: "pending", link: "https://not-a-join-link" },
+    });
     await fill(container, "edge-invite-node-id", "edge-a");
+    await click(container, "edge-invite-issue");
+    expect(issue).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[data-testid="edge-invite-feedback"]')!.textContent).toContain(
+      "Edge join creation returned an invalid result.",
+    );
+    expect(container.querySelector('[data-testid="edge-invite-list"]')).toBeNull();
+  });
+
+  it("requires a node name before calling the daemon", async () => {
+    const { container, issue } = await mountPanel();
+    await fill(container, "edge-invite-center-url", "https://center.test");
     await click(container, "edge-invite-issue");
     expect(issue).not.toHaveBeenCalled();
     expect(container.querySelector('[data-testid="edge-invite-feedback"]')!.textContent).toContain(
-      "Node name, center address, and certificate pin",
+      "A node name is required",
     );
   });
 
@@ -250,7 +263,6 @@ describe("EdgeInvitePanel", () => {
       const { container } = await mountPanel();
       await fill(container, "edge-invite-node-id", "edge-a");
       await fill(container, "edge-invite-center-url", "https://center.test");
-      await fill(container, "edge-invite-spki", "sha256:pin");
       await click(container, "edge-invite-issue");
       await click(container, "edge-invite-copy-edge-a");
       expect(writes).toEqual([LINK]);

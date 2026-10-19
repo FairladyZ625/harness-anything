@@ -310,10 +310,12 @@ Read the listener again after a change and use the returned version for the next
 The supported edge path is an invitation link. A signed-in center administrator creates one, and the edge owner consumes it once; the link carries the center URL and certificate pin, never a machine credential:
 
 ```bash
-ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <sha256-pin>
+ha bootstrap --operation edge-join-create --node-id <node-id>
 ha bootstrap --operation edge-join-consume --link '<harness-edge://join/...>' --observed-spki-sha256 <sha256-pin>
 ha daemon fleet edge sync --host center.example.test --port 9443 --ca /path/to/center-ca.pem --node-id <node-id> --view-root /var/lib/harness/edge-view --quota-bytes 1073741824
 ```
+
+`edge-join-create` requires a fleet center listener on this daemon and is rejected with `fleet_center_unavailable` without one. The command reads the listener certificate itself, pins its SPKI SHA-256 fingerprint into the invitation, and returns the finished `harness-edge://join/...` link in the receipt; the administrator never computes a fingerprint by hand. `--center-url` is optional and only overrides the listener's own `https://<bind-address>:<port>` address.
 
 The edge command must use the certificate authority (and `--servername` when the certificate name differs from the DNS name). TLS hostname verification rejects a certificate that does not cover the requested server name. A closed port fails the connection; an expired link, wrong signed-in person, or changed pin is rejected by join admission. Credentials are written by the local daemon and are not placed in the invitation URL.
 

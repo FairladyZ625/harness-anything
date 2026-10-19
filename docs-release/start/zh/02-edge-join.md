@@ -25,11 +25,13 @@ ha edge join '<邀请链接>'
 中心管理员先在已登录的中心仓库中签发邀请：
 
 ```bash
-ha bootstrap --operation edge-join-create --center-url https://center.example.test:9443 --node-id <node-id> --spki-sha256 <fleet-listener-sha256-pin>
+ha bootstrap --operation edge-join-create --node-id <node-id>
 ```
 
 邀请同时绑定 Fleet listener 的证书 SPKI 与 Keycloak HTTPS listener 的公开证书；链接不包含私钥或用户令牌。
 中心端须分别配置可达的 Fleet TLS listener 与带 HTTPS 证书的 Keycloak listener。
+
+`--center-url` 可选；省略时由中心监听地址推导，外部可达地址不同于监听地址时再显式覆盖。
 
 命令从邀请读取 Fleet 指纹，使用邀请中的 Keycloak 证书验证设备登录连接，再向中心发送一次 `edge.join` 准入请求。
 该信任仅用于邀请指定的登录 authority，系统 TLS 校验仍保持开启。中心在签发机器凭据前会校验交互式登录令牌与邀请归属。
