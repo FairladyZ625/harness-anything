@@ -1,13 +1,18 @@
 // harness-test-tier: integration
 import assert from "node:assert/strict";
 import { adoptNativeProcess, launchNative } from "../src/runtime-spawn-process.ts";
+import { randomBytes } from "node:crypto";
 import net from "node:net";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { writeProviderExecutable } from "./fixtures/runtime-stub.ts";
-import { localUserDaemonEndpoint, resolveLocalDaemonEndpoint } from "../src/client/local-daemon-target.ts";
+import {
+  localUserDaemonEndpoint,
+  perUserSocketRoot,
+  resolveLocalDaemonEndpoint,
+} from "../src/client/local-daemon-target.ts";
 import {
   createRuntimeCallbackRelay,
   removeRuntimeCallbackRelay,
@@ -15,15 +20,19 @@ import {
   validateRuntimeCallbackRelayPath,
 } from "../src/runtime-callback-relay.ts";
 
+/** Real relay sockets share one per-user namespace across concurrently running test files,
+ * so every live-socket test mints its own dispatch id instead of reusing a fixed one. */
+const uniqueDispatchId = (): string => `dispatch_${randomBytes(12).toString("hex")}`;
+
 test(
-  "workspace callback relay forwards the sealed route and cleans up after settlement",
+  "callback relay forwards the sealed route and cleans up after settlement",
   { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
   async () => {
     const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-")),
       root = path.join(parent, "repo"),
       userRoot = path.join(root, "daemon-user"),
       daemonId = "callback-relay",
-      dispatchId = "dispatch_0123456789abcdef01234567";
+      dispatchId = uniqueDispatchId();
     mkdirSync(userRoot, { recursive: true });
     const expectedEndpoint = localUserDaemonEndpoint(userRoot, daemonId),
       privateEndpoint = `\0${path.basename(expectedEndpoint)}`,
@@ -32,12 +41,12 @@ test(
       socket.on("data", (chunk) => socket.write(`ack:${chunk.toString("utf8")}`));
     });
     await listen(privateServer, privateEndpoint);
-    const spec = runtimeCallbackRelaySpec(root, dispatchId, route);
-    const relay = createRuntimeCallbackRelay({ rootDir: root, dispatchId, route, relayPath: spec.path });
+    const spec = runtimeCallbackRelaySpec(dispatchId, route);
+    const relay = createRuntimeCallbackRelay({ dispatchId, route, relayPath: spec.path });
     try {
       await relay.start();
       assert.notEqual(relay.endpoint, route.endpoint);
-      assert.equal(relay.endpoint.startsWith(path.join(root, ".harness")), true);
+      assert.equal(path.dirname(relay.endpoint), perUserSocketRoot());
       const client = await new Promise<net.Socket>((resolve, reject) => {
         const socket = net.createConnection(relay.endpoint);
         socket.once("connect", () => resolve(socket));
@@ -63,6 +72,99 @@ test(
   },
 );
 
+test(
+  "callback relay starts and forwards on a repository root longer than the socket address limit",
+  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-long-")),
+      // One >104-byte socket path is the incident shape: the workspace contributes so many
+      // bytes that any socket under it would exceed the macOS sun_path limit.
+      padded = "p".repeat(140),
+      root = path.join(parent, padded, "repo"),
+      userRoot = path.join(parent, "daemon-user"),
+      dispatchId = uniqueDispatchId(),
+      daemonId = "callback-relay-long";
+    mkdirSync(root, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    const route = { userRoot, daemonId, endpoint: `\0${path.basename(localUserDaemonEndpoint(userRoot, daemonId))}` },
+      workspaceSocketBytes = Buffer.byteLength(
+        path.join(root, ".harness", `r-${dispatchId.slice("dispatch_".length)}.sock`),
+      );
+    assert.equal(workspaceSocketBytes > 104, true);
+    const privateServer = net.createServer((socket) => {
+      socket.on("data", (chunk) => socket.write(`ack:${chunk.toString("utf8")}`));
+    });
+    await listen(privateServer, route.endpoint);
+    const spec = runtimeCallbackRelaySpec(dispatchId, route);
+    assert.equal(Buffer.byteLength(spec.path) <= 104, true);
+    const relay = createRuntimeCallbackRelay({ dispatchId, route, relayPath: spec.path });
+    try {
+      await relay.start();
+      const client = await new Promise<net.Socket>((resolve, reject) => {
+        const socket = net.createConnection(relay.endpoint);
+        socket.once("connect", () => resolve(socket));
+        socket.once("error", reject);
+      });
+      try {
+        const response = new Promise<string>((resolve) =>
+          client.once("data", (chunk) => resolve(chunk.toString("utf8"))),
+        );
+        client.write("long-root-callback");
+        assert.equal(await response, "ack:long-root-callback");
+      } finally {
+        client.destroy();
+      }
+    } finally {
+      await relay.stop();
+      await new Promise<void>((resolve) => privateServer.close(() => resolve()));
+      assert.equal(existsSync(spec.path), false);
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "concurrent dispatch relays keep distinct endpoints and cleanup removes only its own socket",
+  { skip: process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" || process.platform === "win32" },
+  async () => {
+    const parent = mkdtempSync(path.join(tmpdir(), "ha-callback-relay-pair-")),
+      root = path.join(parent, "repo"),
+      userRoot = path.join(parent, "daemon-user"),
+      firstDispatch = uniqueDispatchId(),
+      secondDispatch = uniqueDispatchId(),
+      daemonId = "callback-relay-pair";
+    mkdirSync(root, { recursive: true });
+    mkdirSync(userRoot, { recursive: true });
+    const route = { userRoot, daemonId, endpoint: `\0${path.basename(localUserDaemonEndpoint(userRoot, daemonId))}` },
+      privateServer = net.createServer((socket) => {
+        socket.on("data", (chunk) => socket.write(`ack:${chunk.toString("utf8")}`));
+      });
+    await listen(privateServer, route.endpoint);
+    const firstSpec = runtimeCallbackRelaySpec(firstDispatch, route),
+      secondSpec = runtimeCallbackRelaySpec(secondDispatch, route);
+    assert.notEqual(firstSpec.path, secondSpec.path);
+    const first = createRuntimeCallbackRelay({ dispatchId: firstDispatch, route, relayPath: firstSpec.path }),
+      second = createRuntimeCallbackRelay({ dispatchId: secondDispatch, route, relayPath: secondSpec.path });
+    try {
+      await first.start();
+      await second.start();
+      await assert.equal(await echo(firstSpec.path, "first-dispatch"), "ack:first-dispatch");
+      await assert.equal(await echo(secondSpec.path, "second-dispatch"), "ack:second-dispatch");
+      removeRuntimeCallbackRelay(firstDispatch);
+      assert.equal(existsSync(firstSpec.path), false);
+      assert.equal(existsSync(secondSpec.path), true);
+      await assert.equal(await echo(secondSpec.path, "second-still-live"), "ack:second-still-live");
+    } finally {
+      await first.stop();
+      await second.stop();
+      await new Promise<void>((resolve) => privateServer.close(() => resolve()));
+      assert.equal(existsSync(firstSpec.path), false);
+      assert.equal(existsSync(secondSpec.path), false);
+      rmSync(parent, { recursive: true, force: true });
+    }
+  },
+);
+
 for (const forceTerminate of [false, true])
   test(
     forceTerminate
@@ -74,7 +176,7 @@ for (const forceTerminate of [false, true])
         root = path.join(parent, "repo"),
         userRoot = path.join(parent, "daemon-user"),
         daemonId = "callback-relay-release",
-        dispatchId = "dispatch_abcdef0123456789abcdef01",
+        dispatchId = uniqueDispatchId(),
         marker = path.join(parent, "provider-started"),
         settle = path.join(parent, "provider-settle"),
         executablePath = writeProviderExecutable(
@@ -92,7 +194,7 @@ for (const forceTerminate of [false, true])
           socket.on("data", (chunk) => socket.write(`ack:${chunk.toString("utf8")}`));
         });
       await listen(privateServer, privateEndpoint);
-      const spec = runtimeCallbackRelaySpec(root, dispatchId, route);
+      const spec = runtimeCallbackRelaySpec(dispatchId, route);
       let runtime: ReturnType<typeof launchNative> | null = null;
       try {
         runtime = launchNative(
@@ -135,20 +237,7 @@ for (const forceTerminate of [false, true])
         assert.equal(existsSync(spec.path), true);
         const adopted = adoptNativeProcess(root, dispatchId, runtime.pid);
         try {
-          const client = await new Promise<net.Socket>((resolve, reject) => {
-            const socket = net.createConnection(spec.path);
-            socket.once("connect", () => resolve(socket));
-            socket.once("error", reject);
-          });
-          try {
-            const response = new Promise<string>((resolve) =>
-              client.once("data", (chunk) => resolve(chunk.toString("utf8"))),
-            );
-            client.write("after-observer-release");
-            assert.equal(await response, "ack:after-observer-release");
-          } finally {
-            client.destroy();
-          }
+          assert.equal(await echo(spec.path, "after-observer-release"), "ack:after-observer-release");
           if (forceTerminate) {
             await adopted.terminateTree?.();
             assert.equal(existsSync(spec.path), false);
@@ -174,7 +263,7 @@ for (const forceTerminate of [false, true])
   );
 
 test(
-  "callback relay rejects mismatched, escaping, and symlinked routes",
+  "callback relay rejects mismatched routes, escaping paths, symlinked sockets, and foreign endpoints",
   { skip: process.platform === "win32" },
   () => {
     const root = path.resolve(".callback-relay-validation"),
@@ -185,23 +274,17 @@ test(
         endpoint: localUserDaemonEndpoint(userRoot, "callback-validation"),
       },
       dispatchId = "dispatch_abcdef0123456789abcdef01",
-      spec = runtimeCallbackRelaySpec(root, dispatchId, route),
+      spec = runtimeCallbackRelaySpec(dispatchId, route),
       mismatch = { ...route, endpoint: localUserDaemonEndpoint(path.join(root, "other-user"), route.daemonId) };
     rmSync(root, { recursive: true, force: true });
     mkdirSync(userRoot, { recursive: true });
     try {
       assert.throws(
-        () =>
-          createRuntimeCallbackRelay({
-            rootDir: root,
-            dispatchId,
-            route: mismatch,
-            relayPath: spec.path,
-          }),
+        () => createRuntimeCallbackRelay({ dispatchId, route: mismatch, relayPath: spec.path }),
         /endpoint identity/u,
       );
       assert.throws(
-        () => validateRuntimeCallbackRelayPath(root, dispatchId, path.join(root, "outside.sock"), route),
+        () => validateRuntimeCallbackRelayPath(dispatchId, path.join(root, "outside.sock")),
         /relay path is invalid/u,
       );
       assert.equal(
@@ -213,31 +296,75 @@ test(
         }),
         spec.path,
       );
-      symlinkSync(path.join(root, "outside"), path.join(root, ".harness"));
+      // A foreign socket in the same workspace is not a valid relay target: the accepted
+      // endpoint must sit under the per-user socket root with the per-dispatch name.
+      const foreign = path.join(root, ".harness", `r-${dispatchId.slice("dispatch_".length)}.sock`);
+      mkdirSync(path.dirname(foreign), { recursive: true });
       assert.throws(
-        () => createRuntimeCallbackRelay({ rootDir: root, dispatchId, route, relayPath: spec.path }),
-        /symbolic link/u,
+        () =>
+          resolveLocalDaemonEndpoint({
+            userRoot,
+            daemonId: route.daemonId,
+            canonicalRoot: root,
+            env: { HARNESS_DAEMON_ENDPOINT: foreign, HARNESS_DAEMON_RELAY: "1" },
+          }),
+        /daemon_target_conflict/u,
       );
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+    // A symlinked socket file at the relay path is refused at materialization instead of
+    // being unlinked or bound through.
+    const symlinkDispatch = uniqueDispatchId(),
+      symlinkRoute = { userRoot, daemonId: "callback-validation", endpoint: route.endpoint },
+      symlinkSpec = runtimeCallbackRelaySpec(symlinkDispatch, symlinkRoute);
+    try {
+      symlinkSync(path.join(root, "outside"), symlinkSpec.path);
+      assert.throws(
+        () =>
+          createRuntimeCallbackRelay({ dispatchId: symlinkDispatch, route: symlinkRoute, relayPath: symlinkSpec.path }),
+        /must not be a symbolic link/u,
+      );
+    } finally {
+      rmSync(symlinkSpec.path, { force: true });
       rmSync(root, { recursive: true, force: true });
     }
   },
 );
 
 test("stale callback relay cleanup removes only its validated dispatch socket", () => {
-  const root = path.resolve(".callback-relay-stale"),
-    dispatchId = "dispatch_0123456789abcdef01234567",
-    relayPath = path.join(root, ".harness", "r-0123456789abcdef01234567.sock");
-  rmSync(root, { recursive: true, force: true });
-  mkdirSync(path.dirname(relayPath), { recursive: true });
-  writeFileSync(relayPath, "stale");
+  const keptDispatch = uniqueDispatchId(),
+    removedDispatch = uniqueDispatchId(),
+    keptPath = path.join(perUserSocketRoot(), `r-${keptDispatch.slice("dispatch_".length)}.sock`),
+    removedPath = path.join(perUserSocketRoot(), `r-${removedDispatch.slice("dispatch_".length)}.sock`);
+  mkdirSync(path.dirname(keptPath), { recursive: true, mode: 0o700 });
+  writeFileSync(removedPath, "stale");
   try {
-    removeRuntimeCallbackRelay(root, dispatchId);
-    assert.equal(existsSync(relayPath), false);
+    removeRuntimeCallbackRelay(removedDispatch);
+    assert.equal(existsSync(removedPath), false);
+    writeFileSync(keptPath, "live");
+    removeRuntimeCallbackRelay(removedDispatch);
+    assert.equal(existsSync(keptPath), true);
   } finally {
-    rmSync(root, { recursive: true, force: true });
+    rmSync(removedPath, { force: true });
+    rmSync(keptPath, { force: true });
   }
 });
+
+async function echo(endpoint: string, payload: string): Promise<string> {
+  const client = await new Promise<net.Socket>((resolve, reject) => {
+    const socket = net.createConnection(endpoint);
+    socket.once("connect", () => resolve(socket));
+    socket.once("error", reject);
+  });
+  try {
+    const response = new Promise<string>((resolve) => client.once("data", (chunk) => resolve(chunk.toString("utf8"))));
+    client.write(payload);
+    return await response;
+  } finally {
+    client.destroy();
+  }
+}
 
 async function eventuallyRelay(check: () => boolean): Promise<void> {
   for (let attempt = 0; attempt < 500; attempt += 1) {

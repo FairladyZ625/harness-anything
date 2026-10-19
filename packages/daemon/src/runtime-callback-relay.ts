@@ -1,26 +1,20 @@
 import { chmodSync, lstatSync, mkdirSync, rmSync, unlinkSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
-import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
+import { localUserDaemonEndpoint, perUserSocketRoot } from "./client/local-daemon-target.ts";
 import type { RuntimeCallbackRelay, RuntimeDaemonRoute } from "./runtime-spawn-types.ts";
 
-const relayDirectory = ".harness";
-
 export function runtimeCallbackRelaySpec(
-  rootDir: string,
   dispatchId: string,
   route: RuntimeDaemonRoute,
   platform: NodeJS.Platform = process.platform,
 ): RuntimeCallbackRelay {
   assertEndpointIdentity(route, platform);
-  const relayPath = path.join(path.resolve(rootDir), relayDirectory, relayName(dispatchId));
-  validateRuntimeCallbackRelayPath(rootDir, dispatchId, relayPath, route, platform);
-  return { endpoint: route.endpoint, path: relayPath };
+  return { endpoint: route.endpoint, path: runtimeCallbackRelayPath(dispatchId) };
 }
 
 /** A sealed Codex worker that may write, or only read, reaches the daemon through a per-dispatch relay socket. */
 export function dispatchCallbackRelay(
-  rootDir: string,
   dispatchId: string,
   route: RuntimeDaemonRoute | undefined,
   instance: { readonly kindId: string; readonly isolationState?: string } | undefined,
@@ -32,7 +26,7 @@ export function dispatchCallbackRelay(
     instance?.kindId === "codex" &&
     instance.isolationState === "enforced" &&
     (permissionMode === "workspace-write" || permissionMode === "read-only")
-    ? runtimeCallbackRelaySpec(rootDir, dispatchId, route)
+    ? runtimeCallbackRelaySpec(dispatchId, route)
     : undefined;
 }
 
@@ -43,39 +37,21 @@ export function isSealedRuntimeDaemonRoute(
   return endpointIdentityMatches(route, platform);
 }
 
-export function validateRuntimeCallbackRelayPath(
-  rootDir: string,
-  dispatchId: string,
-  relayPath: string,
-  route: RuntimeDaemonRoute,
-  platform: NodeJS.Platform = process.platform,
-): void {
+export function validateRuntimeCallbackRelayPath(dispatchId: string, relayPath: string): void {
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) throw new Error("runtime callback dispatch id is invalid");
-  const root = path.resolve(rootDir),
-    expected = runtimeCallbackRelayPath(root, dispatchId, route, platform);
-  if (path.resolve(relayPath) !== expected) throw new Error("runtime callback relay path is invalid");
-  if (platform === "win32") return;
-  for (const component of pathComponents(root, expected)) {
-    // The last component is the relay socket. BigInt stats keep its type out of
-    // the shared numeric stat buffer, which Node's realpath cache reads to stop
-    // ancestor resolution early — a later module resolution would see an
-    // unexpanded path. Only the read form changes; the checks are the same.
-    const info = lstatSync(component, { throwIfNoEntry: false, bigint: true });
-    if (info?.isSymbolicLink()) throw new Error("runtime callback relay path contains a symbolic link");
-  }
+  if (path.resolve(relayPath) !== runtimeCallbackRelayPath(dispatchId))
+    throw new Error("runtime callback relay path is invalid");
 }
 
 export function createRuntimeCallbackRelay(input: {
-  readonly rootDir: string;
   readonly dispatchId: string;
   readonly route: RuntimeDaemonRoute;
   readonly relayPath: string;
 }): RuntimeCallbackRelayServer {
-  validateRuntimeCallbackRelayPath(input.rootDir, input.dispatchId, input.relayPath, input.route);
+  validateRuntimeCallbackRelayPath(input.dispatchId, input.relayPath);
   assertEndpointIdentity(input.route);
-  const parent = path.dirname(input.relayPath),
-    sockets = new Set<net.Socket>();
-  mkdirSecurely(input.rootDir, parent);
+  const sockets = new Set<net.Socket>();
+  mkdirSecurely(path.dirname(input.relayPath));
   removeStaleRelay(input.relayPath);
   const server = net.createServer((client) => {
     sockets.add(client);
@@ -121,18 +97,9 @@ export function createRuntimeCallbackRelay(input: {
   };
 }
 
-export function removeRuntimeCallbackRelay(rootDir: string, dispatchId: string): void {
+export function removeRuntimeCallbackRelay(dispatchId: string): void {
   if (!/^dispatch_[a-f0-9]{24}$/u.test(dispatchId)) return;
-  const root = path.resolve(rootDir),
-    directory = path.join(root, relayDirectory),
-    target = path.join(directory, `r-${dispatchId.slice("dispatch_".length)}.sock`);
-  for (const component of pathComponents(root, target)) {
-    // BigInt stats: the last component is the relay socket, and a numeric stat
-    // of it would poison the shared buffer Node's realpath cache reads.
-    const info = lstatSync(component, { throwIfNoEntry: false, bigint: true });
-    if (info?.isSymbolicLink()) return;
-  }
-  rmSync(target, { force: true });
+  rmSync(runtimeCallbackRelayPath(dispatchId), { force: true });
 }
 
 export interface RuntimeCallbackRelayServer {
@@ -141,13 +108,11 @@ export interface RuntimeCallbackRelayServer {
   readonly stop: () => Promise<void>;
 }
 
-function runtimeCallbackRelayPath(
-  rootDir: string,
-  dispatchId: string,
-  _route: RuntimeDaemonRoute,
-  _platform: NodeJS.Platform,
-): string {
-  return path.join(path.resolve(rootDir), relayDirectory, relayName(dispatchId));
+/** The relay socket lives under the short per-user socket root: a repository path has unbounded
+ * length and macOS caps a unix-socket address at 104 bytes, which used to fail the bind with
+ * listen EINVAL before the provider could start. */
+function runtimeCallbackRelayPath(dispatchId: string): string {
+  return path.join(perUserSocketRoot(), relayName(dispatchId));
 }
 
 function assertEndpointIdentity(route: RuntimeDaemonRoute, platform: NodeJS.Platform = process.platform): void {
@@ -164,24 +129,14 @@ function endpointIdentityMatches(route: RuntimeDaemonRoute, platform: NodeJS.Pla
   return platform !== "win32" ? path.basename(actual) === path.basename(expected) : actual === expected;
 }
 
-function pathComponents(root: string, target: string): readonly string[] {
-  const relative = path.relative(root, target),
-    components: string[] = [root];
-  let current = root;
-  for (const part of relative.split(path.sep)) {
-    if (!part) continue;
-    current = path.join(current, part);
-    components.push(current);
-  }
-  return components;
-}
-
-function mkdirSecurely(root: string, target: string): void {
-  for (const component of pathComponents(root, target)) {
-    mkdirSync(component, { recursive: true, mode: 0o700 });
-    const info = lstatSync(component);
-    if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("runtime callback relay directory is unsafe");
-  }
+function mkdirSecurely(target: string): void {
+  mkdirSync(target, { recursive: true, mode: 0o700 });
+  const info = lstatSync(target);
+  // mkdirSync leaves a pre-existing directory's mode untouched, and sticky /tmp lets any user
+  // pre-create this name; a directory that is not a 0700 owner directory would silently void
+  // the per-user boundary the socket path claims.
+  if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.())
+    throw new Error("runtime callback relay directory is unsafe");
 }
 
 function removeStaleRelay(target: string): void {

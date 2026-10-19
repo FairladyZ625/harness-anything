@@ -411,13 +411,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
             configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
             declaredPermissionMode = permissionMode ?? agent?.permissionMode,
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
-            callbackRelay = dispatchCallbackRelay(
-              input.rootDir,
-              newDispatchId,
-              daemonRoute,
-              runtimeInstance,
-              effectivePermissionMode,
-            ),
+            callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
             missionDaemonRoute =
               callbackRelay && daemonRoute ? { userRoot: "", daemonId: "", endpoint: callbackRelay.path } : daemonRoute,
             selfContainedMission =
@@ -652,7 +646,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       });
     };
     const cleanupCallbackRelay = (): void => {
-      if (callbackRelay) removeRuntimeCallbackRelay(input.rootDir, newDispatchId);
+      if (callbackRelay) removeRuntimeCallbackRelay(newDispatchId);
     };
     // The handoff rollout is installed only after the target launch is prepared and admitted —
     // into the directory that launch actually resolved — and before any process or event, so a

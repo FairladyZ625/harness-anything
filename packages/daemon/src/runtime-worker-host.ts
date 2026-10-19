@@ -100,7 +100,6 @@ export async function runRuntimeWorkerHost(): Promise<void> {
     });
   const relay = manifest.callbackRelay
     ? createRuntimeCallbackRelay({
-        rootDir: manifest.rootDir,
         dispatchId: manifest.dispatchId,
         route: {
           userRoot: manifest.env.HARNESS_DAEMON_USER_ROOT ?? "",
