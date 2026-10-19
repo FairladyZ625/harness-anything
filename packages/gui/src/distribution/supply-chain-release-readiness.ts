@@ -192,6 +192,14 @@ export const harnessSupplyChainReleaseReadiness: SupplyChainReleaseReadinessPoli
     ],
     reviewedDependencyLicenseChoices: [
       {
+        packageName: "caniuse-lite",
+        declaredLicenseExpression: "CC-BY-4.0",
+        electedLicense: "CC-BY-4.0",
+        reviewedAt: "2026-10-19",
+        rationale:
+          "Reviewed caniuse-lite 1.0.30001816 package.json and README. Browserslist browser-compatibility data package, transitively introduced as a devDependency via @babel/core → @babel/helper-compilation-targets → browserslist; CC-BY-4.0 applies to the data, which is not linked into the Harness runtime. Reviewed under decision dec_10FAEB2487C3165EDCCC8453BF; re-review on version upgrade.",
+      },
+      {
         packageName: "dompurify",
         declaredLicenseExpression: "(MPL-2.0 OR Apache-2.0)",
         electedLicense: "Apache-2.0",
