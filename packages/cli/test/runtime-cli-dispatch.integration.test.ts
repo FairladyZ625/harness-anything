@@ -171,10 +171,10 @@ test("Delegated dispatches archive identity, mission and separate reports and re
   ]);
   assert.equal(outsider.status, 1);
   assert.equal(outsider.receipt.code, "squad_member_not_found");
-  // Runtime type is a default-instance selection hint, not an admission condition: an
-  // opencode-typed agent dispatches on a codex instance when the operator names it.
+  // An explicit instance pin must still serve the target Agent's declaration; a foreign
+  // runtime kind cannot be borrowed by naming the instance directly.
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
-  const crossKind = runStopped([
+  const crossKind = runMaybe(root, env, [
     "agent",
     "run",
     "fable",
@@ -188,8 +188,8 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     taskId,
     "--no-stream",
   ]);
-  const crossKindDispatchId = String((crossKind.spawn as Record<string, unknown>).dispatchId);
-  assert.match(crossKindDispatchId, /^dispatch_/u, JSON.stringify(crossKind));
+  assert.equal(crossKind.status, 1, JSON.stringify(crossKind));
+  assert.equal(crossKind.receipt.code, "agent_runtime_unavailable", JSON.stringify(crossKind));
 });
 
 test("Runtime report is archived after the worker submits its execution", async (context) => {

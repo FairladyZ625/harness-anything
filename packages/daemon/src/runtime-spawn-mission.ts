@@ -158,15 +158,31 @@ export function resolveRuntimeInstanceCandidates(input: {
         `ha settings update ${enableCommand(instanceId)}.`,
     );
   };
+  // An explicit instance pin and a resumed provider session both bypass the declaration filter
+  // below, so they owe the same rule here: an Agent that declares runtimes never selects an
+  // instance of another kind, whatever lane carried the choice in.
+  const assertDeclarationServes = (instanceId: string): void => {
+    if (input.agent === null) return;
+    const instance = input.instances.find((row) => row.instanceId === instanceId);
+    if (instance === undefined || agentRuntimeKindMatches(input.agent.runtimes, instance.kindId)) return;
+    throw runtimeSpawnError(
+      "agent_runtime_unavailable",
+      `Agent ${input.agent.id} declares ${agentRuntimeTargetSummary(input.agent.runtimes)}, but ${instanceId} ` +
+        `is a ${instance.kindId} instance. Dispatch it without the instance pin, resume a session served by a ` +
+        `declared runtime, or add the runtime kind to the Agent declaration.`,
+    );
+  };
   if (input.providerSessionId) {
     const session = input.sessions.find((row) => row.providerSessionId === input.providerSessionId);
     if (session) {
       assertAllowed(session.instanceId);
+      assertDeclarationServes(session.instanceId);
       return [session.instanceId];
     }
   }
   if (input.requested) {
     assertAllowed(input.requested);
+    assertDeclarationServes(input.requested);
     return [input.requested];
   }
   // input.model is the dispatch-level override (--model); the per-kind declared model lives
