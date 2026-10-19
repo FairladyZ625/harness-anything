@@ -152,25 +152,27 @@ function prepareWorkspaceBuild(root, cacheRoot, dependencyKey, workspaces, insta
   const key = hash.digest("hex");
   const current = path.join(cacheRoot, "build");
   const staging = path.join(cacheRoot, "build-pending");
-  // Rebuilds are per workspace; the writer lock covers only copy-out and
-  // publication, so one workspace's build never blocks another's preparation.
+  // A hit can be copied while holding the lock. Misses rebuild per workspace
+  // with no lock, so one workspace's build never blocks another preparation.
   lock.exec("BEGIN IMMEDIATE");
   const hit = publishedGenerationKey(current) === key;
+  if (hit) {
+    for (const name of JSON.parse(readFileSync(path.join(current, "roots.json"), "utf8")))
+      copyDependencyTree(path.join(current, name), path.join(root, name), current, root);
+    lock.exec("COMMIT");
+    console.log(`[test-isolation-build] cache=hit key=${key}`);
+    return;
+  }
   lock.exec("COMMIT");
-  if (!hit) rebuildWorkspaces(root, workspaces, install);
+  rebuildWorkspaces(root, workspaces, install);
+
   lock.exec("BEGIN IMMEDIATE");
   try {
     rmSync(staging, { recursive: true, force: true });
     if (publishedGenerationKey(current) === key) {
-      if (hit)
-        for (const name of JSON.parse(readFileSync(path.join(current, "roots.json"), "utf8")))
-          copyDependencyTree(path.join(current, name), path.join(root, name), current, root);
       console.log(`[test-isolation-build] cache=hit key=${key}`);
       return;
     }
-    // The published build was replaced while this workspace rebuilt; produce
-    // the outputs again before publishing them.
-    if (hit) rebuildWorkspaces(root, workspaces, install);
     const roots = ["dist", ...workspaces.map((name) => path.join(name, "dist"))].filter((name) =>
       existsSync(path.join(root, name)),
     );
