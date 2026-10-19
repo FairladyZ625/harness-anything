@@ -138,7 +138,6 @@ test("standard profile read side reports no closed-gate completion blockers", ()
   assert.deepEqual(context.closeoutGates, {
     review: false,
     consent: false,
-    fact: true,
     factDisposition: false,
     codeDoc: false,
   });
@@ -164,24 +163,11 @@ test("a repository without a settings entity reads the standard default gates", 
   assert.equal(taskCompletionNext(submitted, context).blocker?.code, "delivery_missing");
 });
 
-test("a task-bound fact lift completes factless; the repository default still demands one", () => {
-  const lightweight = {
-      ...frozenCut({ profile: "standard" }, { review: false, consent: false, fact: false }),
-      task: { ...submitted.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
-    },
-    context = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", lightweight, "ready");
-  assert.deepEqual(context.closeoutGates, {
-    review: false,
-    consent: false,
-    fact: false,
-    factDisposition: false,
-    codeDoc: false,
-  });
-  assert.equal(context.producesFactCount, 0);
-  assert.equal(taskCompletionNext(lightweight, context).blocker, null);
-  // Negative control: without the task-bound lift the same factless cut is blocked.
-  const baseline = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", submitted, "ready");
-  assert.equal(taskCompletionNext(submitted, baseline).blocker?.code, "fact_missing");
+test("a factless cut completes under the standard profile: facts carry no completion quota", () => {
+  // dec_BB2BCE9F995CD3A126E2918734 CH4 removed the per-task fact gate; facts are on-demand.
+  const context = readCompletionContext(projection({ profile: "standard" }, 0), "task-1", submitted, "ready");
+  assert.equal("producesFactCount" in context, false);
+  assert.equal(taskCompletionNext(submitted, context).blocker, null);
 });
 
 test("the task query closeout judgment follows the effective gate set", () => {
@@ -351,9 +337,8 @@ test("merge evidence retires only the CI gate and does not lift review or consen
     context = {
       closeout: "ready" as const,
       closeoutPath: "closeout.md",
-      closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+      closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
       eligibleDirtyPaths: [],
-      producesFactCount: 1,
       projectionStatus: "ready" as const,
       delivery,
     },
