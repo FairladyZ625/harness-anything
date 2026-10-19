@@ -55,6 +55,32 @@ export async function publishExit(
     if (persistedTerminal && (resumePublishedExit || persistedTerminal.payload.outcome !== "failed")) {
       context.processes.delete(active.runtimeSessionId);
       active.process.release?.();
+      // The stream's terminal append and its ledger settlement are separate steps: a daemon
+      // that dies between them replays this branch on adoption and must still reach the
+      // single settlement entry, or a claimed Schedule occurrence (or task lease) stays
+      // open forever. The settlement is queued ahead of the exit publication in the same
+      // write chain, so a ledger that already shows the exit (resumePublishedExit) has
+      // already taken the settlement — only a ledger with no trace of the terminal replays
+      // it. A fallback chain still holding the attempt leaves settlement to the
+      // continuation's own terminal.
+      if (
+        !resumePublishedExit &&
+        readDispatchStream(context.input.rootDir, active.dispatchId)?.fallbackState !== "scheduled"
+      )
+        await context.input.onAttemptTerminal?.({
+          runtimeSessionId: active.runtimeSessionId,
+          dispatchId: active.dispatchId,
+          task: active.task,
+          schedule: active.schedule,
+          outcome: active.schedule
+            ? scheduleOutcomeFromRuntime(persistedTerminal.payload.outcome, persistedTerminal.body)
+            : persistedTerminal.payload.outcome === "succeeded"
+              ? "succeeded"
+              : "failed",
+          reason: persistedTerminal.payload.outcome === "succeeded" ? null : persistedTerminal.reason,
+          endedAt: persistedTerminal.payload.endedAt ?? context.input.now(),
+          binding: active.binding,
+        });
       await publishTerminalOutcome(context, active, terminalBinding, persistedTerminal);
       return;
     }

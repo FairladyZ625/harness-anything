@@ -525,6 +525,10 @@ export async function settleScheduledRuntime(
   const scheduled = terminal.schedule;
   if (!scheduled) return;
   const current = cell.projection.getEntity("schedule", scheduled.scheduleId)?.value as ScheduleV1 | undefined;
+  // A replayed terminal (daemon died between the stream's terminal append and its ledger
+  // settlement) can arrive after the occurrence already settled: the claim, not the runtime
+  // exit, is the single-flight witness, and a settled claim is neither re-linked nor re-settled.
+  if (current && !current.status.activeRun) return;
   if (current?.status.activeRun?.runtimeSessionId !== terminal.runtimeSessionId) {
     await run(
       {
