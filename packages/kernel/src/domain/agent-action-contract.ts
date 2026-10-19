@@ -156,6 +156,11 @@ export function createAgentActionCatalog(
             failureCode: "revision_conflict",
             explain: "expectedVersion matches the latest Agent entity revision.",
           },
+          {
+            ref: "agent/no-references",
+            failureCode: "agent_referenced",
+            explain: "The Agent has no active dispatches, Squads, Schedules, or Relations at the canonical cut.",
+          },
         ]),
         concurrency: Object.freeze({
           ...declared.concurrency,
