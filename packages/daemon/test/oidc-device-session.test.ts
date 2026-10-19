@@ -85,14 +85,22 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
     JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }),
   );
   let dispatcher: unknown,
+    userInfoDispatcher: unknown,
+    bindingDispatcher: unknown,
+    logoutDispatcher: unknown,
     now = 0,
     tokenRequests = 0;
   const certificate = "-----BEGIN CERTIFICATE-----\\npublic-test-ca\\n-----END CERTIFICATE-----\\n";
   const service = new OidcSessionService(root, {
     now: () => now,
+    loginAuthority: async () => authority,
     fetch: (async (input, init) => {
       dispatcher = (init as RequestInit & { dispatcher?: unknown }).dispatcher;
-      if (String(input).endsWith("/auth/device"))
+      const url = String(input);
+      if (url.endsWith("/userinfo")) userInfoDispatcher = dispatcher;
+      if (url.endsWith("/realms/harness")) bindingDispatcher = dispatcher;
+      if (url.endsWith("/revoke")) logoutDispatcher = dispatcher;
+      if (url.endsWith("/auth/device"))
         return Response.json({
           device_code: "private-device",
           user_code: "ABCD-EFGH",
@@ -100,8 +108,7 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
           expires_in: 600,
           interval: 5,
         });
-      if (String(input).endsWith("/userinfo"))
-        return Response.json({ sub: "person-one", harness_person_id: "person-one" });
+      if (url.endsWith("/userinfo")) return Response.json({ sub: "person-one", harness_person_id: "person-one" });
       tokenRequests++;
       return Response.json({
         access_token: "x.e30.x",
@@ -121,6 +128,7 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
   assert.ok(dispatcher, "the authority certificate is supplied through a request-scoped TLS dispatcher");
   now = 5_000;
   await service.pollDevice();
+  assert.ok(userInfoDispatcher, "userinfo uses the invitation authority's request-scoped CA");
   const issued = JSON.parse(readFileSync(path.join(root, "rbac/oidc-session.json"), "utf8"));
   assert.deepEqual(issued.authority, {
     url: authority.url,
@@ -131,4 +139,88 @@ test("invited login authority supplies a request-scoped TLS CA", async (t) => {
   now = 36_000;
   await service.status();
   assert.equal(tokenRequests, 2, "the refresh request uses the persisted invited authority");
+  await service.bindingHealth("edge-root");
+  assert.ok(bindingDispatcher, "authority discovery uses the invitation's request-scoped CA");
+  await service.logout();
+  assert.ok(logoutDispatcher, "logout uses the session authority's request-scoped CA");
+});
+
+test("device login survives transient transport loss and replaces a code invalidated by Keycloak restart", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-restart-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(path.join(root, "rbac"));
+  writeFileSync(
+    path.join(root, "rbac/config.json"),
+    JSON.stringify({ url: "http://127.0.0.1:8080", realm: "harness" }),
+  );
+  let now = 0,
+    deviceRequests = 0,
+    tokenRequests = 0;
+  const notices: unknown[] = [],
+    cause = Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" }),
+    service = new OidcSessionService(root, {
+      now: () => now,
+      loginAuthority: async () => ({
+        url: "https://identity.example.test",
+        realm: "harness",
+        clientId: "harness-node-one",
+      }),
+      reportDevice: async (_target, notice) => {
+        notices.push(notice);
+      },
+      fetch: (async (input) => {
+        const url = String(input);
+        if (url.endsWith("/auth/device")) {
+          const serial = ++deviceRequests;
+          return Response.json({
+            device_code: `private-device-${serial}`,
+            user_code: `CODE-${serial}`,
+            verification_uri: "https://identity.example.test/realms/harness/device",
+            expires_in: 600,
+            interval: 1,
+          });
+        }
+        if (url.endsWith("/token")) {
+          tokenRequests += 1;
+          if (tokenRequests === 1) throw new TypeError("fetch failed", { cause });
+          if (tokenRequests === 2) return Response.json({ error: "invalid_grant" }, { status: 400 });
+          return Response.json({
+            access_token: "x.e30.x",
+            refresh_token: "private-refresh",
+            expires_in: 300,
+            refresh_expires_in: 21_600,
+          });
+        }
+        assert.ok(url.endsWith("/userinfo"));
+        return Response.json({ sub: "person-one", harness_person_id: "person-one" });
+      }) as typeof fetch,
+    }),
+    authority = {
+      url: "https://identity.example.test",
+      realm: "harness",
+      clientId: "harness-node-one",
+    };
+
+  const begun = await service.beginDevice("edge-root", authority);
+  now = 1_000;
+  await assert.rejects(service.pollDevice(), (error: unknown) => {
+    assert.equal((error as Error & { code?: string }).code, "oidc_device_transport_unavailable");
+    assert.match(String((error as Error).cause), /read ECONNRESET/u);
+    return true;
+  });
+  now = 2_000;
+  const renewed = await service.pollDevice();
+  assert.equal(renewed.pending, true);
+  assert.equal(renewed.userCode, "CODE-2");
+  assert.equal(renewed.expiresAt, begun.expiresAt, "recovery stays inside the first device-code deadline");
+  assert.deepEqual(notices, [
+    { userCode: "CODE-1", createdAt: 0, expiresAt: 600_000, pending: true },
+    { userCode: "CODE-1", createdAt: 0, expiresAt: 600_000, pending: false },
+    { userCode: "CODE-2", createdAt: 2_000, expiresAt: 600_000, pending: true },
+  ]);
+  now = 3_000;
+  const accepted = await service.pollDevice();
+  assert.equal(accepted.authenticated, true);
+  assert.equal(accepted.personId, "person-one");
+  assert.equal(tokenRequests, 3);
 });

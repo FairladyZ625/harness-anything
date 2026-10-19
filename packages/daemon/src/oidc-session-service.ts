@@ -10,6 +10,7 @@ import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
 import { Agent } from "undici";
+import { errorMessageWithCause } from "./error-cause.ts";
 
 interface RbacConfig {
   readonly url: string;
@@ -54,6 +55,7 @@ interface PendingDeviceLogin {
   readonly expiresAt: number;
   interval: number;
   nextPollAt: number;
+  lastTransportError?: string;
 }
 
 interface StoredSession {
@@ -169,7 +171,7 @@ export class OidcSessionService {
     this.#pending = undefined;
     const authority = pending.authority,
       tokenUrl = `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/token`,
-      tokenResponse = await this.#ports.fetch(tokenUrl, {
+      tokenResponse = await this.#fetchAuthority(authority, tokenUrl, {
         method: "POST",
         headers: { "content-type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
@@ -195,7 +197,11 @@ export class OidcSessionService {
       throw coded("oidc_login_superseded", "A newer login or logout superseded this sign-in attempt.");
   }
 
-  async beginDevice(loginTarget?: string, authorityOverride?: OidcLoginAuthority): Promise<Record<string, unknown>> {
+  async beginDevice(
+    loginTarget?: string,
+    authorityOverride?: OidcLoginAuthority,
+    expiresAtLimit?: number,
+  ): Promise<Record<string, unknown>> {
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
       verifier = this.#ports.randomBytes(32).toString("base64url"),
       response = await this.#fetchAuthority(
@@ -218,7 +224,10 @@ export class OidcSessionService {
     const device = (await response.json()) as Record<string, unknown>,
       interval = requiredNumber(device.interval, "interval"),
       createdAt = this.#ports.now(),
-      expiresAt = createdAt + requiredNumber(device.expires_in, "expires_in") * 1_000,
+      expiresAt = Math.min(
+        createdAt + requiredNumber(device.expires_in, "expires_in") * 1_000,
+        expiresAtLimit ?? Number.POSITIVE_INFINITY,
+      ),
       userCode = requiredString(device.user_code, "user_code"),
       verificationUri = requiredString(device.verification_uri, "verification_uri"),
       notice = { userCode, createdAt, expiresAt, pending: true };
@@ -307,24 +316,50 @@ export class OidcSessionService {
       if (!pending) throw coded("oidc_device_missing", "Start device login first.");
       if (this.#ports.now() >= pending.expiresAt) {
         this.#device = undefined;
-        throw coded("oidc_device_expired", "Device authorization expired; start login again.");
+        await this.#reportDevice(pending, false);
+        throw coded(
+          "oidc_device_expired",
+          pending.lastTransportError
+            ? `Device authorization expired; the last Keycloak request failed: ${pending.lastTransportError}`
+            : "Device authorization expired; start login again.",
+        );
       }
-      if (this.#ports.now() < pending.nextPollAt) return { ok: true, pending: true, interval: pending.interval };
-      const response = await this.#fetchAuthority(
-        pending.authority,
-        `${pending.authority.url}/realms/${encodeURIComponent(pending.authority.realm)}/protocol/openid-connect/token`,
-        {
-          method: "POST",
-          body: new URLSearchParams({
-            ...clientFields(pending.authority),
-            grant_type: "urn:ietf:params:oauth:grant-type:device_code",
-            device_code: pending.deviceCode,
-            code_verifier: pending.verifier,
-          }),
-        },
-      );
+      if (this.#ports.now() < pending.nextPollAt)
+        return {
+          ok: true,
+          pending: true,
+          interval: pending.interval,
+        };
+      let response: Response;
+      try {
+        response = await this.#fetchAuthority(
+          pending.authority,
+          `${pending.authority.url}/realms/${encodeURIComponent(pending.authority.realm)}/protocol/openid-connect/token`,
+          {
+            method: "POST",
+            body: new URLSearchParams({
+              ...clientFields(pending.authority),
+              grant_type: "urn:ietf:params:oauth:grant-type:device_code",
+              device_code: pending.deviceCode,
+              code_verifier: pending.verifier,
+            }),
+          },
+        );
+      } catch (error) {
+        if (!(error instanceof TypeError) || !transientDeviceTransportFailure(error)) throw error;
+        const transportError = errorMessageWithCause(error);
+        pending.lastTransportError = transportError;
+        pending.nextPollAt = this.#ports.now() + pending.interval * 1_000;
+        (error as TypeError & { code?: string }).code = "oidc_device_transport_unavailable";
+        throw error;
+      }
       const result = (await response.json()) as Record<string, unknown>;
+      delete pending.lastTransportError;
       if (!response.ok) {
+        if (result.error === "invalid_grant") {
+          await this.#reportDevice(pending, false);
+          return this.beginDevice(pending.loginTarget, pending.authority, pending.expiresAt);
+        }
         if (result.error === "authorization_pending" || result.error === "slow_down") {
           if (result.error === "slow_down") pending.interval += 5;
           pending.nextPollAt = this.#ports.now() + pending.interval * 1_000;
@@ -348,7 +383,8 @@ export class OidcSessionService {
     generation?: number,
   ): Promise<Record<string, unknown>> {
     const accessToken = requiredString(tokens.access_token, "access_token"),
-      userResponse = await this.#ports.fetch(
+      userResponse = await this.#fetchAuthority(
+        authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/userinfo`,
         { headers: { authorization: `Bearer ${accessToken}` } },
       );
@@ -388,7 +424,10 @@ export class OidcSessionService {
   /** Read the selected edge's public authority, independently of this daemon's signed-in session. */
   async bindingHealth(loginTarget: string): Promise<Record<string, unknown>> {
     const authority = await this.#loginAuthority(loginTarget, true),
-      response = await this.#ports.fetch(`${authority.url}/realms/${encodeURIComponent(authority.realm)}`);
+      response = await this.#fetchAuthority(
+        authority,
+        `${authority.url}/realms/${encodeURIComponent(authority.realm)}`,
+      );
     return {
       source: "fleet-center",
       mode: "external",
@@ -411,8 +450,11 @@ export class OidcSessionService {
       const session = this.#session();
       this.#ports.sessionStore.delete();
       if (session) {
-        const authority = await this.#loginAuthority(session.loginTarget),
-          response = await this.#ports.fetch(
+        const authority = session.authority?.clientId
+            ? (session.authority as OidcLoginAuthority)
+            : await this.#loginAuthority(session.loginTarget),
+          response = await this.#fetchAuthority(
+            authority,
             `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/revoke`,
             {
               method: "POST",
@@ -985,4 +1027,37 @@ function unavailable(message: string, cause?: unknown): Error {
 }
 function coded(code: string, message: string): Error {
   return Object.assign(new Error(message), { code });
+}
+
+const transientDeviceTransportCodes = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "UND_ERR_SOCKET",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+
+function transientDeviceTransportFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError)) return false;
+  let cause: unknown = error,
+    depth = 0;
+  while (cause !== undefined && depth < 4) {
+    if (
+      typeof cause === "object" &&
+      cause !== null &&
+      "code" in cause &&
+      typeof cause.code === "string" &&
+      transientDeviceTransportCodes.has(cause.code)
+    )
+      return true;
+    cause = cause instanceof Error ? cause.cause : undefined;
+    depth += 1;
+  }
+  return false;
 }
