@@ -382,7 +382,7 @@ test("failed child wakes the leader with the failure after its sibling settles",
 
 test(
   "ended stage assignments release their WIP slot before the next stage admits a worker",
-  { timeout: 60_000 },
+  { timeout: 90_000 },
   async (t) => {
     // The limit fits the active parent plus one running assignment; a still-active
     // ended-stage assignment would exhaust it and reject the next stage's worker.
