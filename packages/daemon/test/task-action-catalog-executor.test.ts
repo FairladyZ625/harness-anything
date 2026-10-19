@@ -7,6 +7,7 @@ import { rejectExecutionSelection } from "../src/repo-cell-execution-selection.t
 import { cellCriterionError } from "../src/repo-cell-errors.ts";
 import { failed } from "../src/repo-cell-settlement.ts";
 import { validateCanonicalIdentityInputs } from "../src/repo-cell-action-dispatch.ts";
+import { prepareAgentEntityDelete } from "../src/agent-entities.ts";
 
 test("shared action admission rejects replay-invalid lifecycle identities", () => {
   const cell = {
@@ -223,4 +224,51 @@ test("symptom task_4ba380067767eb1d0744ba7844: ambiguous execution selection nam
   assert.equal(receipt.code, "invalid_command");
   assert.match(String(receipt.rejectionExplanation), /candidates: exec-changes-requested, exec-submitted/u);
   assert.match(String(receipt.rejectionExplanation), /Choose one explicitly/u);
+});
+
+test("symptom task_75ba055dc0c66154154c37d664: a referenced Agent delete keeps agent_referenced and names the references", () => {
+  const contract = getExecutableEntityAction("agent-delete"),
+    agentId = "unified-agent",
+    action = { kind: "agent-delete", agentId, reason: "Remove the referenced Agent.", expectedVersion: 3 };
+  assert.ok(contract);
+  let guardFailure: unknown;
+  try {
+    prepareAgentEntityDelete({
+      action,
+      entityStore: {
+        get: () => ({
+          kind: "agent",
+          id: agentId,
+          value: {},
+          documentPath: `agents/${agentId}.json`,
+          documentSha256: "sha256:document",
+          workspaceRevision: 3,
+        }),
+      } as never,
+      projection: {
+        readRuntimeDispatches: () => [{ payload: { agentId } }],
+        listEntities: () => [],
+        readRelationQuery: () => ({ rows: [] }),
+      },
+    });
+  } catch (error) {
+    guardFailure = error;
+  }
+  assert.ok(guardFailure instanceof Error, "a referenced Agent must reject deletion");
+  const receipt = deriveActionResult(contract, action, failed("op-agent-referenced", guardFailure, contract, action)),
+    retireCommand = `ha agent retire ${agentId} --successor <agent-id>`;
+  assert.equal(receipt.outcome, "op_rejected");
+  assert.equal(receipt.code, "agent_referenced");
+  assert.equal(
+    receipt.rejectionExplanation,
+    `Agent ${agentId} is still referenced (dispatch: 1). Retire it with \`${retireCommand}\` instead.`,
+  );
+  assert.deepEqual(receipt.unmetCriteria, [
+    {
+      ref: "agent/no-references",
+      failureCode: "agent_referenced",
+      explain: "The Agent has no active dispatches, Squads, Schedules, or Relations at the canonical cut.",
+    },
+  ]);
+  assert.deepEqual(receipt.nextActions, [retireCommand]);
 });
