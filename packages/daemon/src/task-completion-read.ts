@@ -10,6 +10,7 @@ import {
   type CloseoutSnapshot,
   type CompletionDeliveryStatus,
   taskCompletionNext,
+  preReviewReadiness,
   type CompletionReadinessContext,
   type FactRetirementAssessment,
   type FactStillHoldsAttestation,
@@ -240,6 +241,7 @@ export function readTaskCompletion(
     taskId,
     completionNext: next,
     completionBlocker: blocker === null ? null : { code: blocker.code, gate: blocker.gate },
+    preReviewReadiness: preReviewReadiness(read.snapshot),
     factRetirement,
   };
 }

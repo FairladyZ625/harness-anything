@@ -192,6 +192,26 @@ export function validateCompletionDeclaration(completion: VerticalCompletionDecl
 
 export function validateVerticalDefinition(vertical: VerticalDefinition): ExtensionValidationResult {
   const issues = [...validateCompletionDeclaration(vertical.completion).issues];
+  if (vertical.delivery) {
+    const gateIds = new Set(Object.keys(vertical.completion.gates));
+    if (new Set(vertical.delivery.preReview).size !== vertical.delivery.preReview.length)
+      issues.push(
+        extensionIssue(
+          "completion_binding_invalid",
+          "delivery.preReview cannot contain duplicate gate ids.",
+          "delivery.preReview",
+        ),
+      );
+    for (const gateId of vertical.delivery.preReview)
+      if (!gateIds.has(gateId))
+        issues.push(
+          extensionIssue(
+            "completion_binding_invalid",
+            `delivery.preReview references undeclared gate ${gateId}.`,
+            "delivery.preReview",
+          ),
+        );
+  }
   const entityById = new Map(vertical.entityKinds.map((entity) => [entity.id, entity]));
   const scaffoldEntityKinds = new Set<string>();
   const repositoryRootEntityKinds = new Set<string>();
@@ -471,6 +491,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
       "repositoryScaffold",
       "scripts",
       "templateSelections",
+      "delivery",
       "completion",
       "projectionSchemas",
     ],
@@ -542,6 +563,7 @@ function validateVerticalDefinitionShape(input: unknown, path: string, issues: E
   validateRepositoryScaffoldShape(input.repositoryScaffold, `${path}.repositoryScaffold`, issues);
   validateVerticalScriptsShape(input.scripts, `${path}.scripts`, issues);
   validateTemplateSelectionsShape(input.templateSelections, `${path}.templateSelections`, issues);
+  if (isExtensionRecord(input.delivery)) validateObjectKeys(input.delivery, `${path}.delivery`, ["preReview"], issues);
   if (Array.isArray(input.projectionSchemas)) {
     for (const [index, projection] of input.projectionSchemas.entries()) {
       validateObjectKeys(projection, `${path}.projectionSchemas[${index}]`, ["id", "schemaRef"], issues);

@@ -359,7 +359,7 @@ function prBodyScaffoldBody(input: CompileTaskPackageInput, outputShape: string)
 
 function withoutCodeDeliveryGates(snapshot: PresetSnapshotV1): PresetSnapshotV1 {
   const completionGateIds = snapshot.profile.completionGateIds.filter(
-    (gateId) => gateId !== "ci" && gateId !== "code-doc-reconciliation",
+    (gateId) => gateId !== "ci" && gateId !== "ci-pr" && gateId !== "ci-main" && gateId !== "code-doc-reconciliation",
   );
   if (completionGateIds.length === snapshot.profile.completionGateIds.length) return snapshot;
   const { digest: _digest, ...withoutDigest } = snapshot,

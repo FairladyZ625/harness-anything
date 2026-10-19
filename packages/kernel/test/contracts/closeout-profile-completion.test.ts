@@ -13,6 +13,8 @@ import {
   normalizeTaskLifecycleCommand,
   emptyTaskLifecycleSnapshot,
 } from "../../src/domain/task-lifecycle.contract.ts";
+import { preReviewReadiness } from "../../src/domain/completion-readiness.ts";
+import { submissionDigest } from "../../src/domain/execution.ts";
 import { implementer, lifecycleFixture } from "../store/task-lifecycle-fixture.ts";
 
 const standardGates = { review: false, consent: false, fact: true, factDisposition: false, codeDoc: false };
@@ -49,6 +51,87 @@ function completeProof(closeoutGates: unknown) {
     closeoutGates,
   };
 }
+
+const preReviewGate = {
+  gateId: "pre-review",
+  appliesTo: "code" as const,
+  witness: {
+    kind: "manual" as const,
+    adapterId: "manual-attest",
+    predicateType: "human/v1",
+    resultSchema: { type: "object" },
+    adapterOptions: {},
+  },
+};
+
+function forwardCommand(snapshot: TaskLifecycleSnapshot) {
+  return {
+    ...normalizeTaskLifecycleCommand(
+      { workspaceId: "workspace-1", actor: implementer, source: "local", expectedRevision: snapshot.revision },
+      {
+        type: "AdjudicateSubmission" as const,
+        taskId: snapshot.task!.taskId,
+        executionId: snapshot.executions[0]!.executionId,
+        decision: "forward" as const,
+        reason: "Forward after the pre-review witness.",
+      },
+    ),
+    eventId: "event-forward-pre-review",
+    workspaceRevision: snapshot.revision + 1,
+    occurredAt: "2026-08-11T00:04:00.000Z",
+  };
+}
+
+test("pre-review readiness blocks owner forward until its frozen gate witness passes", () => {
+  const fixture = lifecycleFixture({
+      gates: [preReviewGate],
+      preReviewGateIds: ["pre-review"],
+      stopAfterSubmit: true,
+    }),
+    snapshot = fixture.snapshot,
+    proof = { actorBinding: implementer, capability: "task-adjudicate@v1", capabilityRef: "cap-forward" };
+  assert.deepEqual(preReviewReadiness(snapshot).state, "blocked");
+  assert.equal(preReviewReadiness(snapshot).blockers[0]?.status, "missing");
+  assert.throws(() => applyTransition(snapshot, forwardCommand(snapshot), proof), /pre-review gates/u);
+
+  const execution = snapshot.executions[0]!;
+  if (!execution.submission) throw new Error("fixture submission missing");
+  const witnessed = {
+    ...snapshot,
+    gateWitnesses: [
+      {
+        schema: "completion-gate-acceptance/v1" as const,
+        witnessId: "witness-pre-review",
+        receiptId: "receipt-pre-review",
+        checkerId: "pre-review",
+        gateId: "pre-review",
+        result: "pass" as const,
+        taskId: execution.taskId,
+        executionId: execution.executionId,
+        commitSha: execution.submission.commitSha,
+        iteration: execution.iteration,
+        actor: implementer,
+        source: "local" as const,
+        verifiedAt: "2026-08-11T00:03:00.000Z",
+        historicalAcceptance: {
+          sourceGeneration: 1 as const,
+          sourceRevision: 1,
+          submissionDigest: submissionDigest(execution.submission),
+        },
+      },
+    ],
+  };
+  assert.deepEqual(preReviewReadiness(witnessed).state, "ready");
+  const forwarded = applyTransition(witnessed, forwardCommand(witnessed), proof);
+  assert.equal(forwarded.snapshot.task?.status, "in_review");
+
+  const ambiguous = {
+    ...witnessed,
+    executions: [...witnessed.executions, { ...witnessed.executions[0]!, executionId: "execution-2" }],
+  };
+  assert.equal(preReviewReadiness(ambiguous).state, "blocked");
+  assert.match(preReviewReadiness(ambiguous).reason, /single submitted execution cut/u);
+});
 
 test("standard gates complete without review or consent and record the effective gate set", () => {
   // The lightweight cut completes straight off `submitted`: its review gate is lifted, so the

@@ -266,9 +266,10 @@ export function gateResults(
 }
 
 export function isRetiredCiRequirement(gateId: string, requirement: FrozenGateRequirement | undefined): boolean {
-  return (
-    gateId === "ci" || requirement?.witness.kind === "github-actions" || requirement?.witness.kind === "gitlab-pipeline"
-  );
+  // Only the retired legacy `ci` contract is interpreted through repository merge policy. New
+  // hosted witnesses (for example ci-pr and ci-main) are ordinary gate runs whose provider event
+  // and subject binding are frozen in their adapter options.
+  return gateId === "ci";
 }
 
 /** The cut's latest automated witness when it is a fail bound to the current submission — what an override may name. */

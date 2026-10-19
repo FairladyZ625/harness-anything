@@ -15,7 +15,7 @@
   "profiles": [{
     "id": "baseline",
     "title": "Baseline",
-    "completionGates": ["ci", "code-doc-reconciliation"],
+    "completionGates": ["ci-main", "code-doc-reconciliation"],
     "templateSelections": [{ "slot": "task.plan", "templateRef": "template://planning/work-task-plan@1", "materializeAs": "task_plan.md", "localePolicy": { "prefer": "project", "fallback": "zh-CN" } }]
   }],
   "defaultProfile": "baseline"

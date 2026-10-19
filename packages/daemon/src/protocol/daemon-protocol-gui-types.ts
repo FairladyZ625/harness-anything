@@ -882,6 +882,7 @@ export interface AgendaExecutionRow {
   readonly executionId: string;
   readonly submittedAt: string;
   readonly blockingAssessment: import("@harness-anything/kernel/internal/domain/task-blocking").BlockingAssessment;
+  readonly preReviewReadiness: import("@harness-anything/kernel").PreReviewReadiness;
 }
 
 export interface AgendaDecisionRow {

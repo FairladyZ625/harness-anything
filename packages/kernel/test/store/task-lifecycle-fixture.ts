@@ -58,6 +58,10 @@ export function lifecycleFixture(
     readonly reviewId?: string;
     /** Frozen into the submission contract at submit; digests bind reviews and consents to it. */
     readonly gates?: readonly FrozenGateRequirement[];
+    /** Frozen pre-review subset used by adjudication transition tests. */
+    readonly preReviewGateIds?: readonly string[];
+    /** Stop after submit so callers can exercise the owner-forward boundary directly. */
+    readonly stopAfterSubmit?: boolean;
     /** False stops after the consent event: an unwitnessed gated cut cannot complete. */
     readonly complete?: boolean;
   } = {},
@@ -68,7 +72,11 @@ export function lifecycleFixture(
   const taskId = options.taskId ?? "task-1",
     executionId = options.executionId ?? "execution-1",
     reviewId = options.reviewId ?? "review-execution",
-    completionContract = { ...fixtureCompletionContract, gates: options.gates ?? [] };
+    completionContract = {
+      ...fixtureCompletionContract,
+      gates: options.gates ?? [],
+      ...(options.preReviewGateIds === undefined ? {} : { preReviewGateIds: options.preReviewGateIds }),
+    };
   const events: TaskEventV1[] = [];
   let snapshot = emptyTaskLifecycleSnapshot();
   const run = (
@@ -135,6 +143,7 @@ export function lifecycleFixture(
     }),
     { actorBinding: implementer, leaseVersion: 0, sessionDisposition: "complete" },
   );
+  if (options.stopAfterSubmit) return { events, snapshot };
   run(adjudicateCommand(4, taskId, executionId, "forward", "forwarded for independent review"), adjudicationProof);
   run(reviewCommand(5, taskId, executionId, "approved", reviewId, completionContract), {
     actorBinding: reviewer,

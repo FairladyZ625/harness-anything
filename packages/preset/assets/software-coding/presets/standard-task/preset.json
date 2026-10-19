@@ -9,11 +9,11 @@
   "kernelVersionRange": { "min": "1.0.0", "maxExclusive": "2.0.0" },
   "capabilityImports": [{ "id": "standard-task-check", "kind": "checker", "version": "1", "required": false }],
   "profiles": [
-    { "id": "baseline", "title": "Baseline", "completionGates": ["ci", "code-doc-reconciliation"], "templateSelections": [] },
+    { "id": "baseline", "title": "Baseline", "completionGates": ["ci-main", "code-doc-reconciliation"], "templateSelections": [] },
     {
       "id": "lightweight",
       "title": "Lightweight",
-      "completionGates": ["ci"],
+      "completionGates": ["ci-main"],
       "capabilityImports": [
         { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },
         { "id": "policy:template-override/lightweight-closeout/v1", "kind": "command", "version": "1" }

@@ -70,6 +70,8 @@ export interface FrozenCompletionContract {
   };
   readonly presetSnapshotDigest: string;
   readonly gates: readonly FrozenGateRequirement[];
+  /** Gate ids that must pass before an owner may forward this submitted cut for review. */
+  readonly preReviewGateIds?: readonly string[];
   readonly closeoutGates: Readonly<Record<CloseoutGate, boolean>>;
   readonly reviewer?: FrozenReviewerDeclaration;
 }
@@ -137,12 +139,17 @@ export function validateFrozenCompletionContract(
   value: unknown,
   allowUnknownFields = false,
 ): readonly ContractValidationIssue[] {
-  const fields = allowUnknownFields ? hasRequiredFields : hasOnlyFields;
+  const fields = allowUnknownFields ? hasRequiredFields : hasOnlyFields,
+    frozenGateIds =
+      isRecord(value) && Array.isArray(value.gates)
+        ? new Set(value.gates.filter(isRecord).map((gate) => gate.gateId))
+        : new Set<unknown>();
   return isRecord(value) &&
     fields(value, [
       "presetSnapshotDigest",
       "gates",
       "closeoutGates",
+      ...(Object.hasOwn(value, "preReviewGateIds") ? ["preReviewGateIds"] : []),
       ...(Object.hasOwn(value, "reviewer") ? ["reviewer"] : []),
     ]) &&
     (value.historicalAcceptance === undefined ||
@@ -158,6 +165,11 @@ export function validateFrozenCompletionContract(
     /^sha256:[a-f0-9]{64}$/u.test(value.presetSnapshotDigest) &&
     isValidCloseoutGateRecord(value.closeoutGates) &&
     Array.isArray(value.gates) &&
+    (value.preReviewGateIds === undefined ||
+      (Array.isArray(value.preReviewGateIds) &&
+        new Set(value.preReviewGateIds).size === value.preReviewGateIds.length &&
+        value.preReviewGateIds.every(isNonEmptyString) &&
+        value.preReviewGateIds.every((gateId) => frozenGateIds.has(gateId)))) &&
     value.gates.every((gate) =>
       frozenRequirement(gate, fields, allowUnknownFields && value.historicalAcceptance !== undefined),
     ) &&
@@ -248,12 +260,18 @@ export function resolveCompletionContract(
     readonly ci: { readonly workflows: readonly string[] };
     readonly closeout?: CloseoutSettingsV1;
   },
-  frozen: { readonly digest: string; readonly completion: VerticalCompletionDeclaration },
+  frozen: {
+    readonly digest: string;
+    readonly completion: VerticalCompletionDeclaration;
+    readonly delivery?: { readonly preReview: readonly string[] };
+  },
   taskOverrides?: CloseoutOverridesV1,
 ): CompletionContractResolution {
   const gates: FrozenGateRequirement[] = [],
-    declaration = frozen.completion;
-  for (const gateId of new Set(declaredGateIds)) {
+    declaration = frozen.completion,
+    preReviewGateIds = frozen.delivery?.preReview ?? [],
+    resolvedGateIds = [...new Set([...declaredGateIds, ...preReviewGateIds])];
+  for (const gateId of resolvedGateIds) {
     const mapping = settings.gates.find((candidate) => candidate.gateId === gateId),
       declared = declaration.gates[gateId];
     if (mapping?.adapter === "none") continue;
@@ -279,10 +297,10 @@ export function resolveCompletionContract(
     if (source.kind === "github-actions" || source.kind === "gitlab-pipeline") {
       const options = {
         workflows: settings.ci.workflows,
-        branch: mapping?.branch ?? "main",
-        event: mapping?.event ?? "push",
-        coverage: mapping?.coverage ?? "descendant",
-        selection: mapping?.selection ?? "newest",
+        branch: mapping?.branch ?? declared?.branch ?? "main",
+        event: mapping?.event ?? declared?.event ?? "push",
+        coverage: mapping?.coverage ?? declared?.coverage ?? "descendant",
+        selection: mapping?.selection ?? declared?.selection ?? "newest",
       };
       if (!validGithubOptions(options))
         return {
@@ -309,14 +327,21 @@ export function resolveCompletionContract(
       ...(allowOverride ? { allowOverride: true } : {}),
     });
   }
+  const resolvedContractGateIds = new Set(gates.map(({ gateId }) => gateId));
+  if (preReviewGateIds.some((gateId) => !resolvedContractGateIds.has(gateId)))
+    return {
+      ok: false,
+      message: `delivery.preReview references a gate that is not frozen in the completion contract.`,
+    };
   return {
     ok: true,
     contract: {
       gates,
+      ...(preReviewGateIds.length ? { preReviewGateIds: [...preReviewGateIds] } : {}),
       presetSnapshotDigest: frozen.digest,
       closeoutGates: effectiveCloseoutGates(
         settings.closeout ?? {},
-        declaredGateIds,
+        resolvedGateIds,
         taskOverrides,
         declaration.closeoutDefaults,
       ),

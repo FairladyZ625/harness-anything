@@ -1,5 +1,9 @@
 import { presetCommands, presetMethods } from "./preset-command-contract.ts";
-import { VerticalCompletionDeclarationSchema, type VerticalCompletionDeclaration } from "@harness-anything/kernel";
+import {
+  VerticalCompletionDeclarationSchema,
+  type VerticalCompletionDeclaration,
+  type VerticalDeliveryDeclaration,
+} from "@harness-anything/kernel";
 import { Schema } from "effect";
 import type { PresetRunOutcomeV1, PresetRunPhaseV1 } from "./preset-run-receipt-types.ts";
 export {
@@ -102,6 +106,7 @@ export interface PresetSnapshotV1 {
     readonly verticalId: string;
     readonly layer: PresetLayer;
   };
+  readonly delivery?: VerticalDeliveryDeclaration;
   readonly completion: VerticalCompletionDeclaration;
   readonly completionPackages: Readonly<Record<string, FrozenCompletionPackage>>;
   readonly profile: {
@@ -361,10 +366,15 @@ export function validatePresetDocumentV1(value: unknown): readonly string[] {
 export function validatePresetSnapshotV1(value: unknown): readonly string[] {
   if (
     !isPresetContractRecord(value) ||
-    !allowed(value, PRESET_SNAPSHOT_V1_SCHEMA.required, PRESET_SNAPSHOT_V1_SCHEMA.required) ||
+    !allowed(value, [...PRESET_SNAPSHOT_V1_SCHEMA.required, "delivery"], PRESET_SNAPSHOT_V1_SCHEMA.required) ||
     value.schema !== "preset-snapshot/v1" ||
     !sha(value.digest) ||
     !snapshotIdentity(value.identity) ||
+    (value.delivery !== undefined &&
+      (!isPresetContractRecord(value.delivery) ||
+        !allowed(value.delivery, ["preReview"], ["preReview"]) ||
+        !Array.isArray(value.delivery.preReview) ||
+        !value.delivery.preReview.every(nonEmpty))) ||
     !Schema.is(VerticalCompletionDeclarationSchema, { onExcessProperty: "error" })(value.completion) ||
     !isPresetContractRecord(value.completionPackages) ||
     !Object.values(value.completionPackages).every(completionPackage) ||

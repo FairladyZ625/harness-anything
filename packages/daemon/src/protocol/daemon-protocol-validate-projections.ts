@@ -56,11 +56,41 @@ export function agendaTask(value: unknown): boolean {
 
 export function agendaExecutionRow(value: unknown): boolean {
   return (
-    exactRecord(value, ["taskId", "title", "work", "pinned", "executionId", "submittedAt", "blockingAssessment"]) &&
+    exactRecord(value, [
+      "taskId",
+      "title",
+      "work",
+      "pinned",
+      "executionId",
+      "submittedAt",
+      "blockingAssessment",
+      "preReviewReadiness",
+    ]) &&
     [value.taskId, value.title, value.executionId, value.submittedAt].every(nonEmpty) &&
     agendaWorkRef(value.work) &&
     typeof value.pinned === "boolean" &&
-    blockingAssessment(value.blockingAssessment)
+    blockingAssessment(value.blockingAssessment) &&
+    preReviewReadiness(value.preReviewReadiness)
+  );
+}
+
+function preReviewReadiness(value: unknown): boolean {
+  return (
+    isJsonObject(value) &&
+    exactRecord(value, ["state", "executionId", "gateIds", "blockers", "reason"]) &&
+    ["ready", "blocked", "not_required"].includes(String(value.state)) &&
+    (value.executionId === null || nonEmpty(value.executionId)) &&
+    stringArray(value.gateIds) &&
+    Array.isArray(value.blockers) &&
+    value.blockers.every(
+      (entry) =>
+        isJsonObject(entry) &&
+        Object.keys(entry).every((key) => ["gateId", "status", "detail"].includes(key)) &&
+        nonEmpty(entry.gateId) &&
+        typeof entry.status === "string" &&
+        (entry.detail === undefined || typeof entry.detail === "string"),
+    ) &&
+    nonEmpty(value.reason)
   );
 }
 

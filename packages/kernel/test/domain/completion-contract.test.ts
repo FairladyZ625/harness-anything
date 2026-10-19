@@ -251,6 +251,26 @@ test("the frozen contract schema fails closed on unknown fields and foreign adap
   );
 });
 
+test("pre-review gate ids freeze as a gate subset and old contracts read as empty", () => {
+  assert.deepEqual(validateFrozenCompletionContract(currentPresetContract), []);
+  assert.deepEqual(validateFrozenCompletionContract({ ...currentPresetContract, preReviewGateIds: ["ci"] }), []);
+  assert.notDeepEqual(
+    validateFrozenCompletionContract({ ...currentPresetContract, preReviewGateIds: ["missing-gate"] }),
+    [],
+  );
+  assert.notDeepEqual(
+    validateFrozenCompletionContract({ ...currentPresetContract, preReviewGateIds: ["ci", "ci"] }),
+    [],
+  );
+  const settings = readSettingsFacet(repositoryYaml(githubCi)),
+    resolved = resolve(["ci"], settings, { ...completionSnapshot, delivery: { preReview: ["ci"] } });
+  assert.equal(resolved.ok, true);
+  if (resolved.ok) assert.deepEqual(resolved.contract.preReviewGateIds, ["ci"]);
+  const invalid = resolve(["ci"], settings, { ...completionSnapshot, delivery: { preReview: ["unknown"] } });
+  assert.equal(invalid.ok, false);
+  assert.match(invalid.ok ? "" : invalid.message, /undeclared source/u);
+});
+
 test("a submission carries its frozen completion contract as a required field", () => {
   const submission = {
     completionClaim: "Delivered.",

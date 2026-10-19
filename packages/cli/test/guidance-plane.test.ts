@@ -793,6 +793,39 @@ test("task show renders the current fact prerequisite as a completion gate", () 
   assert.match(rendered.text, /completion gates: facts \(fact_missing\)/u);
 });
 
+test("task show renders the derived pre-review readiness and blocker reason", () => {
+  const blocked = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({
+      task: { status: "submitted", currentNode: "review", completionGateIds: ["ci-pr"] },
+      preReviewReadiness: {
+        state: "blocked",
+        executionId: "exe-1",
+        gateIds: ["ci-pr"],
+        blockers: [{ gateId: "ci-pr", status: "missing", detail: "current execution cut has no gate witness" }],
+        reason: "ci-pr is missing (current execution cut has no gate witness).",
+      },
+    }),
+  });
+  assert.match(blocked.text, /送审前置门: 未就绪 \(ci-pr is missing/u);
+  const ready = renderCliReceipt({
+    ok: true,
+    command: "task-show",
+    evidence: JSON.stringify({
+      task: { status: "submitted", currentNode: "review", completionGateIds: ["ci-pr"] },
+      preReviewReadiness: {
+        state: "ready",
+        executionId: "exe-1",
+        gateIds: ["ci-pr"],
+        blockers: [],
+        reason: "All pre-review gates have passing witnesses for this submitted cut.",
+      },
+    }),
+  });
+  assert.match(ready.text, /送审前置门: 就绪/u);
+});
+
 test("relation rejection renders structured triples and preserves them through diagnostic validation", () => {
   const diagnostic = {
     kind: "validation",

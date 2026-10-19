@@ -93,7 +93,13 @@ export function renderAgendaSummary(
       );
     },
     executionLine = (row: AgendaExecutionRow) =>
-      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}`,
+      `- ${row.pinned ? "📌 " : ""}execution ${row.executionId} / ${row.taskId} ${row.title}${workLabel(row)}（送审前置门: ${
+        row.preReviewReadiness.state === "ready"
+          ? "就绪"
+          : row.preReviewReadiness.state === "not_required"
+            ? "未配置"
+            : `未就绪: ${row.preReviewReadiness.reason}`
+      }）`,
     decisionLine = (row: AgendaDecisionRow) => `- decision ${row.decisionId} ${row.title}`,
     section = (title: string, filter: string, rows: readonly string[], total = rows.length) =>
       `${title} (${total}) — ${filter}\n${rows.length ? rows.join("\n") : "- 无"}`;

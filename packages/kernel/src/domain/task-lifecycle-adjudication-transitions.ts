@@ -15,6 +15,7 @@ import {
   replaceExecution,
   revisionIssues,
 } from "./task-lifecycle-contract-support.ts";
+import { preReviewReadiness } from "./completion-readiness.ts";
 
 // The adjudication transitions (owner ruling 2026-09-19): the double gate between the worker's
 // submitted cut and the review phase. The reviewer records verdicts but commands nothing; a
@@ -40,6 +41,14 @@ export const adjudicate: Transition = {
           lifecycleContractIssue(
             "invalid_transition",
             "forwarding requires the current submitted cut awaiting the owner's triage (status submitted)",
+          ),
+        );
+      const readiness = preReviewReadiness(snapshot);
+      if (readiness.state === "blocked")
+        issues.push(
+          lifecycleContractIssue(
+            "invalid_transition",
+            `forwarding requires pre-review gates to pass: ${readiness.reason}`,
           ),
         );
     } else if (command.decision === "return") {

@@ -60,6 +60,25 @@ Completion fails closed when a real Task's preset/profile cannot resolve;
 `task-contract.json` pins the `presetSnapshotDigest` at creation so the
 contract cannot silently drift as the preset evolves.
 
+### Delivery gates have two frozen moments
+
+The vertical may declare `delivery.preReview` as a subset of its completion gate
+registry. The selected profile freezes the union of both groups into the
+submission's `completionContract.gates`; `completionContract.preReviewGateIds`
+freezes which gate ids must pass before the owner forwards the submitted cut to
+review. The subset is checked at submit time, so replay never consults the
+current preset.
+
+The coding vertical uses one GitHub Actions source for two bindings:
+`ci-pr` observes a `pull_request` run on `main` with exact coverage of the PR
+head, and is the `delivery.preReview` gate; `ci-main` observes a `push` run on
+`main` with descendant coverage and remains a completion gate. The center derives
+pre-review readiness from the frozen gate witnesses and exposes either `ready`,
+`blocked` with per-gate reasons, or `not_required` in task show and agenda. A
+ready result leaves the task `submitted`; only the owner command
+`ha task adjudicate --forward` moves it to review. This keeps CI observation and
+owner adjudication as separate write responsibilities.
+
 ## Entity kinds: lifecycle vs. schema
 
 `entityKinds[]` is a discriminated union. Each entry is one of two shapes, and

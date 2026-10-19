@@ -1,4 +1,4 @@
-import type { taskCompletionNext } from "@harness-anything/kernel";
+import type { preReviewReadiness, taskCompletionNext } from "@harness-anything/kernel";
 import { isJsonObject } from "./json-rpc-types.ts";
 
 /** One read-only completion next step for a single task, as `ha task complete` would judge it. */
@@ -11,6 +11,8 @@ export type DaemonTaskCompletionResult = {
     Exclude<ReturnType<typeof taskCompletionNext>["blocker"], null>,
     "code" | "gate"
   > | null;
+  /** The frozen delivery gates that must pass before the owner forwards this submitted cut. */
+  readonly preReviewReadiness: ReturnType<typeof preReviewReadiness>;
   /**
    * Upstream Facts still needing an explicit still-holds/superseded disposition at completion,
    * exposed before the write so fact_retirement_undeclared is never a surprise. Null when the
@@ -32,7 +34,8 @@ export function validateDaemonTaskCompletion(value: unknown): readonly string[] 
     typeof value.taskId !== "string" ||
     !value.taskId ||
     !("completionNext" in value) ||
-    !("completionBlocker" in value)
+    !("completionBlocker" in value) ||
+    !("preReviewReadiness" in value)
   )
     return ["Invalid task completion read"];
   // factRetirement is an additive field: absent on older producers, validated when present.
@@ -52,6 +55,28 @@ export function validateDaemonTaskCompletion(value: unknown): readonly string[] 
   )
     return ["Invalid factRetirement"];
   const blocker = value.completionBlocker;
+  const preReview = value.preReviewReadiness;
+  if (
+    !isJsonObject(preReview) ||
+    Object.keys(preReview).some((key) => !["state", "executionId", "gateIds", "blockers", "reason"].includes(key)) ||
+    !["ready", "blocked", "not_required"].includes(String(preReview.state)) ||
+    (preReview.executionId !== null && typeof preReview.executionId !== "string") ||
+    !Array.isArray(preReview.gateIds) ||
+    preReview.gateIds.some((gateId) => typeof gateId !== "string" || !gateId) ||
+    !Array.isArray(preReview.blockers) ||
+    preReview.blockers.some(
+      (entry) =>
+        !isJsonObject(entry) ||
+        !("gateId" in entry) ||
+        typeof entry.gateId !== "string" ||
+        !entry.gateId ||
+        typeof entry.status !== "string" ||
+        (entry.detail !== undefined && typeof entry.detail !== "string"),
+    ) ||
+    typeof preReview.reason !== "string" ||
+    !preReview.reason
+  )
+    return ["Invalid preReviewReadiness"];
   if (
     (blocker === null) !== (value.completionNext === null) ||
     (blocker !== null &&

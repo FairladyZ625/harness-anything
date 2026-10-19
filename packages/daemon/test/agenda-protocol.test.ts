@@ -37,6 +37,13 @@ test("agenda result schema rejects mistyped pin state and misgrouped awaiting ro
       submittedAt: "2026-08-21T00:00:00.000Z",
       blockingAssessment: { taskId: "task-awaiting", state: "clear", label: "none", blockers: [], warnings: [] },
       work: null,
+      preReviewReadiness: {
+        state: "not_required",
+        executionId: "exe-awaiting",
+        gateIds: [],
+        blockers: [],
+        reason: "No pre-review gates are declared for this submission.",
+      },
     },
     awaits = {
       relationId: "rel_0123456789abcdef",

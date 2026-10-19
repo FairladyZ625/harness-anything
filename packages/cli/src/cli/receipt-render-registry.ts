@@ -173,7 +173,8 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
   const payload = parseEvidence(receipt);
   if (!payload || !isRecord(payload.task)) return renderSuccessfulReceipt(receipt);
   const gates = Array.isArray(payload.task.completionGateIds) ? payload.task.completionGateIds : [],
-    blocker = isRecord(payload.completionBlocker) ? payload.completionBlocker : null;
+    blocker = isRecord(payload.completionBlocker) ? payload.completionBlocker : null,
+    preReview = isRecord(payload.preReviewReadiness) ? payload.preReviewReadiness : null;
   return [
     `status: ${String(payload.task.status)}`,
     `graph cursor: ${String(payload.task.currentNode)}`,
@@ -188,6 +189,17 @@ function renderTaskShow(receipt: Record<string, unknown>): string {
         ", ",
       ) || "none"
     }`,
+    ...(preReview
+      ? [
+          `送审前置门: ${
+            preReview.state === "ready"
+              ? "就绪"
+              : preReview.state === "not_required"
+                ? "未配置"
+                : `未就绪 (${String(preReview.reason)})`
+          }`,
+        ]
+      : []),
     `packageDisposition: ${String(payload.task.packageDisposition ?? "active")}`,
     ...(isRecord(payload.workspace) ? [workspaceLine(payload.workspace, payload.worktreeSetup)] : []),
     ...(typeof payload.returnBudget === "number"

@@ -148,6 +148,10 @@ export type VerticalEntityKindDeclaration =
   | VerticalSchemaKindDeclaration
   | ArtifactEntityKindDefinition;
 
+export interface VerticalDeliveryDeclaration {
+  readonly preReview: readonly string[];
+}
+
 export interface VerticalDefinition {
   readonly schema: "vertical-definition/v1";
   readonly id: string;
@@ -163,6 +167,7 @@ export interface VerticalDefinition {
   readonly repositoryScaffold: VerticalRepositoryScaffold;
   readonly scripts: readonly VerticalScript[];
   readonly templateSelections: readonly VerticalTemplateSelection[];
+  readonly delivery?: VerticalDeliveryDeclaration;
   readonly completion: VerticalCompletionDeclaration;
   readonly projectionSchemas: readonly { readonly id: string; readonly schemaRef: string }[];
 }

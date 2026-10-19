@@ -19,6 +19,7 @@ import {
   workspaceTaskStatus,
   resolveHarnessLayout,
   settledApprovedReviewsForExecution,
+  preReviewReadiness,
   type FreshnessReason,
   type FreshnessReasonInput,
   type ProjectionPage,
@@ -1036,6 +1037,7 @@ function awaitingExecutionRows(rows: readonly AgendaSourceRow[]): AgendaExecutio
         executionId: execution.executionId,
         submittedAt: execution.submittedAt ?? row.updatedAt,
         blockingAssessment: row.blockingAssessment,
+        preReviewReadiness: preReviewReadiness(row.snapshot),
       })),
   );
 }

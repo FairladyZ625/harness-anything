@@ -26,7 +26,7 @@ const owner = withPolicyGroup(
   "admin",
 ) as const;
 const githubCiMapping =
-  "  gates:\n    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";
+  "  gates:\n    ci-main:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n";
 
 type Cell = Awaited<ReturnType<typeof openRepoCell>>;
 
@@ -133,9 +133,10 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
           event.schema === "task-bootstrap-event/v1" ? [event.payload.presetSnapshotClaim.digest] : [],
         )[0]!,
       closeoutGates: { review: false, consent: false, fact: true, factDisposition: false, codeDoc: true },
+      preReviewGateIds: ["ci-pr"],
       gates: [
         {
-          gateId: "ci",
+          gateId: "ci-main",
           appliesTo: "code",
           witness: {
             kind: "github-actions",
@@ -155,6 +156,23 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
           gateId: "code-doc-reconciliation",
           appliesTo: "code",
           witness: { kind: "internal", adapterId: "code-doc-reconciliation", adapterOptions: {} },
+        },
+        {
+          gateId: "ci-pr",
+          appliesTo: "code",
+          witness: {
+            kind: "github-actions",
+            predicateType: "harness/ci/v1",
+            resultSchema: { type: "object", additionalProperties: false },
+            adapterId: "github-actions",
+            adapterOptions: {
+              workflows: ["rewrite-ci"],
+              branch: "main",
+              event: "pull_request",
+              coverage: "exact",
+              selection: "newest",
+            },
+          },
         },
       ],
       reviewer: { agentId: "closeout-reviewer" },
@@ -177,7 +195,7 @@ test("submit freezes the resolved gate contract into the cut; later harness.yaml
     assert.deepEqual(settings.settings.ci, { workflows: ["rebuild-gates"] });
     assert.deepEqual(settings.settings.gates, [
       {
-        gateId: "ci",
+        gateId: "ci-main",
         adapter: "github-actions",
         appliesTo: "code",
         branch: "main",
@@ -245,15 +263,14 @@ test("declaring settings.gates after bootstrap unblocks submit through the setti
     };
     assert.deepEqual(
       settings.settings.gates.map((gate) => gate.gateId),
-      ["ci"],
+      ["ci-main"],
     );
 
     const submitted = await submitOverTransport(cell, repoId, { taskId, executionId });
     assert.equal(submitted.outcome, "applied", JSON.stringify(submitted));
     const contracts = submittedContracts(rootDir, repoId);
     assert.equal(contracts.length, 1);
-    assert.equal(contracts[0]?.gates[0]?.gateId, "ci");
-    assert.equal(contracts[0]?.gates[0]?.witness.adapterId, "github-actions");
+    assert.equal(contracts[0]?.gates.find((gate) => gate.gateId === "ci-main")?.witness.adapterId, "github-actions");
   } finally {
     await cell.close();
     rmSync(rootDir, { recursive: true, force: true });

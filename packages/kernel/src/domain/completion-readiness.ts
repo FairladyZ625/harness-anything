@@ -2,9 +2,11 @@ import type { TaskLifecycleSnapshot } from "./task-lifecycle.contract.ts";
 import {
   closeoutReadiness,
   currentExecutionCuts,
+  gateResults,
   gateSatisfied,
   isRetiredCiRequirement,
   lineageOrphan,
+  type CloseoutGateResult,
   type CloseoutGateStatus,
   type CompletionDeliveryStatus,
 } from "./closeout-readiness.ts";
@@ -54,6 +56,57 @@ export interface CompletionBlocker {
   readonly code: CompletionBlockerCode;
   readonly gate: string;
   readonly next: CompletionNext;
+}
+
+export interface PreReviewReadiness {
+  readonly state: "ready" | "blocked" | "not_required";
+  readonly executionId: string | null;
+  readonly gateIds: readonly string[];
+  readonly blockers: readonly Pick<CloseoutGateResult, "gateId" | "status" | "detail">[];
+  readonly reason: string;
+}
+
+/** Pure derivation of the frozen gates that must pass before owner forward. */
+export function preReviewReadiness(snapshot: TaskLifecycleSnapshot): PreReviewReadiness {
+  const cuts = currentExecutionCuts(snapshot),
+    execution = cuts.length === 1 && cuts[0]!.state === "submitted" ? cuts[0] : undefined,
+    gateIds = [...new Set(cuts.flatMap((cut) => cut.submission?.completionContract.preReviewGateIds ?? []))];
+  if (gateIds.length === 0)
+    return {
+      state: "not_required",
+      executionId: execution?.executionId ?? null,
+      gateIds,
+      blockers: [],
+      reason: "No pre-review gates are declared for this submission.",
+    };
+  if (!execution?.submission)
+    return {
+      state: "blocked",
+      executionId: null,
+      gateIds,
+      blockers: gateIds.map((gateId) => ({ gateId, status: "missing" as const, detail: "no submitted execution cut" })),
+      reason: "The task has no single submitted execution cut to judge.",
+    };
+  const blockers = gateResults(snapshot, undefined, execution.executionId, execution.submission, execution.iteration)
+    .filter(({ gateId, status }) => gateIds.includes(gateId) && !gateSatisfied(status))
+    .map(({ gateId, status, detail }) => ({ gateId, status, ...(detail === undefined ? {} : { detail }) }));
+  return blockers.length === 0
+    ? {
+        state: "ready",
+        executionId: execution.executionId,
+        gateIds,
+        blockers: [],
+        reason: "All pre-review gates have passing witnesses for this submitted cut.",
+      }
+    : {
+        state: "blocked",
+        executionId: execution.executionId,
+        gateIds,
+        blockers,
+        reason: blockers
+          .map(({ gateId, status, detail }) => `${gateId} is ${status}${detail ? ` (${detail})` : ""}.`)
+          .join(" "),
+      };
 }
 export interface CompletionReadinessContext {
   /** `missing`: the task contract declares no closeout document (an older contract generation). */

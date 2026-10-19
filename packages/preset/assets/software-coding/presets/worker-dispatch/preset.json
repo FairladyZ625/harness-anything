@@ -12,7 +12,7 @@
     {
       "id": "baseline",
       "title": "Baseline",
-      "completionGates": ["ci", "code-doc-reconciliation"],
+      "completionGates": ["ci-main", "code-doc-reconciliation"],
       "templateSelections": [
         {
           "slot": "task.worker.flow",
@@ -25,7 +25,7 @@
     {
       "id": "lightweight",
       "title": "Lightweight",
-      "completionGates": ["ci"],
+      "completionGates": ["ci-main"],
       "capabilityImports": [
         { "id": "policy:template-override/lightweight-task-plan/v1", "kind": "command", "version": "1" },
         { "id": "policy:template-override/lightweight-closeout/v1", "kind": "command", "version": "1" }

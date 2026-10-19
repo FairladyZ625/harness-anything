@@ -43,6 +43,23 @@ profile 还可以声明 `closeoutOverrides` 与 `archiveOnComplete`。内置的 
 真实 Task 的 preset/profile 无法解析时,完成路径 fail closed;`task-contract.json` 会钉住
 创建时的 `presetSnapshotDigest`,让契约不随 preset 演进悄悄漂移。
 
+### 交付门分为两个冻结时点
+
+vertical 可以用 `delivery.preReview` 声明送审前置门,其值必须引用同一
+completion gate registry 中的 gate。选中的 profile 在 submission 中把两组
+要求的并集冻结到 `completionContract.gates`;另用
+`completionContract.preReviewGateIds` 冻结 owner 将 submitted cut forward 到评审
+前必须通过的子集。子集在 submit 写入边界校验,replay 只读冻结事件,不会回查当前
+preset。
+
+coding vertical 用同一个 GitHub Actions source 声明两个绑定:
+`ci-pr` 是 `main` 上的 `pull_request` run,要求精确绑定 PR head,并作为
+`delivery.preReview`;`ci-main` 是 `main` 上的 `push` run,允许 descendant coverage,
+继续作为完成门。中心从冻结的 gate witness 纯派生送审就绪状态,在 task show 与 agenda
+显示 `ready`、带逐门原因的 `blocked` 或 `not_required`。就绪只让任务保持
+`submitted`;必须由 owner 显式执行 `ha task adjudicate --forward` 才进入评审,因此
+CI 观测和 owner adjudication 仍是两个独立写主体。
+
 ## 实体种类:生命周期 vs. schema
 
 `entityKinds[]` 是一个可辨识联合(discriminated union)。每一项是两种形状之一,由 `entityType` 字段来区分:

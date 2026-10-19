@@ -20,6 +20,10 @@ export type WitnessSourceDefinition = {
 export interface CompletionGateDeclaration {
   readonly source: string;
   readonly appliesTo: GateAppliesTo;
+  readonly branch?: string;
+  readonly event?: string;
+  readonly coverage?: "exact" | "descendant";
+  readonly selection?: "newest";
   readonly subjects?: "all-artifacts" | readonly string[];
   readonly bindings?: Readonly<Record<string, { readonly artifact: string; readonly pointer: string }>>;
   readonly mandatorySignoff?: boolean;

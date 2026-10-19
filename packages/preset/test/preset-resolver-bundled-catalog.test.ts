@@ -198,7 +198,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       [
         "standard-task",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       ["docs-task", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
@@ -217,38 +217,38 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
       [
         "worker-dispatch",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep", "task.worker.flow"],
       ],
       ["architecture-rot-audit", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
       [
         "github-issue-repair",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       [
         "legacy-migration",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       [
         "create-work",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       [
         "work-closeout",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       [
         "decision-conformance",
         "repository-diff",
-        ["ci", "code-doc-reconciliation"],
+        ["ci-main", "code-doc-reconciliation"],
         ["task.plan", "task.closeout", "task.artifacts.keep"],
       ],
       ["subtask-expansion", "task-package-artifact", [], ["task.plan", "task.closeout", "task.artifacts.keep"]],
@@ -299,7 +299,7 @@ test("all thirteen bundled packages resolve through one valid catalog", async ()
 for (const sample of [
   {
     presetId: "standard-task",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: null,
     taskClass: undefined,
   },
@@ -311,34 +311,34 @@ for (const sample of [
   },
   {
     presetId: "worker-dispatch",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: "worker-flow.md",
   },
   {
     presetId: "gui-development",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: "worker-flow.md",
   },
   { presetId: "architecture-rot-audit", gates: [], addedPath: null },
   {
     presetId: "github-issue-repair",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: null,
   },
   {
     presetId: "create-work",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: null,
     taskClass: "work",
   },
   {
     presetId: "work-closeout",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: null,
   },
   {
     presetId: "decision-conformance",
-    gates: ["ci", "code-doc-reconciliation"],
+    gates: ["ci-main", "code-doc-reconciliation"],
     addedPath: null,
   },
 ] as const)

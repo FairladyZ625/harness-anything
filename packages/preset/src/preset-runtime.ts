@@ -211,6 +211,16 @@ export function createRuntime(options: PresetResolverOptions): {
         "invalid_completion",
         completionValidation.issues.map(({ path, message }) => `${path}: ${message}`).join("; "),
       );
+    const delivery = assets.compiledVertical.definition.delivery,
+      effectiveDelivery =
+        delivery === undefined || options.ciWorkflows === undefined || options.ciWorkflows.length > 0
+          ? delivery
+          : {
+              ...delivery,
+              preReview: delivery.preReview.filter(
+                (gateId) => completion.sources[completion.gates[gateId]?.source ?? ""]?.kind !== "github-actions",
+              ),
+            };
     for (const gateId of profile.completionGates)
       if (gateId !== "code-doc-reconciliation" && !completion.gates[gateId])
         throw presetFailure("missing_gate", `Profile ${profile.id} selects undeclared completion gate ${gateId}.`);
@@ -282,6 +292,7 @@ export function createRuntime(options: PresetResolverOptions): {
       )}` as const,
       withoutDigest = {
         schema: "preset-snapshot/v1" as const,
+        ...(effectiveDelivery === undefined ? {} : { delivery: effectiveDelivery }),
         completion,
         completionPackages,
         identity: {

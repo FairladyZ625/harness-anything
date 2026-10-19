@@ -79,7 +79,9 @@ export {
   taskCompletionNext,
   taskCompletionAction,
   completionGuidance,
+  preReviewReadiness,
   type CompletionReadinessContext,
+  type PreReviewReadiness,
 } from "./domain/completion-readiness.ts";
 export { compileCompletionGateWitness } from "./domain/completion-gate-publication.ts";
 export { reduceTaskEvent } from "./domain/task-lifecycle.contract.ts";
@@ -265,6 +267,7 @@ export type { ProjectionWarning, TaskProjectionRow } from "./projection/types.ts
 export { emptyTaskLifecycleSnapshot } from "./domain/task-lifecycle.contract.ts";
 export { schemaRegistry, TemplateCatalogSchema } from "./schemas/registry.ts";
 export type { VerticalCompletionDeclaration } from "./domain/completion-source.ts";
+export type { VerticalDeliveryDeclaration } from "./domain/vertical-definition.ts";
 export { VerticalCompletionDeclarationSchema } from "./schemas/completion-source.ts";
 export type { TemplateCatalog, TemplateSelection } from "./schemas/registry.ts";
 export {

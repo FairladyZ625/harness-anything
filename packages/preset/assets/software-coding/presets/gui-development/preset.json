@@ -16,7 +16,7 @@
       "id": "baseline",
       "title": "Baseline",
       "completionGates": [
-        "ci",
+        "ci-main",
         "code-doc-reconciliation"
       ],
       "templateSelections": [

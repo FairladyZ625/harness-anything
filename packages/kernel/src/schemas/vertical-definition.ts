@@ -224,6 +224,7 @@ export const VerticalDefinitionSchema = Schema.Struct({
   repositoryScaffold: RepositoryScaffoldSchema,
   scripts: Schema.Array(VerticalScriptSchema),
   templateSelections: Schema.Array(TemplateSelectionSchema),
+  delivery: Schema.optional(Schema.Struct({ preReview: Schema.Array(NonBlankStringSchema) })),
   completion: VerticalCompletionDeclarationSchema,
   projectionSchemas: Schema.Array(
     Schema.Struct({

@@ -224,12 +224,30 @@
     }
   ],
   "templateSelections": [],
+  "delivery": { "preReview": ["ci-pr"] },
   "completion": {
     "sources": {
       "github-actions": { "kind": "github-actions", "predicateType": "harness/ci/v1", "resultSchema": { "type": "object", "additionalProperties": false } },
       "manual-attest": { "kind": "manual", "predicateType": "harness/attestation/v1", "resultSchema": { "type": "object", "additionalProperties": false } }
     },
-    "gates": { "ci": { "source": "github-actions", "appliesTo": "code" } },
+    "gates": {
+      "ci-pr": {
+        "source": "github-actions",
+        "appliesTo": "code",
+        "branch": "main",
+        "event": "pull_request",
+        "coverage": "exact",
+        "selection": "newest"
+      },
+      "ci-main": {
+        "source": "github-actions",
+        "appliesTo": "code",
+        "branch": "main",
+        "event": "push",
+        "coverage": "descendant",
+        "selection": "newest"
+      }
+    },
     "closeoutDefaults": { "review": false, "consent": false, "factDisposition": false, "codeDoc": true }
   },
   "projectionSchemas": [

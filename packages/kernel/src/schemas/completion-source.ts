@@ -38,6 +38,10 @@ export const VerticalCompletionDeclarationSchema = Schema.Struct({
     value: Schema.Struct({
       source: Text,
       appliesTo: Schema.Literal(...gateAppliesTo),
+      branch: Schema.optional(Text),
+      event: Schema.optional(Text),
+      coverage: Schema.optional(Schema.Literal("exact", "descendant")),
+      selection: Schema.optional(Schema.Literal("newest")),
       subjects: Schema.optional(Schema.Union(Schema.Literal("all-artifacts"), Schema.Array(Text))),
       bindings: Schema.optional(
         Schema.Record({
