@@ -126,7 +126,7 @@ test("work-closeout uses the normal completion facade, review, and gates exactly
     );
     assert.equal(
       (missingMerge.next as readonly { readonly action: string }[])[0]?.action,
-      `Merge the delivery into origin/main, then run ha task complete ${taskId}.`,
+      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${taskId}.`,
     );
     assert.deepEqual(store().read().events.slice(beforeMissingMerge), [], "an unmerged delivery returns guidance without writing a completion");
     assert.equal(

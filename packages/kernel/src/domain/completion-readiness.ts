@@ -378,7 +378,7 @@ function evaluateCompletion(
     return one(
       "delivery_missing",
       "delivery",
-      `Merge the delivery into origin/${context.delivery.targetBranch}, then run ha task complete ${task.taskId}.`,
+      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${task.taskId}.`,
       context.delivery.merged === false
         ? `The ${context.delivery.platform} delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
         : `The ${context.delivery.platform} delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
