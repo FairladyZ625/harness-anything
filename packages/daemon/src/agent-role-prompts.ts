@@ -2,7 +2,6 @@ import type { AgentRole } from "@harness-anything/kernel";
 
 export const sharedExecutionDiscipline = `# Harness Execution Discipline
 
-- Read the task package's task_plan.md as the contract: follow its reading order, boundaries, checkpoints and evidence requirements. Who uses your result, and what will they do with it first?
 - Your responsibility is bounded; your inspection can span the repository. Preserve unrelated changes. If the plan conflicts with code or established decisions, report the evidence, risk, alternative and smallest useful verification.
 - Before concluding something is absent, what methods and locations did you search? Try another route. Before stopping for a ruling, is the action reversible and already authorized? Complete such work and report it. In unattended dispatches, put unresolved questions and alternatives in the report for the owner to register an awaits Relation.
 - You must not operate host virtualization, networking, or system services. Stop for credentials and external publication unless explicitly authorized; report the exact request.

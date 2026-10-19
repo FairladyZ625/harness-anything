@@ -74,7 +74,7 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
       opId: "op-standard",
     });
     assert.equal(standard.event.payload.task.taskClass, "standard");
-    assert.equal(standard.event.payload.initialDocumentClaims.length, 7);
+    assert.equal(standard.event.payload.initialDocumentClaims.length, 6);
     assert.equal(standard.packagePath, "tasks/task-standard-standard");
     const explainer = standard.documents.find(({ relativePath }) => relativePath === "artifacts/explainer.html")!.body;
     assert.ok(explainer.includes('id="now"'), "the living section id survives");
@@ -121,24 +121,17 @@ test("standard and work bootstrap compile one exact canonical birth and rebuild 
         "closeout.md",
         "artifacts/.gitkeep",
         "artifacts/explainer.html",
-        "artifacts/pr-body.md",
       ],
     );
-    // The PR-body skeleton is the repository template verbatim: workers fill it in, never guess the format.
     assert.equal(
-      standard.documents.find(({ relativePath }) => relativePath === "artifacts/pr-body.md")!.body,
-      PR_TEMPLATE_FIXTURE,
+      standard.documents.some(({ relativePath }) => relativePath === "artifacts/pr-body.md"),
+      false,
+      "the PR body slot is retired: the body convention belongs to the delivered repository",
     );
-    const prBodyClaim = standard.event.payload.initialDocumentClaims.find(({ path }) =>
-      path.endsWith("/artifacts/pr-body.md"),
-    )!;
-    assert.equal(prBodyClaim.owner, "doc-sync");
-    assert.equal(prBodyClaim.policyId, "opaque-textual-whole-file/v1");
-    assert.equal(prBodyClaim.mediaType, "text/markdown");
     assert.match(standard.documents[2]!.body, /^# Standard$/mu);
     assert.deepEqual(
       standard.event.payload.initialDocumentClaims.map(({ owner }) => owner),
-      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync", "doc-sync", "doc-sync"],
+      ["machine", "machine", "doc-sync", "doc-sync", "doc-sync", "doc-sync"],
     );
     assert.equal(JSON.parse(standard.documents[1]!.body).documents[2].owner, "doc-sync");
     const documentation = compileTaskBootstrap({

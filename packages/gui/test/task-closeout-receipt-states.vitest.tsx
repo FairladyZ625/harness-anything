@@ -228,7 +228,7 @@ describe("收口页 Execution 输出回执:三种状态互不混淆(zh-CN)", () 
     const outputs = [
       "artifacts/design.md",
       "artifacts/explainer.html",
-      "artifacts/pr-body.md",
+      "artifacts/delivery-note.md",
       "artifacts/research.md",
     ].map((locator, index) => ({
       evidenceId: `evidence_doc_${index}`,

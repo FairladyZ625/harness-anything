@@ -63,7 +63,11 @@ for (const role of ["worker", "reviewer"] as const)
 for (const role of ["worker", "commander", "reviewer"] as const)
   test(`${role} keeps evidence, objections and the host boundary`, () => {
     const prompt = assembleUnboundPrompt("Do the mission.", role);
-    assert.match(prompt, /task_plan.md as the contract/u);
+    assert.doesNotMatch(
+      prompt,
+      /task_plan\.md as the contract/u,
+      "the inlined plan made the read instruction redundant",
+    );
     assert.match(prompt, /evidence, risk, alternative and smallest useful verification/u);
     assert.match(prompt, /must not operate host virtualization, networking, or system services/u);
     assert.match(prompt, /report the exact request/u);

@@ -200,7 +200,6 @@ test("worker publication commands belong to the delivery mission while review ca
         null,
         "Inspect the package.",
         "baseline",
-        "artifacts/pr-body.md",
         "standard",
         null,
         reviewerBinding,
@@ -212,13 +211,9 @@ test("worker publication commands belong to the delivery mission while review ca
   assert.match(prompt, /PR checks for that delivery commit/u);
   assert.match(prompt, /Pending is not green/u);
   assert.doesNotMatch(prompt, /ha doc sync|ha task push|ha task pr|gh pr checks/u);
-  assert.match(delivery, /ha doc sync --submit --task/u);
-  assert.doesNotMatch(delivery, /ha doc sync --submit .*--(?:path|execution-id)/u);
-  assert.match(delivery, /ha task push <task-id>.*ha task pr <task-id>/su);
-  assert.doesNotMatch(
-    review,
-    /Living Deliverable Protocol|PR Body Delivery Protocol|ha doc sync|ha task push|ha task pr/u,
-  );
+  assert.match(delivery, /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
+  assert.doesNotMatch(delivery, /PR Body Delivery Protocol|pull_request_template\.md|check-pr-body/u);
+  assert.doesNotMatch(review, /Living Deliverable Protocol|推送后用 `ha task pr`|ha doc sync|ha task push|ha task pr/u);
 });
 
 function makeRepo(context, prefix) {

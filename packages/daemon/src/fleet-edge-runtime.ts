@@ -17,7 +17,6 @@ import path from "node:path";
 import {
   assertTransitionDocumentReady,
   entitySlug,
-  normalizeRelativeDocumentPath,
   readSettingsFacet,
   requireTransitionDocumentKind,
   resolveHarnessLayout,
@@ -342,7 +341,7 @@ export function openFleetEdgeRuntime(input: {
             `Task ${taskId} has no readable mirrored task plan; run ha daemon fleet edge sync, then retry.`,
           );
         }
-        const { planContract, prBodyPath } = mirroredPlanContract(packageRoot, taskId);
+        const { planContract } = mirroredPlanContract(packageRoot, taskId);
         assertTransitionDocumentReady(requireTransitionDocumentKind("runtime.run"), plan, planContract);
         // A re-dispatched worker answers the latest owner return: the mirrored managed
         // `returns/iteration-N.md` of iteration N rides verbatim in the mission and in the
@@ -398,7 +397,6 @@ export function openFleetEdgeRuntime(input: {
               taskId,
               causalContext,
               profileId,
-              prBodyPath,
               current.task?.taskClass,
               ownerReturnBody,
               review !== undefined,
@@ -416,7 +414,6 @@ export function openFleetEdgeRuntime(input: {
           packageRoot,
           profileId,
           taskClass: current.task!.taskClass,
-          prBodyPath,
           ownerReturnBody,
           planBody: plan,
           mission: (reachedPackageRoot) =>
@@ -996,13 +993,7 @@ function mirroredPlanContract(packageRoot: string, taskId: string) {
       "runtime_task_package_unavailable",
       `Task ${taskId} plan scaffold is not resolvable from the mirrored package; run ha daemon fleet edge sync, then retry.`,
     );
-  const prBodyDescriptor = Array.isArray(descriptor)
-    ? descriptor.find((row) => row?.slot === "task.pr-body" && typeof row.path === "string")
-    : undefined;
-  return {
-    planContract: contract,
-    prBodyPath: prBodyDescriptor ? normalizeRelativeDocumentPath(prBodyDescriptor.path) : null,
-  };
+  return { planContract: contract };
 }
 
 function edgeRuntimeError(code: string, message: string): Error {
