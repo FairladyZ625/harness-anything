@@ -18,6 +18,7 @@ import {
   type RepositorySettingsV1,
 } from "@harness-anything/kernel";
 import { readTaskTransitionDocument, taskTransitionDocumentState } from "./transition-document-access.ts";
+import { presetSnapshotReader, taskOutputShape } from "./task-worktree.ts";
 import { readEffectiveCloseoutGates } from "./repo-cell-settings-state.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
 import { cellCodedError, cellErrorCode } from "./repo-cell-errors.ts";
@@ -99,7 +100,13 @@ export function readCompletionDeliveryStatus(
     delivery = projected?.delivery ?? INITIAL_SETTINGS_V1.delivery,
     cuts = currentExecutionCuts(snapshot),
     execution = cuts.length === 1 ? cuts[0] : undefined,
-    required = delivery.requireMerged && execution?.submission?.commitSha != null,
+    // Only a task-package-artifact delivery never waits for a merge: it hands back accepted
+    // artifacts and never receives a merge_commit_sha annotation. An unreadable shape keeps the
+    // requirement, so a degraded preset snapshot cannot silently pass an unmerged code delivery.
+    required =
+      delivery.requireMerged &&
+      execution?.submission?.commitSha != null &&
+      taskOutputShape(snapshot.task, presetSnapshotReader(projection)) !== "task-package-artifact",
     mergeSha =
       execution?.schema === "execution/v1"
         ? execution.annotations

@@ -85,6 +85,7 @@ function projection(
   factRows = 1,
   childCount = 0,
   requireMerged = false,
+  outputShape: string | null = "repository-diff",
 ): TaskProjectionQueries {
   return {
     read: () => ({
@@ -120,7 +121,10 @@ function projection(
       rows: factRows ? [{ targetRef: "fact/f-read-side", state: "active" }] : [],
       status: "ready",
     }),
-    readPresetSnapshot: () => ({ snapshot: null, status: "ready" }),
+    readPresetSnapshot: () => ({
+      snapshot: outputShape ? { profile: { outputShape } } : null,
+      status: "ready",
+    }),
     readTaskChildCounts: (ids: readonly string[]) => (childCount ? { [ids[0]!]: childCount } : {}),
     getEntity: (kind: string, id: string) =>
       kind === "settings" && id === "repository" && closeout
@@ -222,12 +226,15 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
   writeFileSync(path.join(root, "delivery.txt"), "merged\n");
   git(root, "commit", "-qam", "merge candidate");
   const merge = git(root, "rev-parse", "HEAD"),
-    projection = {
+    shape = (outputShape: string) => ({
       getEntity: () => ({
         value: { delivery: { ...INITIAL_SETTINGS_V1.delivery, targetBranch: "release", platform: "gitlab" } },
       }),
-    } as unknown as TaskProjectionQueries,
-    read = (snapshot: TaskLifecycleSnapshot) => readCompletionDeliveryStatus(projection, snapshot, root),
+      readPresetSnapshot: () => ({ status: "ready", snapshot: { profile: { outputShape } } }),
+    }),
+    projection = shape("repository-diff") as unknown as TaskProjectionQueries,
+    read = (snapshot: TaskLifecycleSnapshot, shapeProjection = projection) =>
+      readCompletionDeliveryStatus(shapeProjection, snapshot, root),
     code = codeDelivery(strictSubmitted, merge, merge);
 
   git(root, "update-ref", "refs/remotes/origin/release", merge);
@@ -245,6 +252,56 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
     null,
     "an unavailable merge object is unknown",
   );
+  assert.equal(
+    read(codeDelivery(strictSubmitted, merge), shape("task-package-artifact") as unknown as TaskProjectionQueries)
+      .required,
+    false,
+    "a task-package-artifact delivery never enters the merge check, recorded commit or not",
+  );
+});
+
+/** A review/consent/fact-lifted submitted cut whose submission carries a recorded delivery commit:
+ * the shape a stale artifact-only submit left behind (submit once recorded the then main HEAD). */
+function liftedCutWithCommit(sha: string): TaskLifecycleSnapshot {
+  const lifted = frozenCut({ profile: "standard" }, { review: false, consent: false, fact: false });
+  return codeDelivery(
+    {
+      ...lifted,
+      task: { ...lifted.task!, closeoutOverrides: { review: false, consent: false, fact: false } },
+    },
+    sha,
+  );
+}
+
+test("a task-package-artifact cut with a recorded commit completes without a merged delivery", () => {
+  const cut = liftedCutWithCommit("b".repeat(40)),
+    context = readCompletionContext(
+      projection({ profile: "standard" }, 1, 0, true, "task-package-artifact"),
+      "task-1",
+      cut,
+      "ready",
+    );
+  assert.equal(context.delivery?.required, false, "the merge check never applies to an artifact task");
+  assert.equal(taskCompletionNext(cut, context).blocker, null);
+});
+
+test("a repository-diff cut with a recorded commit still requires its merged delivery", () => {
+  const cut = liftedCutWithCommit("b".repeat(40)),
+    context = readCompletionContext(
+      projection({ profile: "standard" }, 1, 0, true, "repository-diff"),
+      "task-1",
+      cut,
+      "ready",
+    );
+  assert.equal(context.delivery?.required, true);
+  assert.equal(taskCompletionNext(cut, context).blocker?.code, "delivery_missing");
+});
+
+test("an unreadable output shape keeps the merged-delivery requirement", () => {
+  const cut = liftedCutWithCommit("b".repeat(40)),
+    context = readCompletionContext(projection({ profile: "standard" }, 1, 0, true, null), "task-1", cut, "ready");
+  assert.equal(context.delivery?.required, true, "a degraded preset snapshot must not pass an unmerged delivery");
+  assert.equal(taskCompletionNext(cut, context).blocker?.code, "delivery_missing");
 });
 
 test("merge evidence retires only the CI gate and does not lift review or consent", () => {
