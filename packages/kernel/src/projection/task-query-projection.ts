@@ -103,6 +103,7 @@ export interface NarrowTaskRow {
   readonly generation: "v0" | "v1";
   readonly workspace_revision: number;
   readonly created_at: string | null;
+  readonly completed_at: string | null;
   readonly updated_at: string;
   readonly pinned: number;
   readonly presentation_status: TaskV2["status"] | null;
@@ -298,6 +299,11 @@ export function readTaskIndexRows(
  * otherwise their occurredAt is already the source task timestamp. */
 export function taskCreatedAtSql(taskIdExpression: string): string {
   return `(SELECT COALESCE(CASE WHEN json_extract(origin.event_json, '$.schema') = 'migration-import-event/v1' THEN json_extract(origin.event_json, '$.payload.createdAt') END, json_extract(origin.event_json, '$.occurredAt')) FROM event_index AS origin WHERE origin.task_id = ${taskIdExpression} ORDER BY origin.workspace_revision LIMIT 1)`;
+}
+
+/** Authoritative completion time: the occurredAt of the first task_completed transition. */
+export function taskCompletedAtSql(taskIdExpression: string): string {
+  return `(SELECT json_extract(completion.event_json, '$.occurredAt') FROM event_index AS completion WHERE completion.task_id = ${taskIdExpression} AND json_extract(completion.event_json, '$.schema') = 'task-event/v1' AND json_extract(completion.event_json, '$.type') = 'task_completed' ORDER BY completion.workspace_revision LIMIT 1)`;
 }
 
 /** One bounded task/runtime join. The supplied ids are filtered in memory so no
@@ -776,7 +782,7 @@ export function listTaskRowsNarrow(
   }
   const paged = query.limit !== undefined || query.cursor !== undefined,
     pageLimit = query.limit === undefined ? (paged ? 100 : null) : checkedPageLimit(query.limit);
-  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
+  const sql = `SELECT task_snapshot.task_id AS task_id, task_package.package_path AS package_path, COALESCE(task_generation.generation, 'v1') AS generation, task_snapshot.workspace_revision AS workspace_revision, ${taskCreatedAtSql("task_snapshot.task_id")} AS created_at, ${taskCompletedAtSql("task_snapshot.task_id")} AS completed_at, task_snapshot.updated_at AS updated_at, task_snapshot.pinned AS pinned, ${query.presentationStatus ? PRESENTATION_STATUS_SQL : "task_snapshot.status"} AS presentation_status FROM task_snapshot LEFT JOIN task_package USING(task_id) LEFT JOIN task_generation USING(task_id)${where.length ? ` WHERE ${where.join(" AND ")}` : ""} ORDER BY ${query.pinnedFirst ? "task_snapshot.pinned DESC, " : ""}task_snapshot.task_id${pageLimit === null ? "" : " LIMIT ?"}`;
   if (pageLimit !== null) values.push(pageLimit + 1);
   const raw = queryRows<NarrowTaskRow & ProjectionSqlRow>(db, sql, ...values),
     visible = pageLimit === null ? raw : raw.slice(0, pageLimit);

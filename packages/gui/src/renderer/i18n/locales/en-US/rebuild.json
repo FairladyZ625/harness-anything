@@ -392,5 +392,6 @@
   "devices.confirmation": "Further requests will use the new device state. Pausing or removing revokes this device’s sessions; resuming requires approval again. A running device may still be stopping. Removed device IDs cannot be reused.",
   "shell.nav.redesignGroup": "Redesign · Trial",
   "shell.nav.homeOverview": "Home",
+  "shell.nav.today": "Today",
   "shell.nav.myAsks": "Your asks"
 }

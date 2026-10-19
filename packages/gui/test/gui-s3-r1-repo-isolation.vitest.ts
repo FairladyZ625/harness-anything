@@ -228,6 +228,7 @@ describe("GUI S3 R1 repository isolation", () => {
       ({
         taskId,
         createdAt: null,
+        completedAt: null,
         updatedAt,
         generation: "v1",
         snapshot: { task: { schema: "task/v2", taskId, title: taskId, pinned: false } },

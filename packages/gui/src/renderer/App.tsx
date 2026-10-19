@@ -9,6 +9,7 @@ import { HomeOverviewPanel } from "./views/home/HomeOverviewPanel.tsx";
 import { myAsksViewEntry } from "./views/my-asks/my-asks-view-entry.tsx";
 import { OverviewView } from "./views/OverviewView.tsx";
 import { AgendaView } from "./views/AgendaView.tsx";
+import { todayViewEntry } from "./views/today/today-view-entry.tsx";
 import { BoardView } from "./views/BoardView.tsx";
 import { AttestationPoolView } from "./views/AttestationPoolView.tsx";
 import { FactDetailView } from "./views/EntityDetailView.tsx";
@@ -37,7 +38,6 @@ import { useEntityNavigation } from "./navigation/useEntityNavigation.ts";
 import { taskReviewRef, workTargetOf } from "./navigation/entityRoutes.ts";
 import { workIndexOf } from "./model/work-collections.ts";
 import { useAppShortcuts } from "./navigation/useAppShortcuts.ts";
-import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { applyTaskFilters, type TaskFilters } from "./model/taskFilters.ts";
 import { adaptProjectionRows } from "./task-adapter.ts";
 import { deriveAttestationLanes, type AttestationPoolTabId } from "./model/attestation-pool.ts";
@@ -52,6 +52,7 @@ import {
 import { useAgendaQuery } from "./agenda-data.ts";
 import { useOverviewArtifacts } from "./overview-data.ts";
 import {
+  FULL_TRIADIC_PROJECTION_VIEWS,
   useActiveEdgesQuery,
   useDecisionSummaryQuery,
   useRuntimePlaneQuery,
@@ -77,8 +78,8 @@ import type { TerminalLaunchTask } from "./views/TerminalView.tsx";
 import { BrowserView } from "./views/BrowserView.tsx";
 import { NavigationHistoryBar } from "./components/NavigationHistoryBar.tsx";
 import { useAppLocation } from "./navigation/useAppLocation.ts";
+import { useRedesignNavigation } from "./navigation/useRedesignNavigation.ts";
 import { useProjectSwitch } from "./navigation/useProjectSwitch.ts";
-import type { ViewId } from "./navigation/viewHistory.ts";
 import { navLabel } from "./navigation/navConfig.tsx";
 import { useWorkspaceSummaryQuery } from "./workspace-summary-data.ts";
 import { workspaceTitleIndex } from "./model/workspace-readable.ts";
@@ -96,19 +97,6 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
-/**
- * 渲染全量决策行的视图。总览只读决策摘要;其他集合内视图同时渲染图 + 决策。
- * 只有这些视图挂载时才读完整投影;
- * 看板/总览之外的普通页(presets/adapters/settings/system/…)与任务看板本身都不在其中。
- */
-const FULL_TRIADIC_PROJECTION_VIEWS: ReadonlySet<ViewId> = new Set([
-  "workspace",
-  "graph",
-  "decisionPool",
-  "decisionDetail",
-  "factDetail",
-  "freshness",
-]);
 
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
@@ -386,19 +374,15 @@ function AppShell() {
   });
 
   // 切仓策略(业主 2026-10-11:切回项目直接回到它上次停留的位置):useViewHistory
-  // 切仓时自己重读目标仓的栈,栈顶即上次位置、跨重启保留;显式目标(管理页活动
-  // 链接/跨仓实体导航)经 pending intent 在重读落地后推栈。
   const { openProject, goto } = useProjectSwitch({
     projectId,
     navigate,
     switchProject: setActiveRepoId,
     leaveProject: async () => {
-      // 终端页(若挂载)随切仓卸载,卸载清理自会停流并 detach 全部附件。
       if (activeRepoId) await queryClient.cancelQueries({ predicate: (query) => query.queryKey[1] === activeRepoId });
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
-
   // 重构区路由(dec_C612E69B):重构页(今天/你交代的事)暂由 App 级状态承载,不进
   // 全局历史栈;从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
   const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
@@ -602,14 +586,26 @@ function AppShell() {
                 renderTaskDetail(selected, {
                   // 详情的局部返回与全局后退是同一能力:弹栈回上一位置(业主
                   // 2026-10-11)。原地清 selectedId 会在栈里留下与上一条目相同的
-                  // 幻影条目,按侧键后退看起来毫无反应。
                   onBack: back,
                   fromViewLabel: navLabel(view),
                 })
               ) : decisionReadError ? (
                 <WorkspaceSummaryPending error={decisionReadError} />
               ) : redesignView !== null ? (
-                myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
+                redesignView === "myAsks" ? (
+                  myAsksViewEntry(projectId, openTaskDetail, navigateToEntity)
+                ) : (
+                  todayViewEntry(
+                    projectId,
+                    agendaQuery.data,
+                    agendaQuery.error instanceof Error ? agendaQuery.error.message : null,
+                    taskTitles,
+                    tasksQuery.data?.rows ?? [],
+                    navigateToEntity,
+                    openTaskDetail,
+                    gotoNav,
+                  )
+                )
               ) : view === "home" ? (
                 <HomeView
                   repos={systemQuery.data?.repos ?? []}
