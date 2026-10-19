@@ -311,8 +311,8 @@ export async function createTaskPullRequest(
       evidence: `Pull request ${action.update === true ? "updated" : "created"} for ${taskId}: ${url}`,
       next: [
         {
-          command: `gh pr checks ${url} --watch`,
-          reason: "the PR's checks are the delivery authority; read and fix failures before ha task submit",
+          command: `ha task pr ${taskId} --wait-ci`,
+          reason: "the single quiet CI wait; it prints one line and its exit 0/1/2 says green/failed/timeout",
         },
       ],
     } as WriteReceiptDraft);
