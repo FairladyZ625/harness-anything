@@ -15,7 +15,7 @@ import type {
   RuntimeDaemonRoute,
   RuntimeSessionSelection,
 } from "./runtime-spawn-types.ts";
-import { assertTaskTransitionDocumentReady, locateTaskTransitionDocument } from "./transition-document-access.ts";
+import { assertTaskTransitionDocumentReady } from "./transition-document-access.ts";
 import { workerLedgerPath } from "./worktree-setup.ts";
 
 export function resolveRuntimeCwd(root: string, value: unknown): string {
@@ -412,36 +412,9 @@ export function livingDeliverableProtocol(profileId: string | null | undefined, 
   ].join("\n");
 }
 
-/** PR delivery is owed by the declared document slot, independently of the task profile. */
-export function prBodyDeliveryProtocol(documentPath: string | null): string | null {
-  if (documentPath === null) return null;
-  return [
-    "# PR Body Delivery Protocol",
-    `- 本任务持有 task.pr-body 文档槽：\`${documentPath}\`（任务包内路径）。`,
-    "- 在 ha doc sync 落库之前，按 .github/pull_request_template.md 完整填写该正文；" +
-      "保留全部模板标题与 English / 中文 两块，填写真实交付事实，包括 Architectural Justification / 架构辩护。",
-    "- 涉及写入路径时，在同一隔离环境分别对 base 与 head 运行 node tools/gates/cost-budget.mjs，" +
-      "将实测 200/2000 的 G1 全操作、五指标前后计数填入 Per-Write Cost 表；不得用预算值或猜测值代替。",
-    "- Production-Delta 用 node tools/gates/production-delta.mjs --base origin/main 实算；" +
-      "机读声明只写真实适用项。未运行的验证、CI 与现场验收明确标为 unverified。",
-    "- 交付 SHA、base SHA 这类锚一律从冻结的 submission 记录派生（execution 的 Commit 字段）；" +
-      "不要把任何 SHA 手抄进 closeout 或 PR 正文——追加一个 commit 再 submit 后，手抄的锚就会过期，" +
-      "评审只以 submission 记录为准。",
-    `- 运行 node tools/check-pr-body.mjs --file <任务包根>/${documentPath}，` +
-      "并逐项比对模板标题，确认没有遗漏、占位内容或未填写骨架。",
-    "- 随 ha doc sync --submit --task 同步正文与 closeout，然后 `ha task push <task-id>` 发布本任务分支、" +
-      "`ha task pr <task-id>` 创建 PR；后续正文修改先重新 doc sync，再用 `ha task pr --update` 更新，都仍在 submit 之前。",
-    "- PR 创建后用 `ha task pr <task-id> --wait-ci` 阻塞等该交付 SHA 的 CI 出结论（退出码 0 绿 / 1 红 / 2 超时，输出一行），" +
-      "不要自己用 gh、curl 或平台 API 反复轮询 checks；全绿后才执行 ha task submit：" +
-      "submit 冻结 cut，之后工人写入一律被拒，所以 submit 是最后一步；" +
-      "提交自动冻结中心已接受的任务 artifacts，无需在 Summary 手写交付物锚；CEO 负责评审与合并。",
-  ].join("\n");
-}
-
-export function taskPrBodyPath(projection: TaskProjection, taskId: string): string | null {
-  const document = locateTaskTransitionDocument({ projection, taskId, slot: "task.pr-body" });
-  return document.path === null ? null : path.posix.relative(document.packagePath, document.path);
-}
+/** The whole PR-body contract a task mission still carries (dec_BB2BCE9F CH2): the framework
+ * owns the credentialed channel, the body convention is the delivered repository's own. */
+export const taskPrPublicationNote = "推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。";
 
 /**
  * The managed rework record of the iteration a re-dispatched worker must answer: the rendered
@@ -460,22 +433,20 @@ export function priorOwnerReturnBody(projection: TaskProjection, taskId: string)
 }
 
 /** Dynamic sections follow the dispatch action: review, delivery, or rework.
- * reviewerBinding is the spawner's existing review judgment; the document slot declares PR delivery. */
+ * reviewerBinding is the spawner's existing review judgment; workers owe the delivery contracts. */
 export function taskMissionSections(
   taskId: string,
   causalContext: string | null,
   profileId: string | null | undefined,
-  prBodyPath: string | null,
   taskClass: string | undefined,
   ownerReturnBody: string | null,
   reviewerBinding: boolean,
 ): string[] {
-  const living = reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass),
-    pr = reviewerBinding ? null : prBodyDeliveryProtocol(prBodyPath);
+  const living = reviewerBinding ? null : livingDeliverableProtocol(profileId, taskClass);
   return [
     taskQueryGuidance(taskId),
     ...(living === null ? [] : [living]),
-    ...(pr === null ? [] : [pr]),
+    ...(reviewerBinding ? [] : [taskPrPublicationNote]),
     ...(causalContext === null ? [] : [causalContext]),
     ...(reviewerBinding || ownerReturnBody === null
       ? []
@@ -494,7 +465,6 @@ export function explicitPromptMission(
   causalContext: string | null,
   prompt: string,
   profileId: string | null | undefined = undefined,
-  prBodyPath: string | null = null,
   taskClass?: string,
   ownerReturnBody: string | null = null,
   reviewerBinding: boolean = false,
@@ -506,7 +476,7 @@ export function explicitPromptMission(
       ? causalContext === null
         ? []
         : [causalContext]
-      : taskMissionSections(taskId, causalContext, profileId, prBodyPath, taskClass, ownerReturnBody, reviewerBinding)),
+      : taskMissionSections(taskId, causalContext, profileId, taskClass, ownerReturnBody, reviewerBinding)),
     prompt,
   ].join("\n\n");
 }
@@ -553,7 +523,6 @@ export function deriveTaskMission(
         taskId,
         causalContextResolved,
         snapshot.task?.metadata?.profileId,
-        reviewerBinding ? null : taskPrBodyPath(projection, taskId),
         snapshot.task?.taskClass,
         reviewerBinding ? null : priorOwnerReturnBody(projection, taskId),
         reviewerBinding,
@@ -736,8 +705,8 @@ export function resolveRuntimeMission(input: {
     // A re-dispatched worker answers the latest owner return, so its mission carries the managed
     // rework record verbatim — from the center's serving read remotely, from the projection
     // locally. Reviewers bind to a submitted cut instead, so their missions never carry it, and
-    // the same binding omits the worker delivery contracts (living deliverable, PR body) from
-    // every task-bound assembly path.
+    // the same binding omits the worker delivery contracts (living deliverable, PR publication)
+    // from every task-bound assembly path.
     ownerReturnBody =
       taskId === null || input.reviewerBinding
         ? null
@@ -760,7 +729,6 @@ export function resolveRuntimeMission(input: {
             causalContext,
             explicitMission,
             missionProfileId,
-            remoteTask ? remoteTask.prBodyPath : taskId ? taskPrBodyPath(projection, taskId) : null,
             remoteTask?.taskClass ?? taskSnapshot?.task?.taskClass,
             ownerReturnBody,
             input.reviewerBinding,

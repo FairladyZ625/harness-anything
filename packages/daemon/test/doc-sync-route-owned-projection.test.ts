@@ -131,9 +131,9 @@ test("task submit lands without owner recovery after a worker hand-edits progres
     await waitForWorktree(cell, { opId: String(appended.opId) }, person);
     const progressFile = path.join(rootDir, "harness", packagePath, "progress.md"),
       canonical = readFileSync(progressFile, "utf8"),
-      prBody = `${packagePath}/artifacts/pr-body.md`;
-    write(rootDir, prBody, "# PR body\n");
-    const artifactSync = (await cell.run({ kind: "doc-submit", paths: [prBody] }, person)) as {
+      deliveryNote = `${packagePath}/artifacts/delivery-note.md`;
+    write(rootDir, deliveryNote, "# Delivery note\n");
+    const artifactSync = (await cell.run({ kind: "doc-submit", paths: [deliveryNote] }, person)) as {
       opId?: string;
       outcome?: string;
       revision?: number;
@@ -143,7 +143,7 @@ test("task submit lands without owner recovery after a worker hand-edits progres
     write(
       rootDir,
       `${packagePath}/closeout.md`,
-      `# Closeout\n\n## Summary\n\nDelivered artifact:${prBody}@${artifactSync.revision}\n\n` +
+      `# Closeout\n\n## Summary\n\nDelivered artifact:${deliveryNote}@${artifactSync.revision}\n\n` +
         "## Verification\n\nIntegration assertions exercise the submit path.\n\n" +
         "## Residual Risk\n\nNone.\n\n## Same Mechanism Elsewhere\n\nNot applicable to this fixture.\n",
     );

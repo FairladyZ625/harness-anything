@@ -1,12 +1,11 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { existsSync } from "node:fs";
-import path from "node:path";
 import { setTimeout as defaultSleep } from "node:timers/promises";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { consumeKnownError, type WriteReceiptDraft } from "@harness-anything/kernel";
 import { readTaskTransitionDocument } from "./transition-document-access.ts";
+import { workspaceText } from "./repo-cell-packets.ts";
 import { scrubProviderValue } from "./dispatch-stream.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import {
@@ -25,8 +24,6 @@ const runProvider: RunProvider = async (args, env, cwd) =>
   String(
     (await execFileAsync("gh", args, { cwd, env, timeout: 30_000, maxBuffer: 2 << 20, windowsHide: true })).stdout,
   );
-
-type PrBodyLintProvider = (body: string, rootDir: string) => Promise<void>;
 
 const taskPrTitlePattern = /^(feat|fix|refactor|perf|test|docs|chore|ci)(\([A-Za-z0-9._/-]+\))?: [^\r\n]+$/u;
 const taskPrTitleFormat =
@@ -220,25 +217,18 @@ function requireTaskPrTitle(title: unknown, required: boolean): string | undefin
   return title;
 }
 
-/**
- * Runs the repository PR body gate — the same script CI's pr-body-lint job runs — on the task's
- * PR body before the pull request exists, so placeholder-only required sections are named here
- * instead of in review. Base and head are pinned to HEAD: this canonical-root diff is not the
- * task branch's diff, so the git-context checks (Event-Migration on accepted-sample changes) stay
- * authoritative on CI while this call judges the body itself. The gate belongs to the repository being
- * delivered, so it resolves from that repository's root; a repository without the script has no such gate.
- */
-const runPrBodyLint: PrBodyLintProvider = async (body, rootDir) => {
-  const script = path.join(rootDir, "tools", "check-pr-body.mjs");
-  if (!existsSync(script)) return;
-  await execFileAsync(process.execPath, [script, "--env", "PR_BODY"], {
-    cwd: rootDir,
-    timeout: 120_000,
-    maxBuffer: 2 << 20,
-    windowsHide: true,
-    env: { ...process.env, PR_BODY: body, PR_BASE_SHA: "HEAD", PR_HEAD_SHA: "HEAD" },
-  });
-};
+/** The pull request body the task PR carries: the worker's `--body-file` when provided, else the
+ * task's closeout document — the framework's one delivery statement. How a repository's PR body
+ * should read is that repository's own convention; this channel passes it through verbatim
+ * (dec_BB2BCE9F CH1/CH2). */
+function taskPrBody(
+  context: Pick<RepoCellApiContext, "rootDir" | "projection">,
+  action: RepoTaskAction,
+  taskId: string,
+) {
+  if (typeof action.bodyFile === "string") return workspaceText(context.rootDir, action.bodyFile, "bodyFile");
+  return readTaskTransitionDocument({ projection: context.projection, taskId, slot: "task.closeout" }).body;
+}
 
 /** Create the task PR with the dispatch credential; merge remains a separate owner action. */
 export async function createTaskPullRequest(
@@ -256,7 +246,6 @@ export async function createTaskPullRequest(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   provider: RunProvider = runProvider,
-  prBodyLint: PrBodyLintProvider = runPrBodyLint,
 ): Promise<WriteReceiptDraft> {
   const taskId = typeof action.taskId === "string" ? action.taskId : null;
   if (!taskId) throw context.cellCodedError("invalid_command", "Task PR creation requires a task id.");
@@ -290,26 +279,15 @@ export async function createTaskPullRequest(
     );
   const task = context.projection.read(taskId).snapshot.task;
   if (!task) throw context.cellCodedError("entity_not_found", `Task ${taskId} does not exist.`);
-  const document = readTaskTransitionDocument({ projection: context.projection, taskId, slot: "task.pr-body" }),
+  const body = taskPrBody(context, action, taskId),
     env = { ...process.env, ...credential, GH_PROMPT_DISABLED: "1" },
     redact = (text: string) =>
       String(scrubProviderValue(credential?.GH_TOKEN ? text.replaceAll(credential.GH_TOKEN, "[REDACTED]") : text));
   try {
-    await prBodyLint(document.body, context.rootDir);
-  } catch (error) {
-    const failure = error as { readonly stderr?: string | Buffer; readonly message?: string },
-      detail = String(failure.stderr ?? failure.message ?? error);
-    throw context.cellCodedError(
-      "content_not_ready",
-      `Task ${taskId} PR body failed the repository PR body gate (placeholder-only required sections are named below); ` +
-        `fix artifacts/pr-body.md, re-submit it, then retry the PR.\n${detail.slice(0, 2048)}`,
-    );
-  }
-  try {
     const args =
       action.update === true
-        ? ["pr", "edit", taskId, ...(title ? ["--title", title] : []), "--body", document.body]
-        : ["pr", "create", "--head", taskId, "--title", title!, "--body", document.body];
+        ? ["pr", "edit", taskId, ...(title ? ["--title", title] : []), "--body", body]
+        : ["pr", "create", "--head", taskId, "--title", title!, "--body", body];
     const url = redact(await provider(args, env, context.rootDir)).trim();
     // `next` rides the receipt the same way the lifecycle settlement receipts carry it: as a
     // draft extension outside the kernel receipt schema.

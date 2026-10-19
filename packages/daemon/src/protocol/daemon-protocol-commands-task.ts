@@ -165,6 +165,13 @@ export const taskExecutionProtocolCommands = Object.freeze([
           requires: ["--wait-ci"],
         },
       ),
+      cliInput(
+        "--body-file",
+        "single",
+        false,
+        { code: "invalid_field" },
+        { field: "bodyFile", format: workspacePathFormat },
+      ),
     ],
     commandClass: "repo-write" as const,
     admission: {

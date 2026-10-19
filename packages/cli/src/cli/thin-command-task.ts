@@ -134,6 +134,7 @@ function parseTaskPublication(
     ...(flags.one.has("--title") ? { title: flags.one.get("--title") } : {}),
     ...(waitCi ? { waitCi: true } : {}),
     ...(timeout !== undefined ? { timeoutMinutes: Number(timeout) } : {}),
+    ...(id === "task-pr" && flags.one.has("--body-file") ? { bodyFile: flags.one.get("--body-file") } : {}),
   });
 }
 

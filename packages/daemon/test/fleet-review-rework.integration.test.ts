@@ -144,7 +144,7 @@ test(
         reviewers.push(String(result.runtimeSessionId));
         assert.doesNotMatch(
           launchedPrompts.at(-1)!,
-          /# Living Deliverable Protocol|# PR Body Delivery Protocol/u,
+          /# Living Deliverable Protocol|推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u,
           "edge reviewer dispatches carry no worker delivery protocols",
         );
       }
@@ -163,7 +163,10 @@ test(
         assert.doesNotMatch(mission, /# Owner rework instruction/u);
         assert.doesNotMatch(mission, /# Owner return for iteration 0/u);
         assert.doesNotMatch(mission, /Revise the delivery\./u);
-        assert.doesNotMatch(mission, /# Living Deliverable Protocol|# PR Body Delivery Protocol/u);
+        assert.doesNotMatch(
+          mission,
+          /# Living Deliverable Protocol|推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u,
+        );
         assert.doesNotMatch(launchedPrompts[0]!, /# Owner rework instruction/u);
       }
       if (iteration > 0) {

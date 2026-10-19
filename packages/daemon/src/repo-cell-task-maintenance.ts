@@ -398,7 +398,7 @@ type ContractRepair = {
 };
 
 /**
- * The package compiler, not the preset definition, owns the task.explainer and task.pr-body slots,
+ * The package compiler, not the preset definition, owns the task.explainer slot,
  * so a contract frozen before such a slot existed still carries a current preset snapshot digest
  * and the digest-keyed checks above report it as current. Called only for contracts the task-create
  * compiler wrote (the non-imported branch): those always carried every base slot at creation, so

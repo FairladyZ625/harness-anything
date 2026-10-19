@@ -2,7 +2,6 @@
 import { latestSquadStates } from "../src/squad-run-state.ts";
 import assert from "node:assert/strict";
 import { withPolicyGroup } from "./keycloak-policy.fixtures.ts";
-import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -156,12 +155,10 @@ test(
     const leader = fixture.providers.find((p) => p.dispatchId === resumed.leaderTurns[1].dispatchId)!;
     assert.match(leader.prompt, /outside\.txt/u);
     // The leader carries the commander delivery contract for the CEO, not the worker delivery
-    // loop; this fixture has no PR document slot, so the exact publication commands never appear.
+    // loop; the framework's one-line PR note may ride the task-bound mission, but the worker's
+    // exact publication loop never does.
     assert.match(leader.prompt, /delivery contract with the CEO/u);
-    assert.doesNotMatch(
-      leader.prompt,
-      /# PR Body Delivery Protocol|ha task push <task-id>|ha task pr <task-id>|task delivery commands/u,
-    );
+    assert.doesNotMatch(leader.prompt, /ha task push <task-id>|ha task pr <task-id>|task delivery commands/u);
     assert.match(leader.prompt, /Do not merge/u);
     await fixture.cell.settlePendingMaterialization("before public integration");
     git(fixture.root, "checkout", "-qb", "codex/mission-delivery");
@@ -177,7 +174,6 @@ test(
     git(fixture.root, "push", "origin", "codex/mission-delivery");
     assert.equal(git(bare, "rev-parse", "refs/heads/codex/mission-delivery"), git(fixture.root, "rev-parse", "HEAD"));
     assert.equal(git(bare, "for-each-ref", "--format=%(refname)", "refs/heads/codex/squad-"), "");
-    verifyPrCommand(fixture.parent);
     fixture.finish(
       leader.dispatchId,
       JSON.stringify({
@@ -821,51 +817,4 @@ async function openFixture(
       assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);
     },
   };
-}
-
-function verifyPrCommand(root: string) {
-  const template = readFileSync(new URL("../../../.github/pull_request_template.md", import.meta.url), "utf8"),
-    bodyPath = path.join(root, "pr-body.md"),
-    script = path.join(root, "gh-stub.cjs"),
-    receipt = path.join(root, "pr-command.json");
-  const sections: Record<string, string> = {
-    Summary: "Integrate the two child commits after inspecting the delivered files and ownership finding.",
-    "What Changed": "The integration branch contains src/a.txt, docs/b.txt, and the reported outside.txt finding.",
-    "Machine-Readable Declarations": "This isolated fixture changes no dependencies or event schema.",
-    "Optional Evidence Claims": "This is a local command protocol observation, not a GitHub CI claim.",
-    "Governance Declaration":
-      "Protected surface touched: no. Break-glass: no. Test artifacts stay in the temporary repository.",
-    Verification:
-      "Both children submitted through task-submit. File contents were inspected; the bare remote ref equals integration HEAD.",
-    "Residual Risk": "outside.txt is an ownership finding requiring integration review. No real GitHub PR is created.",
-  };
-  const body = [...template.matchAll(/^(#{1,3}) (.+)$/gmu)]
-    .map(([, level, heading]) => {
-      if (heading === "English") return `${level} ${heading}\n`;
-      assert.ok(sections[heading], `fixture must fill template section ${heading}`);
-      return `${level} ${heading}\n\n${sections[heading]}\n`;
-    })
-    .join("\n");
-  writeFileSync(bodyPath, body);
-  writeFileSync(
-    script,
-    `const fs = require('node:fs'); const args = process.argv.slice(2);\nif(args[0] !== 'pr' || args[1] !== 'create' || !args.includes('--reviewer')) process.exit(2);\nconst body = fs.readFileSync(args[args.indexOf('--body-file') + 1], 'utf8');\nif(!body.includes('# English') || !body.includes('## Verification') || !body.includes('## Residual Risk')) process.exit(3);\nfs.writeFileSync(${JSON.stringify(receipt)}, JSON.stringify({args, body}));\n`,
-  );
-  assert.throws(() => execFileSync(process.execPath, [script, "pr", "create", "--body-file", bodyPath]));
-  execFileSync(process.execPath, [
-    script,
-    "pr",
-    "create",
-    "--head",
-    "codex/mission-delivery",
-    "--title",
-    "Integrate squad delivery",
-    "--body-file",
-    bodyPath,
-    "--reviewer",
-    "fixture-reviewer",
-  ]);
-  const captured = JSON.parse(readFileSync(receipt, "utf8"));
-  assert.deepEqual(captured.args.slice(0, 4), ["pr", "create", "--head", "codex/mission-delivery"]);
-  assert.equal(captured.body, readFileSync(bodyPath, "utf8"));
 }

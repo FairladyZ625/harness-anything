@@ -8,6 +8,7 @@ import { writeProviderExecutable } from "../../daemon/test/fixtures/runtime-stub
 import {
   livingDeliverableProtocol,
   taskPlanSection,
+  taskPrPublicationNote,
   taskQueryGuidance,
 } from "@harness-anything/daemon/internal/runtime-spawn-mission";
 import { makeTaskEventReader } from "@harness-anything/kernel";
@@ -75,7 +76,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     daemonUserRoot: userRoot,
     daemonId,
     runtimeSessionId: String(bound.runtimeSessionId),
-    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\nbound prompt`,
+    mission: `${taskPlanSection(realizedPlan("archive"))}\n\n${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nbound prompt`,
   });
   assert.ok(
     assembledPrompt.indexOf("# Worker Role") < assembledPrompt.indexOf("prompt://review") &&
@@ -619,7 +620,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
   assert.ok(
     String((promptFile.receipt.result as Record<string, unknown>).text).endsWith(
       `# Assigned Mission\n${taskPlanSection(realizedPlan("mission"))}\n\n${taskQueryGuidance(taskId)}\n\n` +
-        `${livingDeliverableProtocol("baseline")!}\n\nexisting mission` +
+        `${livingDeliverableProtocol("baseline")!}\n\n${taskPrPublicationNote}\n\nexisting mission` +
         stopGuidance,
     ),
   );
@@ -669,7 +670,7 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
     mission:
       `${taskPlanSection(realizedPlan("mission"), path.join(realpathSync(root), "harness", packagePath))}\n\n` +
       `${taskQueryGuidance(taskId)}\n\n${livingDeliverableProtocol("baseline")!}\n\n` +
-      "# Mission: existing-mission\n\nexisting mission",
+      `${taskPrPublicationNote}\n\n# Mission: existing-mission\n\nexisting mission`,
   });
   run(root, env, ["task", "start", taskId, "--execution-id", executionId]);
   const taskPackage = path.join(realpathSync(root), "harness", packagePath),
@@ -677,7 +678,9 @@ test("Named missions reject invalid inputs and task-derived missions carry dispa
       `${taskPlanSection(realizedPlan("mission"), taskPackage)}\n\n` +
       taskQueryGuidance(taskId) +
       "\n\n" +
-      livingDeliverableProtocol("baseline")!;
+      livingDeliverableProtocol("baseline")! +
+      "\n\n" +
+      taskPrPublicationNote;
   // The task-derived mission run also settles stopped (no delivery), so it exits 1 with its result.
   const derived = runMaybe(root, env, ["agent", "run", "terra", "--task", taskId, "--cwd", ".", "--no-stream"]),
     derivedText = String((derived.receipt.result as Record<string, unknown>).text);
