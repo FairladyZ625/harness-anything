@@ -579,7 +579,10 @@ export function SessionsView({
                 })) +
             " · " +
             t("agentRuntime.liveSessions", { count: liveCount })
-        : t("agentRuntime.squadRunsCounts", { range: rangeLabel[range], runs: runTotals.runs }) +
+        : t(runTotals.runs === 1 ? "agentRuntime.squadRunsCountOne" : "agentRuntime.squadRunsCounts", {
+            range: rangeLabel[range],
+            runs: runTotals.runs,
+          }) +
           " · " +
           t("agentRuntime.squadRunsActive", { count: activeRunCount })}
     </span>

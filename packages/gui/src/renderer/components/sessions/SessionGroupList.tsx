@@ -201,7 +201,9 @@ export function SessionGroupList({
           data-testid="sessions-groups-truncated"
           className="border-t border-border px-3.5 py-2.5 ui-meta text-text-faint"
         >
-          {t("agentRuntime.sessionsGroupsTruncated", { count: groups.length })}
+          {t(groups.length === 1 ? "agentRuntime.sessionsGroupsTruncatedOne" : "agentRuntime.sessionsGroupsTruncated", {
+            count: groups.length,
+          })}
         </p>
       )}
     </nav>
@@ -245,8 +247,12 @@ function WorkSection({
           title={<span className="font-semibold">{label}</span>}
           hoverTitle={label}
           reason={[
-            t("agentRuntime.sessionsWorkTasks", { count: work.taskCount }),
-            t("agentRuntime.sessionsWorkSessions", { count: work.sessionCount }),
+            t(work.taskCount === 1 ? "agentRuntime.sessionsWorkTask" : "agentRuntime.sessionsWorkTasks", {
+              count: work.taskCount,
+            }),
+            t(work.sessionCount === 1 ? "agentRuntime.sessionsWorkSession" : "agentRuntime.sessionsWorkSessions", {
+              count: work.sessionCount,
+            }),
             work.runningCount > 0 ? t("agentRuntime.liveSessions", { count: work.runningCount }) : undefined,
             formatListTime(work.latestActivityAt),
           ]
@@ -318,9 +324,13 @@ const GroupSection = memo(function GroupSection({
       hoverTitle={group.kind === "unattributed" ? undefined : headerLabel}
       reason={[
         group.kind === "day" ? undefined : group.latestRound?.agentName,
-        t("agentRuntime.sessionsRoundCount", { count: group.roundCount }),
+        t(group.roundCount === 1 ? "agentRuntime.sessionsRoundCountOne" : "agentRuntime.sessionsRoundCount", {
+          count: group.roundCount,
+        }),
         group.sessionCount > group.roundCount
-          ? t("agentRuntime.sessionsSessionCount", { count: group.sessionCount })
+          ? t(group.sessionCount === 1 ? "agentRuntime.sessionsSessionCountOne" : "agentRuntime.sessionsSessionCount", {
+              count: group.sessionCount,
+            })
           : undefined,
         formatListTime(group.latestActivityAt),
       ]

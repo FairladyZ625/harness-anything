@@ -641,6 +641,11 @@ describe("runtime entry split (W6 IA)", () => {
     });
     await flushEffects();
 
+    const squadCounts = byTestId("sessions-counts").textContent ?? "";
+    expect(squadCounts).toContain("1 squad run in");
+    expect(squadCounts).not.toContain("1 squad runs");
+    expect(byTestId("squad-run-list").textContent).toContain("1 run");
+
     const listCalls = vi.mocked(squadRunsClient.list).mock.calls;
     const squadWindow = listCalls.at(-1)?.[1]?.since;
     expect(squadWindow).toBeDefined();

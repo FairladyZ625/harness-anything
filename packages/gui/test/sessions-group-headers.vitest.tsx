@@ -136,6 +136,15 @@ const workGroup: SessionWorkGroup = {
   latestActivityAt: "2026-10-19T10:00:00.000Z",
 };
 
+/** 同一个工作头的另一组计数:用来锁住复数的任务、单数的会话。 */
+const workGroupMany: SessionWorkGroup = {
+  ...workGroup,
+  key: "work:task-work-many",
+  label: "Work Many",
+  taskCount: 2,
+  sessionCount: 1,
+};
+
 const baseProps = () => ({
   groups,
   pending: false,
@@ -178,7 +187,14 @@ describe("会话页:组头三分法", () => {
     expect(day?.textContent).not.toContain("GLM-5.3");
     // 诚实静态:没有 hover 指针。
     expect(day?.querySelector(".cursor-pointer")).toBeNull();
-    expect(day?.textContent).toContain("1 rounds");
+    expect(day?.textContent).toContain("1 round");
+    expect(day?.textContent).not.toContain("1 rounds");
+    // 任务组有 2 轮,锁住复数一侧没有被单数分支误伤。
+    expect(taskToggle?.textContent).toContain("2 rounds");
+    // 只绑了 1 个会话、0 轮的静态组也要用单数会话。
+    const direct = container.querySelector('[data-testid="session-group-static-instance:direct"]');
+    expect(direct?.textContent).toContain("1 session");
+    expect(direct?.textContent).not.toContain("1 sessions");
   });
 
   it("有 agentId/squadId 的组头变成钻入按钮,点击回调精确目标;没有 id 的组不可点", () => {
@@ -207,11 +223,27 @@ describe("会话页:组头三分法", () => {
     const collapsed = mount({ workGroups: [workGroup], onToggleWork });
     expect(collapsed.querySelector('[data-testid="session-work-toggle-work:task-work"]')).not.toBeNull();
     expect(collapsed.querySelector('[data-testid="session-group-task_1"]')).toBeNull();
-    expect(collapsed.textContent).toContain("1 tasks · 2 sessions");
+    expect(collapsed.textContent).toContain("1 task · 2 sessions");
+    expect(collapsed.textContent).not.toContain("1 tasks");
+
+    const many = mount({ workGroups: [workGroupMany], onToggleWork });
+    expect(many.textContent).toContain("2 tasks · 1 session");
+    expect(many.textContent).not.toContain("1 sessions");
 
     const expanded = mount({ workGroups: [workGroup], workExpandedKeys: new Set(["work:task-work"]), onToggleWork });
     expect(expanded.querySelector('[data-testid="session-group-task_1"]')).not.toBeNull();
     act(() => expanded.querySelector<HTMLButtonElement>('[data-testid="session-work-toggle-work:task-work"]')!.click());
     expect(onToggleWork).toHaveBeenLastCalledWith("work:task-work");
+  });
+
+  it("pluralizes the truncated-groups footer", () => {
+    const one = mount({ groups: [taskGroup], truncated: true });
+    expect(one.querySelector('[data-testid="sessions-groups-truncated"]')?.textContent).toContain(
+      "First 1 group listed",
+    );
+    const many = mount({ groups: [taskGroup, groups[1]!], truncated: true });
+    expect(many.querySelector('[data-testid="sessions-groups-truncated"]')?.textContent).toContain(
+      "First 2 groups listed",
+    );
   });
 });

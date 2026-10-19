@@ -104,7 +104,10 @@ export function SquadRunList({
       )}
       {truncated && (
         <p data-testid="squad-runs-truncated" className="border-t border-border px-4 py-2 ui-micro text-text-faint">
-          {t("agentRuntime.squadRunsTruncated", { count: runs.length, total: totalRuns })}
+          {t(runs.length === 1 ? "agentRuntime.squadRunsTruncatedOne" : "agentRuntime.squadRunsTruncated", {
+            count: runs.length,
+            total: totalRuns,
+          })}
         </p>
       )}
     </nav>
@@ -207,7 +210,9 @@ function SquadSection({
           tag={<StatusTag tone={tone} label={label} />}
           title={<span className="font-semibold">{group.label}</span>}
           hoverTitle={group.label}
-          reason={t("agentRuntime.squadRunGroupRuns", { count: group.runs.length })}
+          reason={t(group.runs.length === 1 ? "agentRuntime.squadRunGroupRun" : "agentRuntime.squadRunGroupRuns", {
+            count: group.runs.length,
+          })}
           time={formatListTime(group.latestActivityAt)}
           relaxed
         />
