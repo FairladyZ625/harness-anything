@@ -7,7 +7,7 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { currentCutReviewForReturn, explicitExecutionId } from "./repo-cell-execution-selection.ts";
 import { resolveStackedTaskBaseline } from "./stacked-task-start.ts";
 import { prepareTaskStartWorktree, presetSnapshotReader, taskWorktreeBinding } from "./task-worktree.ts";
-import { pushTaskWorkerBranch } from "./runtime-worker-push.ts";
+import { pushTaskWorkerBranch, workerPushFailureCode } from "./runtime-worker-push.ts";
 import { requireCurrentExecutionScope } from "./runtime-execution-scope.ts";
 import { detectHostingProvider } from "./hosting-provider.ts";
 import { createTaskPullRequest } from "./runtime-task-pr.ts";
@@ -103,7 +103,7 @@ export function readBeforeWriteQueue(
         });
         if (!pushed.attempted || !pushed.ok)
           throw context.cellCodedError(
-            "delivery_publish_failed",
+            workerPushFailureCode(pushed),
             pushed.attempted ? pushed.detail : `Task branch push refused: ${pushed.reason}.`,
           );
         return context.withHumanSummary({
