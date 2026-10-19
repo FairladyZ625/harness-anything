@@ -398,6 +398,7 @@ test("worker push records a single failure without retrying", async (context) =>
   assert.equal(result.ok, false);
   assert.equal(result.branch, "task_push_failure");
   assert.equal(result.head, git(worker, "rev-parse", "HEAD").trim());
+  assert.equal(result.code, undefined, "an ordinary transport failure carries no dedicated remediation code");
   assert.match(result.detail, /does not appear to be a git repository|No such file|not found/iu);
 });
 
@@ -497,6 +498,54 @@ test("the dispatch identity is scoped to its worktree for commits and rebases", 
   assert.equal(
     git(worker, "log", "-1", "--format=%an|%ae|%cn|%ce").trim(),
     "person-worker|person-worker@users.noreply.github.com|person-worker|person-worker@users.noreply.github.com",
+  );
+});
+
+test("a workflow-scope rejection reports the dedicated code and the CEO handoff push command", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-worker-push-workflow-")),
+    bare = path.join(root, "remote.git"),
+    canonical = path.join(root, "project"),
+    worker = path.join(root, "worker"),
+    receivePack = path.join(root, "receive-pack");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  git(root, "init", "--bare", bare);
+  git(root, "init", "-q", "project");
+  git(canonical, "config", "user.email", "push-test@example.invalid");
+  git(canonical, "config", "user.name", "Push Test");
+  writeFileSync(path.join(canonical, "README.md"), "fixture\n");
+  git(canonical, "add", "README.md");
+  git(canonical, "commit", "--quiet", "-m", "fixture");
+  git(canonical, "remote", "add", "origin", bare);
+  git(canonical, "push", "--quiet", "origin", "HEAD:main");
+  git(canonical, "worktree", "add", "--quiet", worker, "-b", "task_workflow_scope");
+  writeFileSync(path.join(worker, "change.txt"), "worker\n");
+  git(worker, "add", "change.txt");
+  git(worker, "commit", "--quiet", "-m", "feat: worker change");
+  // GitHub refuses a workflow-bearing push from a credential without the workflow scope; the stub
+  // receive-pack replays that refusal so the mapping sees real git-transport stderr.
+  writeFileSync(
+    receivePack,
+    "#!/bin/sh\n" +
+      "echo 'remote: error: GH006: refusing to allow an OAuth App to create or update workflow " +
+      "`.github/workflows/ci.yml` without `workflow` scope' >&2\nexit 1\n",
+    { mode: 0o755 },
+  );
+  git(canonical, "config", "remote.origin.receivepack", receivePack);
+
+  const result = await pushWorkerBranch({ cwd: worker, canonicalRoot: canonical, taskId: "task_workflow_scope" });
+  assert.equal(result.attempted, true);
+  assert.equal(result.ok, false);
+  assert.equal(result.code, "push_workflow_scope_required");
+  const head = git(worker, "rev-parse", "HEAD").trim();
+  assert.match(
+    result.detail,
+    new RegExp(
+      "^GitHub rejected the push: the branch publishes \\.github/workflows changes and the hosted " +
+        "credential lacks the workflow scope\\. The CEO can publish it with local credentials: " +
+        `git -C ${worker} push --force-with-lease origin ${head}:refs/heads/task_workflow_scope\\. ` +
+        "Git said: .*refusing to allow an OAuth App to create or update workflow",
+      "u",
+    ),
   );
 });
 
