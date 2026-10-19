@@ -56,10 +56,17 @@ export interface FleetDeviceLoginNotice {
 }
 
 export type FleetFrameV1 =
-  | Msg<"fleet.edge.join/v1", { inviteToken: string; nodeId: string }>
+  | Msg<"fleet.edge.join/v1", { joinId: string; inviteToken: string }>
   | Msg<
       "fleet.edge.join.result/v1",
-      { inReplyTo: string; nodeId: string; personId: string; credential: string; repoId: string; harnessYaml: string }
+      {
+        inReplyTo: string;
+        joinId: string;
+        nodeId: string;
+        personId: string;
+        credential: string;
+        repositories: readonly { readonly repoId: string; readonly harnessYaml: string }[];
+      }
     >
   | Msg<"fleet.device.sessions.revoke/v1">
   | Msg<"fleet.device.sessions.revoked/v1", { inReplyTo: string }>
@@ -638,14 +645,14 @@ const docChange = shape({ path: logicalPath, baseBlobSha256: nullable(sha64), po
 const common = { schema: text, messageId: id } as const,
   reply = { ...common, inReplyTo: id } as const;
 const schemas: Readonly<Record<string, Check>> = {
-  "fleet.edge.join/v1": shape({ ...common, inviteToken: text, nodeId: id }),
+  "fleet.edge.join/v1": shape({ ...common, joinId: id, inviteToken: text }),
   "fleet.edge.join.result/v1": shape({
     ...reply,
+    joinId: id,
     nodeId: id,
     personId: id,
     credential: text,
-    repoId: id,
-    harnessYaml: bodyText,
+    repositories: array(shape({ repoId: id, harnessYaml: bodyText }), 64),
   }),
   "fleet.device.sessions.revoke/v1": shape(common),
   "fleet.device.sessions.revoked/v1": shape(reply),

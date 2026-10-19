@@ -77,52 +77,65 @@ test("ha bootstrap routes managed lifecycle options to the daemon", () => {
   });
 });
 
-test("ha bootstrap exposes the center invitation and edge consume operations on the daemon route", () => {
-  const created = parseThinCommand(["bootstrap", "--operation", "edge-join-create", "--node-id", "edge-a"], "/repo");
+test("ha bootstrap exposes edge invitation, status, list, and revoke operations on the daemon route", () => {
+  const created = parseThinCommand(
+    [
+      "bootstrap",
+      "--operation",
+      "edge-join-create",
+      "--username",
+      "edge.operator",
+      "--email",
+      "edge@example.test",
+      "--display-name",
+      "Edge Operator",
+      "--person-id",
+      "person-edge",
+      "--join-repo",
+      "repo-a",
+      "--join-repo",
+      "repo-b",
+      "--join-group",
+      "contributor",
+    ],
+    "/repo",
+  );
   assert.equal(created.ok, true);
   if (created.ok) {
     assert.equal(created.command.method, "daemon.rbac.manage");
     assert.equal(created.command.action.operation, "edge-join-create");
-    assert.equal(created.command.action.nodeId, "edge-a");
-    assert.equal("centerUrl" in created.command.action, false);
+    assert.deepEqual(created.command.action.repoIds, ["repo-a", "repo-b"]);
+    assert.deepEqual(created.command.action.groupIds, ["contributor"]);
   }
-  const overridden = parseThinCommand(
-    ["bootstrap", "--operation", "edge-join-create", "--center-url", "https://center.test", "--node-id", "edge-a"],
-    "/repo",
-  );
-  assert.equal(overridden.ok, true);
-  if (overridden.ok) assert.equal(overridden.command.action.centerUrl, "https://center.test");
-  // The center reads its listening certificate itself; a hand-computed pin is no longer accepted.
-  assert.equal(
-    parseThinCommand(["bootstrap", "--operation", "edge-join-create", "--spki-sha256", "pin"], "/repo").ok,
-    false,
-  );
-  const consumed = parseThinCommand(
-    [
-      "bootstrap",
-      "--operation",
-      "edge-join-consume",
-      "--link",
-      "harness-edge://join/token",
-      "--observed-spki-sha256",
-      "pin",
-    ],
-    "/repo",
-  );
-  assert.equal(consumed.ok, true);
-  if (consumed.ok) assert.equal(consumed.command.method, "daemon.rbac.manage");
+  const listed = parseThinCommand(["bootstrap", "--operation", "edge-join-list"], "/repo");
+  assert.equal(listed.ok, true);
+  if (listed.ok) assert.equal(listed.command.action.operation, "edge-join-list");
+
+  const revoked = parseThinCommand(["bootstrap", "--operation", "edge-join-revoke", "--join-id", "join-123"], "/repo");
+  assert.equal(revoked.ok, true);
+  if (revoked.ok)
+    assert.deepEqual(revoked.command.action, {
+      kind: "rbac-bootstrap",
+      operation: "edge-join-revoke",
+      joinId: "join-123",
+    });
+
+  assert.equal(parseThinCommand(["bootstrap", "--operation", "edge-join-consume"], "/repo").ok, false);
 });
 
 test("ha edge join is one operation of the managed RBAC surface", () => {
-  const parsed = parseThinCommand(["edge", "join", "harness-edge://join/token"], "/edge");
+  const link = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEyMyJ9";
+  const parsed = parseThinCommand(["edge", "join", link], "/edge");
   assert.equal(parsed.ok, true);
   if (!parsed.ok) return;
   assert.equal(parsed.command.method, "daemon.rbac.manage");
   assert.deepEqual(parsed.command.action, {
     kind: "rbac-bootstrap",
     operation: "edge-join",
-    link: "harness-edge://join/token",
+    link,
   });
+
+  assert.equal(parseThinCommand(["edge", "join", link, "--repo-id", "repo-a"], "/edge").ok, false);
 });
 
 test("ha bootstrap parses one external Keycloak through the same command", () => {

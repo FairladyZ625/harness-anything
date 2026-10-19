@@ -119,23 +119,26 @@ export interface AccessSessionLifetimeReply {
   readonly maximumSeconds: number;
 }
 
-/** One signed edge invitation, in the closed form the daemon replies with. The link is the
- * encoded `harness-edge://join/…` string — the only place the token exists — so it crosses to
- * the renderer exactly once and is never present as a second struct copy. */
+/** One signed edge invitation. The daemon returns the pasteable link as a harness-edge URI string. */
 export interface EdgeJoinIssued {
   readonly joinId: string;
   readonly state: "pending";
-  readonly inviteLink: string;
+  readonly expiresAt: string;
+  readonly link: string;
 }
 
-/** `edge-join-status`: the invitation's state; answering never needs the link or its token. */
+/** Status contains no token or credential. */
 export interface EdgeJoinStatusReply {
-  readonly inviteId: string;
-  readonly status: "pending" | "consumed" | "expired";
+  readonly joinId: string;
+  readonly state: "pending" | "consumed" | "expired" | "revoked";
+  readonly nodeId?: string;
+}
+export interface EdgeJoinSummary extends EdgeJoinStatusReply {
   readonly personId: string;
-  readonly nodeId: string;
+  readonly repoIds: readonly string[];
+  readonly groupIds: readonly string[];
+  readonly createdAt: string;
   readonly expiresAt: string;
-  readonly consumedAt: string | null;
 }
 
 export interface AccessGroupWrite {
@@ -190,13 +193,20 @@ export type AccessAdminRequest = { readonly repoId?: string } & (
       readonly expectedVersion: string;
     }
   | {
-      /** Signs one edge invitation on the daemon's single-writer path; the daemon reads its own
-       * listener certificate to compute the pin, and the encoded link is shown once. */
+      /** Creates the invited Keycloak user, multi-repository grants and one-time pinned link on the daemon writer. */
       readonly operation: "edge-join-create";
-      readonly nodeId: string;
-      readonly centerUrl?: string;
+      readonly username: string;
+      readonly email: string;
+      readonly displayName: string;
+      readonly personId: string;
+      readonly repoIds: readonly string[];
+      readonly groupIds: readonly string[];
+      readonly nodeLabel?: string;
+      readonly platform?: "darwin" | "linux";
     }
-  | { readonly operation: "edge-join-status"; readonly inviteId: string }
+  | { readonly operation: "edge-join-status"; readonly joinId: string }
+  | { readonly operation: "edge-join-list" }
+  | { readonly operation: "edge-join-revoke"; readonly joinId: string }
 );
 
 export interface AccessDevice {
@@ -268,6 +278,17 @@ export interface AccessAdminApi {
     readonly sessionLifetimeSeconds: number;
     readonly expectedVersion: string;
   }) => Reply<AccessReceipt>;
-  readonly issueEdgeJoin: (input: { readonly nodeId: string; readonly centerUrl?: string }) => Reply<EdgeJoinIssued>;
-  readonly edgeJoinStatus: (input: { readonly inviteId: string }) => Reply<EdgeJoinStatusReply>;
+  readonly issueEdgeJoin: (input: {
+    readonly username: string;
+    readonly email: string;
+    readonly displayName: string;
+    readonly personId: string;
+    readonly repoIds: readonly string[];
+    readonly groupIds: readonly string[];
+    readonly nodeLabel?: string;
+    readonly platform?: "darwin" | "linux";
+  }) => Reply<EdgeJoinIssued>;
+  readonly edgeJoinStatus: (input: { readonly joinId: string }) => Reply<EdgeJoinStatusReply>;
+  readonly edgeJoinList: () => Reply<{ readonly joins: readonly EdgeJoinSummary[] }>;
+  readonly revokeEdgeJoin: (input: { readonly joinId: string }) => Reply<EdgeJoinStatusReply>;
 }

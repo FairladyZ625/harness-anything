@@ -1,53 +1,76 @@
-import { createHash, randomBytes, randomUUID, X509Certificate } from "node:crypto";
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 
-export type EdgeJoinInviteStatus = "pending" | "consumed" | "expired";
-export interface EdgeJoinInviteLink {
-  readonly version: 2;
-  readonly centerUrl: string;
-  readonly inviteId: string;
-  readonly personId: string;
-  readonly nodeId: string;
+export type EdgeJoinState = "pending" | "consumed" | "expired" | "revoked";
+export interface EdgeJoinLink {
+  readonly version: 1;
+  readonly joinId: string;
+  readonly centerOrigin: string;
+  readonly repoIds: readonly string[];
   readonly spkiSha256: string;
-  readonly expiresAt: string;
-  readonly token: string;
-  readonly loginUrl?: string;
-  readonly loginRealm?: string;
-  readonly loginClientId?: string;
-  /** Public PEM certificate for the separate Keycloak listener used during first login. */
-  readonly loginCertificate?: string;
+  readonly token?: string;
+  readonly loginUrl: string;
+  readonly loginRealm: string;
+  readonly loginClientId: string;
 }
-export interface EdgeJoinInviteRecord extends EdgeJoinInviteLink {
-  readonly createdAt: string;
-  readonly consumedAt: string | null;
+export interface EdgeJoinPermissionSnapshot {
+  readonly groupId: string;
+  readonly version: string;
 }
-export interface EdgeJoinInviteStatusResult {
-  readonly inviteId: string;
-  readonly status: EdgeJoinInviteStatus;
+export interface EdgeJoinRecord {
+  readonly joinId: string;
+  readonly mode: "invitation";
   readonly personId: string;
-  readonly nodeId: string;
+  readonly repoIds: readonly string[];
+  readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
+  readonly tokenDigest: string;
+  readonly nodeLabel?: string;
+  readonly platform?: "darwin" | "linux";
+  readonly centerOrigin: string;
+  readonly spkiSha256: string;
+  readonly loginUrl: string;
+  readonly loginRealm: string;
+  readonly loginClientId: string;
   readonly expiresAt: string;
+  readonly createdAt: string;
+  readonly createdBy: string;
   readonly consumedAt: string | null;
+  readonly revokedAt: string | null;
+  readonly revokedBy?: string;
+  readonly nodeId?: string;
+}
+export interface EdgeJoinStatusResult {
+  readonly joinId: string;
+  readonly state: EdgeJoinState;
+  readonly nodeId?: string;
+}
+export interface EdgeJoinSummary extends EdgeJoinStatusResult {
+  readonly personId: string;
+  readonly repoIds: readonly string[];
+  readonly groupIds: readonly string[];
+  readonly createdAt: string;
+  readonly expiresAt: string;
 }
 export interface EdgeJoinStoreOptions {
-  readonly records?: readonly EdgeJoinInviteRecord[];
-  readonly onChange?: (record: EdgeJoinInviteRecord) => void;
+  readonly records?: readonly EdgeJoinRecord[];
+  readonly onChange?: (record: EdgeJoinRecord) => void;
   readonly now?: () => string;
   readonly randomToken?: () => string;
-}
-export interface ConsumeEdgeJoinOptions {
-  readonly link: string | EdgeJoinInviteLink;
-  readonly loginPersonId: string;
-  readonly observedSpkiSha256: string;
-  readonly allowSamePersonRetry?: boolean;
 }
 
 const LINK_PREFIX = "harness-edge://join/";
 const TOKEN_BYTES = 32;
 const isText = (value: unknown): value is string => typeof value === "string" && value.length > 0;
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
+const tokenDigest = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
 
 export class EdgeJoinError extends Error {
-  readonly code: "invalid_link" | "pin_mismatch" | "person_mismatch" | "expired" | "already_consumed";
+  readonly code:
+    | "edge_join_invalid"
+    | "pin_mismatch"
+    | "person_mismatch"
+    | "join_token_expired"
+    | "already_consumed"
+    | "join_revoked";
   constructor(code: EdgeJoinError["code"], message: string) {
     super(message);
     this.name = "EdgeJoinError";
@@ -55,103 +78,201 @@ export class EdgeJoinError extends Error {
   }
 }
 
-export function encodeEdgeJoinLink(link: EdgeJoinInviteLink): string {
+export function encodeEdgeJoinLink(link: EdgeJoinLink): string {
   return `${LINK_PREFIX}${Buffer.from(JSON.stringify(link), "utf8").toString("base64url")}`;
 }
 
-/** The pin an invitation carries and an edge verifies against the center's presented certificate:
- * one function computes it on both sides, so the formats can never drift apart. */
-export function spkiSha256Fingerprint(certificate: Buffer): string {
-  return `sha256:${createHash("sha256")
-    .update(new X509Certificate(certificate).publicKey.export({ type: "spki", format: "der" }))
-    .digest("base64")}`;
-}
-
-export function decodeEdgeJoinLink(value: string): EdgeJoinInviteLink {
+export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
   try {
     if (!value.startsWith(LINK_PREFIX)) throw new Error("prefix");
     const decoded: unknown = JSON.parse(Buffer.from(value.slice(LINK_PREFIX.length), "base64url").toString("utf8"));
+    if (typeof decoded !== "object" || decoded === null || Array.isArray(decoded)) throw new Error("shape");
+    const candidate = decoded as Record<string, unknown>,
+      centerOrigin = candidate.centerOrigin,
+      repoIds = candidate.repoIds,
+      loginUrl = candidate.loginUrl;
     if (
-      typeof decoded !== "object" ||
-      decoded === null ||
-      (decoded as { version?: unknown }).version !== 2 ||
-      !["centerUrl", "inviteId", "personId", "nodeId", "spkiSha256", "expiresAt", "token"].every((key) =>
-        isText((decoded as Record<string, unknown>)[key]),
+      candidate.version !== 1 ||
+      !isText(candidate.joinId) ||
+      !isText(centerOrigin) ||
+      !Array.isArray(repoIds) ||
+      repoIds.length === 0 ||
+      repoIds.some((repoId) => typeof repoId !== "string" || !/^[a-z][a-z0-9-]{0,62}$/u.test(repoId)) ||
+      new Set(repoIds).size !== repoIds.length ||
+      !/^[0-9a-f]{64}$/u.test(String(candidate.spkiSha256)) ||
+      (candidate.token !== undefined && !isText(candidate.token)) ||
+      !isText(loginUrl) ||
+      !isText(candidate.loginRealm) ||
+      !isText(candidate.loginClientId) ||
+      Object.keys(candidate).some(
+        (key) =>
+          ![
+            "version",
+            "joinId",
+            "centerOrigin",
+            "repoIds",
+            "spkiSha256",
+            "token",
+            "loginUrl",
+            "loginRealm",
+            "loginClientId",
+          ].includes(key),
       )
     )
       throw new Error("shape");
-    return decoded as EdgeJoinInviteLink;
+    const center = new URL(centerOrigin),
+      login = new URL(loginUrl);
+    if (
+      center.protocol !== "https:" ||
+      center.origin !== centerOrigin ||
+      center.username !== "" ||
+      center.password !== "" ||
+      login.protocol !== "https:" ||
+      login.username !== "" ||
+      login.password !== ""
+    )
+      throw new Error("login URL");
+    return {
+      version: 1,
+      joinId: candidate.joinId as string,
+      centerOrigin,
+      repoIds: repoIds as string[],
+      spkiSha256: candidate.spkiSha256 as string,
+      ...(candidate.token ? { token: candidate.token as string } : {}),
+      loginUrl: login.toString().replace(/\/$/u, ""),
+      loginRealm: candidate.loginRealm as string,
+      loginClientId: candidate.loginClientId as string,
+    };
   } catch {
-    throw new EdgeJoinError("invalid_link", "The edge join link is invalid.");
+    throw new EdgeJoinError("edge_join_invalid", "The edge join link is invalid.");
   }
 }
 
 export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
   const now = options.now ?? (() => new Date().toISOString());
   const token = options.randomToken ?? (() => randomBytes(TOKEN_BYTES).toString("base64url"));
-  const records = new Map<string, EdgeJoinInviteRecord>(
-    options.records?.map((record) => [record.inviteId, clone(record)]) ?? [],
+  const records = new Map<string, EdgeJoinRecord>(
+    options.records?.map((record) => [record.joinId, clone(record)]) ?? [],
   );
-  const status = (record: EdgeJoinInviteRecord): EdgeJoinInviteStatus =>
-    record.consumedAt ? "consumed" : Date.parse(now()) >= Date.parse(record.expiresAt) ? "expired" : "pending";
+  const state = (record: EdgeJoinRecord): EdgeJoinState =>
+    record.consumedAt
+      ? "consumed"
+      : record.revokedAt
+        ? "revoked"
+        : Date.parse(now()) >= Date.parse(record.expiresAt)
+          ? "expired"
+          : "pending";
   return {
     create(
-      input: Omit<EdgeJoinInviteLink, "version" | "inviteId" | "token" | "expiresAt"> & { readonly ttlMs: number },
-    ): EdgeJoinInviteLink {
+      input: Omit<EdgeJoinLink, "version" | "joinId" | "token" | "expiresAt"> & {
+        readonly personId: string;
+        readonly repoIds: readonly string[];
+        readonly permissionSnapshot: readonly EdgeJoinPermissionSnapshot[];
+        readonly nodeLabel?: string;
+        readonly platform?: "darwin" | "linux";
+        readonly createdBy: string;
+        readonly ttlMs: number;
+      },
+    ): { readonly record: EdgeJoinRecord; readonly link: EdgeJoinLink } {
       if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
-      const createdAt = now();
-      const link: EdgeJoinInviteLink = {
-        version: 2,
-        centerUrl: input.centerUrl,
-        inviteId: randomUUID(),
-        personId: input.personId,
-        nodeId: input.nodeId,
-        spkiSha256: input.spkiSha256,
-        expiresAt: new Date(Date.parse(createdAt) + input.ttlMs).toISOString(),
-        token: token(),
-        ...(input.loginUrl ? { loginUrl: input.loginUrl } : {}),
-        ...(input.loginRealm ? { loginRealm: input.loginRealm } : {}),
-        ...(input.loginClientId ? { loginClientId: input.loginClientId } : {}),
-        ...(input.loginCertificate ? { loginCertificate: input.loginCertificate } : {}),
-      };
-      records.set(link.inviteId, { ...link, createdAt, consumedAt: null });
-      options.onChange?.(records.get(link.inviteId)!);
-      return clone(link);
+      const createdAt = now(),
+        rawToken = token(),
+        record: EdgeJoinRecord = {
+          joinId: randomUUID(),
+          mode: "invitation",
+          personId: input.personId,
+          repoIds: [...input.repoIds],
+          permissionSnapshot: clone(input.permissionSnapshot),
+          tokenDigest: tokenDigest(rawToken).toString("hex"),
+          ...(input.nodeLabel ? { nodeLabel: input.nodeLabel } : {}),
+          ...(input.platform ? { platform: input.platform } : {}),
+          centerOrigin: input.centerOrigin,
+          spkiSha256: input.spkiSha256,
+          loginUrl: input.loginUrl,
+          loginRealm: input.loginRealm,
+          loginClientId: input.loginClientId,
+          expiresAt: new Date(Date.parse(createdAt) + input.ttlMs).toISOString(),
+          createdAt,
+          createdBy: input.createdBy,
+          consumedAt: null,
+          revokedAt: null,
+        },
+        link: EdgeJoinLink = {
+          version: 1,
+          joinId: record.joinId,
+          centerOrigin: record.centerOrigin,
+          repoIds: record.repoIds,
+          spkiSha256: record.spkiSha256,
+          token: rawToken,
+          loginUrl: record.loginUrl,
+          loginRealm: record.loginRealm,
+          loginClientId: record.loginClientId,
+        };
+      records.set(record.joinId, record);
+      options.onChange?.(clone(record));
+      return { record: clone(record), link };
     },
-    consume(input: ConsumeEdgeJoinOptions): EdgeJoinInviteRecord {
-      const link = typeof input.link === "string" ? decodeEdgeJoinLink(input.link) : input.link;
-      const record = records.get(link.inviteId);
-      if (!record || record.token !== link.token)
-        throw new EdgeJoinError("invalid_link", "The edge join link is invalid.");
-      if (record.spkiSha256 !== input.observedSpkiSha256)
-        throw new EdgeJoinError("pin_mismatch", "The center certificate fingerprint does not match the invitation.");
-      if (status(record) === "expired") throw new EdgeJoinError("expired", "The edge join invitation has expired.");
-      if (record.personId !== input.loginPersonId)
-        throw new EdgeJoinError("person_mismatch", "The signed-in person does not match the invitation.");
-      if (status(record) === "consumed") {
-        if (input.allowSamePersonRetry) return clone(record);
+    get(joinId: string): EdgeJoinRecord | undefined {
+      const record = records.get(joinId);
+      return record ? clone(record) : undefined;
+    },
+    assertConsumable(joinId: string, suppliedToken: string): EdgeJoinRecord {
+      const record = records.get(joinId);
+      if (!record || !isText(suppliedToken))
+        throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+      const expected = Buffer.from(record.tokenDigest, "hex"),
+        actual = tokenDigest(suppliedToken);
+      if (expected.length !== actual.length || !timingSafeEqual(expected, actual))
+        throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+      if (state(record) === "expired")
+        throw new EdgeJoinError("join_token_expired", "The edge join invitation has expired.");
+      if (state(record) === "revoked") throw new EdgeJoinError("join_revoked", "The edge join invitation was revoked.");
+      if (state(record) === "consumed")
         throw new EdgeJoinError("already_consumed", "The edge join invitation was already consumed.");
-      }
-      const consumed = { ...record, consumedAt: now() };
-      records.set(record.inviteId, consumed);
-      options.onChange?.(consumed);
+      return clone(record);
+    },
+    consume(joinId: string, suppliedToken: string, nodeId: string): EdgeJoinRecord {
+      const record = this.assertConsumable(joinId, suppliedToken),
+        consumed = { ...record, consumedAt: now(), nodeId };
+      records.set(joinId, consumed);
+      options.onChange?.(clone(consumed));
       return clone(consumed);
     },
-    status(inviteId: string): EdgeJoinInviteStatusResult {
-      const record = records.get(inviteId);
-      if (!record) throw new EdgeJoinError("invalid_link", "The edge join invitation is invalid.");
+    revoke(joinId: string, actorPersonId: string): EdgeJoinRecord {
+      const record = records.get(joinId);
+      if (!record) throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
+      if (state(record) !== "pending")
+        throw new EdgeJoinError(
+          "edge_join_invalid",
+          `Only pending invitations can be revoked (state: ${state(record)}).`,
+        );
+      const revoked = { ...record, revokedAt: now(), revokedBy: actorPersonId };
+      records.set(joinId, revoked);
+      options.onChange?.(clone(revoked));
+      return clone(revoked);
+    },
+    status(joinId: string): EdgeJoinStatusResult {
+      const record = records.get(joinId);
+      if (!record) throw new EdgeJoinError("edge_join_invalid", "The edge join invitation is invalid.");
       return {
-        inviteId,
-        status: status(record),
-        personId: record.personId,
-        nodeId: record.nodeId,
-        expiresAt: record.expiresAt,
-        consumedAt: record.consumedAt,
+        joinId,
+        state: state(record),
+        ...(record.nodeId ? { nodeId: record.nodeId } : {}),
       };
     },
-    findByToken(tokenValue: string): EdgeJoinInviteRecord | undefined {
-      for (const record of records.values()) if (record.token === tokenValue) return clone(record);
-      return undefined;
+    list(): readonly EdgeJoinSummary[] {
+      return [...records.values()].map(
+        (record): EdgeJoinSummary => ({
+          joinId: record.joinId,
+          state: state(record),
+          ...(record.nodeId ? { nodeId: record.nodeId } : {}),
+          personId: record.personId,
+          repoIds: [...record.repoIds],
+          groupIds: record.permissionSnapshot.map(({ groupId }) => groupId),
+          createdAt: record.createdAt,
+          expiresAt: record.expiresAt,
+        }),
+      );
     },
   };
 }

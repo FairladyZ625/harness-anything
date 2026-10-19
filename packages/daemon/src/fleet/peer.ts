@@ -1,9 +1,8 @@
 // dec_9284BD6119D453EEECEED62450: authenticated command transport; replication uses its own stream.
 import { uploadFleetChange } from "./upload-client.ts";
 import { connect, type TLSSocket } from "node:tls";
-import { X509Certificate } from "node:crypto";
+import { createHash, X509Certificate } from "node:crypto";
 import { randomUUID } from "node:crypto";
-import { spkiSha256Fingerprint } from "./edge-join.ts";
 import { once } from "node:events";
 import { existsSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
@@ -736,7 +735,7 @@ export async function requestFleetEdgeJoinPinned(options: {
   readonly hostname: string;
   readonly port: number;
   readonly servername?: string;
-  readonly nodeId: string;
+  readonly joinId: string;
   readonly inviteToken: string;
   readonly accessToken: string;
   readonly spkiSha256: string;
@@ -758,19 +757,22 @@ export async function requestFleetEdgeJoinPinned(options: {
     const peer = socket.getPeerCertificate(true);
     if (!peer.raw)
       throw Object.assign(new Error("The center did not present a certificate."), { code: "pin_mismatch" });
-    if (spkiSha256Fingerprint(peer.raw) !== options.spkiSha256)
+    const pin = createHash("sha256")
+      .update(new X509Certificate(peer.raw).publicKey.export({ type: "spki", format: "der" }))
+      .digest("hex");
+    if (pin !== options.spkiSha256)
       throw Object.assign(new Error("The center certificate fingerprint does not match the invitation."), {
         code: "pin_mismatch",
       });
     const response = await new Promise<Extract<FleetFrameV1, { schema: "fleet.edge.join.result/v1" }>>(
       (resolve, reject) => {
         const peerState = peerFor(socket, options.timeoutMs ?? 10_000);
-        const messageId = `${options.nodeId}_${Date.now().toString(36)}`;
+        const messageId = `${options.joinId}_join`;
         socket.write(
           serializeFleetFrame({
             schema: "fleet.edge.join/v1",
             messageId,
-            nodeId: options.nodeId,
+            joinId: options.joinId,
             inviteToken: options.inviteToken,
             accessToken: options.accessToken,
           }),

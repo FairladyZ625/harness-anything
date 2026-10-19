@@ -159,7 +159,19 @@ export function RepositoriesAndConnectionsView({
               return (
                 <AddLocalRepositoryPanel repos={node.repos} onOpenProject={onOpenProject} activeRepoId={activeRepoId} />
               );
-            if (node.nodeId === "center") return <CenterConnectionPanel connections={connections} repos={node.repos} />;
+            if (node.nodeId === "center")
+              return (
+                <CenterConnectionPanel
+                  connections={connections}
+                  repos={node.repos}
+                  invitationRepos={repos.filter(
+                    (repo) =>
+                      repo.registrationState === "enabled" &&
+                      repo.canonicalRoot !== null &&
+                      repo.mode !== "remote-proxy",
+                  )}
+                />
+              );
             return (
               <ConnectionDetailPanel
                 mode="edit"
@@ -178,14 +190,16 @@ export function RepositoriesAndConnectionsView({
 
 /**
  * 中心连接面板(设计稿 §3.2):只读展示既有 fleet 配置摘要 + CLI 提示,无 CRUD;
- * 「邀请边缘节点」在摘要下签发一次性入网邀请(daemon edge-join-create,GUI 不另写签发)。
+ * 中心摘要下复用 daemon access-admin typed 方法签发、查询和撤销多仓邀请。
  */
 function CenterConnectionPanel({
   connections,
   repos,
+  invitationRepos,
 }: {
   readonly connections: ReadonlyArray<{ readonly id: string; readonly kind: string; readonly displayName: string }>;
   readonly repos: readonly SystemRepoRow[];
+  readonly invitationRepos: readonly SystemRepoRow[];
 }) {
   const centers = connections.filter((connection) => connection.kind === "fleet-center");
   return (
@@ -219,7 +233,7 @@ function CenterConnectionPanel({
           {t("views.repositories.centerCliHint")}
         </pre>
       </section>
-      <EdgeInvitePanel />
+      <EdgeInvitePanel repos={invitationRepos} />
     </div>
   );
 }

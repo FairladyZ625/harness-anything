@@ -282,6 +282,8 @@ export function fakeKeycloak() {
       users.set(user.id, user);
       return new Response(null, { status: 201, headers: { location: `${keycloakUrl}/users/${user.id}` } });
     }
+    if (/^\/users\/[^/]+\/execute-actions-email$/u.test(route) && method === "PUT")
+      return new Response(null, { status: 204 });
     if (route.endsWith("/role-mappings/realm")) {
       for (const role of body as unknown as Named[]) realmRoles.get(role.name)?.members.add(route.split("/")[2]!);
       return new Response(null, { status: 204 });
@@ -536,6 +538,8 @@ export async function serveKeycloak(): Promise<{
           });
         response.statusCode = answer.status;
         response.setHeader("content-type", "application/json");
+        const location = answer.headers.get("location");
+        if (location) response.setHeader("location", location);
         response.end(await answer.text());
       })().catch((error: unknown) => {
         response.statusCode = 500;

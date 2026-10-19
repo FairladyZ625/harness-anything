@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import {
   actionDeclarations,
@@ -23,9 +22,9 @@ import {
   reserveCredentialFile,
 } from "./managed-rbac-service.ts";
 import type { OidcSessionService } from "./oidc-session-service.ts";
-import { admitEdgeJoin, restoreEdgeJoinStore } from "./fleet/edge-join-admission.ts";
 import { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
-import { createEdgeJoinStore, encodeEdgeJoinLink, spkiSha256Fingerprint } from "./fleet/edge-join.ts";
+import { EdgeJoinAdminService } from "./access-admin-edge-join.ts";
+import { coded, names, requiredUserId, text, uniqueSorted } from "./access-admin-utils.ts";
 export { type AccessAdminOperation, type AccessAdminPorts, type AccessAdminRequest } from "./access-admin-contract.ts";
 /** What Keycloak must show once an operation took effect; reconciliation observes exactly this. */
 type Expectation =
@@ -93,7 +92,7 @@ export class AccessAdminService {
   readonly #oidc: OidcSessionService;
   readonly #ports: AccessAdminPorts;
   readonly #permissionRequests: ReturnType<typeof managedPermissionRequestStore>;
-  readonly #edgeJoins: ReturnType<typeof createEdgeJoinStore>;
+  readonly #edgeJoinAdmin: EdgeJoinAdminService;
 
   constructor(oidc: OidcSessionService, userRoot: string, ports: Partial<AccessAdminPorts> = {}) {
     this.#oidc = oidc;
@@ -104,47 +103,26 @@ export class AccessAdminService {
       journal: managedRbacReceiptJournal(userRoot),
       ...ports,
     };
-    this.#edgeJoins = restoreEdgeJoinStore(this.#ports.journal);
+    this.#edgeJoinAdmin = new EdgeJoinAdminService({
+      oidc,
+      userRoot,
+      daemonId: this.#ports.daemonId ?? "default",
+      now: this.#ports.now,
+      journal: this.#ports.journal,
+      session: () => this.#session(),
+    });
   }
 
   /** Pre-session admission used only by the fleet edge.join frame. The whole invite/node write is
    * serialized by the OIDC writer, and the machine credential is returned only to this caller. */
-  async admitEdgeJoin(input: { readonly inviteToken: string; readonly nodeId: string; readonly accessToken: string }) {
-    return admitEdgeJoin({
-      ...input,
-      oidc: this.#oidc,
-      edgeJoins: this.#edgeJoins,
-      registerNode: async (invite) => {
-        const session = await this.#session();
-        const current = await session.adapter.readNode(session.token, invite.nodeId);
-        if (current && current.personId !== invite.personId)
-          throw coded("person_mismatch", "The invitation is owned by another person.");
-        const credential = randomBytes(32).toString("base64url");
-        if (current)
-          await session.adapter.rotateNodeCredential(
-            session.token,
-            { ...current, revision: current.revision + 1 },
-            credential,
-          );
-        else
-          await session.adapter.createNode(
-            session.token,
-            {
-              nodeId: invite.nodeId,
-              personId: invite.personId,
-              registeredAt: this.#ports.now(),
-            },
-            credential,
-          );
-        return credential;
-      },
-    });
+  async admitEdgeJoin(input: { readonly joinId: string; readonly inviteToken: string; readonly accessToken: string }) {
+    return this.#edgeJoinAdmin.admit(input);
   }
 
   async run(request: AccessAdminRequest, requester?: string): Promise<Record<string, unknown>> {
     if (request.operation === "permission-request-create" && requester !== undefined)
       return this.#createPermissionRequest(request, requester);
-    const ownDevices = request.operation?.startsWith("device-") === true || request.operation === "edge-join-consume",
+    const ownDevices = request.operation?.startsWith("device-") === true,
       publicRequest =
         request.operation === "permission-request-create" || request.operation === "permission-request-withdraw",
       actor = (
@@ -195,48 +173,17 @@ export class AccessAdminService {
         return this.#mutate(request, actor, (session) => this.#planNodeRegistration(session, request));
       case "node-unregister":
         return this.#mutate(request, actor, (session) => this.#planNodeRemoval(session, request));
-      case "edge-join-create": {
-        return this.#oidc.serialize(async () => {
-          // The invitation pins the certificate this daemon's fleet listener actually serves, so the
-          // operator never hand-computes a fingerprint; the pin check lives at the edge (peer.ts).
-          const listener = this.#ports.readFleetCenterConfig?.() ?? null;
-          if (!listener)
-            throw coded(
-              "fleet_center_unavailable",
-              "No fleet center listener is configured on this daemon; start one before issuing an edge invitation.",
-            );
-          const login = await this.#oidc.interactiveAuthority();
-          const link = this.#edgeJoins.create({
-            centerUrl: request.centerUrl ?? `https://${listener.bind}:${listener.port}`,
-            personId: actor,
-            nodeId: text(request.nodeId, "nodeId"),
-            spkiSha256: spkiSha256Fingerprint(readFileSync(listener.certPath)),
-            ttlMs: request.ttlMs ?? 72 * 60 * 60 * 1000,
-            loginUrl: login.url,
-            loginRealm: login.realm,
-            loginClientId: login.clientId,
-            ...(login.certificate ? { loginCertificate: login.certificate } : {}),
-          });
-          // The encoded link is the one shape the receipt carries; the invite object itself (with its
-          // token) stays in the store, and no log line repeats it.
-          return { ok: true, link: encodeEdgeJoinLink(link), joinId: link.inviteId, state: "pending" };
-        });
-      }
-      case "edge-join-consume": {
-        return this.#oidc.serialize(async () => {
-          const consumed = this.#edgeJoins.consume({
-            link: text(request.link, "link"),
-            loginPersonId: text(request.loginPersonId ?? actor, "loginPersonId"),
-            observedSpkiSha256: text(request.observedSpkiSha256, "observedSpkiSha256"),
-          });
-          return { ok: true, joinId: consumed.inviteId, state: "consumed", nodeId: consumed.nodeId };
-        });
-      }
+      case "edge-join-create":
+        return this.#oidc.serialize(() => this.#edgeJoinAdmin.create(request, actor));
       case "edge-join-status":
         return this.#oidc.serialize(async () => ({
           ok: true,
-          ...this.#edgeJoins.status(text(request.inviteId, "inviteId")),
+          ...this.#edgeJoinAdmin.status(text(request.joinId, "joinId")),
         }));
+      case "edge-join-list":
+        return this.#oidc.serialize(async () => ({ ok: true, joins: this.#edgeJoinAdmin.list() }));
+      case "edge-join-revoke":
+        return this.#oidc.serialize(async () => this.#edgeJoinAdmin.revoke(text(request.joinId, "joinId"), actor));
       case "receipt-reconcile":
         return this.#oidc.serialize(() => this.#reconcile(text(request.operationId, "operationId"), actor));
       case "group-create":
@@ -574,7 +521,7 @@ export class AccessAdminService {
     const byOperation = new Map<string, Readonly<Record<string, unknown>>>();
     for (const line of this.#ports.journal.read()) {
       const record = JSON.parse(line) as Readonly<Record<string, unknown>>;
-      if (record.schema === "harness-edge-join/v1") continue;
+      if (record.schema === "harness-edge-join/v1" || record.schema === "harness-edge-join/v2") continue;
       const operationId = String(record.operationId);
       byOperation.set(operationId, { ...byOperation.get(operationId), ...record });
     }
@@ -997,28 +944,6 @@ function canonicalResource(value: string | undefined): string {
   }
 }
 
-function uniqueSorted(values: readonly string[]): readonly string[] {
-  return [...new Set(values)].sort();
-}
-
-async function requiredUserId(adapter: KeycloakPolicyAdapter, token: string, personId: string): Promise<string> {
-  const userId = await adapter.findUserId(token, personId);
-  if (!userId) throw coded("access_person_unknown", `No Keycloak account carries Harness person ${personId}.`);
-  return userId;
-}
-
-function names(value: readonly unknown[] | undefined, field: string): readonly string[] | undefined {
-  if (value?.some((item) => typeof item !== "string"))
-    throw coded("access_request_invalid", `Access administration requires ${field} to list names.`);
-  return value as readonly string[] | undefined;
-}
-
-function text(value: string | undefined, field: string): string {
-  if (typeof value !== "string" || value.trim() === "")
-    throw coded("access_request_invalid", `Access administration requires ${field}.`);
-  return value;
-}
-
 function credentialReservation(file: string): ReturnType<typeof reserveCredentialFile> & { readonly file: string } {
   if (!path.isAbsolute(file))
     throw coded("credential_file_unavailable", `The credential file must be an absolute path; got ${file}.`);
@@ -1047,10 +972,6 @@ function unsettled(operationId: string): Error {
     "access_receipt_unsettled",
     `Operation ${operationId} reached Keycloak without a settled receipt; reconcile it by operationId instead of repeating it.`,
   );
-}
-
-function coded(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
 }
 
 function teamVersion(name: string, members: readonly string[]): string {

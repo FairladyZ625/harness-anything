@@ -749,8 +749,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
   // A node removal settles in the access-admin queue; the fleet center owns the node's
   // live TLS sessions, so the settled cut is handed from one to the other here.
   const accessAdmin = new AccessAdminService(oidc, input.userRoot, {
+    daemonId: input.daemonId,
     onNodeRemoved: (nodeId) => hostContext.fleetCenter?.disconnectNode(nodeId),
-    readFleetCenterConfig: () => readFleetCenterConfig(input.userRoot, input.daemonId),
   });
   accessAdminRef.current = accessAdmin;
   const lifecycle = createDaemonHostLifecycleApi(hostContext);
@@ -1004,8 +1004,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
             verifyHuman: (auth) => oidc.bind(auth),
             edgeJoin: (input) =>
               accessAdmin.admitEdgeJoin({
+                joinId: input.joinId,
                 inviteToken: input.inviteToken,
-                nodeId: input.nodeId,
                 accessToken: input.accessToken ?? "",
               }),
           },

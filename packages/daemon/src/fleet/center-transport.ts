@@ -228,8 +228,8 @@ export async function serve(
         if (frame.schema === "fleet.edge.join/v1") {
           if (!options.edgeJoin) throw new FleetFault("edge_join_unavailable", "Edge join is unavailable.");
           const admitted = await options.edgeJoin({
+            joinId: frame.joinId,
             inviteToken: frame.inviteToken,
-            nodeId: frame.nodeId,
             accessToken: frame.accessToken,
           });
           await enqueue(

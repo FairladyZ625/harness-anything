@@ -7,14 +7,6 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 import { EdgeInvitePanel } from "../src/renderer/views/settings/EdgeInvitePanel.tsx";
 
-/**
- * 「邀请边缘节点」面板(task gui-edge-invite)的行为判据:
- * ①签发 = 节点名(+可选中心地址)直达 access 通道的 edge-join-create,回执链接显示一次,
- *   有效期来自状态回执;指纹没有输入位,由 daemon 读自己的监听证书钉住;
- * ②「完成」后链接从 DOM 与内存消失,行只剩 joinId 侧事实与状态——链接不可再取出;
- * ③状态按 inviteId 轮询,pending → consumed 变化如实呈现,终态后不再发请求;
- * ④拒绝按 access 面口径显示说明;复制走隔离的模拟剪贴板断言(不动系统剪贴板)。
- */
 vi.mock("motion/react", async (original) => {
   const actual = await original<typeof import("motion/react")>();
   return {
@@ -25,26 +17,37 @@ vi.mock("motion/react", async (original) => {
   };
 });
 
-const LINK = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJjZW50ZXJVcmwiOiJodHRwczovL2NlbnRlci50ZXN0In0";
+const LINK = "harness-edge://join/eyJ2ZXJzaW9uIjoxLCJqb2luSWQiOiJqb2luLTEiLCJ0b2tlbiI6Im9wYXF1ZS10b2tlbiJ9";
+const REPOS = [{ repoId: "repo-a" }, { repoId: "repo-b" }] as const;
+const GROUPS = [
+  { id: "viewer", displayName: "Viewer", effectiveScopes: ["repo-read"], version: "viewer-v1" },
+  {
+    id: "contributor",
+    displayName: "Contributor",
+    effectiveScopes: ["repo-read", "task-create"],
+    version: "contributor-v1",
+  },
+] as const;
 
-function issuedReply(inviteId = "invite-1") {
+function issuedReply(joinId = "join-1") {
   return {
     ok: true,
-    joinId: inviteId,
+    joinId,
     state: "pending",
+    expiresAt: "2026-10-21T00:00:00.000Z",
     link: LINK,
   };
 }
 
-function statusReply(inviteId: string, status: "pending" | "consumed" | "expired") {
+function join(state: "pending" | "consumed" | "expired" | "revoked" = "pending") {
   return {
-    ok: true,
-    inviteId,
-    status,
+    joinId: "join-1",
+    state,
     personId: "person-gui",
-    nodeId: "edge-a",
+    repoIds: ["repo-a", "repo-b"],
+    groupIds: ["contributor"],
+    createdAt: "2026-10-18T00:00:00.000Z",
     expiresAt: "2026-10-21T00:00:00.000Z",
-    consumedAt: status === "consumed" ? "2026-10-18T12:00:00.000Z" : null,
   };
 }
 
@@ -68,38 +71,39 @@ afterEach(() => {
 interface Harness {
   readonly container: HTMLElement;
   readonly issue: ReturnType<typeof vi.fn>;
-  readonly status: ReturnType<typeof vi.fn>;
+  readonly list: ReturnType<typeof vi.fn>;
+  readonly revoke: ReturnType<typeof vi.fn>;
 }
 
-async function mountPanel(
-  options: {
-    readonly issueResult?: unknown;
-    readonly statusResults?: readonly unknown[];
-  } = {},
-): Promise<Harness> {
-  const statusQueue = [...(options.statusResults ?? [statusReply("invite-1", "pending")])];
-  const issue =
+async function mountPanel(options: { readonly issueResult?: unknown; readonly listResults?: readonly unknown[] } = {}) {
+  const listQueue = [...(options.listResults ?? [{ ok: true, joins: [join()] }])],
+    issue =
       options.issueResult === undefined ? vi.fn(async () => issuedReply()) : vi.fn(async () => options.issueResult),
-    // 逐次出队,队尾保留:前 N 次按脚本回,之后永远回最后一个。
-    status = vi.fn(async () => (statusQueue.length > 1 ? statusQueue.shift()! : statusQueue[0]));
-  // CopyContextButton 收尾用 window.setTimeout;整替 window 时按仓库 settle 习惯给回宏任务入口。
+    list = vi.fn(async () => (listQueue.length > 1 ? listQueue.shift()! : listQueue[0])),
+    revoke = vi.fn(async () => ({ ok: true, joinId: "join-1", state: "revoked" }));
   vi.stubGlobal("window", {
     setTimeout: (handler: TimerHandler, ms?: number) => globalThis.setTimeout(handler, ms),
-    harness: { access: { issueEdgeJoin: issue, edgeJoinStatus: status } },
+    harness: {
+      access: {
+        groups: async () => ({ ok: true, groups: GROUPS, actions: [] }),
+        issueEdgeJoin: issue,
+        edgeJoinList: list,
+        revokeEdgeJoin: revoke,
+      },
+    },
   });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  const container = document.createElement("div");
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+    container = document.createElement("div"),
+    root = createRoot(container);
   document.body.append(container);
-  const root = createRoot(container);
   mounted.push({ root, container });
   await act(async () => {
-    root.render(createElement(QueryClientProvider, { client }, createElement(EdgeInvitePanel)));
+    root.render(createElement(QueryClientProvider, { client }, createElement(EdgeInvitePanel, { repos: REPOS })));
   });
   await settle();
-  return { container, issue, status };
+  return { container, issue, list, revoke } satisfies Harness;
 }
 
-/** 一次宏任务刷新(page-regions 的 settle 习惯):真时钟走 setTimeout(0),假时钟走时间推进。 */
 let flushMacrotask: () => Promise<void> = async () => {
   await new Promise((resolve) => globalThis.setTimeout(resolve, 0));
 };
@@ -121,57 +125,68 @@ async function fill(container: HTMLElement, testId: string, value: string): Prom
   });
 }
 
+async function check(container: HTMLElement, testId: string): Promise<void> {
+  const input = container.querySelector<HTMLInputElement>(`[data-testid="${testId}"]`);
+  expect(input, `${testId} not rendered`).not.toBeNull();
+  await act(async () => {
+    input!.click();
+  });
+}
+
 async function click(container: HTMLElement, testId: string): Promise<void> {
   const button = container.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
-  expect(button).not.toBeNull();
-  await act(async () => {
-    button!.click();
-  });
+  expect(button, `${testId} not rendered`).not.toBeNull();
+  await act(async () => button!.click());
   await settle();
 }
 
+async function fillInvite(container: HTMLElement): Promise<void> {
+  await fill(container, "edge-invite-person-id", "person-gui");
+  await fill(container, "edge-invite-username", "edge.operator");
+  await fill(container, "edge-invite-email", "edge@example.test");
+  await fill(container, "edge-invite-display-name", "Edge Operator");
+  await fill(container, "edge-invite-node-label", "edge-boston");
+  await check(container, "edge-invite-repo-repo-a");
+  await check(container, "edge-invite-repo-repo-b");
+  await check(container, "edge-invite-group-contributor");
+}
+
 describe("EdgeInvitePanel", () => {
-  it("issues through the access bridge, shows the link once; expiry arrives with the status", async () => {
-    const { container, issue, status } = await mountPanel();
-    await fill(container, "edge-invite-node-id", "edge-a");
-    await fill(container, "edge-invite-center-url", "https://center.test");
+  it("loads effective permission groups and issues one multi-repository invitation", async () => {
+    const { container, issue, list } = await mountPanel();
+    expect(container.textContent).toContain("Contributor");
+    expect(container.textContent).toContain("repo-a");
+    expect(container.textContent).toContain("repo-b");
+    await fillInvite(container);
     await click(container, "edge-invite-issue");
-    expect(issue).toHaveBeenCalledWith({ nodeId: "edge-a", centerUrl: "https://center.test" });
-    const link = container.querySelector('[data-testid="edge-invite-link-edge-a"]');
-    expect(link).not.toBeNull();
-    expect(link!.textContent).toContain(LINK);
+    expect(issue).toHaveBeenCalledWith({
+      personId: "person-gui",
+      username: "edge.operator",
+      email: "edge@example.test",
+      displayName: "Edge Operator",
+      repoIds: ["repo-a", "repo-b"],
+      groupIds: ["contributor"],
+      nodeLabel: "edge-boston",
+    });
+    expect(container.querySelector('[data-testid="edge-invite-issued"]')?.textContent).toContain(LINK);
     expect(container.textContent).toContain("2026-10-21");
-    expect(status).toHaveBeenCalledWith({ inviteId: "invite-1" });
+    expect(list).toHaveBeenCalled();
     expect(container.textContent).toContain("Pending");
   });
 
-  it("issues with an empty center address: the daemon derives it from its listener", async () => {
-    const { container, issue } = await mountPanel();
-    await fill(container, "edge-invite-node-id", "edge-a");
-    await click(container, "edge-invite-issue");
-    expect(issue).toHaveBeenCalledWith({ nodeId: "edge-a" });
-    expect(container.querySelector('[data-testid="edge-invite-link-edge-a"]')).not.toBeNull();
-  });
-
-  it("drops the link on Done: the row survives by joinId facts only, the link is gone for good", async () => {
+  it("hides the one-time link on Done while retaining sanitized audit facts", async () => {
     const { container } = await mountPanel();
-    await fill(container, "edge-invite-node-id", "edge-a");
-    await fill(container, "edge-invite-center-url", "https://center.test");
+    await fillInvite(container);
     await click(container, "edge-invite-issue");
-    expect(container.querySelector('[data-testid="edge-invite-link-edge-a"]')).not.toBeNull();
-    await click(container, "edge-invite-done-edge-a");
-    expect(container.querySelector('[data-testid="edge-invite-link-edge-a"]')).toBeNull();
+    expect(container.textContent).toContain(LINK);
+    await click(container, "edge-invite-done");
     expect(container.textContent).not.toContain(LINK);
-    expect(container.querySelector('[data-testid="edge-invite-row-edge-a"]')).not.toBeNull();
-    // The center address stays for the next invitation in the same session; only the node name resets.
-    expect(container.querySelector<HTMLInputElement>('[data-testid="edge-invite-node-id"]')!.value).toBe("");
-    expect(container.querySelector<HTMLInputElement>('[data-testid="edge-invite-center-url"]')!.value).toBe(
-      "https://center.test",
-    );
+    expect(container.textContent).toContain("person-gui");
+    expect(container.textContent).toContain("repo-a, repo-b");
+    expect(container.textContent).toContain("contributor");
   });
 
-  it("shows the pending → consumed transition and stops polling at a terminal state", async () => {
-    // 假时钟推进区间取数;React 的渲染调度走 MessageChannel 真宏任务,两样都要让渡。
+  it("polls pending join records until a terminal state", async () => {
     const realSetTimeout = globalThis.setTimeout.bind(globalThis);
     flushMacrotask = async () => {
       await new Promise((resolve) => realSetTimeout(resolve, 0));
@@ -179,32 +194,25 @@ describe("EdgeInvitePanel", () => {
     };
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     try {
-      const { container, status } = await mountPanel({
-        statusResults: [
-          statusReply("invite-1", "pending"),
-          statusReply("invite-1", "pending"),
-          statusReply("invite-1", "consumed"),
+      const { container, list } = await mountPanel({
+        listResults: [
+          { ok: true, joins: [join("pending")] },
+          { ok: true, joins: [join("pending")] },
+          { ok: true, joins: [join("consumed")] },
         ],
       });
-      await fill(container, "edge-invite-node-id", "edge-a");
-      await fill(container, "edge-invite-center-url", "https://center.test");
-      await click(container, "edge-invite-issue");
       expect(container.textContent).toContain("Pending");
-      expect(container.textContent).not.toContain("Consumed");
-      // 轮询节奏来自 QUERY_PACING_MS.edgeJoinStatus;用假时钟推这个间隔,不睡墙钟。
-      for (let index = 0; index < 2; index += 1) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(10_000);
-        });
-        await settle(4);
-      }
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      await settle();
+      expect(list).toHaveBeenCalledTimes(2);
+      expect(container.textContent).toContain("Pending");
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      await settle();
       expect(container.textContent).toContain("Consumed");
-      const callsAtTerminal = status.mock.calls.length;
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(10_000);
-      });
-      await settle(4);
-      expect(status.mock.calls.length).toBe(callsAtTerminal);
+      const callsAtTerminal = list.mock.calls.length;
+      await act(async () => vi.advanceTimersByTimeAsync(10_000));
+      await settle();
+      expect(list.mock.calls.length).toBe(callsAtTerminal);
     } finally {
       vi.useRealTimers();
       flushMacrotask = async () => {
@@ -213,47 +221,30 @@ describe("EdgeInvitePanel", () => {
     }
   });
 
-  it("surfaces a daemon refusal with its explanation instead of a link", async () => {
-    const { container } = await mountPanel({
+  it("revokes a pending invitation through the typed access bridge", async () => {
+    const { container, revoke } = await mountPanel();
+    await click(container, "edge-invite-revoke-join-1");
+    expect(revoke).toHaveBeenCalledWith({ joinId: "join-1" });
+  });
+
+  it("surfaces daemon refusal and requires person, repository, and group selections", async () => {
+    const refused = await mountPanel({
       issueResult: {
         ok: false,
         code: "authorization_denied",
         error: { code: "authorization_denied", hint: "Sign in as an access administrator." },
       },
     });
-    await fill(container, "edge-invite-node-id", "edge-a");
-    await fill(container, "edge-invite-center-url", "https://center.test");
-    await click(container, "edge-invite-issue");
-    expect(container.querySelector('[data-testid="edge-invite-feedback"]')!.textContent).toContain(
-      "Sign in as an access administrator.",
-    );
-    expect(container.querySelector('[data-testid="edge-invite-list"]')).toBeNull();
+    await click(refused.container, "edge-invite-issue");
+    expect(refused.issue).not.toHaveBeenCalled();
+    expect(refused.container.textContent).toContain("at least one repository");
+    await fillInvite(refused.container);
+    await click(refused.container, "edge-invite-issue");
+    expect(refused.container.textContent).toContain("Sign in as an access administrator.");
+    expect(refused.container.textContent).not.toContain(LINK);
   });
 
-  it("surfaces an issued reply without a join link instead of half-issuing a row", async () => {
-    const { container, issue } = await mountPanel({
-      issueResult: { ok: true, joinId: "invite-1", state: "pending", link: "https://not-a-join-link" },
-    });
-    await fill(container, "edge-invite-node-id", "edge-a");
-    await click(container, "edge-invite-issue");
-    expect(issue).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('[data-testid="edge-invite-feedback"]')!.textContent).toContain(
-      "Edge join creation returned an invalid result.",
-    );
-    expect(container.querySelector('[data-testid="edge-invite-list"]')).toBeNull();
-  });
-
-  it("requires a node name before calling the daemon", async () => {
-    const { container, issue } = await mountPanel();
-    await fill(container, "edge-invite-center-url", "https://center.test");
-    await click(container, "edge-invite-issue");
-    expect(issue).not.toHaveBeenCalled();
-    expect(container.querySelector('[data-testid="edge-invite-feedback"]')!.textContent).toContain(
-      "A node name is required",
-    );
-  });
-
-  it("copies the invitation through an isolated simulated clipboard", async () => {
+  it("copies the pasteable harness-edge link from the one-time display through an isolated clipboard", async () => {
     const writes: string[] = [];
     Object.defineProperty(globalThis.navigator, "clipboard", {
       configurable: true,
@@ -261,10 +252,9 @@ describe("EdgeInvitePanel", () => {
     });
     try {
       const { container } = await mountPanel();
-      await fill(container, "edge-invite-node-id", "edge-a");
-      await fill(container, "edge-invite-center-url", "https://center.test");
+      await fillInvite(container);
       await click(container, "edge-invite-issue");
-      await click(container, "edge-invite-copy-edge-a");
+      await click(container, "edge-invite-copy");
       expect(writes).toEqual([LINK]);
     } finally {
       Object.defineProperty(globalThis.navigator, "clipboard", { configurable: true, value: undefined });
