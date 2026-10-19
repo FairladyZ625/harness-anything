@@ -61,7 +61,7 @@ export const SETTINGS_FIELD_GROUPS = Object.freeze([
   },
   {
     id: "hosting-gates",
-    title: "Hosting and completion gates",
+    title: "Hosting details and local gates",
   },
   {
     id: "capacity-agenda",
@@ -434,7 +434,7 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     allowedValues: ["github", "gitlab"],
     description:
       "Hosting provider for repositories whose remote host does not identify GitHub or GitLab automatically.",
-    effect: "Selects the provider adapter used for task push and CI reads.",
+    effect: "Selects the provider adapter used for task delivery operations.",
     group: "hosting-gates",
     action: { field: "hostingProvider", type: "string" },
   }),
@@ -455,8 +455,8 @@ export const SETTINGS_FIELD_DECLARATIONS = Object.freeze([
     ownership: repository,
     valueKind: "gate-mappings",
     defaultValue: Object.freeze([] as readonly GateWitnessMappingV1[]),
-    description: "Canonical gate-to-witness mappings imported from the authored document.",
-    effect: "Each completion gate is attested by its mapped witness adapter; none disables that gate.",
+    description: "Local command or manual mappings for generic completion gates.",
+    effect: "Each generic completion gate uses its declared local witness; none disables that gate.",
     group: "hosting-gates",
     action: { field: "gates", type: "json-object-array", internal: true },
   }),

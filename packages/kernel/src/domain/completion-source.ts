@@ -6,8 +6,6 @@ export type WitnessSourceDefinition = {
   readonly predicateType: string;
   readonly resultSchema: Readonly<Record<string, unknown>>;
 } & (
-  | { readonly kind: "github-actions" }
-  | { readonly kind: "gitlab-pipeline" }
   | { readonly kind: "command"; readonly entrypoint: string }
   | {
       readonly kind: "external";
@@ -16,6 +14,12 @@ export type WitnessSourceDefinition = {
     }
   | { readonly kind: "manual" }
 );
+
+/** Legacy hosted CI source shape accepted only while reading frozen completion history. */
+export type RetiredHostedCiWitnessDefinition = {
+  readonly predicateType: string;
+  readonly resultSchema: Readonly<Record<string, unknown>>;
+} & { readonly kind: "github-actions" | "gitlab-pipeline" };
 
 export interface CompletionGateDeclaration {
   readonly source: string;

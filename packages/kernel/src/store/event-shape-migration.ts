@@ -1,7 +1,6 @@
 import { historicalCompletionRequirements } from "./offline-completion-contract.ts";
 import { effectiveCloseoutGates } from "../domain/settings-closeout.ts";
 import { readSettingsFacet } from "../domain/settings.ts";
-import { resolveHarnessLayout } from "../layout/index.ts";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import {
@@ -432,13 +431,8 @@ const reviewSubmissionPinsMigration: EventShapeMigrationSpec = {
 
 // State belongs to this one offline planner. The first historical carrier fixes the
 // contract for its execution/iteration/content cut; later task settings cannot redefine it.
-function submissionCompletionContractMigration(rootDir: string): EventShapeMigrationSpec {
-  const cuts = new Map<string, SubmissionV1>(),
-    configPath = resolveHarnessLayout(rootDir).configPath,
-    workflows =
-      configPath !== undefined && localEventFileSystem.exists(configPath)
-        ? (readSettingsFacet(localEventFileSystem.readText(configPath)).ci.workflows ?? [])
-        : [];
+function submissionCompletionContractMigration(): EventShapeMigrationSpec {
+  const cuts = new Map<string, SubmissionV1>();
   return {
     name: "submission-completion-contract",
     matches: () => false,
@@ -456,8 +450,8 @@ function submissionCompletionContractMigration(rootDir: string): EventShapeMigra
       }
       if (cut === undefined) {
         const declared = [...new Set(event.payload.task.completionGateIds)],
-          gates = historicalCompletionRequirements(declared, workflows);
-        if (gates.length !== declared.length)
+          gates = historicalCompletionRequirements(declared);
+        if (gates.length + Number(declared.includes("ci")) !== declared.length)
           throw new Error(`legacy submission ${event.opId} has gates without historical witness mappings`);
         cut = {
           ...original,
@@ -810,7 +804,7 @@ function replayRewrites(
       if (batch.prefetchContent) prefetchContent = batch.prefetchContent;
     }
   };
-  const migrations = [submissionCompletionContractMigration(input.rootDir), ...generationShapeMigrations];
+  const migrations = [submissionCompletionContractMigration(), ...generationShapeMigrations];
   // Each cut-dependent candidate is the first and only event in its batch. TaskProjection applies
   // the previous batch before requesting the next one, so rewrite sees the exact pre-event cut.
   // The stream head remains the real final head, which makes one catchUp settle one state digest.

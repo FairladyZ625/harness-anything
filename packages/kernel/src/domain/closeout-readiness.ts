@@ -42,7 +42,6 @@ export interface CompletionDeliveryStatus {
   readonly required: boolean;
   readonly merged: boolean | null;
   readonly targetBranch: string;
-  readonly platform: "github" | "gitlab";
 }
 export interface CloseoutSnapshot {
   readonly task: {

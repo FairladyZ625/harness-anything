@@ -94,30 +94,6 @@ export function dispatchMissionForPermission(mission: string, permissionMode: st
   ].join("\n");
 }
 
-export function dispatchMissionForWorkerPermissions(mission: string, settings: SettingsV1 | undefined): string {
-  const policy = settings?.workerPermissions;
-  if (!policy || policy.mode === "full") return mission;
-  const labels: ReadonlyArray<readonly [string, string]> = [
-    ["ciRead", "read CI results and logs"],
-    ["artifactRead", "read hosted artifacts"],
-    ["push", "push branches"],
-    ["pullRequest", "open pull requests"],
-    ["merge", "merge pull requests"],
-    ["repositorySettings", "change repository settings"],
-    ["gitlab", "use equivalent GitLab operations"],
-  ];
-  return [
-    mission,
-    "",
-    "# Worker Permissions Policy",
-    "",
-    "This dispatch uses the restricted worker permissions selected in repository Settings.",
-    ...labels.map(
-      ([key, label]) => `- ${label}: ${policy[key as keyof typeof policy] === true ? "allowed" : "not allowed"}`,
-    ),
-  ].join("\n");
-}
-
 export function resolveRuntimeInstanceCandidates(input: {
   readonly requested?: string;
   readonly providerSessionId?: string;

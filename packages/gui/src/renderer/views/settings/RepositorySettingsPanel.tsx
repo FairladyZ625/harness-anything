@@ -80,7 +80,7 @@ export function RepositorySettingsPanel({
 
   // 仓库设置的字段面来自 settings 动作契约(目录快照的 settingsFields,daemon 与动作目录
   // 同一单源);分组与逐项解释(effect/默认值)同样由声明源投影进快照。目录选择器
-  // (vertical/preset/profile/scaffold/reviewer/ciWorkflows)的选项来自 daemon 目录快照与
+  // (vertical/preset/profile/scaffold/reviewer)的选项来自 daemon 目录快照与
   // agent 目录共享缓存。两者都不是手打清单。locale 有专属的语言页签(本地偏好),
   // 不在仓库面板重复给第二个编辑面。目录读不到时选择器停用(fail closed),
   // 不回退成自由文本输入。
@@ -90,8 +90,6 @@ export function RepositorySettingsPanel({
       (snapshot?.settingsFields ?? []).filter(({ field }) => field !== "locale"),
       snapshot?.settingsGroups ?? [],
     ),
-    ciWorkflowFace = snapshot?.ciWorkflows ?? [],
-    ciWorkflowValue = Array.isArray(draft.ciWorkflows) ? draft.ciWorkflows : [],
     verticalOptions = selectorOptions(
       (snapshot?.verticals ?? []).map((row) => ({
         value: row.id,
@@ -186,8 +184,6 @@ export function RepositorySettingsPanel({
     repositoryScaffoldOptions,
     reviewerOptions,
     reviewerBlocked,
-    ciWorkflowOptions: [...ciWorkflowFace, ...ciWorkflowValue.filter((name) => !ciWorkflowFace.includes(name))],
-    ciWorkflowCatalogued: new Set(ciWorkflowFace),
     chooseVertical,
     choosePreset,
     updateDraft,
@@ -309,7 +305,7 @@ export function RepositorySettingsPanel({
               {expanded ? (
                 <>
                   {/* 门映射编辑面归 CI 与门组:settings.gates facet 的导入与逐门适配。 */}
-                  {group.id === "ci-gates" ? (
+                  {group.id === "hosting-gates" ? (
                     <>
                       <Row
                         label={t("views.settingsView.gatesSectionLabel")}
@@ -489,8 +485,6 @@ interface FieldControlProps {
   readonly repositoryScaffoldOptions: readonly SelectorOption[];
   readonly reviewerOptions: readonly SelectorOption[];
   readonly reviewerBlocked: boolean;
-  readonly ciWorkflowOptions: readonly string[];
-  readonly ciWorkflowCatalogued: ReadonlySet<string>;
   readonly chooseVertical: (verticalId: string) => void;
   readonly choosePreset: (presetId: string) => void;
   readonly updateDraft: (field: string, value: SettingsFieldValue | undefined) => void;
@@ -504,7 +498,6 @@ const FIELD_TEST_IDS: Readonly<Record<string, string>> = {
   defaultProfile: "settings-profile-select",
   taskScaffold: "settings-task-scaffold-select",
   repositoryScaffold: "settings-repository-scaffold-select",
-  ciWorkflows: "settings-ciWorkflows",
 };
 
 /** 单字段的控件:widget 由契约类型派生;目录选择器/多选是 GUI 特有联动。 */
@@ -574,17 +567,6 @@ function renderFieldControl(
         />
       );
     }
-    case "catalog-multi-select":
-      return (
-        <SettingMultiCheckboxes
-          testId={testId ?? `settings-${row.field}`}
-          options={props.ciWorkflowOptions}
-          catalogued={props.ciWorkflowCatalogued}
-          value={Array.isArray(draft[row.field]) ? (draft[row.field] as readonly string[]) : []}
-          disabled={catalogBlocked}
-          onChange={(next) => updateDraft(row.field, next)}
-        />
-      );
     case "string-list": {
       const value = draft[row.field];
       return (
@@ -747,44 +729,6 @@ function lines(text: string): readonly string[] {
     .split("\n")
     .map((line) => line.trim())
     .filter(Boolean);
-}
-
-/** string-array 的目录多选:每个取值一个 checkbox,全不勾 = 空集合(合法且有意义:
- * 退出 CI 见证)。当前值不在目录里时照实列出并保持勾选,提交不凭空丢值;
- * 目录不可达时整体停用,不回退成自由文本输入。 */
-function SettingMultiCheckboxes({
-  testId,
-  options,
-  catalogued,
-  value,
-  disabled,
-  onChange,
-}: {
-  readonly testId: string;
-  readonly options: readonly string[];
-  readonly catalogued: ReadonlySet<string>;
-  readonly value: readonly string[];
-  readonly disabled: boolean;
-  readonly onChange: (next: readonly string[]) => void;
-}) {
-  return (
-    <div className="flex max-w-md flex-wrap justify-end gap-x-4 gap-y-1" data-testid={testId}>
-      {options.map((option) => (
-        <label key={option} className="inline-flex items-center gap-1.5 font-mono ui-meta text-text">
-          <input
-            type="checkbox"
-            data-testid={`${testId}-option-${option}`}
-            disabled={disabled}
-            checked={value.includes(option)}
-            onChange={(event) =>
-              onChange(event.currentTarget.checked ? [...value, option] : value.filter((entry) => entry !== option))
-            }
-          />
-          {catalogued.has(option) ? option : t("views.settingsView.catalogMissingOption", { value: option })}
-        </label>
-      ))}
-    </div>
-  );
 }
 
 /** 验收人取值面:已安装层 ∪ bundled 层,按值去重且安装层覆盖同名 bundled(与

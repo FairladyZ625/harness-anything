@@ -14,7 +14,6 @@ import {
 import {
   listBundledAgentDeclarationIds,
   listGovernanceScaffoldOverlays,
-  listRepositoryWorkflowNames,
   runPresetAction,
 } from "@harness-anything/preset";
 import { presetRuntimeDefaults } from "@harness-anything/preset/internal/preset-system";
@@ -144,9 +143,6 @@ export function openGuiCatalog(input: {
       templates,
       // 仓库设置选择器的取值面:governance 根下已存在的 overlay 文档,authored-root 相对路径。
       scaffolds: listGovernanceScaffoldOverlays(input.rootDir),
-      // CI 见证工作流取值面:.github/workflows 下的 *.yml 基名(不带扩展名——观察路径自己补
-      // .yml,settings 契约拒绝带后缀的值),与 scaffolds 同型:目录枚举供选择器点选。
-      ciWorkflows: listRepositoryWorkflowNames(input.rootDir),
       // 验收人取值面的 bundled 层;已安装层由 GUI 复用 repo.agent.entities.list 的共享缓存,
       // 不进快照——实体写不应搅动 catalog digest。
       bundledAgents: listBundledAgentDeclarationIds(),
@@ -174,14 +170,7 @@ export function openGuiCatalog(input: {
         appliesTo: [...gateAppliesTo],
         adapterFields: {
           none: [],
-          ...Object.fromEntries(
-            Object.entries(sources).map(([id, source]) => [
-              id,
-              source.kind === "github-actions"
-                ? ["appliesTo", "branch", "event", "coverage", "selection"]
-                : ["appliesTo"],
-            ]),
-          ),
+          ...Object.fromEntries(Object.entries(sources).map(([id]) => [id, ["appliesTo"]])),
         },
         governanceFields: [...gateGovernanceFields],
         governableAdapters: Object.entries(sources)

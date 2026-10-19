@@ -380,8 +380,8 @@ function evaluateCompletion(
       "delivery",
       `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${task.taskId}.`,
       context.delivery.merged === false
-        ? `The ${context.delivery.platform} delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
-        : `The ${context.delivery.platform} delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
+        ? `The delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
+        : `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
     );
   return [];
 }
