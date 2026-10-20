@@ -196,7 +196,10 @@ export function OverviewView({
   // overview-data 组合,这里只做纯派生与接线;nowMs 用数据时钟(读面前进才重算,
   // 非运行块的 endAt 冻结在数据切面上,不随秒针生长)。
   const agentGroupsQuery = useOverviewAgentGroups(repoId);
-  const activeAgents = useMemo(() => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? []), [agentGroupsQuery.data]);
+  const activeAgents = useMemo(
+    () => activeAgentIdsOf(agentGroupsQuery.data?.groups ?? [], awaitsOfTask),
+    [agentGroupsQuery.data, awaitsOfTask],
+  );
   const memberPages = useOverviewAgentMemberPages(repoId, activeAgents);
   const lanesNowMs = Date.parse(now);
   const lanesModel = useMemo(
@@ -422,6 +425,7 @@ export function OverviewView({
                           : `${wipCounted.length}/${wipQuery.data.limit}`
                       }
                       wipFull={wipFull}
+                      wipError={wipErrorText}
                       lanes={lanes}
                       handoffs={lanesModel.handoffs}
                       lanesLoading={agentGroupsQuery.isPending}

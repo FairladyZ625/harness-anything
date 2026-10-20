@@ -317,7 +317,8 @@ describe("总览:主区「关注的工作」", () => {
     ]);
     expect(text).toContain("2/3");
     expect(text).toContain("进行中 1");
-    expect(text).toContain("等你处理 2");
+    expect(text).toContain("等你处理 1");
+    expect(text).toContain("跟进 1");
     const hover = card.querySelector("[data-dense-row]")!.getAttribute("title")!;
     expect(hover).toContain("子任务完成 2/3");
     expect(hover).toContain("未完成 1");
@@ -331,6 +332,51 @@ describe("总览:主区「关注的工作」", () => {
     unmount();
     // 还原默认桥:后续用例的 runtime 读面回到确定性失败。
     vi.stubGlobal("harness", { request: () => Promise.reject(new Error("no bridge in test")) });
+  });
+
+  it("工作卡橙色计数只算 needs-you:返工与裁决等跟进项保持中性色", () => {
+    const read = agenda({
+      attentionItems: [
+        {
+          ref: "relation/rel_1",
+          title: "待答复提问",
+          kind: "awaiting-you",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 100, reasons: [] },
+        },
+        {
+          ref: "execution/exec_1",
+          title: "待裁决提交",
+          kind: "adjudication",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 80, reasons: [] },
+        },
+        {
+          ref: "task/task_rew",
+          title: "待返工任务",
+          kind: "rework",
+          region: "mine",
+          workTaskId: "task_w1",
+          attention: { score: 70, reasons: [] },
+        },
+      ],
+    });
+    const container = mount({ agenda: read });
+    try {
+      const card = container.querySelector("[data-work-card='task_w1']")!;
+      const text = textOf(card);
+      // 橙色「等你处理」只算 awaiting-you 与 decision,计 1
+      expect(text).toContain("等你处理 1");
+      const mineSpan = card.querySelector("span[style*='--color-agent-question']")!;
+      expect(mineSpan).not.toBeNull();
+      expect(textOf(mineSpan)).toBe("等你处理 1");
+      // 其余项(裁决 + 返工)保持中性色,计 2
+      expect(text).toContain("跟进 2");
+    } finally {
+      unmount();
+    }
   });
 
   it("在跑而无会话的工作行安静待命;消极提示文本不再出现", () => {
@@ -504,6 +550,7 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
       return wire?.payload ?? (payload as Record<string, unknown>);
     };
     const handlers: Record<string, (payload?: unknown) => unknown> = {
+      getTaskWip: () => wipSnapshot([]),
       // sessionGroups 走 use-case projection 信封(bridge 方法名 readUseCaseProjection)。
       readUseCaseProjection: (payload) => {
         const params = paramsOf(payload);
@@ -654,6 +701,66 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     }
   });
 
+  it("只有 blocked 会话的 agent 块上有待批动作:通过选择器读成员派工并在块上展示待拍板按钮", async () => {
+    // glm agent 的 runningCount 为 0,只有 blocked 会话
+    const glmRows = [
+      dispatchRow({
+        dispatchId: "disp_glm_blocked",
+        taskId: "task_w1",
+        runtimeSessionId: "rs_glm_b1",
+        status: "blocked",
+      }),
+    ];
+    const groups = [
+      agentGroup({
+        key: "agent:glm",
+        agentId: "glm",
+        label: "GLM Worker",
+        runningCount: 0,
+        latestStatus: "blocked",
+        latestRound: {
+          runtimeSessionId: "rs_glm_b1",
+          dispatchId: "disp_glm_blocked",
+          agentName: "GLM Worker",
+          instanceId: "inst_glm",
+          status: "blocked",
+          startedAt: LANES_RECENT,
+        },
+      }),
+    ];
+    const restore = stubLanesBridge({
+      groups,
+      members: { glm: glmRows },
+      eventsBySession: { rs_glm_b1: ["runtime_session_started"] },
+    });
+    const container = mount();
+    try {
+      await flushUntil(
+        () =>
+          container
+            .querySelector('[data-testid="overview-agent-lanes-resolve-disp_glm_blocked"]')
+            ?.getAttribute("data-tip") === "接口要不要兼容旧字段?",
+      );
+      const lanes = container.querySelector('[data-testid="overview-agent-lanes"]')!;
+      const block = lanes.querySelector('[data-testid="overview-agent-lanes-task-disp_glm_blocked"]')!;
+      expect(block).not.toBeNull();
+      expect(block.getAttribute("data-lane-status")).toBe("awaiting");
+      // 待批动作按钮出现且带有提示(task_w1 对应默认夹具中的 rel_1 提问)
+      const resolve = lanes.querySelector<HTMLButtonElement>(
+        '[data-testid="overview-agent-lanes-resolve-disp_glm_blocked"]',
+      )!;
+      expect(resolve).not.toBeNull();
+      expect(textOf(resolve)).toContain("待拍板");
+      expect(resolve.getAttribute("data-tip")).toBe("接口要不要兼容旧字段?");
+      // 点击动作正常打开答复面板
+      act(() => resolve.click());
+      expect(document.body.querySelector('[data-testid="awaits-answer-panel"]')).not.toBeNull();
+    } finally {
+      unmount();
+      restore();
+    }
+  });
+
   it("泳道空态与读失败都如实:空窗给正向信息,失败给错误条不冒充空", async () => {
     const restore = stubLanesBridge({ groups: [] });
     const container = mount();
@@ -681,6 +788,46 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
     } finally {
       unmount();
       restoreError();
+    }
+  });
+
+  it("WIP 读失败显示错误提示:占用数显示破折号且展示错误条,与空态区分", async () => {
+    const restore = stubBridge({
+      getTaskWip: () => Promise.reject(new Error("wip read timeout")),
+      readUseCaseProjection: (payload) => {
+        const wire = payload as { readonly payload?: Record<string, unknown> };
+        const params = wire?.payload ?? (payload as Record<string, unknown>);
+        if (params.name !== "runtime-session-groups") throw new Error(`unexpected projection: ${String(params.name)}`);
+        return {
+          ok: true,
+          schema: "daemon.use-case-projection/v1",
+          name: "runtime-session-groups",
+          projection: {
+            ok: true,
+            status: "ready",
+            groups: [],
+            sessionAgents: [],
+            totals: { groups: 0, sessions: 0 },
+            truncated: false,
+            watermark: 1,
+            sourceRevision: 1,
+          },
+        };
+      },
+    });
+    const container = mount();
+    try {
+      await flushUntil(() => container.querySelector('[data-testid="overview-drill-wip-error"]') !== null);
+      const errorNotice = container.querySelector('[data-testid="overview-drill-wip-error"]')!;
+      expect(textOf(errorNotice)).toContain("工作台占用读取失败:wip read timeout");
+      // 空态提示被抑制,不冒充「当前窗口没有并行运行的 Agent」
+      expect(container.querySelector('[data-testid="overview-drill-wip-empty"]')).toBeNull();
+      // WIP chip 显示 — 占位
+      const chip = container.querySelector('[data-testid="overview-drill-wip"]')!;
+      expect(textOf(chip)).toContain("—");
+    } finally {
+      unmount();
+      restore();
     }
   });
 

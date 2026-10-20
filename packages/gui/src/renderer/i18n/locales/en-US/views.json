@@ -2013,5 +2013,7 @@
   "views.today.deliveredKind": "Completed",
   "views.today.deliveredUntitled": "A completed task",
   "views.today.readError": "Read failed: {message}",
-  "views.today.loading": "Reading…"
+  "views.today.loading": "Reading…",
+  "views.overviewView.drillWipError": "Worktable occupancy read failed: ",
+  "views.overviewView.worksOtherMine": "{count} to follow up"
 }

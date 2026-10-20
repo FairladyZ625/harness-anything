@@ -2013,5 +2013,7 @@
   "views.today.deliveredKind": "完成了",
   "views.today.deliveredUntitled": "已完成的任务",
   "views.today.readError": "读取失败：{message}",
-  "views.today.loading": "正在读取…"
+  "views.today.loading": "正在读取…",
+  "views.overviewView.drillWipError": "工作台占用读取失败:",
+  "views.overviewView.worksOtherMine": "跟进 {count}"
 }
