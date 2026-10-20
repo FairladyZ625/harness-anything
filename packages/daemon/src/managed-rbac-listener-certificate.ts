@@ -1,11 +1,9 @@
 import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
-import { consumeKnownError } from "@harness-anything/kernel";
 import { runProcessTextAsync } from "./process-port.ts";
-import { validateCertificateNames } from "./tls-listener-admission.ts";
 import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "./managed-rbac-service.ts";
 
 export function firstReachableAddress(): string {
@@ -23,15 +21,8 @@ export async function ensureSelfSignedCertificate(
     certificateFile = path.join(directory, "self-signed.pem"),
     certificateKeyFile = path.join(directory, "self-signed.key");
   if (existsSync(certificateFile) && existsSync(certificateKeyFile)) {
-    try {
-      validateCertificateNames(readFileSync(certificateFile), [address, hostname]);
-      chmodSync(certificateKeyFile, 0o600);
-      return { certificateFile, certificateKeyFile };
-    } catch (error) {
-      consumeKnownError(error);
-      rmSync(certificateFile, { force: true });
-      rmSync(certificateKeyFile, { force: true });
-    }
+    chmodSync(certificateKeyFile, 0o600);
+    return { certificateFile, certificateKeyFile };
   }
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const san = isIP(hostname) !== 0 ? `IP:${hostname}` : `DNS:${hostname}`;

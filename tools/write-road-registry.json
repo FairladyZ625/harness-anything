@@ -102,6 +102,7 @@
     "packages/daemon/src/fleet/replication-slot.ts",
     "packages/daemon/src/fleet/walreceiver.ts",
     "packages/daemon/src/lifecycle-log.ts",
+    "packages/daemon/src/managed-rbac-listener-certificate.ts",
     "packages/daemon/src/managed-rbac-service.ts",
     "packages/daemon/src/migration-import-oracle-rebuild.ts",
     "packages/daemon/src/observe-jsonl-tail.ts",
