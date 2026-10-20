@@ -594,6 +594,7 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       "layer",
       "name",
       "permissionMode",
+      "retirement",
       "role",
       "runtimes",
     ]);
@@ -616,7 +617,12 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
     assert.equal(canonicalReads, 0, "GUI projection reads must not replay the canonical event stream");
     assert.equal(agentDetail.ok, true);
     assert.equal(squadDetail.ok, true);
-    assert.deepEqual(agentDetail.agent, {
+    const { revision: agentRevision, retirement: agentRetirement, ...agentDetailFields } = agentDetail.agent;
+    // The detail carries the declaration's own entity revision (the delete fence) and a null
+    // retirement block while in use.
+    assert.equal(Number.isSafeInteger(agentRevision) && agentRevision >= 1, true);
+    assert.equal(agentRetirement, null);
+    assert.deepEqual(agentDetailFields, {
       id: "terra",
       name: "Terra",
       runtimes: [{ type: "codex", model: "gpt-5.6-terra" }],
@@ -628,7 +634,9 @@ test("the GUI entity projection lists closed rows and reads closed declarations"
       prompts: ["prompt://review"],
       preset: "standard-task",
     });
-    assert.deepEqual(squadDetail.squad, {
+    const { revision: squadRevision, ...squadDetailFields } = squadDetail.squad;
+    assert.equal(Number.isSafeInteger(squadRevision) && squadRevision >= 1, true);
+    assert.deepEqual(squadDetailFields, {
       id: "core-squad",
       name: "Core Squad",
       leader: "terra",
@@ -672,6 +680,7 @@ test("the GUI read contract carries the reviewer role and stays closed to the Ke
         permissionMode: null,
         role: "reviewer",
         layer: "user",
+        retirement: null,
       },
     ]);
     assert.deepEqual(validateAgentEntityCatalog(catalog), []);
@@ -765,6 +774,7 @@ test("GUI Agent and Squad catalogs isolate invalid and missing projection rows",
     permissionMode: null,
     role: "worker",
     layer: "user",
+    retirement: null,
   });
   assert.deepEqual(agents.agents[1], {
     id: "broken-agent",

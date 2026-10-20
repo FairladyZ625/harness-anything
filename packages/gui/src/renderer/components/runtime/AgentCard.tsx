@@ -13,6 +13,7 @@ import type {
 } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { formatTime } from "../../model/time.ts";
+import { runtimeModelCandidates } from "../../model/runtime-models.ts";
 import { RUNTIME_KIND_IDS } from "../../runtime-provider-planes.ts";
 import { sessionStatusDot, type SessionStatus } from "../../sessions-model.ts";
 import { EntityRefLink } from "../EntityRefLink.tsx";
@@ -112,6 +113,12 @@ type Props = {
    */
   readonly sessions?: readonly RuntimeDockRow[];
   readonly onOpenSession?: (runtimeSessionId: string) => void;
+  /** 退役入口:详情卡只发起对话框,写入由 view 接 daemon 写路;退役身份不再给入口。 */
+  readonly onRetire?: () => void;
+  /** 删除入口:同上。 */
+  readonly onDelete?: () => void;
+  /** 本地可算的引用面标签(Squad 位次、设置角色键、派工历史);非空时删除禁用并说明只能退役。 */
+  readonly deleteBlockedBy?: readonly string[];
 };
 export function AgentCard({
   detail,
@@ -131,6 +138,9 @@ export function AgentCard({
   lastDispatch = null,
   sessions,
   onOpenSession,
+  onRetire,
+  onDelete,
+  deleteBlockedBy = [],
 }: Props) {
   const [draft, setDraft] = useState<AgentDraft>(() => agentDraftFrom(detail)),
     [runtimeListOpen, setRuntimeListOpen] = useState(false),
@@ -209,6 +219,10 @@ export function AgentCard({
   ];
   const mismatch = calledAs.some((call) => call.role !== draft.role);
   const dirty = agentDraftDirty(detail, draft);
+  // 退役身份:结论行改说退役事实(接替者可点),派工与保存停用——daemon 对退役声明的
+  // 派工与重装都会拒绝,这里不让用户走到那一步。
+  const retired = detail.retirement !== null,
+    deleteBlocked = deleteBlockedBy.length > 0;
   return (
     <div data-testid={`agent-card-${detail.id}`}>
       <Card>
@@ -218,7 +232,10 @@ export function AgentCard({
           <Avatar id={detail.id} size="lg" />
           <div className="flex min-w-0 flex-1 flex-col gap-1.5">
             <div className="flex flex-wrap items-center gap-2">
-              <StatusTag tone="neutral" label={t("agentRuntime.detailAvailable")} />
+              <StatusTag
+                tone={retired ? "cancel" : "neutral"}
+                label={t(retired ? "agentRuntime.retiredTag" : "agentRuntime.detailAvailable")}
+              />
               <input
                 aria-label={t("agentRuntime.agentName")}
                 value={draft.name}
@@ -250,6 +267,29 @@ export function AgentCard({
                 }
               />
             </div>
+            {retired && detail.retirement !== null && (
+              <p
+                data-testid="agent-retirement-line"
+                className="flex flex-wrap items-center gap-x-2 gap-y-1 ui-meta text-text-muted"
+              >
+                {t("agentRuntime.retiredAt", {
+                  time:
+                    formatTime(detail.retirement.retiredAt, { style: "month-day-time" }) ?? detail.retirement.retiredAt,
+                })}
+                <span>· {detail.retirement.reason}</span>
+                {detail.retirement.successor !== undefined && (
+                  <span>
+                    {t("agentRuntime.retiredSuccessorPrefix")}
+                    <EntityRefLink
+                      entityRef={`agent/${detail.retirement.successor}`}
+                      onNavigate={() => onSelectAgent(detail.retirement!.successor!)}
+                      title={detail.retirement.successor}
+                      className="font-mono ui-meta text-accent hover:underline"
+                    />
+                  </span>
+                )}
+              </p>
+            )}
             <div className="flex flex-wrap items-center gap-2">
               <SegCtl
                 label={t("agentRuntime.role")}
@@ -574,24 +614,41 @@ export function AgentCard({
           {draft.runtimes.map((target) => {
             const kindModels = modelsForKind(target.type),
               options =
-                target.model === "" || kindModels.includes(target.model) ? kindModels : [...kindModels, target.model];
+                target.model === "" || kindModels.includes(target.model) ? kindModels : [...kindModels, target.model],
+              // 会话型运行时(deepseek-harness)的 model 是候选清单(JSON 数组文本):
+              // 下拉框放不下也不该让人从清单里「选一个」——改为完整逐项列出,编辑面
+              // 保持只读,值原样随声明往返。
+              candidates = runtimeModelCandidates(target.model);
             return (
               <div key={target.type} className="mt-1.5 flex flex-wrap items-center gap-2">
                 <Chip tone="mono">{target.type}</Chip>
-                <select
-                  aria-label={t("agentRuntime.modelForKind", { kind: target.type })}
-                  data-testid={`agent-runtime-model-${target.type}`}
-                  value={target.model}
-                  onChange={(event) => patchRuntime(target.type, { model: event.target.value })}
-                  className="control"
-                >
-                  <option value="">{t("agentRuntime.providerDefault")}</option>
-                  {options.map((model) => (
-                    <option key={model} value={model}>
-                      {model}
-                    </option>
-                  ))}
-                </select>
+                {candidates === null ? (
+                  <select
+                    aria-label={t("agentRuntime.modelForKind", { kind: target.type })}
+                    data-testid={`agent-runtime-model-${target.type}`}
+                    value={target.model}
+                    onChange={(event) => patchRuntime(target.type, { model: event.target.value })}
+                    className="control"
+                  >
+                    <option value="">{t("agentRuntime.providerDefault")}</option>
+                    {options.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <span
+                    data-testid={`agent-runtime-model-candidates-${target.type}`}
+                    className="flex flex-wrap items-center gap-1"
+                    title={target.model}
+                  >
+                    {candidates.map((model) => (
+                      <StatusTag key={model} tone="neutral" mono label={model} />
+                    ))}
+                    <Hint>{t("agentRuntime.modelCandidatesHint", { count: candidates.length })}</Hint>
+                  </span>
+                )}
                 <select
                   aria-label={t("agentRuntime.effortForKind", { kind: target.type })}
                   data-testid={`agent-runtime-effort-${target.type}`}
@@ -670,19 +727,52 @@ export function AgentCard({
 
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="primary" testId={`dispatch-entry-${detail.id}`} onClick={() => onDispatch("")}>
-              {t("agentRuntime.dispatch")}
-            </Button>
-            <Hint>{t("agentRuntime.dispatchHint")}</Hint>
-            <span className="flex-1" />
             <Button
               variant="primary"
-              testId="agent-save"
-              disabled={busy || !dirty || !draft.name.trim() || !draft.instructions.trim()}
-              onClick={() => onSave(agentDeclarationFrom(detail.id, draft))}
+              testId={`dispatch-entry-${detail.id}`}
+              disabled={retired}
+              onClick={() => onDispatch("")}
             >
-              {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
+              {t("agentRuntime.dispatch")}
             </Button>
+            {retired ? (
+              <Hint>{t("agentRuntime.dispatchRetiredHint")}</Hint>
+            ) : (
+              <Hint>{t("agentRuntime.dispatchHint")}</Hint>
+            )}
+            <span className="flex-1" />
+            {!retired && onRetire !== undefined && (
+              <Button testId="agent-retire-entry" onClick={onRetire}>
+                {t("agentRuntime.retireConfirm")}
+              </Button>
+            )}
+            {onDelete !== undefined && (
+              <Button
+                variant="danger"
+                testId="agent-delete-entry"
+                disabled={deleteBlocked}
+                tip={
+                  deleteBlocked
+                    ? t("agentRuntime.deleteReferencedTip", { refs: deleteBlockedBy.join("、") })
+                    : undefined
+                }
+                onClick={onDelete}
+              >
+                {t("agentRuntime.deleteConfirm")}
+              </Button>
+            )}
+            {deleteBlocked && onDelete !== undefined && <Hint>{t("agentRuntime.deleteReferencedShort")}</Hint>}
+            {!retired && (
+              <Button
+                variant="primary"
+                testId="agent-save"
+                disabled={busy || !dirty || !draft.name.trim() || !draft.instructions.trim()}
+                onClick={() => onSave(agentDeclarationFrom(detail.id, draft))}
+              >
+                {t(dirty ? "agentRuntime.saveDeclaration" : "agentRuntime.saved")}
+              </Button>
+            )}
+            {retired && <Hint>{t("agentRuntime.saveRetiredHint")}</Hint>}
           </div>
           {actionError ? <ActionError>{actionError}</ActionError> : null}
         </Sect>

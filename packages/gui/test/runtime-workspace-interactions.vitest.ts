@@ -179,7 +179,9 @@ const drilledGroupsMany = {
   groups: [agentGroup, { ...agentGroup, key: "agent-luna", agentId: "luna", label: "luna" }],
 };
 const tasks = [{ taskId: "task-bound", title: "Bound task title" }] as const;
-const agents = [{ id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user" }] as const;
+const agents = [
+  { id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user", retirement: null },
+] as const;
 const squads = [
   {
     id: "core-squad",
@@ -1321,6 +1323,8 @@ function seedQueries(client: QueryClient) {
     skills: [],
     prompts: [],
     preset: null,
+    revision: 1,
+    retirement: null,
   });
   client.setQueryData(["squad-detail", "repo-a", "core-squad"], {
     id: "core-squad",
@@ -1329,6 +1333,7 @@ function seedQueries(client: QueryClient) {
     workers: ["terra"],
     leaderTurnBudget: 8,
     roster: "terra » terra",
+    revision: 1,
   });
 }
 

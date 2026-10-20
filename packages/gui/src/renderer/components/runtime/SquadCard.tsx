@@ -61,8 +61,19 @@ type Props = {
   readonly onSelectSquad: (squadId: string) => void;
   /** 声明保存等动作的失败原因:就在保存按钮旁显示(标准 §2.5 表单)。 */
   readonly actionError?: string | null;
+  /** 删除入口:详情卡只发起对话框,写入由 view 接 daemon 的 squad-delete 写路。 */
+  readonly onDelete?: () => void;
 };
-export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelectSquad, actionError = null }: Props) {
+export function SquadCard({
+  detail,
+  agents,
+  busy,
+  onSave,
+  onSelectAgent,
+  onSelectSquad,
+  actionError = null,
+  onDelete,
+}: Props) {
   const [draft, setDraft] = useState<SquadDraft>(() => squadDraftFrom(detail)),
     [slot, setSlot] = useState<SquadSlot | null>(null);
   useEffect(() => {
@@ -171,6 +182,11 @@ export function SquadCard({ detail, agents, busy, onSave, onSelectAgent, onSelec
         <Sect title={t("agentRuntime.actions")}>
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex-1" />
+            {onDelete !== undefined && (
+              <Button variant="danger" testId="squad-delete-entry" onClick={onDelete}>
+                {t("agentRuntime.deleteConfirm")}
+              </Button>
+            )}
             <Button
               variant="primary"
               testId="squad-save"

@@ -9,6 +9,7 @@ import {
 } from "@harness-anything/kernel";
 import {
   agentDeclarationInvalidError,
+  declarationRevision,
   storedAgentDeclarationOutcome,
   validateAgentEntityAction,
 } from "./agent-entities.ts";
@@ -107,9 +108,10 @@ function inspectAgent(cell: RepoCellRuntimeContext, agentId: string): object {
   try {
     return {
       schema: "agent-inspection/v1",
-      // The delete/install guards compare against the entity revision, so the inspect read
-      // must state it; otherwise the next --expected-version is only readable from a conflict.
-      workspaceRevision: row.workspaceRevision,
+      // The delete/install guards compare against the declaration's own revision
+      // (currentVersion: the last upsert event; agent_retired does not move it), so the
+      // inspect read must state that number, not the row's lifecycle-advanced revision.
+      workspaceRevision: declarationRevision(row),
       agent: readProjectedAgentDeclaration(row.value),
     };
   } catch (error) {
@@ -208,7 +210,7 @@ function inspectSquad(cell: RepoCellRuntimeContext, squadId: string): object {
     );
   return {
     schema: "squad-inspection/v1",
-    workspaceRevision: row.workspaceRevision,
+    workspaceRevision: declarationRevision(row),
     squad,
   };
 }

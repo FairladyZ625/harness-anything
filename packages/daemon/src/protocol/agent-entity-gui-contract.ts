@@ -56,7 +56,16 @@ function entityReadRowErrors(value: unknown, fields: readonly string[], prefix: 
   return errors;
 }
 const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
-  agentCatalogRowFields = Object.freeze(["id", "name", "runtimes", "instance", "permissionMode", "role", "layer"]),
+  agentCatalogRowFields = Object.freeze([
+    "id",
+    "name",
+    "runtimes",
+    "instance",
+    "permissionMode",
+    "role",
+    "layer",
+    "retirement",
+  ]),
   squadCatalogRowFields = Object.freeze(["id", "name", "leader", "workers", "layer"]),
   degradedCatalogRowFields = Object.freeze(["id", "layer", "state", "error"]),
   agentDetailFields = Object.freeze([
@@ -70,8 +79,10 @@ const agentGuiRoles = Object.freeze(["worker", "commander", "reviewer"]),
     "skills",
     "prompts",
     "preset",
+    "revision",
+    "retirement",
   ]),
-  squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "leaderTurnBudget", "roster"]);
+  squadDetailFields = Object.freeze(["id", "name", "leader", "workers", "leaderTurnBudget", "roster", "revision"]);
 function catalogErrors(
   value: unknown,
   schema: string,
@@ -138,6 +149,26 @@ function agentRuntimeTargets(value: unknown): value is readonly AgentRuntimeTarg
     new Set(value.map((item) => (item as AgentRuntimeTargetV1).type)).size === value.length
   );
 }
+/** The retirement block on agent rows and details: null while in use, else its three facts. */
+function agentRetirementErrors(row: Record<string, unknown>, prefix: string): readonly string[] {
+  if (row.retirement === null) return [];
+  if (!isEntityRecord(row.retirement)) return [`${prefix} retirement must be null or {retiredAt, reason, successor?}.`];
+  const retirement = row.retirement,
+    keys = Object.keys(retirement).filter((key) => !["retiredAt", "reason", "successor"].includes(key));
+  return [
+    ...(keys.length ? [`${prefix} retirement field "${keys[0]}" is unknown; remove it.`] : []),
+    ...(!entityNonEmpty(retirement.retiredAt) || !entityNonEmpty(retirement.reason)
+      ? [`${prefix} retirement needs non-empty retiredAt and reason.`]
+      : []),
+    ...(retirement.successor !== undefined && !entitySlug(retirement.successor)
+      ? [`${prefix} retirement successor must be an agent slug.`]
+      : []),
+  ];
+}
+const positiveRevision = (row: Record<string, unknown>): readonly string[] =>
+  !Number.isSafeInteger(row.revision) || Number(row.revision) < 1
+    ? ["revision must be a positive integer entity revision."]
+    : [];
 const catalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
   !(entityNonEmpty(row.id) && entityNonEmpty(row.name)) ? ["catalog rows need non-empty id and name."] : [];
 const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] =>
@@ -147,6 +178,7 @@ const agentCatalogRowChecks = (row: Record<string, unknown>): readonly string[] 
     !agentRuntimeTargets(row.runtimes)
       ? "agent catalog row runtimes must be an array of unique {type, model?, effort?} targets."
       : [],
+    ...agentRetirementErrors(row, "agent catalog row"),
   ].flat();
 const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
   [
@@ -170,6 +202,8 @@ const agentDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     row.preset !== null && row.preset !== undefined && !entityNonEmpty(row.preset)
       ? ["agent detail preset must be null or a non-empty preset id."]
       : [],
+    ...positiveRevision(row),
+    ...agentRetirementErrors(row, "agent detail"),
   ].flat();
 const squadDetailChecks = (row: Record<string, unknown>): readonly string[] =>
   [
@@ -182,6 +216,7 @@ const squadDetailChecks = (row: Record<string, unknown>): readonly string[] =>
     !Number.isSafeInteger(row.leaderTurnBudget) || Number(row.leaderTurnBudget) < 1
       ? ["squad detail leaderTurnBudget must be a positive integer."]
       : [],
+    ...positiveRevision(row),
   ].flat();
 export function validateAgentEntityCatalog(value: unknown): readonly string[] {
   return catalogErrors(value, "agent-entity-catalog/v1", "agents", agentCatalogRowFields, agentCatalogRowChecks);

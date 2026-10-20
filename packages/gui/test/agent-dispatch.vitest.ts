@@ -379,6 +379,8 @@ describe("agent dispatch flow", () => {
           skills: [],
           prompts: [],
           preset: null,
+          revision: 1,
+          retirement: null,
         },
         row: {
           id: "terra",

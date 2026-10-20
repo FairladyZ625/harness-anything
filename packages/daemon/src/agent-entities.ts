@@ -16,6 +16,7 @@ import {
   assertBundledAgentLifecycleOpen,
   readAgentDeclaration,
   storedAgentDeclarationOutcome,
+  type ProjectedAgentDeclaration,
 } from "./agent-declaration-resolution.ts";
 import {
   agentRuntimeTargetForKind,
@@ -44,6 +45,12 @@ import {
   type SquadDeclarationV1,
 } from "@harness-anything/kernel";
 
+/** Retirement facts carried on every agent surface: null while the agent is in use. */
+export interface AgentEntityGuiRetirement {
+  readonly retiredAt: string;
+  readonly reason: string;
+  readonly successor?: string;
+}
 export interface AgentEntityGuiAvailableRow {
   readonly id: string;
   readonly name: string;
@@ -52,6 +59,7 @@ export interface AgentEntityGuiAvailableRow {
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
   readonly role: AgentRole;
   readonly layer: string;
+  readonly retirement: AgentEntityGuiRetirement | null;
 }
 export interface SquadEntityGuiAvailableRow {
   readonly id: string;
@@ -87,6 +95,9 @@ export interface AgentEntityGuiDetail {
   readonly preset: string | null;
   readonly instance: string | null;
   readonly permissionMode: AgentDeclarationV1["permissionMode"] | null;
+  /** The declaration's own entity revision — the delete/install expected-version fence. */
+  readonly revision: number;
+  readonly retirement: AgentEntityGuiRetirement | null;
 }
 export interface AgentSkillGuiRead {
   readonly schema: "agent-skill-catalog/v1";
@@ -100,6 +111,8 @@ export interface SquadEntityGuiDetail {
   readonly workers: readonly string[];
   readonly leaderTurnBudget: number;
   readonly roster: string;
+  /** The declaration's own entity revision — the delete expected-version fence. */
+  readonly revision: number;
 }
 export type AgentEntityGuiRead =
   | { readonly schema: "agent-entity-catalog/v1"; readonly ok: true; readonly agents: readonly AgentEntityGuiRow[] }
@@ -188,9 +201,10 @@ export function readAgentEntityGuiProjection<
   }
   const entityId = requiredEntityText(input.entityId, "entityId");
   if (input.kind === "agent-inspect") {
-    let agent: AgentDeclarationV1;
+    const row = readyEntityRow(input.projection, "agent", entityId);
+    let agent: ProjectedAgentDeclaration;
     try {
-      agent = readProjectedAgentDeclaration(readyEntityValue(input.projection, "agent", entityId));
+      agent = readProjectedAgentDeclaration(row.value);
     } catch (error) {
       // An installed declaration whose stored shape the current schema rejects is a reinstall
       // need for that agent, phrased as one; the raw contract message never reaches the read.
@@ -211,10 +225,13 @@ export function readAgentEntityGuiProjection<
         skills: agent.skills ?? [],
         prompts: agent.prompts ?? [],
         preset: agent.preset ?? null,
+        revision: declarationRevision(row),
+        retirement: agentRetirement(agent),
       },
     } as never;
   }
-  const squad = parseSquadDeclarationV1(readyEntityValue(input.projection, "squad", entityId)),
+  const squadRow = readyEntityRow(input.projection, "squad", entityId),
+    squad = parseSquadDeclarationV1(squadRow.value),
     missing = [squad.leader, ...squad.workers].filter((agentId) => {
       try {
         readProjectedAgentDeclaration(readyEntityValue(input.projection, "agent", agentId));
@@ -240,8 +257,31 @@ export function readAgentEntityGuiProjection<
       workers: squad.workers,
       leaderTurnBudget: squad.leaderTurnBudget,
       roster: squad.roster,
+      revision: declarationRevision(squadRow),
     },
   } as never;
+}
+
+/** The declaration's own entity revision: `currentVersion` keeps the last declaration
+ *  (upsert) event revision — the number the delete/install fences compare against — while the
+ *  row's `workspaceRevision` also advances on lifecycle events (agent_retired), which no write
+ *  path accepts as a fence value. */
+export function declarationRevision(row: {
+  readonly workspaceRevision: number;
+  readonly currentVersion: string | number | null;
+}): number {
+  if (typeof row.currentVersion === "number" && Number.isSafeInteger(row.currentVersion) && row.currentVersion >= 1)
+    return row.currentVersion;
+  throw Object.assign(new Error(`Entity projection ${String(row.currentVersion)} carries no declaration revision.`), {
+    code: "invalid_store",
+  });
+}
+
+/** The retirement block a retired projection carries; every other lifecycle reads as null. */
+function agentRetirement(agent: ProjectedAgentDeclaration): AgentEntityGuiRetirement | null {
+  if (agent.lifecycleState !== "retired" || agent.retirement === undefined) return null;
+  const { retiredAt, reason, successor } = agent.retirement;
+  return { retiredAt, reason, ...(successor === undefined ? {} : { successor }) };
 }
 
 function readyEntityList(projection: Pick<TaskProjection, "listEntities">, kind: AgentEntityKind) {
@@ -302,6 +342,7 @@ function agentEntityCatalogRow(row: AgentEntityProjectionRow): AgentEntityGuiRow
     permissionMode: agent.permissionMode ?? null,
     role: agent.role ?? "worker",
     layer: "user",
+    retirement: agentRetirement(agent),
   };
 }
 
@@ -361,15 +402,22 @@ function squadEntityCatalogRow(
   }
 }
 
+function readyEntityRow(
+  projection: Pick<TaskProjection, "getEntity">,
+  kind: AgentEntityKind,
+  id: string,
+): NonNullable<ReturnType<TaskProjection["getEntity"]>> {
+  if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
+  const entity = projection.getEntity(kind, id);
+  if (entity === null) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
+  return entity;
+}
 function readyEntityValue(
   projection: Pick<TaskProjection, "getEntity">,
   kind: AgentEntityKind,
   id: string,
 ): Readonly<Record<string, unknown>> {
-  if (!entitySlug(id)) throw entityError(`${kind}_not_found`, `${id} is not a valid ${kind} id.`);
-  const entity = projection.getEntity(kind, id);
-  if (entity === null) throw entityError(`${kind}_not_found`, `${id} is not an installed ${kind}.`);
-  return entity.value;
+  return readyEntityRow(projection, kind, id).value;
 }
 export function readSquadDeclaration(input: {
   readonly rootDir: string;
@@ -575,8 +623,6 @@ export function prepareAgentEntityInstall(input: {
 
 /** The center claim gate. Missing lifecycle data is the legacy active state. */
 type AgentState = "configured" | "active" | "retired";
-type ProjectedAgentLifecycle = import("./agent-declaration-resolution.ts").ProjectedAgentDeclaration;
-
 /** A retire prepare: replay follows its recorded event; a new retirement of a system-bundled
  *  id names that semantic instead of a generic not-found. */
 export function prepareAgentEntityRetire(input: {
@@ -596,7 +642,7 @@ export function prepareAgentEntityRetire(input: {
   }
 }
 
-export function assertAgentDispatchable(agent: ProjectedAgentLifecycle): AgentState {
+export function assertAgentDispatchable(agent: ProjectedAgentDeclaration): AgentState {
   const state = agent.lifecycleState ?? "active";
   if (state === "active") return state;
   throw Object.assign(

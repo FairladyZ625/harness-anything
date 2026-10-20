@@ -86,7 +86,12 @@ function saveWasRejected(saved: EntitySaveResult): boolean {
   return saved.outcome === "op_rejected";
 }
 
-function saveFailureHint(saved: EntitySaveResult): string {
+/** Rejection hint mapper for entity lifecycle writes; exported for its focused test. */
+export function saveFailureHint(saved: EntitySaveResult): string {
+  // daemon 对被引用声明的删除拒绝(agent_referenced)有自己的机器措辞;GUI 侧把它翻成
+  // 「只能退役」的人话,其余拒绝沿用 daemon hint。
+  if (saved.error?.code === "agent_referenced")
+    return `${t("agentRuntime.deleteReferenced")}${saved.error.hint ? ` (${saved.error.hint})` : ""}`;
   return saved.error?.hint ?? `Entity save returned ${saved.outcome}.`;
 }
 
@@ -355,6 +360,96 @@ export function useAgentSquadWorkspace(repoId: string) {
       if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
         channel.reportError(
           settled.nextAction ?? `Squad ${declaration.id} is awaiting canonical projection settlement.`,
+        );
+        return null;
+      }
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["squads", repoId], refetchType: "active" }),
+        client.invalidateQueries({ queryKey: ["squad-detail", repoId], refetchType: "active" }),
+      ]);
+      return settled;
+    },
+    // 退役/删除走与 CLI 相同的 daemon 实体动作;回执结算与失效沿用 save 的顺序。删除
+    // 成功后实体消失,选中由视图的 entityExists 回落处理,这里只负责读面失效。
+    retireAgent: async (input: {
+      readonly agentId: string;
+      readonly reason: string;
+      readonly successor?: string;
+    }): Promise<EntitySaveResult | null> => {
+      await Promise.all([
+        client.cancelQueries({ queryKey: ["agents", repoId] }),
+        client.cancelQueries({ queryKey: ["agent-detail", repoId] }),
+      ]);
+      const saved = (await channel.run(
+        t("agentRuntime.opAgentRetired"),
+        () => agentEntityClient.retireAgent(repoId, input),
+        false,
+      )) as EntitySaveResult | null;
+      if (saved === null) return null;
+      if (saveWasRejected(saved)) {
+        channel.reportError(saveFailureHint(saved));
+        return null;
+      }
+      const settled = await settleEntitySaveReceipt(repoId, saved);
+      if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
+        channel.reportError(
+          settled.nextAction ?? `Agent ${input.agentId} is awaiting canonical projection settlement.`,
+        );
+        return null;
+      }
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["agents", repoId], refetchType: "active" }),
+        client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" }),
+      ]);
+      return settled;
+    },
+    deleteAgent: async (input: {
+      readonly agentId: string;
+      readonly reason: string;
+      readonly expectedVersion: number;
+    }): Promise<EntitySaveResult | null> => {
+      const saved = (await channel.run(
+        t("agentRuntime.opAgentDeleted"),
+        () => agentEntityClient.deleteAgent(repoId, input),
+        false,
+      )) as EntitySaveResult | null;
+      if (saved === null) return null;
+      if (saveWasRejected(saved)) {
+        channel.reportError(saveFailureHint(saved));
+        return null;
+      }
+      const settled = await settleEntitySaveReceipt(repoId, saved);
+      if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
+        channel.reportError(
+          settled.nextAction ?? `Agent ${input.agentId} is awaiting canonical projection settlement.`,
+        );
+        return null;
+      }
+      await Promise.all([
+        client.invalidateQueries({ queryKey: ["agents", repoId], refetchType: "active" }),
+        client.invalidateQueries({ queryKey: ["agent-detail", repoId], refetchType: "active" }),
+      ]);
+      return settled;
+    },
+    deleteSquad: async (input: {
+      readonly squadId: string;
+      readonly reason: string;
+      readonly expectedVersion: number;
+    }): Promise<EntitySaveResult | null> => {
+      const saved = (await channel.run(
+        t("agentRuntime.opSquadDeleted"),
+        () => agentEntityClient.deleteSquad(repoId, input),
+        false,
+      )) as EntitySaveResult | null;
+      if (saved === null) return null;
+      if (saveWasRejected(saved)) {
+        channel.reportError(saveFailureHint(saved));
+        return null;
+      }
+      const settled = await settleEntitySaveReceipt(repoId, saved);
+      if (settled.outcome !== "applied" || settled.proof?.canonicalVisible === false) {
+        channel.reportError(
+          settled.nextAction ?? `Squad ${input.squadId} is awaiting canonical projection settlement.`,
         );
         return null;
       }

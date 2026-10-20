@@ -120,10 +120,11 @@ const agentRows = [
     runtimes: [{ type: "claude" }],
     role: "commander",
     layer: "user",
+    retirement: null,
   },
-  { id: "luna", name: "luna", runtimes: [{ type: "codex" }], role: "worker", layer: "user" },
-  { id: "sol", name: "sol", runtimes: [{ type: "codex" }], role: "worker", layer: "user" },
-  { id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user" },
+  { id: "luna", name: "luna", runtimes: [{ type: "codex" }], role: "worker", layer: "user", retirement: null },
+  { id: "sol", name: "sol", runtimes: [{ type: "codex" }], role: "worker", layer: "user", retirement: null },
+  { id: "terra", name: "terra", runtimes: [{ type: "codex" }], role: "worker", layer: "user", retirement: null },
 ] as const;
 const squadRows = [
   {
@@ -147,6 +148,8 @@ const agentDetail = {
   ],
   prompts: ["daily-plan"],
   preset: null,
+  revision: 1,
+  retirement: null,
   instance: "claude-one",
   permissionMode: "bypass",
 } as const;
@@ -162,6 +165,7 @@ const squadDetail = {
   workers: ["luna", "sol", "terra"],
   leaderTurnBudget: 8,
   roster: "fable » luna, sol, terra",
+  revision: 1,
 } as const;
 const noop = () => undefined;
 const runtimeCard = (row: typeof instance | typeof claudeInstance) =>

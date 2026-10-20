@@ -220,6 +220,7 @@
    "packages/gui/src/renderer/components/entityDoc/VerticalKindSchemaForm.tsx#VerticalKindSchemaForm",
    "packages/gui/src/renderer/components/entityDoc/VerticalKindSchemaForm.tsx#describeAttributesIssue",
    "packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#run",
+   "packages/gui/src/renderer/model/runtime-models.ts#runtimeModelCandidates",
    "packages/gui/src/renderer/components/observe/DaemonTailPane.tsx#useObserveTail",
    "packages/gui/src/renderer/components/primitives/page-regions.tsx#PageRegionsHost",
    "packages/gui/src/renderer/components/runtime/SessionsPanel.tsx#SessionsPanel",

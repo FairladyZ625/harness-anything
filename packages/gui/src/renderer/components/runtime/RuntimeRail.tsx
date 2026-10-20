@@ -8,6 +8,8 @@ import {
 } from "../../agent-entity-client.ts";
 import { t } from "../../i18n/index.tsx";
 import { runtimeAuthPresentation, type RuntimeAuthProbeState } from "../../runtime-auth-presentation.ts";
+import { runtimeModelFullLabel, runtimeModelShortLabel } from "../../model/runtime-models.ts";
+import { formatTime } from "../../model/time.ts";
 import { DenseRow } from "../primitives/DenseRow.tsx";
 import { catalogRailCompactClass } from "../primitives/CatalogSplit.tsx";
 import { StatusTag, TONE_COLOR } from "../primitives/StatusTag.tsx";
@@ -279,19 +281,47 @@ export function IdentityRail({
               className="w-full text-left"
               onClick={() => onSelect({ type: "agent", id: agent.id })}
             >
-              <DenseRow
-                title={
-                  <span className="flex min-w-0 items-center gap-2">
-                    <Avatar id={agent.id} />
-                    <span className="min-w-0 truncate font-medium">{agent.name}</span>
-                  </span>
-                }
-                // 右侧唯一关键量:首选模型(能区分这一行的信息);完整「模型 · 所在
-                // Squad」与 agent id 收进悬停全文,详情卡仍是完整出处。
-                time={agent.runtimes[0]?.model ?? agent.runtimes[0]?.type}
-                hoverTitle={agentLineSummary(agent.runtimes, squadsByAgent.get(agent.id) ?? [], agent.id)}
-                selected={picked("agent", agent.id)}
-              />
+              {agent.retirement === null ? (
+                <DenseRow
+                  title={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Avatar id={agent.id} />
+                      <span className="min-w-0 truncate font-medium">{agent.name}</span>
+                    </span>
+                  }
+                  // 右侧唯一关键量:首选模型(能区分这一行的信息);候选清单型 model
+                  // (deepseek-harness)显示「首候选 +N」,整串 JSON 不再上栏。完整
+                  // 「模型 · 所在 Squad」与 agent id 收进悬停全文,详情卡仍是完整出处。
+                  time={runtimeModelShortLabel(agent.runtimes[0]?.model) ?? agent.runtimes[0]?.type ?? undefined}
+                  hoverTitle={agentLineSummary(agent.runtimes, squadsByAgent.get(agent.id) ?? [], agent.id)}
+                  selected={picked("agent", agent.id)}
+                />
+              ) : (
+                // 退役行:名称旁一枚「已退役」标签,右栏给接替者(有则显示),原因与
+                // 退役时间收进悬停全文——行上不铺长文,详情卡给完整出处。
+                <DenseRow
+                  title={
+                    <span className="flex min-w-0 items-center gap-2">
+                      <Avatar id={agent.id} />
+                      <span className="min-w-0 truncate font-medium">{agent.name}</span>
+                      <StatusTag tone="cancel" label={t("agentRuntime.retiredTag")} />
+                    </span>
+                  }
+                  time={agent.retirement.successor === undefined ? undefined : `→ ${agent.retirement.successor}`}
+                  hoverTitle={[
+                    `${t("agentRuntime.retiredAt", {
+                      time:
+                        formatTime(agent.retirement.retiredAt, { style: "date-time-seconds" }) ??
+                        agent.retirement.retiredAt,
+                    })} · ${agent.retirement.reason}`,
+                    ...(agent.retirement.successor === undefined
+                      ? []
+                      : [t("agentRuntime.retiredSuccessorIs", { agent: agent.retirement.successor })]),
+                    agentLineSummary(agent.runtimes, squadsByAgent.get(agent.id) ?? [], agent.id),
+                  ].join("\n")}
+                  selected={picked("agent", agent.id)}
+                />
+              )}
             </button>
           ) : (
             <RailDegradedRow
@@ -358,13 +388,15 @@ export function IdentityRail({
 
 const isDegraded = (row: AgentEntityRow | SquadEntityRow): boolean => "state" in row;
 
-/** Agent 行悬停全文:完整模型清单、所在 Squad 与 agent id——行上只露首选模型。 */
+/** Agent 行悬停全文:完整模型清单(候选清单型逐项列出)、所在 Squad 与 agent id——行上只露首选模型。 */
 function agentLineSummary(
   runtimes: readonly { readonly type: string; readonly model?: string | null }[],
   squads: readonly string[],
   id: string,
 ): string {
-  return [runtimes.map((target) => target.model ?? target.type).join(" / "), ...squads, id].filter(Boolean).join(" · ");
+  return [runtimes.map((target) => runtimeModelFullLabel(target.model) ?? target.type).join(" / "), ...squads, id]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 type DegradedEntityRow = Extract<AgentEntityRow, { readonly state: "invalid" | "missing" }>;
