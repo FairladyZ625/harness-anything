@@ -18,19 +18,31 @@ const ThemeContext = createContext<{
 const resolve = (mode: ThemeMode): "dark" | "light" =>
   mode === "system" ? (matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark") : mode;
 
+const applyTheme = (theme: "dark" | "light") => {
+  document.documentElement.dataset.theme = theme;
+  if (theme === "light") {
+    document.documentElement.classList.remove("dark");
+  } else {
+    document.documentElement.classList.add("dark");
+  }
+};
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [mode, setMode] = useState<ThemeMode>(() => (localStorage.getItem("harness-theme") as ThemeMode) ?? "dark");
+  const [mode, setMode] = useState<ThemeMode>(() => {
+    const stored = localStorage.getItem("harness-theme");
+    return stored === "light" || stored === "dark" || stored === "system" ? stored : "dark";
+  });
   const [uiScale, setUiScale] = useState<UiScale>(
     () => (localStorage.getItem("harness-ui-scale") as UiScale) ?? "standard",
   );
 
   useEffect(() => {
     localStorage.setItem("harness-theme", mode);
-    document.documentElement.dataset.theme = resolve(mode);
+    applyTheme(resolve(mode));
     if (mode !== "system") return;
     const mq = matchMedia("(prefers-color-scheme: light)");
     const onChange = () => {
-      document.documentElement.dataset.theme = mq.matches ? "light" : "dark";
+      applyTheme(mq.matches ? "light" : "dark");
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
