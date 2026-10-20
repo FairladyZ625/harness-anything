@@ -34,7 +34,7 @@ export const TONE_COLOR: Record<StatusTone, string> = {
   bad: "var(--color-status-blocked)",
   neutral: "var(--color-text-muted)",
   "agent-question": "var(--color-agent-question)",
-  "agent-working": "var(--color-agent-working)",
+  "agent-working": "var(--color-status-active)",
 };
 
 /** 状态词 → tone:分段条、区域竖线等所有按状态着色的原语共用这一份映射。 */

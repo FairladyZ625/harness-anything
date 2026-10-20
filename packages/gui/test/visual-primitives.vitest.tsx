@@ -82,7 +82,7 @@ function pressKey(key: string): void {
 
 describe("StatusTag", () => {
   it.each(["question", "awaits", "working"] as const)(
-    "maps Agent %s separately from task lifecycle colors",
+    "maps Agent %s to question or existing active color tokens",
     (state) => {
       const localeAtImport = initialLocale();
       try {
@@ -91,7 +91,9 @@ describe("StatusTag", () => {
         const tag = container.querySelector("[data-status-tone]")!;
         const tone = state === "working" ? "agent-working" : "agent-question";
         expect(tag.getAttribute("data-status-tone")).toBe(tone);
-        expect(tag.getAttribute("style")).toContain(`var(--color-${tone})`);
+        expect(tag.getAttribute("style")).toContain(
+          state === "working" ? "var(--color-status-active)" : "var(--color-agent-question)",
+        );
         expect(tag.textContent).toBe(state === "working" ? "Running" : "Awaiting your answer");
         act(() => root.unmount());
         setActiveLocale("zh-CN");
