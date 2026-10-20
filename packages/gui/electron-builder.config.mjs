@@ -47,6 +47,9 @@ const config = {
   asar: false,
   nativeModules: { npmRebuild: false },
   compression: "normal",
+  // harness-edge:// 邀请链接唤起安装包里的 GUI(macOS 写 Info.plist;Windows/Linux 由运行时
+  // app.setAsDefaultProtocolClient 注册)。
+  protocols: [{ name: "Harness Edge Join", schemes: ["harness-edge"] }],
   directories: {
     app: "../..",
     output: outputDir,

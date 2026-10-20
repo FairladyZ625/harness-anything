@@ -1,6 +1,6 @@
 import { useLayoutEffect, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
-import { ArrowSquareOut, CheckCircle, FolderSimple, PushPin, PushPinSlash, WarningCircle } from "@phosphor-icons/react";
+import { ArrowSquareOut, CheckCircle, FolderSimple, PushPin, PushPinSlash, Sailboat } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
 import { orderProjects } from "../../project-order-preferences.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
@@ -141,6 +141,7 @@ export function QuickSwitcher({
   onOpenProject,
   onOpenProjectInNewWindow,
   onOpenProjectManager,
+  onJoinCenter,
 }: {
   readonly open: boolean;
   readonly anchorRef: RefObject<HTMLElement | null>;
@@ -152,6 +153,8 @@ export function QuickSwitcher({
   /** 在独立窗口打开项目;null = 无此能力(浏览器壳),行内不出现该入口。 */
   readonly onOpenProjectInNewWindow: ((repoId: string) => void) | null;
   readonly onOpenProjectManager: () => void;
+  /** 打开「加入中心」向导(边缘节点邀请链接的粘贴入口)。 */
+  readonly onJoinCenter: () => void;
 }) {
   const [position, setPosition] = useState<QuickSwitcherPosition | null>(null);
   const [disabledOpen, setDisabledOpen] = useState(false);
@@ -250,12 +253,14 @@ export function QuickSwitcher({
           {t("components.appSidebar.manageAll")}
         </button>
         <button
-          disabled
+          type="button"
+          data-testid="quick-switcher-join-center"
+          onClick={onJoinCenter}
           className={`glass-sub inline-flex items-center justify-center gap-1 rounded-md
-            px-2 py-1.5 ui-meta text-text-faint opacity-70`}
+            px-2 py-1.5 ui-meta font-medium text-text-muted hover:border-border-strong hover:text-text`}
         >
-          <WarningCircle weight="bold" />
-          {t("components.appSidebar.localMode")}
+          <Sailboat weight="bold" />
+          {t("components.appSidebar.joinCenter")}
         </button>
       </div>
     </div>,

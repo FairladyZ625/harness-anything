@@ -28,14 +28,14 @@ import {
 } from "./agent-runtime-instances.ts";
 import { daemonBuildStamp, observeDaemonBuild } from "./build-identity.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
-import { joinFleetEdge } from "./fleet/edge-join-client.ts";
+import { createEdgeJoinProgressTap, joinFleetEdge } from "./fleet/edge-join-client.ts";
 import { localUserDaemonEndpoint } from "./client/local-daemon-target.ts";
 import {
   admitHostMode as admitHostModeImpl,
   requireHostMode as requireHostModeImpl,
   settleControl as settleControlImpl,
 } from "./daemon-host-admission.ts";
-import { binding as deriveBinding, localSystemBinding, withDaemonWriterEpochFence } from "./daemon-host-binding.ts";
+import { binding as deriveBinding, localSystemBinding } from "./daemon-host-binding.ts";
 import { createDaemonHostControlApi } from "./daemon-host-control-api.ts";
 import {
   attachBudgetError,
@@ -76,6 +76,7 @@ import {
   requiredText,
 } from "./daemon-host-status.ts";
 import type { DaemonHost } from "./daemon-host-types.ts";
+import { openDaemonWriterEpochs } from "./daemon-host-writer-epoch.ts";
 import { requireAuthorizedFleetAction, requireAuthorizedHostAction } from "./host-action-authorization.ts";
 import { openFleetEdgeRuntime, type FleetEdgeRuntimeRequest } from "./fleet-edge-runtime.ts";
 import { applyFleetMirrorCut } from "./fleet-edge-mirror.ts";
@@ -98,18 +99,11 @@ import { credentialPort, type CredentialPort } from "./agent-runtime-credential-
 import { runtimeInstanceCredentialService } from "./runtime-instance-credentials.ts";
 import { openDecisionProviderService } from "./decision-provider.ts";
 import { openDecisionPointExecutorFactory } from "./decision-point-executor.ts";
-import {
-  openPersistentWriterEpoch,
-  readLedgerWriterEpoch,
-  type PersistentWriterEpoch,
-  type WriterEpochLease,
-} from "./writer-epoch.ts";
 import { AccessAdminService } from "./access-admin-service.ts";
 import { accessAdminOperations } from "./protocol/daemon-protocol.contract.ts";
 import { ManagedRbacService } from "./managed-rbac-service.ts";
 import { OidcSessionService } from "./oidc-session-service.ts";
 import { runFleetReplicaSync, waitForFleetReplicaReady } from "./fleet/replica-sync.ts";
-
 export interface DaemonHostOpenInput {
   readonly daemonId: string;
   readonly userRoot: string;
@@ -206,58 +200,15 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     initialRegistry = readDaemonRegistry({ userRoot: input.userRoot }),
     buildObserver = observeDaemonBuild(input.runtimeFile),
     fleetEdgeRuntimes = new Map<string, ReturnType<typeof openFleetEdgeRuntime>>();
-  let daemonWriterEpoch: PersistentWriterEpoch | null = null;
   const oidc = input.oidc ?? new OidcSessionService(input.userRoot),
-    daemonWriterLeases = new Map<string, WriterEpochLease>(),
-    writerEpochLease = (repoId: string, rootDir?: string) => {
-      daemonWriterEpoch ??= openPersistentWriterEpoch({
-        stateRoot: path.join(input.userRoot, "fleet"),
-        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
-        now,
-      });
-      const existing = daemonWriterLeases.get(repoId);
-      if (existing) return existing;
-      const repo = readDaemonRegistry({ userRoot: input.userRoot }).repos.find((entry) => entry.repoId === repoId);
-      // The lease database allocates epochs above the accepting ledger's enforced fence floor. Init
-      // takes its lease before the registry row exists, so the caller passes the root it will write.
-      // An edge's local ledger is a center-owned mirror; it cannot establish that edge's epoch floor.
-      const observedLedgerEpoch =
-        repo?.mode === "remote-edge" ? 0 : readLedgerWriterEpoch(repoId, repo?.canonicalRoot ?? rootDir);
-      const lease = daemonWriterEpoch.acquire(repoId, observedLedgerEpoch);
-      daemonWriterLeases.set(repoId, lease);
-      return lease;
-    },
-    writerEpochFence = (repoId: string, rootDir?: string) => {
-      const lease = writerEpochLease(repoId, rootDir);
-      return {
-        schema: "harness-writer-epoch-fence/v1" as const,
-        stateRoot: path.join(input.userRoot, "fleet"),
-        repoId,
-        epoch: lease.epoch,
-        holderId: lease.holderId,
-      };
-    },
-    writerEpochHighWatermark = (repoId: string) => {
-      daemonWriterEpoch ??= openPersistentWriterEpoch({
-        stateRoot: path.join(input.userRoot, "fleet"),
-        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
-        now,
-      });
-      return daemonWriterEpoch.highWatermark(repoId);
-    },
-    retireWriterEpoch = (repoId: string) => {
-      daemonWriterEpoch ??= openPersistentWriterEpoch({
-        stateRoot: path.join(input.userRoot, "fleet"),
-        holderId: `local-daemon:${input.daemonId}:${process.pid}`,
-        now,
-      });
-      daemonWriterEpoch.retireCurrent(repoId);
-      daemonWriterLeases.delete(repoId);
-    },
-    daemonWriterBinding = (repoId: string, base: ReturnType<typeof localSystemBinding>) => {
-      if (base.writerEpochFence) return base;
-      return withDaemonWriterEpochFence(base, writerEpochFence(repoId));
-    };
+    {
+      writerEpochLease,
+      writerEpochFence,
+      writerEpochHighWatermark,
+      retireWriterEpoch,
+      closeDaemonWriterEpoch,
+      daemonWriterBinding,
+    } = openDaemonWriterEpochs({ userRoot: input.userRoot, daemonId: input.daemonId, now });
   // Assigned once the managed identity center's resume is fired below; every center consultation
   // awaits it, so a center still resuming reads as a slow startup instead of a broken repo (a
   // build-superseded successor's first attach lost exactly that race and latched its repo).
@@ -273,69 +224,64 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     return { personId: principal.personId, accessToken: principal.accessToken, ...principal.authority };
   };
   const hostBinding: DaemonHostApiContext["binding"] = async (
-      rootDir,
-      auth,
-      executor = null,
-      writerRepoId,
-      replicaRead = false,
-    ) => {
-      // Session authorization also consults Keycloak, without using the center supplier.
-      await rbacResumed;
-      const execution = auth.executionCredential
-        ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
-        : auth.executionPrincipal;
-      if (execution) {
-        if (
-          auth.nodePrincipal &&
-          (typeof execution.source !== "object" ||
-            execution.source.kind !== "node" ||
-            execution.source.nodeId !== auth.nodePrincipal.nodeId ||
-            execution.personId !== auth.nodePrincipal.personId)
-        )
-          throw executionCredentialRejected();
-        const cell = cells.get(execution.repoId);
-        if (!cell || path.resolve(cell.status().rootDir) !== path.resolve(rootDir))
-          throw hostCodedError(
-            "execution_credential_rejected",
-            "Execution credential belongs to a different repository.",
-          );
-        const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth));
-        if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
-        const base = {
-          actor: runtimeExecutionActor(execution),
-          source: execution.source,
-          executionPrincipal: execution,
-          writerEpoch: auth.writerEpoch,
-          withWriterEpochFence: auth.withWriterEpochFence,
-          writerEpochFence: auth.writerEpochFence,
-          ...(cell.status().mode === "remote-edge"
-            ? {}
-            : {
-                keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
-              }),
-        };
-        return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
-      }
-      const edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.some(
-          (repo) => repo.canonicalRoot === rootDir && repo.mode === "remote-edge",
-        ),
-        principal =
-          edge && replicaRead
-            ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, true)), keycloakCenter }, executor, true)
-            : await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
-        base = edge
-          ? principal
+    rootDir,
+    auth,
+    executor = null,
+    writerRepoId,
+    replicaRead = false,
+  ) => {
+    // Session authorization also consults Keycloak, without using the center supplier.
+    await rbacResumed;
+    const execution = auth.executionCredential
+      ? await authenticateRuntimeExecutionCredential(await keycloakCenter(), auth.executionCredential)
+      : auth.executionPrincipal;
+    if (execution) {
+      if (
+        auth.nodePrincipal &&
+        (typeof execution.source !== "object" ||
+          execution.source.kind !== "node" ||
+          execution.source.nodeId !== auth.nodePrincipal.nodeId ||
+          execution.personId !== auth.nodePrincipal.personId)
+      )
+        throw executionCredentialRejected();
+      const cell = cells.get(execution.repoId);
+      if (!cell || path.resolve(cell.status().rootDir) !== path.resolve(rootDir))
+        throw hostCodedError(
+          "execution_credential_rejected",
+          "Execution credential belongs to a different repository.",
+        );
+      const deviceSession = await deriveBinding(rootDir, await oidc.bind(auth));
+      if (deviceSession.actor.principal.personId !== execution.personId) throw executionCredentialRejected();
+      const base = {
+        actor: runtimeExecutionActor(execution),
+        source: execution.source,
+        executionPrincipal: execution,
+        writerEpoch: auth.writerEpoch,
+        withWriterEpochFence: auth.withWriterEpochFence,
+        writerEpochFence: auth.writerEpochFence,
+        ...(cell.status().mode === "remote-edge"
+          ? {}
           : {
-              ...principal,
-              keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
-            };
+              keycloakAuthorization: { ...deviceSession.keycloakAuthorization, center: keycloakCenter },
+            }),
+      };
       return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
-    },
-    closeDaemonWriterEpoch = () => {
-      daemonWriterEpoch?.close();
-      daemonWriterEpoch = null;
-      daemonWriterLeases.clear();
-    };
+    }
+    const edge = readDaemonRegistry({ userRoot: input.userRoot }).repos.some(
+        (repo) => repo.canonicalRoot === rootDir && repo.mode === "remote-edge",
+      ),
+      principal =
+        edge && replicaRead
+          ? await deriveBinding(rootDir, { ...(await oidc.bind(auth, true)), keycloakCenter }, executor, true)
+          : await deriveBinding(rootDir, { ...(await oidc.bind(auth)), keycloakCenter }, executor),
+      base = edge
+        ? principal
+        : {
+            ...principal,
+            keycloakAuthorization: { ...principal.keycloakAuthorization, center: keycloakCenter },
+          };
+    return writerRepoId ? daemonWriterBinding(writerRepoId, base) : base;
+  };
   const edgeRuntimeFor = (request: FleetEdgeRuntimeRequest["payload"]) => {
       const key = `${request.repoId}\0${request.nodeId}\0${request.host}\0${request.port}`,
         runtime =
@@ -762,7 +708,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
       error: error instanceof Error ? error.message : String(error),
     }),
   );
-  const parkedWaitController = new AbortController();
+  const parkedWaitController = new AbortController(),
+    edgeJoinProgress = createEdgeJoinProgressTap();
   const host: DaemonHost = {
     remoteProxy,
     home,
@@ -779,6 +726,8 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
     manageRbac: (request, auth) => {
       localOnly(auth);
       return (async () => {
+        if (request.operation === "edge-join-progress")
+          return { ok: true, command: "edge-join", ...edgeJoinProgress.read() };
         if (request.operation === "edge-join")
           return joinFleetEdge(
             {
@@ -791,6 +740,7 @@ export async function openDaemonHost(input: DaemonHostOpenInput): Promise<Daemon
               register: (rootDir, repoId) =>
                 host.admin({ kind: "register", rootDir, repoId, mode: "remote-edge" }, auth),
               sync: (payload) => host.fleet.edgeSync(payload, auth),
+              onProgress: edgeJoinProgress.record,
             },
           );
         if (request.mode === "external") return oidc.configureAuthority(() => managedRbac.run(request));

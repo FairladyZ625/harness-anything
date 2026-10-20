@@ -89,6 +89,7 @@ import { WorkspaceView } from "./views/WorkspaceView.tsx";
 import { combineWorkspaceScopePages, useWorkspaceScopeQuery } from "./workspace-scope-data.ts";
 import { prewarmRuntimeInstanceCatalog } from "./runtime-instance-data.ts";
 import { FirstRunGuide } from "./components/FirstRunGuide.tsx";
+import { useEdgeJoinEntry } from "./edge-join-entry.tsx";
 import { LocalDocLayer } from "./local-doc/LocalDocLayer.tsx";
 import { useLocalDocOpener } from "./local-doc/local-doc-context.ts";
 import { useEntityKindOptions, useGovernedEntityRows } from "./entity-kind-data.ts";
@@ -97,7 +98,6 @@ import { hostProjectWindowApi, useProjectWindowHost, useProjectWindowTitle } fro
 import { DaemonStartupGate } from "./components/DaemonStartupGate.tsx";
 import { AuroraBackdrop, LiquidFilterDef } from "./components/GlassFoundation.tsx";
 import { RepositoryReadNotice } from "./components/RepositoryReadNotice.tsx";
-
 function AppShell() {
   const desktopOnly = guiTransport().capabilities().terminal?.status === "unavailable";
   // 一个项目一个窗口(task_ca1ee6b9e8f83c89cb376e5f07):本窗口若是「在新窗口打开」
@@ -215,7 +215,6 @@ function AppShell() {
   const [projectSwitcherOpen, setProjectSwitcherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [setupGuide, setSetupGuide] = useState<"provider" | "agent" | null>(null);
-
   // placement 不再由 renderer 二次推导:repo.tasks.list 的 row.placement 已带
   // daemon 侧由同一批 active derives 边算出的 productLines/
   // spawningDecisionIds(F-84CF0391),所以任务行适配不再依赖任何三元读取。
@@ -383,6 +382,7 @@ function AppShell() {
     },
     onProjectOpened: () => setProjectSwitcherOpen(false),
   });
+  const edgeJoin = useEdgeJoinEntry(openProject);
   // 重构区路由(dec_C612E69B):重构页(今天/你交代的事)暂由 App 级状态承载,不进
   // 全局历史栈;从重构页跳走(位置变更)即离页,回重构页走侧栏再进。
   const { redesignView, gotoNav } = useRedesignNavigation(location, goto);
@@ -543,6 +543,10 @@ function AppShell() {
             setProjectSwitcherOpen(false);
             goto("home");
           }}
+          onJoinCenter={() => {
+            setProjectSwitcherOpen(false);
+            edgeJoin.open();
+          }}
           pinnedRepoIds={pinnedRepoIds}
           onToggleProjectPin={toggleProjectPin}
           onNavigate={gotoNav}
@@ -615,6 +619,7 @@ function AppShell() {
                   onOpenProject={(repoId, targetView) => {
                     void openProject(repoId, targetView);
                   }}
+                  onJoinCenter={edgeJoin.open}
                 />
               ) : view === "overview" ? (
                 workspaceSummaryQuery.data ? (
@@ -1009,6 +1014,7 @@ function AppShell() {
                   onOpenProject={(repoId) => {
                     void openProject(repoId);
                   }}
+                  onJoinCenter={edgeJoin.open}
                 />
               )}
             </div>
@@ -1067,6 +1073,7 @@ function AppShell() {
             onFinish={() => setSetupGuide(null)}
           />
         ) : null}
+        {edgeJoin.wizard}
       </div>
     </LocalDocLayer>
   );

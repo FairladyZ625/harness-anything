@@ -1,4 +1,5 @@
 import type { SystemRepoRow } from "../api-client.ts";
+import { Sailboat } from "@phosphor-icons/react";
 import { t } from "../i18n/index.tsx";
 import { Region } from "../components/primitives/Region.tsx";
 import type { StatusTone } from "../components/primitives/StatusTag.tsx";
@@ -27,6 +28,7 @@ export function HomeView({
   pinnedRepoIds,
   onToggleProjectPin,
   onOpenProject,
+  onJoinCenter,
 }: {
   readonly repos: ReadonlyArray<SystemRepoRow>;
   readonly currentRepoId: string | null;
@@ -34,6 +36,8 @@ export function HomeView({
   readonly pinnedRepoIds: ReadonlyArray<string>;
   readonly onToggleProjectPin: (repoId: string) => void;
   readonly onOpenProject: (repoId: string, targetView?: "agenda" | "work") => void;
+  /** 打开「加入中心」向导;没有项目时的空状态入口(task_0499bcc75d0f)。 */
+  readonly onJoinCenter: () => void;
 }) {
   const readOf = useProjectActivity(repos),
     groups = groupProjects(repos, currentRepoId, readOf),
@@ -80,9 +84,13 @@ export function HomeView({
         </p>
       )}
       {repos.length === 0 ? (
-        <p className="px-4 py-3 ui-meta text-text-faint" data-testid="home-empty">
-          {t("views.homeView.empty")}
-        </p>
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3" data-testid="home-empty">
+          <p className="min-w-0 flex-1 ui-meta text-text-faint">{t("views.homeView.empty")}</p>
+          <Button testId="home-empty-join-center" onClick={onJoinCenter}>
+            <Sailboat className="mr-1 inline size-3" />
+            {t("views.repositories.joinCenterAction")}
+          </Button>
+        </div>
       ) : (
         <div data-testid="home-content" className="flex flex-col gap-6 p-4">
           {(["attention", "open", "disabled"] satisfies ProjectGroupId[]).map((group) =>

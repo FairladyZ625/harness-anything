@@ -11,6 +11,7 @@
   "components.appSidebar.localMode": "local mode",
   "components.appSidebar.localMode2": "local mode",
   "components.appSidebar.localModeNotSynchronizedV2MultiTerminal": "Local mode · Not synchronized (V2: multi-terminal synchronization)",
+  "components.appSidebar.joinCenter": "Join a center",
   "components.appSidebar.manageAll": "Manage all",
   "components.appSidebar.noTaskRowsFromLocalBridge": "No task rows available from the local task bridge",
   "components.appSidebar.pinnedWorkTitle": "Pinned work",

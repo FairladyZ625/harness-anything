@@ -29,5 +29,11 @@ repository. It writes the machine credential only to the local edge configuratio
 do not return that credential. A changed repository or permission-group snapshot is rejected, so the inviter must
 issue a fresh invitation after changing the selected access.
 
+The invited person can also skip the command line and join from the GUI: open the app, click **Join a Center** in the
+top-left project switcher (or on the first-run empty page), paste the invitation link, and follow the wizard — complete
+the device sign-in and approval in the browser, watch the per-repository first sync progress, and the app switches to
+the first joined repository when it finishes. Clicking a `harness-edge://join/...` link raises the app with the wizard
+pre-filled. The GUI calls the same join logic as the CLI, and the link is never written to any log.
+
 On Wayland, use `ELECTRON_OZONE_PLATFORM_HINT=auto ha gui`. To inspect the resulting repository and dispatch an Agent,
 run `ha gui --root <edge-repository>` or the normal `ha runtime run` command from that repository.

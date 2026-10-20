@@ -5,7 +5,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
+import { createEdgeJoinProgressTap, joinFleetEdge, type EdgeJoinClientPorts } from "../src/fleet/edge-join-client.ts";
 import { createEdgeJoinStore, encodeEdgeJoinLink } from "../src/fleet/edge-join.ts";
 
 test("one invitation creates and syncs an independent workspace for every repository", async (t) => {
@@ -47,6 +47,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
     }),
     registrations: string[] = [],
     syncs: Record<string, unknown>[] = [],
+    progress: { readonly joinId: string; readonly repository: { repoId: string; phase: string } }[] = [],
     ports: EdgeJoinClientPorts = {
       session: async () => ({
         accessToken: "person-access-token",
@@ -81,6 +82,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
         };
       },
       homeDir: temp,
+      onProgress: (event) => progress.push(event),
     },
     result = await joinFleetEdge(
       { link: encodeEdgeJoinLink(invite.link), workspaceRoot: path.join(temp, "workspace") },
@@ -109,4 +111,37 @@ test("one invitation creates and syncs an independent workspace for every reposi
     assert.equal(syncs[index]?.credential, "machine-credential");
   }
   assert.equal(JSON.stringify(result).includes("machine-credential"), false);
+  assert.deepEqual(
+    progress.map(({ repository }) => `${repository.repoId}:${repository.phase}`),
+    [
+      "repo-a:workspace",
+      "repo-a:register",
+      "repo-a:sync",
+      "repo-a:synced",
+      "repo-b:workspace",
+      "repo-b:register",
+      "repo-b:sync",
+      "repo-b:synced",
+    ],
+  );
+  assert.ok(progress.every(({ joinId }) => joinId === invite.record.joinId));
+});
+
+test("the progress tap replaces a repository's phase and never mixes two joins", () => {
+  const tap = createEdgeJoinProgressTap();
+  assert.deepEqual(tap.read(), { repositories: [] });
+
+  tap.record({ joinId: "join-a", repository: { repoId: "repo-1", phase: "workspace" } });
+  tap.record({ joinId: "join-a", repository: { repoId: "repo-2", phase: "register" } });
+  tap.record({ joinId: "join-a", repository: { repoId: "repo-1", phase: "sync" } });
+  assert.deepEqual(tap.read(), {
+    joinId: "join-a",
+    repositories: [
+      { repoId: "repo-2", phase: "register" },
+      { repoId: "repo-1", phase: "sync" },
+    ],
+  });
+
+  tap.record({ joinId: "join-b", repository: { repoId: "repo-3", phase: "workspace" } });
+  assert.deepEqual(tap.read(), { joinId: "join-b", repositories: [{ repoId: "repo-3", phase: "workspace" }] });
 });

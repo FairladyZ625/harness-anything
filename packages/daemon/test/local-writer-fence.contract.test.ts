@@ -41,7 +41,10 @@ test("every production local binding is covered by a request or cell-default wri
     /return writerRepoId \? daemonWriterBinding\(writerRepoId, base\) : base/u,
   );
   const host = source("daemon-host-open.ts");
-  assert.match(host, /return withDaemonWriterEpochFence\(base, writerEpochFence\(repoId\)\)/u);
+  assert.match(
+    source("daemon-host-writer-epoch.ts"),
+    /return withDaemonWriterEpochFence\(base, writerEpochFence\(repoId\)\)/u,
+  );
   // Schedule reads use system authority; occurrence writes use the canonical creator
   // and Keycloak authorization, with a request fence for that repository.
   assert.match(host, /if \(action\.kind === "schedule-list"\) return system/u);

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FolderOpen } from "@phosphor-icons/react";
+import { FolderOpen, Sailboat } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
 import type { FirstRunApi, FirstRunBootstrapInput } from "../../../api/first-run-contract.ts";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
@@ -22,10 +22,13 @@ export function AddLocalRepositoryPanel({
   repos,
   activeRepoId,
   onOpenProject,
+  onJoinCenter,
 }: {
   readonly repos: readonly SystemRepoRow[];
   readonly activeRepoId: string | null;
   readonly onOpenProject: (repoId: string) => void;
+  /** 打开「加入中心」向导;空状态的第二入口(task_0499bcc75d0f)。 */
+  readonly onJoinCenter: () => void;
 }) {
   const repoMutations = useRepoAdminMutations();
   const [rootDir, setRootDir] = useState(""),
@@ -104,9 +107,18 @@ export function AddLocalRepositoryPanel({
   return (
     <div className="flex flex-col gap-3">
       {repos.length === 0 ? (
-        <div data-testid="local-empty-state" className="rounded-lg border border-dashed border-border bg-surface p-4">
-          <p className="ui-body font-medium">{t("views.repositories.emptyTitle")}</p>
-          <p className="mt-1 ui-meta text-text-muted">{t("views.repositories.emptyHint")}</p>
+        <div
+          data-testid="local-empty-state"
+          className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed border-border bg-surface p-4"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="ui-body font-medium">{t("views.repositories.emptyTitle")}</p>
+            <p className="mt-1 ui-meta text-text-muted">{t("views.repositories.emptyHint")}</p>
+          </div>
+          <Button testId="local-empty-join-center" onClick={onJoinCenter}>
+            <Sailboat className="mr-1 inline size-3" />
+            {t("views.repositories.joinCenterAction")}
+          </Button>
         </div>
       ) : null}
 

@@ -74,6 +74,7 @@ async function mountHome(
   repos: readonly SystemRepoRow[],
   currentRepoId: string | null,
   seed: Readonly<Record<string, { readonly summary: unknown; readonly runtime: unknown }>> = {},
+  onJoinCenter: () => void = () => undefined,
 ): Promise<{
   readonly container: HTMLElement;
   readonly opened: readonly string[];
@@ -108,6 +109,7 @@ async function mountHome(
             opened.push(repoId);
             targets.push(target);
           },
+          onJoinCenter,
         }),
       ),
     );
@@ -450,6 +452,16 @@ describe("HomeView 项目管理页", () => {
     expect(container.querySelector('[data-testid="home-add-notice"]')?.textContent).toContain(
       "「/work/plain」里还没有 Harness 台账",
     );
+  });
+
+  it("还没有项目时,空状态页直接给出「加入中心」入口", async () => {
+    const join = vi.fn();
+    const { container } = await mountHome([], null, {}, join);
+
+    const entry = container.querySelector<HTMLElement>('[data-testid="home-empty-join-center"]');
+    expect(entry?.textContent).toContain("加入中心");
+    await click(entry!);
+    expect(join).toHaveBeenCalledTimes(1);
   });
 });
 
