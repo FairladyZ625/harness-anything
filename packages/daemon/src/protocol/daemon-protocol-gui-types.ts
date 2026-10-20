@@ -9,6 +9,7 @@ import type {
   DaemonRepoMode,
   DecisionAcceptReviewReadiness,
   DecisionProjectionRow,
+  DecisionReadSurface,
   FreshnessReason,
   ProjectionPage,
   ProjectionWarning,
@@ -696,7 +697,7 @@ export type DaemonDecisionListResult =
 /** The CLI-compatible single read and GUI batch read share the same stable method and
  * schema ids. Exactly one selector is allowed; pagination applies only to taskIds. The
  * member selector returns one executor's newest dispatches, bounded by the required limit. */
-export type DaemonTaskDispatchesPayload =
+export type DaemonTaskDispatchesPayload = { readonly advisorySurface?: DecisionReadSurface } & (
   | {
       readonly taskId: string;
       readonly taskIds?: never;
@@ -728,7 +729,8 @@ export type DaemonTaskDispatchesPayload =
       readonly cursor?: never;
       readonly agentId?: never;
       readonly squadId: string;
-    };
+    }
+);
 
 export interface TaskPlacementSupplement {
   readonly productLines: readonly string[];

@@ -1,5 +1,6 @@
 import type { DaemonTaskDispatchesPayload } from "./protocol/daemon-protocol-gui-types.ts";
 import type { RepoCellApiContext } from "./repo-cell-api.ts";
+import { decisionReadSurfaces } from "@harness-anything/kernel";
 
 export function agendaQueryFromPayload(
   context: RepoCellApiContext,
@@ -32,6 +33,10 @@ export function taskDispatchesPayloadFromCell(
   context: RepoCellApiContext,
   payload: Readonly<Record<string, unknown>>,
 ): DaemonTaskDispatchesPayload {
+  const advisorySurface = decisionReadSurfaces.find((surface) => surface === payload.advisorySurface);
+  if (payload.advisorySurface !== undefined && advisorySurface === undefined)
+    throw context.cellCodedError("invalid_command", "Task dispatch advisorySurface is invalid.");
+  const advisory = advisorySurface === undefined ? {} : { advisorySurface };
   if (payload.agentId !== undefined || payload.squadId !== undefined) {
     if (payload.taskId !== undefined || payload.taskIds !== undefined || payload.cursor !== undefined)
       throw context.cellCodedError(
@@ -48,12 +53,14 @@ export function taskDispatchesPayloadFromCell(
         "Task dispatch member reads require exactly one of agentId or squadId and a limit of 1..500.",
       );
     return {
+      ...advisory,
       limit,
       ...(agentId === undefined ? {} : { agentId }),
       ...(squadId === undefined ? {} : { squadId }),
     } as DaemonTaskDispatchesPayload;
   }
-  if (!Array.isArray(payload.taskIds)) return { taskId: context.requiredCellText(payload.taskId, "taskId") };
+  if (!Array.isArray(payload.taskIds))
+    return { ...advisory, taskId: context.requiredCellText(payload.taskId, "taskId") };
   const taskIds = payload.taskIds.map((taskId) => context.requiredCellText(taskId, "taskIds[]")),
     limit = payload.limit === undefined ? undefined : Number(payload.limit),
     cursor = payload.cursor === undefined ? undefined : context.requiredCellText(payload.cursor, "cursor");
@@ -68,6 +75,7 @@ export function taskDispatchesPayloadFromCell(
       "Task dispatch batch requires 1..500 unique task ids and an optional limit of 1..500.",
     );
   return {
+    ...advisory,
     taskIds,
     ...(limit === undefined ? {} : { limit }),
     ...(cursor === undefined ? {} : { cursor }),

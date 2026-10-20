@@ -654,6 +654,7 @@ export const daemonGuiReadMethods = Object.freeze([
         cursor: "string?",
         agentId: "string?",
         squadId: "string?",
+        advisorySurface: "string?",
       }),
     }),
     guiBridgeMethod: "getTaskDispatches",

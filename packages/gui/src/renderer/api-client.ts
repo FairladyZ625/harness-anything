@@ -1,4 +1,4 @@
-import type { DaemonHomeOverviewResult } from "@harness-anything/daemon/protocol";
+import type { DaemonHomeOverviewResult, DaemonTaskDispatchesPayload } from "@harness-anything/daemon/protocol";
 import type { TaskAssignmentDirectory } from "@harness-anything/daemon/protocol";
 import type { RepositoryReadFrame } from "@harness-anything/daemon/protocol";
 import { repositoryReadFrame } from "./repository-read-frame.ts";
@@ -352,16 +352,14 @@ export const harnessClient = {
   async getTaskDocuments(payload: RepoScope & { readonly taskId: string }): Promise<TaskDocumentListProjectionRead> {
     return readTaskDocumentListResult(await invoke("repo.tasks.documents.list", payload, "getTaskDocuments"));
   },
-  async getTaskDispatches(
-    payload: RepoScope &
-      (
-        | { readonly taskId: string }
-        | { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }
-        | { readonly agentId: string; readonly limit: number }
-        | { readonly squadId: string; readonly limit: number }
+  async getTaskDispatches(payload: RepoScope & DaemonTaskDispatchesPayload): Promise<TaskDispatchesRead> {
+    return readTaskDispatchesResult(
+      await invoke(
+        "repo.task.dispatches",
+        { ...payload, advisorySurface: payload.advisorySurface ?? "gui.dispatch" },
+        "getTaskDispatches",
       ),
-  ): Promise<TaskDispatchesRead> {
-    return readTaskDispatchesResult(await invoke("repo.task.dispatches", payload, "getTaskDispatches"));
+    );
   },
   async getRelationGraph(payload: RepoScope & RelationQueryFacets): Promise<RelationGraphSuccess> {
     return readRelationGraphResult(await invoke("repo.triadic.relationGraph", payload, "getRelationGraph"));

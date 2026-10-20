@@ -8,6 +8,7 @@ import { fleetNodeClaimFixture } from "./fleet-node-claim.fixtures.ts";
 import { fleetEdgeHostFixture } from "./fleet-edge-host.fixture.ts";
 import { localAuthFixture } from "./fleet-tls-session.fixture.ts";
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
+import { decisionReadSurfaces } from "@harness-anything/kernel";
 
 // Real center projection + local-only annotations + authenticated edge JSON-RPC read.
 test(
@@ -93,37 +94,43 @@ test(
         usage: { inputTokens: 12, outputTokens: 3, reportedCost: null },
         latencyMs: 24,
       };
-    await store.reserve({
-      key: "edge-advisory",
-      pointId: advisory.pointId,
-      questionVersion: advisory.questionVersion,
-      bindingDigest: "b".repeat(64),
-      event: "dispatch.settled",
-      show: ["task.dispatches", "gui.dispatch", "agenda"],
-      dispatchId,
-      subjectRef: `dispatch/${dispatchId}`,
-      now: "2026-10-19T00:00:00.000Z",
-      egress: {
-        subjectRef: `dispatch/${dispatchId}`,
-        dispatchId,
+    for (const surface of decisionReadSurfaces) {
+      await store.reserve({
+        key: `edge-advisory-${surface}`,
         pointId: advisory.pointId,
-        fields: ["report.body"],
-        providerId: "test-provider",
-        model: "model-a",
-        sentAt: "2026-10-19T00:00:00.000Z",
-        inputDigest: "c".repeat(64),
-      },
-    });
-    await store.succeed("edge-advisory", advisory, "2026-10-19T00:00:01.000Z");
-    const center = await f.host.read(
-      "lease-repo",
-      "repo.task.dispatches",
-      { taskId: "advice-task" },
-      localAuthFixture(),
-    );
-    assert.deepEqual(center.dispatches[0]!.advisories, [{ ...advisory, evaluatedAt: "2026-10-19T00:00:01.000Z" }]);
-    assert.deepEqual((await read()).dispatches, center.dispatches);
-    assert.deepEqual((await read({ taskIds: ["advice-task"], limit: 500 })).dispatches, center.dispatches);
+        questionVersion: advisory.questionVersion,
+        bindingDigest: "b".repeat(64),
+        event: "dispatch.settled",
+        show: [surface],
+        dispatchId,
+        subjectRef: `dispatch/${dispatchId}`,
+        now: "2026-10-19T00:00:00.000Z",
+        egress: {
+          subjectRef: `dispatch/${dispatchId}`,
+          dispatchId,
+          pointId: advisory.pointId,
+          fields: ["report.body"],
+          providerId: "test-provider",
+          model: "model-a",
+          sentAt: "2026-10-19T00:00:00.000Z",
+          inputDigest: "c".repeat(64),
+        },
+      });
+      await store.succeed(`edge-advisory-${surface}`, { ...advisory, pointId: surface }, "2026-10-19T00:00:01.000Z");
+    }
+    for (const advisorySurface of [undefined, ...decisionReadSurfaces]) {
+      const payload = { taskId: "advice-task", ...(advisorySurface ? { advisorySurface } : {}) };
+      const center = await f.host.read("lease-repo", "repo.task.dispatches", payload, localAuthFixture());
+      assert.deepEqual(center.dispatches[0]!.advisories, [
+        { ...advisory, pointId: advisorySurface ?? "task.dispatches", evaluatedAt: "2026-10-19T00:00:01.000Z" },
+      ]);
+      assert.deepEqual((await read(payload)).dispatches, center.dispatches);
+      assert.deepEqual(
+        (await read({ taskIds: ["advice-task"], limit: 500, ...(advisorySurface ? { advisorySurface } : {}) }))
+          .dispatches,
+        center.dispatches,
+      );
+    }
     await store.remove(dispatchId);
     assert.equal((await read()).dispatches[0]!.advisories, undefined);
     assert.equal(existsSync(path.join(e.edgeRoot, ".harness/decision-annotations.json")), false);

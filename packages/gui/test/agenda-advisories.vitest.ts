@@ -25,6 +25,7 @@ it("follows the authoritative dispatch page cursor through the last page", async
     repoId: "repo-one",
     taskIds: ["task-one"],
     limit: 500,
+    advisorySurface: "agenda",
     cursor: "last-page",
   });
 });

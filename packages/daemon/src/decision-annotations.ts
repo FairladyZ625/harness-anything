@@ -89,7 +89,6 @@ export function openDecisionAnnotationStore(rootDir: string) {
             const updated = {
               ...existing,
               dispatchIds: [...existing.dispatchIds, input.dispatchId],
-              updatedAt: input.now,
             };
             entries[existingIndex] = updated;
             write(entries);

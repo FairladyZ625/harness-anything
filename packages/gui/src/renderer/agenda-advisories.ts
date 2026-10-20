@@ -44,7 +44,13 @@ export async function readAgendaDispatches(
   const rows: TaskDispatchProjectionRow[] = [];
   let cursor: string | null = null;
   do {
-    const read = await harnessClient.getTaskDispatches({ repoId, taskIds, limit: 500, ...(cursor ? { cursor } : {}) });
+    const read = await harnessClient.getTaskDispatches({
+      repoId,
+      taskIds,
+      limit: 500,
+      advisorySurface: "agenda",
+      ...(cursor ? { cursor } : {}),
+    });
     rows.push(...read.dispatches);
     cursor = "page" in read ? read.page.nextCursor : null;
   } while (cursor !== null);

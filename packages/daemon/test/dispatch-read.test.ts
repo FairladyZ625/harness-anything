@@ -5,7 +5,12 @@ import { syncBuiltinESMExports } from "node:module";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import type { AgentRuntimeEventV1, RuntimeSession, TaskProjection } from "@harness-anything/kernel";
+import {
+  decisionReadSurfaces,
+  type AgentRuntimeEventV1,
+  type RuntimeSession,
+  type TaskProjection,
+} from "@harness-anything/kernel";
 import {
   readRuntimeAttemptChain,
   readSessionGroupDispatches,
@@ -17,7 +22,7 @@ import {
 import { openDecisionAnnotationStore } from "../src/decision-annotations.ts";
 import type { RepoCellApiContext } from "../src/repo-cell-api.ts";
 import { taskDispatchesPayloadFromCell } from "../src/repo-cell-read-payloads.ts";
-import { validateDaemonTaskDispatches } from "../src/protocol/daemon-protocol.contract.ts";
+import { validateDaemonRpcCall, validateDaemonTaskDispatches } from "../src/protocol/daemon-protocol.contract.ts";
 
 const dispatchId = "dispatch_a1b2c3d4e5f60718293a4b5c",
   runtimeSessionId = "runtime-1",
@@ -211,7 +216,7 @@ test("canonical archive preserves result, artifact, delegation and provider quot
   assert.equal(row.reviewTarget?.kind, "decision");
 });
 
-test("dispatch rows expose successful advisory fields from the center-local annotation store", async (t) => {
+test("dispatch rows retain advisory evaluation time when another dispatch reuses the result", async (t) => {
   const rootDir = fs.mkdtempSync(path.join(os.tmpdir(), "ha-dispatch-advisory-"));
   t.after(() => fs.rmSync(rootDir, { recursive: true, force: true }));
   const store = openDecisionAnnotationStore(rootDir),
@@ -235,7 +240,7 @@ test("dispatch rows expose successful advisory fields from the center-local anno
       usage: { inputTokens: 12, outputTokens: 3, reportedCost: null },
       latencyMs: 24,
     };
-  await store.reserve({
+  const reservation = {
     key: "advisory-key",
     pointId: advisory.pointId,
     questionVersion: advisory.questionVersion,
@@ -255,12 +260,37 @@ test("dispatch rows expose successful advisory fields from the center-local anno
       sentAt: "2026-10-19T00:00:00.000Z",
       inputDigest: "c".repeat(64),
     },
-  });
+  } satisfies Parameters<typeof store.reserve>[0];
+  await store.reserve(reservation);
   await store.succeed("advisory-key", advisory, "2026-10-19T00:00:01.000Z");
 
   const row = readTaskDispatches({ projection: fixture(session("exited", "succeeded")).projection, taskId, rootDir })
     .dispatches[0]!;
   assert.deepEqual(row.advisories, [{ ...advisory, evaluatedAt: "2026-10-19T00:00:01.000Z" }]);
+  for (const advisorySurface of ["gui.dispatch", "agenda"] as const)
+    assert.equal(
+      readTaskDispatches({
+        projection: fixture(session("exited", "succeeded")).projection,
+        taskId,
+        rootDir,
+        advisorySurface,
+      }).dispatches[0]!.advisories,
+      undefined,
+    );
+  const reusedDispatchId = "dispatch_ffffffffffffffffffffffff",
+    reused = await store.reserve({
+      ...reservation,
+      dispatchId: reusedDispatchId,
+      now: "2026-10-20T00:00:00.000Z",
+    });
+  assert.equal(reused.created, false);
+  assert.deepEqual(reused.entry.dispatchIds, [dispatchId, reusedDispatchId]);
+  assert.deepEqual(
+    readTaskDispatches({ projection: fixture(session("exited", "succeeded")).projection, taskId, rootDir })
+      .dispatches[0]!.advisories,
+    row.advisories,
+    "linking another dispatch must not move the original provider evaluation time",
+  );
 });
 
 test("normal exit with a result is stopped rather than unknown", () => {
@@ -664,6 +694,23 @@ test("member dispatch payloads accept one selector and a bounded limit at both b
     parse = (payload: Readonly<Record<string, unknown>>) => taskDispatchesPayloadFromCell(context, payload);
   assert.deepEqual(parse({ agentId: "terra", limit: 50 }), { agentId: "terra", limit: 50 });
   assert.deepEqual(parse({ squadId: "squad-x", limit: 500 }), { squadId: "squad-x", limit: 500 });
+  for (const advisorySurface of decisionReadSurfaces) {
+    const payload = { taskIds: ["task-a"], advisorySurface };
+    assert.deepEqual(parse(payload), payload);
+    assert.deepEqual(
+      validateDaemonRpcCall({ method: "repo.task.dispatches", params: { repo: { repoId: "repo-a" }, payload } }),
+      [],
+    );
+  }
+  const invalidSurface = { taskId: "task-a", advisorySurface: "unknown" };
+  assert.throws(() => parse(invalidSurface), /advisorySurface/);
+  assert.notDeepEqual(
+    validateDaemonRpcCall({
+      method: "repo.task.dispatches",
+      params: { repo: { repoId: "repo-a" }, payload: invalidSurface },
+    }),
+    [],
+  );
   for (const payload of [
     { agentId: "terra", squadId: "squad-x", limit: 50 },
     { agentId: "terra" },

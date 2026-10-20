@@ -1,4 +1,5 @@
 import { generatedSettingsFieldProtocolProjection } from "@harness-anything/preset/internal/preset-command-contract";
+import { decisionReadSurfaces } from "@harness-anything/kernel";
 import { daemonMethodNameSets } from "./daemon-protocol-commands.ts";
 import {
   admitUseCaseProjectionSelector,
@@ -188,6 +189,8 @@ export function validateAgendaQueryPayload(value: unknown): string[] {
 
 export function validateTaskDispatchesPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["task dispatches payload must be an object"];
+  if (value.advisorySurface !== undefined && !decisionReadSurfaces.some((surface) => surface === value.advisorySurface))
+    return ["repo.task.dispatches.payload.advisorySurface is invalid"];
   if (value.agentId !== undefined || value.squadId !== undefined) {
     const member =
       nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&

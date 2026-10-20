@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { localErrorHint } from "../src/renderer/result-validation.ts";
 import { invoke } from "../src/renderer/api-client-invoke.ts";
 import { resetGuiTransportForTest } from "../src/renderer/gui-transport.ts";
+import { harnessClient } from "../src/renderer/api-client.ts";
 
 afterEach(() => {
   resetGuiTransportForTest();
@@ -29,6 +30,34 @@ async function browserInvoke(
 // renderer must include the envelope exactly when the declaration has it — never omit it when the
 // payload fields happen to be empty, and never flatten a payload-only method's fields.
 describe("renderer invoke assembles wire params per protocol declaration", () => {
+  it("selects GUI dispatch advice by default and preserves the agenda selection", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            ok: true,
+            status: "ready",
+            taskId: "task-a",
+            dispatches: [],
+            outcome: "unknown",
+            exitCode: 1,
+            watermark: 1,
+            sourceRevision: 1,
+          }),
+          { status: 200 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    window.sessionStorage.setItem("harness.browser.access-token", "secret");
+    await harnessClient.getTaskDispatches({ repoId: "canonical", taskId: "task-a" });
+    await harnessClient.getTaskDispatches({ repoId: "canonical", taskId: "task-a", advisorySurface: "agenda" });
+    expect(
+      fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)).params.payload),
+    ).toEqual([
+      { taskId: "task-a", advisorySurface: "gui.dispatch" },
+      { taskId: "task-a", advisorySurface: "agenda" },
+    ]);
+  });
   it("sends an explicit empty payload object for a payload-declaring repo read (repo.decisions.list)", async () => {
     const body = await browserInvoke("repo.decisions.list", { repoId: "canonical" }, "getDecisions");
     expect(body).toEqual({
