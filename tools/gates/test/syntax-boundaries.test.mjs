@@ -42,6 +42,30 @@ test("G4 exact-sync rejects new consumeKnownError and online history scan functi
   assert.match(result.stderr, /fallback\.ts#fallback/u);
 });
 
+// task_1992b2c005f6bb7ee214a265bc: runtimeQueryKeys.events is a React Query key builder sharing
+// the ledger-read method name; only real events(...) reads count as history scans.
+test("G4 history-scan detection ignores runtimeQueryKeys builders but flags ledger events reads", (t) => {
+  const root = fixture(t);
+  writeFileSync(path.join(root, "packages/example/src/clean.ts"), "export const clean = true;\n");
+  assert.equal(run("tools/check-fallback-boundaries.mjs", root, "--update").status, 0);
+  writeFileSync(
+    path.join(root, "packages/example/src/query-keys.ts"),
+    "export const runtimeQueryKeys = { events: (repoId, sessionId) => ['runtime-session-events', repoId, sessionId] };\n" +
+      "export function timeline(queryClient, repoId, sessionId) {\n" +
+      "  return queryClient.getQueryData(runtimeQueryKeys.events(repoId, sessionId));\n" +
+      "}\n",
+  );
+  const accepted = run("tools/check-fallback-boundaries.mjs", root);
+  assert.equal(accepted.status, 0, accepted.stderr);
+  writeFileSync(
+    path.join(root, "packages/example/src/ledger-read.ts"),
+    "export function poll(repoId, sessionId) { return agentRuntimeClient.events(repoId, sessionId, 'lifecycle:0'); }\n",
+  );
+  const rejected = run("tools/check-fallback-boundaries.mjs", root);
+  assert.notEqual(rejected.status, 0);
+  assert.match(rejected.stderr, /unlisted: .*ledger-read\.ts#poll/u);
+});
+
 function lint(rule, source, options = {}) {
   const linter = new Linter({ configType: "flat" });
   return linter.verify(

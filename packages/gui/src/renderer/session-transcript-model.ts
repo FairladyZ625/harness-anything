@@ -594,8 +594,8 @@ export function consumeSteering(queue: SteeringQueue, userMessageAt: readonly nu
 }
 
 /**
- * 转录记录里真实用户消息的时间戳(升序):user 事件且 content 含 text 段。tool_result
- * 回传也是 user 事件,但那是工具结果不是人写的指令,不算注入证据。
+ * 转录记录里真实用户消息的时间戳(按记录顺序,不另行排序):user 事件且 content 含 text
+ * 段。tool_result 回传也是 user 事件,但那是工具结果不是人写的指令,不算注入证据。
  */
 export function sessionUserMessageTimestamps(records: readonly Readonly<Record<string, unknown>>[]): readonly number[] {
   const stamps: number[] = [];
