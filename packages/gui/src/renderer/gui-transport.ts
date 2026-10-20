@@ -7,6 +7,7 @@ import type { ArtifactOpenApi } from "../api/artifact-open-contract.ts";
 import type { ConnectionAdminApi, RepoAdminApi } from "../api/connection-admin-contract.ts";
 import type { OidcAuthApi } from "../api/oidc-auth-contract.ts";
 import type { AccessAdminApi } from "../api/access-admin-contract.ts";
+import type { CenterSettingsApi } from "../api/center-settings-contract.ts";
 import type { LocalDocApi } from "../api/local-doc-contract.ts";
 import type { UpdateApi } from "../api/update-contract.ts";
 import { loadBrowserGuiTransport } from "../browser/browser-gui-transport.ts";
@@ -25,6 +26,7 @@ type GuiBridge = {
   readonly appCommand?: AppCommandApi;
   readonly auth?: OidcAuthApi;
   readonly access?: AccessAdminApi;
+  readonly centerSettings?: CenterSettingsApi;
   readonly localDoc?: LocalDocApi;
   readonly updates?: UpdateApi;
 };

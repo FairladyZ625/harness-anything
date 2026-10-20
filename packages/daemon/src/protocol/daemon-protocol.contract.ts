@@ -206,6 +206,7 @@ export const daemonProtocolMethods = Object.freeze([
       port: "number?",
       certificateFile: "string?",
       certificateKeyFile: "string?",
+      certificateMode: optionalEnum(["self-signed", "domain", "internal-ca"] as const),
       nodeId: "string?",
       systemName: "string?",
       platform: "string?",

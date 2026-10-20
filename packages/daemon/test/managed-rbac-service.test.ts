@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { EventEmitter } from "node:events";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { connect, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -446,6 +446,29 @@ test("a listener carries HTTPS for edge nodes while Keycloak, PostgreSQL, and ma
     assert.equal("listener" in managed.config(), false);
     assert.equal(await managed.version(), loopbackVersion);
     assert.equal(await exchange(listening, "hello"), "refused");
+  } finally {
+    await managed.close();
+  }
+});
+
+test("the self-signed certificate mode generates a private listener certificate without returning its key", async () => {
+  const managed = managedFixture();
+  try {
+    const result = await managed.service.run({
+      operation: "listener-set",
+      certificateMode: "self-signed",
+      hostname: "center.example.test",
+      listenAddress: "127.0.0.1",
+      port: await availablePort(),
+      expectedVersion: await managed.version(),
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.certificateMode, "self-signed");
+    assert.equal("certificateKeyFile" in ((result.listener ?? {}) as object), false);
+    const config = managed.config();
+    assert.equal(config.certificateMode, "self-signed");
+    assert.equal(typeof config.listener.certificateKeyFile, "string");
+    assert.equal((statSync(config.listener.certificateKeyFile).mode & 0o077) === 0, true);
   } finally {
     await managed.close();
   }

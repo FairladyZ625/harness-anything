@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Desktop, HardDrives, Plus, Sailboat } from "@phosphor-icons/react";
 import type { SystemRepoRow } from "../../api-client.ts";
 import { t } from "../../i18n/index.tsx";
@@ -9,6 +9,9 @@ import { AddLocalRepositoryPanel } from "./AddLocalRepositoryPanel.tsx";
 import { ConnectionDetailPanel } from "./ConnectionDetailPanel.tsx";
 import { EdgeInvitePanel } from "./EdgeInvitePanel.tsx";
 import { RepoDetailPanel } from "./RepoDetailPanel.tsx";
+import { guiHostBridge } from "../../gui-transport.ts";
+import type { CertificateMode, CenterListenerSettings } from "../../../api/center-settings-contract.ts";
+import { consumeKnownError } from "../../../api/error-consumption.ts";
 
 /**
  * Settings → 仓库与连接(PLT-EdgeGUI-W3,设计稿 §3.2):左列连接树(本机 / 远端端点 /
@@ -197,8 +200,8 @@ export function RepositoriesAndConnectionsView({
 }
 
 /**
- * 中心连接面板(设计稿 §3.2):只读展示既有 fleet 配置摘要 + CLI 提示,无 CRUD;
- * 中心摘要下复用 daemon access-admin typed 方法签发、查询和撤销多仓邀请。
+ * 中心连接面板(设计稿 §3.2):中心登录服务证书由 daemon 持久化，renderer 只传文件路径，
+ * 私钥内容永远不进入 GUI。邀请下方复用 daemon access-admin typed 方法签发、查询和撤销多仓邀请。
  */
 function CenterConnectionPanel({
   connections,
@@ -210,13 +213,86 @@ function CenterConnectionPanel({
   readonly invitationRepos: readonly SystemRepoRow[];
 }) {
   const centers = connections.filter((connection) => connection.kind === "fleet-center");
+  const centerSettings = guiHostBridge()?.centerSettings;
+  const [settings, setSettings] = useState<CenterListenerSettings | null>(null);
+  const [mode, setMode] = useState<CertificateMode>("self-signed");
+  const [hostname, setHostname] = useState("");
+  const [port, setPort] = useState("8443");
+  const [certificateFile, setCertificateFile] = useState("");
+  const [certificateKeyFile, setCertificateKeyFile] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    if (!centerSettings) return;
+    void centerSettings
+      .listener()
+      .then((value) => {
+        setSettings(value);
+        setMode(value.certificateMode);
+        setHostname(value.listener?.hostname ?? "");
+        setPort(String(value.listener?.port ?? 8443));
+        setCertificateFile(value.listener?.certificateFile ?? "");
+      })
+      .catch((error: unknown) => {
+        setStatus(error instanceof Error ? error.message : String(error));
+        consumeKnownError(error);
+      });
+  }, [centerSettings]);
+  const selectFile = async (kind: "certificate" | "private-key") => {
+    if (!centerSettings) return;
+    try {
+      const selected = await centerSettings.selectFile(kind);
+      if (selected === null) return;
+      if (kind === "certificate") setCertificateFile(selected);
+      else setCertificateKeyFile(selected);
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      consumeKnownError(error);
+    }
+  };
+  const saveCertificate = async () => {
+    if (!centerSettings || !settings) return;
+    setSaving(true);
+    setStatus(null);
+    try {
+      const result = await centerSettings.setCertificate({
+        expectedVersion: settings.version,
+        certificateMode: mode,
+        ...(mode === "self-signed"
+          ? {}
+          : {
+              hostname: hostname.trim(),
+              port: Number(port),
+              certificateFile,
+              certificateKeyFile,
+            }),
+      });
+      if (
+        typeof result === "object" &&
+        result !== null &&
+        "code" in result &&
+        (result as { code?: unknown }).code === "version_conflict"
+      ) {
+        setStatus(t("views.repositories.centerCertificateConflict"));
+        return;
+      }
+      setStatus(t("views.repositories.centerCertificateSaved"));
+      const refreshed = await centerSettings.listener();
+      setSettings(refreshed);
+    } catch (error: unknown) {
+      setStatus(error instanceof Error ? error.message : String(error));
+      consumeKnownError(error);
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
     <div className="flex flex-col gap-3">
       <section data-testid="center-connection-panel" className="rounded-lg border border-border bg-surface">
         <div className="border-b border-border px-3 py-1.5 font-mono ui-meta uppercase tracking-wide text-text-faint">
           {t("views.repositories.centerConnection")}
         </div>
-        <div className="px-3 py-2 ui-meta text-text-muted">{t("views.repositories.centerPlaceholderSummary")}</div>
+        <div className="px-3 py-2 ui-meta text-text-muted">{t("views.repositories.centerCertificateSummary")}</div>
         <dl className="grid gap-2 px-3 pb-2">
           <div>
             <dt className="font-mono ui-micro uppercase text-text-faint">
@@ -237,9 +313,118 @@ function CenterConnectionPanel({
             </dd>
           </div>
         </dl>
-        <pre className="overflow-x-auto border-t border-border px-3 py-2 font-mono ui-micro text-text-faint">
-          {t("views.repositories.centerCliHint")}
-        </pre>
+        <div className="border-t border-border px-3 py-3">
+          <h3 className="ui-meta font-medium text-text">{t("views.repositories.centerCertificateTitle")}</h3>
+          <div className="mt-2 flex flex-wrap gap-2" role="radiogroup" aria-label="Login service certificate type">
+            {(
+              [
+                [
+                  "self-signed",
+                  t("views.repositories.centerCertificateSelfSigned"),
+                  t("views.repositories.centerCertificateSelfSignedHint"),
+                ],
+                [
+                  "domain",
+                  t("views.repositories.centerCertificateDomain"),
+                  t("views.repositories.centerCertificateDomainHint"),
+                ],
+                [
+                  "internal-ca",
+                  t("views.repositories.centerCertificateInternalCa"),
+                  t("views.repositories.centerCertificateInternalCaHint"),
+                ],
+              ] as const
+            ).map(([value, label, hint]) => (
+              <label
+                key={value}
+                className="flex min-w-[12rem] flex-1 cursor-pointer gap-2 rounded-md border border-border p-2"
+              >
+                <input
+                  type="radio"
+                  name="center-certificate-mode"
+                  value={value}
+                  checked={mode === value}
+                  onChange={() => setMode(value)}
+                />
+                <span>
+                  <span className="block ui-meta font-medium">{label}</span>
+                  <span className="block ui-micro text-text-muted">{hint}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+          {mode !== "self-signed" ? (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <label className="ui-meta">
+                {t("views.repositories.centerCertificateHostname")}
+                <input
+                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                  value={hostname}
+                  onChange={(event) => setHostname(event.target.value)}
+                  placeholder="center.example.com"
+                />
+              </label>
+              <label className="ui-meta">
+                {t("views.repositories.centerCertificatePort")}
+                <input
+                  className="mt-1 block w-full rounded border border-border bg-surface px-2 py-1"
+                  value={port}
+                  onChange={(event) => setPort(event.target.value)}
+                  inputMode="numeric"
+                />
+              </label>
+              <div className="ui-meta">
+                {t("views.repositories.centerCertificateFile")}
+                <div className="mt-1 flex gap-2">
+                  <span className="min-w-0 flex-1 truncate rounded border border-border px-2 py-1 font-mono ui-micro">
+                    {certificateFile || t("views.repositories.centerCertificateNoFile")}
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2 py-1"
+                    onClick={() => void selectFile("certificate")}
+                  >
+                    {t("views.repositories.centerCertificateChoose")}
+                  </button>
+                </div>
+              </div>
+              <div className="ui-meta">
+                {t("views.repositories.centerCertificateKey")}
+                <div className="mt-1 flex gap-2">
+                  <span className="min-w-0 flex-1 truncate rounded border border-border px-2 py-1 font-mono ui-micro">
+                    {certificateKeyFile
+                      ? t("views.repositories.centerCertificateSelected")
+                      : t("views.repositories.centerCertificateNoFile")}
+                  </span>
+                  <button
+                    type="button"
+                    className="rounded border border-border px-2 py-1"
+                    onClick={() => void selectFile("private-key")}
+                  >
+                    {t("views.repositories.centerCertificateChoose")}
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 ui-micro text-text-muted">{t("views.repositories.centerCertificateGeneratedHint")}</p>
+          )}
+          {centerSettings ? (
+            <button
+              type="button"
+              disabled={saving || !settings}
+              className="mt-3 rounded bg-accent px-3 py-1.5 ui-meta text-white disabled:opacity-50"
+              onClick={() => void saveCertificate()}
+            >
+              {saving ? t("views.repositories.centerCertificateSaving") : t("views.repositories.centerCertificateSave")}
+            </button>
+          ) : null}
+          {status ? (
+            <p className="mt-2 ui-micro text-text-muted" role="status">
+              {status}
+            </p>
+          ) : null}
+        </div>
       </section>
       <EdgeInvitePanel repos={invitationRepos} />
     </div>
