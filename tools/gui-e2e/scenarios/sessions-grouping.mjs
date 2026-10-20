@@ -787,7 +787,7 @@ async function setTheme(page, theme) {
   await expandGroup(page, SINGLE_TASK);
 }
 
-/** 实测几何(不是类名断言):组头/子行高差、缩进、引导线、字重、行不重叠、标题不溢出。 */
+/** 实测几何(不是类名断言):组头/子行高差、缩进、引导线、字重、行不重叠、标题省略。 */
 async function hierarchyGeometry(page) {
   return page.evaluate(
     ({ roundsTask, singleTask }) => {
@@ -799,6 +799,16 @@ async function hierarchyGeometry(page) {
           weightSource = header?.querySelector(".font-semibold"),
           title = header?.querySelector(".truncate.text-text"),
           rows = body ? [...body.querySelectorAll("[data-dense-row]")] : [];
+        const titleIsEllipsized = (node) => {
+          if (!node) return null;
+          const style = globalThis.getComputedStyle(node);
+          return (
+            node.scrollWidth > node.clientWidth + 1 &&
+            style.overflowX === "hidden" &&
+            style.textOverflow === "ellipsis" &&
+            style.whiteSpace === "nowrap"
+          );
+        };
         const box = (node) => {
           const rect = node.getBoundingClientRect();
           return { left: rect.left, top: rect.top, bottom: rect.bottom, height: rect.height };
@@ -806,7 +816,7 @@ async function hierarchyGeometry(page) {
         return {
           header: header ? box(header) : null,
           headerTitleWeight: weightSource ? globalThis.getComputedStyle(weightSource).fontWeight : null,
-          headerTitleOverflow: title ? title.scrollWidth > title.clientWidth + 1 : null,
+          headerTitleEllipsized: titleIsEllipsized(title),
           bodyLeft: body ? box(body).left : null,
           bodyBorderLeft: body ? globalThis.getComputedStyle(body).borderLeftWidth : null,
           rows: rows.map(box),
@@ -876,8 +886,12 @@ async function assertHierarchyGeometry(page, geometry) {
     `head title must outweigh round title (${rounds.headerTitleWeight} vs ${rounds.rowTitleWeight})`,
   );
   assert.equal(geometry.rowOverlap, false, "expanded round rows must not overlap after virtualizer layout");
-  assert.equal(rounds.headerTitleOverflow, false, "the long task title must truncate, not overflow");
-  assert.equal(geometry.single.headerTitleOverflow, false, "the single-round task title must truncate, not overflow");
+  assert.equal(rounds.headerTitleEllipsized, true, "the long task title must be clipped with ellipsis");
+  assert.equal(
+    geometry.single.headerTitleEllipsized,
+    true,
+    "the single-round task title must be clipped with ellipsis",
+  );
 }
 
 /** 交互证据:点第 2 轮精确选中、Task 入口跳对、收起不误选、检索返回正确轮次。 */

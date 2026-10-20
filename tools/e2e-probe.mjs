@@ -3,12 +3,27 @@
 import { createHash, randomUUID } from "node:crypto";
 import { execFileSync, spawn } from "node:child_process";
 import { once } from "node:events";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { withStdoutReservedForJson } from "./gui-e2e/emit-json.mjs";
 
 const repositoryRoot = path.resolve(import.meta.dirname, "..");
+
+export function buildProbeFailureBundle(result, scenario, now = Date.now()) {
+  return {
+    schema: "e2e-probe-journey/v1",
+    outcome: "failed",
+    runId: result.runId,
+    startedAt: new Date(now - (scenario?.durationMs ?? 0)).toISOString(),
+    scenarioId: scenario?.id,
+    lane: scenario?.lane,
+    failedStep: scenario?.failedStep,
+    message: scenario?.message,
+    screenshotPath: scenario?.screenshotPath ?? null,
+    failureSignature: result.failureSignature,
+  };
+}
 
 export async function runE2EProbeJourney({
   rootDir = repositoryRoot,
@@ -207,9 +222,24 @@ export async function recordE2EProbeFailure({
   const journey = readFailureBundle(bundlePath),
     updatedAfter = new Date(Date.parse(now()) - 24 * 60 * 60 * 1_000).toISOString(),
     title = `E2E probe failure [${journey.failureSignature}]`,
+    screenshotPath =
+      typeof journey.screenshotPath === "string" ? path.resolve(workspaceRoot, journey.screenshotPath) : null,
+    screenshotDestination =
+      screenshotPath !== null && existsSync(screenshotPath)
+        ? probeScreenshotArtifactDestination(journey.runId, screenshotPath)
+        : null,
     existing = cliRows(
       await runCli(workspaceRoot, rootDir, ["task", "list", "--search", title, "--updated-after", updatedAfter], env),
     )[0];
+  const attachScreenshot = async (taskId) => {
+    if (screenshotDestination === null || screenshotPath === null) return;
+    await runCli(
+      workspaceRoot,
+      rootDir,
+      ["task", "artifact", "add", taskId, "--source", screenshotPath, "--destination", screenshotDestination],
+      env,
+    );
+  };
   // The closure runs as agent:e2e-probe — the task creator — so it can attach the probe's own
   // first-triage evidence to the task it opened. The schedule-bound runtime doing the deeper
   // diagnosis stays bound to its dispatch and cannot write here; its findings live in the
@@ -240,17 +270,28 @@ export async function recordE2EProbeFailure({
       return { factRecorded: false, factError: error instanceof Error ? error.message : String(error) };
     }
   };
-  if (existing)
+  if (existing) {
+    const taskId = String(existing.taskId);
+    await attachScreenshot(taskId);
     return {
       schema: "e2e-probe-result/v1",
       outcome: "failed",
       runId: journey.runId,
       failureSignature: journey.failureSignature,
-      taskId: String(existing.taskId),
+      taskId,
       deduplicated: true,
-      ...(await recordFailureFact(String(existing.taskId))),
+      ...(await recordFailureFact(taskId)),
     };
-  const created = await runCli(
+  }
+  const planFile = path.join(rootDir, ".harness", "e2e-probe", `task-plan-${randomUUID()}.md`);
+  mkdirSync(path.dirname(planFile), { recursive: true });
+  writeFileSync(planFile, probeFailureTaskPlan(journey, screenshotDestination, path.basename(bundlePath)), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+  let created;
+  try {
+    created = await runCli(
       workspaceRoot,
       rootDir,
       [
@@ -270,10 +311,15 @@ export async function recordE2EProbeFailure({
         "tools/e2e-probe.mjs",
         "--surface",
         "packages/gui",
+        "--plan-file",
+        path.relative(rootDir, planFile),
       ],
       env,
-    ),
-    taskId = requiredText(created.taskId, "taskId"),
+    );
+  } finally {
+    rmSync(planFile, { force: true });
+  }
+  const taskId = requiredText(created.taskId, "taskId"),
     destination = `artifacts/e2e-probe/${path.basename(bundlePath)}`;
   await runCli(
     workspaceRoot,
@@ -281,6 +327,7 @@ export async function recordE2EProbeFailure({
     ["task", "artifact", "add", taskId, "--source", bundlePath, "--destination", destination],
     env,
   );
+  await attachScreenshot(taskId);
   return {
     schema: "e2e-probe-result/v1",
     outcome: "failed",
@@ -290,6 +337,102 @@ export async function recordE2EProbeFailure({
     deduplicated: false,
     ...(await recordFailureFact(taskId)),
   };
+}
+
+function probeScreenshotArtifactDestination(runId, screenshotPath) {
+  const safeSegment = (value) => value.replaceAll(/[^0-9A-Za-z._-]+/gu, "-").replaceAll(/^-+|-+$/gu, "");
+  return `artifacts/e2e-probe/${safeSegment(runId) || "run"}-${safeSegment(path.basename(screenshotPath)) || "failure.png"}`;
+}
+
+function probeFailureTaskPlan(journey, screenshotDestination, bundleName) {
+  const scenarioId =
+      typeof journey.scenarioId === "string" && journey.scenarioId
+        ? journey.scenarioId
+        : (journey.failedStep ?? "unknown"),
+    failureMessage = String(journey.message ?? "No failure message was recorded."),
+    screenshotDescription =
+      screenshotDestination !== null
+        ? `Screenshot artifact: ${markdownCodeSpan(screenshotDestination)}.`
+        : typeof journey.screenshotPath === "string"
+          ? `Runner screenshot path: ${markdownCodeSpan(journey.screenshotPath)}. The image was unavailable when the task was created.`
+          : "The runner did not produce a screenshot.",
+    markdownFence = "`".repeat(Math.max(3, longestRunOfBackticks(failureMessage) + 1));
+  return [
+    `# E2E probe failure [${journey.failureSignature}]`,
+    "",
+    "Task Contract: harness-task v1",
+    "",
+    "## Brief",
+    "",
+    `E2E scenario ${markdownCodeSpan(scenarioId)} failed in run ${markdownCodeSpan(journey.runId)}.`,
+    "",
+    "Failure message:",
+    `${markdownFence}text`,
+    failureMessage,
+    markdownFence,
+    "",
+    screenshotDescription,
+    "",
+    "## Goal",
+    "",
+    "Determine whether this failure is a product regression or an outdated scenario, then implement the smallest correction supported by the current contract.",
+    "",
+    "## Context",
+    "",
+    `The original result is attached as ${markdownCodeSpan(`artifacts/e2e-probe/${bundleName}`)}. Reproduce the named scenario before changing behavior.`,
+    "",
+    "## Required Reading",
+    "",
+    `Read the ${markdownCodeSpan(scenarioId)} scenario and the production contract it exercises.`,
+    "",
+    "## Entry Conditions",
+    "",
+    "Use the attached run result and current repository state as the reproduction evidence.",
+    "",
+    "## Dependencies",
+    "",
+    "No prerequisite task is required.",
+    "",
+    "## Execution Surface",
+    "",
+    "Keep implementation and verification within the scenario's owning product and test paths.",
+    "",
+    "## Constraints",
+    "",
+    "Keep scenario expectations aligned with the accepted product design; do not weaken a failing assertion without evidence that the contract changed.",
+    "",
+    "## Checkpoint",
+    "",
+    "If the current product contract contradicts the scenario, record that evidence and update only the stale expectation.",
+    "",
+    "## Implementation Plan",
+    "",
+    "Reproduce the failure headlessly, trace it to the owning contract, make the smallest correction, and rerun the scenario plus affected tests.",
+    "",
+    "## Deliverable Contract",
+    "",
+    "Deliver the correction, focused regression evidence, and a task closeout with changed paths and residual risk.",
+    "",
+    "## Evidence Protocol",
+    "",
+    "Record the exact scenario command and its JSON result; distinguish observed output from inferred cause.",
+    "",
+    "## Verification",
+    "",
+    `Run the headless ${markdownCodeSpan(scenarioId)} scenario and every affected test file; require all assertions to pass.`,
+    "",
+  ].join("\n");
+}
+
+function longestRunOfBackticks(value) {
+  return Math.max(0, ...[...value.matchAll(/`+/gu)].map(([run]) => run.length));
+}
+
+function markdownCodeSpan(value) {
+  const text = String(value),
+    fence = "`".repeat(longestRunOfBackticks(text) + 1),
+    padding = /^\s|\s$/u.test(text) ? " " : "";
+  return `${fence}${padding}${text}${padding}${fence}`;
 }
 
 export async function warmDaemonProjection({
@@ -439,16 +582,7 @@ async function main(argv) {
     if (result.outcome === "healthy") return result;
     const first = result.scenarios.find((scenario) => scenario.outcome === "failed"),
       bundlePath = path.join(runRoot, "probe-failure.json");
-    writeFileSync(
-      bundlePath,
-      `${JSON.stringify({
-        schema: "e2e-probe-journey/v1",
-        outcome: "failed",
-        runId: result.runId,
-        startedAt: new Date(Date.now() - (first?.durationMs ?? 0)).toISOString(),
-        failureSignature: result.failureSignature,
-      })}\n`,
-    );
+    writeFileSync(bundlePath, `${JSON.stringify(buildProbeFailureBundle(result, first), null, 2)}\n`);
     const closure = await recordE2EProbeFailure({ bundlePath });
     return { ...result, taskId: closure.taskId, deduplicated: closure.deduplicated };
   }

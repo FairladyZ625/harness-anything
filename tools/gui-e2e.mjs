@@ -6,7 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { catalog, selectScenarios } from "./gui-e2e/catalog.mjs";
 import { withStdoutReservedForJson } from "./gui-e2e/emit-json.mjs";
-import { prepareE2EProbeGui, recordE2EProbeFailure } from "./e2e-probe.mjs";
+import { buildProbeFailureBundle, prepareE2EProbeGui, recordE2EProbeFailure } from "./e2e-probe.mjs";
 
 const workspaceRoot = path.resolve(import.meta.dirname, "..");
 
@@ -113,22 +113,7 @@ async function main(argv) {
   if (options.agentRun && result.outcome === "failed") {
     const first = result.scenarios.find((scenario) => scenario.outcome === "failed");
     const compatibleBundle = path.join(runRoot, "probe-failure.json");
-    writeFileSync(
-      compatibleBundle,
-      `${JSON.stringify(
-        {
-          schema: "e2e-probe-journey/v1",
-          outcome: "failed",
-          runId: result.runId,
-          startedAt: new Date(Date.now() - (first?.durationMs ?? 0)).toISOString(),
-          failedStep: first?.failedStep,
-          message: first?.message,
-          failureSignature: result.failureSignature,
-        },
-        null,
-        2,
-      )}\n`,
-    );
+    writeFileSync(compatibleBundle, `${JSON.stringify(buildProbeFailureBundle(result, first), null, 2)}\n`);
     const closure = await recordE2EProbeFailure({ bundlePath: compatibleBundle });
     result.taskId = closure.taskId;
     result.deduplicated = closure.deduplicated;

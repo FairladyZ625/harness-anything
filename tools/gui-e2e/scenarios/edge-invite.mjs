@@ -90,7 +90,7 @@ export default {
       linkPrefix = "harness-edge://join/";
     assert.ok(linkText.startsWith(linkPrefix));
     const link = JSON.parse(Buffer.from(linkText.slice(linkPrefix.length), "base64url").toString("utf8"));
-    assert.equal(link.version, 1);
+    assert.equal(link.version, 2);
     assert.equal(typeof link.token, "string");
     assert.equal(Object.hasOwn(link, "credential"), false);
 
