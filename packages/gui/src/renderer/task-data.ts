@@ -34,6 +34,7 @@ export const taskQueryKeys = {
   briefs: (repoId: string) => ["tasks", repoId, "briefs"] as const,
   document: (repoId: string, taskId: string, path: string) => ["tasks", repoId, taskId, "document", path] as const,
   documentList: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "document-list"] as const,
+  deliveryDiff: (repoId: string, taskId: string) => ["tasks", repoId, taskId, "delivery-diff"] as const,
 };
 
 export function useTaskWipQuery(repoId: string | null, enabled: boolean) {
@@ -298,6 +299,15 @@ export function taskDocumentListQuery(repoId: string, taskId: string) {
 
 export function useTaskDocumentListQuery(repoId: string, taskId: string | null) {
   return useQuery({ ...taskDocumentListQuery(repoId, taskId ?? ""), enabled: taskId !== null });
+}
+
+export function useTaskDeliveryDiffQuery(repoId: string, taskId: string | null) {
+  return useQuery({
+    queryKey: taskQueryKeys.deliveryDiff(repoId, taskId ?? ""),
+    queryFn: () => harnessClient.getTaskDeliveryDiff({ repoId, taskId: taskId ?? "" }),
+    enabled: taskId !== null,
+    staleTime: 10_000,
+  });
 }
 
 export function useTaskCompletionQuery(repoId: string, taskId: string) {

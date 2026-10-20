@@ -28,6 +28,7 @@ import {
 } from "./agent-entity-gui-contract.ts";
 import { validateObserveTailResult } from "./daemon-protocol-gui-types.ts";
 import { validateDaemonTaskCompletion } from "./daemon-protocol-task-completion.ts";
+import { validateDaemonTaskDeliveryDiff } from "./daemon-protocol-task-delivery-diff.ts";
 import { validateDaemonTaskSnapshotListServed } from "./daemon-protocol-validate-task.ts";
 import { validationError } from "./daemon-protocol-validate-entities.ts";
 import { validateArtifactsList } from "./artifacts-gui-contract.ts";
@@ -170,6 +171,7 @@ const resultValidators = {
   "repo.decisions.list": validateDaemonDecisionList,
   "repo.tasks.document.read": validateDaemonDocumentRead,
   "repo.tasks.documents.list": validateDaemonTaskDocumentList,
+  "repo.tasks.deliveryDiff.read": validateDaemonTaskDeliveryDiff,
   "repo.artifacts.list": validateArtifactsList,
   "repo.agentRuntime.overview": validateAgentRuntimeOverview,
   "repo.agentRuntime.sessions.read": validateAgentRuntimeSession,

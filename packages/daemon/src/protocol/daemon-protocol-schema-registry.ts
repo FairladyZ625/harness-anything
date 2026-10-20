@@ -35,6 +35,7 @@ import {
   DAEMON_SQUAD_RUN_READ_SCHEMA,
   DAEMON_TASK_DISPATCHES_SCHEMA,
   DAEMON_TASK_DOCUMENT_LIST_SCHEMA,
+  DAEMON_TASK_DELIVERY_DIFF_SCHEMA,
   DAEMON_TASK_SNAPSHOT_LIST_SCHEMA,
   DAEMON_TASK_COMPLETION_SCHEMA,
   DAEMON_TASK_WIP_SCHEMA,
@@ -55,6 +56,14 @@ import {
 } from "./daemon-protocol-schema-ids.ts";
 
 export const daemonGuiReadSchemas = Object.freeze([
+  {
+    id: DAEMON_TASK_DELIVERY_DIFF_SCHEMA.id,
+    schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_TASK_DELIVERY_DIFF_SCHEMA",
+    parser: "packages/daemon/src/protocol/daemon-protocol-task-delivery-diff.ts#validateDaemonTaskDeliveryDiff",
+    writer: "packages/daemon/src/protocol/daemon-protocol-task-delivery-diff.ts#serializeDaemonTaskDeliveryDiff",
+    error: "packages/daemon/src/protocol/daemon-protocol.contract.ts#DaemonProtocolContractError",
+    negativeFixtures: Object.freeze(["packages/daemon/fixtures/contracts/daemon-task-delivery-diff-invalid.json"]),
+  },
   {
     id: DAEMON_TASK_COMPLETION_SCHEMA.id,
     schema: "packages/daemon/src/protocol/daemon-protocol-schema-ids.ts#DAEMON_TASK_COMPLETION_SCHEMA",

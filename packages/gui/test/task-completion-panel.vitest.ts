@@ -57,6 +57,35 @@ describe("Task completion panel", () => {
     expect(consents).toEqual(["review-w3"]);
   });
 
+  it("sends delivery diff annotations to the return-note entry point", async () => {
+    installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
+    const notes: Array<[string, string | undefined]> = [];
+    await mount({
+      task: {
+        ...task,
+        coordinationStatus: "submitted",
+        canonicalStatus: "submitted",
+        ...projectedTaskFields("submitted"),
+      },
+      onReturnNote: (reason, reviewId) => (notes.push([reason, reviewId]), Promise.resolve()),
+    });
+    await clickTab("收口");
+    const viewer = byTestId("annotate-diff");
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-add-new-1"]')!.click());
+    const input = viewer.querySelector<HTMLTextAreaElement>('[data-testid="annotate-composer-text"]')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!.set!.call(input, "补充回归测试");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-composer-save"]')!.click());
+    expect(viewer.querySelector('[data-testid="annotate-pending-count"]')?.textContent).toBe("1");
+    await act(async () => viewer.querySelector<HTMLButtonElement>('[data-testid="annotate-send"]')!.click());
+    expect(notes).toHaveLength(1);
+    expect(notes[0]?.[0]).toContain("请按以下 1 条批注一次性完成修订");
+    expect(notes[0]?.[0]).toContain("补充回归测试");
+    expect(notes[0]?.[1]).toBe("review-w3");
+  });
+
   it("routes submitted triage and in-review return through owner adjudication", async () => {
     installBridge({ completionBlocker: { code: "review_missing", gate: "review" } });
     const calls: Array<[string, string | undefined]> = [];

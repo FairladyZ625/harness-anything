@@ -10,17 +10,19 @@ export function TaskReturnDialog({
   onClose,
   onReturn,
   diffFiles,
+  initialFeedback,
 }: {
   readonly open: boolean;
   readonly onClose: () => void;
   readonly onReturn: (mode: "resume" | "fresh", feedback: string) => void;
   readonly diffFiles?: readonly DiffFile[];
+  readonly initialFeedback?: string;
 }) {
   const [feedback, setFeedback] = useState("");
   // 组件随退场动画常驻,重新打开时清空上次反馈——与旧的条件挂载逐次新建等价。
   useLayoutEffect(() => {
-    if (open) setFeedback("");
-  }, [open]);
+    if (open) setFeedback(initialFeedback ?? "");
+  }, [initialFeedback, open]);
   return (
     <Modal
       open={open}

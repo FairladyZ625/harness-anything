@@ -36,6 +36,7 @@ export interface TaskDetailEntryWires {
     reason: string,
     reviewId?: string,
   ) => Promise<unknown>;
+  readonly onReturnNote: (task: TaskRow, reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview: (task: TaskRow, reviewId: string) => Promise<unknown>;
   readonly onAttest: OnAttest;
   readonly onSetPin: (task: TaskRow, pinned: boolean) => void;
@@ -75,6 +76,7 @@ export function taskDetailEntry(
       onSubmit={() => wires.onSubmit(task)}
       onComplete={() => wires.onComplete(task)}
       onAdjudicate={(decision, reason, reviewId) => wires.onAdjudicate(task, decision, reason, reviewId)}
+      onReturnNote={(reason, reviewId) => wires.onReturnNote(task, reason, reviewId)}
       onConsentReview={(reviewId) => wires.onConsentReview(task, reviewId)}
       onAttest={wires.onAttest}
       onSetPin={wires.onSetPin}

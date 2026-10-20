@@ -47,6 +47,7 @@ import {
   useActiveTasksQuery,
   useTasksQuery,
   useTaskWipQuery,
+  useTaskDeliveryDiffQuery,
   useWorkIndexQuery,
 } from "./task-data.ts";
 import { harnessClient } from "./api-client.ts";
@@ -171,10 +172,19 @@ function AppShell() {
   const lastLedgerCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
-  const [returnTask, setReturnTask] = useState<{ task: TaskRow; reviewId?: string; repoId: string } | null>(null);
+  const [returnTask, setReturnTask] = useState<{
+    task: TaskRow;
+    reviewId?: string;
+    repoId: string;
+    initialFeedback?: string;
+  } | null>(null);
+  const returnDiff = useTaskDeliveryDiffQuery(projectId, returnTask?.task.taskId ?? null);
   const adjudicateTask = async (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string) => {
     if (decision === "return") setReturnTask({ task, reviewId, repoId: projectId });
     else await taskActions.adjudicateTask(task, decision, reason, reviewId);
+  };
+  const openTaskReturnWithNote = async (task: TaskRow, reason: string, reviewId?: string) => {
+    setReturnTask({ task, reviewId, repoId: projectId, initialFeedback: reason });
   };
   const decisionActions = useDecisionActions(projectId);
   // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
@@ -467,6 +477,7 @@ function AppShell() {
       onSubmit: (target) => taskActions.submitTask(target),
       onComplete: (target) => taskActions.completeTask(target),
       onAdjudicate: adjudicateTask,
+      onReturnNote: openTaskReturnWithNote,
       onConsentReview: (target, reviewId) => taskActions.consentReview(target, reviewId),
       onAttest: taskActions.attestGate,
       onSetPin: handleSetPin,
@@ -1048,6 +1059,8 @@ function AppShell() {
         />
         <TaskReturnDialog
           open={returnTask?.repoId === projectId}
+          diffFiles={returnDiff.data?.files}
+          initialFeedback={returnTask?.initialFeedback}
           onClose={() => setReturnTask(null)}
           onReturn={(mode, feedback) => {
             if (returnTask !== null) {

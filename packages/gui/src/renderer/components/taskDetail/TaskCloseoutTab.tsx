@@ -42,6 +42,8 @@ export interface TaskActionProps {
   readonly onComplete?: () => Promise<unknown>;
   /** CEO 初审送审/打回与终审打回。 */
   readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  /** 批量 Diff 批注的结构化返工说明直接预填入统一打回对话框。 */
+  readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   /** CEO 终审批准:对指定已批准评审记录同意。 */
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
   /** Gate 签注:manual-attest 打勾(approve)或失败关卡特批(override)。 */
@@ -62,6 +64,7 @@ export function TaskCloseoutTab({
   onSubmit,
   onComplete,
   onAdjudicate,
+  onReturnNote,
   onConsentReview,
   onAttest,
   onNavigateEntity,
@@ -111,6 +114,9 @@ export function TaskCloseoutTab({
   }, [focusedRecordRef, completion.isPending]);
   return (
     <section data-testid="task-closeout-tab">
+      <span data-testid="task-delivery-diff-count" className="sr-only" aria-hidden="true">
+        {diffFiles?.length ?? 0}
+      </span>
       <Section title={t("components.taskCloseout.sectionTitle")} note={t("components.taskCloseout.sectionNote")}>
         <div className="mt-2 grid grid-cols-[minmax(0,1fr)] gap-8 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <div className="grid grid-cols-[minmax(0,1fr)] content-start gap-8">
@@ -155,6 +161,7 @@ export function TaskCloseoutTab({
               completionBlocker={completion.data?.completionBlocker ?? null}
               onComplete={onComplete}
               onAdjudicate={onAdjudicate}
+              onReturnNote={onReturnNote}
               onConsentReview={onConsentReview}
             />
             <AuditGroup title="Review" count={reviews.length}>
@@ -244,6 +251,7 @@ function CompletionPanel({
   diffFiles,
   onComplete,
   onAdjudicate,
+  onReturnNote,
   onConsentReview,
 }: {
   readonly task: TaskRow;
@@ -251,6 +259,7 @@ function CompletionPanel({
   readonly diffFiles?: readonly DiffFile[];
   readonly onComplete?: () => Promise<unknown>;
   readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
+  readonly onReturnNote?: (reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
 }) {
   const code = completionBlocker?.code,
@@ -262,8 +271,12 @@ function CompletionPanel({
           : code === undefined || code === null
             ? ("ready" as const)
             : ("other" as const);
-  if (!["submitted", "in_review"].includes(task.coordinationStatus) || stage === "other") return null;
+  const hasDeliveryDiff = diffFiles !== undefined && diffFiles.length > 0;
+  if (!["submitted", "in_review"].includes(task.coordinationStatus) || (stage === "other" && !hasDeliveryDiff))
+    return null;
   const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1);
+  const sendReturnNote =
+    onReturnNote ?? ((reason: string, reviewId?: string) => onAdjudicate?.("return", reason, reviewId));
 
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
@@ -280,7 +293,7 @@ function CompletionPanel({
           <AnnotateDiffViewer
             files={diffFiles}
             onBatchSend={(prompt) => {
-              void onAdjudicate?.("return", prompt, approved?.reviewId);
+              void sendReturnNote?.(prompt, approved?.reviewId);
             }}
           />
         </div>

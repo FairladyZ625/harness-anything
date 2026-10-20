@@ -44,6 +44,7 @@ export type WorkBrief = WorkBriefsRead["briefs"][number];
 export type WorkBriefSentencePart = WorkBrief["sentenceParts"][number];
 export type WorkBriefAsk = WorkBrief["asks"][number];
 export type TaskCompletionRead = DaemonGuiReadResultMap["repo.tasks.completion.read"];
+export type TaskDeliveryDiffRead = DaemonGuiReadResultMap["repo.tasks.deliveryDiff.read"];
 /** `repo.agenda.read`: the same supervisory agenda projection the CEO CLI tick reads. */
 export type AgendaRead = DaemonGuiReadResultMap["repo.agenda.read"];
 export type AgendaAttentionItem = AgendaRead["attentionItems"][number];

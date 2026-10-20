@@ -1,0 +1,16 @@
+{
+  "ok": true,
+  "status": "ready",
+  "taskId": "task-delivery",
+  "baseline": null,
+  "commitSha": null,
+  "files": [
+    {
+      "filePath": "delivery.txt",
+      "lines": [{ "kind": "invalid", "text": 42 }]
+    }
+  ],
+  "truncated": false,
+  "watermark": 1,
+  "sourceRevision": 1
+}

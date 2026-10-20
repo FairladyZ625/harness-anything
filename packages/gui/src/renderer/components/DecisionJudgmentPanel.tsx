@@ -8,6 +8,7 @@ import {
 import type { DecisionRow, RelationEdge } from "../model/types.ts";
 import { DecisionMutationFeedback as FeedbackView } from "./DecisionMutationFeedback.tsx";
 import { ApprovalCard, type ApprovalDecision, type ApprovalRisk } from "./agent-ui/ApprovalCard.tsx";
+import { AnnotateDiffViewer, type DiffFile } from "./agent-ui/AnnotateDiffViewer.tsx";
 import { Button } from "./primitives/Button.tsx";
 import { t } from "../i18n/index.tsx";
 
@@ -92,6 +93,12 @@ export function DecisionJudgmentPanel({
       : (decision.rejected ?? []).length > 0
         ? decision.rejected.map((o) => `${o.id} | ${o.text}`)
         : [decision.question];
+  const decisionChanges: DiffFile = {
+    // Decision changes are a structured preview, not a repository file. Keep the
+    // synthetic path human-readable so entity IDs remain navigable elsewhere in the card.
+    filePath: "decision-changes.txt",
+    lines: previewLines.map((text, index) => ({ kind: "add" as const, newLineNo: index + 1, text })),
+  };
 
   const decidedState: ApprovalDecision | null =
     feedback?.state === "success"
@@ -115,6 +122,14 @@ export function DecisionJudgmentPanel({
         hideDefaultActions
       >
         <div className="flex flex-col gap-2 pt-1">
+          <AnnotateDiffViewer
+            files={[decisionChanges]}
+            testId="decision-changes-annotator"
+            onBatchSend={(prompt) => {
+              setRationale((current) => (current.trim() ? `${current.trim()}\n\n${prompt}` : prompt));
+              setError(null);
+            }}
+          />
           <div className="flex flex-wrap gap-2">
             <Button
               variant="primary"

@@ -13,6 +13,7 @@ export default {
     "Returning a submitted task requires explicit worker mode and feedback, and cancellation writes nothing.",
   async run({ page, fixture, shot, app }) {
     const taskId = "task-gui-smoke";
+    let deliveryCommitSha = null;
     for (const action of [
       { kind: "task-start", taskId },
       { kind: "task-submit", taskId },
@@ -22,6 +23,8 @@ export default {
           path.join(fixture.rootDir, "harness", fixture.packagePath, "closeout.md"),
           "# Closeout\n\n## Summary\n\nReturn dialog fixture is ready.\n\n## Verification\n\nIsolated GUI task flow.\n\n## Residual Risk\n\nNo production writes.\n\n## Same Mechanism Elsewhere\n\nTask detail and work overview share the return dialog.\n",
         );
+        writeFileSync(path.join(fixture.rootDir, "delivery-review.txt"), "delivery diff is observable\n");
+        execFileSync("git", ["-C", fixture.rootDir, "add", "--", "delivery-review.txt"]);
         execFileSync("git", [
           "-C",
           fixture.rootDir,
@@ -37,6 +40,7 @@ export default {
         action.commitSha = execFileSync("git", ["-C", fixture.rootDir, "rev-parse", "HEAD"], {
           encoding: "utf8",
         }).trim();
+        deliveryCommitSha = action.commitSha;
       }
       const receipt = await requestDaemonJsonRpcAt(
         fixture.endpoint,
@@ -47,7 +51,25 @@ export default {
       );
       assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
     }
+    const deliveryDiff = await requestDaemonJsonRpcAt(
+      fixture.endpoint,
+      "repo.tasks.deliveryDiff.read",
+      { repo: { repoId: fixture.repoId }, payload: { taskId } },
+      1000,
+      10000,
+    );
+    assert.equal(deliveryDiff.ok, true, JSON.stringify(deliveryDiff));
+    assert.equal(deliveryDiff.commitSha, deliveryCommitSha, JSON.stringify(deliveryDiff));
+    assert.ok(deliveryDiff.files?.length > 0, JSON.stringify(deliveryDiff));
     await bridgeReady(page);
+    const rendererDiff = await page.evaluate(
+      async ({ repoId, taskId }) => {
+        if (!globalThis.harness?.getTaskDeliveryDiff) return { missing: true };
+        return globalThis.harness.getTaskDeliveryDiff({ repoId, taskId });
+      },
+      { repoId: fixture.repoId, taskId },
+    );
+    assert.ok(rendererDiff?.files?.length > 0, JSON.stringify(rendererDiff));
     await page.getByRole("button", { name: /^(?:看板|Board)$/u }).click();
     await page.getByTestId("board-task-card").filter({ hasText: "Render the real triadic projection" }).first().click();
     await page
@@ -56,6 +78,11 @@ export default {
       .first()
       .click();
     await page.getByRole("tab", { name: /收口与门|Closeout|收口/u }).click();
+    assert.equal(await page.getByTestId("task-delivery-diff-count").innerText(), "1");
+    const diff = page.locator('[data-testid="annotate-diff"]:visible').first();
+    await diff.waitFor();
+    await diff.scrollIntoViewIfNeeded();
+    await shot("task-closeout-diff-review");
     await page.getByTestId("task-triage-return").click();
     const dialog = page.getByTestId("task-return-dialog");
     await dialog.waitFor();
