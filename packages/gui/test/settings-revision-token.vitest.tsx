@@ -16,6 +16,7 @@ const REPO_ID = "settings-token-probe";
 /** 令牌(11)与归因修订(9)不同值:提交带 11 而不是 9,才是「读行修订不读归因」。 */
 const SEEDED_READ = {
   schema: "daemon.settings-read/v1",
+  decisionPoints: [],
   ok: true,
   settings: {
     schema: "settings/v1",

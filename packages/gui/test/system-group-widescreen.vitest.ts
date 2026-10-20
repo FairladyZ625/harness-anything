@@ -39,6 +39,7 @@ afterEach(() => {
 function seedQueries(client: QueryClient): void {
   client.setQueryData(settingsQueryKeys.read(REPO_ID), {
     schema: "daemon.settings-read/v1",
+    decisionPoints: [],
     ok: true,
     revision: 1,
     settings: {
@@ -375,6 +376,7 @@ describe("Settings kind renderer consumes and updates the daemon-owned facet", (
       },
       getSettings = vi.fn(async () => ({
         schema: "daemon.settings-read/v1",
+        decisionPoints: [],
         ok: true,
         settings,
         values,

@@ -98,6 +98,7 @@ async function mountView(options: { readonly gates?: unknown } = {}): Promise<HT
       })),
       getSettings: async () => ({
         schema: "daemon.settings-read/v1",
+        decisionPoints: [],
         ok: true,
         settings,
         values: {},
@@ -109,6 +110,7 @@ async function mountView(options: { readonly gates?: unknown } = {}): Promise<HT
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const read = {
     schema: "daemon.settings-read/v1",
+    decisionPoints: [],
     ok: true,
     settings,
     values: {},

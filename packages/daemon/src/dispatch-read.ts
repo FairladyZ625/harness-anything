@@ -484,7 +484,9 @@ function canonicalDispatchRow(
       ? {
           advisories: annotations.flatMap((entry) => {
             const descriptor = decisionEventDescriptor(entry.event);
-            return descriptor?.readSurfaces.includes("task.dispatches") && entry.advisory ? [entry.advisory] : [];
+            return descriptor?.readSurfaces.includes("task.dispatches") && entry.advisory
+              ? [{ ...entry.advisory, evaluatedAt: entry.updatedAt }]
+              : [];
           }),
         }
       : {}),

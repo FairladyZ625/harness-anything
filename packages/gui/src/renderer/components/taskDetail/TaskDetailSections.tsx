@@ -1,3 +1,4 @@
+import { DispatchAdvisories } from "./DispatchAdvisories.tsx";
 import { useMemo } from "react";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import { ArrowSquareOut } from "@phosphor-icons/react";
@@ -365,6 +366,7 @@ function DispatchChain({
           )}
         </ChainStep>
       </div>
+      <DispatchAdvisories advisories={row.advisories} />
       <div className="mt-4 border-t border-border/70 pt-3">
         <p className="mb-2 font-mono ui-micro uppercase tracking-[0.16em] text-text-faint">Event stream</p>
         {/* TODO(read-model): repo.agentRuntime.events.read exposes only event headers.

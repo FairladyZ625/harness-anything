@@ -24,6 +24,7 @@ import {
   gatesDraftValue,
   type GateMappingDraft,
 } from "../../gate-mapping-form.ts";
+import { DecisionPointsEditor } from "./DecisionPointsEditor.tsx";
 import { GateMappingsEditor } from "./GateMappingsEditor.tsx";
 
 /** closeout 门覆写的「默认」不是声明默认值,而是当前 profile 的基线(strict 全开)。 */
@@ -343,7 +344,16 @@ export function RepositorySettingsPanel({
                       defaultText={row.field === "roles" ? undefined : defaultValueText(fieldDefault(row))}
                       onRestore={() => updateDraft(row.field, fieldDefault(row))}
                     >
-                      {renderFieldControl(row, fieldControlProps)}
+                      {row.field === "decisionsEnabledPoints" ? (
+                        <DecisionPointsEditor
+                          points={settingsQuery.data.decisionPoints}
+                          enabled={Array.isArray(draft.decisionsEnabledPoints) ? draft.decisionsEnabledPoints : []}
+                          disabled={settingsMutation.isPending}
+                          onChange={(next) => updateDraft("decisionsEnabledPoints", next)}
+                        />
+                      ) : (
+                        renderFieldControl(row, fieldControlProps)
+                      )}
                     </SettingsFieldEntry>
                   ))}
                 </>

@@ -34,7 +34,7 @@ import {
   readFleetRepositoryMetadataClient,
   runFleetEdgeRuntimeArchiveClient,
   runFleetRuntimeEventClient,
-  awaitFleetRuntimeSessionsClient,
+  readFleetOperationalClient,
   runFleetScheduleCommandClient,
   runFleetTaskCommandClient,
   type FleetPeerOptions,
@@ -720,7 +720,7 @@ export function openFleetEdgeRuntime(input: {
         });
       return method === "repo.agentRuntime.spawn"
         ? spawner.spawn(action, await input.readBinding())
-        : ((await awaitFleetRuntimeSessionsClient({
+        : ((await readFleetOperationalClient({
             ...runtimeReadPeer,
             repoId: request.repoId,
             method,

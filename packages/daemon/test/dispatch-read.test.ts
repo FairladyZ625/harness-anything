@@ -260,7 +260,7 @@ test("dispatch rows expose successful advisory fields from the center-local anno
 
   const row = readTaskDispatches({ projection: fixture(session("exited", "succeeded")).projection, taskId, rootDir })
     .dispatches[0]!;
-  assert.deepEqual(row.advisories, [advisory]);
+  assert.deepEqual(row.advisories, [{ ...advisory, evaluatedAt: "2026-10-19T00:00:01.000Z" }]);
 });
 
 test("normal exit with a result is stopped rather than unknown", () => {

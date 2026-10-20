@@ -21,6 +21,7 @@ import { readTaskRuntimeContext } from "./task-runtime-context-read.ts";
 import { enqueueRuntimePublication } from "./runtime-publication-queue.ts";
 import { isSquadControlCommand, isSquadControlResult, squadControlRejected } from "./squad-control-result.ts";
 import type { RepoCellCore } from "./repo-cell.ts";
+import { readDecisionPointSettings } from "./decision-point-settings-read.ts";
 import { daemonSettingsRead } from "./protocol/daemon-settings-read-types.ts";
 import { settingsLastChanged, settingsSingletonRevision } from "./repo-cell-settings-state.ts";
 import { settleWriteReceipt } from "./write-receipt-settlement.ts";
@@ -54,7 +55,10 @@ import {
   describeCurrentArtifact,
   resolveEntityReadKind,
 } from "./artifact-entity-action.ts";
-import { requireCanonicalVerticalDeclaration } from "./vertical-declaration-action.ts";
+import {
+  readCanonicalVerticalDeclaration,
+  requireCanonicalVerticalDeclaration,
+} from "./vertical-declaration-action.ts";
 import { readDeclaredEntityRows } from "./entity-rows-read.ts";
 import { readEntityContent, type EntityContentSource } from "./entity-content-read.ts";
 import { readEntityLocator } from "./entity-locator-read.ts";
@@ -303,6 +307,7 @@ export function createRepoCellApi(apiContext: RepoCellApiContext): RepoCell & Re
         context.settings.read(),
         settingsSingletonRevision(context.projection),
         settingsLastChanged(context.projection),
+        readDecisionPointSettings(readCanonicalVerticalDeclaration(context.projection)?.definition ?? null),
       ),
     "repo.tasks.list": (payload: Readonly<Record<string, unknown>>) =>
       queryRead().guiTasks(taskListQueryFromPayload(payload, context.cellCodedError)),

@@ -228,6 +228,7 @@ async function mountView(
       updateSettings,
       getSettings: async () => ({
         schema: "daemon.settings-read/v1",
+        decisionPoints: [],
         ok: true,
         settings: SETTINGS,
         values,
@@ -240,6 +241,7 @@ async function mountView(
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   client.setQueryData(settingsQueryKeys.read(REPO_ID), {
     schema: "daemon.settings-read/v1",
+    decisionPoints: [],
     ok: true,
     settings: SETTINGS,
     values,

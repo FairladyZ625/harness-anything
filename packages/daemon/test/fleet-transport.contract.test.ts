@@ -188,15 +188,17 @@ test("every Fleet write result requires a sequence only for applied outcomes", (
     assert.throws(() => parseFleetFrame(withoutSequence), `${frame.schema} missing replicationSequence`);
   }
 });
-test("fleet runtime await admits only the parked operational wait", () => {
+test("fleet operational read admits dispatches and the parked operational wait", () => {
   const frame = {
-    schema: "fleet.runtime.await/v1",
+    schema: "fleet.operational.read/v1",
     messageId: "wait",
     repoId: "repo",
     method: "repo.agentRuntime.sessions.await",
     payload: { runtimeSessionIds: ["runtime-one"] },
   };
   assert.deepEqual(parseFleetFrame(frame), frame);
+  const dispatches = { ...frame, method: "repo.task.dispatches", payload: { taskId: "task-one" } };
+  assert.deepEqual(parseFleetFrame(dispatches), dispatches);
   assert.throws(() => parseFleetFrame({ ...frame, schema: "fleet.runtime.read/v1" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.agentRuntime.overview" }), FleetContractError);
   assert.throws(() => parseFleetFrame({ ...frame, method: "repo.task.run" }), FleetContractError);

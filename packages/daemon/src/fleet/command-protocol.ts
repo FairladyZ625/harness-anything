@@ -231,14 +231,14 @@ export type FleetFrameV1 =
       { inReplyTo: string; replicationSequence: number | null; receipt: Readonly<Record<string, unknown>> }
     >
   | Msg<
-      "fleet.runtime.await/v1",
+      "fleet.operational.read/v1",
       {
         repoId: string;
-        method: "repo.agentRuntime.sessions.await";
+        method: "repo.agentRuntime.sessions.await" | "repo.task.dispatches";
         payload: Readonly<Record<string, unknown>>;
       }
     >
-  | Msg<"fleet.runtime.await.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
+  | Msg<"fleet.operational.read.result/v1", { inReplyTo: string; result: Readonly<Record<string, unknown>> }>
   | Msg<
       "fleet.error/v1",
       { inReplyTo: string; code: string; message: string; retryable: boolean; resumeOffset: number | null }
@@ -793,13 +793,13 @@ const schemas: Readonly<Record<string, Check>> = {
   }),
   "fleet.runtime.archive/v1": shape({ ...common, writerEpoch: uint, repoId: id, opId: id, archive: record }),
   "fleet.runtime.archive.result/v1": shape({ ...reply, replicationSequence: nullable(uint), receipt: record }),
-  "fleet.runtime.await/v1": shape({
+  "fleet.operational.read/v1": shape({
     ...common,
     repoId: id,
-    method: one("repo.agentRuntime.sessions.await"),
+    method: one("repo.agentRuntime.sessions.await", "repo.task.dispatches"),
     payload: record,
   }),
-  "fleet.runtime.await.result/v1": shape({ ...reply, result: record }),
+  "fleet.operational.read.result/v1": shape({ ...reply, result: record }),
   "fleet.error/v1": shape({
     ...reply,
     code: text,

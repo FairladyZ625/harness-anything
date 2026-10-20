@@ -13,7 +13,7 @@ import type { TaskDispatchAdvisory } from "./protocol/task-dispatch-contract.ts"
 export const decisionAnnotationRetention = 1_000;
 const annotationSchema = "decision-annotation-store/v1" as const;
 
-export type DispatchAdvisoryDecision = TaskDispatchAdvisory;
+export type DispatchAdvisoryDecision = Omit<TaskDispatchAdvisory, "evaluatedAt">;
 
 export interface DecisionEgressReceipt {
   readonly subjectRef: string;

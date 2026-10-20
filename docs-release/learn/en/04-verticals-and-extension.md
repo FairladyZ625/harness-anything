@@ -56,6 +56,20 @@ outcome; provider failures do not alter the dispatch. Results are advisory
 annotations kept in the center-local store and are exposed as typed fields by
 `ha task dispatches`. They are never inputs to gates or lifecycle transitions.
 
+In Settings → Repository → Decision points, review each point's question,
+conditions, field limits and redacted outgoing projection example, then toggle
+it and commit the settings. The daemon computes the binding digest. A changed
+digest pauses the old binding; review the current declaration and re-enable it.
+Only the old digest is retained, so the UI shows the digest difference rather
+than a field-by-field historical comparison. The example uses synthetic data
+through the same projection as provider requests.
+
+Task detail's Dispatch tab shows the selected option, distribution, provider,
+resolved model and evaluation time. Agenda task rows show an advisory label when
+a related dispatch has a suggestion. Edge GUI and CLI dispatch reads query the
+center; the edge keeps no annotation copy and needs a reachable center for this
+read. An annotation may be absent before asynchronous evaluation finishes.
+
 ## Convention over declaration
 
 The naive way to extend a system is to make you declare everything. That path

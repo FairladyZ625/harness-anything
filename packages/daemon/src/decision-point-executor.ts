@@ -153,7 +153,9 @@ export function openDecisionPointExecutor(input: {
 
 export function projectDecisionInput(input: {
   readonly point: DecisionPointDeclaration;
-  readonly event: OutcomeEvent;
+  readonly event: {
+    readonly payload: { readonly attempt?: { readonly reason?: string; readonly classification?: string } };
+  };
   readonly report: string;
 }): { readonly state: string; readonly fields: readonly DecisionInputField[] } | null {
   const descriptor = decisionEventDescriptor(input.point.on);
