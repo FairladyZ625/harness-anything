@@ -47,7 +47,7 @@ import type { RuntimeAgent } from "./runtime-spawn-types.ts";
 import type { JsonObject } from "./protocol/json-rpc-types.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import { readReplicaGeneration } from "./fleet/replica-generation.ts";
-import { runFleetEdgeWrite } from "./fleet-edge-write.ts";
+import { runFleetEdgeWrite, transientFleetReceipt } from "./fleet-edge-write.ts";
 import { readScheduleAction, dispatchClaimedSchedule } from "./schedule-action-runtime.ts";
 import { prepareScheduleOccurrenceWorkspace, scheduleSettlementDetail } from "./schedule-occurrence-workspace.ts";
 import { taskMissionSections, taskPlanSection, runtimeMissionName } from "./runtime-spawn-mission.ts";
@@ -574,7 +574,11 @@ export function openFleetEdgeRuntime(input: {
         },
       });
       if (linked.outcome !== "applied")
-        throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule terminal link was ${linked.outcome}.`);
+        throw edgeRuntimeError(
+          "schedule_settlement_pending",
+          `Center Schedule terminal link was ${linked.outcome}.`,
+          transientFleetReceipt(linked),
+        );
       const detail = await scheduleSettlementDetail(request.workspaceRoot, scheduled, terminal.reason);
       const response = await runScheduleCommand({
         ...writePeer,
@@ -591,7 +595,11 @@ export function openFleetEdgeRuntime(input: {
         },
       });
       if (response.outcome !== "applied")
-        throw edgeRuntimeError("schedule_settlement_pending", `Center Schedule settlement was ${response.outcome}.`);
+        throw edgeRuntimeError(
+          "schedule_settlement_pending",
+          `Center Schedule settlement was ${response.outcome}.`,
+          transientFleetReceipt(response),
+        );
     },
     ...(input.launch ? { launch: input.launch } : {}),
     schedule,
@@ -996,6 +1004,6 @@ function mirroredPlanContract(packageRoot: string, taskId: string) {
   return { planContract: contract };
 }
 
-function edgeRuntimeError(code: string, message: string): Error {
-  return Object.assign(new Error(message), { code });
+function edgeRuntimeError(code: string, message: string, retryable?: boolean): Error {
+  return Object.assign(new Error(message), retryable === undefined ? { code } : { code, retryable });
 }

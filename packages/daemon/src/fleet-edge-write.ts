@@ -55,7 +55,8 @@ function retryableEdgeError(error: unknown): boolean {
   );
 }
 
-function transientEdgeResult(value: unknown): boolean {
+/** A rejected receipt the center can still accept on retry; any other rejection is its decision. */
+export function transientFleetReceipt(value: unknown): boolean {
   return (
     typeof value === "object" &&
     value !== null &&
@@ -79,7 +80,7 @@ export async function runFleetEdgeRetry<T>(options: {
       (error: unknown) => ({ ok: false as const, error }),
     );
     if (settled.ok) {
-      if (!transientEdgeResult(settled.value) || Date.now() >= deadline) return settled.value;
+      if (!transientFleetReceipt(settled.value) || Date.now() >= deadline) return settled.value;
     } else {
       if (!retryableEdgeError(settled.error) || Date.now() >= deadline) throw settled.error;
     }

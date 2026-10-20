@@ -217,17 +217,15 @@ for (const restart of [false, true])
       occurredAt: new Date().toISOString(),
       pid: 81235,
     });
-    let reportFailure!: () => void;
-    const failure = new Promise<void>((resolve) => {
-      reportFailure = resolve;
-    });
-    t.mock.method(console, "error", (...args: unknown[]) => {
-      if (String(args[0]).includes("[fleet-edge-runtime]")) reportFailure();
-    });
     await replicaSync.close();
     await center.close();
     terminal();
-    await failure;
+    // Queue a reconcile behind the exit work so the assertion below observes a completed terminal
+    // attempt. A console-error barrier can be won by the earlier liveness publication instead.
+    await runtime.reconcile().catch(() => undefined);
+    // A failed Schedule settlement must leave the dispatch replayable: the terminal snapshot is
+    // appended only after the claim settlement, so adoption retries settlement before publishing.
+    assert.equal(readDispatchStream(workspaceRoot, String(launched.dispatchId))?.terminalOutcome ?? null, null);
     if (restart) {
       runtime.close();
       runtime = createRuntime();
