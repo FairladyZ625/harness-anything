@@ -48,7 +48,7 @@ export function TaskRelationsTab({
     <section data-testid="task-relations-tab">
       {graph.isPending && <p role="status">正在加载任务关系…</p>}
       {graph.isError && <p role="alert">任务关系读取失败，请刷新后重试。</p>}
-      <Section title="任务关系" note="血缘与成本树、上级任务、承重决策与关系边的可跳转索引">
+      <Section title={t("views.taskDetailView.relationsTitle")} note={t("views.taskDetailView.relationsNote")}>
         <div className="grid gap-8 xl:grid-cols-2">
           {/* 血缘树(W3-T1)替换旧「父子 Task + Runtime session」两块平铺:子孙任务与
               Squad/Worker 派工轮在一棵实时树上,节点带状态/耗时/Token,任务节点开详情、

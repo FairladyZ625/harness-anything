@@ -281,6 +281,8 @@
   "views.taskDetailView.reading": "Reading",
   "views.taskDetailView.readOnlyCanonicalRelation": "Read-only · handle this in the canonical relation source",
   "views.taskDetailView.relationship": "relations",
+  "views.taskDetailView.relationsTitle": "Task relations",
+  "views.taskDetailView.relationsNote": "Jumpable index of the lineage and cost tree, parent task, load-bearing decisions and relation edges",
   "views.taskDetailView.returnPreviousLevel": "Back",
   "views.taskDetailView.sectionsAria": "Task detail sections",
   "views.taskDetailView.stage": "graph cursor",

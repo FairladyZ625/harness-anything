@@ -51,7 +51,7 @@ const epochMs = (iso: string | null | undefined): number | null => {
 };
 
 export function TaskExecutionPanel({ task }: { readonly task: TaskRow }) {
-  // 与派工链同一读键:两个面板共享一次读与缓存,台账 cut 的扇出失效一并刷新。
+  // 与派工链同族读键:两个面板共享一次读与缓存,台账 cut 的扇出失效一并刷新。
   const dispatches = useQuery({
     queryKey: runtimeQueryKeys.dispatches(task.projectId, task.taskId),
     queryFn: () => harnessClient.getTaskDispatches({ repoId: task.projectId, taskId: task.taskId }),

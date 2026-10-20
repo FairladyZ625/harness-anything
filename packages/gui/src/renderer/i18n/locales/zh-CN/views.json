@@ -281,6 +281,8 @@
   "views.taskDetailView.reading": "正在读取",
   "views.taskDetailView.readOnlyCanonicalRelation": "只读 · 请在 canonical relation 来源处理",
   "views.taskDetailView.relationship": "关系",
+  "views.taskDetailView.relationsTitle": "任务关系",
+  "views.taskDetailView.relationsNote": "血缘与成本树、上级任务、承重决策与关系边的可跳转索引",
   "views.taskDetailView.returnPreviousLevel": "返回上一层",
   "views.taskDetailView.sectionsAria": "Task 详情分区",
   "views.taskDetailView.stage": "图游标",
