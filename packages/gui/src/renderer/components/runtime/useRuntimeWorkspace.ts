@@ -536,7 +536,8 @@ export function useRelatedDispatches(
     staleTime: 4_000,
     // 放大窗口重读期间保留旧列表:首屏不清空,新窗口到达后原位替换。换选中者
     // 不沿用上一个执行者的行——否则 lastDispatch/删除拦截会短暂指向别人。
-    placeholderData: (previous, previousQuery) => (previousQuery?.queryKey[2] === relatedKey ? previous : undefined),
+    placeholderData: (previous, previousQuery) =>
+      previousQuery?.queryKey[1] === repoId && previousQuery.queryKey[2] === relatedKey ? previous : undefined,
   });
   const dispatchRows = read.data?.dispatches ?? [],
     relatedLabels = new Map((read.data?.taskLabels ?? []).map((label) => [label.taskId, label.title])),
