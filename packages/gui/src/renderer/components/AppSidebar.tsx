@@ -20,8 +20,10 @@ import { RepoModeBadge } from "./RepoModeBadge.tsx";
 import { t } from "../i18n/index.tsx";
 import { guiHostBridge } from "../gui-transport.ts";
 import { consumeKnownError } from "../../api/error-consumption.ts";
+import { useAgendaQuery } from "../agenda-data.ts";
 import { useWorkIndexQuery } from "../task-data.ts";
 import { workIndexOf } from "../model/work-collections.ts";
+import { decisionRows, needsYouWorkIds } from "../views/overview-model.ts";
 
 export interface AppSidebarProps {
   readonly project: Project;
@@ -143,9 +145,23 @@ export function AppSidebar({
   // 就不猜),落地后随台账切面换代一起刷新。
   const worksQuery = useWorkIndexQuery(activeRepoId);
   const workIndex = useMemo(() => workIndexOf(worksQuery.data), [worksQuery.data]);
-  const pinnedWorks = useMemo(
-    () => pinnedWork.filter((item) => workIndex.isWorkRoot(item.taskId)),
-    [pinnedWork, workIndex],
+  // Orca 五级注意力的第 1 级「Needs you」(dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):侧栏跨视图
+  // 常驻,读 App 已挂载的同一条 agenda 缓存(同一 query key,不产生第二个请求);计数与
+  // 工作命中集都出自 decisionRows——总览顶部决策带的同一单一定义,侧栏不重推判据。
+  const agendaQuery = useAgendaQuery(activeRepoId);
+  const needsYouRows = useMemo(() => decisionRows(agendaQuery.data), [agendaQuery.data]);
+  const needsYouCount = needsYouRows.length;
+  const needsYouWorks = useMemo(() => needsYouWorkIds(agendaQuery.data), [agendaQuery.data]);
+  const pinnedWorks = useMemo(() => {
+    const works = pinnedWork.filter((item) => workIndex.isWorkRoot(item.taskId));
+    // 有 Needs you 项的置顶工作绝对在前(它卡在等人,不是在干活);其余保持原序。
+    return [...works].sort(
+      (left, right) => Number(needsYouWorks.has(right.taskId)) - Number(needsYouWorks.has(left.taskId)),
+    );
+  }, [pinnedWork, workIndex, needsYouWorks]);
+  const pinnedNeedsYou = useMemo(
+    () => pinnedWorks.filter(({ taskId }) => needsYouWorks.has(taskId)).length,
+    [pinnedWorks, needsYouWorks],
   );
   // 外壳接现有 .glass(styles.css 的 S2 玻璃档):半透明面 + backdrop 折射让根部
   // AuroraBackdrop 透出,替换不透明 bg-surface;边线由 .glass 的发丝描边承担。
@@ -232,6 +248,25 @@ export function AppSidebar({
               <span aria-hidden>{pinnedOpen ? "▾" : "▸"}</span>
               <span>{t("components.appSidebar.pinnedWorkTitle")}</span>
               <span className="ml-auto tabular-nums">{pinnedWorks.length}</span>
+              {/* 置顶工作里有 Needs you 项:橙色呼吸角标优先呈现(提问态橙,非运行青蓝)。 */}
+              {pinnedNeedsYou > 0 && (
+                <span
+                  data-testid="sidebar-pinned-needs-you"
+                  title={t("components.appSidebar.needsYouLabel", { count: String(pinnedNeedsYou) })}
+                  className="inline-flex items-center gap-1 rounded px-1 font-mono tabular-nums"
+                  style={{
+                    color: "var(--color-agent-question-text)",
+                    background: "var(--color-agent-question-surface)",
+                  }}
+                >
+                  <i
+                    aria-hidden
+                    className="live-dot-pulse inline-block size-[5px] rounded-full"
+                    style={{ background: "var(--color-agent-question)" }}
+                  />
+                  {pinnedNeedsYou}
+                </span>
+              )}
             </button>
             {/* 限高 5 行 = 5 × 整行高度(同一处定义行高与上限,行高变了上限跟着变);
                 行高固定 + 上限取整 → 滚动容器任何静止时刻都露整行;snap 让滚动停在行界。 */}
@@ -241,37 +276,52 @@ export function AppSidebar({
                 pinnedOpen ? "max-h-[calc(var(--pinned-row)*5)] snap-y snap-mandatory overflow-y-auto" : "hidden"
               }
             >
-              {pinnedWorks.map((item) => (
-                <div
-                  key={item.taskId}
-                  className="group flex h-[var(--pinned-row)] w-full snap-start items-center gap-1 rounded pr-1 text-text-muted hover:bg-white/[0.08] hover:text-text"
-                >
-                  <button
-                    type="button"
-                    onClick={() => onOpenPinned(item.taskId)}
-                    className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left ui-body"
+              {pinnedWorks.map((item) => {
+                const needsYou = needsYouWorks.has(item.taskId);
+                return (
+                  <div
+                    key={item.taskId}
+                    className="group flex h-[var(--pinned-row)] w-full snap-start items-center gap-1 rounded pr-1 text-text-muted hover:bg-white/[0.08] hover:text-text"
                   >
-                    <span aria-hidden>◆</span>
-                    <span className="truncate">
-                      <TitleText title={item.title} />
-                    </span>
-                  </button>
-                  {/* 无边框小图标,只在该行悬停或键盘聚焦时出现,平时不占视觉
-                      (评审第 6 条:一列带边框的方块是全页最抢眼的重复图形)。 */}
-                  <button
-                    type="button"
-                    data-testid={`sidebar-unpin-${item.taskId}`}
-                    onClick={() => onUnpinWork(item.taskId)}
-                    aria-label={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
-                    title={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
-                    className="grid size-6 shrink-0 place-items-center rounded text-text-faint opacity-0
-                      transition-opacity hover:bg-white/[0.08] hover:text-text
-                      group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
-                  >
-                    <PushPinSlash weight="bold" className="size-3.5" aria-hidden />
-                  </button>
-                </div>
-              ))}
+                    <button
+                      type="button"
+                      onClick={() => onOpenPinned(item.taskId)}
+                      className="flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left ui-body"
+                    >
+                      {needsYou ? (
+                        // Needs you 工作行:橙点脉冲替默认菱形——排最前 + 一眼可分「卡在等我」。
+                        <i
+                          aria-hidden
+                          className="live-dot-pulse inline-block size-[6px] shrink-0 rounded-full"
+                          style={{
+                            background: "var(--color-agent-question)",
+                            boxShadow: "0 0 5px 1px color-mix(in oklab, var(--color-agent-question) 60%, transparent)",
+                          }}
+                        />
+                      ) : (
+                        <span aria-hidden>◆</span>
+                      )}
+                      <span className="truncate">
+                        <TitleText title={item.title} />
+                      </span>
+                    </button>
+                    {/* 无边框小图标,只在该行悬停或键盘聚焦时出现,平时不占视觉
+                        (评审第 6 条:一列带边框的方块是全页最抢眼的重复图形)。 */}
+                    <button
+                      type="button"
+                      data-testid={`sidebar-unpin-${item.taskId}`}
+                      onClick={() => onUnpinWork(item.taskId)}
+                      aria-label={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
+                      title={t("components.appSidebar.unpinWorkLabel", { title: item.title })}
+                      className="grid size-6 shrink-0 place-items-center rounded text-text-faint opacity-0
+                        transition-opacity hover:bg-white/[0.08] hover:text-text
+                        group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100"
+                    >
+                      <PushPinSlash weight="bold" className="size-3.5" aria-hidden />
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -299,7 +349,16 @@ export function AppSidebar({
                   onClick={() => onNavigate(item.id)}
                   icon={item.icon}
                   label={navLabelOf(item.id)}
-                  badge={item.id === "decisionPool" ? poolBadgeCount : undefined}
+                  badge={
+                    item.id === "decisionPool"
+                      ? poolBadgeCount
+                      : item.id === "overview" && needsYouCount > 0
+                        ? needsYouCount
+                        : undefined
+                  }
+                  // 总览导航项挂 Needs you 橙色呼吸角标(Orca 五级第 1 级优先呈现):
+                  // 有提问阻塞/待裁决项时,无论当前在哪页都能看到「有东西在等你」。
+                  badgeTone={item.id === "overview" ? "question" : "accent"}
                 />
               ))}
             </nav>

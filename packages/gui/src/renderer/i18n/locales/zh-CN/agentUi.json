@@ -25,6 +25,7 @@
   "agentUi.lanes.awaiting": "待拍板",
   "agentUi.lanes.blockAria": "{agent}：{task}，{status}",
   "agentUi.lanes.awaitingSuffix": "，阻塞待拍板",
+  "agentUi.lanes.scaleOneMinute": "1m",
   "agentUi.plan.retryFromStep": "从此步重试",
   "agentUi.plan.addStep": "添加步骤",
   "agentUi.plan.renameStep": "重命名 {title}",

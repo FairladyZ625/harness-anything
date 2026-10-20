@@ -6,13 +6,17 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeAll, expect, it, vi } from "vitest";
 import { AppSidebar } from "../src/renderer/components/AppSidebar.tsx";
 import { taskQueryKeys } from "../src/renderer/task-data.ts";
+import { agendaQueryKeys } from "../src/renderer/agenda-data.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
+import type { AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { WorkIndexRead } from "../src/api/renderer-dto.ts";
 
 // 侧栏的「置顶工作」只列置顶的工作根(daemon 工作索引 repo.works.index 判据),
 // 其余置顶任务的去处是总览置顶区。业主 2026-10-01:只有工作能单独拎出来,限 5 个、
 // 块内滚动不裁半行;取消置顶是无边框小图标,悬停/键盘聚焦时出现(评审第 6 条:
 // 此前一列带边框的方块是全页最抢眼的重复图形)。
+// W2-T1:侧栏再接 Orca 五级注意力的 Needs you(橙色呼吸角标)——计数与工作命中集
+// 出自 decisionRows(总览决策带同一单一定义),读 App 常驻的同一条 agenda 缓存。
 
 const WORKS: WorkIndexRead = {
   schema: "daemon.work-index/v1",
@@ -54,6 +58,7 @@ beforeAll(() => {
 function mountSidebar(
   pinnedWork: readonly { readonly taskId: string; readonly title: string }[],
   works: WorkIndexRead = WORKS,
+  agenda?: AgendaSuccess,
 ) {
   const onNavigate = vi.fn(),
     onUnpinWork = vi.fn(),
@@ -63,6 +68,8 @@ function mountSidebar(
     client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   // 工作索引走 App 已挂载的同一查询键:预置缓存,侧栏不依赖 daemon 就能判工作根。
   client.setQueryData(taskQueryKeys.works("repo"), works);
+  // agenda 同理:Needs you 角标读 App 常驻的同一缓存键,预置后侧栏不发第二个请求。
+  if (agenda !== undefined) client.setQueryData(agendaQueryKeys.read("repo"), agenda);
   return {
     onNavigate,
     onUnpinWork,
@@ -251,4 +258,95 @@ it("account entry navigates without signing in or out, even when the binding is 
     unmount();
     Reflect.deleteProperty(window, "harness");
   }
+});
+
+/** 只含一条 awaiting-you(挂在 task_aaa 工作根上)的最小议程切面。 */
+const AGENDA_NEEDS_YOU = {
+  ok: true,
+  status: "ready",
+  pinnedEntities: [],
+  pinnedEntityOverflow: 0,
+  attentionItems: [
+    {
+      ref: "relation/rel_a",
+      title: "接口要不要兼容旧字段?",
+      kind: "awaiting-you",
+      region: "mine",
+      workTaskId: "task_aaa",
+      attention: { score: 100, reasons: [] },
+    },
+  ],
+  awaitingYou: [
+    {
+      relationId: "rel_a",
+      relationRevision: 1,
+      sourceRef: "task/task_bbb",
+      title: "接口要不要兼容旧字段?",
+      status: "active",
+      personId: "person_me",
+      askKind: "question",
+      question: "接口要不要兼容旧字段?",
+      askedAt: "2026-10-20T01:00:00.000Z",
+      askedBy: "person_worker",
+    },
+  ],
+  answeredForYou: [],
+  inFlight: [],
+  stalled: [],
+  awaitingRework: [],
+  awaitingAdjudication: [],
+  underReview: [],
+  decisionReviewInProgress: [],
+  awaitingDecisionReview: [],
+  awaitingDecision: [],
+  waitingOnOthers: [],
+  dispatchable: [],
+  summary: "",
+  watermark: 1,
+  sourceRevision: 1,
+  page: { sourceLimit: 100, cursor: null, nextCursor: null },
+} as unknown as AgendaSuccess;
+
+it("Needs you 橙色呼吸角标:总览导航计数 + 置顶区有 Needs you 的工作排最前", async () => {
+  const { host, render, unmount } = mountSidebar(
+    // root2 无 Needs you 项,却排在 pinnedWork 前面传入——排序必须把它压到 aaa 之后。
+    [
+      { taskId: "task_root2", title: "第二个工作根" },
+      { taskId: "task_aaa", title: "第一条置顶" },
+    ],
+    WORKS,
+    AGENDA_NEEDS_YOU,
+  );
+  await render();
+  // 总览导航项:agent-question 橙色档角标(非 accent),带呼吸点与计数 1。
+  const overviewNav = [...host.querySelectorAll("nav button")].find((button) => button.textContent?.includes("总览"))!;
+  expect(overviewNav).toBeDefined();
+  const badge = overviewNav.querySelector("[data-nav-badge]")!;
+  expect(badge.getAttribute("data-nav-badge")).toBe("question");
+  expect(badge.textContent).toContain("1");
+  expect(badge.querySelector(".live-dot-pulse")).not.toBeNull();
+  // 决策池徽标保持 accent 档:只有 Needs you 用橙。
+  const poolNav = [...host.querySelectorAll("nav button")].find((button) => button.textContent?.includes("待办签发"));
+  if (poolNav !== undefined && poolNav.querySelector("[data-nav-badge]") !== null)
+    expect(poolNav.querySelector("[data-nav-badge]")!.getAttribute("data-nav-badge")).toBe("accent");
+  // 置顶区:有 Needs you 的工作排最前(第二个工作根被压后),行首橙点脉冲,块头计数角标。
+  const rows = host.querySelector('[data-testid="sidebar-pinned-list"]')!;
+  expect(rows.children[0]!.textContent).toContain("第一条置顶");
+  expect(rows.children[0]!.querySelector(".live-dot-pulse")).not.toBeNull();
+  expect(rows.children[1]!.textContent).toContain("第二个工作根");
+  expect(rows.children[1]!.querySelector(".live-dot-pulse")).toBeNull();
+  const headerBadge = host.querySelector('[data-testid="sidebar-pinned-needs-you"]')!;
+  expect(headerBadge.textContent).toContain("1");
+  unmount();
+});
+
+it("没有 Needs you 项时角标全都不出现(不冒充需要用户)", async () => {
+  const { host, render, unmount } = mountSidebar([{ taskId: "task_aaa", title: "第一条置顶" }]);
+  await render();
+  const overviewNav = [...host.querySelectorAll("nav button")].find((button) => button.textContent?.includes("总览"))!;
+  expect(overviewNav.querySelector("[data-nav-badge]")).toBeNull();
+  expect(host.querySelector('[data-testid="sidebar-pinned-needs-you"]')).toBeNull();
+  const rows = host.querySelector('[data-testid="sidebar-pinned-list"]')!;
+  expect(rows.children[0]!.querySelector(".live-dot-pulse")).toBeNull();
+  unmount();
 });

@@ -5,23 +5,25 @@ import type {
   AgendaExecutionRow,
   AgendaTaskRow,
   AgendaAttentionItem,
-  TaskWipRead,
+  TaskDispatchProjectionRow,
   WorkIndexRead,
 } from "../../api/renderer-dto.ts";
-import type { AgentRuntimeOverviewResult } from "@harness-anything/daemon/protocol";
+import type { AgentRuntimeOverviewResult, AgentRuntimeSessionGroupDto } from "@harness-anything/daemon/protocol";
 import type { AgendaSuccess } from "../api-client.ts";
 import type { CadenceFeedEvent } from "../model/cadence.ts";
 import type { SnapshotStatus } from "../model/types";
 import type { WorkDayGroup, WorkStepKind } from "../model/workspace-narrative.ts";
 import { workDayGroups } from "../model/workspace-narrative.ts";
-import { WIP_STATUS_ORDER } from "./OverviewTaskWip.tsx";
+import type { AgentActivity } from "../components/agent-ui/AgentTree.tsx";
+import type { AgentHandoff, AgentLane, AgentLaneTask } from "../components/agent-ui/AgentLanes.tsx";
 
 /**
- * 总览的纯派生层(2026-10-04 重构:注意力优先):从已挂载的读面(repo.agenda.read 的
- * attentionItems 与各分组、repo.works.index、repo.agentRuntime.overview、
- * observe.tail 事件页、repo.tasks.wip)推出首块「需要你处理」、主区「关注的工作」与紧凑
- * 下钻入口的行模型。不做任何取数,不重推 daemon 的判据——注意力分、分组全部透传 S1;
- * 这里只做「行怎么显示、落在哪个块、动作给谁」的投影。
+ * 总览的纯派生层(2026-10-04 重构:注意力优先;2026-10-20 W2-T1 接入 Orca 五级序数与
+ * Agent 泳道):从已挂载的读面(repo.agenda.read 的 attentionItems 与各分组、
+ * repo.works.index、repo.agentRuntime.overview、observe.tail 事件页、repo.tasks.wip、
+ * runtime-session-groups 与活跃 agent 的派工成员页)推出首块「需要你处理」、主区
+ * 「关注的工作」与 Agent 泳道的行模型。不做任何取数,不重推 daemon 的判据——注意力分、
+ * 分组全部透传 S1;这里只做「行怎么显示、落在哪个块、动作给谁」的投影。
  */
 
 /** 注意力类别的显示档(label 走 i18n,tone 决定标签色)。 */
@@ -132,23 +134,38 @@ const isDecisionKind = (kind: AgendaAttentionItem["kind"]): kind is DecisionKind
 
 export function decisionRows(agenda: AgendaSuccess | undefined): readonly DecisionRow[] {
   if (agenda === undefined) return [];
-  return attentionEntries(agenda, "mine").flatMap(({ item, since, source }) => {
-    if (!isDecisionKind(item.kind)) return [];
-    return [
-      {
-        id: item.ref,
-        kind: item.kind,
-        title: item.title,
-        workTaskId: item.workTaskId,
-        question: source?.kind === "awaits" ? source.row.question : null,
-        askKind: source?.kind === "awaits" ? source.row.askKind : null,
-        riskTier: source?.kind === "decision" ? source.row.riskTier : null,
-        since,
-        source,
-        score: item.attention.score,
-      },
-    ];
-  });
+  return attentionEntries(agenda, "mine")
+    .flatMap(({ item, since, source }) => {
+      if (!isDecisionKind(item.kind)) return [];
+      return [
+        {
+          id: item.ref,
+          kind: item.kind,
+          title: item.title,
+          workTaskId: item.workTaskId,
+          question: source?.kind === "awaits" ? source.row.question : null,
+          askKind: source?.kind === "awaits" ? source.row.askKind : null,
+          riskTier: source?.kind === "decision" ? source.row.riskTier : null,
+          since,
+          source,
+          score: item.attention.score,
+        },
+      ];
+    })
+    .sort(
+      (left, right) =>
+        // Orca 五级序数(dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):Needs you(class 1)绝对顶置——
+        // awaiting-you(提问阻塞,橙 tone)排在 decision(待点头)之前;同级内才轮到注意力分。
+        Number(left.kind === "decision") - Number(right.kind === "decision") ||
+        right.score - left.score ||
+        left.id.localeCompare(right.id),
+    );
+}
+
+/** 有 Needs you 项的工作根集合(侧栏置顶区与总览关注工作行共用的「等你处理」判据)。 */
+export function needsYouWorkIds(agenda: AgendaSuccess | undefined): ReadonlySet<string> {
+  if (agenda === undefined) return new Set();
+  return new Set(decisionRows(agenda).flatMap(({ workTaskId }) => (workTaskId === null ? [] : [workTaskId])));
 }
 
 /**
@@ -285,9 +302,10 @@ export function workRows(works: WorkIndexRead | undefined, agenda: AgendaSuccess
 }
 
 /**
- * 主区「关注的工作」(2026-10-11 业主意见 4; 2026-10-14 活跃执行置顶与最新活动倒序):
- * 排序准则:
- * 1. 活跃执行优先:名下任务当前有 live 会话在跑(handlers.length > 0,呈现层挂脉冲波呼吸条)的工作严格置顶在待命工作之前;
+ * 主区「关注的工作」(2026-10-11 业主意见 4; 2026-10-14 活跃执行置顶与最新活动倒序;
+ * 2026-10-20 W2-T1 接入 Orca 五级序数):排序准则:
+ * 0. Needs you 绝对顶置:名下任务有 awaiting-you/待点头项的工作排在一切之前(它卡在等人);
+ * 1. 活跃执行优先:名下任务当前有 live 会话在跑(handlers.length > 0,呈现层挂脉冲波呼吸条)的工作置顶在待命工作之前;
  * 2. 静止待命中置顶优先:均无 live 会话在跑时,显式置顶的非终态工作保留在前,近期活跃工作列于其后;
  * 3. 最新活动倒序:同等状态组内(同为在跑、同为待命置顶、同为待命近期),按最近活动时间(lastActivityAt)倒序排列(新活动在前);
  * 4. 稳定兜底:时间相同时平滑回退至注意力最高分降序、本人卡点数与 taskId 定序。
@@ -311,6 +329,7 @@ export function watchedWorks(
 ): { readonly watched: readonly WatchedWork[]; readonly pinnedClosed: number } {
   const rows = workRows(works, agenda);
   const members = new Map((works?.works ?? []).map((work) => [work.taskId, work.memberTaskIds] as const));
+  const needsYouIds = needsYouWorkIds(agenda);
   const pinnedIds = new Set(
     (agenda?.pinnedEntities ?? [])
       .filter((entity) => entity.kind === "task")
@@ -342,7 +361,13 @@ export function watchedWorks(
     .map(entryOf("recent"));
 
   const watched = [...pinnedEntries, ...recentEntries].sort((left, right) => {
-    // 1. 活跃执行优先置顶 (live 会话处理者非空,挂脉冲呼吸光条)
+    // 0. Needs you 绝对顶置(Orca 五级序数的第 1 级,dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):
+    //    名下有 awaiting-you/待点头项的工作排在一切运行态之前——它卡在等人,不是在干活。
+    const leftNeedsYou = needsYouIds.has(left.work.taskId) ? 1 : 0;
+    const rightNeedsYou = needsYouIds.has(right.work.taskId) ? 1 : 0;
+    if (rightNeedsYou !== leftNeedsYou) return rightNeedsYou - leftNeedsYou;
+
+    // 1. 活跃执行优先置顶 (live 会话处理者非空,挂脉冲波呼吸光条)
     const leftRunning = runningOf(left.work.taskId, left.memberTaskIds);
     const rightRunning = runningOf(right.work.taskId, right.memberTaskIds);
     if (rightRunning !== leftRunning) return rightRunning - leftRunning;
@@ -405,71 +430,190 @@ export function taskAttentionScores(agenda: AgendaSuccess | undefined): Map<stri
   return scores;
 }
 
-/**
- * 「执行与下钻 → 进行中的任务」的内联名单行(2026-10-11 合并在飞任务流;2026-10-14 执行中置顶与最新活动倒序):
- * 排序准则:
- * 1. 活跃执行优先:当前有 live 会话在跑(handlers.length > 0,呈现层挂脉冲波呼吸条)的任务严格置顶在待命任务之前;
- * 2. 最新活动倒序:同为执行中或同为待命中时,按最新可观察活动时间(since)倒序排列(新活动在前、旧在后);
- * 3. 稳定兜底:活动时间相同或均缺失时,平滑回退到议程注意力分降序、状态生命周期序与 taskId 定序。
- */
-export interface DrillWipRow {
-  readonly taskId: string;
-  readonly title: string;
-  readonly status: TaskWipRead["counted"][number]["status"];
-  readonly score: number;
-  /** 该任务名下 live 会话的执行者去重(who = kind · model);空 = 静止待命。 */
-  readonly handlers: readonly string[];
-  /** 最近一次可观察活动(live 会话的 lastObservedAt,兜底议程行 updatedAt);null = 未知。 */
-  readonly since: string | null;
+/** taskId → 该任务上未决 awaits 的问句源行(泳道块「待拍板」动作与问句提示的数据源)。 */
+export function awaitsByTask(agenda: AgendaSuccess | undefined): ReadonlyMap<string, AgendaAwaitsRow> {
+  const byTask = new Map<string, AgendaAwaitsRow>();
+  for (const row of agenda?.awaitingYou ?? []) {
+    if (!row.sourceRef.startsWith("task/")) continue;
+    const taskId = row.sourceRef.slice("task/".length);
+    if (!byTask.has(taskId)) byTask.set(taskId, row);
+  }
+  return byTask;
 }
 
-export function drillWipRows(
-  wip: TaskWipRead | undefined,
-  runtime: AgentRuntimeOverviewResult | undefined,
-  agenda: AgendaSuccess | undefined,
-): readonly DrillWipRow[] {
-  if (wip === undefined) return [];
-  const scores = taskAttentionScores(agenda);
-  const sessions = new Map<string, { handlers: string[]; latest: string }>();
-  for (const run of runRows(runtime, agenda)) {
-    if (run.taskId === null) continue;
-    const held = sessions.get(run.taskId) ?? { handlers: [], latest: run.lastObservedAt };
-    if (!held.handlers.includes(run.who)) held.handlers.push(run.who);
-    if (Date.parse(run.lastObservedAt) > Date.parse(held.latest)) held.latest = run.lastObservedAt;
-    sessions.set(run.taskId, held);
+/* ------------------------------------------------------------------ Agent 泳道(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2/CH4,替换旧 WIP 平铺名单) */
+
+/** 泳道读窗:最近 6 小时内有会话的 agent 才进泳道(战情总览看「现在」,历史归会话页)。 */
+export const AGENT_LANES_WINDOW_MS = 6 * 3_600_000;
+/** 每条泳道最多画的任务块数(成员页按 startedAt 新→旧取前 N)。 */
+export const AGENT_LANES_BLOCKS_PER_LANE = 8;
+/** 最多读成员页的活跃 agent 数(超出按 runningCount 降序取前 N,截断如实不猜)。 */
+export const AGENT_LANES_ACTIVE_AGENTS = 6;
+/** 活跃 agent 成员页的派工行上限(daemon 端 limit,1..500)。 */
+export const AGENT_LANES_MEMBER_PAGE = 12;
+
+/**
+ * 派工行状态词 → 泳道块状态(AgentActivity 五词)。lost/unverifiable 在原语词表里没有
+ * 独立档,按「不可证运行」落 idle 灰——不冒充失败,也不冒充在跑。
+ */
+const LANE_ACTIVITY_OF_DISPATCH: Readonly<Record<TaskDispatchProjectionRow["status"], AgentActivity>> = {
+  running: "running",
+  blocked: "awaiting",
+  succeeded: "done",
+  failed: "failed",
+  unknown: "idle",
+  cancelled: "idle",
+  stopped: "idle",
+  lost: "idle",
+};
+
+/** 组轮次状态词(session 词表)→ 泳道块状态。 */
+const LANE_ACTIVITY_OF_ROUND: Readonly<Record<AgentRuntimeSessionGroupDto["latestStatus"], AgentActivity>> = {
+  running: "running",
+  blocked: "awaiting",
+  succeeded: "done",
+  failed: "failed",
+  unknown: "idle",
+  cancelled: "idle",
+  stopped: "idle",
+  lost: "idle",
+  "ended-indeterminate": "idle",
+  unavailable: "idle",
+};
+
+/** 组级 latestStatus 的终态集合(非 running 即视为已收口,块给确定的 endAt)。 */
+const GROUP_RUNNING: ReadonlySet<AgentRuntimeSessionGroupDto["latestStatus"]> = new Set(["running"]);
+
+export interface AgentLaneBlockSource {
+  /** 块归属任务的 id(待拍板动作的落点)。 */
+  readonly taskId: string;
+  /** 块背后的会话(缓存触达读面按它订阅);latestRound 兜底块可能没有对应运行会话。 */
+  readonly runtimeSessionId: string | null;
+  /** 该块当前挂未决 awaits(动作开答复面板而不是跳任务)。 */
+  readonly awaiting: boolean;
+}
+
+export interface OverviewAgentLanes {
+  readonly lanes: readonly AgentLane[];
+  readonly handoffs: readonly AgentHandoff[];
+  /** blockId → 源信息:视图层据此接「待拍板」动作与块内 CacheTimer。 */
+  readonly blockOf: ReadonlyMap<string, AgentLaneBlockSource>;
+  /** 运行中块的会话 id 集合(视图层按它读增量事件流,算 Prompt Cache 触达)。 */
+  readonly runningSessionIds: readonly string[];
+}
+
+/**
+ * 「执行与下钻 → 进行中的任务」的泳道数据(dec_C0AF8CBBFFECF71F4F34FB76F9 CH4 原位替换
+ * 旧 WIP 静态平铺名单):一条泳道一个 agent(sessionGroups 按 agent 分组),任务块来自该
+ * agent 的成员派工页(真 startedAt/endedAt/status);活跃 agent 的成员页缺失时用组头
+ * latestRound 兜底一块。跨 Agent 交接边来自派工行的 delegatedByAgentId/parentRuntimeSessionId,
+ * 源块不在窗口内的边如实不画。纯函数,时钟由调用方注入 nowMs。
+ */
+export function agentLanesOf(input: {
+  /** sessionGroups(groupBy=agent) 当前窗口内的组。 */
+  readonly groups: readonly AgentRuntimeSessionGroupDto[];
+  /** 活跃 agent 的成员派工页(agentId → 派工行 + 任务标题)。 */
+  readonly memberPages: ReadonlyMap<
+    string,
+    {
+      readonly rows: readonly TaskDispatchProjectionRow[];
+      readonly titleOf: ReadonlyMap<string, string>;
+    }
+  >;
+  /** 任务标题兜底(议程标题,memberPages 的 taskLabels 之外)。 */
+  readonly taskTitles: ReadonlyMap<string, string>;
+  /** taskId → 未决 awaits 行(awaitsByTask 的产物)。 */
+  readonly awaits: ReadonlyMap<string, AgendaAwaitsRow>;
+  /** blocked 但无 awaits 问句时的兜底提示(视图层传 i18n 文案,模型保持纯)。 */
+  readonly awaitingFallbackQuestion: string;
+  readonly nowMs: number;
+}): OverviewAgentLanes {
+  const blockOf = new Map<string, AgentLaneBlockSource>();
+  const runningSessionIds: string[] = [];
+  if (input.groups.length === 0) return { lanes: [], handoffs: [], blockOf, runningSessionIds };
+
+  const lanes: AgentLane[] = [];
+  const dispatchRows: TaskDispatchProjectionRow[] = [];
+  for (const group of input.groups) {
+    // 泳道只画 agent:未归属 agent 的 Direct/no-task 会话没有「并行 Agent」语义,
+    // 放进来只会把泳道变成另一份会话列表。
+    if (group.agentId === undefined) continue;
+    const agentId = group.agentId;
+    const page = input.memberPages.get(agentId);
+    const tasks: AgentLaneTask[] = [];
+    const labelOf = (taskId: string): string => page?.titleOf.get(taskId) ?? input.taskTitles.get(taskId) ?? taskId;
+    if (page !== undefined) {
+      const rows = [...page.rows]
+        // 战情总览只看当前窗口(6h):成员页会带出该 agent 更早的已收口轮次,收口块
+        // 太老就不画(运行中/阻塞中的块无论起点都留,它们仍是「现在」)。
+        .filter(
+          (row) =>
+            row.status === "running" ||
+            row.status === "blocked" ||
+            Date.parse(row.endedAt ?? row.startedAt) >= input.nowMs - AGENT_LANES_WINDOW_MS,
+        )
+        .sort((left, right) => right.startedAt.localeCompare(left.startedAt))
+        .slice(0, AGENT_LANES_BLOCKS_PER_LANE);
+      for (const row of rows) {
+        const awaitingRow = input.awaits.get(row.taskId);
+        const isAwaiting = row.status === "blocked" || awaitingRow !== undefined;
+        const running = row.status === "running";
+        tasks.push({
+          id: row.dispatchId,
+          label: labelOf(row.taskId),
+          startAt: Date.parse(row.startedAt),
+          // CEO 派工注记第 8 条:已收口或阻塞的块必须给 endAt(只有运行中的块随 now 生长)。
+          endAt: row.endedAt !== null ? Date.parse(row.endedAt) : running ? null : input.nowMs,
+          status: LANE_ACTIVITY_OF_DISPATCH[row.status],
+          ...(isAwaiting
+            ? {
+                awaiting: {
+                  question: awaitingRow?.question ?? row.reason ?? input.awaitingFallbackQuestion,
+                },
+              }
+            : {}),
+        });
+        blockOf.set(row.dispatchId, {
+          taskId: row.taskId,
+          runtimeSessionId: row.runtimeSessionId,
+          awaiting: awaitingRow !== undefined,
+        });
+        if (running) runningSessionIds.push(row.runtimeSessionId);
+        dispatchRows.push(row);
+      }
+    } else if (group.latestRound !== null) {
+      // 活跃 agent 之外:组头 latestRound 给最近一块上下文(确定终点,不生长)。窗口外的
+      // 已收口块不画——否则时间轴会被 19 天前的历史轮次撑开,不再是「现在」。
+      const round = group.latestRound,
+        running = GROUP_RUNNING.has(round.status),
+        inWindow = Date.parse(round.startedAt) >= input.nowMs - AGENT_LANES_WINDOW_MS;
+      if (running || inWindow)
+        tasks.push({
+          id: round.dispatchId ?? round.runtimeSessionId,
+          label: group.taskId === undefined ? group.label : (input.taskTitles.get(group.taskId) ?? group.label),
+          startAt: Date.parse(round.startedAt),
+          endAt: running ? null : Date.parse(group.latestActivityAt),
+          status: LANE_ACTIVITY_OF_ROUND[round.status],
+        });
+    }
+    if (tasks.length > 0) lanes.push({ agentId, role: group.label, tasks });
   }
-  // 议程里全部带 taskId 的任务行都能给 updatedAt(在飞/停滞/待返工/可派…),做年龄兜底。
-  const agendaUpdatedAt = new Map<string, string>();
-  for (const row of agenda?.inFlight ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
-  for (const row of agenda?.stalled ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
-  for (const row of agenda?.waitingOnOthers ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
-  for (const row of agenda?.awaitingRework ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
-  for (const row of agenda?.dispatchable ?? []) agendaUpdatedAt.set(row.taskId, row.updatedAt);
-  return wip.counted
-    .map((entry) => {
-      const session = sessions.get(entry.taskId);
-      return {
-        ...entry,
-        score: scores.get(entry.taskId) ?? 0,
-        handlers: session?.handlers ?? [],
-        since: session?.latest ?? agendaUpdatedAt.get(entry.taskId) ?? null,
-      };
-    })
-    .sort((left, right) => {
-      const leftRunning = left.handlers.length > 0 ? 1 : 0;
-      const rightRunning = right.handlers.length > 0 ? 1 : 0;
-      if (rightRunning !== leftRunning) return rightRunning - leftRunning;
 
-      const leftTime = left.since !== null ? Date.parse(left.since) || 0 : 0;
-      const rightTime = right.since !== null ? Date.parse(right.since) || 0 : 0;
-      if (rightTime !== leftTime) return rightTime - leftTime;
-
-      return (
-        right.score - left.score ||
-        WIP_STATUS_ORDER.indexOf(left.status) - WIP_STATUS_ORDER.indexOf(right.status) ||
-        left.taskId.localeCompare(right.taskId)
-      );
+  // 跨 Agent 交接:worker 派工行的 parentRuntimeSessionId 指向 leader 会话;leader 的派工行
+  // 在窗口内才画边(接不回源块的边不虚构)。
+  const rowBySession = new Map(dispatchRows.map((row) => [row.runtimeSessionId, row] as const));
+  const handoffs: AgentHandoff[] = [];
+  for (const row of dispatchRows) {
+    if (!row.parentRuntimeSessionId || !row.delegatedByAgentId) continue;
+    const source = rowBySession.get(row.parentRuntimeSessionId);
+    if (source === undefined || source.dispatchId === row.dispatchId) continue;
+    handoffs.push({
+      fromTaskId: source.dispatchId,
+      toTaskId: row.dispatchId,
+      ...(row.delegatedByAgentName === undefined ? {} : { label: `${row.delegatedByAgentName} →` }),
     });
+  }
+  return { lanes, handoffs, blockOf, runningSessionIds };
 }
 
 /** 最近变化:与工作页 DayDigest 同一派生(model/workspace-narrative.ts 的 workDayGroups)

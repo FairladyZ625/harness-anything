@@ -25,6 +25,7 @@
   "agentUi.lanes.awaiting": "Awaiting you",
   "agentUi.lanes.blockAria": "{agent}: {task}, {status}",
   "agentUi.lanes.awaitingSuffix": ", blocked awaiting you",
+  "agentUi.lanes.scaleOneMinute": "1m",
   "agentUi.plan.retryFromStep": "Retry from step",
   "agentUi.plan.addStep": "Add step",
   "agentUi.plan.renameStep": "Rename {title}",

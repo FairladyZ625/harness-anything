@@ -15,6 +15,7 @@
   "components.appSidebar.manageAll": "Manage all",
   "components.appSidebar.noTaskRowsFromLocalBridge": "No task rows available from the local task bridge",
   "components.appSidebar.pinnedWorkTitle": "Pinned work",
+  "components.appSidebar.needsYouLabel": "{count} pinned works have items needing you",
   "components.appSidebar.unpinWorkLabel": "Unpin: {title}",
   "components.appSidebar.projectCount": "{count} projects",
   "components.appSidebar.quickSwitch": "Quick switch",
