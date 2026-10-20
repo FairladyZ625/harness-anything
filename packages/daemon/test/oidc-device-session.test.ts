@@ -224,3 +224,27 @@ test("device login survives transient transport loss and replaces a code invalid
   assert.equal(accepted.personId, "person-one");
   assert.equal(tokenRequests, 3);
 });
+
+test("first device authorization reports an unreachable authority with the same code as polling", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-device-begin-transport-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const cause = Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8443"), { code: "ECONNREFUSED" });
+  const service = new OidcSessionService(root, {
+    now: () => 0,
+    fetch: (async () => {
+      throw new TypeError("fetch failed", { cause });
+    }) as typeof fetch,
+  });
+  await assert.rejects(
+    service.beginDevice("edge-root", {
+      url: "https://identity.example.test",
+      realm: "harness",
+      clientId: "harness-node-one",
+    }),
+    (error: unknown) => {
+      assert.equal((error as Error & { code?: string }).code, "oidc_device_transport_unavailable");
+      assert.match(String((error as Error).cause), /ECONNREFUSED/u);
+      return true;
+    },
+  );
+});

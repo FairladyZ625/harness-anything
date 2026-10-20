@@ -227,6 +227,27 @@ describe("edge join wizard", () => {
     expect(container.textContent).toContain("Confirm the link came from a trusted administrator");
   });
 
+  it("explains an unreachable sign-in service on the first join attempt and keeps the daemon detail", async () => {
+    installBridge({
+      begin: vi.fn(async () => ({
+        ok: false,
+        code: "oidc_device_transport_unavailable",
+        rejectionExplanation: "fetch failed (cause: connect ECONNREFUSED 127.0.0.1:8443)",
+      })),
+    });
+    const { container } = await mount();
+    await act(async () => setInputValue(byTestId(container, "edge-join-link-input") as HTMLInputElement, LINK));
+    await settle(1);
+    await click(container, "edge-join-start");
+    await settle();
+
+    expect(byTestId(container, "edge-join-error-message")?.textContent).toContain(
+      "The sign-in service is unreachable.",
+    );
+    expect(container.textContent).toContain("Check the network and retry");
+    expect(byTestId(container, "edge-join-error-detail")?.textContent).toContain("ECONNREFUSED");
+  });
+
   it("keeps waiting when the sign-in service is unreachable and finishes once it recovers", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
     const begin = vi

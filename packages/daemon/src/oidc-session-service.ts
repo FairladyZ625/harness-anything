@@ -203,7 +203,9 @@ export class OidcSessionService {
     expiresAtLimit?: number,
   ): Promise<Record<string, unknown>> {
     const authority = authorityOverride ?? (await this.#loginAuthority(loginTarget, true)),
-      verifier = this.#ports.randomBytes(32).toString("base64url"),
+      verifier = this.#ports.randomBytes(32).toString("base64url");
+    let response: Response;
+    try {
       response = await this.#fetchAuthority(
         authority,
         `${authority.url}/realms/${encodeURIComponent(authority.realm)}/protocol/openid-connect/auth/device`,
@@ -219,6 +221,10 @@ export class OidcSessionService {
           }),
         },
       );
+    } catch (error) {
+      tagDeviceTransportFailure(error);
+      throw error;
+    }
     if (!response.ok)
       throw coded("oidc_device_rejected", `Keycloak device authorization returned HTTP ${response.status}.`);
     const device = (await response.json()) as Record<string, unknown>,
@@ -346,11 +352,10 @@ export class OidcSessionService {
           },
         );
       } catch (error) {
-        if (!(error instanceof TypeError) || !transientDeviceTransportFailure(error)) throw error;
+        if (!tagDeviceTransportFailure(error)) throw error;
         const transportError = errorMessageWithCause(error);
         pending.lastTransportError = transportError;
         pending.nextPollAt = this.#ports.now() + pending.interval * 1_000;
-        (error as TypeError & { code?: string }).code = "oidc_device_transport_unavailable";
         throw error;
       }
       const result = (await response.json()) as Record<string, unknown>;
@@ -1050,6 +1055,17 @@ const transientDeviceTransportCodes = new Set([
   "UND_ERR_HEADERS_TIMEOUT",
   "UND_ERR_BODY_TIMEOUT",
 ]);
+
+/**
+ * The one code a transient Keycloak transport failure carries. Starting device authorization and
+ * polling it are the same unreachable-authority failure, so both use this mapping instead of each
+ * inventing an answer. Returns whether the caught value was that failure; callers rethrow it as-is.
+ */
+function tagDeviceTransportFailure(error: unknown): boolean {
+  if (!(error instanceof TypeError) || !transientDeviceTransportFailure(error)) return false;
+  (error as TypeError & { code?: string }).code = "oidc_device_transport_unavailable";
+  return true;
+}
 
 function transientDeviceTransportFailure(error: unknown): boolean {
   if (!(error instanceof TypeError)) return false;

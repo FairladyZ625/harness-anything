@@ -91,10 +91,16 @@ export function EdgeJoinWizard({
     }
   };
 
-  const fail = (rejection: { readonly code?: string; readonly explanation?: string }) => {
+  const fail = (rejection: {
+    readonly code?: string;
+    readonly explanation?: string;
+    readonly rejectionExplanation?: string;
+  }) => {
+    // daemon refusals carry their hint as rejectionExplanation; a refused IPC call carries explanation.
+    const detail = rejection.explanation ?? rejection.rejectionExplanation;
     stopProgressPoll();
-    setFailure(explainEdgeJoinFailure(rejection));
-    setFailureDetail(rejection.explanation?.trim() || null);
+    setFailure(explainEdgeJoinFailure({ ...rejection, ...(detail === undefined ? {} : { explanation: detail }) }));
+    setFailureDetail(detail?.trim() || null);
     setPhase("failed");
   };
 
