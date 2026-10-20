@@ -1,7 +1,43 @@
-import { readFileSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, resolve } from "node:path";
 
 const outputDir = process.env.HARNESS_GUI_BUILDER_OUTPUT ?? "../../dist/gui-local-mac-arm64";
 const cliPackage = JSON.parse(readFileSync(new URL("../cli/package.json", import.meta.url), "utf8"));
+const entitlementsPath = resolve(dirname(fileURLToPath(import.meta.url)), "build-resources/entitlements.mac.plist");
+const entitlementsInheritPath = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "build-resources/entitlements.mac.inherit.plist",
+);
+const machOFileMagics = new Set([
+  0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xbebafeca, 0xcafebabf, 0xbfbafeca,
+]);
+
+function ignoreNonMachOCode(filePath) {
+  if (filePath.endsWith(".app") || filePath.endsWith(".framework")) {
+    return false;
+  }
+
+  const fileDescriptor = openSync(filePath, "r");
+  try {
+    const header = Buffer.alloc(8);
+    if (readSync(fileDescriptor, header, 0, header.length, 0) !== header.length) {
+      return true;
+    }
+
+    const magic = header.readUInt32BE(0);
+    if (magic === 0xcafebabe || magic === 0xcafebabf || magic === 0xbebafeca || magic === 0xbfbafeca) {
+      // FAT_MAGIC overlaps Java class files; a Mach-O fat header has fewer than 30 slices.
+      const architectureCount =
+        magic === 0xbebafeca || magic === 0xbfbafeca ? header.readUInt32LE(4) : header.readUInt32BE(4);
+      return architectureCount === 0 || architectureCount > 30;
+    }
+
+    return !machOFileMagics.has(magic);
+  } finally {
+    closeSync(fileDescriptor);
+  }
+}
 
 /** @type {import("electron-builder").Configuration} */
 const config = {
@@ -11,7 +47,6 @@ const config = {
   asar: false,
   nativeModules: { npmRebuild: false },
   compression: "normal",
-  forceCodeSigning: false,
   directories: {
     app: "../..",
     output: outputDir,
@@ -50,12 +85,20 @@ const config = {
     },
   ],
   mac: {
+    // Per-platform: Windows keeps `sign: false`, which a top-level force would reject.
+    forceCodeSigning: true,
     target: [
       { target: "dmg", arch: ["arm64"] },
       { target: "zip", arch: ["arm64"] },
     ],
     category: "public.app-category.developer-tools",
-    sign: { identity: null },
+    sign: {
+      hardenedRuntime: true,
+      entitlements: entitlementsPath,
+      entitlementsInherit: entitlementsInheritPath,
+      ignore: ignoreNonMachOCode,
+    },
+    notarize: true,
     artifactName: "Harness-Anything-${version}-${arch}.${ext}",
   },
   win: {

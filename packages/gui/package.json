@@ -31,7 +31,7 @@
     "prepack": "vite build --logLevel error && vite build --config vite.preload.config.ts --logLevel error && vite build --config vite.main.config.ts --logLevel error && node ../../tools/package-exports-lifecycle.mjs prepare",
     "postpack": "node ../../tools/package-exports-lifecycle.mjs restore",
     "package:prepare": "npm run build && npm run build -w @harness-anything/cli && node scripts/prepare-desktop-runtime.mjs",
-    "package:mac:arm64": "npm run package:prepare && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --config electron-builder.config.mjs --mac --arm64",
+    "package:mac:arm64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --mac --arm64",
     "package:win:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --win --x64",
     "package:linux:x64": "npm run package:prepare && electron-builder --config electron-builder.config.mjs --linux AppImage deb --x64",
     "preview": "vite preview --host 127.0.0.1",
