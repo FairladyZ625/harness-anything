@@ -66,7 +66,11 @@ test("a declared local gate resolves its default source and an unknown gate fail
 });
 
 test("new completion contracts cannot add hosted CI witnesses", () => {
-  assert.throws(() => readSettingsFacet(repositoryYaml(githubCi)), /hosted CI completion witnesses are retired/u);
+  const settings = readSettingsFacet(repositoryYaml(githubCi));
+  assert.deepEqual(settings.gates, [], "the retired settings field is normalized before settings are read");
+  const resolved = resolveCompletionContract(["ci"], settings);
+  assert.equal(resolved.ok, true);
+  assert.deepEqual(resolved.ok ? resolved.contract.gates : null, [], "the retired source cannot mint a witness");
   for (const adapter of ["github-actions", "gitlab-pipeline"]) {
     const result = resolveCompletionContract(["ci"], { gates: [{ gateId: "ci", adapter }] });
     assert.equal(result.ok, false);
@@ -134,15 +138,16 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
   const rejects = (gates: string, pattern: RegExp) =>
     assert.throws(() => readSettingsFacet(repositoryYaml(`  gates:\n${gates}`)), pattern);
 
-  rejects(
-    `    ci:\n      appliesTo: code\n      adapter: github-actions\n      branch: main\n      event: push\n      coverage: descendant\n      selection: newest\n      workflow: x\n`,
-    /workflow/u,
-  );
+  rejects(`    lint:\n      appliesTo: code\n      adapter: research/check\n      workflow: x\n`, /workflow/u);
   const unknown = resolveCompletionContract(["lint"], {
     gates: [{ gateId: "lint", adapter: "unknown", appliesTo: "code" }],
   });
   assert.equal(unknown.ok, false);
-  rejects("    ci:\n      appliesTo: code\n      adapter: gitlab-pipeline\n", /hosted CI.*retired/u);
+  assert.deepEqual(
+    readSettingsFacet(repositoryYaml("    ci:\n      appliesTo: code\n      adapter: gitlab-pipeline\n")).gates,
+    [],
+    "the registered retired hosted mapping is removed from historical settings",
+  );
   assert.equal(
     resolveCompletionContract(
       ["lint"],
@@ -151,8 +156,8 @@ test("harness.yaml gate mappings reject unknown fields, unknown adapters, and re
     true,
   );
   rejects(`    code-doc-reconciliation:\n      appliesTo: code\n      adapter: manual-attest\n`, /is internal/u);
-  rejects(`    ci: github-actions\n`, /cannot read line/u);
-  rejects(`    ci: none\n      appliesTo: code\n`, /cannot read line/u);
+  rejects(`    lint: github-actions\n`, /cannot read line/u);
+  rejects(`    lint: none\n      appliesTo: code\n`, /cannot read line/u);
   rejects(`    lint:\n      appliesTo: code\n      appliesTo: artifacts\n`, /cannot read line/u);
   assert.throws(() => readSettingsFacet(repositoryYaml("  gates: []\n")), /block of gate witness mappings/u);
   assert.match(
