@@ -529,7 +529,7 @@ test("owner edge Squad launch publishes a canonical run visible on another edge"
   assert.ok(dispatches.dispatches.some((row) => row.executionId !== observed.payload.executionId));
   b.signIn("person-other");
   await assert.rejects(b.host.read("lease-repo", "repo.task.dispatches", { taskId }, localAuthFixture()), {
-    code: "authorization_denied",
+    code: "human_confirmation_required",
   });
   b.signIn("person-one");
   await restartedCenter.close();
