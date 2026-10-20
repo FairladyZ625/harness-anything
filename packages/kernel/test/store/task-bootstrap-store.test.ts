@@ -167,6 +167,17 @@ test("a preset snapshot row an older build stored compares in today's normalized
         });
         return { event, plan };
       },
+      storedRow = () => {
+        const db = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite"));
+        try {
+          const row = db.prepare("SELECT value_json FROM preset_snapshot WHERE digest = ?").get(digest) as {
+            value_json: string;
+          };
+          return JSON.parse(row.value_json) as unknown;
+        } finally {
+          db.close();
+        }
+      },
       storeRow = (valueJson: string) => {
         const db = new DatabaseSync(path.join(rootDir, ".harness/cache/task.sqlite"));
         try {
@@ -185,6 +196,8 @@ test("a preset snapshot row an older build stored compares in today's normalized
     const second = append(2);
     assert.equal(projection.apply(second.event, second.plan).metrics.reducedItems, 1);
     assert.deepEqual(projection.readPresetSnapshot(digest).snapshot, normalized);
+    // Reads normalize on their own; the row itself must be rewritten so state digests agree across nodes.
+    assert.deepEqual(storedRow(), normalized);
 
     storeRow(stableStringify({ ...JSON.parse(snapshotBody), id: "other-preset" }));
     const third = append(3);
