@@ -128,6 +128,7 @@ export async function fixture(
   options: {
     readonly autoSubmit?: boolean;
     readonly submitCommit?: boolean;
+    readonly providerRoundBackoffBaseSeconds?: number;
     /** Simulate a provider rejecting its first input before a turn can start. */
     readonly providerInputLimit?: number;
     /** False stops after submit: the cut awaits the owner's triage. */
@@ -153,7 +154,8 @@ export async function fixture(
   writeFileSync(path.join(root, "README.md"), "# Reviewed delivery\n");
   git(root, "add", "README.md");
   git(root, "commit", "-qm", "docs: fixture delivery");
-  const launches: { prompt: string; instanceId: string; model: string }[] = [];
+  const launches: { prompt: string; instanceId: string; model: string }[] = [],
+    launchWaiters = new Set<() => void>();
   const pendingProviders: {
     output?: (chunk: string) => void;
     exit?: (code: number | null) => void;
@@ -208,6 +210,7 @@ export async function fixture(
           instanceId: prepared.definition.instanceId,
           model: prepared.definition.model,
         });
+        for (const notify of launchWaiters) notify();
         // The real launcher records its worker pid; without the record, post-restart adoption treats
         // a still-live reviewer as lost.
         appendRuntimeWorkerRecord(persistence.rootDir, persistence.dispatchId, {
@@ -249,7 +252,10 @@ export async function fixture(
     path.join(root, "harness", "harness.yaml"),
     "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\n" +
       "settings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
-      `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n`,
+      `  closeout:\n    profile: ${options.closeoutProfile ?? "strict"}\n` +
+      (options.providerRoundBackoffBaseSeconds === undefined
+        ? ""
+        : `  runtime:\n    providerRoundBackoffBaseSeconds: ${String(options.providerRoundBackoffBaseSeconds)}\n`),
   );
   if (options.legacyReviewer) appendLegacyReviewerDeclaration(repoId, canonicalRoot(root));
   let cell = await open();
@@ -383,7 +389,7 @@ export async function fixture(
     returnCut,
     consent,
     complete: () => run({ kind: "task-complete", taskId, executionId }),
-    install: async () => {
+    install: async (instanceId: string | null = "review-first") => {
       const installed = await run({
         kind: "agent-install",
         declaration: {
@@ -392,7 +398,7 @@ export async function fixture(
           name: "Independent reviewer",
           instructions: "Inspect submitted bytes and record your independent verdict.",
           runtimes: [{ type: "codex", model: "review-model" }],
-          instance: "review-first",
+          ...(instanceId === null ? {} : { instance: instanceId }),
           role: "worker",
         },
       });
@@ -574,10 +580,16 @@ export async function fixture(
       const pending = pendingProviders.at(-1)!;
       pending.output?.(`${JSON.stringify({ type: "thread.started", thread_id: "review-provider-session" })}\n`);
     },
-    waitForLaunches: async (count: number) => {
-      for (let attempt = 0; attempt < 500 && launches.length < count; attempt += 1)
-        await new Promise((resolve) => setTimeout(resolve, 10));
-      assert.equal(launches.length >= count, true, `expected at least ${String(count)} reviewer launches`);
+    waitForLaunches: (count: number) => {
+      if (launches.length >= count) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const waiter = () => {
+          if (launches.length < count) return;
+          launchWaiters.delete(waiter);
+          resolve();
+        };
+        launchWaiters.add(waiter);
+      });
     },
     /** Provider-success driver for a dispatched decision reviewer: the reviewer authored its own
      * artifacts under the Decision package, so the settlement only needs the provider turn. */

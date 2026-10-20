@@ -112,6 +112,13 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
+const dispatchIdPromptTemplateToken = "__HARNESS_DISPATCH_ID__";
+function dispatchPromptTemplate(prompt: string, dispatchId: string): string {
+  return prompt.replaceAll(dispatchId, dispatchIdPromptTemplateToken);
+}
+function renderDispatchPrompt(prompt: string, dispatchId: string): string {
+  return prompt.replaceAll(dispatchIdPromptTemplateToken, dispatchId);
+}
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
@@ -317,6 +324,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
       explicitMission,
       reviewerBinding: Boolean(reviewerBinding),
     });
+    const fallbackMission = dispatchPromptTemplate(mission, newDispatchId);
     const runtimeActor = `agent:runtime-session:${runtimeSessionId}`,
       [localRuntimeSessions, runtimeInstances, allowedInstanceIds, providerHealth] =
         await resolveRuntimeDispatchResources(input, input.remote, projection!, processes),
@@ -368,7 +376,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 model,
                 providerSessionId,
                 dispatchKey,
-                mission,
+                fallbackMission,
                 runtimeInstances,
                 localRuntimeSessions,
                 allowedInstanceIds,
@@ -385,7 +393,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                     model,
                     providerSessionId,
                     dispatchKey,
-                    mission,
+                    fallbackMission,
                     runtimeInstances,
                     localRuntimeSessions,
                     allowedInstanceIds,
@@ -458,7 +466,10 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               : taskMission || role === "reviewer"
                 ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
                 : dispatchMission,
-            prompt = trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt;
+            prompt = renderDispatchPrompt(
+              trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
+              newDispatchId,
+            );
 
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
