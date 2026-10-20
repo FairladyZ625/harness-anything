@@ -125,7 +125,8 @@ export function parseSchedule(
     return rejected("missing_field", "Use exactly one of --every <duration> or --cron <expression>.", json);
   if (cronExpression && !timezone) return rejected("missing_field", "Add --timezone <IANA-zone> with --cron.", json);
   if (!cronExpression && timezone) return rejected("invalid_field", "Use --timezone only with --cron.", json);
-  if (Boolean(agentId) === Boolean(squadId))
+  const scheduleTarget = parseScheduleTarget(agentId, squadId);
+  if (!scheduleTarget)
     return rejected("missing_field", "Use exactly one of --agent <agent-id> or --squad <squad-id>.", json);
   const everyMs = every === undefined ? undefined : parseScheduleDuration(every);
   if (everyMs === null)
@@ -140,13 +141,21 @@ export function parseSchedule(
     name: flags.one.get("--name"),
     mode: flags.one.get("--mode"),
     ...(everyMs === undefined ? { cronExpression, timezone } : { everyMs }),
-    ...(agentId ? { agentId } : { squadId }),
+    ...scheduleTarget,
     ...(mission ? { mission } : { missionFile }),
     ...optionalFlags(flags.one, [["--effort", "reasoningEffort"]]),
     ...(flags.booleans.has("--fast") ? { fast: true } : {}),
     ...(flags.booleans.has("--disabled") ? { disabled: true } : {}),
     ...retry,
   });
+}
+
+function parseScheduleTarget(
+  agentId: string | undefined,
+  squadId: string | undefined,
+): { readonly agentId: string } | { readonly squadId: string } | null {
+  if (Boolean(agentId) === Boolean(squadId)) return null;
+  return agentId ? { agentId } : { squadId: squadId! };
 }
 
 /** Retention parameters apply to the system-seeded builtin schedules only; the kernel rejects
