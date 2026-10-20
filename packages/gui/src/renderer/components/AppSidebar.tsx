@@ -148,6 +148,8 @@ export function AppSidebar({
   // Orca 五级注意力的第 1 级「Needs you」(dec_C0AF8CBBFFECF71F4F34FB76F9/CH4):侧栏跨视图
   // 常驻,读 App 已挂载的同一条 agenda 缓存(同一 query key,不产生第二个请求);计数与
   // 工作命中集都出自 decisionRows——总览顶部决策带的同一单一定义,侧栏不重推判据。
+  // 会话级的五级分类仍只在 model/smart-attention.ts;侧栏没有会话读面,不为一个计数再拉
+  // 一份 runtime 读,数的是议程里「当前真实要本人动手」的项。
   const agendaQuery = useAgendaQuery(activeRepoId);
   const needsYouRows = useMemo(() => decisionRows(agendaQuery.data), [agendaQuery.data]);
   const needsYouCount = needsYouRows.length;
