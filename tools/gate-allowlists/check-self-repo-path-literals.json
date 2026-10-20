@@ -1,0 +1,77 @@
+{
+  "schema": "harness-anything/gate-allowlist/v1",
+  "gateId": "check-self-repo-path-literals",
+  "entries": {
+    "forbiddenDirectories": [
+      {
+        "value": "packages/application/src/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Application-layer service sources are product code: a repository-relative literal here can only key behavior on this checkout."
+      },
+      {
+        "value": "packages/adapters/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Adapter package roots (packages/adapters/*/src) ship to users; a checkout path literal cannot describe their layout."
+      },
+      {
+        "value": "packages/cli/src/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "CLI product sources run in every repository; a checkout path literal here only matches this one."
+      },
+      {
+        "value": "packages/daemon/src/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Daemon product sources run in every repository; a checkout path literal here only matches this one."
+      },
+      {
+        "value": "packages/gui/src/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "GUI product sources ship to users; a checkout path literal here cannot describe an installed layout."
+      },
+      {
+        "value": "packages/kernel/src/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Kernel product sources ship to users; a checkout path literal here cannot describe an installed layout."
+      },
+      {
+        "value": "packages/preset/assets/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Shipped preset and template assets: #3815 hardcoded this root as a delivery-routing prefix that never matches a consumer repository."
+      },
+      {
+        "value": "packages/preset/src/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Preset product sources ship to users; a checkout path literal here only matches this one."
+      },
+      {
+        "value": "tools/gates/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Gate sources are repository tooling: #3815 hardcoded tools/gates/canonical-event-compat.mjs as a persisted-shape routing criterion."
+      },
+      {
+        "value": "harness/tasks/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Self-hosted task packages carry task ids unique to this checkout; product code must not route on their paths."
+      },
+      {
+        "value": "harness/decisions/",
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "Self-hosted decision packages carry decision ids unique to this checkout; product code must resolve decisions through the ledger contract, not a hardcoded path."
+      }
+    ],
+    "allowlistedUsages": [
+      {
+        "path": "packages/cli/src/cli/thin-command-doctor.ts",
+        "prefixes": ["packages/preset/assets/"],
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "ha doctor is a self-development diagnostic: these are existence-guarded roots into this checkout's own authored docs and template assets, and the prefix guard only suppresses stale-command findings inside those templates. They never route user-repository behavior."
+      },
+      {
+        "path": "packages/daemon/src/task-review-dispatch.ts",
+        "prefixes": ["harness/decisions/"],
+        "ref": "task_427b738002d4d6c9c42a4cf010",
+        "reason": "The review dispatch resolves the consumer repository's accepted decision document through the harness layout contract (harness/decisions/decision-<id>), a path every managed repository has; the id is injected at dispatch time, not read from this checkout."
+      }
+    ]
+  }
+}

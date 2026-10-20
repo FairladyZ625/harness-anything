@@ -76,6 +76,10 @@ const jsonPolicies = Object.freeze({
     pathSections: {},
     nonPathSections: ["exceptions"],
   },
+  "check-self-repo-path-literals.json": {
+    pathSections: { allowlistedUsages: "path" },
+    nonPathSections: ["forbiddenDirectories"],
+  },
   "check-private-boundary.json": {
     pathSections: {},
     nonPathSections: ["privateContentMarkers"],
