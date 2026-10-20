@@ -93,7 +93,7 @@ function parseArgs(argv) {
 
 // The Dependency-Change declaration judges the pull request as it is now, so it runs only in the
 // pr-body workflow where the live body is fetched per run. Lockfile consistency is body-independent
-// and also gates rebuild-gates runs.
+// and also gates the rewrite-ci dependency-policy job.
 export function main(argv = process.argv.slice(2)) {
   try {
     const { base, prBodyFile, sbom } = parseArgs(argv);
