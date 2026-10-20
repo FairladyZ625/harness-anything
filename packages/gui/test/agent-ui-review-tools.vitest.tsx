@@ -15,11 +15,13 @@ import {
   type InboxItem,
   type ToolCall,
 } from "../src/renderer/components/agent-ui/index.ts";
+import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  setActiveLocale("zh-CN");
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -401,5 +403,39 @@ describe("formatBatchReviewPrompt", () => {
     expect(a).toBeGreaterThan(c);
     expect(b).toBeGreaterThan(a);
     expect(prompt).toContain("带换行");
+  });
+});
+
+describe("agentUi i18n (en-US)", () => {
+  it("renders approval, inbox, tool-call and diff chrome in en-US after the locale switch", () => {
+    setActiveLocale("en-US");
+    mount(<ApprovalCard title="Drop legacy script" risk="high" previewLines={["rm old.sh"]} previewKind="command" />);
+    expect(byTestId("approval-risk").textContent).toBe("High risk");
+    expect(byTestId("approval-approve").textContent).toBe("Approve");
+    expect(byTestId("approval-deny").textContent).toBe("Deny");
+    act(() => root.render(<AgentInbox items={[{ id: "t1", title: "Refactor view", lane: "needs-you" }]} />));
+    expect(byTestId("inbox-column-needs-you").textContent).toContain("Needs you");
+    expect(byTestId("inbox-view-list").textContent).toBe("List");
+    act(() =>
+      root.render(
+        <ToolCallGroup
+          calls={[{ id: "a", name: "Read", summary: "read config", status: "succeeded", durationMs: 120 }]}
+        />,
+      ),
+    );
+    expect(byTestId("toolcall-group-summary").textContent).toBe("Tool calls: 1 · 120ms");
+    act(() => root.render(<AnnotateDiffViewer files={[]} />));
+    expect(byTestId("annotate-mode-split").textContent).toBe("Split");
+    expect(byTestId("annotate-send").textContent).toContain("Batch send to agent");
+  });
+
+  it("formats the batch prompt header and comment label in en-US", () => {
+    setActiveLocale("en-US");
+    const prompt = formatBatchReviewPrompt([
+      { id: "a", filePath: "src/a.ts", lineStart: 2, lineEnd: 2, snippet: "import x;", body: "drop unused import" },
+    ]);
+    expect(prompt).toContain("Apply every note below (1 in total)");
+    expect(prompt).toContain("Note:");
+    expect(prompt).toContain("drop unused import");
   });
 });

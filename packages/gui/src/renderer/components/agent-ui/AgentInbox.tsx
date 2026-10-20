@@ -6,6 +6,7 @@ import { Button } from "../primitives/Button.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { formatListTime } from "../../model/time.ts";
+import { t, type MessageKey } from "../../i18n/index.tsx";
 
 /**
  * agent-ui 全量后台任务收件箱(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Affect UI AgentInbox 契约,
@@ -40,21 +41,35 @@ export interface InboxItemAction {
 
 const LANE_ORDER: readonly InboxLane[] = ["needs-you", "running", "done"];
 
-const LANE_META: Record<InboxLane, { readonly label: string; readonly emptyHint: string; readonly dotClass: string }> =
-  {
-    "needs-you": { label: "Needs you", emptyHint: "没有等你拍板的任务", dotClass: "bg-agent-question" },
-    running: { label: "Running", emptyHint: "当前没有在跑的任务", dotClass: "bg-status-active" },
-    done: { label: "Done", emptyHint: "还没有已收口的任务", dotClass: "bg-status-done" },
-  };
+const LANE_META: Record<
+  InboxLane,
+  { readonly labelKey: MessageKey; readonly emptyKey: MessageKey; readonly dotClass: string }
+> = {
+  "needs-you": {
+    labelKey: "agentUi.inbox.lane.needsYou",
+    emptyKey: "agentUi.inbox.lane.empty.needsYou",
+    dotClass: "bg-agent-question",
+  },
+  running: {
+    labelKey: "agentUi.inbox.lane.running",
+    emptyKey: "agentUi.inbox.lane.empty.running",
+    dotClass: "bg-status-active",
+  },
+  done: {
+    labelKey: "agentUi.inbox.lane.done",
+    emptyKey: "agentUi.inbox.lane.empty.done",
+    dotClass: "bg-status-done",
+  },
+};
 
 const ACTION_META: Record<
   InboxActionKind,
-  { readonly label: string; readonly variant: "plain" | "primary" | "ghost" }
+  { readonly labelKey: MessageKey; readonly variant: "plain" | "primary" | "ghost" }
 > = {
-  approve: { label: "批准", variant: "primary" },
-  reject: { label: "拒绝", variant: "ghost" },
-  retry: { label: "重试", variant: "plain" },
-  open: { label: "打开", variant: "plain" },
+  approve: { labelKey: "agentUi.inbox.action.approve", variant: "primary" },
+  reject: { labelKey: "agentUi.inbox.action.reject", variant: "ghost" },
+  retry: { labelKey: "agentUi.inbox.action.retry", variant: "plain" },
+  open: { labelKey: "agentUi.inbox.action.open", variant: "plain" },
 };
 
 function InboxRow({
@@ -80,6 +95,8 @@ function InboxRow({
   const { enabled, reduced } = useEntryMotion();
   const body = (
     <>
+      {/* 原生 button:整行折叠头(disclosure 控件,aria-expanded+aria-controls,含标题/备注/时间/箭头),
+          且 Esc 焦点归位需要它的 ref;Button 的动作密度与 feedback 语义不适用,故保留原生。 */}
       <button
         ref={triggerRef}
         type="button"
@@ -114,7 +131,7 @@ function InboxRow({
         <div
           id={`${testId}-body`}
           role="region"
-          aria-label="最近执行步骤与动作"
+          aria-label={t("agentUi.inbox.stepsAria")}
           className="flex flex-col gap-2 border-t border-border px-2.5 py-2"
         >
           {item.recentSteps !== undefined && item.recentSteps.length > 0 ? (
@@ -127,7 +144,7 @@ function InboxRow({
               ))}
             </ol>
           ) : (
-            <Empty>还没有执行步骤</Empty>
+            <Empty>{t("agentUi.inbox.stepsEmpty")}</Empty>
           )}
           {item.actions !== undefined && item.actions.length > 0 && (
             <div className="flex flex-wrap gap-2">
@@ -139,7 +156,7 @@ function InboxRow({
                   testId={`${testId}-action-${action.kind}`}
                   onClick={() => action.onTrigger(item)}
                 >
-                  {action.label ?? ACTION_META[action.kind].label}
+                  {action.label ?? t(ACTION_META[action.kind].labelKey)}
                 </Button>
               ))}
             </div>
@@ -195,17 +212,17 @@ export function AgentInbox({
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold ui-heading text-text">收件箱</span>
+        <span className="font-semibold ui-heading text-text">{t("agentUi.inbox.title")}</span>
         <SegCtl
           value={activeView}
-          label="收件箱视图"
+          label={t("agentUi.inbox.viewAria")}
           onChange={(next) => {
             setInternalView(next);
             onViewChange?.(next);
           }}
           options={[
-            { value: "board", label: "看板", testId: "inbox-view-board" },
-            { value: "list", label: "列表", testId: "inbox-view-list" },
+            { value: "board", label: t("agentUi.inbox.viewBoard"), testId: "inbox-view-board" },
+            { value: "list", label: t("agentUi.inbox.viewList"), testId: "inbox-view-list" },
           ]}
         />
       </div>
@@ -218,13 +235,13 @@ export function AgentInbox({
                 <section
                   key={lane}
                   role="region"
-                  aria-label={LANE_META[lane].label}
+                  aria-label={t(LANE_META[lane].labelKey)}
                   data-testid={`inbox-column-${lane}`}
                   className="flex min-w-0 flex-col gap-2 rounded-xl border border-border bg-surface/40 p-2.5"
                 >
                   <header className="flex items-center gap-2">
                     <span aria-hidden className={`size-1.5 rounded-full ${LANE_META[lane].dotClass}`} />
-                    <span className="ui-meta font-semibold text-text">{LANE_META[lane].label}</span>
+                    <span className="ui-meta font-semibold text-text">{t(LANE_META[lane].labelKey)}</span>
                     <span
                       data-testid={`inbox-column-${lane}-count`}
                       className="ml-auto font-mono ui-micro tabular-nums text-text-faint"
@@ -232,7 +249,7 @@ export function AgentInbox({
                       {laneItems.length}
                     </span>
                   </header>
-                  {laneItems.length === 0 && <Empty>{LANE_META[lane].emptyHint}</Empty>}
+                  {laneItems.length === 0 && <Empty>{t(LANE_META[lane].emptyKey)}</Empty>}
                   {laneItems.map((item) => (
                     <InboxRow
                       key={item.id}
@@ -248,7 +265,7 @@ export function AgentInbox({
           </div>
         ) : (
           <div className="flex min-w-0 flex-col gap-2">
-            {listItems.length === 0 && <Empty>收件箱为空</Empty>}
+            {listItems.length === 0 && <Empty>{t("agentUi.inbox.emptyInbox")}</Empty>}
             {listItems.map((item) => (
               <InboxRow
                 key={item.id}

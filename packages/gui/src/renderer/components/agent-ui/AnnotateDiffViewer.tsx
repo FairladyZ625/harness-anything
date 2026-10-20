@@ -4,6 +4,7 @@ import { Button } from "../primitives/Button.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { SegCtl } from "../primitives/SegCtl.tsx";
 import { BoundedContent } from "../primitives/BoundedContent.tsx";
+import { t } from "../../i18n/index.tsx";
 
 /**
  * agent-ui 批量差异批注器(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Orca「Annotate AI Diff」契约):
@@ -65,15 +66,11 @@ export function formatBatchReviewPrompt(annotations: readonly DiffAnnotation[]):
     return [
       `### ${annotation.filePath}:${annotation.lineStart}-${annotation.lineEnd}`,
       snippet,
-      `批注:`,
+      t("agentUi.diff.promptCommentLabel"),
       annotation.body,
     ].join("\n");
   });
-  return [
-    `请按以下 ${ordered.length} 条批注一次性完成修订(同一轮内全部处理,不要逐条回复):`,
-    "",
-    blocks.join("\n\n"),
-  ].join("\n");
+  return [t("agentUi.diff.promptHeader", { count: ordered.length }), "", blocks.join("\n\n")].join("\n");
 }
 
 interface SplitRow {
@@ -120,11 +117,13 @@ function AddAnnotationTrigger({
 }): ReactNode {
   const no = anchorLineNo(line);
   return (
+    // 原生 button:行号槽 16px 方形触发器,与行高等宽的微型 disclosure 触发;
+    // Button 的动作密度(内边距/边框/feedback)在 16px 槽里放不下,故保留原生。
     <button
       type="button"
       data-testid={`annotate-add-${lineKey(line)}`}
-      aria-label={`在第 ${no} 行添加批注`}
-      title={`第 ${no} 行添加批注(或聚焦该行按 c)`}
+      aria-label={t("agentUi.diff.addAria", { line: no })}
+      title={t("agentUi.diff.addTip", { line: no })}
       onClick={() => onAdd(filePath, line)}
       className="grid size-4 shrink-0 place-items-center rounded-sm border border-border text-text-faint transition-colors hover:border-accent hover:text-accent"
     >
@@ -228,7 +227,7 @@ function Composer({
     >
       <div className="flex items-center gap-1.5 font-mono ui-micro text-agent-question">
         <ChatText weight="bold" aria-hidden />
-        批注目标 {target.filePath}:{no}
+        {t("agentUi.diff.composerTarget", { anchor: `${target.filePath}:${no}` })}
       </div>
       <textarea
         autoFocus
@@ -245,12 +244,12 @@ function Composer({
           }
         }}
         rows={3}
-        placeholder="行级批注(Markdown)· Cmd/Ctrl+Enter 暂存,Esc 取消"
+        placeholder={t("agentUi.diff.composerPlaceholder")}
         className="mt-1.5 w-full rounded-md border border-border bg-surface p-2 font-normal leading-relaxed ui-meta text-text outline-none transition-colors focus:border-accent"
       />
       <div className="mt-1.5 flex justify-end gap-2">
         <Button variant="ghost" size="sm" testId="annotate-composer-cancel" onClick={onCancel}>
-          取消
+          {t("agentUi.diff.composerCancel")}
         </Button>
         <Button
           variant="primary"
@@ -259,7 +258,7 @@ function Composer({
           disabled={body.trim().length === 0}
           onClick={save}
         >
-          暂存批注
+          {t("agentUi.diff.composerSave")}
         </Button>
       </div>
     </div>
@@ -273,7 +272,7 @@ function DraftList({
   readonly annotations: readonly DiffAnnotation[];
   readonly onDelete: (id: string) => void;
 }): ReactNode {
-  if (annotations.length === 0) return <Empty>还没有批注;点行号槽的 + 或聚焦行按 c 开始</Empty>;
+  if (annotations.length === 0) return <Empty>{t("agentUi.diff.draftsEmpty")}</Empty>;
   return (
     <ul data-testid="annotate-drafts" className="flex flex-col gap-1.5">
       {annotations.map((annotation) => (
@@ -288,15 +287,17 @@ function DraftList({
           <span className="min-w-0 flex-1 whitespace-pre-wrap break-words ui-micro leading-relaxed text-text">
             {annotation.body}
           </span>
-          <button
-            type="button"
-            data-testid={`annotate-draft-${annotation.id}-delete`}
-            aria-label={`删除 ${annotation.filePath}:${annotation.lineStart} 的批注`}
+          <Button
+            variant="ghost"
+            size="sm"
+            testId={`annotate-draft-${annotation.id}-delete`}
+            ariaLabel={t("agentUi.diff.draftDeleteAria", {
+              anchor: `${annotation.filePath}:${annotation.lineStart}`,
+            })}
             onClick={() => onDelete(annotation.id)}
-            className="grid size-5 shrink-0 place-items-center rounded-sm text-text-faint transition-colors hover:bg-surface hover:text-danger"
           >
             <Trash weight="bold" aria-hidden />
-          </button>
+          </Button>
         </li>
       ))}
     </ul>
@@ -320,18 +321,18 @@ function ActionBar({
       className="flex items-center justify-between gap-2 rounded-xl border border-border bg-surface-raised/50 px-3 py-2"
     >
       <span className="ui-meta text-text-muted">
-        待发批注
+        {t("agentUi.diff.pendingLabel")}
         <b data-testid="annotate-pending-count" className="ml-1.5 font-mono tabular-nums text-agent-question">
           {count}
         </b>
-        <span className="ml-2 ui-micro text-text-faint">打包为单轮修订 Prompt 回送 Agent</span>
+        <span className="ml-2 ui-micro text-text-faint">{t("agentUi.diff.pendingHint")}</span>
       </span>
       <div className="flex shrink-0 gap-2">
         <Button variant="ghost" size="sm" testId="annotate-clear" disabled={count === 0} onClick={onClear}>
-          清空
+          {t("agentUi.diff.clear")}
         </Button>
         <Button variant="primary" size="sm" testId="annotate-send" disabled={count === 0} onClick={onSend}>
-          <UploadSimple weight="bold" /> 打包回送 Agent
+          <UploadSimple weight="bold" /> {t("agentUi.diff.send")}
         </Button>
       </div>
     </div>
@@ -370,17 +371,17 @@ export function AnnotateDiffViewer({
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-2">
-        <span className="font-semibold ui-heading text-text">差异批注</span>
+        <span className="font-semibold ui-heading text-text">{t("agentUi.diff.title")}</span>
         <SegCtl
           value={viewMode}
-          label="Diff 视图"
+          label={t("agentUi.diff.viewAria")}
           onChange={(next) => {
             setActiveMode(next);
             onModeChange?.(next);
           }}
           options={[
-            { value: "unified", label: "Unified", testId: "annotate-mode-unified" },
-            { value: "split", label: "Split", testId: "annotate-mode-split" },
+            { value: "unified", label: t("agentUi.diff.viewUnified"), testId: "annotate-mode-unified" },
+            { value: "split", label: t("agentUi.diff.viewSplit"), testId: "annotate-mode-split" },
           ]}
         />
       </div>
@@ -390,7 +391,7 @@ export function AnnotateDiffViewer({
         onSend={send}
         onClear={() => setAnnotations([])}
       />
-      {files.length === 0 && <Empty>没有待批注的差异</Empty>}
+      {files.length === 0 && <Empty>{t("agentUi.diff.filesEmpty")}</Empty>}
       {files.map((file, fileIndex) => {
         const fileCount = annotations.filter((annotation) => annotation.filePath === file.filePath).length;
         return (
@@ -403,18 +404,20 @@ export function AnnotateDiffViewer({
             <header className="flex items-center gap-2">
               <span className="min-w-0 flex-1 truncate font-mono ui-meta text-text">{file.filePath}</span>
               {fileCount > 0 && (
-                <span className="shrink-0 font-mono ui-micro tabular-nums text-agent-question">批注 {fileCount}</span>
+                <span className="shrink-0 font-mono ui-micro tabular-nums text-agent-question">
+                  {t("agentUi.diff.fileCount", { count: fileCount })}
+                </span>
               )}
             </header>
             <BoundedContent className="mt-2">
               {viewMode === "unified" ? (
-                <div role="region" aria-label={`${file.filePath} 统一视图差异`}>
+                <div role="region" aria-label={t("agentUi.diff.unifiedAria", { file: file.filePath })}>
                   {file.lines.map((line, index) => (
                     <UnifiedRow key={index} filePath={file.filePath} line={line} onAdd={openComposer} />
                   ))}
                 </div>
               ) : (
-                <div role="region" aria-label={`${file.filePath} 分栏视图差异`}>
+                <div role="region" aria-label={t("agentUi.diff.splitAria", { file: file.filePath })}>
                   {pairSplitRows(file.lines).map((row, index) => (
                     <div key={index} className="flex min-w-0 gap-1">
                       <SplitCell filePath={file.filePath} line={row.old} side="old" onAdd={openComposer} />
@@ -451,7 +454,9 @@ export function AnnotateDiffViewer({
         );
       })}
       <div className="flex flex-col gap-2">
-        <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">待发批注</span>
+        <span className="font-mono ui-micro uppercase tracking-wide text-text-faint">
+          {t("agentUi.diff.pendingLabel")}
+        </span>
         <DraftList
           annotations={annotations}
           onDelete={(id) => setAnnotations((prev) => prev.filter((annotation) => annotation.id !== id))}

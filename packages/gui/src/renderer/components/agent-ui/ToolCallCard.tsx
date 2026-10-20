@@ -3,6 +3,7 @@ import { ArrowClockwise, CheckCircle, CircleNotch, WarningCircle } from "@phosph
 import { CopyContextButton } from "../CopyContextButton.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { formatDuration } from "../../model/time.ts";
+import { t, type MessageKey } from "../../i18n/index.tsx";
 
 /**
  * agent-ui 工具调用可观测原语(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2):
@@ -33,10 +34,10 @@ export interface ToolCall {
 /** 展示层截断上限:预览最多渲染这么多字符,复制始终给完整原文(任务约束:严禁直接渲染超大字符串)。 */
 export const DEFAULT_PAYLOAD_PREVIEW_LIMIT = 2_000;
 
-const STATUS_META: Record<ToolCallStatus, { readonly label: string; readonly className: string }> = {
-  running: { label: "执行中", className: "text-status-active" },
-  succeeded: { label: "成功", className: "text-success" },
-  failed: { label: "失败", className: "text-danger" },
+const STATUS_META: Record<ToolCallStatus, { readonly labelKey: MessageKey; readonly className: string }> = {
+  running: { labelKey: "agentUi.toolcall.status.running", className: "text-status-active" },
+  succeeded: { labelKey: "agentUi.toolcall.status.succeeded", className: "text-success" },
+  failed: { labelKey: "agentUi.toolcall.status.failed", className: "text-danger" },
 };
 
 function StatusIcon({ status }: { readonly status: ToolCallStatus }): ReactNode {
@@ -124,13 +125,13 @@ function PayloadBlock({
   title,
   text,
   previewLimit,
-  copyLabel,
+  copyLabelKey,
   testId,
 }: {
   readonly title: string;
   readonly text: string;
   readonly previewLimit: number;
-  readonly copyLabel: string;
+  readonly copyLabelKey: "agentUi.toolcall.copyArgs" | "agentUi.toolcall.copyResult";
   readonly testId: string;
 }): ReactNode {
   const preview = truncatePayload(text, previewLimit);
@@ -141,8 +142,8 @@ function PayloadBlock({
         <CopyContextButton
           testId={`${testId}-copy`}
           compact
-          label={copyLabel}
-          title="复制完整原文(不截断)"
+          label={t(copyLabelKey)}
+          title={t("agentUi.toolcall.copyFullTip")}
           buildText={() => text}
         />
       </div>
@@ -150,7 +151,7 @@ function PayloadBlock({
         <HighlightedJson text={preview.text} />
         {preview.truncated && (
           <span data-testid={`${testId}-truncated`} className="mt-2 block text-text-faint">
-            已截断预览 · 共 {preview.totalLength} 字符,完整内容用上方复制按钮
+            {t("agentUi.toolcall.truncated", { count: preview.totalLength })}
           </span>
         )}
       </pre>
@@ -180,6 +181,8 @@ export function ToolCallCard({
       data-toolcall-status={call.status}
       className="min-w-0 rounded-lg border border-border bg-surface-raised/40"
     >
+      {/* 原生 button:整行折叠头(状态图标/名称/摘要/耗时/箭头同格,aria-expanded+aria-controls),
+          是 disclosure 控件不是动作按钮;Button 的动作密度(w-max/边框/feedback)不适用,故保留原生。 */}
       <button
         type="button"
         data-testid={`${testId}-toggle`}
@@ -194,7 +197,7 @@ export function ToolCallCard({
         <span
           data-testid={`${testId}-elapsed`}
           className="shrink-0 font-mono ui-micro tabular-nums text-text-faint"
-          title={STATUS_META[call.status].label}
+          title={t(STATUS_META[call.status].labelKey)}
         >
           {elapsedLabel(call, nowMs)}
         </span>
@@ -206,25 +209,25 @@ export function ToolCallCard({
         <div
           id={bodyId}
           role="region"
-          aria-label={`${call.name} 详情`}
+          aria-label={t("agentUi.toolcall.detailAria", { name: call.name })}
           className="flex flex-col gap-2.5 border-t border-border px-2.5 py-2.5"
         >
           {(call.arguments ?? "") !== "" && (
             <PayloadBlock
               testId={`${testId}-arguments`}
-              title="Arguments"
+              title={t("agentUi.toolcall.argumentsTitle")}
               text={call.arguments ?? ""}
               previewLimit={previewLimit}
-              copyLabel="复制参数"
+              copyLabelKey="agentUi.toolcall.copyArgs"
             />
           )}
           {(call.result ?? "") !== "" && (
             <PayloadBlock
               testId={`${testId}-result`}
-              title="Result"
+              title={t("agentUi.toolcall.resultTitle")}
               text={call.result ?? ""}
               previewLimit={previewLimit}
-              copyLabel="复制结果"
+              copyLabelKey="agentUi.toolcall.copyResult"
             />
           )}
           {call.status === "failed" && (
@@ -232,16 +235,16 @@ export function ToolCallCard({
               data-testid={`${testId}-error`}
               className="rounded-md border border-danger/40 px-2.5 py-2 ui-micro text-danger"
             >
-              {call.error ?? "工具调用失败"}
+              {call.error ?? t("agentUi.toolcall.errorFallback")}
               {onRetry && (
                 <Button
                   variant="plain"
                   size="sm"
                   testId={`${testId}-retry`}
-                  tip="重新执行该工具调用"
+                  tip={t("agentUi.toolcall.retryTip")}
                   onClick={() => onRetry(call)}
                 >
-                  <ArrowClockwise weight="bold" /> 重试
+                  <ArrowClockwise weight="bold" /> {t("agentUi.toolcall.retry")}
                 </Button>
               )}
             </div>
@@ -253,7 +256,7 @@ export function ToolCallCard({
 }
 
 /**
- * 同一轮连续多次工具调用的折叠汇总条:默认一行「已调用 N 个工具 · 耗时 X」,
+ * 同一轮连续多次工具调用的折叠汇总条:默认一行汇总(如「已调用 6 个工具 · 耗时 1.8s」),
  * 展开后才铺开逐张 ToolCallCard,防止长对话被工具卡片淹没。
  */
 export function ToolCallGroup({
@@ -278,9 +281,13 @@ export function ToolCallGroup({
       typeof call.durationMs === "number" && Number.isFinite(call.durationMs) ? sum + call.durationMs : sum,
     0,
   );
-  const summary = `已调用 ${calls.length} 个工具 · 耗时 ${formatDuration(totalMs)}`;
+  const summary = t("agentUi.toolcall.groupSummary", {
+    count: calls.length,
+    duration: formatDuration(totalMs),
+  });
   return (
     <div data-testid={testId} className="min-w-0 rounded-lg border border-border bg-surface-raised/30">
+      {/* 原生 button:同卡折叠头,disclosure 控件,理由见 ToolCallCard 折叠头注释。 */}
       <button
         type="button"
         data-testid={`${testId}-toggle`}
@@ -296,17 +303,21 @@ export function ToolCallGroup({
           {summary}
         </span>
         {runningCount > 0 && (
-          <span className="shrink-0 font-mono ui-micro tabular-nums text-status-active">执行中 {runningCount}</span>
+          <span className="shrink-0 font-mono ui-micro tabular-nums text-status-active">
+            {t("agentUi.toolcall.groupRunning", { count: runningCount })}
+          </span>
         )}
         {failedCount > 0 && (
-          <span className="shrink-0 font-mono ui-micro tabular-nums text-danger">失败 {failedCount}</span>
+          <span className="shrink-0 font-mono ui-micro tabular-nums text-danger">
+            {t("agentUi.toolcall.groupFailed", { count: failedCount })}
+          </span>
         )}
       </button>
       {expanded && (
         <div
           id={bodyId}
           role="region"
-          aria-label="工具调用组"
+          aria-label={t("agentUi.toolcall.groupAria")}
           className="flex flex-col gap-1.5 border-t border-border px-2 py-2"
         >
           {calls.map((call) => (

@@ -6,6 +6,7 @@ import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
 import { formatTime } from "../../model/time.ts";
+import { t, type MessageKey } from "../../i18n/index.tsx";
 
 /**
  * agent-ui 人机裁决卡(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Affect UI ApprovalCard 契约):
@@ -25,11 +26,11 @@ export interface ApprovalDecision {
   readonly reason?: "user" | "timeout";
 }
 
-const RISK_META: Record<ApprovalRisk, { readonly label: string; readonly tone: StatusTone }> = {
-  low: { label: "低风险", tone: "done" },
-  medium: { label: "中风险", tone: "wait" },
-  high: { label: "高风险", tone: "bad" },
-  protected: { label: "受保护面", tone: "plan" },
+const RISK_META: Record<ApprovalRisk, { readonly labelKey: MessageKey; readonly tone: StatusTone }> = {
+  low: { labelKey: "agentUi.approval.risk.low", tone: "done" },
+  medium: { labelKey: "agentUi.approval.risk.medium", tone: "wait" },
+  high: { labelKey: "agentUi.approval.risk.high", tone: "bad" },
+  protected: { labelKey: "agentUi.approval.risk.protected", tone: "plan" },
 };
 
 const WARN_REMAINING_MS = 10_000;
@@ -38,7 +39,7 @@ function RiskBadge({ risk }: { readonly risk: ApprovalRisk }): ReactNode {
   return (
     <StatusTag
       tone={RISK_META[risk].tone}
-      label={RISK_META[risk].label}
+      label={t(RISK_META[risk].labelKey)}
       testId="approval-risk"
       icon={risk === "protected" ? <ShieldChevron weight="bold" aria-hidden /> : undefined}
     />
@@ -123,7 +124,7 @@ export function ApprovalCard({
       data-testid={testId}
       data-decided={decided?.verdict ?? "pending"}
       role="region"
-      aria-label={`审批:${title}`}
+      aria-label={t("agentUi.approval.regionAria", { title })}
       onKeyDown={onKeyDown}
       onPointerEnter={() => setAttention(true)}
       onPointerLeave={() => setAttention(false)}
@@ -141,7 +142,7 @@ export function ApprovalCard({
                 data-testid="approval-countdown"
                 data-paused={attention || undefined}
                 className={`shrink-0 font-mono ui-micro tabular-nums ${remainingSeconds <= WARN_REMAINING_MS / 1_000 ? "text-danger" : "text-text-faint"}`}
-                title={attention ? "已暂停(悬停/聚焦中)" : "归零自动拒绝"}
+                title={attention ? t("agentUi.approval.countdownPausedTip") : t("agentUi.approval.countdownTip")}
               >
                 {attention ? "‖" : ""}
                 {remainingSeconds}s
@@ -158,13 +159,13 @@ export function ApprovalCard({
             </pre>
           )}
           <div className="flex items-center justify-between gap-2">
-            <span className="font-mono ui-micro text-text-faint">Enter 批准 · Esc 拒绝</span>
+            <span className="font-mono ui-micro text-text-faint">{t("agentUi.approval.kbdHint")}</span>
             <div className="flex shrink-0 gap-2">
               <Button variant="ghost" testId="approval-deny" onClick={() => decide("denied", "user")}>
-                拒绝
+                {t("agentUi.approval.deny")}
               </Button>
               <Button variant="primary" testId="approval-approve" onClick={() => decide("approved", "user")}>
-                批准
+                {t("agentUi.approval.approve")}
               </Button>
             </div>
           </div>
@@ -177,9 +178,13 @@ export function ApprovalCard({
             <XCircle weight="bold" aria-hidden className="shrink-0 text-danger" />
           )}
           <span className="shrink-0 font-semibold text-text">
-            {decided.verdict === "approved" ? "已批准" : "已拒绝"}
+            {decided.verdict === "approved"
+              ? t("agentUi.approval.resolvedApproved")
+              : t("agentUi.approval.resolvedDenied")}
           </span>
-          {decided.reason === "timeout" && <span className="shrink-0 ui-micro text-text-faint">超时自动</span>}
+          {decided.reason === "timeout" && (
+            <span className="shrink-0 ui-micro text-text-faint">{t("agentUi.approval.resolvedTimeout")}</span>
+          )}
           <span className="min-w-0 flex-1 truncate text-text-muted">{title}</span>
           <RiskBadge risk={risk} />
           <span className="shrink-0 font-mono ui-micro text-text-faint">
