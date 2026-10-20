@@ -95,3 +95,8 @@ export function normalizeHistoricalVerticalDocument(value: unknown): unknown {
   const definition = withoutRetiredVerticalHostedCi(value.definition);
   return definition === value.definition ? value : { ...value, definition };
 }
+
+/** Preset snapshots carry the same vertical completion declaration at their root. */
+export function normalizeHistoricalPresetSnapshot(value: unknown): unknown {
+  return withoutRetiredVerticalHostedCi(value);
+}

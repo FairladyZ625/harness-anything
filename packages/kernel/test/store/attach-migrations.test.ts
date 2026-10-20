@@ -5,6 +5,7 @@ import { applyAttachMigrations, attachMigrationRegistry } from "../../src/store/
 import { retiredPersistedSchemaFields } from "../../src/domain/event-shape-migration-event.ts";
 import {
   normalizeHistoricalEvent,
+  normalizeHistoricalPresetSnapshot,
   normalizeHistoricalVerticalDocument,
 } from "../../src/projection/historical-event-normalization.ts";
 import type { CanonicalEventStore } from "../../src/store/task-event-store-types.ts";
@@ -80,6 +81,27 @@ test("attach migration registry covers each retired historical field and is idem
   assert.equal(events.length, 8);
 });
 
+test("attach notices a retired source embedded in a task preset snapshot blob", () => {
+  const events = [
+      envelope("task-bootstrap-event/v1", { presetSnapshotClaim: { sha256: "snapshot-blob" } }, "old-task"),
+    ] as PersistedCanonicalEventV1[],
+    store = {
+      readHead: () => ({ revision: events.length, opId: events.at(-1)!.opId, eventDigest: "sha256:" + "0".repeat(64) }),
+      queryEvents: ({ limit }: { readonly limit: number }) => events.slice(0, limit),
+      readContentBlob: () =>
+        Buffer.from(
+          JSON.stringify({
+            completion: { sources: { ci: { kind: "github-actions" } }, gates: { ci: { source: "ci" } } },
+          }),
+        ),
+      append: ({ event }: { readonly event: PersistedCanonicalEventV1 }) => {
+        events.push(event);
+        return {};
+      },
+    } as unknown as CanonicalEventStore;
+  assert.deepEqual(applyAttachMigrations({ store }).applied, ["vertical.completion.sources"]);
+});
+
 test("historical projection normalizes each registered retired field without changing claims", () => {
   const task = normalizeHistoricalEvent(
       envelope("task-event/v1", { task: { closeoutOverrides: { fact: false, review: true } } }, "task-normalize"),
@@ -121,5 +143,18 @@ test("historical projection normalizes each registered retired field without cha
       definition: { completion: { sources: { ci: { kind: "github-actions" } }, gates: { ci: { source: "ci" } } } },
     }),
     { schema: "repository-vertical-declaration/v1", definition: { completion: { sources: {}, gates: {} } } },
+  );
+  assert.deepEqual(
+    normalizeHistoricalPresetSnapshot({
+      schema: "preset-snapshot/v1",
+      completion: {
+        sources: { ci: { kind: "github-actions" }, manual: { kind: "manual" } },
+        gates: { ci: { source: "ci" }, manual: { source: "manual" } },
+      },
+    }),
+    {
+      schema: "preset-snapshot/v1",
+      completion: { sources: { manual: { kind: "manual" } }, gates: { manual: { source: "manual" } } },
+    },
   );
 });

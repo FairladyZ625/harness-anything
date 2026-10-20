@@ -4,6 +4,7 @@ import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
 import {
   normalizeHistoricalEvent,
+  normalizeHistoricalPresetSnapshot,
   normalizeHistoricalScheduleValue,
   hasRetiredFactCloseoutOverride,
   withoutRetiredFactCloseoutOverride,
@@ -620,7 +621,13 @@ export function applyEvent(
       contractBytes.byteLength !== event.payload.taskContractClaim.size
     )
       throw new Error(`preset snapshot upgrade basis mismatch for ${event.taskId}`);
-    const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
+    const snapshot = normalizeHistoricalPresetSnapshot(
+        JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes)),
+      ) as {
+        readonly identity: { readonly id: string };
+        readonly profile: Record<string, unknown>;
+        readonly digest: string;
+      },
       changedPreset = current.task.metadata?.presetId !== snapshot.identity.id,
       // The task-bound closeout override set tracks the profile declaration on upgrade; a profile
       // that no longer declares one drops the field entirely rather than freezing a stale value.
@@ -702,7 +709,7 @@ export function applyEvent(
     if (!snapshotBytes || snapshotBytes.byteLength !== event.payload.presetSnapshotClaim.size)
       throw new Error(`preset snapshot blob ${event.payload.presetSnapshotClaim.sha256} is unavailable`);
     const snapshotBody = new TextDecoder("utf-8", { fatal: true }).decode(snapshotBytes),
-      snapshot = JSON.parse(snapshotBody);
+      snapshot = normalizeHistoricalPresetSnapshot(JSON.parse(snapshotBody));
     runSql(
       db,
       "INSERT INTO event_index(op_id, workspace_revision, task_id, event_json) VALUES (?, ?, ?, ?)",

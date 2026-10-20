@@ -74,6 +74,15 @@ test("new completion contracts cannot add hosted CI witnesses", () => {
   }
 });
 
+test("a task carrying the retired ci profile gate does not freeze a hosted witness", () => {
+  const resolved = resolveCompletionContract(["ci", "code-doc-reconciliation"], readSettingsFacet(repositoryYaml("")));
+  assert.deepEqual(resolved, {
+    ok: true,
+    contract: { ...historicalContract, gates: [historicalContract.gates[1]] },
+  });
+  assert.deepEqual(validateFrozenCompletionContract(resolved.ok ? resolved.contract : null), []);
+});
+
 test("none removes a declared requirement without minting a witness, and undeclared mappings add nothing", () => {
   const settings = readSettingsFacet(
     repositoryYaml(

@@ -16,7 +16,10 @@ import { isRecord } from "../domain/write-chain.contract.ts";
 export type AttachMigrationRegistryEntry = Readonly<{
   readonly name: EventShapeMigrationName;
   readonly fields: readonly string[];
-  readonly matches: (event: PersistedCanonicalEventV1) => boolean;
+  readonly matches: (
+    event: PersistedCanonicalEventV1,
+    readContentBlob?: (sha256: string) => Uint8Array | null,
+  ) => boolean;
 }>;
 
 function taskHasRetiredFact(event: PersistedCanonicalEventV1): boolean {
@@ -57,16 +60,25 @@ function hasRetiredSettingsCi(event: PersistedCanonicalEventV1): boolean {
   );
 }
 
-function hasRetiredVerticalHostedCi(event: PersistedCanonicalEventV1): boolean {
+function hasRetiredVerticalHostedCi(
+  event: PersistedCanonicalEventV1,
+  readContentBlob?: (sha256: string) => Uint8Array | null,
+): boolean {
   const payload = (event as { readonly payload?: unknown }).payload;
-  if (event.schema !== "vertical-declaration-event/v1" || !isRecord(payload) || !isRecord(payload.declaration))
-    return false;
-  const declaration = payload.declaration;
-  return (
-    isRecord(declaration) &&
-    isRecord(declaration.definition) &&
-    withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition
-  );
+  if (!isRecord(payload)) return false;
+  if (event.schema === "vertical-declaration-event/v1" && isRecord(payload.declaration)) {
+    const declaration = payload.declaration;
+    return (
+      isRecord(declaration) &&
+      isRecord(declaration.definition) &&
+      withoutRetiredVerticalHostedCi(declaration.definition) !== declaration.definition
+    );
+  }
+  if (!isRecord(payload.presetSnapshotClaim) || typeof payload.presetSnapshotClaim.sha256 !== "string") return false;
+  const bytes = readContentBlob?.(payload.presetSnapshotClaim.sha256);
+  if (!bytes) return false;
+  const snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  return withoutRetiredVerticalHostedCi(snapshot) !== snapshot;
 }
 
 export const attachMigrationRegistry: readonly AttachMigrationRegistryEntry[] = Object.freeze([
@@ -117,7 +129,7 @@ export function applyAttachMigrations(input: {
   const appliedNow: EventShapeMigrationName[] = [];
   for (const migration of attachMigrationRegistry) {
     if (applied.has(migration.name)) continue;
-    const affectedEvents = events.filter(migration.matches).length;
+    const affectedEvents = events.filter((event) => migration.matches(event, input.store.readContentBlob)).length;
     if (affectedEvents === 0) continue;
     const revision = (input.store.readHead()?.revision ?? 0) + 1,
       opId = `upgrade-${migration.name.replaceAll(".", "-")}`,

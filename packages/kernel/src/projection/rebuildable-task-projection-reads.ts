@@ -21,6 +21,7 @@ import type {
 } from "./projection-reads.ts";
 import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
+import { normalizeHistoricalPresetSnapshot } from "./historical-event-normalization.ts";
 import {
   readSnapshot,
   readSnapshotForTaskEventReduction,
@@ -184,7 +185,7 @@ export function readPresetSnapshot(
       ).get(digest) as { readonly value_json: string } | undefined;
     return {
       status: cut.status,
-      snapshot: row ? JSON.parse(row.value_json) : null,
+      snapshot: row ? normalizeHistoricalPresetSnapshot(JSON.parse(row.value_json)) : null,
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
     };
