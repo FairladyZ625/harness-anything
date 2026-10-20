@@ -1,0 +1,25 @@
+@keyframes button-feedback {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Functional visibility must retain its delay under the global motion reset.
+ * Delay is supplied by Button; only the spinner fades, never the text. */
+.button-feedback-content {
+  animation: button-feedback 0s linear var(--button-feedback-delay) reverse forwards !important;
+}
+
+.button-feedback-spinner {
+  opacity: 0;
+  animation: button-feedback var(--button-feedback-duration) ease-out var(--button-feedback-delay) forwards !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .button-feedback-spinner {
+    animation-duration: 0s !important;
+  }
+}

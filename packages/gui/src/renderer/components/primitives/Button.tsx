@@ -1,8 +1,8 @@
-import { useEffect, useState, type ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { CircleNotch } from "@phosphor-icons/react";
-import { motion } from "motion/react";
 import { useEntryMotion } from "../../motion-config.tsx";
 import { MOTION_DURATION } from "../../motion-tokens.ts";
+import "./Button.css";
 
 /**
  * 通用按钮(标准 §4.2):全仓唯一按钮实现,plain/primary/danger/ghost 四档以内,
@@ -28,22 +28,12 @@ export function Button({
   readonly testId?: string;
   readonly ariaLabel?: string;
   readonly disabled?: boolean;
-  /** Keep the original children in place; feedback appears only after 100ms. */
+  /** Keep original children in place; CSS reveals feedback after 100ms. */
   readonly loading?: boolean;
   readonly onClick?: () => void;
   readonly children: ReactNode;
 }) {
-  const [showSpinner, setShowSpinner] = useState(false);
   const { enabled, reduced } = useEntryMotion();
-  useEffect(() => {
-    if (!loading) {
-      setShowSpinner(false);
-      return;
-    }
-    const timer = setTimeout(() => setShowSpinner(true), 100);
-    return () => clearTimeout(timer);
-  }, [loading]);
-  const feedbackVisible = loading && showSpinner;
   const tone =
     variant === "primary"
       ? "border-transparent bg-accent font-semibold text-accent-fg hover:brightness-110"
@@ -62,24 +52,27 @@ export function Button({
       disabled={disabled || loading}
       aria-busy={loading || undefined}
       onClick={onClick}
+      style={
+        {
+          "--button-feedback-delay": "100ms",
+          "--button-feedback-duration": `${enabled && !reduced ? MOTION_DURATION.reducedFade : 0}s`,
+        } as CSSProperties
+      }
       className={`ui-control relative inline-grid w-max shrink-0 items-center justify-center whitespace-nowrap rounded-sm border transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${size === "sm" ? "px-2 ui-micro" : "px-2.5 ui-meta"} ${tone} disabled:cursor-not-allowed disabled:opacity-45`}
     >
       <span
-        className={`col-start-1 row-start-1 inline-flex items-center justify-center gap-1.5 ${feedbackVisible ? "opacity-0" : ""}`}
+        className={`col-start-1 row-start-1 inline-flex items-center justify-center gap-1.5 ${loading ? "button-feedback-content" : ""}`}
       >
         {children}
       </span>
-      {feedbackVisible && (
-        <motion.span
+      {loading && (
+        <span
           data-testid="button-spinner"
           aria-hidden="true"
-          className="pointer-events-none absolute inset-0 col-start-1 row-start-1 flex items-center justify-center"
-          initial={enabled ? { opacity: 0 } : false}
-          animate={{ opacity: 1 }}
-          transition={{ duration: MOTION_DURATION.reducedFade }}
+          className="button-feedback-spinner pointer-events-none absolute inset-0 col-start-1 row-start-1 flex items-center justify-center"
         >
           <CircleNotch size="1em" weight="bold" className={enabled && !reduced ? "animate-spin" : undefined} />
-        </motion.span>
+        </span>
       )}
     </button>
   );

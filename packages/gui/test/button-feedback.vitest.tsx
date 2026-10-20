@@ -10,7 +10,6 @@ let root: Root;
 let container: HTMLDivElement;
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  vi.useFakeTimers();
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -18,7 +17,6 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount());
   container.remove();
-  vi.useRealTimers();
   localStorage.removeItem(MOTION_PREFERENCE_STORAGE_KEY);
 });
 
@@ -33,51 +31,50 @@ function render(loading: boolean, icon = false, disabled = false, onClick = vi.f
   );
   return container.querySelector("button")!;
 }
-const spinner = () => container.querySelector('[data-testid="button-spinner"]');
-const advance = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+const spinner = () => container.querySelector<HTMLElement>('[data-testid="button-spinner"]');
 
 it.each([false, true])("retains original content nodes with icon=%s through loading and completion", (icon) => {
   const button = render(false, icon);
   const label = container.querySelector('[data-testid="original-label"]');
   const originalIcon = container.querySelector('[data-testid="original-icon"]');
   render(true, icon);
-  advance(100);
   expect(button.disabled).toBe(true);
   expect(button.getAttribute("aria-busy")).toBe("true");
   expect(spinner()).not.toBeNull();
   expect(container.querySelector('[data-testid="original-label"]')).toBe(label);
   expect(container.querySelector('[data-testid="original-icon"]')).toBe(originalIcon);
   expect(button.textContent).toBe("提交任务 · Submit task");
+  expect(button.firstElementChild?.classList.contains("col-start-1")).toBe(true);
+  expect(button.firstElementChild?.classList.contains("row-start-1")).toBe(true);
+  expect(spinner()?.classList.contains("absolute")).toBe(true);
   render(false, icon);
   expect(button.disabled).toBe(false);
+  expect(button.hasAttribute("aria-busy")).toBe(false);
   expect(spinner()).toBeNull();
   expect(container.querySelector('[data-testid="original-label"]')).toBe(label);
 });
 
-it("disables immediately but never renders a spinner below 100ms", () => {
+it("disables immediately and delegates the 100ms feedback delay to CSS", () => {
   const clicked = vi.fn();
   const button = render(true, false, false, clicked);
   expect(button.disabled).toBe(true);
-  expect(spinner()).toBeNull();
-  expect(button.firstElementChild?.classList.contains("opacity-0")).toBe(false);
-  advance(99);
-  expect(spinner()).toBeNull();
+  expect(spinner()?.classList.contains("button-feedback-spinner")).toBe(true);
+  expect(container.querySelector("button")?.style.getPropertyValue("--button-feedback-delay")).toBe("100ms");
+  expect(container.querySelector("button")?.style.getPropertyValue("--button-feedback-duration")).toBe("0.1s");
+  expect(button.firstElementChild?.classList.contains("button-feedback-content")).toBe(true);
   act(() => button.click());
   expect(clicked).not.toHaveBeenCalled();
-  advance(1);
-  expect(spinner()).not.toBeNull();
-  expect(button.firstElementChild?.classList.contains("opacity-0")).toBe(true);
 });
 
-it("does not restart the delay on unrelated rerenders", () => {
+it("keeps the same CSS animation element on unrelated rerenders", () => {
   render(true);
-  advance(60);
+  const originalSpinner = spinner();
   render(true);
-  advance(40);
-  expect(spinner()).not.toBeNull();
+  expect(originalSpinner).not.toBeNull();
+  expect(spinner()).toBe(originalSpinner);
 });
 
-it("keeps feedback static when motion is turned off", () => {
+it("preserves the delay without fade or spin when motion is turned off", () => {
   localStorage.setItem(MOTION_PREFERENCE_STORAGE_KEY, "off");
   act(() =>
     root.render(
@@ -86,37 +83,29 @@ it("keeps feedback static when motion is turned off", () => {
       </AppMotionConfig>,
     ),
   );
-  advance(100);
   expect(spinner()).not.toBeNull();
+  expect(container.querySelector("button")?.style.getPropertyValue("--button-feedback-delay")).toBe("100ms");
+  expect(container.querySelector("button")?.style.getPropertyValue("--button-feedback-duration")).toBe("0s");
   expect(spinner()?.querySelector(".animate-spin")).toBeNull();
 });
 
-it("cancels fast operations and starts a fresh delay on subsequent operations", () => {
-  render(true);
-  advance(99);
+it("removes feedback when idle and mounts a fresh delayed overlay for the next operation", () => {
   render(false);
-  advance(1);
   expect(spinner()).toBeNull();
   render(true);
-  advance(99);
-  expect(spinner()).toBeNull();
-  advance(1);
-  expect(spinner()).not.toBeNull();
+  const originalSpinner = spinner();
   render(false);
+  expect(spinner()).toBeNull();
+  expect(container.querySelector(".button-feedback-content")).toBeNull();
   render(true);
-  expect(spinner()).toBeNull();
-  advance(99);
-  expect(spinner()).toBeNull();
-  advance(1);
   expect(spinner()).not.toBeNull();
+  expect(spinner()).not.toBe(originalSpinner);
+  expect(container.querySelector("button")?.style.getPropertyValue("--button-feedback-delay")).toBe("100ms");
 });
 
-it("clears pending feedback on unmount and preserves explicit disabled after completion", () => {
+it("preserves explicit disabled after completion", () => {
   const button = render(true, false, true);
-  advance(100);
   render(false, false, true);
   expect(button.disabled).toBe(true);
-  render(true);
-  act(() => root.render(null));
-  expect(vi.getTimerCount()).toBe(0);
+  expect(spinner()).toBeNull();
 });
