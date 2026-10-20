@@ -16,6 +16,12 @@ import { isAgentDeclarationInvalid, readAgentDeclarationResolution } from "./age
 import { agentDeclaresExplicitModels } from "./agent-runtime-contract.ts";
 import { evaluateRepoCellAction } from "./repo-cell-authorization.ts";
 import { requireCurrentTaskProjection } from "./projection-readiness.ts";
+import {
+  persistedShapeSurfaceHits,
+  schemaMigrationAgentId,
+  schemaMigrationReviewPrompt,
+  schemaReviewDispatchKey,
+} from "./schema-migration-review.ts";
 import type { RepoCellOperationalContext } from "./repo-cell-action-context.ts";
 import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 
@@ -294,6 +300,8 @@ type DispatchStep = {
   readonly dispatchId?: string;
   readonly runtimeSessionId?: string;
   readonly dispatchOpId?: string;
+  /** The persisted-shape review lane beside the cut review; absent means the primary cut lane. */
+  readonly lane?: "schema-migration";
   readonly outcome: "dispatched" | "already_dispatched" | "already_reviewed" | "failed";
   readonly error?: string;
 };
@@ -397,6 +405,110 @@ export async function spawnCutReviewDispatch(
 }
 
 /**
+ * The schema-migration lane's dispatch: fired only when the cut's frozen manifest hits a
+ * persisted-shape surface (see schema-migration-review.ts). Same idempotency grammar as the
+ * cut review — keyed by the submitted cut with the lane's own key segment, attempt chain
+ * advanced only after the prior attempt's runtime session ended — and a missing specialist
+ * declaration fails loud as its own step with the install command. It never disturbs the
+ * primary reviewer dispatch that owns the cut, and `ha task dispatch-review` is its retry lane.
+ */
+async function dispatchSchemaMigrationReview(
+  cell: RepoCellOperationalContext,
+  input: {
+    readonly taskId: string;
+    readonly execution: ExecutionV1;
+    readonly packagePath: string;
+    readonly binding: RepoCellBinding;
+    readonly revision: number;
+    readonly extras?: Readonly<Record<string, unknown>>;
+  },
+): Promise<
+  | { readonly outcome: "skipped" }
+  | { readonly outcome: "dispatched" | "already_dispatched"; readonly ids: ReturnType<typeof reviewDispatchIds> }
+  | { readonly outcome: "failed"; readonly error: string }
+> {
+  const hits = persistedShapeSurfaceHits(input.execution.submission);
+  if (hits.length === 0) return { outcome: "skipped" };
+  const baseKey = schemaReviewDispatchKey(input.taskId, input.execution);
+  let attempt = 0,
+    key = reviewAttemptKey(baseKey, attempt),
+    ids = reviewDispatchIds(cell.input.repoId, key),
+    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+  while (existing !== null && reviewAttemptEnded(cell, ids.runtimeSessionId)) {
+    attempt += 1;
+    key = reviewAttemptKey(baseKey, attempt);
+    ids = reviewDispatchIds(cell.input.repoId, key);
+    existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
+  }
+  if (existing !== null) return { outcome: "already_dispatched", ids: { ...ids, dispatchOpId: existing.opId } };
+  let resolved;
+  try {
+    resolved = readAgentDeclarationResolution({
+      rootDir: cell.rootDir,
+      agentId: schemaMigrationAgentId,
+      entityStore: createEntityStore(cell.store),
+    });
+  } catch (error) {
+    if (!isAgentDeclarationInvalid(error)) throw error;
+    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  if (!resolved)
+    return {
+      outcome: "failed",
+      error:
+        `Schema-migration lane: reviewer ${schemaMigrationAgentId} is not bundled in this build or installed. ` +
+        `Install it with ha agent install --source harness/agents/${schemaMigrationAgentId}.json, ` +
+        `then retry with ha task dispatch-review ${input.taskId}.`,
+    };
+  const { declaration: agent, layer } = resolved;
+  if (layer === "installed" && !agentDeclaresExplicitModels(agent.runtimes) && typeof input.extras?.model !== "string")
+    return {
+      outcome: "failed",
+      error:
+        `Schema-migration lane: declare an explicit model on every runtimes row for reviewer ` +
+        `${schemaMigrationAgentId}, or pass --model <model> on dispatch-review.`,
+    };
+  const extras = input.extras ?? {},
+    payload = {
+      agentId: agent.id,
+      role: "reviewer",
+      taskId: input.taskId,
+      executionId: input.execution.executionId,
+      cwd: { scope: "repo-root" },
+      dispatchKey: key,
+      ...(typeof extras.runtimeInstanceId === "string" ? { runtimeInstanceId: extras.runtimeInstanceId } : {}),
+      ...(typeof extras.model === "string" ? { model: extras.model } : {}),
+      ...(typeof extras.effort === "string" ? { effort: extras.effort } : {}),
+      prompt: schemaMigrationReviewPrompt({
+        taskId: input.taskId,
+        packagePath: input.packagePath,
+        dispatchId: ids.dispatchId,
+        execution: input.execution,
+        hits,
+      }),
+    },
+    authorizationDecision = await evaluateRepoCellAction({
+      action: { kind: "runtime-spawn", ...payload },
+      repoId: cell.input.repoId,
+      binding: input.binding,
+      actionId: ids.dispatchOpId,
+      revision: input.revision,
+      now: cell.now(),
+      readTask: (taskId) => cell.projection.read(taskId).snapshot.task,
+    });
+  if (authorizationDecision.outcome !== "allowed")
+    return { outcome: "failed", error: `authorization_denied: ${authorizationDecision.nextActions.join(" ")}` };
+  try {
+    // Already inside the center queue. Only launch admission is awaited; provider completion is not.
+    await cell.runtimeSpawner.spawn(payload, { ...input.binding, authorizationDecision });
+  } catch (error) {
+    consumeKnownError(error);
+    return { outcome: "failed", error: error instanceof Error ? error.message : String(error) };
+  }
+  return { outcome: "dispatched", ids };
+}
+
+/**
  * The automatic reviewer dispatch for a task's in-review cut, after a durable write that left the
  * cut without a current review: the owner's forward, and an amendment of an in-review cut (which
  * replaces the submission digest and so the dispatch key). Returns null when the task is not at
@@ -410,7 +522,12 @@ export async function dispatchInReviewCutReview(
   action: RepoTaskAction,
   binding: RepoCellBinding,
   receipt: WriteReceiptDraft,
-): Promise<{ readonly selection: ReturnType<typeof selectReviewAgent>; readonly step: WriteReceiptDraft } | null> {
+): Promise<{
+  readonly selection: ReturnType<typeof selectReviewAgent>;
+  readonly step: WriteReceiptDraft;
+  /** The schema-migration lane's own step when the cut's frozen manifest hits a persisted-shape surface. */
+  readonly schemaStep?: WriteReceiptDraft;
+} | null> {
   const current = await cell.service.read(taskId);
   if (current.snapshot.task?.status !== "in_review") return null;
   const execution = current.snapshot.executions.find(
@@ -455,7 +572,44 @@ export async function dispatchInReviewCutReview(
             dispatchId: dispatch.ids.dispatchId,
             runtimeSessionId: dispatch.ids.runtimeSessionId,
           } as WriteReceiptDraft);
-  return { selection, step };
+  const schema = await dispatchSchemaMigrationReview(cell, {
+      taskId,
+      execution,
+      packagePath: current.packagePath,
+      binding,
+      revision: cell.store.readHead()?.revision ?? 0,
+      extras: {
+        ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+        ...(typeof action.model === "string" ? { model: action.model } : {}),
+      },
+    }),
+    schemaStep = schemaStepDraft(cell, taskId, schema, receipt);
+  return { selection, step, ...(schemaStep === null ? {} : { schemaStep }) };
+}
+
+/** The schema lane's receipt step: its own dispatch identities on success, the retry lane on failure. */
+function schemaStepDraft(
+  cell: RepoCellOperationalContext,
+  taskId: string,
+  schema: Awaited<ReturnType<typeof dispatchSchemaMigrationReview>>,
+  receipt: WriteReceiptDraft,
+): WriteReceiptDraft | null {
+  if (schema.outcome === "skipped") return null;
+  if (schema.outcome === "failed")
+    return cell.failed(
+      receipt.opId,
+      cell.cellCodedError(
+        "review_dispatch_failed",
+        `Task ${taskId} schema-migration review dispatch failed: ${schema.error} ` +
+          `The cut review is unaffected; recover this lane with ha task dispatch-review ${taskId}.`,
+      ),
+    );
+  return {
+    ...receipt,
+    dispatchId: schema.ids.dispatchId,
+    runtimeSessionId: schema.ids.runtimeSessionId,
+    summary: `Task ${taskId} schema-migration review ${schema.ids.dispatchId} ${schema.outcome}.`,
+  } as WriteReceiptDraft;
 }
 
 /**
@@ -554,6 +708,39 @@ export async function dispatchTaskReview(
       );
       continue;
     } else execution = candidates[0]!;
+    // The schema-migration lane keys off the same submitted cut as the primary review but owns
+    // its dispatch identities, so it runs before any primary-path continue and reports its own step.
+    const schema = await dispatchSchemaMigrationReview(cell, {
+        taskId,
+        execution,
+        packagePath: read.packagePath,
+        binding,
+        revision,
+        extras: {
+          ...(typeof action.runtimeInstanceId === "string" ? { runtimeInstanceId: action.runtimeInstanceId } : {}),
+          ...(typeof action.model === "string" ? { model: action.model } : {}),
+        },
+      }),
+      schemaStep: DispatchStep | null =
+        schema.outcome === "skipped"
+          ? null
+          : schema.outcome === "failed"
+            ? {
+                taskId,
+                executionId: execution.executionId,
+                lane: "schema-migration",
+                outcome: "failed",
+                error: schema.error,
+              }
+            : {
+                taskId,
+                executionId: execution.executionId,
+                lane: "schema-migration",
+                dispatchId: schema.ids.dispatchId,
+                runtimeSessionId: schema.ids.runtimeSessionId,
+                dispatchOpId: schema.ids.dispatchOpId,
+                outcome: schema.outcome,
+              };
     const baseKey = reviewDispatchKey(taskId, execution);
     let attempt = 0,
       key = reviewAttemptKey(baseKey, attempt),
@@ -566,6 +753,7 @@ export async function dispatchTaskReview(
       existing = cell.projection.readRuntimeDispatchByDispatchKey(key)?.event ?? null;
     }
     if (existing !== null) {
+      if (schemaStep !== null) steps.push(schemaStep);
       steps.push({
         taskId,
         executionId: execution.executionId,
@@ -606,6 +794,7 @@ export async function dispatchTaskReview(
       });
     if (authorizationDecision.outcome !== "allowed") {
       fail(`authorization_denied: ${authorizationDecision.nextActions.join(" ")}`, execution.executionId);
+      if (schemaStep !== null) steps.push(schemaStep);
       continue;
     }
     try {
@@ -619,16 +808,18 @@ export async function dispatchTaskReview(
         dispatchOpId: ids.dispatchOpId,
         outcome: "dispatched",
       });
+      if (schemaStep !== null) steps.push(schemaStep);
     } catch (error) {
       // One task's launch failure is reported on its own step; the batch continues for the rest.
       consumeKnownError(error);
       fail(error instanceof Error ? error.message : String(error), execution.executionId);
+      if (schemaStep !== null) steps.push(schemaStep);
     }
   }
-  const dispatched = steps.filter((step) => step.outcome !== "failed"),
+  const dispatchedTasks = new Set(steps.filter((step) => step.outcome !== "failed").map((step) => step.taskId)),
     failed = steps.filter((step) => step.outcome === "failed");
   return {
-    outcome: dispatched.length === 0 ? "op_rejected" : "applied",
+    outcome: dispatchedTasks.size === 0 ? "op_rejected" : "applied",
     opId: cell.operationId(action, binding, cell.input.repoId, revision),
     revision,
     ...(failed.length === 0 ? {} : { code: "review_dispatch_failed" }),
@@ -636,7 +827,7 @@ export async function dispatchTaskReview(
     ...(failed.length === steps.length
       ? { rejectionExplanation: failed.map((step) => `${step.taskId}: ${step.error ?? ""}`).join("; ") }
       : {}),
-    summary: `dispatch-review: ${String(dispatched.length)} of ${String(steps.length)} task(s) have a review dispatch.`,
+    summary: `dispatch-review: ${String(dispatchedTasks.size)} of ${String(taskIds.length)} task(s) have a review dispatch.`,
     dispatches: steps,
   } as WriteReceiptDraft;
 }

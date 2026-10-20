@@ -388,7 +388,7 @@ async function amendedCutReview(
 ): Promise<readonly WriteReceiptDraft[]> {
   if (action.amend !== true) return [];
   const dispatched = await dispatchInReviewCutReview(cell, taskId, action, binding, receipt);
-  return dispatched ? [dispatched.step] : [];
+  return dispatched ? [dispatched.step, ...(dispatched.schemaStep === undefined ? [] : [dispatched.schemaStep])] : [];
 }
 
 export async function submitTask(

@@ -385,6 +385,7 @@ type DispatchStep = {
   executionId?: string;
   dispatchId?: string;
   runtimeSessionId?: string;
+  lane?: "schema-migration";
   outcome: string;
   error?: string;
 };
@@ -743,6 +744,75 @@ test(
       assert.ok(existsSync(report), `expected the authored report at ${report}`);
       const packet = report.replace(/\.md$/u, ".json");
       assert.equal(existsSync(packet), false, "no stray packet file is fabricated by the archive");
+    } finally {
+      await f.close();
+    }
+  },
+);
+
+test(
+  "a persisted-shape delivery dispatches the schema-migration reviewer beside the cut review",
+  { timeout: 20_000 },
+  async () => {
+    const f = await fixture(false, true, false, false, false, undefined, {
+      closeoutProfile: "standard",
+      create: { presetId: "standard-task" },
+    });
+    try {
+      await f.install();
+      const launchesBefore = f.launches.length;
+      // Replace the in-review cut with one whose frozen manifest touches a persisted-shape
+      // surface. The standard-task preset binds a task worktree; committing on the bound
+      // worktree branch and amending without an explicit commit makes the frozen manifest
+      // derive from the branch's fork point, exactly as a worker's delivery does.
+      await f.cell().settlePendingMaterialization("schema lane fixture delivery");
+      const worktreePaths = execFileSync("git", ["-C", f.root, "worktree", "list", "--porcelain"], {
+          encoding: "utf8",
+        })
+          .trim()
+          .split("\n\n")
+          .map((entry) => entry.split("\n").find((line) => line.startsWith("worktree ")))
+          .filter((line): line is string => line !== undefined)
+          .map((line) => path.resolve(line.slice("worktree ".length))),
+        checkout = worktreePaths.find((entry) => entry !== path.resolve(f.root));
+      assert.ok(checkout, `expected the bound task worktree beside ${f.root}`);
+      const schemaSurface = path.join(checkout, "packages/kernel/src/domain/settings.ts");
+      mkdirSync(path.dirname(schemaSurface), { recursive: true });
+      writeFileSync(schemaSurface, "// schema fixture surface\n");
+      execFileSync("git", ["-C", checkout, "add", "packages/kernel/src/domain/settings.ts"]);
+      execFileSync("git", ["-C", checkout, "commit", "-qm", "feat: narrow a persisted field"]);
+      const amended = await f.run({ kind: "task-submit", taskId, executionId, amend: true });
+      assert.equal(amended.outcome, "applied", JSON.stringify(amended));
+      const schemaDispatch = f
+        .events()
+        .find(
+          (event) =>
+            event.type === "runtime_dispatch_requested" && event.payload.dispatchKey?.startsWith("task-review-schema:"),
+        );
+      assert.ok(schemaDispatch?.type === "runtime_dispatch_requested", "no schema-migration dispatch was requested");
+      assert.equal(schemaDispatch.payload.agentId, "data-migration");
+      assert.equal(schemaDispatch.payload.role, "reviewer");
+      assert.equal(schemaDispatch.payload.taskId, taskId);
+      assert.equal(schemaDispatch.payload.executionId, executionId);
+      const schemaId = schemaDispatch.payload.dispatchId!;
+      const schemaLaunch = f.launches.find((launch) => launch.prompt.includes(schemaId));
+      assert.ok(schemaLaunch, `no provider launch carried the schema dispatch ${schemaId}`);
+      assert.match(schemaLaunch.prompt, /schema-migration lane/u);
+      assert.ok(schemaLaunch.prompt.includes("- packages/kernel/src/domain/settings.ts"), schemaLaunch.prompt);
+      assert.ok(
+        schemaLaunch.prompt.includes(`--review-id review-${schemaId}`),
+        "the schema reviewer's registration identity is fixed by its dispatch",
+      );
+      assert.equal(f.launches.length, launchesBefore + 2, "one cut review plus one schema-migration review");
+      // The lane is idempotent on the same submitted cut.
+      const retry = await f.run({ kind: "task-dispatch-review", taskIds: [taskId] });
+      assert.equal(retry.outcome, "applied", JSON.stringify(retry));
+      const steps = dispatchesOf(retry),
+        schemaStep = steps.find((step) => step.lane === "schema-migration");
+      assert.ok(schemaStep, `no schema-migration step in ${JSON.stringify(steps)}`);
+      assert.equal(schemaStep!.outcome, "already_dispatched");
+      assert.equal(schemaStep!.dispatchId, schemaId);
+      assert.equal(f.launches.length, launchesBefore + 2, "an idempotent retry launches nothing");
     } finally {
       await f.close();
     }

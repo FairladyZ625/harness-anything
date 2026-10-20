@@ -631,7 +631,11 @@ export async function adjudicateTask(
   const result = {
     ...receipt,
     ...dispatched.selection,
-    steps: [...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []), dispatched.step],
+    steps: [
+      ...((receipt as { readonly steps?: readonly WriteReceipt[] }).steps ?? []),
+      dispatched.step,
+      ...(dispatched.schemaStep === undefined ? [] : [dispatched.schemaStep]),
+    ],
   };
   return result;
 }
