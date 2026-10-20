@@ -24,7 +24,6 @@ import { type JsonObject } from "./protocol/json-rpc-types.ts";
 import { runtimeKindForId } from "./runtime-inventory.ts";
 import { resolveRuntimeDispatchResources } from "./runtime-spawn-allowlist.ts";
 import { runtimePermissionMode } from "./runtime-permissions.ts";
-import { scheduleMissionWithOutcomeProtocol } from "./schedule-runtime-outcome.ts";
 import { dispatchCallbackRelay, removeRuntimeCallbackRelay } from "./runtime-callback-relay.ts";
 import { cancelRuntime, closeRuntimes, steerRuntime } from "./runtime-spawn-control.ts";
 import { createActiveRuntime, attachActiveRuntime } from "./runtime-spawn-active.ts";
@@ -47,6 +46,7 @@ import {
   runtimeMissionName,
   resolveRuntimeMission,
 } from "./runtime-spawn-mission.ts";
+import { dispatchPromptTemplate, renderDispatchPrompt } from "./runtime-spawn-prompt.ts";
 import {
   assertPreparedRuntimeLaunch,
   launchExitNotification,
@@ -112,13 +112,6 @@ export const resultMediaType = "text/plain; charset=utf-8" as const,
   providerErrorLimit = 64 * 1024,
   resumeAdmissionTimeoutMs = 30_000,
   exitNotificationTimeoutMs = 30_000;
-const dispatchIdPromptTemplateToken = "__HARNESS_DISPATCH_ID__";
-function dispatchPromptTemplate(prompt: string, dispatchId: string): string {
-  return prompt.replaceAll(dispatchId, dispatchIdPromptTemplateToken);
-}
-function renderDispatchPrompt(prompt: string, dispatchId: string): string {
-  return prompt.replaceAll(dispatchIdPromptTemplateToken, dispatchId);
-}
 // Captured at module level: spawnAttempt's local `process` names the launched RuntimeProcess.
 const hostPlatform = process.platform;
 export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
@@ -466,10 +459,7 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               : taskMission || role === "reviewer"
                 ? assembleUnboundPrompt(dispatchMission, role === "reviewer" ? role : undefined)
                 : dispatchMission,
-            prompt = renderDispatchPrompt(
-              trustedSchedule ? scheduleMissionWithOutcomeProtocol(assembledPrompt) : assembledPrompt,
-              newDispatchId,
-            );
+            prompt = renderDispatchPrompt(assembledPrompt, newDispatchId, Boolean(trustedSchedule));
 
           // Dry-run preview ends exactly at the launch boundary: the same inputs, same
           // assembly calls, no prepareLaunch, no dispatch event, no lease handoff.
