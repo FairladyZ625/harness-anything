@@ -25,7 +25,9 @@ export function TaskReturnDialog({
       onClose={onClose}
       footer={
         <div className="flex flex-wrap justify-end gap-2">
-          <Button onClick={onClose}>取消</Button>
+          <Button variant="ghost" onClick={onClose}>
+            取消
+          </Button>
           <Button
             disabled={!feedback.trim()}
             onClick={() => onReturn("resume", feedback.trim())}

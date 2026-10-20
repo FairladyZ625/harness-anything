@@ -68,6 +68,34 @@ test("G3 rejects short timers and loop waits while accepting event-driven waits"
   assert.equal(lint(noPollSpin, "await completionEvent;").length, 0);
 });
 
+// dec_C0AF8CBBFFECF71F4F34FB76F9/CH1 requires one-shot, 100ms button feedback.
+test("G3 button feedback exception leaves other functions and loop waits forbidden", () => {
+  const production = JSON.parse(
+    readFileSync(path.join(repoRoot, "tools/gate-allowlists/check-poll-spin-boundary.json"), "utf8"),
+  );
+  const entry = production.entries.exceptions.find(
+    (entry) => entry.key === "packages/gui/src/renderer/components/primitives/Button.tsx#Button#short-timer",
+  );
+  assert.equal(entry?.ref, "dec_C0AF8CBBFFECF71F4F34FB76F9/CH1");
+  const linter = new Linter({ configType: "flat" });
+  const config = {
+    files: ["**/*.{js,tsx}"],
+    languageOptions: { ecmaVersion: 2024, sourceType: "module" },
+    plugins: { ha: { rules: { rule: noPollSpin } } },
+    rules: { "ha/rule": ["error", { baseline: [entry.key] }] },
+  };
+  const verify = (source, filename = "packages/gui/src/renderer/components/primitives/Button.tsx") =>
+    linter.verify(source, config, { filename });
+  assert.equal(verify("function Button() { setTimeout(showSpinner, 100); }").length, 0);
+  assert.equal(verify("function other() { setTimeout(showSpinner, 100); }").length, 1);
+  assert.equal(verify("async function Button() { while (loading) await delay(100); }").length, 1);
+  assert.equal(
+    verify("function Button() { setTimeout(showSpinner, 100); }", "packages/gui/src/renderer/components/Other.tsx")
+      .length,
+    1,
+  );
+});
+
 test("G4 catch-and-substitute rejects another producer unless baselined", () => {
   const source =
     "async function load() { try { return await primary(); } catch (error) { consumeKnownError(error); return fallback(); } }";

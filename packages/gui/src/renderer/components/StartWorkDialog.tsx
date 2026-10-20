@@ -136,7 +136,7 @@ export function StartWorkDialog({
               {t("views.work.startWork.back")}
             </Button>
             {stepIndex === STEPS.length - 1 ? (
-              <Button size="sm" onClick={onClose} testId="start-work-close">
+              <Button size="sm" variant="ghost" onClick={onClose} testId="start-work-close">
                 {t("views.work.startWork.close")}
               </Button>
             ) : (

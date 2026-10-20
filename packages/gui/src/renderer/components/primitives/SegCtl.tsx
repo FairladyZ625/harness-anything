@@ -30,14 +30,14 @@ export function SegCtl<T extends string>({
   const thumbId = useId();
   const { enabled, reduced } = useEntryMotion();
   const sliding = enabled && !reduced;
-  const thumbClass = "absolute inset-0 bg-accent";
+  const thumbClass = "absolute inset-0 rounded-sm bg-accent";
   return (
     <span
       role="group"
       aria-label={label}
       aria-disabled={disabled || undefined}
       // 与功能按钮共用桌面密度和粗指针点击盒。
-      className="inline-flex flex-wrap overflow-hidden rounded border border-border-strong"
+      className="inline-flex flex-wrap gap-0.5 rounded-sm border border-border bg-surface p-0.5"
     >
       {options.map((option) => {
         const selected = option.value === value;
@@ -50,7 +50,7 @@ export function SegCtl<T extends string>({
             data-tip={option.tip}
             aria-pressed={selected}
             onClick={() => onChange(option.value)}
-            className={`relative ui-control inline-flex shrink-0 whitespace-nowrap items-center justify-center px-3 ui-micro disabled:cursor-not-allowed disabled:opacity-40 ${
+            className={`relative ui-control inline-flex shrink-0 whitespace-nowrap items-center justify-center rounded-sm px-3 ui-micro transition-colors focus-visible:z-20 focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-40 ${
               selected ? "font-semibold text-accent-fg" : "text-text-muted hover:bg-surface"
             }`}
           >

@@ -49,11 +49,14 @@ export function RetireAgentDialog({
         <div className="flex items-center gap-2">
           <Hint>{t("agentRuntime.retireFooter")}</Hint>
           <span className="flex-1" />
-          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button variant="ghost" onClick={onCancel}>
+            {t("agentRuntime.cancel")}
+          </Button>
           <Button
             variant="primary"
             testId="retire-agent-confirm"
-            disabled={busy || reason.trim() === ""}
+            loading={busy}
+            disabled={reason.trim() === ""}
             onClick={() => onRetire({ reason: reason.trim(), ...(successor ? { successor } : {}) })}
           >
             {t("agentRuntime.retireConfirm")}
@@ -130,11 +133,14 @@ export function DeleteEntityDialog({
         <div className="flex items-center gap-2">
           <Hint>{t("agentRuntime.deleteFooter")}</Hint>
           <span className="flex-1" />
-          <Button onClick={onCancel}>{t("agentRuntime.cancel")}</Button>
+          <Button variant="ghost" onClick={onCancel}>
+            {t("agentRuntime.cancel")}
+          </Button>
           <Button
             variant="danger"
             testId={`delete-${kind}-confirm`}
-            disabled={busy || reason.trim() === ""}
+            loading={busy}
+            disabled={reason.trim() === ""}
             onClick={() => onDelete({ reason: reason.trim() })}
           >
             {t("agentRuntime.deleteConfirm")}

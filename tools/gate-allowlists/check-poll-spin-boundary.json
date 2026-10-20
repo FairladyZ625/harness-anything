@@ -4,6 +4,12 @@
   "entries": {
     "exceptions": [
       {
+        "key": "packages/gui/src/renderer/components/primitives/Button.tsx#Button#short-timer",
+        "event": "100ms of continuous loading elapsed; operation completion cannot replace the visual feedback threshold",
+        "ref": "dec_C0AF8CBBFFECF71F4F34FB76F9/CH1",
+        "reason": "One-shot spinner visibility gate, cancelled on completion and unmount; no polling or retry."
+      },
+      {
         "key": "packages/cli/src/daemon/client.ts#settleRepoWarming#clock-loop",
         "event": "baseline-2026-09-10: no awaitable completion event is exposed by the current API",
         "ref": "dec_EF5F3820E81FB8A5266F1F3342",

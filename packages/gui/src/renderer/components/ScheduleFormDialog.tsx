@@ -531,10 +531,10 @@ export function ScheduleForm({
           </Hint>
         )}
         <span className="flex-1" />
-        <Button testId="schedule-form-cancel" onClick={onCancel}>
+        <Button variant="ghost" testId="schedule-form-cancel" onClick={onCancel}>
           {t("schedules.form.cancel")}
         </Button>
-        <Button variant="primary" testId="schedule-form-submit" disabled={busy || !ready} onClick={submit}>
+        <Button variant="primary" testId="schedule-form-submit" loading={busy} disabled={!ready} onClick={submit}>
           {t(initial === null ? "schedules.form.create" : "schedules.form.save")}
         </Button>
       </div>

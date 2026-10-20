@@ -2,6 +2,7 @@
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { Window } from "happy-dom";
 import { successfulAgentRuntimeResult } from "@harness-anything/daemon/protocol";
 import { AgentCard, agentDeclarationFrom, agentDraftFrom } from "../src/renderer/components/runtime/AgentCard.tsx";
 import { NewRuntimeDialog } from "../src/renderer/components/runtime/NewRuntimeDialog.tsx";
@@ -167,6 +168,12 @@ const squadDetail = {
   roster: "fable » luna, sol, terra",
   revision: 1,
 } as const;
+function buttonLabels(markup: string): string[] {
+  const document = new Window().document;
+  document.body.innerHTML = markup;
+  return Array.from(document.querySelectorAll("button"), (button) => button.textContent.trim());
+}
+
 const noop = () => undefined;
 const runtimeCard = (row: typeof instance | typeof claudeInstance) =>
   renderToStaticMarkup(
@@ -294,7 +301,7 @@ describe("agent runtime renderer", () => {
     expect({
       title: selfTest.includes("Connectivity self-test"),
       selectedModel: selfTest.includes('<option value="gpt-5.6-sol" selected="">gpt-5.6-sol</option>'),
-      action: selfTest.includes(">Ping runtime</button>"),
+      action: buttonLabels(selfTest).includes("Ping runtime"),
     }).toEqual({ title: true, selectedModel: true, action: true });
     expect(markup).not.toMatch(/Runtime kind|Runtime profile|type="password"|name="(?:credential|token|apiKey)"/u);
   });
@@ -505,8 +512,8 @@ describe("agent runtime renderer", () => {
         onSelfTest: async () => null,
       }),
     );
-    expect(authenticated).not.toMatch(/<button[^>]*>Sign in<\/button>/u);
-    expect(unauthenticated).toMatch(/<button[^>]*>Sign in<\/button>/u);
+    expect(buttonLabels(authenticated)).not.toContain("Sign in");
+    expect(buttonLabels(unauthenticated)).toContain("Sign in");
   });
   it("keeps kind-specific runtime fields separated on the carrier card", () => {
     const codexMarkup = runtimeCard(instance),
