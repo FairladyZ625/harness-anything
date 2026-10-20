@@ -743,6 +743,21 @@ export function pinnedTaskRows(
     );
 }
 
+/** 置顶区的非任务实体行(Decision、Schedule…):daemon agenda 投影原序,行上可就地取消置顶
+ * (实体级 entity-unpin 写路)。kind 用协议原词,不在 GUI 里另造词表。 */
+export interface PinnedEntityRow {
+  readonly ref: string;
+  readonly kind: string;
+  readonly title: string;
+}
+
+export function pinnedEntityRows(agenda: AgendaSuccess | undefined): readonly PinnedEntityRow[] {
+  if (agenda === undefined) return [];
+  return agenda.pinnedEntities
+    .filter((entity) => entity.kind !== "task")
+    .map((entity) => ({ ref: entity.ref, kind: entity.kind, title: entity.title }));
+}
+
 /** 评审与合并的行:打回/待初审/任务评审中/决策评审中/待点头,按读面分组顺序。 */
 export interface ReviewRow {
   readonly id: string;

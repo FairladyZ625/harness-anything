@@ -29,6 +29,7 @@ import {
   awaitsByTask,
   decisionRows,
   followUpRows,
+  pinnedEntityRows,
   pinnedTaskRows,
   recentDayGroups,
   reviewRows,
@@ -45,6 +46,7 @@ import {
   OverviewDecisionsBand,
   OverviewDrillBody,
   OverviewWorksBody,
+  PinnedEntityFocusDetail,
   PinnedFocusDetail,
   PinnedFocusList,
   ReviewFocusDetail,
@@ -81,6 +83,7 @@ export function OverviewView({
   onOpenTasks,
   onOpenCollaboration,
   onUnpin,
+  onUnpinEntity,
   overviewLayer,
   onOverviewLayerNavigate,
   onOverviewLayerPatch,
@@ -114,6 +117,8 @@ export function OverviewView({
   readonly onOpenCollaboration?: () => void;
   /** 取消置顶(pin 写通道,taskActions.setTaskPin)。 */
   readonly onUnpin: (taskId: string) => void;
+  /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
+  readonly onUnpinEntity: (entityRef: string) => void;
   /** 总览页内层位置(AppLocation 的总览层字段子集,App 从 location 派生):null = 层关着。 */
   readonly overviewLayer: {
     readonly overviewArtifactId: string | null;
@@ -155,6 +160,8 @@ export function OverviewView({
   const reviews = useMemo(() => reviewRows(agenda), [agenda]);
   const reviewDrill = useMemo(() => reviewDrillRows(reviews), [reviews]);
   const pinned = useMemo(() => pinnedTaskRows(agenda, works), [agenda, works]);
+  // 置顶的非任务实体(Decision、Schedule…):同一读面派生,行上走实体级解 pin 通道。
+  const pinnedOthers = useMemo(() => pinnedEntityRows(agenda), [agenda]);
   // 关注的活动窗口(意见 4):天数走设置项,读面落定前的 undefined 用声明默认,不猜。
   const settingsQuery = useSettingsQuery(repoId);
   const activityDays = useMemo(() => {
@@ -266,6 +273,7 @@ export function OverviewView({
     onOpenTasks,
     onOpenSessions,
     onUnpin,
+    onUnpinEntity,
   };
 
   // 点行开层(推栈):内联名单把被点的行直接带成放大层的选中(id 不在集合时由层收敛到首行)。
@@ -274,6 +282,7 @@ export function OverviewView({
   };
 
   // 键盘导航的可选中集合:各入口用各自全量行;选中行不在集合时收敛到首行,详情与选中同源。
+  // 置顶承诺的集合是任务行 + 非任务实体行(键分别为裸 taskId 与实体 ref)。
   const focusIds: readonly string[] =
     focus === null
       ? []
@@ -281,7 +290,7 @@ export function OverviewView({
         ? reviewDrill.map(({ id }) => id)
         : focus === "followups"
           ? followUps.map(({ id }) => id)
-          : pinned.map(({ taskId }) => taskId);
+          : [...pinned.map(({ taskId }) => taskId), ...pinnedOthers.map(({ ref }) => ref)];
   const focusSelected =
     focus === null ? null : focusIds.includes(layerSelectedId ?? "") ? layerSelectedId! : (focusIds[0] ?? null);
 
@@ -444,6 +453,7 @@ export function OverviewView({
                       reviewRowsAll={reviews}
                       followUps={followUps}
                       pinned={pinned}
+                      pinnedOthers={pinnedOthers}
                       onOpenFocus={openFocus}
                       onOpenTask={onOpenTask}
                       deps={deps}
@@ -603,7 +613,7 @@ export function OverviewView({
               <StatusTag tone="neutral" label={t("views.overviewView.queueNoDispatchable")} />
             )
           }
-          big={pinned.length}
+          big={pinned.length + pinnedOthers.length}
           itemIds={focusIds}
           selectedId={focusSelected}
           onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
@@ -611,14 +621,17 @@ export function OverviewView({
           list={
             <PinnedFocusList
               rows={pinned}
+              entityRows={pinnedOthers}
               selectedId={focusSelected}
               onSelect={(id) => onOverviewLayerPatch({ overviewFocus: { key: "pinned", selectedId: id } })}
               deps={deps}
             />
           }
           detail={
-            focusSelected === null ? null : (
+            focusSelected === null ? null : pinned.some(({ taskId }) => taskId === focusSelected) ? (
               <PinnedFocusDetail task={pinned.find(({ taskId }) => taskId === focusSelected)!} deps={deps} />
+            ) : (
+              <PinnedEntityFocusDetail row={pinnedOthers.find(({ ref }) => ref === focusSelected)!} deps={deps} />
             )
           }
         />

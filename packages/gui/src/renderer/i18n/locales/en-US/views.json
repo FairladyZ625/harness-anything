@@ -471,6 +471,7 @@
   "views.overviewView.actionAdjudicate": "Adjudicate",
   "views.overviewView.actionOpenCloseout": "Open closeout",
   "views.overviewView.actionOpenDecision": "Open decision",
+  "views.overviewView.actionOpenDetail": "Open detail",
   "views.overviewView.actionOpenTask": "Open task",
   "views.overviewView.actionOpenSessions": "View sessions",
   "views.overviewView.actionDispatch": "Open task to dispatch",

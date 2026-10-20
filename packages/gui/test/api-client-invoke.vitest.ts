@@ -80,6 +80,19 @@ describe("renderer invoke assembles wire params per protocol declaration", () =>
     expect(body.params).toEqual({ payload: { operationId: "daemon-control-op" } });
   });
 
+  it("routes the entity unpin write through the repo.entity.unpin envelope", async () => {
+    // 置顶区非任务实体的解 pin(task_9ba495de):facet 未在 daemon 声明时 invoke 直接拒。
+    const body = await browserInvoke(
+      "repo.entity.unpin",
+      { repoId: "canonical", entityRef: "decision/dec_1" },
+      "unpinEntity",
+    );
+    expect(body).toEqual({
+      method: "repo.entity.unpin",
+      params: { repo: { repoId: "canonical" }, payload: { entityRef: "decision/dec_1" } },
+    });
+  });
+
   it("keeps repo-only and empty-input methods free of a payload key", async () => {
     const settings = await browserInvoke("repo.settings.read", { repoId: "canonical" }, "getSettings");
     expect(settings.params).toEqual({ repo: { repoId: "canonical" } });

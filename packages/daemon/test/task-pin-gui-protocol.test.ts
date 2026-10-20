@@ -28,6 +28,34 @@ test("GUI task pin ingress maps onto the Entity Pin action", () => {
   assert.equal(commandClassForAction("entity-pin"), "repo-write");
 });
 
+test("GUI entity unpin ingress maps onto the Entity Pin action by ref", () => {
+  const unpin = parseDaemonRpcParams("repo.entity.unpin", {
+    repo: { repoId: "alpha" },
+    payload: { entityRef: "decision/dec_pin" },
+  });
+  assert.equal(unpin.ok, true);
+  assert.deepEqual(actionForDaemonMethod("repo.entity.unpin", { entityRef: "schedule/sch_1" }), {
+    kind: "entity-unpin",
+    entityRef: "schedule/sch_1",
+  });
+  // 非本仓 EntityRef 的拒绝在 runEntityPinAction 的写入边界;这里锁 GUI 载荷闭集。
+  assert.equal(
+    parseDaemonRpcParams("repo.entity.unpin", {
+      repo: { repoId: "alpha" },
+      payload: { entityRef: "decision/dec_pin", taskId: "task_current" },
+    }).ok,
+    false,
+  );
+  assert.equal(
+    parseDaemonRpcParams("repo.entity.unpin", { repo: { repoId: "alpha" }, payload: { entityRef: "" } }).ok,
+    false,
+  );
+  assert.equal(
+    daemonGuiActionMethods.some((entry) => entry.guiBridgeMethod === "unpinEntity"),
+    true,
+  );
+});
+
 test("GUI pin ingress stays closed to the renderer", () => {
   // 声明的 payload 只有 taskId:任何其它 amend 字段在 RPC 校验层就被拒。
   for (const method of ["repo.task.pin", "repo.task.unpin"]) {

@@ -27,6 +27,7 @@ import {
   type DecisionRow,
   type FollowUpKind,
   type FollowUpRow,
+  type PinnedEntityRow,
   type PinnedTaskRow,
   type ReviewRow,
   type WatchedWork,
@@ -82,6 +83,8 @@ export interface OverviewBoardDeps {
   readonly onOpenTasks: () => void;
   readonly onOpenSessions: () => void;
   readonly onUnpin: (taskId: string) => void;
+  /** 置顶区非任务实体的取消置顶(实体级 entity-unpin 写通道)。 */
+  readonly onUnpinEntity: (entityRef: string) => void;
 }
 
 /** 放大层的键:评审执行/跟进返工/置顶承诺(WIP 平铺名单已由 AgentLanes 原位替代,不再开层)。 */
@@ -469,6 +472,7 @@ export function OverviewDrillBody({
   reviewRowsAll,
   followUps,
   pinned,
+  pinnedOthers,
   onOpenFocus,
   onOpenTask,
   deps,
@@ -492,6 +496,8 @@ export function OverviewDrillBody({
   readonly reviewRowsAll: readonly ReviewRow[];
   readonly followUps: readonly FollowUpRow[];
   readonly pinned: readonly PinnedTaskRow[];
+  /** 置顶的非任务实体(Decision、Schedule…):排在任务行后,行上取消置顶走实体解 pin 通道。 */
+  readonly pinnedOthers: readonly PinnedEntityRow[];
   /** 点行落点:开对应放大层并选中该行(selectedId 与该层 itemIds 同源)。 */
   readonly onOpenFocus: (key: DrillFocusKey, selectedId?: string) => void;
   /** 任务行落点:直接跳转任务详情(业主 2026-10-13 裁定:总览点任务直接进,移除冗余二级弹窗)。 */
@@ -536,7 +542,7 @@ export function OverviewDrillBody({
               key: "pinned" as const,
               testId: "overview-drill-pinned",
               label: t("views.overviewView.drillPinned"),
-              count: pinned.length,
+              count: pinned.length + pinnedOthers.length,
             },
           ]}
         />
@@ -602,34 +608,53 @@ export function OverviewDrillBody({
             ))
           ))}
         {tab === "pinned" &&
-          (pinned.length === 0 ? (
+          (pinned.length + pinnedOthers.length === 0 ? (
             <div data-testid="overview-drill-pinned-empty" className="px-3.5 py-2">
               <Empty>{t("views.overviewView.drillPinnedEmpty")}</Empty>
             </div>
           ) : (
-            pinned.map((task) => (
-              <div key={task.taskId} data-drill-row={task.taskId}>
-                <DenseRow
-                  tag={
-                    task.dispatchable ? (
-                      <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
-                    ) : (
-                      <StatusTag status={task.status} />
-                    )
-                  }
-                  title={task.title}
-                  time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
-                  action={
-                    <UnpinIconButton
-                      testId={`overview-unpin-${task.taskId}`}
-                      onClick={() => deps.onUnpin(task.taskId)}
-                      label={t("views.overviewView.unpinRowLabel", { title: task.title })}
-                    />
-                  }
-                  onClick={() => onOpenTask(task.taskId)}
-                />
-              </div>
-            ))
+            <>
+              {pinned.map((task) => (
+                <div key={task.taskId} data-drill-row={task.taskId}>
+                  <DenseRow
+                    tag={
+                      task.dispatchable ? (
+                        <StatusTag tone="plan" label={t("views.overviewView.queuePlanned")} />
+                      ) : (
+                        <StatusTag status={task.status} />
+                      )
+                    }
+                    title={task.title}
+                    time={task.updatedAt === null ? undefined : formatRelative(task.updatedAt, { now: deps.now })}
+                    action={
+                      <UnpinIconButton
+                        testId={`overview-unpin-${task.taskId}`}
+                        onClick={() => deps.onUnpin(task.taskId)}
+                        label={t("views.overviewView.unpinRowLabel", { title: task.title })}
+                      />
+                    }
+                    onClick={() => onOpenTask(task.taskId)}
+                  />
+                </div>
+              ))}
+              {/* 非任务实体(Decision、Schedule…)没有任务态与可派档:kind 用协议原词,点行走实体导航。 */}
+              {pinnedOthers.map((entity) => (
+                <div key={entity.ref} data-drill-row={entity.ref}>
+                  <DenseRow
+                    tag={<StatusTag tone="neutral" label={entity.kind} />}
+                    title={entity.title}
+                    action={
+                      <UnpinIconButton
+                        testId={`overview-unpin-${entity.ref}`}
+                        onClick={() => deps.onUnpinEntity(entity.ref)}
+                        label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
+                      />
+                    }
+                    onClick={() => deps.onNavigateEntity(entity.ref)}
+                  />
+                </div>
+              ))}
+            </>
           ))}
         {tab === "review" &&
           review.map((row) => (
@@ -775,14 +800,16 @@ export function FollowUpsFocusDetail({ row, deps }: { readonly row: FollowUpRow;
   );
 }
 
-/** 置顶承诺放大层:可派在前,行上可就地取消置顶(pin 写通道)。 */
+/** 置顶承诺放大层:可派在前,行上可就地取消置顶(pin 写通道);非任务实体排在任务行后。 */
 export function PinnedFocusList({
   rows,
+  entityRows,
   selectedId,
   onSelect,
   deps,
 }: {
   readonly rows: readonly PinnedTaskRow[];
+  readonly entityRows: readonly PinnedEntityRow[];
   readonly selectedId: string | null;
   readonly onSelect: (id: string) => void;
   readonly deps: OverviewBoardDeps;
@@ -812,6 +839,22 @@ export function PinnedFocusList({
           onClick={() => onSelect(task.taskId)}
         />
       ))}
+      {entityRows.map((entity) => (
+        <DenseRow
+          key={entity.ref}
+          tag={<StatusTag tone="neutral" label={entity.kind} />}
+          title={entity.title}
+          action={
+            <UnpinIconButton
+              testId={`overview-unpin-${entity.ref}`}
+              onClick={() => deps.onUnpinEntity(entity.ref)}
+              label={t("views.overviewView.unpinRowLabel", { title: entity.title })}
+            />
+          }
+          selected={selectedId === entity.ref}
+          onClick={() => onSelect(entity.ref)}
+        />
+      ))}
     </>
   );
 }
@@ -835,6 +878,30 @@ export function PinnedFocusDetail({ task, deps }: { readonly task: PinnedTaskRow
           {task.dispatchable ? t("views.overviewView.actionDispatch") : t("views.overviewView.actionOpenTask")}
         </OverviewActionButton>
         <OverviewActionButton onClick={() => deps.onUnpin(task.taskId)}>
+          {t("views.overviewView.actionUnpin")}
+        </OverviewActionButton>
+      </div>
+    </div>
+  );
+}
+
+/** 置顶的非任务实体的放大层详情:没有任务态与可派档,动作只有实体导航与取消置顶。 */
+export function PinnedEntityFocusDetail({
+  row,
+  deps,
+}: {
+  readonly row: PinnedEntityRow;
+  readonly deps: OverviewBoardDeps;
+}) {
+  return (
+    <div className="flex flex-col gap-3">
+      <StatusTag tone="neutral" label={row.kind} />
+      <h3 className="text-text ui-title">{row.title}</h3>
+      <div className="flex flex-wrap gap-1.5">
+        <OverviewActionButton primary onClick={() => deps.onNavigateEntity(row.ref)}>
+          {t("views.overviewView.actionOpenDetail")}
+        </OverviewActionButton>
+        <OverviewActionButton onClick={() => deps.onUnpinEntity(row.ref)}>
           {t("views.overviewView.actionUnpin")}
         </OverviewActionButton>
       </div>

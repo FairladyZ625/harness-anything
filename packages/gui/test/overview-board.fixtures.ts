@@ -318,6 +318,7 @@ function OverviewHistoryHarness(props: Partial<Parameters<typeof OverviewView>[0
     onOpenWorks: noop,
     onOpenTasks: noop,
     onUnpin: noop,
+    onUnpinEntity: noop,
     overviewLayer: {
       overviewArtifactId: location.overviewArtifactId ?? null,
       overviewFocus: location.overviewFocus ?? null,
