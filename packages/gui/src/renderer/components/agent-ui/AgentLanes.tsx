@@ -1,26 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ChatCircleDots } from "@phosphor-icons/react";
-import { formatDuration } from "../../model/time.ts";
 import { t } from "../../i18n/index.tsx";
 import { Button } from "../primitives/Button.tsx";
+import { SegCtl } from "../primitives/SegCtl.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
 import { CacheTimer, type PromptCacheTtlState } from "./CacheTimer.tsx";
 import { ACTIVITY_COLOR, ACTIVITY_KEY, ACTIVITY_TONE, type AgentActivity } from "./AgentTree.tsx";
 
 /**
- * 多 Agent 实时水平时间线泳道(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2 / Affect UI
- * AgentLanes):每个 Agent/Worker 一条泳道,任务块按时间比例定位;运行中任务块随
- * now 生长(1s tick,nowMs 可注入);跨 Agent 派工/交接画 handoff 连线;阻塞块直接
- * 展示待拍板徽标与快捷动作。
- *
- * 时间轴窗口由数据推导:min(start) → max(end, now),两侧 5% 余量。连线用 SVG
- * preserveAspectRatio="none" + vector-effect="non-scaling-stroke":横向百分比定位,
- * 纵向按泳道固定行高,窗口缩放只拉伸曲线横向控制点,笔宽不受非均匀缩放影响。
- * 计时器纪律:注入 nowMs 时不建 interval;未注入时仅存在运行中任务块才 tick,
- * 卸载或全部收口即清理。
- * 原语复用(CEO 返工裁定 F2/F3):状态词经 StatusTag(tone+label),按钮经
- * primitives/Button,文案经 agentUi.* i18n;块面配色仍用 ACTIVITY_COLOR 非文字表面。
+ * 多 Agent 实时水平时间线泳道:同一 Agent 的任务按开始时间贪心分配到第一个空闲子轨,
+ * 时间窗默认覆盖近期活动,窗口外但仍相交的任务从边缘截断。跨 Agent 派工/交接使用
+ * 实际子轨中心连线;阻塞徽标、缓存倒计时与状态词继续复用现有原语。
  */
 
 export interface AgentLaneTask {
@@ -33,10 +24,7 @@ export interface AgentLaneTask {
   readonly status: AgentActivity;
   /** 阻塞待拍板:块上挂徽标与快捷动作(Orca:提问/阻塞必须一眼可分)。 */
   readonly awaiting?: { readonly question: string };
-  /**
-   * 块内 Prompt Cache 倒计时(W2 总览接线):TTL 三态由模型层
-   * (W1-T1 computePromptCacheTtlState)算好传入;无触达证据时缺省,块内不渲染。
-   */
+  /** Prompt Cache TTL 三态由模型层算好传入;无触达证据时缺省。 */
   readonly cacheTtl?: { readonly state: PromptCacheTtlState; readonly remainingMs: number };
 }
 
@@ -53,11 +41,134 @@ export interface AgentHandoff {
   readonly label?: string;
 }
 
-const ROW_H = 48;
+const ROW_H = 40;
 const RULER_H = 22;
-const PAD_RATIO = 0.05;
+const LABEL_COLUMN_W = 144;
+const MIN_BLOCK_WIDTH_PX = 8;
+const READABLE_BLOCK_WIDTH_PX = 96;
 /** 连线 SVG 的逻辑横向分辨率;真实容器宽度按百分比拉伸。 */
 const SVG_W = 1000;
+const MINUTES = 60_000;
+
+const TIME_RANGES = [
+  { key: "15m", ms: 15 * MINUTES, label: "agentUi.lanes.range15m" },
+  { key: "30m", ms: 30 * MINUTES, label: "agentUi.lanes.range30m" },
+  { key: "1h", ms: 60 * MINUTES, label: "agentUi.lanes.range1h" },
+  { key: "3h", ms: 3 * 60 * MINUTES, label: "agentUi.lanes.range3h" },
+  { key: "6h", ms: 6 * 60 * MINUTES, label: "agentUi.lanes.range6h" },
+] as const;
+
+type LaneRange = (typeof TIME_RANGES)[number]["key"];
+
+const RANGE_MS: Readonly<Record<LaneRange, number>> = {
+  "15m": 15 * MINUTES,
+  "30m": 30 * MINUTES,
+  "1h": 60 * MINUTES,
+  "3h": 3 * 60 * MINUTES,
+  "6h": 6 * 60 * MINUTES,
+};
+
+interface TaskPlacement {
+  readonly laneIndex: number;
+  readonly laneTop: number;
+  readonly trackIndex: number;
+  readonly trackCenterY: number;
+  readonly startAt: number;
+  readonly endAt: number;
+  readonly task: AgentLaneTask;
+}
+
+interface LanePlacement {
+  readonly top: number;
+  readonly height: number;
+  readonly trackCount: number;
+}
+
+function defaultRangeFor(lanes: readonly AgentLane[], now: number): LaneRange {
+  const ages = lanes
+    .flatMap((lane) => lane.tasks.map((task) => Math.max(0, now - task.startAt)))
+    .sort((left, right) => left - right);
+  if (ages.length === 0) return "1h";
+
+  // Cover most recent work while a single old dispatch cannot expand the overview for every agent.
+  const typicalAge = ages[Math.min(Math.floor(ages.length * 0.75), ages.length - 1)]!;
+  const desiredWindow = Math.max(15 * MINUTES, typicalAge);
+  return TIME_RANGES.find((range) => range.ms >= desiredWindow)?.key ?? "6h";
+}
+
+function tickStepFor(span: number): number {
+  const target = span / 5.5;
+  return (
+    [MINUTES, 5 * MINUTES, 10 * MINUTES, 15 * MINUTES, 30 * MINUTES, 60 * MINUTES].find((step) => step >= target) ??
+    60 * MINUTES
+  );
+}
+
+function minuteLabel(deltaMs: number): string {
+  const totalMinutes = Math.max(1, Math.round(Math.abs(deltaMs) / MINUTES));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  const body = hours === 0 ? `${totalMinutes}m` : minutes === 0 ? `${hours}h` : `${hours}h ${minutes}m`;
+  return `${deltaMs < 0 ? "−" : "+"}${body}`;
+}
+
+function layoutsFor(
+  lanes: readonly AgentLane[],
+  now: number,
+  t0: number,
+  t1: number,
+  trackWidth: number,
+): {
+  readonly lanes: readonly LanePlacement[];
+  readonly tasks: ReadonlyMap<string, TaskPlacement>;
+  readonly totalHeight: number;
+} {
+  const span = t1 - t0;
+  const minimumDuration = Math.min(span, (span * MIN_BLOCK_WIDTH_PX) / Math.max(trackWidth, MIN_BLOCK_WIDTH_PX));
+  const laneLayouts: LanePlacement[] = [];
+  const taskLayouts = new Map<string, TaskPlacement>();
+  let laneTop = 0;
+
+  lanes.forEach((lane, laneIndex) => {
+    const visibleTasks = lane.tasks
+      .map((task, inputIndex) => ({ task, inputIndex, endAt: Math.max(task.startAt, task.endAt ?? now) }))
+      .filter(({ task, endAt }) => endAt >= t0 && task.startAt <= t1)
+      .map(({ task, inputIndex, endAt }) => {
+        const startAt = Math.max(task.startAt, t0);
+        const renderStart = Math.min(startAt, t1 - minimumDuration);
+        const renderEnd = Math.min(t1, Math.max(Math.min(endAt, t1), renderStart + minimumDuration));
+        return { task, inputIndex, startAt: renderStart, endAt: renderEnd };
+      })
+      .sort((left, right) => left.startAt - right.startAt || left.inputIndex - right.inputIndex);
+    const trackEnds: number[] = [];
+
+    for (const { task, startAt, endAt } of visibleTasks) {
+      let trackIndex = trackEnds.findIndex((trackEnd) => trackEnd <= startAt);
+      if (trackIndex < 0) {
+        trackIndex = trackEnds.length;
+        trackEnds.push(endAt);
+      } else {
+        trackEnds[trackIndex] = endAt;
+      }
+      taskLayouts.set(task.id, {
+        laneIndex,
+        laneTop,
+        trackIndex,
+        trackCenterY: RULER_H + laneTop + trackIndex * ROW_H + ROW_H / 2,
+        startAt,
+        endAt,
+        task,
+      });
+    }
+
+    const trackCount = Math.max(trackEnds.length, 1);
+    const height = trackCount * ROW_H;
+    laneLayouts.push({ top: laneTop, height, trackCount });
+    laneTop += height;
+  });
+
+  return { lanes: laneLayouts, tasks: taskLayouts, totalHeight: RULER_H + laneTop };
+}
 
 export function AgentLanes({
   lanes,
@@ -77,6 +188,14 @@ export function AgentLanes({
   const reducedMotion = useReducedMotion();
   const [liveNow, setLiveNow] = useState(() => nowMs ?? Date.now());
   const now = nowMs ?? liveNow;
+  const [rangeOverride, setRangeOverride] = useState<LaneRange | null>(null);
+  const autoRange = useMemo(() => defaultRangeFor(lanes, now), [lanes, now]);
+  const range = rangeOverride ?? autoRange;
+  const t1 = now;
+  const t0 = now - RANGE_MS[range];
+  const span = t1 - t0;
+  const trackRef = useRef<HTMLDivElement>(null);
+  const [trackWidth, setTrackWidth] = useState(640 - LABEL_COLUMN_W);
   const hasRunning = useMemo(() => lanes.some((lane) => lane.tasks.some((task) => task.endAt === null)), [lanes]);
 
   useEffect(() => {
@@ -85,82 +204,108 @@ export function AgentLanes({
     return () => clearInterval(timer);
   }, [nowMs, hasRunning]);
 
-  const taskIndex = useMemo(() => {
-    const index = new Map<string, { lane: number; task: AgentLaneTask }>();
-    lanes.forEach((lane, laneIndex) => {
-      for (const task of lane.tasks) index.set(task.id, { lane: laneIndex, task });
-    });
-    return index;
-  }, [lanes]);
+  useEffect(() => {
+    const element = trackRef.current;
+    if (element === null) return;
+    const measure = () => {
+      const width = element.getBoundingClientRect().width || element.clientWidth;
+      if (width > 0) setTrackWidth(Math.round(width));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
-  const { t0, t1 } = useMemo(() => {
-    const starts = lanes.flatMap((lane) => lane.tasks.map((task) => task.startAt));
-    const ends = lanes.flatMap((lane) => lane.tasks.map((task) => task.endAt ?? now));
-    if (starts.length === 0) return { t0: now - 300_000, t1: now };
-    const rawT0 = Math.min(...starts);
-    const rawT1 = Math.max(...ends, now);
-    const pad = Math.max((rawT1 - rawT0) * PAD_RATIO, 1_000);
-    return { t0: rawT0 - pad, t1: rawT1 + pad };
-  }, [lanes, now]);
-  const span = t1 - t0;
+  const layout = useMemo(() => layoutsFor(lanes, now, t0, t1, trackWidth), [lanes, now, t0, t1, trackWidth]);
   const pct = (at: number) => ((at - t0) / span) * 100;
-  const svgX = (at: number) => (pct(at) / 100) * SVG_W;
-  const laneCenterY = (lane: number) => RULER_H + lane * ROW_H + ROW_H / 2;
-  const totalH = RULER_H + lanes.length * ROW_H;
 
   const ticks = useMemo(() => {
-    const count = 5;
-    return Array.from({ length: count + 1 }, (_, index) => {
-      const at = t0 + (span / count) * index;
+    const step = tickStepFor(span);
+    const stepMs = step;
+    const first = Math.ceil(t0 / stepMs) * stepMs;
+    const output: { readonly at: number; readonly left: number; readonly label: string }[] = [];
+    for (let at = first; at <= now; at += stepMs) {
       const delta = at - now;
-      return {
+      output.push({
         at,
-        left: pct(at),
-        label:
-          Math.abs(delta) < span / count / 2
-            ? t("agentUi.lanes.now")
-            : `${delta < 0 ? "−" : "+"}${formatDuration(Math.abs(delta))}`,
-      };
-    });
+        left: ((at - t0) / span) * 100,
+        label: Math.abs(delta) < stepMs / 2 ? t("agentUi.lanes.now") : minuteLabel(delta),
+      });
+    }
+    return output;
   }, [t0, span, now]);
 
   const connections = useMemo(
     () =>
       handoffs
         .map((handoff) => {
-          const from = taskIndex.get(handoff.fromTaskId);
-          const to = taskIndex.get(handoff.toTaskId);
+          const from = layout.tasks.get(handoff.fromTaskId);
+          const to = layout.tasks.get(handoff.toTaskId);
           if (from === undefined || to === undefined) return null;
-          const x1 = svgX(from.task.endAt ?? now);
-          const y1 = laneCenterY(from.lane);
-          const x2 = svgX(to.task.startAt);
-          const y2 = laneCenterY(to.lane);
+          const fromAt = from.task.endAt ?? now;
+          const toAt = to.task.startAt;
+          const positionPct = (at: number) => Math.max(0, Math.min(100, ((at - t0) / span) * 100));
+          const fromLeft = positionPct(fromAt);
+          const toLeft = positionPct(toAt);
+          const x1 = (fromLeft / 100) * SVG_W;
+          const y1 = from.trackCenterY;
+          const x2 = (toLeft / 100) * SVG_W;
+          const y2 = to.trackCenterY;
           const dx = (x2 - x1) * 0.45;
           return {
             key: `${handoff.fromTaskId}->${handoff.toTaskId}`,
             label: handoff.label,
             d: `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`,
-            fromLeft: pct(from.task.endAt ?? now),
-            fromTop: laneCenterY(from.lane),
-            toLeft: pct(to.task.startAt),
-            toTop: laneCenterY(to.lane),
+            fromLeft,
+            fromTop: from.trackCenterY,
+            toLeft,
+            toTop: to.trackCenterY,
           };
         })
         .filter((connection): connection is NonNullable<typeof connection> => connection !== null),
-    [handoffs, taskIndex, now, span, t0],
+    [handoffs, layout, now, span, t0],
   );
 
-  const scaleBarWidthPct = (60_000 / span) * 100;
+  const scaleBarWidthPct = (MINUTES / span) * 100;
   const showScaleBar = scaleBarWidthPct >= 2 && scaleBarWidthPct <= 50;
+  const rangeOptions = TIME_RANGES.map((option) => ({
+    value: option.key,
+    label: t(option.label),
+    testId: testId !== undefined ? `${testId}-range-${option.key}` : undefined,
+  }));
 
   return (
     <div data-testid={testId} className="flex min-w-0 flex-col gap-1.5">
+      <SegCtl label={t("agentUi.lanes.rangeLabel")} value={range} onChange={setRangeOverride} options={rangeOptions} />
       <div className="overflow-x-auto">
         <div className="relative min-w-[640px]">
           <div className="flex">
-            <div className="w-36 shrink-0" />
-            <div className="relative min-w-0 flex-1" style={{ height: totalH }}>
-              {/* 时间轴比例尺 */}
+            <div
+              data-testid={testId !== undefined ? `${testId}-labels` : undefined}
+              className="w-36 shrink-0"
+              style={{ width: LABEL_COLUMN_W, height: layout.totalHeight }}
+            >
+              <div aria-hidden style={{ height: RULER_H }} />
+              {lanes.map((lane, laneIndex) => {
+                const laneLayout = layout.lanes[laneIndex]!;
+                return (
+                  <div key={lane.agentId} className="flex items-center pr-2" style={{ height: laneLayout.height }}>
+                    <span className="min-w-0 truncate font-semibold ui-micro text-text-muted">{lane.role}</span>
+                  </div>
+                );
+              })}
+            </div>
+            <div
+              ref={trackRef}
+              data-testid={testId !== undefined ? `${testId}-track` : undefined}
+              data-height={layout.totalHeight}
+              data-lane-track-count={Math.max(0, ...layout.lanes.map((lane) => lane.trackCount))}
+              className="relative min-w-0 flex-1"
+              style={{ height: layout.totalHeight }}
+            >
+              {/* 时间轴:刻度落在整分钟边界,窗口外区间从容器边缘开始/结束。 */}
               {ticks.map((tick) => (
                 <div
                   key={tick.at}
@@ -178,6 +323,7 @@ export function AgentLanes({
                 {ticks.map((tick) => (
                   <span
                     key={tick.at}
+                    data-testid={testId !== undefined ? `${testId}-tick-label` : undefined}
                     className="absolute -translate-x-1/2 whitespace-nowrap"
                     style={{ left: `${tick.left}%` }}
                   >
@@ -191,10 +337,10 @@ export function AgentLanes({
                 className="absolute w-px bg-accent"
                 style={{ left: `${pct(now)}%`, top: RULER_H - 4, bottom: 0, opacity: 0.55 }}
               />
-              {/* handoff 连线 */}
+              {/* handoff 连线按任务实际子轨中心定位 */}
               <svg
                 aria-hidden
-                viewBox={`0 0 ${SVG_W} ${totalH}`}
+                viewBox={`0 0 ${SVG_W} ${layout.totalHeight}`}
                 preserveAspectRatio="none"
                 className="absolute inset-0 size-full"
               >
@@ -221,7 +367,6 @@ export function AgentLanes({
                   </g>
                 ))}
               </svg>
-              {/* 连线端点(HTML 圆点,避免非均匀缩放压扁) */}
               {connections.flatMap((connection) => [
                 <span
                   key={`${connection.key}-from`}
@@ -236,100 +381,108 @@ export function AgentLanes({
                   style={{ left: `${connection.toLeft}%`, top: connection.toTop }}
                 />,
               ])}
-              {/* 泳道 */}
-              {lanes.map((lane, laneIndex) => (
-                <div key={lane.agentId}>
-                  <div
-                    aria-hidden
-                    className="absolute left-0 w-full border-t border-border"
-                    style={{ top: RULER_H + laneIndex * ROW_H, height: ROW_H }}
-                  />
-                  {lane.tasks.map((task) => {
-                    const startPct = pct(task.startAt);
-                    const endAt = task.endAt ?? now;
-                    const widthPct = Math.max(pct(endAt) - startPct, 0.6);
-                    const color = ACTIVITY_COLOR[task.status];
-                    const running = task.endAt === null;
-                    return (
-                      <div
-                        key={task.id}
-                        tabIndex={0}
-                        role="group"
-                        aria-label={
-                          t("agentUi.lanes.blockAria", {
-                            agent: lane.role,
-                            task: task.label,
-                            status: t(ACTIVITY_KEY[task.status]),
-                          }) + (task.awaiting !== undefined ? t("agentUi.lanes.awaitingSuffix") : "")
-                        }
-                        data-testid={testId !== undefined ? `${testId}-task-${task.id}` : undefined}
-                        data-lane-status={task.status}
-                        className="absolute flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border px-2"
-                        style={{
-                          left: `${startPct}%`,
-                          width: `${widthPct}%`,
-                          top: RULER_H + laneIndex * ROW_H + 7,
-                          height: ROW_H - 16,
-                          borderColor:
-                            task.awaiting !== undefined
-                              ? "color-mix(in oklch, var(--color-agent-question) 52%, transparent)"
-                              : `color-mix(in oklch, ${color} 45%, transparent)`,
-                          background: `color-mix(in oklch, ${color} 14%, transparent)`,
-                        }}
-                      >
-                        {running && (
-                          <motion.span
-                            aria-hidden
-                            className="size-[5px] shrink-0 rounded-full"
-                            style={{ background: color }}
-                            animate={reducedMotion ? undefined : { opacity: [0.45, 1, 0.45] }}
-                            transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
-                          />
-                        )}
-                        <span className="min-w-0 truncate ui-micro">{task.label}</span>
-                        {task.cacheTtl !== undefined && (
-                          <CacheTimer
-                            state={task.cacheTtl.state}
-                            remainingMs={task.cacheTtl.remainingMs}
-                            testId={testId !== undefined ? `${testId}-cache-${task.id}` : undefined}
-                          />
-                        )}
-                        {task.awaiting !== undefined && (
-                          <span className="ml-auto inline-flex shrink-0">
-                            <Button
-                              size="sm"
-                              tip={task.awaiting.question}
-                              testId={testId !== undefined ? `${testId}-resolve-${task.id}` : undefined}
-                              onClick={onResolveAwaiting !== undefined ? () => onResolveAwaiting(task.id) : undefined}
-                              disabled={onResolveAwaiting === undefined}
-                            >
-                              <ChatCircleDots aria-hidden />
-                              {t("agentUi.lanes.awaiting")}
-                            </Button>
-                          </span>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
+              {lanes.map((lane, laneIndex) => {
+                const laneLayout = layout.lanes[laneIndex]!;
+                return (
+                  <div key={lane.agentId}>
+                    <div
+                      aria-hidden
+                      className="absolute left-0 w-full border-t border-border"
+                      style={{ top: RULER_H + laneLayout.top, height: laneLayout.height }}
+                    />
+                    {lane.tasks.map((task) => {
+                      const placement = layout.tasks.get(task.id);
+                      if (placement === undefined) return null;
+                      const widthPct = Math.max(
+                        ((placement.endAt - placement.startAt) / span) * 100,
+                        (MIN_BLOCK_WIDTH_PX / Math.max(trackWidth, MIN_BLOCK_WIDTH_PX)) * 100,
+                      );
+                      const leftPct = Math.min(pct(placement.startAt), 100 - widthPct);
+                      const widthPx = (widthPct / 100) * trackWidth;
+                      const showDetails = widthPx >= READABLE_BLOCK_WIDTH_PX;
+                      const color = ACTIVITY_COLOR[task.status];
+                      const running = task.endAt === null;
+                      const baseAria = t("agentUi.lanes.blockAria", {
+                        agent: lane.role,
+                        task: task.label,
+                        status: t(ACTIVITY_KEY[task.status]),
+                      });
+                      const ariaLabel =
+                        baseAria +
+                        (task.awaiting !== undefined
+                          ? `${t("agentUi.lanes.awaitingSuffix")}: ${task.awaiting.question}`
+                          : "");
+                      return (
+                        <div
+                          key={task.id}
+                          tabIndex={0}
+                          role="group"
+                          title={ariaLabel}
+                          aria-label={ariaLabel}
+                          data-testid={testId !== undefined ? `${testId}-task-${task.id}` : undefined}
+                          data-lane-status={task.status}
+                          data-lane-track={placement.trackIndex}
+                          className={`absolute flex min-w-0 items-center gap-1.5 overflow-hidden rounded-sm border ${showDetails ? "px-2" : "justify-center px-0"}`}
+                          style={{
+                            left: `${leftPct}%`,
+                            width: `${widthPct}%`,
+                            minWidth: `${MIN_BLOCK_WIDTH_PX}px`,
+                            top: RULER_H + placement.laneTop + placement.trackIndex * ROW_H + 7,
+                            height: ROW_H - 14,
+                            borderColor:
+                              task.awaiting !== undefined
+                                ? "color-mix(in oklch, var(--color-agent-question) 52%, transparent)"
+                                : `color-mix(in oklch, ${color} 45%, transparent)`,
+                            background: `color-mix(in oklch, ${color} 14%, transparent)`,
+                          }}
+                        >
+                          {running ? (
+                            <motion.span
+                              aria-hidden
+                              className="size-[5px] shrink-0 rounded-full"
+                              style={{ background: color }}
+                              animate={reducedMotion ? undefined : { opacity: [0.45, 1, 0.45] }}
+                              transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+                            />
+                          ) : (
+                            <span
+                              aria-hidden
+                              className="size-[5px] shrink-0 rounded-full"
+                              style={{ background: color }}
+                            />
+                          )}
+                          {showDetails && <span className="min-w-0 truncate ui-micro">{task.label}</span>}
+                          {showDetails && task.cacheTtl !== undefined && (
+                            <CacheTimer
+                              state={task.cacheTtl.state}
+                              remainingMs={task.cacheTtl.remainingMs}
+                              testId={testId !== undefined ? `${testId}-cache-${task.id}` : undefined}
+                            />
+                          )}
+                          {showDetails && task.awaiting !== undefined && (
+                            <span className="ml-auto inline-flex shrink-0">
+                              <Button
+                                size="sm"
+                                tip={task.awaiting.question}
+                                testId={testId !== undefined ? `${testId}-resolve-${task.id}` : undefined}
+                                onClick={onResolveAwaiting !== undefined ? () => onResolveAwaiting(task.id) : undefined}
+                                disabled={onResolveAwaiting === undefined}
+                              >
+                                <ChatCircleDots aria-hidden />
+                                {t("agentUi.lanes.awaiting")}
+                              </Button>
+                            </span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
-          </div>
-          {/* 泳道标签列(叠在轨道左侧,随轨道同滚) */}
-          <div className="pointer-events-none absolute left-0 top-0 w-36">
-            {lanes.map((lane, laneIndex) => (
-              <div
-                key={lane.agentId}
-                className="absolute flex items-center pr-2"
-                style={{ top: RULER_H + laneIndex * ROW_H, height: ROW_H }}
-              >
-                <span className="min-w-0 truncate font-semibold ui-micro text-text-muted">{lane.role}</span>
-              </div>
-            ))}
           </div>
         </div>
       </div>
-      {/* 比例尺与图例 */}
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 ui-micro text-text-faint">
         {showScaleBar && (
           <span className="inline-flex items-center gap-1" aria-hidden>
