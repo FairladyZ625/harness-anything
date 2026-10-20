@@ -187,7 +187,30 @@ test("an infrastructure latch admits only a local unbound runtime rescue on a co
     (error: Error & { code?: string }) => error.code === "repo_unavailable",
   );
   assert.equal(launches.length, 1);
-  assert.equal(recoveryCalls.count, 2, "an incomplete cut cannot use the rescue path");
+  assert.equal(recoveryCalls.count, 3, "an incomplete cut cannot use the rescue path");
+
+  const uncertainRecovery = runtimePublicationContext({
+    repoId,
+    causeClass: "infrastructure",
+    recoveryCalls,
+    cut: { status: "ready", watermark: 7, sourceRevision: 7 },
+    revision: 7,
+    recoveryUncertain: true,
+  });
+  await assert.rejects(
+    enqueueRuntimePublication(
+      uncertainRecovery,
+      "runtime-run",
+      { kind: "runtime-spawn", taskId: null },
+      binding,
+      () => {
+        launches.push("uncertain-recovery-should-not-launch");
+        return {};
+      },
+    ),
+    (error: Error & { code?: string }) => error.code === "repo_unavailable",
+  );
+  assert.equal(launches.length, 1);
 });
 
 test("Git event-layout corruption cannot revoke SQLite acceptance or reads", async () => {
@@ -403,11 +426,13 @@ function runtimePublicationContext(input: {
   readonly recoveryCalls: { count: number };
   readonly cut: { readonly status: "ready" | "pending"; readonly watermark: number; readonly sourceRevision: number };
   readonly revision: number;
+  readonly recoveryUncertain?: boolean;
 }): RepoCellApiContext {
   const activeWriter = { workspaceId: input.repoId, generation: 1, ownerId: "latch-rescue-test" };
   return {
     mode: "local",
     state: "unavailable",
+    recoveryUncertain: input.recoveryUncertain ?? false,
     causeClass: input.causeClass,
     queueDepth: 0,
     tail: Promise.resolve(),

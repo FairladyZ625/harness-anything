@@ -23,7 +23,7 @@ import type {
   RuntimeInstanceSummary,
 } from "./agent-runtime-instance-types.ts";
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
-import { runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeDefaultEffort, runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
 
 export function migrateLegacyInstallationIdentities(
   instances: readonly RuntimeInstanceConfig[],
@@ -290,13 +290,14 @@ export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefine
 
 export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, bearerToken?: string): void {
   const provider = runtimeProviderConfig(config),
+    effort = provider.reasoningEffort ?? runtimeDefaultEffort(config.kindId),
     headers =
       bearerToken && provider.credentialHeader
         ? { ...(provider.httpHeaders ?? {}), [provider.credentialHeader]: bearerToken }
         : provider.httpHeaders,
     lines = [
       `model_provider = ${tomlString(config.providerId)}`,
-      ...(provider.reasoningEffort ? [`model_reasoning_effort = ${tomlString(provider.reasoningEffort)}`] : []),
+      ...(effort ? [`model_reasoning_effort = ${tomlString(effort)}`] : []),
       "allow_login_shell = false",
     ];
   if (config.providerId !== "openai" || bearerToken)

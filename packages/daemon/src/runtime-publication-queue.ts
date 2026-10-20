@@ -7,6 +7,27 @@ import type { RepoCellBinding, RepoTaskAction } from "./repo-cell-types.ts";
 import { chainRepoCellWrite } from "./repo-cell.ts";
 import { admitRepoMode } from "./repo-mode.ts";
 
+function mayRescueInfrastructureLatch(
+  context: RepoCellApiContext,
+  commandKind: "runtime-run" | "runtime-cancel" | "runtime-steer" | "runtime-handoff-claim",
+  policyAction: RepoTaskAction,
+  binding: RepoCellBinding,
+): boolean {
+  if (
+    context.state === "attached" ||
+    context.recoveryUncertain ||
+    context.causeClass !== "infrastructure" ||
+    commandKind !== "runtime-run" ||
+    policyAction.kind !== "runtime-spawn" ||
+    policyAction.taskId != null ||
+    binding.source !== "local"
+  )
+    return false;
+  const cut = context.projection.readCut(),
+    revision = context.store.readHead()?.revision ?? 0;
+  return cut.status === "ready" && cut.watermark === revision && cut.sourceRevision === revision;
+}
+
 // Spawn, cancellation, and runtime ingress share this writer-fenced publication boundary.
 export function enqueueRuntimePublication(
   context: RepoCellApiContext,
@@ -21,10 +42,12 @@ export function enqueueRuntimePublication(
   context.queueDepth += 1;
   const pending = chainRepoCellWrite(context.tail, async () => {
     context.queueDepth -= 1;
-    if (context.state !== "attached") await context.attemptRecovery();
+    const rescueLatch = mayRescueInfrastructureLatch(context, commandKind, policyAction, binding);
+    if (context.state !== "attached" && !rescueLatch) await context.attemptRecovery();
     const queuedAdmission = admitRepoMode(context.mode, command, binding.source);
     if (!queuedAdmission.ok) throw context.cellCodedError(queuedAdmission.code, queuedAdmission.nextAction);
-    if (context.state !== "attached") throw context.cellCodedError("repo_unavailable", context.latched());
+    if (context.state !== "attached" && !rescueLatch)
+      throw context.cellCodedError("repo_unavailable", context.latched());
     assertCurrentWriter(context.activeWriter, context.writerToken, context.input.repoId);
     // An executor claim is verified at the same writer cut that authorizes and executes it.
     const claimed = bindVerifiedExecutorClaim({
