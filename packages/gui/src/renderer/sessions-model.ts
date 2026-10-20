@@ -436,11 +436,15 @@ export function applyLifecycleEventsToSession(
       current = {
         ...current,
         liveness: "exited",
-        // 与 kernel runtimeSessionSemanticState 同一条规则:outcome 已知用 outcome 词,缺失/unknown 是 ended-indeterminate。
+        // 与 kernel runtimeSessionSemanticState 同一条规则:outcome 已知用 outcome 词,unknown 是
+        // ended-indeterminate,缺失(null)在非 live 会话上是 unavailable——本读面拿不到 outcome
+        // 证据,由下一次 daemon 投影读纠正。
         semanticState:
-          current.activity.outcome !== null && current.activity.outcome !== "unknown"
-            ? current.activity.outcome
-            : "ended-indeterminate",
+          current.activity.outcome === null
+            ? "unavailable"
+            : current.activity.outcome === "unknown"
+              ? "ended-indeterminate"
+              : current.activity.outcome,
         activity: { ...current.activity, lastObservedAt },
       };
     else if (lastObservedAt !== current.activity.lastObservedAt)
@@ -449,33 +453,45 @@ export function applyLifecycleEventsToSession(
   return current;
 }
 
+/** 单组补丁:只有组头 latestRound 的会话能定位到组;推进 latestActivityAt、按无歧义转换改
+ * latestStatus 并重算 runningCount(该轮在 running↔终态间翻转时 ±1),未命中返回原组引用。 */
+function applyLifecycleEventsToSessionGroup(
+  group: SessionGroup,
+  events: readonly SessionLifecycleEvent[],
+): SessionGroup {
+  const round = group.latestRound;
+  if (round === null) return group;
+  const owned = events.filter((event) => event.runtimeSessionId === round.runtimeSessionId);
+  if (owned.length === 0) return group;
+  let latestActivityAt = group.latestActivityAt,
+    latestStatus = group.latestStatus,
+    runningCount = group.runningCount;
+  for (const event of owned) {
+    if (event.occurredAt > latestActivityAt) latestActivityAt = event.occurredAt;
+    const next = LIFECYCLE_STATUS_TRANSITIONS[event.type];
+    if (next !== undefined && next !== latestStatus) {
+      runningCount += Number(next === "running") - Number(latestStatus === "running");
+      latestStatus = next;
+    }
+  }
+  return { ...group, latestActivityAt, latestStatus, runningCount, latestRound: { ...round, status: latestStatus } };
+}
+
 /**
- * 组级增量补丁:组 DTO 不携带成员会话清单,只有组头 latestRound 的会话能定位到组,
- * 补丁限定在该会话上——推进 latestActivityAt、按无歧义转换改 latestStatus 并重算
- * runningCount(该轮在 running↔终态间翻转时 ±1)。
+ * 组级增量补丁:组 DTO 不携带成员会话清单,补丁限定在 latestRound 会话命中的组上;
+ * 无组命中时返回原数组引用,避免 React Query 缓存无谓重渲(与会话级补丁同一口径)。
  */
 export function applyLifecycleEventsToSessionGroups(
   groups: readonly SessionGroup[],
   events: readonly SessionLifecycleEvent[],
 ): readonly SessionGroup[] {
-  return groups.map((group) => {
-    const round = group.latestRound;
-    if (round === null) return group;
-    const owned = events.filter((event) => event.runtimeSessionId === round.runtimeSessionId);
-    if (owned.length === 0) return group;
-    let latestActivityAt = group.latestActivityAt,
-      latestStatus = group.latestStatus,
-      runningCount = group.runningCount;
-    for (const event of owned) {
-      if (event.occurredAt > latestActivityAt) latestActivityAt = event.occurredAt;
-      const next = LIFECYCLE_STATUS_TRANSITIONS[event.type];
-      if (next !== undefined && next !== latestStatus) {
-        runningCount += Number(next === "running") - Number(latestStatus === "running");
-        latestStatus = next;
-      }
-    }
-    return { ...group, latestActivityAt, latestStatus, runningCount, latestRound: { ...round, status: latestStatus } };
+  let changed = false;
+  const next = groups.map((group) => {
+    const patched = applyLifecycleEventsToSessionGroup(group, events);
+    changed ||= patched !== group;
+    return patched;
   });
+  return changed ? next : groups;
 }
 
 /** 组展开行之一:一轮派工(一个 dispatchId 一轮),按 startedAt 倒序编号。 */

@@ -226,11 +226,16 @@ describe("生命周期增量补丁:会话", () => {
     expect(cancelled.activity.outcome).toBe("cancelled");
   });
 
-  it("exited:outcome 未知 → ended-indeterminate;已有 outcome 保留其词", () => {
-    const exitedUnknown = applyLifecycleEventsToSession(session(), [
+  it("exited:与 kernel runtimeSessionSemanticState 对齐——outcome 缺失 → unavailable,unknown → ended-indeterminate", () => {
+    const exitedMissing = applyLifecycleEventsToSession(session(), [
       event(2, "runtime_session_exited", "2026-10-20T12:02:00.000Z"),
     ]);
-    expect(exitedUnknown.liveness).toBe("exited");
+    expect(exitedMissing.liveness).toBe("exited");
+    expect(exitedMissing.semanticState).toBe("unavailable");
+    const exitedUnknown = applyLifecycleEventsToSession(
+      session({ activity: { ...session().activity, outcome: "unknown" } }),
+      [event(2, "runtime_session_exited", "2026-10-20T12:02:00.000Z")],
+    );
     expect(exitedUnknown.semanticState).toBe("ended-indeterminate");
     const exitedKnown = applyLifecycleEventsToSession(
       session({
@@ -282,13 +287,14 @@ describe("生命周期增量补丁:组", () => {
     expect(patched.latestRound?.status).toBe("ended-indeterminate");
   });
 
-  it("未命中的组保持同一引用(不触发无谓重渲)", () => {
+  it("未命中的组保持同一引用;无组命中时数组也保持原引用(集合级,不触发无谓重渲)", () => {
     const untouched = group({ key: "task-b", taskId: "task-b" });
-    expect(
-      applyLifecycleEventsToSessionGroups(
-        [untouched],
-        [event(1, "runtime_session_started", "2026-10-20T12:00:00.000Z")],
-      )[0],
-    ).toBe(untouched);
+    const groups = [runningGroup, untouched];
+    const patched = applyLifecycleEventsToSessionGroups(groups, [
+      event(1, "runtime_session_started", "2026-10-20T12:00:00.000Z", "rs-other"),
+    ]);
+    expect(patched[0]).toBe(runningGroup); // 有 round 但事件不归属它:同一引用
+    expect(patched[1]).toBe(untouched); // 无 round:同一引用
+    expect(patched).toBe(groups);
   });
 });
