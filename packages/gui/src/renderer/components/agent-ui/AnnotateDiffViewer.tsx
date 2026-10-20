@@ -339,6 +339,8 @@ function ActionBar({
   );
 }
 
+const MAX_DIFF_LINES = 500;
+
 export function AnnotateDiffViewer({
   files,
   mode = "unified",
@@ -394,6 +396,8 @@ export function AnnotateDiffViewer({
       {files.length === 0 && <Empty>{t("agentUi.diff.filesEmpty")}</Empty>}
       {files.map((file, fileIndex) => {
         const fileCount = annotations.filter((annotation) => annotation.filePath === file.filePath).length;
+        const renderedLines = file.lines.slice(0, MAX_DIFF_LINES);
+        const isTruncated = file.lines.length > MAX_DIFF_LINES;
         return (
           <section
             key={file.filePath}
@@ -412,13 +416,13 @@ export function AnnotateDiffViewer({
             <BoundedContent className="mt-2">
               {viewMode === "unified" ? (
                 <div role="region" aria-label={t("agentUi.diff.unifiedAria", { file: file.filePath })}>
-                  {file.lines.map((line, index) => (
+                  {renderedLines.map((line, index) => (
                     <UnifiedRow key={index} filePath={file.filePath} line={line} onAdd={openComposer} />
                   ))}
                 </div>
               ) : (
                 <div role="region" aria-label={t("agentUi.diff.splitAria", { file: file.filePath })}>
-                  {pairSplitRows(file.lines).map((row, index) => (
+                  {pairSplitRows(renderedLines).map((row, index) => (
                     <div key={index} className="flex min-w-0 gap-1">
                       <SplitCell filePath={file.filePath} line={row.old} side="old" onAdd={openComposer} />
                       <div aria-hidden className="w-px shrink-0 bg-border" />
@@ -428,6 +432,11 @@ export function AnnotateDiffViewer({
                 </div>
               )}
             </BoundedContent>
+            {isTruncated && (
+              <p data-testid="annotate-diff-truncated" className="mt-2 text-center font-mono ui-micro text-text-faint">
+                {t("agentUi.diff.truncated", { count: file.lines.length - MAX_DIFF_LINES })}
+              </p>
+            )}
             {composer !== null && composer.filePath === file.filePath && (
               <Composer
                 key={`${lineKey(composer.line)}-${annotations.length}`}

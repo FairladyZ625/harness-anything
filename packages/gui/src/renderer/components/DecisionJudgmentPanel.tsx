@@ -7,6 +7,8 @@ import {
 } from "../decision-actions.ts";
 import type { DecisionRow, RelationEdge } from "../model/types.ts";
 import { DecisionMutationFeedback as FeedbackView } from "./DecisionMutationFeedback.tsx";
+import { ApprovalCard, type ApprovalDecision, type ApprovalRisk } from "./agent-ui/ApprovalCard.tsx";
+import { Button } from "./primitives/Button.tsx";
 import { t } from "../i18n/index.tsx";
 
 export interface JudgmentOpenRequest {
@@ -81,84 +83,130 @@ export function DecisionJudgmentPanel({
     }
   };
 
+  const risk: ApprovalRisk = decision.riskTier === "high" ? "high" : decision.riskTier === "low" ? "low" : "medium";
+
+  const previewLines =
+    (decision.chosen ?? []).length > 0
+      ? decision.chosen.map((c) => `${c.id} | ${c.text}`)
+      : (decision.options ?? []).length > 0
+        ? (decision.options ?? []).map((o) => `${o.id} | ${o.text}`)
+        : [decision.question];
+
+  const decidedState: ApprovalDecision | null =
+    feedback?.state === "success"
+      ? {
+          verdict: action === "reject" ? "denied" : "approved",
+          at: new Date().toISOString(),
+          reason: "user",
+        }
+      : null;
+
   return (
-    <div className="mt-3 border-t border-border pt-3">
-      <div className="flex gap-2">
-        {(["accept", "reject", "defer"] as DecisionAction[]).map((item) => (
-          <button
-            key={item}
-            onClick={() => {
-              setAction(item);
-              setError(null);
-            }}
-            disabled={pending || (item === "accept" && acceptBlockedReason !== null)}
-            title={item === "accept" && acceptBlockedReason !== null ? acceptBlockedReason : undefined}
-            data-testid={`decision-judge-${item}`}
-            className={`inline-flex flex-1 items-center justify-center gap-1.5 rounded-md px-3 py-1.5 ui-meta font-semibold transition-colors duration-100 disabled:opacity-50 ${item === "accept" ? "bg-accent text-accent-fg hover:bg-accent/85" : "border border-border text-text hover:border-border-strong hover:bg-surface-raised"}`}
-          >
-            {item === "accept" ? (
-              <CheckCircle weight="bold" />
-            ) : item === "reject" ? (
-              <ProhibitInset weight="bold" />
-            ) : (
-              <ClockClockwise weight="bold" />
-            )}
-            {t(actionLabel[item])}
-          </button>
-        ))}
-      </div>
-      {acceptBlockedReason !== null && (
-        <p data-testid="decision-judge-accept-blocked" className="mt-1.5 ui-micro text-stale">
-          {acceptBlockedReason}
-        </p>
-      )}
-      {action && (
-        <div className="mt-2 rounded-md border border-border bg-surface-raised/50 p-2.5">
-          <label className="block ui-micro font-semibold text-text-muted">
-            {t("views.decisionsVerdict.actionRationaleLabel", { action: t(actionLabel[action]) })}
-          </label>
-          <textarea
-            value={rationale}
-            onChange={(event) => setRationale(event.target.value)}
-            placeholder={t("views.decisionsVerdict.rationalePlaceholder")}
-            rows={2}
-            maxLength={199}
-            disabled={pending}
-            className="mt-1 w-full rounded-md border border-border bg-surface p-2 ui-meta leading-relaxed text-text outline-none transition-colors duration-100 focus:border-accent"
-          />
-          {action === "accept" && !evidenceReachable && (
-            <label className="mt-2 block ui-micro font-semibold text-stale">
-              {t("views.decisionsVerdict.judgmentOnlyRationaleLabel")}
+    <div className="mt-3 border-t border-border pt-3" data-testid="decision-judgment-panel">
+      <ApprovalCard
+        title={decision.title}
+        summary={decision.question || decision.decisionId}
+        risk={risk}
+        previewLines={previewLines}
+        previewKind="changes"
+        decided={decidedState}
+        testId="decision-approval-card"
+        hideDefaultActions
+      >
+        <div className="flex flex-col gap-2 pt-1">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              testId="decision-judge-accept"
+              disabled={pending || acceptBlockedReason !== null}
+              tip={acceptBlockedReason ?? undefined}
+              onClick={() => {
+                setAction("accept");
+                setError(null);
+              }}
+            >
+              <CheckCircle weight="bold" aria-hidden />
+              {t("views.decisionsVerdict.accept")}
+            </Button>
+            <Button
+              variant="ghost"
+              testId="decision-judge-reject"
+              disabled={pending}
+              onClick={() => {
+                setAction("reject");
+                setError(null);
+              }}
+            >
+              <ProhibitInset weight="bold" aria-hidden />
+              {t("views.decisionsVerdict.reject")}
+            </Button>
+            <Button
+              variant="ghost"
+              testId="decision-judge-defer"
+              disabled={pending}
+              onClick={() => {
+                setAction("defer");
+                setError(null);
+              }}
+            >
+              <ClockClockwise weight="bold" aria-hidden />
+              {t("views.decisionsVerdict.defer")}
+            </Button>
+          </div>
+
+          {acceptBlockedReason !== null && (
+            <p data-testid="decision-judge-accept-blocked" className="ui-micro text-stale">
+              {acceptBlockedReason}
+            </p>
+          )}
+
+          {action && (
+            <div className="rounded-lg border border-border bg-surface-raised/50 p-2.5">
+              <label className="block ui-micro font-semibold text-text-muted">
+                {t("views.decisionsVerdict.actionRationaleLabel", { action: t(actionLabel[action]) })}
+              </label>
               <textarea
-                value={judgmentOnly}
-                onChange={(event) => setJudgmentOnly(event.target.value)}
-                placeholder={t("views.decisionsVerdict.judgmentOnlyPlaceholder")}
+                value={rationale}
+                onChange={(event) => setRationale(event.target.value)}
+                placeholder={t("views.decisionsVerdict.rationalePlaceholder")}
                 rows={2}
                 maxLength={199}
                 disabled={pending}
-                className="mt-1 w-full rounded-md border border-stale/50 bg-surface p-2 ui-meta leading-relaxed text-text outline-none transition-colors duration-100 focus:border-stale"
+                className="mt-1 w-full rounded-md border border-border bg-surface p-2 ui-meta leading-relaxed text-text outline-none transition-colors duration-100 focus:border-accent"
               />
-            </label>
+              {action === "accept" && !evidenceReachable && (
+                <label className="mt-2 block ui-micro font-semibold text-stale">
+                  {t("views.decisionsVerdict.judgmentOnlyRationaleLabel")}
+                  <textarea
+                    value={judgmentOnly}
+                    onChange={(event) => setJudgmentOnly(event.target.value)}
+                    placeholder={t("views.decisionsVerdict.judgmentOnlyPlaceholder")}
+                    rows={2}
+                    maxLength={199}
+                    disabled={pending}
+                    className="mt-1 w-full rounded-md border border-stale/50 bg-surface p-2 ui-meta leading-relaxed text-text outline-none transition-colors duration-100 focus:border-stale"
+                  />
+                </label>
+              )}
+              {error && <div className="mt-1 ui-micro text-danger">{error}</div>}
+              <div className="mt-2 flex justify-end gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  testId="decision-judge-cancel"
+                  onClick={() => setAction(null)}
+                  disabled={pending}
+                >
+                  {t("views.decisionsVerdict.cancel")}
+                </Button>
+                <Button variant="primary" size="sm" testId="decision-judge-submit" onClick={submit} disabled={pending}>
+                  {t("views.decisionsVerdict.confirmAction", { action: t(actionLabel[action]) })}
+                </Button>
+              </div>
+            </div>
           )}
-          {error && <div className="mt-1 ui-micro text-danger">{error}</div>}
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              onClick={() => setAction(null)}
-              disabled={pending}
-              className="rounded-md px-2 py-1 ui-micro text-text-faint transition-colors duration-100 hover:bg-surface-raised hover:text-text"
-            >
-              取消
-            </button>
-            <button
-              onClick={submit}
-              disabled={pending}
-              className="rounded-md bg-accent px-3 py-1 ui-micro font-semibold text-accent-fg transition-colors duration-100 hover:bg-accent/85 disabled:opacity-50"
-            >
-              {t("views.decisionsVerdict.confirmAction", { action: t(actionLabel[action]) })}
-            </button>
-          </div>
         </div>
-      )}
+      </ApprovalCard>
       <FeedbackView feedback={feedback} onCheckReceipt={onCheckReceipt} />
     </div>
   );

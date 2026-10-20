@@ -334,5 +334,11 @@
   "components.pageRegions.expandGroup": "Collapsed page regions",
   "components.repositoryRead.cut": "Local replica revision {revision} · last confirmed {at}",
   "components.repositoryRead.lastReported": "Runtime status is the last report, not current liveness.",
-  "components.repositoryRead.unavailable": "Some repository reads are unavailable; they do not represent empty data."
+  "components.repositoryRead.unavailable": "Some repository reads are unavailable; they do not represent empty data.",
+  "components.taskReturnDialog.title": "Return task",
+  "components.taskReturnDialog.feedbackLabel": "Rework feedback",
+  "components.taskReturnDialog.resumeSession": "Resume session",
+  "components.taskReturnDialog.freshWorker": "Fresh worker",
+  "components.taskReturnDialog.cancel": "Cancel",
+  "components.taskReturnDialog.diffReview": "Code change notes"
 }

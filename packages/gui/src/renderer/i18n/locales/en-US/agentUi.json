@@ -118,5 +118,6 @@
   "agentUi.diff.splitAria": "{file} split diff",
   "agentUi.diff.filesEmpty": "No diffs to annotate",
   "agentUi.diff.promptHeader": "Apply every note below ({count} in total) in one revision pass (handle everything in this round; do not reply note by note):",
-  "agentUi.diff.promptCommentLabel": "Note:"
+  "agentUi.diff.promptCommentLabel": "Note:",
+  "agentUi.diff.truncated": "{count} more diff lines truncated"
 }

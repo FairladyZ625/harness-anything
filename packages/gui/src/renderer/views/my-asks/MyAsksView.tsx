@@ -7,18 +7,17 @@ import { STATUS_META } from "../../components/badges.tsx";
 import type { SnapshotStatus } from "../../model/types.ts";
 import { DenseRow, RowTime } from "../../components/primitives/DenseRow.tsx";
 import { Drawer } from "../../components/primitives/Drawer.tsx";
-import { Empty } from "../../components/primitives/Empty.tsx";
 import { PageHeader } from "../../components/primitives/PageHeader.tsx";
-import { Region } from "../../components/primitives/Region.tsx";
 import { StatusTag, type StatusTone } from "../../components/primitives/StatusTag.tsx";
+import { Button } from "../../components/primitives/Button.tsx";
+import { AgentInbox, type InboxItem, type InboxLane } from "../../components/agent-ui/AgentInbox.tsx";
+import { ApprovalCard, type ApprovalRisk } from "../../components/agent-ui/ApprovalCard.tsx";
 import { useWorkBriefsQuery } from "./my-asks-data.ts";
 
 /**
- * 重构区「你交代的事」页(task_a3ffd5ceb;dec_C612E69B7C7E3480A5F9D2CAD3 CH1)。每行一件
- * 业主交代的事(一个工作根),只有三样:标题、状态、一句人话说明——全部由 daemon 读面
- * `repo.works.briefs.read` 从台账数据算出,GUI 只做本地化,不复制推导。排序等你在最上,
- * 其次卡住、在做;已完成折叠且只留近 7 天(过滤在读面)。首屏不出现 ID、revision 与计数
- * 统计;点行进单层抽屉看其下任务、PR 与评审,能就地办的(答复)直接开答复面板。
+ * 重构区「你交代的事」页(task_a3ffd5ceb;dec_C612E69B7C7E3480A5F9D2CAD3 CH1)。
+ * 接入 AgentInbox 统一收件箱（Needs you / Running / Done）与 ApprovalCard 人机裁决卡，
+ * 统一橙色提问态（--color-agent-question）与 FLIP 平滑状态归档动效。
  */
 export function MyAsksView({
   repoId,
@@ -37,10 +36,54 @@ export function MyAsksView({
     openBriefs = briefs.filter(({ bucket }) => bucket !== "done"),
     doneBriefs = briefs.filter(({ bucket }) => bucket === "done");
 
+  const inboxItems: readonly InboxItem[] = useMemo(() => {
+    const visibleBriefs = doneOpen ? briefs : openBriefs;
+    return visibleBriefs.map((brief) => {
+      const lane: InboxLane =
+        brief.bucket === "waiting" || brief.bucket === "stuck"
+          ? "needs-you"
+          : brief.bucket === "done"
+            ? "done"
+            : "running";
+      return {
+        id: brief.taskId,
+        testId: `my-asks-row-${brief.taskId}`,
+        title: brief.title,
+        lane,
+        updatedAt: brief.deliveredAt ?? brief.lastActivityAt,
+        note: sentenceOf(brief.sentenceParts),
+        recentSteps: [
+          ...brief.asks.map((ask) => `${t("views.myAsks.drawerAsks")}: ${ask.question}`),
+          ...brief.openTasks.map((task) => `${task.title} (${taskStatusLabel(task.status)})`),
+        ],
+        actions: [
+          ...(brief.asks.length > 0
+            ? [
+                {
+                  kind: "approve" as const,
+                  label: t("views.myAsks.actionAnswer"),
+                  onTrigger: () => {
+                    setDetail(brief);
+                    setPanel({ mode: "answer", row: brief.asks[0] });
+                  },
+                },
+              ]
+            : []),
+          {
+            kind: "open" as const,
+            label: t("views.myAsks.actionOpenWork"),
+            onTrigger: () => setDetail(brief),
+          },
+        ],
+        onSelect: () => setDetail(brief),
+      };
+    });
+  }, [briefs, doneOpen, openBriefs]);
+
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="my-asks-view">
       <PageHeader title={t("views.myAsks.title")} note={t("views.myAsks.note")} testId="my-asks-header" />
-      <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto p-1" data-testid="my-asks-board">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-4" data-testid="my-asks-board">
         {briefsQuery.error instanceof Error ? (
           <p role="alert" className="px-3.5 py-2 text-sm text-danger">
             {t("views.myAsks.readError", { message: briefsQuery.error.message })}
@@ -48,65 +91,21 @@ export function MyAsksView({
         ) : briefsQuery.data === undefined ? (
           <p className="px-3.5 py-2 text-sm text-text-muted">{t("views.myAsks.loading")}</p>
         ) : (
-          <>
-            <Region title={t("views.myAsks.regionOpen")}>
-              {openBriefs.length === 0 ? (
-                <div className="px-3.5 py-2">
-                  <Empty>{t("views.myAsks.emptyOpen")}</Empty>
-                </div>
-              ) : (
-                <div data-testid="my-asks-rows">
-                  {openBriefs.map((brief) => (
-                    <div key={brief.taskId} data-testid={`my-asks-row-${brief.taskId}`}>
-                      <DenseRow
-                        relaxed
-                        tag={<StatusTag tone={BUCKET_TONE[brief.bucket]} label={t(BUCKET_LABEL[brief.bucket])} />}
-                        title={brief.title}
-                        reason={sentenceOf(brief.sentenceParts)}
-                        onClick={() => setDetail(brief)}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
-            </Region>
-            {doneBriefs.length > 0 ? (
-              <Region
-                title={t("views.myAsks.regionDone")}
-                footer={
-                  <button
-                    type="button"
-                    data-testid="my-asks-done-toggle"
-                    onClick={() => setDoneOpen((open) => !open)}
-                    className="ml-auto text-accent underline-offset-2 hover:underline"
-                  >
-                    {doneOpen ? t("views.myAsks.doneCollapse") : t("views.myAsks.doneExpand")}
-                  </button>
-                }
-              >
-                {doneOpen ? (
-                  <div data-testid="my-asks-done-rows">
-                    {doneBriefs.map((brief) => (
-                      <div key={brief.taskId} data-testid={`my-asks-row-${brief.taskId}`}>
-                        <DenseRow
-                          relaxed
-                          tag={<StatusTag tone="done" label={t("views.myAsks.bucketDone")} />}
-                          title={brief.title}
-                          reason={sentenceOf(brief.sentenceParts)}
-                          time={brief.deliveredAt === null ? undefined : <RowTime at={brief.deliveredAt} />}
-                          onClick={() => setDetail(brief)}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="px-3.5 py-2">
-                    <Empty>{t("views.myAsks.doneFolded")}</Empty>
-                  </div>
-                )}
-              </Region>
-            ) : null}
-          </>
+          <div className="flex flex-col gap-3">
+            {doneBriefs.length > 0 && (
+              <div className="flex justify-end">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  testId="my-asks-done-toggle"
+                  onClick={() => setDoneOpen((open) => !open)}
+                >
+                  {doneOpen ? t("views.myAsks.doneCollapse") : t("views.myAsks.doneExpand")}
+                </Button>
+              </div>
+            )}
+            <AgentInbox items={inboxItems} testId="my-asks-inbox" />
+          </div>
         )}
       </div>
 
@@ -205,30 +204,35 @@ function BriefDetail({
       <h2 className="ui-title text-text">{brief.title}</h2>
       <p className="ui-meta text-text-muted">{sentenceOf(brief.sentenceParts)}</p>
       {brief.asks.length > 0 ? (
-        <section className="flex flex-col gap-1.5">
+        <section className="flex flex-col gap-2">
           <h3 className="font-mono ui-meta uppercase tracking-wide text-text-faint">{t("views.myAsks.drawerAsks")}</h3>
-          {brief.asks.map((ask) => (
-            <div key={ask.relationId} className="rounded-xs border border-border px-3 py-2">
-              <p className="text-sm text-text">{ask.question}</p>
-              <div className="mt-1.5 flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  data-testid={`my-asks-answer-${ask.relationId}`}
-                  onClick={() => onAnswer({ mode: "answer", row: ask })}
-                  className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
-                >
-                  {t("views.myAsks.actionAnswer")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onOpenTask(ask.sourceRef.replace(/^task\//u, ""))}
-                  className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
-                >
-                  {t("views.myAsks.actionOpenTask")}
-                </button>
+          {brief.asks.map((ask) => {
+            const risk: ApprovalRisk =
+              ask.askKind === "consent" ? "protected" : ask.askKind === "acceptance" ? "high" : "medium";
+            return (
+              <div
+                key={ask.relationId}
+                className="rounded-xl border border-agent-question-border bg-agent-question-surface/40 p-2.5"
+              >
+                <ApprovalCard
+                  title={ask.title}
+                  summary={ask.question}
+                  risk={risk}
+                  previewLines={[ask.question]}
+                  previewKind="changes"
+                  testId={`my-asks-ask-${ask.relationId}`}
+                  extraActions={
+                    <Button variant="ghost" size="sm" onClick={() => onOpenTask(ask.sourceRef.replace(/^task\//u, ""))}>
+                      {t("views.myAsks.actionOpenTask")}
+                    </Button>
+                  }
+                  approveLabel={t("views.myAsks.actionAnswer")}
+                  approveTestId={`my-asks-answer-${ask.relationId}`}
+                  onDecide={() => onAnswer({ mode: "answer", row: ask })}
+                />
               </div>
-            </div>
-          ))}
+            );
+          })}
         </section>
       ) : null}
       {brief.openTasks.length > 0 ? (
@@ -290,14 +294,9 @@ function BriefDetail({
         </section>
       ) : null}
       <div className="mt-1">
-        <button
-          type="button"
-          data-testid="my-asks-drawer-open-work"
-          onClick={() => onOpenTask(brief.taskId)}
-          className="h-7 rounded-xs border border-border bg-text/10 px-3 text-text-muted ui-meta hover:text-text"
-        >
+        <Button variant="plain" size="sm" testId="my-asks-drawer-open-work" onClick={() => onOpenTask(brief.taskId)}>
           {t("views.myAsks.actionOpenWork")}
-        </button>
+        </Button>
       </div>
     </div>
   );

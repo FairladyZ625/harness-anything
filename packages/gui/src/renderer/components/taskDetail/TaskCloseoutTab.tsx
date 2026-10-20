@@ -18,6 +18,8 @@ import { IdText } from "../IdText.tsx";
 import { EntityRefLink } from "../EntityRefLink.tsx";
 import { RecordRow } from "../primitives/RecordRow.tsx";
 import { Section } from "../primitives/Section";
+import { Button } from "../primitives/Button.tsx";
+import { AnnotateDiffViewer, type DiffFile } from "../agent-ui/AnnotateDiffViewer.tsx";
 import { TaskControlPanel } from "../TaskControlPanel.tsx";
 import { TaskGateAttestCard } from "./TaskGateAttestCard.tsx";
 import { ReadError, Timestamp } from "./TaskDetailSections.tsx";
@@ -53,6 +55,7 @@ export interface TaskActionProps {
 
 export function TaskCloseoutTab({
   task,
+  diffFiles,
   focusedRecordRef = null,
   mutationFeedback,
   onProgress,
@@ -64,6 +67,7 @@ export function TaskCloseoutTab({
   onNavigateEntity,
 }: {
   readonly task: TaskRow;
+  readonly diffFiles?: readonly DiffFile[];
   readonly focusedRecordRef?: string | null;
   readonly onNavigateEntity: (ref: string) => void;
 } & TaskActionProps) {
@@ -147,6 +151,7 @@ export function TaskCloseoutTab({
             </div>
             <CompletionPanel
               task={task}
+              diffFiles={diffFiles}
               completionBlocker={completion.data?.completionBlocker ?? null}
               onComplete={onComplete}
               onAdjudicate={onAdjudicate}
@@ -236,12 +241,14 @@ export function TaskCloseoutTab({
 function CompletionPanel({
   task,
   completionBlocker,
+  diffFiles,
   onComplete,
   onAdjudicate,
   onConsentReview,
 }: {
   readonly task: TaskRow;
   readonly completionBlocker: TaskCompletionRead["completionBlocker"];
+  readonly diffFiles?: readonly DiffFile[];
   readonly onComplete?: () => Promise<unknown>;
   readonly onAdjudicate?: (decision: "forward" | "return", reason: string, reviewId?: string) => Promise<unknown>;
   readonly onConsentReview?: (reviewId: string) => Promise<unknown>;
@@ -256,10 +263,8 @@ function CompletionPanel({
             ? ("ready" as const)
             : ("other" as const);
   if (!["submitted", "in_review"].includes(task.coordinationStatus) || stage === "other") return null;
-  const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1),
-    buttonClass =
-      "rounded-sm bg-accent px-2.5 py-1.5 ui-meta font-semibold text-accent-fg transition-colors duration-100 " +
-      "hover:bg-accent/85 disabled:opacity-50";
+  const approved = (task.reviews ?? []).filter((review) => review.verdict === "approved").at(-1);
+
   return (
     <section data-testid="task-completion-panel" className="rounded border border-accent/40 bg-accent/5 p-3">
       <h3 className="ui-body font-semibold text-text">完成销账</h3>
@@ -270,65 +275,70 @@ function CompletionPanel({
             ? "独立评审已批准:owner 终审批准即按已评审内容记录同意;同意后完成是纯机械动作。"
             : "终审批准已记录:结项是纯机械动作,立即封存。"}
       </p>
+      {diffFiles && diffFiles.length > 0 && (
+        <div className="mt-3">
+          <AnnotateDiffViewer
+            files={diffFiles}
+            onBatchSend={(prompt) => {
+              void onAdjudicate?.("return", prompt, approved?.reviewId);
+            }}
+          />
+        </div>
+      )}
       <div className="mt-3 flex flex-wrap gap-2">
         {task.coordinationStatus === "submitted" ? (
           <>
-            <button
-              type="button"
-              data-testid="task-triage-forward"
+            <Button
+              testId="task-triage-forward"
               disabled={!onAdjudicate}
+              variant="primary"
               onClick={() =>
                 void onAdjudicate?.("forward", "Owner initial review accepted this cut for independent review.")
               }
-              className={buttonClass}
             >
               送独立评审
-            </button>
-            <button
-              type="button"
-              data-testid="task-triage-return"
+            </Button>
+            <Button
+              testId="task-triage-return"
               disabled={!onAdjudicate}
+              variant="plain"
               onClick={() => void onAdjudicate?.("return", "Owner initial review returned this cut for rework.")}
-              className={buttonClass}
             >
               初审打回
-            </button>
+            </Button>
           </>
         ) : null}
         {task.coordinationStatus === "in_review" && approved ? (
-          <button
-            type="button"
-            data-testid="task-review-return"
+          <Button
+            testId="task-review-return"
             disabled={!onAdjudicate}
+            variant="plain"
             onClick={() =>
               void onAdjudicate?.("return", "Owner final review returned this cut for rework.", approved.reviewId)
             }
-            className={buttonClass}
           >
             终审打回
-          </button>
+          </Button>
         ) : null}
         {stage === "consent" ? (
-          <button
-            type="button"
-            data-testid="task-completion-consent"
+          <Button
+            testId="task-completion-consent"
             disabled={!onConsentReview || !approved}
+            variant="primary"
             onClick={() => approved && void onConsentReview?.(approved.reviewId)}
-            className={buttonClass}
           >
             终审批准
-          </button>
+          </Button>
         ) : null}
-        <button
-          type="button"
-          data-testid="task-completion-complete"
+        <Button
+          testId="task-completion-complete"
           disabled={stage !== "ready" || !onComplete}
-          title={stage === "ready" ? undefined : "先终审批准,再机械结项"}
+          tip={stage === "ready" ? undefined : "先终审批准,再机械结项"}
+          variant="primary"
           onClick={() => void onComplete?.()}
-          className={buttonClass}
         >
           机械结项
-        </button>
+        </Button>
       </div>
     </section>
   );
