@@ -1,16 +1,20 @@
-import { useCallback, useEffect, useRef, useState, type UIEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { consumeKnownError } from "../../../api/error-consumption.ts";
 import type { ObserveTailRead } from "../../../api/renderer-dto.ts";
 import { harnessClient } from "../../api-client.ts";
 import {
   sessionTranscriptTurns,
+  toolCallGroups,
   type SessionTranscriptTurn,
-  type SessionTranscriptItemType,
+  type ToolCallEntry,
+  type ToolCallGroup as ToolCallGroupModel,
 } from "../../session-transcript-model.ts";
 import { t } from "../../i18n/index.tsx";
 import { Card, CardBody, CardHead, CardTitle, LiveDot } from "../runtime/parts.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { ToolCallCard, ToolCallGroup } from "../agent-ui/ToolCallCard.tsx";
+import { ThinkingState } from "./ThinkingState.tsx";
 
 type DispatchCursorValue = Extract<NonNullable<ObserveTailRead["historyCursor"]>, { readonly kind: "dispatch" }>;
 type DispatchCursor = DispatchCursorValue | null;
@@ -21,6 +25,7 @@ export function SessionTranscript({
   live,
   onSettled,
   title,
+  onRetryToolCall,
 }: {
   readonly repoId: string;
   readonly dispatchId: string | null;
@@ -28,6 +33,7 @@ export function SessionTranscript({
   readonly onSettled: () => void;
   /** 给了标题就自带卡片:加载中或没有记录时整块不渲染(规范 1.5「空了就消失」)。 */
   readonly title?: string;
+  readonly onRetryToolCall?: (call: ToolCallEntry) => void;
 }) {
   const [records, setRecords] = useState<readonly Readonly<Record<string, unknown>>[]>([]),
     [historyCursor, setHistoryCursor] = useState<DispatchCursor>(null),
@@ -181,7 +187,7 @@ export function SessionTranscript({
           </Button>
         </div>
       )}
-      <SessionTranscriptTurns turns={turns} />
+      <SessionTranscriptTurns turns={turns} live={live} onRetry={onRetryToolCall} />
       <div
         className={
           "flex items-center gap-1.5 border-t border-border px-2.5 py-1.5 " + "font-mono ui-micro text-text-faint"
@@ -203,56 +209,103 @@ export function SessionTranscript({
   );
 }
 
-export function SessionTranscriptTurns({ turns }: { readonly turns: readonly SessionTranscriptTurn[] }) {
-  return turns.map((turn, index) => (
-    <details key={turn.key} data-testid="session-transcript-turn" className="border-b border-border last:border-0">
-      <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 ui-micro hover:bg-panel-soft">
-        <span className="font-mono ui-micro text-text-faint">{t("agentRuntime.transcriptTurn", { n: index + 1 })}</span>
-        <StatusTag
-          status={turn.status === "completed" ? "done" : turn.status === "failed" ? "blocked" : "active"}
-          mono
-          label={turn.status}
-        />
-        <span className="min-w-0 flex-1 truncate text-text-muted">{turn.items.at(-1)?.summary}</span>
-        <span className="font-mono ui-micro text-text-faint">{turn.items.length}</span>
-      </summary>
-      <div className="border-t border-border bg-panel-soft/35">
-        {turn.items.map((item) => (
-          <details
-            key={item.key}
-            data-testid={`session-transcript-${item.type}`}
-            className="border-b border-border/70 last:border-0"
-          >
-            <summary className="grid cursor-pointer grid-cols-[82px_minmax(0,1fr)] gap-2 px-3 py-1.5 ui-micro">
-              <span className={`font-mono uppercase ${ITEM_TONE[item.type]}`}>{t(ITEM_LABEL[item.type])}</span>
-              <span className="min-w-0 truncate">
-                {item.label === item.type ? item.summary : `${item.label} · ${item.summary}`}
-              </span>
-            </summary>
-            <pre className="rt-pre mx-3 mb-2 bounded-content overflow-auto whitespace-pre-wrap [overflow-wrap:anywhere]">
-              {item.detail}
-            </pre>
-          </details>
-        ))}
-      </div>
-    </details>
-  ));
-}
+export function SessionTranscriptTurns({
+  turns,
+  live = false,
+  onRetry,
+}: {
+  readonly turns: readonly SessionTranscriptTurn[];
+  readonly live?: boolean;
+  readonly onRetry?: (call: ToolCallEntry) => void;
+}) {
+  return turns.map((turn, index) => {
+    const groups = toolCallGroups([turn]);
+    const groupByFirstCallKey = new Map<string, ToolCallGroupModel>();
+    for (const group of groups) {
+      if (group.calls.length > 0) {
+        groupByFirstCallKey.set(group.calls[0]!.key, group);
+      }
+    }
 
-const ITEM_LABEL: Record<SessionTranscriptItemType, Parameters<typeof t>[0]> = {
-  thinking: "agentRuntime.transcriptThinking",
-  tool_call: "agentRuntime.transcriptToolCall",
-  tool_result: "agentRuntime.transcriptToolResult",
-  text: "agentRuntime.transcriptText",
-  error: "agentRuntime.transcriptError",
-};
-const ITEM_TONE: Record<SessionTranscriptItemType, string> = {
-  thinking: "text-status-unknown",
-  tool_call: "text-accent",
-  tool_result: "text-status-done",
-  text: "text-text-muted",
-  error: "text-status-blocked",
-};
+    const elements: ReactNode[] = [];
+    for (const item of turn.items) {
+      if (item.type === "tool_call") {
+        const group = groupByFirstCallKey.get(item.key);
+        if (group !== undefined) {
+          elements.push(
+            <div key={group.key} data-testid="session-transcript-tool_call" className="my-1.5 px-2.5">
+              {group.calls.length > 1 ? (
+                <ToolCallGroup group={group} onRetry={onRetry} />
+              ) : (
+                <ToolCallCard call={group.calls[0]!} onRetry={onRetry} />
+              )}
+            </div>,
+          );
+        }
+        continue;
+      }
+      if (item.type === "tool_result") {
+        // Paired into ToolCallCard result; do not render raw
+        continue;
+      }
+      if (item.type === "thinking") {
+        elements.push(
+          <div key={item.key} data-testid="session-transcript-thinking" className="my-1.5 px-2.5">
+            <ThinkingState thinking={item.detail} summary={item.summary} live={live && turn.status === "running"} />
+          </div>,
+        );
+        continue;
+      }
+      if (item.type === "text") {
+        elements.push(
+          <div
+            key={item.key}
+            data-testid="session-transcript-text"
+            className="my-1 px-3 py-1.5 ui-body text-text whitespace-pre-wrap [overflow-wrap:anywhere]"
+          >
+            {item.detail}
+          </div>,
+        );
+        continue;
+      }
+      if (item.type === "error") {
+        elements.push(
+          <div
+            key={item.key}
+            role="alert"
+            data-testid="session-transcript-error"
+            className="my-1.5 mx-2.5 rounded-md border border-danger/40 bg-danger/[0.06] px-3 py-2 ui-micro text-danger"
+          >
+            {item.detail}
+          </div>,
+        );
+      }
+    }
+
+    return (
+      <details
+        key={turn.key}
+        data-testid="session-transcript-turn"
+        className="border-b border-border last:border-0"
+        open
+      >
+        <summary className="flex cursor-pointer items-center gap-2 px-2.5 py-2 ui-micro hover:bg-panel-soft">
+          <span className="font-mono ui-micro text-text-faint">
+            {t("agentRuntime.transcriptTurn", { n: index + 1 })}
+          </span>
+          <StatusTag
+            status={turn.status === "completed" ? "done" : turn.status === "failed" ? "blocked" : "active"}
+            mono
+            label={turn.status}
+          />
+          <span className="min-w-0 flex-1 truncate text-text-muted">{turn.items.at(-1)?.summary}</span>
+          <span className="font-mono ui-micro text-text-faint">{turn.items.length}</span>
+        </summary>
+        <div className="border-t border-border bg-panel-soft/35 py-1.5">{elements}</div>
+      </details>
+    );
+  });
+}
 
 function replayRecords(items: ObserveTailRead["items"]): readonly Readonly<Record<string, unknown>>[] {
   return items.filter(isRecord) as readonly Readonly<Record<string, unknown>>[];

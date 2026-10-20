@@ -755,5 +755,7 @@
   "agentRuntime.squadRunLastReport": "Last report",
   "agentRuntime.daemonTransientRetry": "The center is switching builds or briefly unavailable; retry shortly.",
   "agentRuntime.loadMoreSessions": "Load more sessions",
-  "agentRuntime.loadingMoreSessions": "Loading more sessions…"
+  "agentRuntime.loadingMoreSessions": "Loading more sessions…",
+  "agentRuntime.copyThinking": "Copy thinking",
+  "agentRuntime.copyThinkingTip": "Copy the full thinking text"
 }

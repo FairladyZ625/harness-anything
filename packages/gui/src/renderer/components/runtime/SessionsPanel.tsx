@@ -15,6 +15,10 @@ import { KV, KVRow } from "../primitives/Fields.tsx";
 import { Empty } from "../primitives/Empty.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { StatusTag } from "../primitives/StatusTag.tsx";
+import { CacheTimer } from "../agent-ui/CacheTimer.tsx";
+import { ContextMeter, type ContextSegment } from "../agent-ui/ContextMeter.tsx";
+import type { PromptCacheTtlState } from "../../model/smart-attention.ts";
+import { useMemo } from "react";
 import type { SnapshotStatus } from "../../model/types";
 
 // Liveness vocabulary maps, not point comparisons: the daemon's liveness word decides the
@@ -45,6 +49,8 @@ export function SessionsPanel({
   onResume,
   onOpenTask,
   onNavigateEntity,
+  cacheTtl,
+  needsYou,
 }: {
   readonly repoId: string;
   readonly runtimeSessionId: string;
@@ -61,6 +67,8 @@ export function SessionsPanel({
   readonly onResume: (dispatchId: string) => Promise<void>;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
+  readonly cacheTtl?: PromptCacheTtlState | null;
+  readonly needsYou?: boolean;
 }) {
   const [session, setSession] = useState<AgentRuntimeSessionDto | null>(null),
     [result, setResult] = useState<string | null>(null),
@@ -96,6 +104,8 @@ export function SessionsPanel({
           taskTitles={taskTitles}
           decisionRefs={decisionRefs}
           result={result}
+          cacheTtl={cacheTtl}
+          needsYou={needsYou}
           transcript={
             <SessionTranscript
               repoId={repoId}
@@ -126,10 +136,27 @@ export function SessionsPanel({
 
 /** 会话消耗面板:该会话派工的输入/缓存读取/输出/总 Token、工具调用与 compaction 标记。 */
 function SessionMetricsCard({ metrics }: { readonly metrics: NonNullable<AgentRuntimeSessionDto["metrics"]> }) {
+  const segments: ContextSegment[] = [
+    { kind: "cache", label: t("agentRuntime.sessionMetricsCacheRead"), tokens: metrics.cacheReadTokens ?? 0 },
+    { kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: metrics.inputTokens ?? 0 },
+    { kind: "output", label: t("agentRuntime.sessionMetricsOutput"), tokens: metrics.outputTokens ?? 0 },
+  ].filter((s) => s.tokens > 0);
+
   return (
     <Card>
       <CardHead>
         <CardTitle>{t("agentRuntime.sessionMetricsTitle")}</CardTitle>
+        <div className="w-48 shrink-0">
+          <ContextMeter
+            segments={
+              segments.length > 0
+                ? segments
+                : [{ kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 }]
+            }
+            limitTokens={200_000}
+            testId="session-metrics-context-meter"
+          />
+        </div>
         {metrics.compacted === true && (
           <span data-testid="session-metrics-compacted">
             <StatusTag
@@ -179,6 +206,8 @@ export function SessionDetailView({
   onResume,
   onOpenTask,
   onNavigateEntity,
+  cacheTtl,
+  needsYou,
 }: {
   readonly session: AgentRuntimeSessionDto;
   readonly row: SessionRow | null;
@@ -193,6 +222,8 @@ export function SessionDetailView({
   readonly onResume: (dispatchId: string) => Promise<void>;
   readonly onOpenTask: (taskId: string) => void;
   readonly onNavigateEntity: (ref: string) => void;
+  readonly cacheTtl?: PromptCacheTtlState | null;
+  readonly needsYou?: boolean;
 }) {
   // 任务出口:组行携带 taskId 时用它(带标题),否则回落会话关联的第一个任务。
   const association = session.associations[0],
@@ -212,6 +243,22 @@ export function SessionDetailView({
     installationBadge = sessionInstallationBadge(session),
     resume = row?.kind === "round" ? row.resume : null;
   const [confirmResume, setConfirmResume] = useState(false);
+  const contextSegments: readonly ContextSegment[] = useMemo(() => {
+    if (!session.metrics || session.metrics.usageUnavailable) return [];
+    const m = session.metrics;
+    const segs: ContextSegment[] = [];
+    if (m.cacheReadTokens > 0) {
+      segs.push({ kind: "cache", label: t("agentRuntime.sessionMetricsCacheRead"), tokens: m.cacheReadTokens });
+    }
+    if (m.inputTokens > 0) {
+      segs.push({ kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: m.inputTokens });
+    }
+    if (m.outputTokens > 0) {
+      segs.push({ kind: "output", label: t("agentRuntime.sessionMetricsOutput"), tokens: m.outputTokens });
+    }
+    return segs;
+  }, [session.metrics]);
+
   return (
     <div data-testid="session-detail">
       <Card>
@@ -228,7 +275,11 @@ export function SessionDetailView({
               </EntityRefLink>
             )}
           </CardTitle>
-          <StatusTag status={LIVENESS_BADGE[session.liveness] ?? "unknown"} mono label={session.liveness} />
+          {needsYou ? (
+            <StatusTag tone="agent-question" mono label={t("agentRuntime.smartClassNeedsYou")} />
+          ) : (
+            <StatusTag status={LIVENESS_BADGE[session.liveness] ?? "unknown"} mono label={session.liveness} />
+          )}
           {installationBadge && (
             <StatusTag tone="neutral" mono tip={session.installationError?.hint} label={t(installationBadge)} />
           )}
@@ -252,6 +303,26 @@ export function SessionDetailView({
             title={session.runtimeSessionId}
             className="font-mono ui-micro text-text-faint hover:text-accent hover:underline"
           />
+          <div className="flex items-center gap-2" data-testid="session-detail-meters">
+            {cacheTtl != null && (
+              <CacheTimer
+                state={cacheTtl.kind}
+                remainingMs={cacheTtl.remainingMs}
+                testId="session-detail-cache-timer"
+              />
+            )}
+            <div className="w-36 shrink-0">
+              <ContextMeter
+                segments={
+                  contextSegments.length > 0
+                    ? contextSegments
+                    : [{ kind: "input", label: t("agentRuntime.sessionMetricsInput"), tokens: 0 }]
+                }
+                limitTokens={200_000}
+                testId="session-detail-context-meter"
+              />
+            </div>
+          </div>
           <Right>
             {LIVENESS_LIVE[session.liveness] && (
               <Button

@@ -32,8 +32,20 @@ import { SquadRunList } from "../components/sessions/SquadRunList.tsx";
 import { SquadRunDetail } from "../components/sessions/SquadRunDetail.tsx";
 import { SessionInspector } from "../components/sessions/SessionInspector.tsx";
 import { SessionsPanel } from "../components/runtime/SessionsPanel.tsx";
+import {
+  sortBySmartAttention,
+  computePromptCacheTtlState,
+  type SmartAttentionSignal,
+  type SmartAttentionStatus,
+} from "../model/smart-attention.ts";
+import { useOverviewSessionTouches } from "../overview-data.ts";
+import { useAgendaQuery } from "../agenda-data.ts";
+import type { RuntimeDockRow } from "../components/runtime/useRuntimeWorkspace.ts";
 import type { RelationEdge } from "../model/types.ts";
 import {
+  epochMsOf,
+  needsYouRefs,
+  sessionGroupNeedsYou,
   sessionDecisionRefs,
   sessionOrphans,
   sessionRounds,
@@ -69,8 +81,7 @@ const RANGE_SPAN: Readonly<Record<Range, number>> = { "24h": 86_400, "7d": 7 * 8
 // 的一次 `ha squad run` 是长生命周期单元,terminal run 只靠 latestActivityAt 过窗,
 // 默认 24h 会把已收敛/已失败的编排整段滤成无解释的空列表,默认放宽到 30d。
 const DEFAULT_RANGE: Readonly<Record<Segment, Range>> = { sessions: "24h", squads: "30d" };
-// 无显式选中时右侧落在第一条需要关注的会话(在跑/失败/丢失),没有则落最新一条。
-const ATTENTION_STATUSES: ReadonlySet<SessionStatus> = new Set(["running", "failed", "lost"]);
+
 const GROUP_ROWS_PENDING = { rounds: [] as readonly SessionRound[], orphans: [] as readonly SessionOrphan[] };
 const rangeToSince = (range: Range): string => {
   const span = RANGE_SPAN[range];
@@ -230,13 +241,6 @@ export function SessionsView({
   // 钻入复用 Agent/Squad 页现役的 useRelatedDispatches(同一条 sessionGroups 精确
   // 过滤 + 同一批 task.dispatches),不写第三份同形读。
   const related = useRelatedDispatches(repoId, drill);
-  // 工作层只是把 task 组按常驻索引归桶(groupBy=work 的读仍由 useSessionsWorkspace 映射到 task)。
-  const workGroups = useMemo(
-    () => (groupBy === "work" && drill === null ? sessionWorkGroups(groups, works) : []),
-    [groupBy, drill, groups, works],
-  );
-  const displayedGroups = drill === null ? groups : related.groups,
-    displayedTruncated = drill === null ? truncated : related.truncated;
   const runs = useMemo(() => workspace.squadRuns.data?.runs ?? [], [workspace.squadRuns.data]),
     runTotals = workspace.squadRuns.data?.totals ?? { runs: 0 };
 
@@ -340,10 +344,10 @@ export function SessionsView({
   // reviewDispatches),与决策池/详情共用同一缓存键;列表里有 Decision 组或落 Decision 会话深链时才读。
   const decisionGroupIds = useMemo(
     () =>
-      displayedGroups.flatMap((group) =>
+      (drill === null ? groups : related.groups).flatMap((group) =>
         group.kind === "decision" && group.decisionId !== undefined ? [group.decisionId] : [],
       ),
-    [displayedGroups],
+    [drill, groups, related.groups],
   );
   const decisionRowsQuery = useQuery({
     queryKey: triadicQueryKeys.decisions(repoId),
@@ -354,6 +358,52 @@ export function SessionsView({
   const reviewedDecisions = useMemo(
     () => adaptDecisionRows(decisionRowsQuery.data?.decisions ?? [], [], []),
     [decisionRowsQuery.data],
+  );
+  const agenda = useAgendaQuery(repoId);
+  const pendingDecisionIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of agenda.data?.awaitingDecision ?? []) ids.add(d.decisionId);
+    for (const d of agenda.data?.awaitingDecisionReview ?? []) ids.add(d.decisionId);
+    for (const d of reviewedDecisions) {
+      if (d.state === "proposed") ids.add(d.decisionId);
+    }
+    return [...ids];
+  }, [agenda.data, reviewedDecisions]);
+
+  const attentionRefs = useMemo(() => {
+    const awaitingYou = agenda.data?.awaitingYou ?? [];
+    const refs = new Set<string>(needsYouRefs(awaitingYou, pendingDecisionIds));
+    for (const edge of relations) {
+      if (edge.kind === "awaits" && edge.from) refs.add(edge.from);
+    }
+    return refs;
+  }, [agenda.data?.awaitingYou, pendingDecisionIds, relations]);
+
+  const groupSignal = useCallback(
+    (g: SessionGroup): SmartAttentionSignal => {
+      const needsYou = sessionGroupNeedsYou(g, attentionRefs);
+      const lastTurnActivityAt = epochMsOf(g.latestActivityAt);
+      return {
+        status: g.latestStatus,
+        needsYou,
+        lastTurnActivityAt,
+        settledAt:
+          g.latestStatus === "succeeded" || g.latestStatus === "failed" || g.latestStatus === "ended-indeterminate"
+            ? lastTurnActivityAt
+            : null,
+      };
+    },
+    [attentionRefs],
+  );
+
+  const dockRowSignal = useCallback(
+    (row: RuntimeDockRow): SmartAttentionSignal => ({
+      status: row.status as SmartAttentionStatus,
+      needsYou: attentionRefs.has(`task/${row.taskId}`),
+      lastTurnActivityAt: epochMsOf(row.endedAt) ?? epochMsOf(row.startedAt),
+      settledAt: epochMsOf(row.endedAt),
+    }),
+    [attentionRefs],
   );
   const decisionGroupRows = useMemo(() => {
     const rows = new Map<string, DecisionGroupRows>();
@@ -394,16 +444,23 @@ export function SessionsView({
     () => [...displayedRowsByGroup.values()].flatMap(({ rounds, orphans }) => [...rounds, ...orphans]),
     [displayedRowsByGroup],
   );
+  const sortedGroups = useMemo(() => sortBySmartAttention(groups, groupSignal, 0), [groups, groupSignal]);
+  const sortedRelatedGroups = useMemo(
+    () => sortBySmartAttention(related.groups, groupSignal, 0),
+    [related.groups, groupSignal],
+  );
+  const displayedGroups = drill === null ? sortedGroups : sortedRelatedGroups,
+    displayedTruncated = drill === null ? truncated : related.truncated;
+  const workGroups = useMemo(
+    () => (groupBy === "work" && drill === null ? sessionWorkGroups(sortedGroups, works) : []),
+    [groupBy, drill, sortedGroups, works],
+  );
+
   const defaultSessionId =
-      (
-        groups.find((group) => group.latestRound !== null && ATTENTION_STATUSES.has(group.latestStatus)) ??
-        groups.find((group) => group.latestRound !== null)
-      )?.latestRound?.runtimeSessionId ?? null,
+      sortedGroups.find((group) => group.latestRound !== null)?.latestRound?.runtimeSessionId ?? null,
     // 钻入后先落该执行者「最新需要关注的会话」;若当前深链会话不在其列,不让右侧停
-    // 在别的执行者上。dockRows 已按 startedAt 倒序。
-    drillDefaultSessionId =
-      (related.dockRows.find((row) => ATTENTION_STATUSES.has(row.status as SessionStatus)) ?? related.dockRows[0])
-        ?.runtimeSessionId ?? null,
+    // 在别的执行者上。dockRows 按五级注意力排序。
+    drillDefaultSessionId = sortBySmartAttention(related.dockRows, dockRowSignal, 0)[0]?.runtimeSessionId ?? null,
     focusedSessionVisible =
       focusedSessionId !== null &&
       (drill === null || related.dockRows.some((row) => row.runtimeSessionId === focusedSessionId)),
@@ -411,12 +468,46 @@ export function SessionsView({
       decisionFocus?.runtimeSessionId ??
       (focusedSessionVisible ? focusedSessionId : null) ??
       (drill === null ? defaultSessionId : drillDefaultSessionId);
+
   const selectedSession = useQuery({
     queryKey: runtimeQueryKeys.session(repoId, selectedSessionId ?? ""),
     queryFn: () => agentRuntimeClient.session(repoId, selectedSessionId!),
     enabled: selectedSessionId !== null,
     staleTime: 4_000,
   });
+
+  const touchSessionIds = useMemo(() => {
+    const ids = new Set<string>();
+    if (selectedSessionId) ids.add(selectedSessionId);
+    const now = Date.now();
+    for (const group of displayedGroups) {
+      const at = epochMsOf(group.latestActivityAt);
+      const isRecent = at !== null && now - at < 300_000;
+      if (group.latestRound?.runtimeSessionId && (group.runningCount > 0 || isRecent)) {
+        ids.add(group.latestRound.runtimeSessionId);
+      }
+    }
+    for (const row of allRows) {
+      const at = epochMsOf(row.endedAt) ?? epochMsOf(row.startedAt);
+      const isRecent = at !== null && now - at < 300_000;
+      if (row.status === "running" || isRecent) {
+        ids.add(row.runtimeSessionId);
+      }
+    }
+    return [...ids];
+  }, [selectedSessionId, displayedGroups, allRows]);
+
+  const sessionTouches = useOverviewSessionTouches(repoId, touchSessionIds);
+  const hasCacheTouches = useMemo(() => [...sessionTouches.values()].some((touch) => touch !== null), [sessionTouches]);
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!hasCacheTouches) return;
+    const timer = setInterval(() => setNowMs(Date.now()), 1_000);
+    return () => clearInterval(timer);
+  }, [hasCacheTouches]);
+
+  const selectedTouch = selectedSessionId ? (sessionTouches.get(selectedSessionId) ?? null) : null;
+  const selectedSessionTtl = useMemo(() => computePromptCacheTtlState(selectedTouch, nowMs), [selectedTouch, nowMs]);
   // 深链补展开只对该 session 焦点应用一次(G12 §1a):ref 记住已应用的
   // focusedSessionId,之后的组数据刷新/维度切换不再把 groupBy/range 压回深链值——
   // 用户切到 Squad/Agent/时间维度时不再被弹回 Task。
@@ -457,6 +548,12 @@ export function SessionsView({
   const selectedRow =
     selectedSessionId === null ? null : (allRows.find((row) => row.runtimeSessionId === selectedSessionId) ?? null);
   const selectedTaskId = selectedRow?.taskId ?? selectedSession.data?.session.associations[0]?.taskId ?? null;
+  const selectedSessionNeedsYou = useMemo(() => {
+    if (selectedSessionId === null) return false;
+    if (selectedTaskId !== null && attentionRefs.has(`task/${selectedTaskId}`)) return true;
+    if (decisionFocus?.decisionId != null && attentionRefs.has(`decision/${decisionFocus.decisionId}`)) return true;
+    return false;
+  }, [selectedSessionId, selectedTaskId, decisionFocus, attentionRefs]);
   const siblings =
     selectedRow === null
       ? []
@@ -822,6 +919,9 @@ export function SessionsView({
             workExpandedKeys={workExpandedKeys}
             onToggleWork={toggleWork}
             railHeader={drillHeader}
+            sessionTouches={sessionTouches}
+            attentionRefs={attentionRefs}
+            nowMs={nowMs}
           />
           <main
             data-testid="sessions-detail"
@@ -866,6 +966,8 @@ export function SessionsView({
                   }}
                   onOpenTask={onOpenTask}
                   onNavigateEntity={onSelectEntity}
+                  cacheTtl={selectedSessionTtl}
+                  needsYou={selectedSessionNeedsYou}
                 />
               </>
             )}
