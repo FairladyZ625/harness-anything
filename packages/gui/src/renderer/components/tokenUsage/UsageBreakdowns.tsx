@@ -354,7 +354,7 @@ export function UsageWorth({ data }: { readonly data: AgentRuntimeTokenUsageResu
             <li key={row.outcome} className="flex items-center gap-1.5">
               <span
                 aria-hidden="true"
-                className="size-2.5 rounded-[2px]"
+                className="size-2.5 rounded-xs"
                 style={{ background: usageOutcomeColor[row.outcome] }}
               />
               <span className="text-text-muted">{t(usageOutcomeKey[row.outcome])}</span>

@@ -98,6 +98,20 @@
   --color-status-unknown: oklch(0.78 0.12 25);
   --color-status-archived: oklch(0.7 0.05 75);
 
+  /* Orca 注意力色彩语义(dec_C0AF8CBBFFECF71F4F34FB76F9 CH1 / stablyai/orca STYLEGUIDE):
+     --color-agent-question 采用高辨识度独立橙色(OKLch 50°),专用于 awaits_answer / 阻塞等待人类拍板,
+     与后台执行中(status-active 青蓝 215°)色相显著拉开(差值 ≥60°),与等人裁决/评审中(status-in-review 琥珀 75°)
+     同属「等人」语义族。衍生包含 -surface(半透明表面)、-border(半透明边框)与 -text(高对比文字)。
+     后台执行中统一沿用本仓既有青蓝 --color-status-active,不另造独立色(CEO 裁定 F2)。 */
+  --color-agent-question: oklch(0.76 0.18 50);
+  --color-agent-question-surface: color-mix(in oklch, var(--color-agent-question) 14%, transparent);
+  --color-agent-question-border: color-mix(in oklch, var(--color-agent-question) 36%, transparent);
+  --color-agent-question-text: oklch(0.88 0.12 50);
+
+  /* 语义墨水与画布别名 (用于 Orca 选区高亮计算) */
+  --color-ink: var(--color-text);
+  --color-canvas: var(--color-bg);
+
   /* 唯一行动强调色：closeoutReadiness=ready 与主操作 */
   --color-accent: oklch(0.8 0.13 195);
   --color-accent-fg: oklch(0.18 0.02 195);
@@ -137,17 +151,17 @@
 
   --color-success: oklch(0.78 0.13 150);
 
-  /* S2 视觉基础(dec_B3D40712A6B050D83F1C2EF78D CH3):锐利圆角,token 全程 2-4px。
-     Tailwind v4 的 rounded-* 工具类全部读本档;md/lg/xl 从默认 6/8/12px 收进
-     3/3/4px,存量调用点零改动换锐利语言。rounded-full(圆点/胶囊)不受此档约束。 */
-  --radius-xs: 2px;
-  --radius-sm: 3px;
-  --radius-md: 3px;
-  --radius-lg: 4px;
-  --radius-xl: 4px;
-  --radius-2xl: 4px;
-  --radius-3xl: 4px;
-  --radius-4xl: 4px;
+  /* 现代温润圆角体系(dec_C0AF8CBBFFECF71F4F34FB76F9 CH1 废止旧 2-4px S2 锐利圆角条款):
+     控件 6-8px、卡片 10-12px、浮层 14-16px、大浮层 20-32px。
+     Tailwind v4 的 rounded-* 工具类全部读取本档,存量 52 个视图与卡片、弹窗自动完成现代换肤。 */
+  --radius-xs: 6px;
+  --radius-sm: 6px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
+  --radius-3xl: 24px;
+  --radius-4xl: 32px;
 
   /* 玻璃层级:半透明面 + 发丝描边 + 内高光。大面积面板档(.glass)自 2026-10-18 二轮
      (task_5c651ff17b698ff2bce7e6affa)起不再带 backdrop-filter:实测只要有任一循环
@@ -199,6 +213,15 @@ html[data-theme="light"] {
   --color-status-cancelled: oklch(0.6 0.01 285);
   --color-status-unknown: oklch(0.55 0.15 25);
   --color-status-archived: oklch(0.62 0.04 75);
+
+  /* Orca 注意力色彩语义(浅色主题自适应:调校 Lightness/Chroma,保深浅色对比度等价合规) */
+  --color-agent-question: oklch(0.60 0.18 48);
+  --color-agent-question-surface: color-mix(in oklch, var(--color-agent-question) 12%, transparent);
+  --color-agent-question-border: color-mix(in oklch, var(--color-agent-question) 32%, transparent);
+  --color-agent-question-text: oklch(0.48 0.18 48);
+
+  --color-ink: var(--color-text);
+  --color-canvas: var(--color-bg);
 
   --color-accent: oklch(0.58 0.12 195);
   --color-accent-fg: oklch(0.99 0.005 195);
@@ -699,7 +722,7 @@ button:disabled,
 }
 *::-webkit-scrollbar-thumb {
   background: var(--color-border-strong);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 *::-webkit-scrollbar-thumb:hover {
   background: var(--color-text-faint);
@@ -715,6 +738,22 @@ button:disabled,
 
 html[data-theme="light"] ::selection {
   background: oklch(0.85 0.06 250);
+}
+
+/*
+ * 浅色模式下列表行/浮层选区高亮配方(dec_C0AF8CBBFFECF71F4F34FB76F9 CH1 / Orca STYLEGUIDE):
+ * 防御浅底 popover/dialog/list 面板上选区游标消失。仅挂载到显式 opt-in 类 .selection-row 上,
+ * 严禁使用全局无类限定的 [data-selected] 选择器,保护 DenseRow / DayDigest 既有 accent 选中态(F1)。
+ * 配方: color-mix(in srgb, var(--color-ink) 12%, var(--color-canvas)) + 内描边高亮。
+ */
+.selection-row {
+  background: color-mix(in srgb, var(--color-ink) 8%, var(--color-canvas));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 16%, transparent);
+}
+
+html[data-theme="light"] .selection-row {
+  background: color-mix(in srgb, var(--color-ink) 12%, var(--color-canvas));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-ink) 20%, transparent);
 }
 
 /* 文档阅读区排版（react-markdown 输出）。
@@ -1343,7 +1382,7 @@ html[data-theme="light"] ::selection {
   inline-size: 1.35rem;
   block-size: 0;
   border-top: 2px solid var(--color-status-done);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 .fleet-legend--lag .fleet-legend-key {
   border-color: var(--color-stale);

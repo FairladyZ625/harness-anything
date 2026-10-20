@@ -3,10 +3,9 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 /**
- * S2 视觉基础(dec_B3D40712A6B050D83F1C2EF78D CH3):锐利圆角(2-4px)、玻璃层级
- * (backdrop-filter 模糊与饱和度、描边、内高光)、状态色竖线、环境光层与
- * prefers-reduced-motion 全局关闭。权威样张是业主认可的 overview-prototype.html v4
- * (`:root` 变量、`.tile`、`.focus`、`.scrim`、`#liquid` 滤镜)。
+ * 现代视觉基础(dec_C0AF8CBBFFECF71F4F34FB76F9 CH1 废止旧 dec_B3D40712A6B050D83F1C2EF78D 的 2-4px 限制):
+ * 现代温润圆角体系(6-16px+)、Orca 独立注意力色彩 Token(--color-agent-question 橙色,
+ * 显著区分于后台青蓝 status-active)、浅色选区 color-mix 防御配方、发丝描边与玻璃层级。
  */
 const styles = readFileSync("src/renderer/styles.css", "utf8");
 const pkg = JSON.parse(readFileSync("package.json", "utf8")) as {
@@ -54,26 +53,61 @@ function radiusTokens(): Record<string, number> {
   return tokens;
 }
 
-describe("visual foundation: sharp radius tokens (2-4px)", () => {
-  it("defines the full radius scale inside the token range", () => {
+describe("visual foundation: modern warm radius tokens (6-16px, dec_C0AF8CBBFFECF71F4F34FB76F9)", () => {
+  it("defines the full 8-tier modern radius scale matching the decision contract", () => {
     const tokens = radiusTokens();
-    for (const name of ["xs", "sm", "md", "lg", "xl", "2xl", "3xl", "4xl"]) {
-      expect(tokens[name], `--radius-${name}`).toBeDefined();
+    const expectedTiers: Record<string, number> = {
+      xs: 6,
+      sm: 6,
+      md: 8,
+      lg: 12,
+      xl: 16,
+      "2xl": 20,
+      "3xl": 24,
+      "4xl": 32,
+    };
+    for (const [name, expectedPx] of Object.entries(expectedTiers)) {
+      expect(tokens[name], `--radius-${name}`).toBe(expectedPx);
     }
+    // 现代温润圆角体系底线:全部 8 档必须 >= 6px,彻底告别 2-4px 锐利限制
     for (const [name, px] of Object.entries(tokens)) {
-      expect(px, `--radius-${name}=${px}px`).toBeGreaterThanOrEqual(2);
-      expect(px, `--radius-${name}=${px}px`).toBeLessThanOrEqual(4);
+      expect(px, `--radius-${name}=${px}px >= 6px`).toBeGreaterThanOrEqual(6);
     }
   });
 
-  it("leaves no oversized border-radius literal in styles.css", () => {
-    const oversized: string[] = [];
+  it("strictly enforces controls (6-8px), cards (10-12px), and overlays (14-16px) tier contracts", () => {
+    const tokens = radiusTokens();
+    // 控件档位 6-8px
+    expect(tokens.sm).toBeGreaterThanOrEqual(6);
+    expect(tokens.sm).toBeLessThanOrEqual(8);
+    expect(tokens.md).toBeGreaterThanOrEqual(6);
+    expect(tokens.md).toBeLessThanOrEqual(8);
+
+    // 卡片档位 10-12px
+    expect(tokens.lg).toBeGreaterThanOrEqual(10);
+    expect(tokens.lg).toBeLessThanOrEqual(12);
+
+    // 浮层档位 14-16px
+    expect(tokens.xl).toBeGreaterThanOrEqual(14);
+    expect(tokens.xl).toBeLessThanOrEqual(16);
+  });
+
+  it("negative contract: rejects legacy sharp 2-4px radius tokens", () => {
+    const tokens = radiusTokens();
+    const legacyValues = new Set([2, 3, 4]);
+    for (const [name, px] of Object.entries(tokens)) {
+      expect(legacyValues.has(px), `--radius-${name}=${px}px must not be in legacy 2-4px set`).toBe(false);
+    }
+  });
+
+  it("negative contract: leaves no deprecated 2-4px border-radius pixel literals in styles.css", () => {
+    const legacyLiterals: string[] = [];
     for (const match of styles.matchAll(/border-radius:\s*([^;]+);/gu)) {
       const value = (match[1] ?? "").trim();
       const px = /^([\d.]+)px$/u.exec(value)?.[1];
-      if (px && Number(px) > 4) oversized.push(value);
+      if (px && Number(px) <= 4) legacyLiterals.push(value);
     }
-    expect(oversized).toEqual([]);
+    expect(legacyLiterals).toEqual([]);
   });
 });
 
@@ -259,5 +293,99 @@ describe("visual foundation: A8 prose text wrap", () => {
     // 作用域阴性对照:全文件 text-wrap 只允许这三处,不落到表格/密集列表。
     const wraps = [...styles.matchAll(/text-wrap:\s*([\w-]+)/gu)].map((match) => match[1]);
     expect(wraps).toEqual(["balance", "pretty", "auto"]);
+  });
+});
+
+describe("visual foundation: Orca attention color tokens (dec_C0AF8CBBFFECF71F4F34FB76F9)", () => {
+  function parseOklch(str: string): { l: number; c: number; h: number } | null {
+    const match = /oklch\(\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*[\d.]+%?)?\s*\)/u.exec(str);
+    if (!match) return null;
+    return { l: Number(match[1]), c: Number(match[2]), h: Number(match[3]) };
+  }
+
+  it("defines --color-agent-question and its derivatives in both dark and light themes without re-inventing working colors", () => {
+    const theme = blockBody(/@theme\s*\{/u);
+    const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
+
+    // Dark theme
+    expect(theme).toMatch(/--color-agent-question:\s*oklch\(/u);
+    expect(theme).toMatch(/--color-agent-question-surface:/u);
+    expect(theme).toMatch(/--color-agent-question-border:/u);
+    expect(theme).toMatch(/--color-agent-question-text:/u);
+
+    // Light theme
+    expect(light).toMatch(/--color-agent-question:\s*oklch\(/u);
+    expect(light).toMatch(/--color-agent-question-surface:/u);
+    expect(light).toMatch(/--color-agent-question-border:/u);
+    expect(light).toMatch(/--color-agent-question-text:/u);
+
+    // 运行态后台执行沿用既有青蓝 status-active，不再定义独立 agent-working 色相 (CEO F2)
+    expect(styles).not.toMatch(/--color-agent-working/u);
+  });
+
+  it("distinguishes agent-question orange (~50deg) from status-active cyan-blue (215deg) by at least 60deg in both dark and light themes", () => {
+    const theme = blockBody(/@theme\s*\{/u);
+    const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
+
+    const darkQ = parseOklch(theme.match(/--color-agent-question:\s*([^;]+);/u)?.[1] ?? "")!;
+    const darkActive = parseOklch(theme.match(/--color-status-active:\s*([^;]+);/u)?.[1] ?? "")!;
+    const lightQ = parseOklch(light.match(/--color-agent-question:\s*([^;]+);/u)?.[1] ?? "")!;
+    const lightActive = parseOklch(light.match(/--color-status-active:\s*([^;]+);/u)?.[1] ?? "")!;
+
+    expect(darkQ, "dark question token oklch").not.toBeNull();
+    expect(darkActive, "dark active token oklch").not.toBeNull();
+    expect(lightQ, "light question token oklch").not.toBeNull();
+    expect(lightActive, "light active token oklch").not.toBeNull();
+
+    // 提问态为独立橙色相 (45-55 deg)
+    expect(darkQ.h).toBeGreaterThanOrEqual(45);
+    expect(darkQ.h).toBeLessThanOrEqual(55);
+    expect(lightQ.h).toBeGreaterThanOrEqual(45);
+    expect(lightQ.h).toBeLessThanOrEqual(55);
+
+    // 提问橙与运行中青蓝(215 deg)保持显著区分(色相差 ≥60 deg)
+    expect(Math.abs(darkQ.h - darkActive.h)).toBeGreaterThanOrEqual(60);
+    expect(Math.abs(lightQ.h - lightActive.h)).toBeGreaterThanOrEqual(60);
+  });
+
+  it("ensures dark and light theme contrast compliance on text derivatives", () => {
+    const theme = blockBody(/@theme\s*\{/u);
+    const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
+
+    const darkQText = parseOklch(theme.match(/--color-agent-question-text:\s*([^;]+);/u)?.[1] ?? "")!;
+    const lightQText = parseOklch(light.match(/--color-agent-question-text:\s*([^;]+);/u)?.[1] ?? "")!;
+
+    // 暗色模式文字明度足够高 (L >= 0.85) 保可读
+    expect(darkQText.l).toBeGreaterThanOrEqual(0.85);
+
+    // 亮色模式文字明度足够深 (L <= 0.50) 保对白底有充足对比度
+    expect(lightQText.l).toBeLessThanOrEqual(0.5);
+  });
+
+  it("defines ink/canvas aliases and Orca light mode selection color-mix recipe on .selection-row", () => {
+    const theme = blockBody(/@theme\s*\{/u);
+    const light = blockBody(/html\[data-theme="light"\]\s*\{/u);
+
+    // ink / canvas aliases
+    expect(theme).toMatch(/--color-ink:/u);
+    expect(theme).toMatch(/--color-canvas:/u);
+    expect(light).toMatch(/--color-ink:/u);
+    expect(light).toMatch(/--color-canvas:/u);
+
+    // 选区配方: 挂载到显式 opt-in 类 .selection-row，color-mix(in srgb, var(--color-ink) 12%, var(--color-canvas)) + 内描边
+    expect(styles).toMatch(
+      /\.selection-row\s*\{[^}]*color-mix\(in srgb,\s*var\(--color-ink\)\s*8%,\s*var\(--color-canvas\)\)/su,
+    );
+    expect(styles).toMatch(
+      /html\[data-theme="light"\]\s+\.selection-row\s*\{[^}]*color-mix\(in srgb,\s*var\(--color-ink\)\s*12%,\s*var\(--color-canvas\)\)/su,
+    );
+    expect(styles).toMatch(/box-shadow:\s*inset 0 0 0 1px/u);
+  });
+
+  it("does not define unconstrained [data-selected] selectors in styles.css to protect DenseRow/DayDigest accent selection (F1)", () => {
+    // 浅色防御配方仅挂载到显式 opt-in 类 .selection-row，styles.css 严禁包含无类限定的 [data-selected] 选择器
+    expect(styles).not.toMatch(/(?:^|,|\n)\s*\[data-selected/u);
+    expect(styles).not.toMatch(/\[data-selected="true"\]/u);
+    expect(styles).not.toMatch(/\.list-row-selected/u);
   });
 });

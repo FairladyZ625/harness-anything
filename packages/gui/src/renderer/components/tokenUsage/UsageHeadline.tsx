@@ -126,7 +126,7 @@ export function UsageHeadline({ data }: { readonly data: AgentRuntimeTokenUsageR
                 <dt className="flex items-center gap-1.5 ui-meta text-text-muted">
                   <span
                     aria-hidden="true"
-                    className="size-2.5 shrink-0 rounded-[2px]"
+                    className="size-2.5 shrink-0 rounded-xs"
                     style={{ background: tokenKindColor[kind] }}
                   />
                   <span className="truncate">{t(tokenKindKey[kind])}</span>

@@ -204,7 +204,7 @@ function ShareLegendRow({
       <>
         <span
           aria-hidden="true"
-          className="size-2.5 shrink-0 self-center rounded-[2px]"
+          className="size-2.5 shrink-0 self-center rounded-xs"
           style={entry.arcLength > 0 ? { background: entry.color } : { boxShadow: `inset 0 0 0 1px ${entry.color}` }}
         />
         <span className="min-w-0 flex-1 truncate ui-meta text-text" title={entry.title}>
