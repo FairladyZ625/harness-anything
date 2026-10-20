@@ -49,7 +49,11 @@ export function createEdgeJoinProgressTap(): {
 export interface EdgeJoinClientPorts {
   /** The person signed in on this daemon, if any. */
   readonly session: () => Promise<
-    { readonly accessToken: string; readonly authority: { readonly url: string; readonly realm: string } } | undefined
+    | {
+        readonly accessToken: string;
+        readonly authority: { readonly url: string; readonly realm: string; readonly certificate?: string };
+      }
+    | undefined
   >;
   readonly beginLogin: (authority: OidcLoginAuthority) => Promise<Record<string, unknown>>;
   readonly register: (rootDir: string, repoId: string) => Promise<unknown>;
@@ -72,10 +76,20 @@ export async function joinFleetEdge(
     throw Object.assign(new Error("The invitation has no token; ask for a new invitation."), {
       code: "edge_join_invalid",
     });
-  const authority = { url: link.loginUrl, realm: link.loginRealm, clientId: link.loginClientId },
+  const authority = {
+      url: link.loginUrl,
+      realm: link.loginRealm,
+      clientId: link.loginClientId,
+      ...(link.loginCertificate ? { certificate: link.loginCertificate } : {}),
+    },
     session = await ports.session();
-  // A session for another Keycloak would be rejected by the center; sign in to the invitation's.
-  if (!session || session.authority.url !== authority.url || session.authority.realm !== authority.realm)
+  // An invitation CA is authoritative when present; public-trust invitations leave CA rotation unpinned.
+  if (
+    !session ||
+    session.authority.url !== authority.url ||
+    session.authority.realm !== authority.realm ||
+    (link.loginCertificate !== undefined && session.authority.certificate !== link.loginCertificate)
+  )
     return { ...(await ports.beginLogin(authority)), command: "edge-join" };
   const center = new URL(link.centerOrigin),
     port = Number(center.port || 443),

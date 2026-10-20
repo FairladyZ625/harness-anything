@@ -36,7 +36,13 @@ export interface DaemonAuthenticationContext {
     readonly subject: string;
     readonly expiresAt: number;
     readonly accessToken: string;
-    readonly authority: { readonly url: string; readonly realm: string; readonly clientId: string };
+    readonly authority: {
+      readonly url: string;
+      readonly realm: string;
+      readonly clientId: string;
+      /** Public CA root selected by the invitation; used only for matching that invitation on reuse. */
+      readonly certificate?: string;
+    };
   };
   /** Resolves the bound local login token at use time; never supplied by a fleet client. */
   readonly localSessionAccessToken?: () => Promise<string>;
