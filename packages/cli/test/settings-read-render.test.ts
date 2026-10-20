@@ -74,4 +74,73 @@ test("settings read states the runtime allowlist and what an unset or empty one 
     empty.text,
     /^runtime\.allowedInstances: none — every dispatch is rejected .*--runtime-allowed-instance/mu,
   );
+
+  const unset = renderCliReceipt({
+    ok: true,
+    command: "settings-read",
+    outcome: "applied",
+    summary: "settings-read: applied",
+    settings: { worktree: { setup: ["node-modules"] } },
+    lastChanged: "initial",
+  });
+  assert.match(unset.text, /^runtime\.allowedInstances: not set — every dispatch is rejected .*\bha init\b/mu);
+});
+
+test("settings read renders every set nested field, including role preferences", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "settings-read",
+    outcome: "applied",
+    summary: "settings-read: applied",
+    settings: { roles: { defaultReviewer: "deepseek-reviewer" } },
+    lastChanged: "initial",
+  });
+
+  assert.match(rendered.text, /^roles\.defaultReviewer: deepseek-reviewer$/mu);
+});
+
+test("settings read renders multi-level nested fields as one dotted line each", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "settings-read",
+    outcome: "applied",
+    summary: "settings-read: applied",
+    settings: {
+      fleet: { claim: { scope: "reserved" } },
+      closeout: { profile: "strict", overrides: { review: true, consent: false } },
+    },
+    lastChanged: "initial",
+  });
+
+  assert.match(rendered.text, /^fleet\.claim\.scope: reserved$/mu);
+  assert.match(rendered.text, /^closeout\.profile: strict$/mu);
+  assert.match(rendered.text, /^closeout\.overrides\.review: true$/mu);
+  assert.match(rendered.text, /^closeout\.overrides\.consent: false$/mu);
+});
+
+test("settings read prints unset nested fields not at all, in the settings object's key order", () => {
+  const rendered = renderCliReceipt({
+    ok: true,
+    command: "settings-read",
+    outcome: "applied",
+    summary: "settings-read: applied",
+    settings: {
+      schema: "settings/v1",
+      defaultVertical: "software/coding",
+      roles: { defaultWorker: "zcode-glm" },
+      agenda: { pinLimit: 12 },
+      worktree: { setup: ["node-modules"] },
+    },
+    lastChanged: "initial",
+  });
+
+  assert.deepEqual(rendered.text.split("\n"), [
+    "settings-read: applied",
+    "roles.defaultWorker: zcode-glm",
+    "agenda.pinLimit: 12",
+    "worktree.setup: node-modules",
+    "runtime.allowedInstances: not set — every dispatch is rejected " +
+      "(run ha init or ha settings update --runtime-allowed-instance <id>)",
+    "lastChanged=initial",
+  ]);
 });
