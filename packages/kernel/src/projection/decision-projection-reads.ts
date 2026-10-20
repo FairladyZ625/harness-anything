@@ -28,6 +28,26 @@ import { queryRows, type ProjectionSqlRow } from "./rebuildable-task-projection-
 import { checkedPageLimit, decodePageCursor, encodePageCursor, type ProjectionPage } from "./task-query-projection.ts";
 import { readRelationProjectionRows, readRelationProjectionRowsTargetingEntity } from "./relation-entity-projection.ts";
 
+const decisionIdSortAlphabet = [
+    ...new Set([..."-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"].map((c) => c.toLowerCase())),
+  ].sort((left, right) => left.localeCompare(right)),
+  decisionIdSortRanks = new Map(decisionIdSortAlphabet.map((character, rank) => [character, rank])),
+  lowercaseSortWeight = "a".localeCompare("A") < 0 ? "!" : '"',
+  uppercaseSortWeight = lowercaseSortWeight === "!" ? '"' : "!";
+
+/** Encodes the ASCII identifier collation used by localeCompare into a SQLite BINARY-sortable key. */
+export function decisionIdSortKey(decisionId: string): string {
+  const primary: string[] = [],
+    caseWeight: string[] = [];
+  for (const character of decisionId) {
+    const rank = decisionIdSortRanks.get(character.toLowerCase());
+    if (rank === undefined) throw new Error(`decision id contains unsupported character ${JSON.stringify(character)}`);
+    primary.push(String.fromCharCode(33 + rank));
+    caseWeight.push(character >= "A" && character <= "Z" ? uppercaseSortWeight : lowercaseSortWeight);
+  }
+  return `${primary.join("")} ${caseWeight.join("")}`;
+}
+
 export function readDecisionRow(db: DatabaseSync, decisionId: string, withBody = true): DecisionProjectionRow | null {
   return readDecisionRows(db, [decisionId], withBody)[0] ?? null;
 }
@@ -324,6 +344,7 @@ function listDecisionRowsPageFromIndex(
   const pageLimit = filters.limit === undefined ? 100 : checkedPageLimit(filters.limit),
     cursorId = filters.cursor === undefined ? undefined : decodePageCursor(filters.cursor, 1)[0]!,
     cursorLegacyNumber = cursorId === undefined ? null : decisionLegacyNumber(cursorId),
+    cursorSortKey = cursorId === undefined ? "" : decisionIdSortKey(cursorId),
     legacyWhere = ["legacy_number IS NOT NULL", ...where],
     legacyValues: (string | number)[] = [...values];
 
@@ -339,32 +360,34 @@ function listDecisionRowsPageFromIndex(
     legacyValues.push(filters.legacyRange.start, filters.legacyRange.end);
   }
 
-  const cursorBoundary: readonly [number, string] =
+  if (cursorId !== undefined && cursorLegacyNumber === null) legacyWhere.push("0");
+  const cursorBoundary: readonly [number, string, string] =
       cursorId === undefined
-        ? [0, ""]
+        ? [0, "", ""]
         : cursorLegacyNumber === null
-          ? [Number.MAX_SAFE_INTEGER, "\uffff"]
-          : [cursorLegacyNumber, cursorId],
+          ? [0, "", ""]
+          : [cursorLegacyNumber, cursorSortKey, cursorId],
     legacyBranch = [
-      "SELECT * FROM (SELECT decision_id, legacy_number, decision_id AS tie FROM decision",
-      `WHERE ${[...legacyWhere, "(legacy_number, decision_id) > (?, ?)"].join(" AND ")}`,
-      "ORDER BY legacy_number, decision_id LIMIT ?)",
+      "SELECT * FROM (SELECT decision_id, legacy_number, decision_sort_key, decision_id AS tie FROM decision",
+      `WHERE ${[...legacyWhere, "(legacy_number, decision_sort_key, decision_id) > (?, ?, ?)"].join(" AND ")}`,
+      "ORDER BY legacy_number, decision_sort_key, decision_id LIMIT ?)",
     ].join(" ");
   legacyValues.push(...cursorBoundary, pageLimit + 1);
 
   const branches = [legacyBranch],
     queryValues: (string | number)[] = [...legacyValues];
   if (!filters.legacyId && filters.legacyRange === undefined) {
-    const plainWhere = ["legacy_number IS NULL", ...where, "decision_id > ?"],
-      plainCursor = cursorLegacyNumber === null && cursorId !== undefined ? cursorId : "";
+    const plainWhere = ["legacy_number IS NULL", ...where, "(decision_sort_key, decision_id) > (?, ?)"],
+      plainCursor = cursorLegacyNumber === null && cursorId !== undefined ? cursorId : "",
+      plainBoundary = cursorLegacyNumber === null && cursorId !== undefined ? cursorSortKey : "";
     branches.push(
       [
-        "SELECT * FROM (SELECT decision_id, NULL AS legacy_number, decision_id AS tie FROM decision",
+        "SELECT * FROM (SELECT decision_id, NULL AS legacy_number, decision_sort_key, decision_id AS tie FROM decision",
         `WHERE ${plainWhere.join(" AND ")}`,
-        "ORDER BY decision_id LIMIT ?)",
+        "ORDER BY decision_sort_key, decision_id LIMIT ?)",
       ].join(" "),
     );
-    queryValues.push(...values, plainCursor, pageLimit + 1);
+    queryValues.push(...values, plainBoundary, plainCursor, pageLimit + 1);
   }
 
   const raw = queryRows<{ readonly decision_id: string }>(
@@ -372,7 +395,7 @@ function listDecisionRowsPageFromIndex(
       [
         "SELECT decision_id FROM (",
         branches.join(" UNION ALL "),
-        ") ORDER BY legacy_number IS NULL, legacy_number, tie LIMIT ?",
+        ") ORDER BY legacy_number IS NULL, legacy_number, decision_sort_key, tie LIMIT ?",
       ].join(" "),
       ...queryValues,
       pageLimit + 1,

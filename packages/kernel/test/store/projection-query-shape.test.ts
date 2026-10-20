@@ -5,6 +5,7 @@ import test from "node:test";
 import { REPLAY_TASK_GRAPH } from "../../src/domain/task-graph.ts";
 import {
   createDecisionProjectionTables,
+  decisionIdSortKey,
   listDecisionAgendaRowsPage,
   listDecisionRowsPage,
   readDecisionGraphRows,
@@ -116,7 +117,7 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
   const applies = JSON.stringify({ modules: ["kernel"], productLines: [] }),
     proposer = JSON.stringify({ principal: { personId: "shape" }, executor: null });
   const insertDecision = db.prepare(
-    "INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?)",
+    "INSERT INTO decision(decision_id,decision_sort_key,state,title,question,risk_tier,urgency,vertical,preset,decision_class,applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) VALUES (?, ?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?)",
   );
   const insertOption = db.prepare("INSERT INTO decision_option VALUES (?, 'chosen', ?, 0, ?, NULL, ?)");
   const insertClaim = db.prepare("INSERT INTO decision_claim VALUES (?, ?, 0, ?, 1, 'evidenced', ?, NULL)");
@@ -164,7 +165,15 @@ function seed(db: DatabaseSync, decisions: number, facts: number): void {
     const decisionId = `dec_SHAPE_${String(index).padStart(5, "0")}`,
       root = `decision/${decisionId}`,
       claimRef = `${root}/C1`;
-    insertDecision.run(decisionId, `Decision ${index}`, `Should ${index} ship?`, applies, proposer, index + 1);
+    insertDecision.run(
+      decisionId,
+      decisionIdSortKey(decisionId),
+      `Decision ${index}`,
+      `Should ${index} ship?`,
+      applies,
+      proposer,
+      index + 1,
+    );
     insertOption.run(decisionId, "O1", `option ${index}`, index + 1);
     insertClaim.run(decisionId, "C1", `claim ${index}`, index + 1);
     // Every claim reaches a live Fact, so the coverage walk does real work rather than exiting early.
@@ -356,8 +365,14 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
     const decisionIds = [
       "dec_E2_shape-z",
       "dec_E2_shape-a",
+      "dec_E2_shape-A",
+      "dec_E2_shape_a",
       "dec_E1_shape",
       "dec_E10_shape",
+      "dec_a-",
+      "dec_a_",
+      "dec_Ab",
+      "dec_aD",
       "dec_alpha",
       "dec_10",
       "dec_2",
@@ -370,6 +385,10 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
           ({ name }) => name,
         ),
       ),
+      derivedColumns = [
+        ...(columns.has("legacy_number") ? ["legacy_number"] : []),
+        ...(columns.has("decision_sort_key") ? ["decision_sort_key"] : []),
+      ],
       insert = db.prepare(
         `INSERT INTO decision (${[
           "decision_id",
@@ -387,12 +406,10 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
           "proposed_at",
           "decided_at",
           "workspace_revision",
-          ...(columns.has("legacy_number") ? ["legacy_number"] : []),
+          ...derivedColumns,
         ].join(
           ",",
-        )}) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?${
-          columns.has("legacy_number") ? ", ?" : ""
-        })`,
+        )}) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?${derivedColumns.map(() => ", ?").join("")})`,
       );
     const expectedLegacyNumber = (decisionId: string): number | null => {
       const match = /(?:^|_)E([1-9][0-9]*)(?:_|$)/u.exec(decisionId);
@@ -408,6 +425,7 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
         index + 1,
       ];
       if (columns.has("legacy_number")) parameters.push(expectedLegacyNumber(decisionId));
+      if (columns.has("decision_sort_key")) parameters.push(decisionIdSortKey(decisionId));
       insert.run(...parameters);
     }
 
@@ -456,7 +474,7 @@ test("decision pages preserve the legacy id order while seeking both indexed blo
 
     const statement = counted.prepared().find((sql) => sql.includes("UNION ALL") && sql.includes("decision_id"));
     assert.ok(statement, "paged decision ids are selected in one SQL statement");
-    const plan = queryPlan(db, { sql: statement!, args: [0, "", 3, "", 3, 3] });
+    const plan = queryPlan(db, { sql: statement!, args: [0, "", "", 3, "", "", 3, 3] });
     assert.match(plan, /SEARCH decision USING (?:COVERING )?INDEX legacy_block/u);
     assert.match(plan, /SEARCH decision USING (?:COVERING )?INDEX plain_block/u);
     assert.doesNotMatch(plan, /SCAN decision\b/u);

@@ -5,6 +5,7 @@ import test from "node:test";
 import { coverageOf } from "../../src/domain/decision-coverage.ts";
 import {
   createDecisionProjectionTables,
+  decisionIdSortKey,
   decisionCoverage,
   readDecisionGraphRows,
 } from "../../src/projection/decision-event-projection.ts";
@@ -59,12 +60,13 @@ function ledger() {
     ) {
       const version = next(`decision/${decisionId}`);
       db.prepare(
-        "INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class," +
+        "INSERT INTO decision(decision_id,decision_sort_key,state,title,question,risk_tier,urgency,vertical,preset,decision_class," +
           "applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) " +
-          "VALUES (?, ?, 'title', 'question', 'high', 'medium', 'coverage', 'default', ?, ?, ?, NULL, " +
+          "VALUES (?, ?, ?, 'title', 'question', 'high', 'medium', 'coverage', 'default', ?, ?, ?, NULL, " +
           "'2026-09-11T00:00:00.000Z', NULL, ?)",
       ).run(
         decisionId,
+        decisionIdSortKey(decisionId),
         options.state ?? "in_effect",
         options.decisionClass ?? "ordinary",
         JSON.stringify({ modules: ["kernel"], productLines: [] }),

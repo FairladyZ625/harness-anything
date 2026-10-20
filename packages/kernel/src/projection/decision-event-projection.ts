@@ -13,6 +13,7 @@ export { createDecisionProjectionTables } from "./decision-projection-schema.ts"
 export { assertDecisionAdmission } from "./decision-projection-admission.ts";
 export { reduceDecisionEvent, refreshDecisionDocumentSearch } from "./decision-projection-reducer.ts";
 export {
+  decisionIdSortKey,
   decisionLegacyId,
   decisionLegacyNumber,
   listDecisionAgendaRowsPage,

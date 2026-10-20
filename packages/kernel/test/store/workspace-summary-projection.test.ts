@@ -7,7 +7,7 @@ import { isDomainStatus } from "../../src/domain/lifecycle-status.ts";
 import { summarizeWorkspace, workspaceTaskStatus, type WorkspaceSummary } from "../../src/domain/workspace-summary.ts";
 import type { PackageDisposition } from "../../src/domain/package-disposition.ts";
 import type { DecisionState } from "../../src/domain/decision-event.ts";
-import { createDecisionProjectionTables } from "../../src/projection/decision-projection-schema.ts";
+import { createDecisionProjectionTables, decisionIdSortKey } from "../../src/projection/decision-event-projection.ts";
 import { createRelationGraphProjectionTables } from "../../src/projection/relation-graph-projection.ts";
 import { createTaskRelationProjectionTable, readTaskRelationPage } from "../../src/projection/task-query-projection.ts";
 import { readWorkspaceSummaryRows } from "../../src/projection/workspace-summary-projection.ts";
@@ -75,11 +75,11 @@ function ledger() {
     decision(decisionId: string, state: DecisionState) {
       revision += 1;
       db.prepare(
-        "INSERT INTO decision(decision_id,state,title,question,risk_tier,urgency,vertical,preset,decision_class," +
+        "INSERT INTO decision(decision_id,decision_sort_key,state,title,question,risk_tier,urgency,vertical,preset,decision_class," +
           "applies_json,proposer_json,arbiter_json,proposed_at,decided_at,workspace_revision) " +
-          "VALUES (?, ?, 'title', 'question', 'high', 'medium', 'census', 'default', 'ordinary', '{}', '{}', NULL, " +
+          "VALUES (?, ?, ?, 'title', 'question', 'high', 'medium', 'census', 'default', 'ordinary', '{}', '{}', NULL, " +
           "'2026-09-28T00:00:00.000Z', NULL, ?)",
-      ).run(decisionId, state, revision);
+      ).run(decisionId, decisionIdSortKey(decisionId), state, revision);
     },
   };
 }

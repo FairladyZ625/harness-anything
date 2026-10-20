@@ -118,8 +118,10 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
           readonly name: string;
           readonly type: string;
         }[],
-        legacyNumber = decisionColumns.find(({ name }) => name === "legacy_number");
+        legacyNumber = decisionColumns.find(({ name }) => name === "legacy_number"),
+        decisionSortKey = decisionColumns.find(({ name }) => name === "decision_sort_key");
       assert.equal(legacyNumber?.type, "INTEGER");
+      assert.equal(decisionSortKey?.type, "TEXT");
       const decisionIndexes = db
         .prepare(
           "SELECT name, sql FROM sqlite_master WHERE type='index' AND name IN ('legacy_block', 'plain_block') ORDER BY name",
@@ -129,6 +131,8 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
         decisionIndexes.map(({ name }) => name),
         ["legacy_block", "plain_block"],
       );
+      assert.match(decisionIndexes[0]!.sql, /legacy_number, decision_sort_key, decision_id/u);
+      assert.match(decisionIndexes[1]!.sql, /decision_sort_key, decision_id/u);
       assert.match(decisionIndexes[0]!.sql, /WHERE legacy_number IS NOT NULL/u);
       assert.match(decisionIndexes[1]!.sql, /WHERE legacy_number IS NULL/u);
       for (const [part, args, expected] of [

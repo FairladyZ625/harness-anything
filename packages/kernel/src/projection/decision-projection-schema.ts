@@ -5,6 +5,7 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
     CREATE TABLE IF NOT EXISTS decision (
       decision_id TEXT PRIMARY KEY,
       legacy_number INTEGER,
+      decision_sort_key TEXT NOT NULL,
       state TEXT NOT NULL,
       title TEXT NOT NULL,
       question TEXT NOT NULL,
@@ -77,9 +78,9 @@ export function createDecisionProjectionTables(db: DatabaseSync): void {
       tokenize='unicode61 remove_diacritics 2'
     );
     CREATE INDEX IF NOT EXISTS decision_filter ON decision(state, risk_tier, urgency, vertical);
-    CREATE INDEX IF NOT EXISTS legacy_block ON decision(legacy_number, decision_id)
+    CREATE INDEX IF NOT EXISTS legacy_block ON decision(legacy_number, decision_sort_key, decision_id)
       WHERE legacy_number IS NOT NULL;
-    CREATE INDEX IF NOT EXISTS plain_block ON decision(decision_id)
+    CREATE INDEX IF NOT EXISTS plain_block ON decision(decision_sort_key, decision_id)
       WHERE legacy_number IS NULL;
     CREATE INDEX IF NOT EXISTS decision_state_page ON decision(state, decision_id);
     CREATE INDEX IF NOT EXISTS decision_judgment_consent_owner
