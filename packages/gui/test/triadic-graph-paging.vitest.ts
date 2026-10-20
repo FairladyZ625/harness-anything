@@ -70,6 +70,20 @@ describe("关系图按界限读取", () => {
       }),
     ).rejects.toThrow("unavailable");
   });
+
+  it("fails closed at the 50-page budget when the server keeps returning a cursor", async () => {
+    // 服务端游标异常循环(永不为空的 nextCursor):已读页数每轮严格 +1,到 50 页
+    // (独立字面量,不引用生产常量)必须安全终止并抛错,部分边不能冒充完整图。
+    let calls = 0;
+    await expect(
+      readCompleteRelationGraph(async () => {
+        calls += 1;
+        return page({ edges: [edge(`r${calls}`)] }, "again");
+      }),
+    ).rejects.toThrow(/budget/);
+    expect(calls).toBe(50);
+  });
+
   it("没有分页信息的回答只读一次", async () => {
     let reads = 0;
     const graph = await readCompleteRelationGraph(async () => {
