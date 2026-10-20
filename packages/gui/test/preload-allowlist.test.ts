@@ -122,6 +122,22 @@ test("preload exposes only the approved API methods", () => {
     () => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskIds: ["task-a", "task-a"] }),
     /invalid/u,
   );
+  // The member read is the GUI's recent-sessions path: one executor plus the window size, no
+  // task list. The preload must admit the same shape the daemon validates, or the read dies at
+  // the renderer→preload boundary before it ever reaches the daemon.
+  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", agentId: "agent-a", limit: 50 }), true);
+  assert.equal(assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", squadId: "squad-a", limit: 50 }), true);
+  assert.throws(
+    () =>
+      assertPreloadPayload("getTaskDispatches", {
+        repoId: "repo-a",
+        agentId: "agent-a",
+        squadId: "squad-a",
+        limit: 50,
+      }),
+    /invalid/u,
+  );
+  assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", agentId: "agent-a" }), /invalid/u);
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", limit: 0 }), /query facets are invalid/u);
   assert.throws(
     () => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: -1 }),
