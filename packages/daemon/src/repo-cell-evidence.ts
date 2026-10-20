@@ -26,10 +26,22 @@ export function renderEvidencePayload(payload: unknown): string {
   if (payload === null || typeof payload !== "object") return String(payload);
   const entries = Object.entries(payload),
     nested = entries.filter(([, value]) => value !== null && typeof value === "object"),
-    scalars = entries
+    scalarEntries = entries
       .filter(([, value]) => value === null || typeof value !== "object")
-      .map(([key, value]) => `${key}=${String(value)}`)
-      .join("  ");
+      .map(([key, value]) => `${key}=${String(value)}`),
+    record = payload as Record<string, unknown>;
+  if (
+    (record.schema === "agent-inspection/v1" || record.schema === "squad-inspection/v1") &&
+    typeof record.workspaceRevision === "number"
+  ) {
+    const schemaIndex = scalarEntries.findIndex((item) => item.startsWith("schema="));
+    scalarEntries.splice(
+      schemaIndex >= 0 ? schemaIndex + 1 : 0,
+      0,
+      `expected-version=${String(record.workspaceRevision)}`,
+    );
+  }
+  const scalars = scalarEntries.join("  ");
   return (
     [
       ...nested.map(([key, value]) =>

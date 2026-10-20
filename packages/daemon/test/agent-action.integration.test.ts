@@ -222,6 +222,13 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       watermark: updated.revision,
       sourceRevision: updated.revision,
     });
+    const versionMatch = String(inspectedAgent.summary).match(/expected-version=(\d+)/u);
+    assert.ok(
+      versionMatch,
+      `inspectedAgent.summary must state expected-version for deletion fencing: ${String(inspectedAgent.summary)}`,
+    );
+    const inspectedExpectedVersion = Number(versionMatch[1]);
+    assert.equal(inspectedExpectedVersion, updated.revision);
 
     const squad = await cell.run(
       {
@@ -241,6 +248,12 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
       binding,
     );
     assert.equal(squad.outcome, "applied", JSON.stringify(squad));
+    const inspectedSquad = await cell.run({ kind: "squad-inspect", squadId: "unified-squad" }, binding);
+    assert.match(
+      String(inspectedSquad.summary),
+      /expected-version=\d+/u,
+      `inspectedSquad.summary must state expected-version: ${String(inspectedSquad.summary)}`,
+    );
     const squadStore = openSqliteEventStore({
       repoId: workspaceId("agent-action"),
       rootInput: rootDir,
@@ -304,7 +317,7 @@ test("Agent install uses the executable catalog with CAS, replay, readiness, and
     const deleteAgent = {
         kind: "agent-delete",
         agentId: declaration.id,
-        expectedVersion: updated.revision,
+        expectedVersion: inspectedExpectedVersion,
         reason: "Retire the test Agent current view.",
         idempotencyKey: "agent-action-delete",
       },
