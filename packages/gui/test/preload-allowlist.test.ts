@@ -138,6 +138,19 @@ test("preload exposes only the approved API methods", () => {
     /invalid/u,
   );
   assert.throws(() => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", agentId: "agent-a" }), /invalid/u);
+  // api-client stamps advisorySurface on every dispatch read; the preload must admit the exact
+  // payload the client sends, for member, single-task and batch reads alike.
+  for (const read of [
+    { repoId: "repo-a", agentId: "agent-a", limit: 50 },
+    { repoId: "repo-a", taskId: "task-a" },
+    { repoId: "repo-a", taskIds: ["task-a"], limit: 500 },
+  ]) {
+    assert.equal(assertPreloadPayload("getTaskDispatches", { ...read, advisorySurface: "gui.dispatch" }), true);
+  }
+  assert.throws(
+    () => assertPreloadPayload("getTaskDispatches", { repoId: "repo-a", taskId: "task-a", advisorySurface: 1 }),
+    /invalid/u,
+  );
   assert.throws(() => assertPreloadPayload("getTasks", { repoId: "repo-a", limit: 0 }), /query facets are invalid/u);
   assert.throws(
     () => assertPreloadPayload("getTasks", { repoId: "repo-a", changedAfterRevision: -1 }),

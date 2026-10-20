@@ -469,8 +469,12 @@ function validDecisionListPayload(value: Record<string, unknown>): boolean {
 /** The preload closure only adds the transport key; the accepted task/batch/member shapes come
  * from the daemon's own request validator, so the two boundaries cannot drift apart. */
 function validTaskDispatchesPayload(value: Record<string, unknown>): boolean {
-  if (!closed(value, ["repoId", "taskId", "taskIds", "limit", "cursor", "agentId", "squadId"])) return false;
-  const { repoId: _repoId, ...payload } = value;
+  // advisorySurface names which declared decision surface the read serves; api-client stamps it
+  // on every dispatch read and the daemon read boundary owns its value check.
+  if (!closed(value, ["repoId", "taskId", "taskIds", "limit", "cursor", "agentId", "squadId", "advisorySurface"]))
+    return false;
+  const { repoId: _repoId, advisorySurface, ...payload } = value;
+  if (advisorySurface !== undefined && typeof advisorySurface !== "string") return false;
   return validateTaskDispatchesPayload(payload).length === 0;
 }
 function isPreloadPayloadRecord(value: unknown): value is Record<string, unknown> {
