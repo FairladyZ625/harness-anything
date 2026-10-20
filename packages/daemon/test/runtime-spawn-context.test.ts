@@ -6,6 +6,7 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import test from "node:test";
 import { daemonCliBinDirectory } from "../src/runtime-spawn-context.ts";
+import { resolveDispatchCwd } from "../src/runtime-resume-admission.ts";
 
 test("runtime CLI bin resolves from the nearest daemon installation", (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-cli-bin-")),
@@ -16,6 +17,20 @@ test("runtime CLI bin resolves from the nearest daemon installation", (context) 
   mkdirSync(binDirectory, { recursive: true });
   writeFileSync(path.join(binDirectory, "ha"), "#!/usr/bin/env node\n");
   assert.equal(daemonCliBinDirectory(pathToFileURL(modulePath).href), binDirectory);
+});
+
+test("an artifact task resume discards an inherited canonical cwd and any explicit override", (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-runtime-package-cwd-")),
+    taskPackage = path.join(root, "task-package");
+  context.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(taskPackage);
+  for (const request of [{}, { cwd: { scope: "repo-root" } }]) {
+    assert.deepEqual(resolveDispatchCwd(root, request, root, null, taskPackage), {
+      cwd: taskPackage,
+      worktree: null,
+    });
+  }
+  assert.equal(resolveDispatchCwd(root, {}, root, null).cwd, root);
 });
 
 test("runtime CLI bin stays absent when the daemon installation has no ha entry", (context) => {

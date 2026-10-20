@@ -1,4 +1,4 @@
-import { validSquadDispatchContext } from "@harness-anything/kernel";
+import { resolveHarnessLayout, validSquadDispatchContext } from "@harness-anything/kernel";
 import { unknownFieldViolation } from "./protocol/json-rpc-types.ts";
 import { readHandoffCheckpoint } from "./runtime-handoff-store.ts";
 import path from "node:path";
@@ -14,6 +14,7 @@ import {
   checkoutTaskWorktree,
   openTaskWorktreeBinding,
   presetSnapshotReader,
+  taskWorkspaceView,
   type TaskWorktreeCheckout,
 } from "./task-worktree.ts";
 import { noWorktreeSetup, worktreeSetupFailure } from "./worktree-setup.ts";
@@ -205,13 +206,40 @@ export function projectedWorktreeBinding(input: {
   };
 }
 
-/** Where a dispatch runs: a resumed dispatch's own cwd, else its prepared task worktree, else the requested cwd. */
+/** Artifact tasks stay in their package, including resumes of dispatches launched before that boundary. */
+export function dispatchTaskPackageRoot(
+  input: RuntimeSpawnerInput,
+  taskId: string | null,
+  reviewer: boolean,
+  remoteTask: { readonly worktree: TaskWorktreeBindingV1 | null; readonly packageRoot: string } | null,
+): string | null {
+  if (!taskId || reviewer) return null;
+  if (remoteTask) return remoteTask.worktree ? null : remoteTask.packageRoot;
+  const projection = requiredRuntimeProjection(input),
+    read = requireCurrentTaskProjection(projection, taskId, "runtime.run"),
+    workspace = taskWorkspaceView(
+      input.rootDir,
+      read.snapshot.task,
+      read.packagePath,
+      presetSnapshotReader(projection),
+      resolveHarnessLayout(input.rootDir).authoredRoot,
+    );
+  return workspace?.kind === "task-package" ? path.resolve(input.rootDir, workspace.path) : null;
+}
+
+/** A package boundary takes precedence over both caller overrides and inherited cwd. */
 export function resolveDispatchCwd(
   rootDir: string,
   payload: { readonly cwd?: unknown },
   inherited: string | undefined,
   worktree: TaskWorktreeCheckout | null,
+  taskPackageRoot?: string | null,
 ): { readonly cwd: string; readonly worktree: TaskWorktreeCheckout | null } {
+  if (taskPackageRoot)
+    return {
+      cwd: resolveRuntimeCwd(rootDir, { scope: "repo-relative", path: path.relative(rootDir, taskPackageRoot) }),
+      worktree: null,
+    };
   if (payload.cwd === undefined && inherited) return { cwd: inherited, worktree: null };
   return {
     cwd: resolveRuntimeCwd(

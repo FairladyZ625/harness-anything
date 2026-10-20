@@ -106,6 +106,7 @@ async function createTask(
     readonly taskClass?: string;
     readonly parentTaskId?: string;
     readonly profileId?: string;
+    readonly presetId?: string;
   },
   planTitle?: string,
 ): Promise<string> {
@@ -450,6 +451,129 @@ test("task-bound dispatch injects the work, deriving decision, and evidence fact
       binding,
     );
     assert.match(String(preview.mission), /推送后用 `ha task pr` 开 PR，正文遵循本仓库的 PR 规范。/u);
+  } finally {
+    await cell?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("artifact task dispatch confines writes to its package despite bypass declarations and cwd overrides", async () => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-dispatch-package-"));
+  let cell: Cell | undefined;
+  let prepared: { readonly cwd: string; readonly permissionMode?: string; readonly prompt: string } | undefined;
+  let launches = 0;
+  let useZcode = false;
+  try {
+    initRepo(root);
+    cell = await openRepoCell({
+      repoId: workspaceId("dispatch-package"),
+      rootDir: canonicalRoot(root),
+      ownerId: "dispatch-package-test",
+      runtimeDaemonRoute: {
+        userRoot: path.join(root, ".daemon-user"),
+        daemonId: "dispatch-package-test",
+        endpoint: path.join(root, ".daemon-user", "daemon.sock"),
+      },
+      runtimeInstances: () => [{ ...instance(), kindId: useZcode ? "zcode" : "codex", permissionMode: "bypass" }],
+      prepareRuntimeLaunch: (_instanceId, request) => {
+        prepared = request;
+        return {
+          definition: { ...definition, kindId: useZcode ? "zcode" : "codex" },
+          installation: { ...installation, kindId: useZcode ? "zcode" : "codex" },
+          executablePath: installation.executablePath,
+          args: [],
+          env: {},
+          cwd: request.cwd,
+          prompt: request.prompt,
+        };
+      },
+      runtimeLaunch: () => {
+        launches += 1;
+        return {
+          pid: 4242,
+          onOutput: () => undefined,
+          onErrorOutput: () => undefined,
+          onExit: () => undefined,
+          terminate: () => undefined,
+        };
+      },
+    });
+    const installed = await cell.run(
+      {
+        kind: "agent-install",
+        declaration: {
+          schema: "agent-declaration/v1",
+          id: "package-worker",
+          name: "Package Worker",
+          instructions: "Produce the task report.",
+          runtimes: [{ type: "codex" }],
+          permissionMode: "bypass",
+        },
+      },
+      binding,
+    );
+    assert.equal(installed.outcome, "applied", JSON.stringify(installed));
+    for (const [index, override] of [undefined, "bypass", "read-only"].entries()) {
+      const taskId = `task_package_${index}`;
+      const packagePath = await createTask(cell, root, {
+        taskId,
+        title: "Investigate without source edits",
+        presetId: "code-impact-analysis",
+      });
+      const receipt = await cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          agentId: "package-worker",
+          taskId,
+          dispatchKey: `package-${index}`,
+          cwd: { scope: "repo-root" },
+          ...(override ? { permissionMode: override } : {}),
+        },
+        binding,
+      );
+      assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+      assert.equal(prepared?.cwd, path.join(root, "harness", packagePath));
+      assert.equal(prepared?.permissionMode, override === "read-only" ? "read-only" : "workspace-write");
+      assert.ok(prepared?.prompt.includes(`Worker repository root: ${prepared.cwd}`));
+    }
+    assert.equal(launches, 3);
+    const taskId = "task_package_code_control";
+    await createTask(cell, root, { taskId, title: "Implement a code change" });
+    const workerRoot = path.join(root, "worker-control");
+    mkdirSync(workerRoot);
+    const receipt = await cell.spawnRuntime(
+      {
+        runtimeInstanceId: definition.instanceId,
+        agentId: "package-worker",
+        taskId,
+        dispatchKey: "package-code-control",
+        cwd: { scope: "repo-relative", path: "worker-control" },
+      },
+      binding,
+    );
+    assert.equal(receipt.outcome, "applied", JSON.stringify(receipt));
+    assert.equal(prepared?.cwd, workerRoot);
+    assert.equal(prepared?.permissionMode, "bypass");
+    useZcode = true;
+    await createTask(cell, root, {
+      taskId: "task_package_zcode",
+      title: "Investigate with ZCode",
+      presetId: "code-impact-analysis",
+    });
+    await assert.rejects(
+      cell.spawnRuntime(
+        {
+          runtimeInstanceId: definition.instanceId,
+          taskId: "task_package_zcode",
+          dispatchKey: "package-zcode",
+          permissionMode: "bypass",
+        },
+        binding,
+      ),
+      (error: unknown) =>
+        error instanceof Error && "code" in error && error.code === "zcode_unattended_permission_mode_unsupported",
+    );
+    assert.equal(launches, 4, "the unsupported provider must never start with bypass permissions");
   } finally {
     await cell?.close();
     rmSync(root, { recursive: true, force: true });

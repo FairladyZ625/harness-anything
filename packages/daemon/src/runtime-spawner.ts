@@ -103,6 +103,7 @@ import {
   prepareDispatchWorktree,
   projectedWorktreeBinding,
   resolveDispatchCwd,
+  dispatchTaskPackageRoot,
 } from "./runtime-resume-admission.ts";
 import { installHandoffRollout } from "./runtime-handoff-native.ts";
 import { taskWorktreeCheckoutNote, verifyHandoffWorktree, type TaskWorktreeCheckout } from "./task-worktree.ts";
@@ -221,18 +222,6 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
               role === "reviewer" ? { executionId: requestedExecutionId } : undefined,
             )
           : null,
-      { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
-        input.rootDir,
-        payload,
-        inherited?.cwd,
-        remoteTask
-          ? await prepareDispatchWorktree(
-              input,
-              { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
-              () => remoteTask.worktree,
-            )
-          : preparedWorktree,
-      ),
       projection = input.remote ? null : requiredRuntimeProjection(input);
     const reviewerBinding = role === "reviewer";
     assertReviewerTarget({
@@ -303,6 +292,20 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
           runtimeTaskLeaseRequiredMessage(taskId, leaseAtAdmission),
         );
     }
+    const taskPackageRoot = dispatchTaskPackageRoot(input, taskId, role === "reviewer", remoteTask),
+      { cwd, worktree: dispatchWorktree } = resolveDispatchCwd(
+        input.rootDir,
+        payload,
+        inherited?.cwd,
+        remoteTask
+          ? await prepareDispatchWorktree(
+              input,
+              { ...payload, ...(handoff ? { taskId: handoff.taskId, acceptedCommit: handoff.commit } : {}) },
+              () => remoteTask.worktree,
+            )
+          : preparedWorktree,
+        taskPackageRoot,
+      );
     const { taskMission, mission } = resolveRuntimeMission({
       rootDir: input.rootDir,
       cwd,
@@ -408,7 +411,13 @@ export function makeRuntimeSpawner(input: RuntimeSpawnerInput) {
                 ? agentRuntimeTargetForKind(agent.runtimes, runtimeInstance.kindId)?.effort
                 : undefined),
             configuredPermissionMode = runtimeInstance?.permissionMode ?? undefined,
-            declaredPermissionMode = permissionMode ?? agent?.permissionMode,
+            requestedPermissionMode = permissionMode ?? agent?.permissionMode ?? configuredPermissionMode,
+            // An artifact task owns only its package. A provider that cannot enforce this mode
+            // must reject the launch; an agent or resumed bypass declaration cannot widen it.
+            declaredPermissionMode =
+              taskPackageRoot && (requestedPermissionMode === undefined || requestedPermissionMode === "bypass")
+                ? "workspace-write"
+                : (permissionMode ?? agent?.permissionMode),
             effectivePermissionMode = declaredPermissionMode ?? configuredPermissionMode,
             callbackRelay = dispatchCallbackRelay(newDispatchId, daemonRoute, runtimeInstance, effectivePermissionMode),
             missionDaemonRoute =

@@ -684,7 +684,7 @@ export function assertPreparedRuntimeLaunch(
     throw runtimeSpawnError(
       "zcode_unattended_permission_mode_unsupported",
       "ZCode edit and plan modes require an interactive permission client and cannot run unattended. " +
-        `Set permissionMode to bypass in Agent ${expected.agentId ?? "declaration"}.`,
+        "Choose a runtime that supports unattended workspace-write or read-only permissions.",
     );
   if (
     definition.instanceId !== expected.instanceId ||

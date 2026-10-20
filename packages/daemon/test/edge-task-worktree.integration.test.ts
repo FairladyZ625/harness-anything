@@ -57,7 +57,7 @@ test("an edge dispatch without a cwd launches in the worktree the center's bindi
   assert.equal(git(cwd, "branch", "--show-current"), taskId);
 });
 
-test("an edge dispatch that is not an implementation run stays in the node's main checkout", async (t) => {
+test("edge dispatch cwd follows its worktree or artifact package while review keeps the main checkout", async (t) => {
   const fixture = nodesFixture(t),
     cases: readonly {
       readonly name: string;
@@ -80,7 +80,11 @@ test("an edge dispatch that is not an implementation run stays in the node's mai
       launched,
       scenario.name,
     );
-    assert.deepEqual(edge.launchedIn, [fixture.nodeA], scenario.name);
+    assert.deepEqual(
+      edge.launchedIn,
+      [scenario.worktree === null ? path.join(fixture.nodeA, packagePath) : fixture.nodeA],
+      scenario.name,
+    );
     assert.match(edge.prompts[0]!, new RegExp(`Task package root: ${path.join(fixture.nodeA, packagePath)}\n`, "u"));
     assert.equal(existsSync(path.join(fixture.nodeA, ".worktrees")), false, scenario.name);
   }

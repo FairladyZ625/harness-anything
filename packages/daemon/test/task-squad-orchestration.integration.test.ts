@@ -236,7 +236,7 @@ for (const restart of [false, true])
             kind: "task-create",
             taskId,
             title: "Direct targeted",
-            presetId: "docs-task",
+            presetId: "standard-task",
           },
           binding,
         );
@@ -246,18 +246,15 @@ for (const restart of [false, true])
         fixture.cell.run({ kind: "doc-submit", paths: [planPath] }, binding),
       );
       assert.equal((await fixture.cell.run({ kind: "task-start", taskId }, binding)).outcome, "applied");
-      const cwd = path.join(fixture.root, ".worktrees", "direct-targeted");
-      await fixture.cell.settlePendingMaterialization("before direct branch");
-      git(fixture.root, "update-ref", "refs/remotes/origin/main", "HEAD");
-      // Settlement publishes the branch named after the dispatched task.
-      git(fixture.root, "worktree", "add", "-b", taskId, cwd);
+      // Starting a repository-diff task materializes its task-named publication branch.
+      const cwd = path.join(fixture.root, ".worktrees", taskId);
       const direct = await fixture.cell.spawnRuntime(
         {
           runtimeInstanceId: "stub",
           agentId: "leader",
           targetAgentId: "one",
           taskId,
-          cwd: { scope: "repo-relative", path: ".worktrees/direct-targeted" },
+          cwd: { scope: "repo-relative", path: `.worktrees/${taskId}` },
           prompt: "Deliver the directly targeted task.",
           dispatchKey: "direct-targeted",
         },
@@ -528,9 +525,10 @@ async function openFixture(
   git(parent, "init", "--bare", bare);
   git(root, "remote", "add", "origin", bare);
   mkdirSync(path.join(root, "harness"));
+  // Workers deliver repository commits; the parent task below delivers the Squad synthesis report.
   writeFileSync(
     path.join(root, "harness/harness.yaml"),
-    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: docs-task\n  defaultProfile: baseline\n" +
+    "schema: harness-anything/v1\nlayout:\n  authoredRoot: harness\n  localRoot: .harness\nsettings:\n  defaultVertical: software/coding\n  defaultPreset: standard-task\n  defaultProfile: baseline\n" +
       (wipLimit === undefined ? "" : `  tasks:\n    wipLimit: ${wipLimit}\n`),
   );
   writeFileSync(path.join(root, ".gitignore"), "harness/\n.harness/\n.worktrees/\n");
@@ -811,7 +809,7 @@ async function openFixture(
         `# Closeout\n\n## Summary\n\nDelivered ${head}.\n\n## Verification\n\nCommitted child file contents inspected.\n\n## Residual Risk\n\nIntegration review remains.\n\n## Same Mechanism Elsewhere\n\nSibling delivery uses the same protocol.\n`,
       );
       const receipt = await cell.run(
-        { kind: "task-submit", taskId: child.taskId!, executionId: child.executionId! },
+        { kind: "task-submit", taskId: child.taskId!, executionId: child.executionId!, commitSha: head },
         holder,
       );
       assert.equal(receipt.outcome, "applied", `real child submit: ${JSON.stringify(receipt)}`);
