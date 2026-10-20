@@ -2,6 +2,7 @@ import { daemonGuiInvokeFacets, daemonGuiStreamFacets } from "@harness-anything/
 import { admitUseCaseProjectionSelector } from "@harness-anything/daemon/protocol";
 import { isUtcTimestamp } from "@harness-anything/daemon/protocol";
 import { validateDaemonQueryPayload } from "@harness-anything/daemon/protocol";
+import { validateTaskDispatchesPayload } from "@harness-anything/daemon/protocol/validation";
 import { relationStates } from "@harness-anything/kernel/browser";
 import { containsSecretLikeKey } from "../api/entity-payload-hygiene.ts";
 import { isRuntimeKindId, runtimeKindForId, runtimeKindIds } from "@harness-anything/daemon/protocol";
@@ -461,27 +462,12 @@ function validDecisionListPayload(value: Record<string, unknown>): boolean {
   if (!closed(value, ["repoId", "projection"])) return false;
   return value.projection === undefined || ["summary", "full"].includes(String(value.projection));
 }
+/** The preload closure only adds the transport key; the accepted task/batch/member shapes come
+ * from the daemon's own request validator, so the two boundaries cannot drift apart. */
 function validTaskDispatchesPayload(value: Record<string, unknown>): boolean {
-  if (!closed(value, ["repoId", "taskId", "taskIds", "limit", "cursor"])) return false;
-  const single =
-      typeof value.taskId === "string" &&
-      value.taskId.length > 0 &&
-      value.taskIds === undefined &&
-      value.limit === undefined &&
-      value.cursor === undefined,
-    taskIds = value.taskIds;
-  return (
-    single ||
-    (value.taskId === undefined &&
-      Array.isArray(taskIds) &&
-      taskIds.length > 0 &&
-      taskIds.length <= 500 &&
-      taskIds.every((taskId) => typeof taskId === "string" && taskId.length > 0) &&
-      new Set(taskIds).size === taskIds.length &&
-      (value.limit === undefined ||
-        (Number.isSafeInteger(value.limit) && Number(value.limit) >= 1 && Number(value.limit) <= 500)) &&
-      (value.cursor === undefined || (typeof value.cursor === "string" && value.cursor.length > 0)))
-  );
+  if (!closed(value, ["repoId", "taskId", "taskIds", "limit", "cursor", "agentId", "squadId"])) return false;
+  const { repoId: _repoId, ...payload } = value;
+  return validateTaskDispatchesPayload(payload).length === 0;
 }
 function isPreloadPayloadRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

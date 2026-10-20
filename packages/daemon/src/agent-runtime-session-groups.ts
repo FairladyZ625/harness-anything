@@ -110,6 +110,49 @@ function requestedSessionAgents(input: Parameters<typeof buildAgentRuntimeSessio
   });
 }
 
+type AgentRuntimeTaskGroupKey =
+  | { readonly kind: "task"; readonly taskId: string }
+  | { readonly kind: "decision"; readonly decisionId: string }
+  | { readonly kind: "unattributed" };
+
+/**
+ * The single task-group normalization. A session whose latest dispatch is a decision review
+ * belongs to that decision; otherwise every distinct task binding is one group; a dispatched
+ * session with no binding is the unattributed bucket. Window groups and full-history totals both
+ * call this, so the projection never re-derives a second definition in SQL.
+ */
+function agentRuntimeSessionTaskGroupKeys(
+  taskBindings: readonly { readonly taskId: string }[],
+  latestDecisionId: string | null,
+): readonly AgentRuntimeTaskGroupKey[] {
+  if (latestDecisionId !== null) return [{ kind: "decision", decisionId: latestDecisionId }];
+  const taskIds = [...new Set(taskBindings.map(({ taskId }) => taskId))];
+  return taskIds.length === 0 ? [{ kind: "unattributed" }] : taskIds.map((taskId) => ({ kind: "task", taskId }));
+}
+
+function agentRuntimeTaskGroupKey(key: AgentRuntimeTaskGroupKey): string {
+  return key.kind === "unattributed"
+    ? agentRuntimeUnattributedGroupKeys.noTask
+    : key.kind === "task"
+      ? key.taskId
+      : key.decisionId;
+}
+
+/** Full-history totals from the projection's per-session ingredients, counted with the same
+ * normalization the window uses. `sessions` is every session the member ever dispatched. */
+export function agentRuntimeSessionGroupTotals(
+  sessions: readonly { readonly taskIds: readonly string[]; readonly latestDecisionId: string | null }[],
+): { readonly groups: number; readonly sessions: number } {
+  const keys = new Set<string>();
+  for (const session of sessions)
+    for (const key of agentRuntimeSessionTaskGroupKeys(
+      session.taskIds.map((taskId) => ({ taskId })),
+      session.latestDecisionId,
+    ))
+      keys.add(agentRuntimeTaskGroupKey(key));
+  return { groups: keys.size, sessions: sessions.length };
+}
+
 type GroupIdentity = Pick<AgentRuntimeSessionGroupDto, "key" | "kind" | "label"> &
   Partial<Pick<AgentRuntimeSessionGroupDto, "taskId" | "decisionId" | "squadId" | "agentId" | "day">>;
 type GroupMember = {
@@ -150,35 +193,42 @@ function membersForSession(
       ...taskSearch,
     ];
   if (input.query.groupBy === "task") {
-    if (dispatch?.reviewTarget?.kind === "decision") {
-      const { decisionId } = dispatch.reviewTarget;
-      return [
-        member(
-          { key: decisionId, kind: "decision", label: decisionId, decisionId },
+    const latestDecisionId = dispatch?.reviewTarget?.kind === "decision" ? dispatch.reviewTarget.decisionId : null;
+    return agentRuntimeSessionTaskGroupKeys(session.taskBindings, latestDecisionId).map((group) => {
+      if (group.kind === "decision")
+        return member(
+          { key: group.decisionId, kind: "decision", label: group.decisionId, decisionId: group.decisionId },
           session,
           dispatch,
           status,
           startedAt,
           agentName,
-          [...commonSearch, decisionId, dispatch.reviewTarget.digest],
-        ),
-      ];
-    }
-    const taskIds = [...new Set(session.taskBindings.map(({ taskId }) => taskId))];
-    if (taskIds.length === 0) {
-      const identity = unattributed("task", dispatch !== null);
-      return [member(identity, session, null, status, startedAt, agentName, commonSearch)];
-    }
-    return taskIds.map((taskId) => {
-      const taskDispatch = dispatch?.taskId === taskId ? dispatch : null;
+          [...commonSearch, group.decisionId, dispatch?.reviewTarget?.digest],
+        );
+      if (group.kind === "unattributed")
+        return member(
+          unattributed("task", dispatch !== null),
+          session,
+          null,
+          status,
+          startedAt,
+          agentName,
+          commonSearch,
+        );
+      const taskDispatch = dispatch?.taskId === group.taskId ? dispatch : null;
       return member(
-        { key: taskId, kind: "task", label: input.taskLabels.get(taskId) ?? taskId, taskId },
+        {
+          key: group.taskId,
+          kind: "task",
+          label: input.taskLabels.get(group.taskId) ?? group.taskId,
+          taskId: group.taskId,
+        },
         session,
         taskDispatch,
         taskDispatch ? status : runtimeSessionSemanticState(session),
         taskDispatch?.startedAt ?? fallbackStartedAt,
         agentName,
-        [...commonSearch, taskId, input.taskLabels.get(taskId)],
+        [...commonSearch, group.taskId, input.taskLabels.get(group.taskId)],
       );
     });
   }

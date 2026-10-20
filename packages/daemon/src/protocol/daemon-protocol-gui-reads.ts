@@ -652,6 +652,8 @@ export const daemonGuiReadMethods = Object.freeze([
         taskIds: "array?",
         limit: "number?",
         cursor: "string?",
+        agentId: "string?",
+        squadId: "string?",
       }),
     }),
     guiBridgeMethod: "getTaskDispatches",

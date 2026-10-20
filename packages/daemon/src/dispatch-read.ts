@@ -4,9 +4,11 @@ import {
   runtimeSessionOutcomeFromEvidence,
   type AgentRuntimeEventV1,
   type RuntimeSession,
+  type TaskProjection,
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
+import { agentRuntimeSessionGroupTotals, buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
 import {
   readDispatchStreamSummary,
   type RuntimeMetrics,
@@ -66,8 +68,9 @@ export function readRuntimeSessionActivityEvidence(
 export function readTaskDispatches(
   input: { readonly projection: TaskProjectionQueries; readonly rootDir?: string } & DaemonTaskDispatchesPayload,
 ): DaemonTaskDispatchesResult {
-  const { projection, rootDir } = input,
-    singleTaskId = input.taskId,
+  const { projection, rootDir } = input;
+  if (input.agentId !== undefined || input.squadId !== undefined) return readMemberTaskDispatches(input);
+  const singleTaskId = input.taskId,
     batch = projection.readTaskRuntimeBatch(
       singleTaskId === undefined
         ? {
@@ -133,6 +136,78 @@ export function readTaskDispatches(
           page: batch.page,
         }
       : { taskId: singleTaskId }),
+  };
+}
+
+/** The member-scoped page of `repo.task.dispatches`: an executor's newest dispatch rows, one
+ * read bounded by the caller's limit — the first screen never pays for the member's total
+ * history. Rows carry the same canonical construction as every other dispatch listing, the
+ * groups describe exactly the returned window, and `totals` count the member's full history with
+ * the same task-group normalization as the window (bindings, decision review, unattributed). */
+function readMemberTaskDispatches(input: {
+  readonly projection: TaskProjectionQueries;
+  readonly agentId?: string;
+  readonly squadId?: string;
+  readonly limit: number;
+}): DaemonTaskDispatchesResult {
+  const member = input.projection.readRuntimeDispatchesByMember({
+    ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
+    limit: input.limit,
+  });
+  const sessions = member.rows
+      .map((event) => input.projection.readRuntimeSession(event.payload.runtimeSessionId))
+      .filter((session): session is RuntimeSession => session !== null),
+    dispatches = readSessionGroupDispatches({ sessions, events: member.rows, projection: input.projection }),
+    cut = input.projection.readCut(),
+    taskLabels = runtimeTaskLabels(input.projection, [
+      ...new Set(dispatches.flatMap((row) => (row.taskId ? [row.taskId] : []))),
+    ]),
+    entityNames = new Map<string, ReadonlyMap<string, string>>();
+  const entityLabel = (kind: "agent" | "squad", id: string): string | null => {
+    if (cut.status !== "ready") return null;
+    let names = entityNames.get(kind);
+    if (names === undefined) {
+      names = latestEntityNames(input.projection.listEntities(kind));
+      entityNames.set(kind, names);
+    }
+    return names.get(id) ?? null;
+  };
+  const groups = buildAgentRuntimeSessionGroups({
+    sessions,
+    dispatches,
+    dispatchEvents: member.rows,
+    dispatchStartedAt: new Map(member.rows.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const)),
+    taskLabels,
+    entityLabel,
+    query: {
+      groupBy: "task",
+      since: "1970-01-01T00:00:00.000Z",
+      tokens: [],
+      agentId: null,
+      squadId: null,
+      status: [],
+      sessionIds: [],
+      limit: input.limit,
+    },
+    cut,
+  });
+  const resumed = new Map(
+      dispatches.flatMap((row) => (row.nextDispatchId ? [[row.dispatchId, row.nextDispatchId]] : [])),
+    ),
+    terminal = taskDispatchesOutcome(dispatches, resumed);
+  return {
+    ok: true,
+    status: cut.status,
+    dispatches,
+    outcome: terminal.outcome,
+    exitCode: terminal.exitCode,
+    watermark: cut.watermark,
+    sourceRevision: cut.sourceRevision,
+    ...(input.agentId !== undefined ? { agentId: input.agentId } : { squadId: input.squadId! }),
+    groups: groups.groups,
+    taskLabels: [...taskLabels.entries()].map(([taskId, title]) => ({ taskId, title })),
+    totals: agentRuntimeSessionGroupTotals(member.sessions),
+    truncated: member.truncated,
   };
 }
 
@@ -466,6 +541,36 @@ function taskExecutionDelivered(projection: DispatchQueries, dispatch: DispatchE
     .read(taskId)
     .snapshot.executions?.find((execution) => execution.executionId === executionId)?.submission;
   return submission != null;
+}
+
+/** Task titles for dispatch-row and group labels, batched per 500 task ids. */
+export function runtimeTaskLabels(
+  projection: Pick<TaskProjection, "readTaskRuntimeBatch">,
+  taskIds: readonly string[],
+): ReadonlyMap<string, string> {
+  const result = new Map<string, string>();
+  for (let offset = 0; offset < taskIds.length; offset += 500)
+    for (const row of projection.readTaskRuntimeBatch({ taskIds: taskIds.slice(offset, offset + 500) }).rows)
+      result.set(row.taskId, row.title);
+  return result;
+}
+
+// getEntity semantics over a full listing: the highest-revision row wins, and only its name
+// labels the entity — an unnamed newer row shadows an older named one, matching the point query.
+export function latestEntityNames(
+  rows: readonly ReturnType<TaskProjection["listEntities"]>[number][],
+): ReadonlyMap<string, string> {
+  const latest = new Map<string, ReturnType<TaskProjection["listEntities"]>[number]>();
+  for (const row of rows) {
+    const known = latest.get(row.id);
+    if (known === undefined || row.workspaceRevision >= known.workspaceRevision) latest.set(row.id, row);
+  }
+  const names = new Map<string, string>();
+  for (const [id, row] of latest) {
+    const name = row.value.name;
+    if (typeof name === "string" && name) names.set(id, name);
+  }
+  return names;
 }
 
 /** CH2 (dec_614F7BBB18C8687E7EFC72173D): current task state alone cannot

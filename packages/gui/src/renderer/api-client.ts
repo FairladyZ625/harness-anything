@@ -130,6 +130,8 @@ export interface QueryPage {
   readonly nextCursor: string | null;
 }
 export type TaskDispatchBatchRead = Extract<TaskDispatchesRead, { readonly taskIds: readonly string[] }>;
+/** The member page of repo.task.dispatches: an agent's or squad's newest dispatch rows. */
+export type TaskDispatchMemberRead = Extract<TaskDispatchesRead, { readonly truncated: boolean }>;
 
 /** Optional narrow/paged facets for the wide task reads; omitting them keeps the full result. */
 export interface TaskQueryFacets {
@@ -355,6 +357,8 @@ export const harnessClient = {
       (
         | { readonly taskId: string }
         | { readonly taskIds: readonly string[]; readonly limit?: number; readonly cursor?: string }
+        | { readonly agentId: string; readonly limit: number }
+        | { readonly squadId: string; readonly limit: number }
       ),
   ): Promise<TaskDispatchesRead> {
     return readTaskDispatchesResult(await invoke("repo.task.dispatches", payload, "getTaskDispatches"));
@@ -606,6 +610,12 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
       readonly taskIds?: unknown;
       readonly unavailableTaskIds?: unknown;
       readonly page?: unknown;
+      readonly agentId?: unknown;
+      readonly squadId?: unknown;
+      readonly groups?: unknown;
+      readonly taskLabels?: unknown;
+      readonly totals?: unknown;
+      readonly truncated?: unknown;
     },
     taskIds = Array.isArray(result?.taskIds) ? result.taskIds : [],
     unavailableTaskIds = Array.isArray(result?.unavailableTaskIds) ? result.unavailableTaskIds : [],
@@ -614,12 +624,23 @@ function readTaskDispatchesResult(value: unknown): TaskDispatchesRead {
       taskIds.length > 0 &&
       taskIds.every((taskId) => typeof taskId === "string") &&
       unavailableTaskIds.every((taskId) => typeof taskId === "string" && taskIds.includes(taskId)) &&
-      isQueryPage(result.page);
+      isQueryPage(result.page),
+    member =
+      (typeof result?.agentId === "string") !== (typeof result?.squadId === "string") &&
+      Array.isArray(result?.groups) &&
+      (result.groups as readonly unknown[]).every(isRendererRecord) &&
+      Array.isArray(result?.taskLabels) &&
+      (result.taskLabels as readonly unknown[]).every(
+        (label) => isRendererRecord(label) && typeof (label as { readonly taskId?: unknown }).taskId === "string",
+      ) &&
+      isRendererRecord(result?.totals) &&
+      typeof (result.totals as { readonly sessions?: unknown }).sessions === "number" &&
+      typeof result?.truncated === "boolean";
   if (
     !result ||
     result.ok !== true ||
     (result.status !== "ready" && result.status !== "pending") ||
-    single === batch ||
+    (single === batch && !member) ||
     !Array.isArray(result.dispatches) ||
     result.dispatches.some(
       (row) =>

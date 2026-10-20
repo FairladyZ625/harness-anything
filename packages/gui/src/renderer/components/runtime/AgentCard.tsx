@@ -109,9 +109,13 @@ type Props = {
   } | null;
   /**
    * 最近会话(原右侧 IdentityInspector 的相关会话段并入详情,业主 2026-10-06 密度
-   * 反馈:右栏与详情重复的字段只留详情一处);不传就不渲染该段。
+   * 反馈:右栏与详情重复的字段只留详情一处);不传就不渲染该段。会话按最近一页读取,
+   * `sessionsHasMore` 为真时段尾给「加载更多」放大窗口。
    */
   readonly sessions?: readonly RuntimeDockRow[];
+  readonly sessionsHasMore?: boolean;
+  readonly loadingMoreSessions?: boolean;
+  readonly onMoreSessions?: () => void;
   readonly onOpenSession?: (runtimeSessionId: string) => void;
   /** 退役入口:详情卡只发起对话框,写入由 view 接 daemon 写路;退役身份不再给入口。 */
   readonly onRetire?: () => void;
@@ -137,6 +141,9 @@ export function AgentCard({
   conclusionRefs = [],
   lastDispatch = null,
   sessions,
+  sessionsHasMore = false,
+  loadingMoreSessions = false,
+  onMoreSessions,
   onOpenSession,
   onRetire,
   onDelete,
@@ -508,7 +515,8 @@ export function AgentCard({
                     /* 卡内滚动(业主 2026-10-10:714 条会话平铺把详情页撑到数万像素,
                        Prompts/Runtime 约束/操作被挤出首屏):会话行进共享 bounded-content
                        契约(同技能/预设搜索结果),封顶 --long-content-cap 后卡内滚动;
-                       空列表保持 Empty,不造空滚动面板。 */
+                       空列表保持 Empty,不造空滚动面板。读取只取最近一页,段尾「加载
+                       更多」放大窗口,不随历史总量扇出。 */
                     <div
                       data-testid="agent-recent-sessions"
                       className="bounded-content overflow-y-auto rounded border border-border bg-surface p-1"
@@ -520,6 +528,20 @@ export function AgentCard({
                           onOpenSession={onOpenSession ?? (() => undefined)}
                         />
                       ))}
+                      {sessionsHasMore && (
+                        <button
+                          type="button"
+                          data-testid="agent-recent-sessions-more"
+                          disabled={loadingMoreSessions || onMoreSessions === undefined}
+                          onClick={() => onMoreSessions?.()}
+                          className="block w-full rounded px-2 py-1.5 text-center ui-micro text-accent
+                          hover:bg-surface-raised disabled:text-text-faint"
+                        >
+                          {t(
+                            loadingMoreSessions ? "agentRuntime.loadingMoreSessions" : "agentRuntime.loadMoreSessions",
+                          )}
+                        </button>
+                      )}
                     </div>
                   )}
                 </Sect>

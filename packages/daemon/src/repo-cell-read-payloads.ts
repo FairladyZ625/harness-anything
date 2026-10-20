@@ -32,6 +32,27 @@ export function taskDispatchesPayloadFromCell(
   context: RepoCellApiContext,
   payload: Readonly<Record<string, unknown>>,
 ): DaemonTaskDispatchesPayload {
+  if (payload.agentId !== undefined || payload.squadId !== undefined) {
+    if (payload.taskId !== undefined || payload.taskIds !== undefined || payload.cursor !== undefined)
+      throw context.cellCodedError(
+        "invalid_command",
+        "Task dispatch member reads accept one agent or squad id and a limit, not task selectors or cursors.",
+      );
+    const both = payload.agentId !== undefined && payload.squadId !== undefined,
+      agentId = payload.agentId === undefined ? undefined : context.requiredCellText(payload.agentId, "agentId"),
+      squadId = payload.squadId === undefined ? undefined : context.requiredCellText(payload.squadId, "squadId"),
+      limit = payload.limit;
+    if (both || typeof limit !== "number" || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+      throw context.cellCodedError(
+        "invalid_command",
+        "Task dispatch member reads require exactly one of agentId or squadId and a limit of 1..500.",
+      );
+    return {
+      limit,
+      ...(agentId === undefined ? {} : { agentId }),
+      ...(squadId === undefined ? {} : { squadId }),
+    } as DaemonTaskDispatchesPayload;
+  }
   if (!Array.isArray(payload.taskIds)) return { taskId: context.requiredCellText(payload.taskId, "taskId") };
   const taskIds = payload.taskIds.map((taskId) => context.requiredCellText(taskId, "taskIds[]")),
     limit = payload.limit === undefined ? undefined : Number(payload.limit),

@@ -188,6 +188,19 @@ export function validateAgendaQueryPayload(value: unknown): string[] {
 
 export function validateTaskDispatchesPayload(value: unknown): string[] {
   if (!isJsonObject(value)) return ["task dispatches payload must be an object"];
+  if (value.agentId !== undefined || value.squadId !== undefined) {
+    const member =
+      nonEmpty(value.agentId) !== nonEmpty(value.squadId) &&
+      value.taskId === undefined &&
+      value.taskIds === undefined &&
+      value.cursor === undefined &&
+      integer(value.limit) &&
+      Number(value.limit) >= 1 &&
+      Number(value.limit) <= 500;
+    return member
+      ? []
+      : ["repo.task.dispatches.payload member reads require one agent or squad id and a limit of 1..500"];
+  }
   const single =
       nonEmpty(value.taskId) && value.taskIds === undefined && value.limit === undefined && value.cursor === undefined,
     taskIds = value.taskIds;

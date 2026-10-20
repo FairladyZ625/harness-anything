@@ -17,6 +17,7 @@ import {
   type RuntimeSession,
 } from "@harness-anything/kernel";
 import { makeAgentRuntimeReadModel, sessionWithActivityEvidence } from "../src/agent-runtime-read.ts";
+import { readSessionGroupDispatches, readTaskDispatches } from "../src/dispatch-read.ts";
 import { validateAgentRuntimeOverview } from "../src/agent-runtime-contract.ts";
 import { makeAgentRuntimeStreamHub } from "../src/agent-runtime-stream.ts";
 import { readFleetRuntimeSessionsPaged } from "../src/fleet-edge-runtime.ts";
@@ -599,9 +600,143 @@ test("task dispatch batch wire contract keeps the single selector compatible and
     validateDaemonRpcCall({ method: "repo.task.dispatches", params: { repo: { repoId: "runtime-b" }, payload } });
   assert.deepEqual(call({ taskId: "task-a" }), []);
   assert.deepEqual(call({ taskIds: ["task-a", "task-b"], limit: 2 }), []);
+  assert.deepEqual(call({ agentId: "terra", limit: 50 }), []);
+  assert.deepEqual(call({ squadId: "squad-x", limit: 500 }), []);
+  assert.notDeepEqual(call({ agentId: "terra", squadId: "squad-x", limit: 50 }), []);
+  assert.notDeepEqual(call({ agentId: "terra" }), []);
+  assert.notDeepEqual(call({ agentId: "terra", limit: 0 }), []);
+  assert.notDeepEqual(call({ agentId: "terra", limit: 501 }), []);
+  assert.notDeepEqual(call({ agentId: "terra", limit: 50, taskId: "task-a" }), []);
   assert.notDeepEqual(call({ taskId: "task-a", taskIds: ["task-b"] }), []);
   assert.notDeepEqual(call({ taskIds: ["task-a", "task-a"] }), []);
   assert.notDeepEqual(call({ taskIds: [] }), []);
+});
+
+test("member totals use the same task-group normalization as the pre-paging sessionGroups read", async () => {
+  const rootDir = mkdtempSync(path.join(tmpdir(), "ha-runtime-member-groups-"));
+  let projection: ReturnType<typeof makeTaskProjection> | undefined;
+  try {
+    initRepo(rootDir);
+    const store = makeTaskEventStore({ repoId: "runtime-member-groups", rootDir });
+    projection = makeTaskProjection({ rootDir, eventStore: store });
+    const started = (runtimeSessionId: string, revision: number) =>
+        event(
+          "runtime_session_started",
+          {
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            definitionSnapshotRef: "artifact:runtime-definition/test",
+            launchGeneration: 1,
+            attachable: true,
+          },
+          revision,
+        ),
+      bound = (runtimeSessionId: string, taskId: string, revision: number) =>
+        event(
+          "runtime_session_task_bound",
+          {
+            runtimeSessionId,
+            taskId,
+            executionId: `execution-${runtimeSessionId}-${taskId}`,
+            providerSessionId: `provider-${runtimeSessionId}`,
+            transcriptRef: `file:runtime/${runtimeSessionId}.jsonl`,
+          },
+          revision,
+        ),
+      dispatch = (
+        dispatchId: string,
+        runtimeSessionId: string,
+        agentId: string,
+        startedAt: string,
+        revision: number,
+        decisionId?: string,
+      ) =>
+        event(
+          "runtime_dispatch_requested",
+          {
+            dispatchId,
+            runtimeSessionId,
+            instanceId: definition.instanceId,
+            installationId: definition.installationId,
+            kindId: definition.kindId,
+            dispatchKey: dispatchId,
+            definitionSnapshotRef: "artifact:runtime-definition/test",
+            definitionSnapshot: definition,
+            startedAt,
+            agentId,
+            agentName: agentId,
+            ...(decisionId === undefined
+              ? {}
+              : { reviewTarget: { kind: "decision" as const, decisionId, digest: `sha256:${"a".repeat(64)}` } }),
+          },
+          revision,
+        ),
+      events = [
+        // multi-binding: one session contributes two task groups.
+        started("session-multi", 1),
+        bound("session-multi", "task-a", 2),
+        bound("session-multi", "task-b", 3),
+        dispatch("dispatch-multi", "session-multi", "agent-multi", "2026-08-13T00:00:00.000Z", 4),
+        // no binding: the unattributed group.
+        started("session-bare", 5),
+        dispatch("dispatch-bare", "session-bare", "agent-multi", "2026-08-13T00:01:00.000Z", 6),
+        // decision review outranks the session's binding and its older task dispatch.
+        started("session-decision", 7),
+        bound("session-decision", "task-c", 8),
+        dispatch("dispatch-decision-task", "session-decision", "agent-multi", "2026-08-13T00:02:00.000Z", 9),
+        dispatch(
+          "dispatch-decision-review",
+          "session-decision",
+          "agent-multi",
+          "2026-08-13T00:03:00.000Z",
+          10,
+          "dec_MEMBER_GROUPS",
+        ),
+        // another member's session must not leak into agent-multi's totals.
+        started("session-other", 11),
+        bound("session-other", "task-z", 12),
+        dispatch("dispatch-other", "session-other", "agent-other", "2026-08-13T00:04:00.000Z", 13),
+        // all-no-binding member: totals must still be one unattributed group, not zero.
+        started("session-empty", 14),
+        dispatch("dispatch-empty", "session-empty", "agent-empty", "2026-08-13T00:05:00.000Z", 15),
+      ].map(
+        (value, index) =>
+          ({
+            ...value,
+            occurredAt: `2026-08-13T02:${String(index).padStart(2, "0")}:00.000Z`,
+          }) as AgentRuntimeEventV1,
+      );
+    for (const value of events) {
+      store.append({ event: value, plan: runtimeWritePlan(value), blobs: [] });
+      projection.apply(value);
+    }
+    const reads = makeAgentRuntimeReadModel({
+        projection,
+        store,
+        now: () => "2026-08-13T01:00:00.000Z",
+        readDispatches: ({ sessions, events: dispatchEvents }) =>
+          readSessionGroupDispatches({ sessions, events: dispatchEvents, projection: projection! }),
+      }),
+      since = "1970-01-01T00:00:00.000Z";
+    for (const agentId of ["agent-multi", "agent-empty"]) {
+      const legacy = reads.sessionGroups({ groupBy: "task", since, agentId, limit: 1_000 }),
+        page = readTaskDispatches({ projection, agentId, limit: 2 });
+      assert.deepEqual(page.totals, legacy.totals);
+    }
+    assert.deepEqual(readTaskDispatches({ projection, agentId: "agent-multi", limit: 2 }).totals, {
+      groups: 4,
+      sessions: 3,
+    });
+    assert.deepEqual(readTaskDispatches({ projection, agentId: "agent-empty", limit: 2 }).totals, {
+      groups: 1,
+      sessions: 1,
+    });
+  } finally {
+    projection?.close();
+    rmSync(rootDir, { recursive: true, force: true });
+  }
 });
 
 async function withRuntime<T>(use: (fixture: ReturnType<typeof fixture>) => T | Promise<T>): Promise<T> {

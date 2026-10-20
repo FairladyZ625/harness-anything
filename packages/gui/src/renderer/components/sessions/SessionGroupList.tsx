@@ -61,6 +61,7 @@ export function SessionGroupList({
   groups,
   pending = false,
   truncated,
+  onLoadMore,
   expandedKeys,
   rowsByGroup,
   decisionRowsByGroup = NO_DECISION_ROWS,
@@ -80,6 +81,8 @@ export function SessionGroupList({
   readonly groups: readonly SessionGroup[];
   readonly pending?: boolean;
   readonly truncated: boolean;
+  /** 钻入分页:截断说明变成「加载更多」;不传保持纯静态说明。 */
+  readonly onLoadMore?: () => void;
   readonly expandedKeys: ReadonlySet<string>;
   readonly rowsByGroup: ReadonlyMap<string, SessionGroupRows>;
   readonly decisionRowsByGroup?: ReadonlyMap<string, DecisionGroupRows>;
@@ -196,16 +199,28 @@ export function SessionGroupList({
           })}
         </div>
       )}
-      {truncated && (
-        <p
-          data-testid="sessions-groups-truncated"
-          className="border-t border-border px-3.5 py-2.5 ui-meta text-text-faint"
-        >
-          {t(groups.length === 1 ? "agentRuntime.sessionsGroupsTruncatedOne" : "agentRuntime.sessionsGroupsTruncated", {
-            count: groups.length,
-          })}
-        </p>
-      )}
+      {truncated &&
+        (onLoadMore === undefined ? (
+          <p
+            data-testid="sessions-groups-truncated"
+            className="border-t border-border px-3.5 py-2.5 ui-meta text-text-faint"
+          >
+            {t(
+              groups.length === 1 ? "agentRuntime.sessionsGroupsTruncatedOne" : "agentRuntime.sessionsGroupsTruncated",
+              { count: groups.length },
+            )}
+          </p>
+        ) : (
+          <button
+            type="button"
+            data-testid="sessions-groups-more"
+            onClick={onLoadMore}
+            className="block w-full border-t border-border px-3.5 py-2.5 text-center ui-meta text-accent
+            hover:bg-surface-raised"
+          >
+            {t("agentRuntime.loadMoreSessions")}
+          </button>
+        ))}
     </nav>
   );
 }

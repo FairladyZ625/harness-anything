@@ -745,5 +745,7 @@
   "agentRuntime.handoffResumed": "The target resumed the same native session.",
   "agentRuntime.handoffEnable": "Enable explicit handoff after this Codex session settles",
   "agentRuntime.squadRunLastReport": "Last report",
-  "agentRuntime.daemonTransientRetry": "The center is switching builds or briefly unavailable; retry shortly."
+  "agentRuntime.daemonTransientRetry": "The center is switching builds or briefly unavailable; retry shortly.",
+  "agentRuntime.loadMoreSessions": "Load more sessions",
+  "agentRuntime.loadingMoreSessions": "Loading more sessions…"
 }

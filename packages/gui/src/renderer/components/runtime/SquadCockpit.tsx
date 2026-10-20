@@ -48,12 +48,19 @@ export function SquadCockpit({
   squad,
   rows,
   busy,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
   onLaunch,
   onOpenSession,
 }: {
   readonly squad: SquadEntityDetail;
   readonly rows: readonly RuntimeDockRow[];
   readonly busy: boolean;
+  /** 轮次按最近一页读取;为真时尾部给「加载更多」放大窗口。 */
+  readonly hasMore?: boolean;
+  readonly loadingMore?: boolean;
+  readonly onLoadMore?: () => void;
   readonly onLaunch: () => void;
   readonly onOpenSession: (runtimeSessionId: string) => void;
 }) {
@@ -120,7 +127,7 @@ export function SquadCockpit({
         )}
         {model.unboundWorkers.length > 0 && (
           <div className="mt-2 border-t border-border pt-2">
-            <h4 className="mb-1.5 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
+            <h4 className="mb-1 font-mono ui-micro uppercase tracking-[0.07em] text-text-faint">
               {t("agentRuntime.cockpitUnboundWorkers")}
               <Hint>{t("agentRuntime.cockpitUnboundWorkersHint")}</Hint>
             </h4>
@@ -130,6 +137,18 @@ export function SquadCockpit({
               ))}
             </div>
           </div>
+        )}
+        {hasMore && (
+          <button
+            type="button"
+            data-testid="squad-cockpit-more"
+            disabled={loadingMore || onLoadMore === undefined}
+            onClick={() => onLoadMore?.()}
+            className="mt-2 block w-full rounded border border-border px-2 py-1.5 text-center ui-micro
+            text-accent hover:border-border-strong disabled:text-text-faint"
+          >
+            {t(loadingMore ? "agentRuntime.loadingMoreSessions" : "agentRuntime.loadMoreSessions")}
+          </button>
         )}
       </div>
     </section>
