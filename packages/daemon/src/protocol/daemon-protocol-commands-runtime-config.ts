@@ -5,13 +5,10 @@ import {
   defineRepoReadCommand,
 } from "@harness-anything/preset/internal/preset-command-contract";
 import { daemonRepoModeWords } from "./daemon-protocol-vocabulary.ts";
-import { runtimeKindForId } from "../runtime-inventory.ts";
 
 const credentialReferenceRegex =
   "^credential:v1:[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?$|^keychain:[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$";
-const deepseekConfiguration = runtimeKindForId("deepseek-harness").configuration,
-  deepseekChoices = "choices" in deepseekConfiguration ? deepseekConfiguration.choices : undefined,
-  deepseekWireApiValues = deepseekChoices?.wireApi;
+const deepseekWireApiValues = ["openai-completions", "openai-responses", "anthropic-messages"] as const;
 
 // The CLI's per-kind input summary, mirroring the runtime-inventory catalog entries: which auth modes
 // the create command accepts, the kind configuration field names (and which one is the
