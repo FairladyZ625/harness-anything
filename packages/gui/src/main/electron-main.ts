@@ -8,6 +8,7 @@ import {
   type ProjectWindowRegistryEntry,
 } from "./project-windows.ts";
 import { darwinAppMenuTemplate } from "./darwin-app-menu.ts";
+import { ensureApplicationsFolder } from "./darwin-applications-folder.ts";
 import { APP_COMMAND_CHANNEL, type AppNavigationCommand } from "../api/app-command-contract.ts";
 import { app, BrowserWindow, dialog, ipcMain, Menu, nativeTheme, session, shell } from "electron";
 import { randomUUID } from "node:crypto";
@@ -314,6 +315,8 @@ export async function startGuiApp(): Promise<void> {
   // A losing second instance still reaches whenReady; it must not build windows or services.
   if (!singleInstanceLock) return;
   await app.whenReady();
+  const moved = await ensureApplicationsFolder({ app, dialog });
+  if (moved) return;
   // macOS 的协议绑定来自打包的 Info.plist;Windows/Linux 由运行时写注册表/桌面项。
   if (app.isPackaged && process.platform !== "darwin") app.setAsDefaultProtocolClient("harness-edge");
   if (process.platform === "darwin") {
