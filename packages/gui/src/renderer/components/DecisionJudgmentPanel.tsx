@@ -85,11 +85,12 @@ export function DecisionJudgmentPanel({
 
   const risk: ApprovalRisk = decision.riskTier === "high" ? "high" : decision.riskTier === "low" ? "low" : "medium";
 
+  // DecisionRow 没有 options 字段:预览回退链是 chosen → rejected(同为 DecisionClaim[])。
   const previewLines =
     (decision.chosen ?? []).length > 0
       ? decision.chosen.map((c) => `${c.id} | ${c.text}`)
-      : (decision.options ?? []).length > 0
-        ? (decision.options ?? []).map((o) => `${o.id} | ${o.text}`)
+      : (decision.rejected ?? []).length > 0
+        ? decision.rejected.map((o) => `${o.id} | ${o.text}`)
         : [decision.question];
 
   const decidedState: ApprovalDecision | null =

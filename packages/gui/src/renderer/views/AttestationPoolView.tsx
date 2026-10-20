@@ -8,7 +8,7 @@ import type { GateAttestMode } from "../components/taskDetail/TaskGateAttestCard
 import { DecisionsView } from "./DecisionsView.tsx";
 import { DecisionPoolSection } from "./decision-pool-section.tsx";
 import type { DecisionAction, DecisionMutationFeedback } from "../decision-actions.ts";
-import { type DecisionRow, type FactRef, type RelationEdge, type TaskRow } from "../model/types.ts";
+import { isTerminal, type DecisionRow, type FactRef, type RelationEdge, type TaskRow } from "../model/types.ts";
 import {
   deriveAttestationLanes,
   TASK_CLOSEOUT_TABS,
@@ -173,7 +173,7 @@ export function AttestationPoolView({
           ...(onAttest
             ? [
                 {
-                  kind: (gate.mode === "approve" ? "approve" : "reject") as const,
+                  kind: gate.mode === "approve" ? ("approve" as const) : ("reject" as const),
                   label: t(
                     gate.mode === "approve" ? "views.attestationPoolView.attest" : "views.attestationPoolView.override",
                   ),
@@ -272,10 +272,7 @@ export function AttestationPoolView({
 
     for (const task of tasks) {
       if (seenTaskIds.has(task.taskId)) continue;
-      const isDone =
-        task.board?.columnId === "terminal" ||
-        task.coordinationStatus === "completed" ||
-        task.coordinationStatus === "archived";
+      const isDone = isTerminal(task);
       items.push({
         id: `task-${task.taskId}`,
         title: task.title,
