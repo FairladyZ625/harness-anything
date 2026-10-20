@@ -85,7 +85,7 @@ export async function scanSelfRepoPathLiterals(root = process.cwd()) {
 }
 
 function readForbiddenDirectories(entries) {
-  return entries.map((entry) => {
+  const values = entries.map((entry) => {
     if (typeof entry.value !== "string" || entry.value.trim() === "" || !entry.value.endsWith("/")) {
       throw new Error(
         `${gateId}: forbiddenDirectories entry must have a repository-relative directory value ending in "/"`,
@@ -93,6 +93,10 @@ function readForbiddenDirectories(entries) {
     }
     return entry.value;
   });
+  // An emptied policy would turn the gate into a no-op; fail closed instead.
+  if (values.length === 0) throw new Error(`${gateId}: forbiddenDirectories must not be empty`);
+  if (new Set(values).size !== values.length) throw new Error(`${gateId}: duplicate forbiddenDirectories value`);
+  return values;
 }
 
 function readAllowlistedUsages(entries, forbidden) {

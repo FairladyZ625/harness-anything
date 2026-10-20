@@ -257,6 +257,18 @@ test("an empty product source root fails closed", () => {
   });
 });
 
+test("an emptied forbidden policy fails closed", () => {
+  withGateRoot("ha-self-repo-paths-", (root) => {
+    writeFixtureAllowlist(root, { forbidden: [] });
+    writeSource(root, "packages/kernel/src/domain/ok.ts", "export const ok = true;\n");
+
+    const result = runGate(root, path.join(root, "allowlist"));
+
+    assert.notEqual(result.status, 0, result.stdout);
+    assert.match(result.stderr, /forbiddenDirectories must not be empty/u);
+  });
+});
+
 test("the current repository passes with its reviewed exceptions", () => {
   const result = runGate(repoRoot);
 
