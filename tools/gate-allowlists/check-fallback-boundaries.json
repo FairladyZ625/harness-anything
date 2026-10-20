@@ -330,12 +330,6 @@
   "fullHistoryScans": [
    {
     "file": "packages/gui/src/renderer/agent-runtime-client.ts",
-    "function": "cachedSessionEventTimeline",
-    "task": "task_88824a470955243fc031e9defc",
-    "reason": "The flagged events(...) call is the React Query key builder runtimeQueryKeys.events, not a ledger read; the function only reads the query cache."
-   },
-   {
-    "file": "packages/gui/src/renderer/agent-runtime-client.ts",
     "function": "pollSessionEventsOnce",
     "task": "task_88824a470955243fc031e9defc",
     "reason": "Cursor-bounded incremental read (dec_C0AF8CBBFFECF71F4F34FB76F9/CH3): after the first poll every call passes the cached lifecycle cursor, and the daemon read caps one page at 64 events."

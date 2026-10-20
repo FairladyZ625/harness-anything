@@ -33,7 +33,18 @@ function isStartArgument(node) {
   return !node || node.kind === ts.SyntaxKind.NullKeyword || (ts.isNumericLiteral(node) && node.text === "0");
 }
 
+// React Query key builders share method names with ledger reads (runtimeQueryKeys.events);
+// calls on that receiver only build cache keys and never touch the ledger.
+function isQueryKeyBuilderCall(node) {
+  return (
+    ts.isPropertyAccessExpression(node.expression) &&
+    ts.isIdentifier(node.expression.expression) &&
+    node.expression.expression.text === "runtimeQueryKeys"
+  );
+}
+
 function isFullHistoryCall(node) {
+  if (isQueryKeyBuilderCall(node)) return false;
   const name = callName(node.expression);
   if (name === "readEventsThrough") return true;
   if (name === "readBatch") return isStartArgument(node.arguments[0]);
