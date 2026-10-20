@@ -77,6 +77,32 @@ let queryOnlySession: {
   readonly db: DatabaseSync;
 } | null = null;
 
+// A query-only session keeps one read-only connection per projection file across sessions. The
+// daemon answers every repository read with one session, so the per-session open (SQLite parses
+// the whole schema on a fresh connection's first statements) is per-request work on the host
+// thread that produces nothing. Session boundaries still take their own BEGIN/COMMIT, so each
+// synchronous read keeps its completed-cut snapshot, and the fingerprint check reopens when a
+// rebuild replaces the file rather than reading the detached old inode.
+interface QueryOnlyConnection {
+  db: DatabaseSync | null;
+  fingerprint: string | null;
+  unregister: () => void;
+}
+const queryOnlyConnections = new Map<string, QueryOnlyConnection>();
+let queryOnlyProjectionOpens = 0;
+
+/** Test seam: how many query-only read connections this process has opened, to pin connection reuse. */
+export function countQueryOnlyProjectionOpens(): number {
+  return queryOnlyProjectionOpens;
+}
+
+function closeQueryOnlyConnection(connection: QueryOnlyConnection): void {
+  connection.unregister();
+  connection.db?.close();
+  connection.db = null;
+  connection.fingerprint = null;
+}
+
 /** Test fixtures can close all projection databases before removing a temporary repository. */
 export function closeTaskProjectionsUnder(rootDir: string): void {
   const resolvedRoot = canonicalProjectionPath(rootDir),
@@ -132,14 +158,46 @@ export function withQueryOnlyDatabaseSession<A>(
   }
   if (!localRuntimeStateFileSystem.exists(resolvedProjectionPath))
     throw new Error(`projection is unavailable at ${resolvedProjectionPath}`);
-  const db = /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(
-    resolvedProjectionPath,
-    { readOnly: true },
-  );
+  const connection = queryOnlyConnections.get(resolvedProjectionPath) ?? {
+    db: null,
+    fingerprint: null,
+    unregister: () => undefined,
+  };
+  queryOnlyConnections.set(resolvedProjectionPath, connection);
+  if (connection.db !== null && connection.fingerprint !== projectionFileFingerprint(projectionPath))
+    closeQueryOnlyConnection(connection);
+  if (connection.db === null) {
+    connection.db = /* @gate-identity check-bypass-write-boundary/bypass-write-007 */ new DatabaseSync(
+      resolvedProjectionPath,
+      { readOnly: true },
+    );
+    connection.fingerprint = projectionFileFingerprint(projectionPath);
+    queryOnlyProjectionOpens += 1;
+    const registeredClosers = projectionClosers.get(resolvedProjectionPath) ?? new Set<() => void>();
+    const close = () => closeQueryOnlyConnection(connection);
+    registeredClosers.add(close);
+    projectionClosers.set(resolvedProjectionPath, registeredClosers);
+    connection.unregister = () => {
+      registeredClosers.delete(close);
+      if (registeredClosers.size === 0) projectionClosers.delete(resolvedProjectionPath);
+      connection.unregister = () => undefined;
+    };
+  }
+  const db = connection.db;
+  queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
   try {
+    // The pragmas ride along with BEGIN on one exec: both are idempotent per connection, and the
+    // session keeps exactly one governed statement for its transaction boundary.
     /* @gate-identity check-bypass-write-boundary/bypass-write-104 */
     db.exec(`PRAGMA busy_timeout = ${projectionBusyTimeoutMs}; PRAGMA query_only = ON; BEGIN`);
-    queryOnlySession = { projectionPath: resolvedProjectionPath, readHead, db };
+  } catch (error) {
+    queryOnlySession = null;
+    // Opening/schema failures can happen before BEGIN establishes a transaction; a connection
+    // that cannot start its session is dropped so the next session reopens from the file.
+    closeQueryOnlyConnection(connection);
+    throw error;
+  }
+  try {
     const value = use(db);
     if (value !== null && typeof value === "object" && "then" in value)
       throw new Error("projection reader sessions must complete synchronously inside one SQLite transaction");
@@ -152,12 +210,10 @@ export function withQueryOnlyDatabaseSession<A>(
       db.exec("ROLLBACK");
     } catch (rollbackError) {
       consumeKnownError(rollbackError);
-      // Opening/schema failures can happen before BEGIN establishes a transaction.
     }
     throw error;
   } finally {
     queryOnlySession = null;
-    db.close();
   }
 }
 export function discardDatabase(
