@@ -17,7 +17,7 @@ export {
   ToolCallGroup,
   truncatePayload,
   type PayloadPreview,
-  type ToolCall,
+  type ToolCallEntry,
   type ToolCallStatus,
 } from "./ToolCallCard.tsx";
 export {

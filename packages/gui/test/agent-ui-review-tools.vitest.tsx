@@ -13,8 +13,13 @@ import {
   type DiffAnnotation,
   type DiffFile,
   type InboxItem,
-  type ToolCall,
+  type ToolCallEntry,
 } from "../src/renderer/components/agent-ui/index.ts";
+import {
+  sessionTranscriptTurns,
+  toolCallGroups,
+  type ToolCallGroup as ToolCallGroupModel,
+} from "../src/renderer/session-transcript-model.ts";
 import { setActiveLocale } from "../src/renderer/i18n/core.ts";
 
 let root: Root;
@@ -45,14 +50,15 @@ const press = (element: Element, key: string, options: KeyboardEventInit = {}) =
 };
 
 describe("ToolCallCard", () => {
-  const baseCall: ToolCall = {
-    id: "call-1",
+  const baseCall: ToolCallEntry = {
+    key: "call-1",
     name: "Bash",
     summary: "npm run build",
     status: "succeeded",
     durationMs: 1_830,
-    arguments: '{"command":"npm run build"}',
+    args: '{"command":"npm run build"}',
     result: "built in 1.8s",
+    startedAt: null,
   };
 
   it("stays collapsed with name, summary, duration and status, then expands with arguments and result", () => {
@@ -79,7 +85,7 @@ describe("ToolCallCard", () => {
       ...navigator,
       clipboard: { writeText: async (text: string) => void writes.push(text) },
     });
-    mount(<ToolCallCard call={{ ...baseCall, arguments: hugeArguments }} defaultExpanded />);
+    mount(<ToolCallCard call={{ ...baseCall, args: hugeArguments }} defaultExpanded />);
     const truncated = byTestId("toolcall-card-arguments-truncated");
     expect(truncated).not.toBeNull();
     expect(truncated.textContent).toContain("9011");
@@ -97,14 +103,16 @@ describe("ToolCallCard", () => {
     const onRetry = vi.fn();
     mount(
       <ToolCallCard
-        call={{ ...baseCall, status: "failed", error: "exit 1", durationMs: 400, result: null }}
+        call={{ ...baseCall, status: "failed", durationMs: 400, result: "exit 1" }}
         defaultExpanded
         onRetry={onRetry}
       />,
     );
+    // 失败详情读领域字段 result(没有独立 error)。
     expect(byTestId("toolcall-card-error").textContent).toContain("exit 1");
+    expect(byTestId("toolcall-card-result").textContent).toContain("exit 1");
     act(() => byTestId("toolcall-card-retry").click());
-    expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ id: "call-1", status: "failed" }));
+    expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ key: "call-1", status: "failed" }));
   });
 
   it("ticks elapsed time for a running call from startedAt", () => {
@@ -113,7 +121,7 @@ describe("ToolCallCard", () => {
     vi.setSystemTime(now);
     mount(
       <ToolCallCard
-        call={{ ...baseCall, status: "running", durationMs: undefined, startedAt: new Date(now - 5_000).toISOString() }}
+        call={{ ...baseCall, status: "running", durationMs: null, startedAt: new Date(now - 5_000).toISOString() }}
       />,
     );
     expect(byTestId("toolcall-card-elapsed").textContent).toBe("5.0s");
@@ -123,21 +131,47 @@ describe("ToolCallCard", () => {
 });
 
 describe("ToolCallGroup", () => {
-  const calls: readonly ToolCall[] = [
-    {
-      id: "a",
-      name: "Read",
-      summary: "读配置",
-      status: "succeeded",
-      durationMs: 120,
-      arguments: '{"path":"vite.config.ts"}',
-    },
-    { id: "b", name: "Bash", summary: "跑构建", status: "failed", durationMs: 1_700, error: "exit 1" },
-    { id: "c", name: "Grep", summary: "搜引用", status: "succeeded", durationMs: 60 },
-  ];
+  const group: ToolCallGroupModel = {
+    key: "turn-1:tools:0",
+    turnKey: "turn-1",
+    status: "failed",
+    totalDurationMs: 1_880,
+    calls: [
+      {
+        key: "a",
+        name: "Read",
+        summary: "读配置",
+        status: "succeeded",
+        durationMs: 120,
+        args: '{"path":"vite.config.ts"}',
+        result: null,
+        startedAt: null,
+      },
+      {
+        key: "b",
+        name: "Bash",
+        summary: "跑构建",
+        status: "failed",
+        durationMs: 1_700,
+        args: "",
+        result: "exit 1",
+        startedAt: null,
+      },
+      {
+        key: "c",
+        name: "Grep",
+        summary: "搜引用",
+        status: "succeeded",
+        durationMs: 60,
+        args: "",
+        result: null,
+        startedAt: null,
+      },
+    ],
+  };
 
   it("collapses a round of calls into one summary row and expands into individual cards", () => {
-    mount(<ToolCallGroup calls={calls} />);
+    mount(<ToolCallGroup group={group} />);
     const toggle = byTestId("toolcall-group-toggle");
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(byTestId("toolcall-group-summary").textContent).toBe("已调用 3 个工具 · 耗时 1.9s");
@@ -149,6 +183,46 @@ describe("ToolCallGroup", () => {
     // 组内单卡仍可继续展开。
     act(() => byTestId("toolcall-card-toggle").click());
     expect(byTestId("toolcall-card-arguments")).not.toBeNull();
+  });
+
+  it("renders the domain projection from toolCallGroups(sessionTranscriptTurns(...)) without an adapter", () => {
+    const records = [
+      {
+        kind: "provider_event",
+        occurredAt: "2026-10-20T11:00:00.000Z",
+        event: {
+          type: "assistant",
+          message: {
+            id: "m-1",
+            content: [
+              { type: "tool_use", id: "t1", name: "Read", input: { path: "a.ts" } },
+              { type: "tool_use", id: "t2", name: "Grep", input: { q: "x" } },
+            ],
+          },
+        },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-10-20T11:00:04.000Z",
+        event: { type: "user", message: { content: [{ type: "tool_result", tool_use_id: "t2", content: "found 2" }] } },
+      },
+      {
+        kind: "provider_event",
+        occurredAt: "2026-10-20T11:00:09.000Z",
+        event: {
+          type: "user",
+          message: { content: [{ type: "tool_result", tool_use_id: "t1", content: "file content" }] },
+        },
+      },
+    ];
+    const [projected] = toolCallGroups(sessionTranscriptTurns(records));
+    mount(<ToolCallGroup group={projected!} defaultExpanded />);
+    expect(byTestId("toolcall-group-summary").textContent).toBe("已调用 2 个工具 · 耗时 13s");
+    expect(container.querySelectorAll('[data-testid="toolcall-card"]')).toHaveLength(2);
+    expect(byTestId("toolcall-card-elapsed").textContent).toBe("9.0s");
+    act(() => byTestId("toolcall-card-toggle").click());
+    expect(byTestId("toolcall-card-arguments").textContent).toContain("a.ts");
+    expect(byTestId("toolcall-card-result").textContent).toContain("file content");
   });
 });
 
@@ -215,6 +289,22 @@ describe("ApprovalCard", () => {
     expect(byTestId("approval-approve")).toBeNull();
     press(card, "Enter");
     expect(onDecide).not.toHaveBeenCalled();
+  });
+
+  it("returns focus to the resolved summary when a pending card collapses", () => {
+    const onDecide = vi.fn();
+    mount(<ApprovalCard {...pending} onDecide={onDecide} />);
+    press(byTestId("approval-card"), "Enter");
+    act(() =>
+      root.render(
+        <ApprovalCard
+          {...pending}
+          decided={{ verdict: "approved", at: "2026-10-20T10:00:00Z", reason: "user" }}
+          onDecide={onDecide}
+        />,
+      ),
+    );
+    expect(document.activeElement).toBe(byTestId("approval-resolved"));
   });
 });
 
@@ -419,7 +509,24 @@ describe("agentUi i18n (en-US)", () => {
     act(() =>
       root.render(
         <ToolCallGroup
-          calls={[{ id: "a", name: "Read", summary: "read config", status: "succeeded", durationMs: 120 }]}
+          group={{
+            key: "g",
+            turnKey: "t",
+            status: "succeeded",
+            totalDurationMs: 120,
+            calls: [
+              {
+                key: "a",
+                name: "Read",
+                summary: "read config",
+                status: "succeeded",
+                durationMs: 120,
+                args: "",
+                result: null,
+                startedAt: null,
+              },
+            ],
+          }}
         />,
       ),
     );

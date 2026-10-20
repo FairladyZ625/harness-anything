@@ -4,32 +4,20 @@ import { CopyContextButton } from "../CopyContextButton.tsx";
 import { Button } from "../primitives/Button.tsx";
 import { formatDuration } from "../../model/time.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
+import type {
+  ToolCallEntry,
+  ToolCallGroup as ToolCallGroupModel,
+  ToolCallStatus,
+} from "../../session-transcript-model.ts";
 
 /**
  * agent-ui 工具调用可观测原语(dec_C0AF8CBBFFECF71F4F34FB76F9 CH2):
  * 单行紧凑工具调用卡 + 同轮多次调用折叠组(Affect UI ToolCallCard / ToolCallGroup 契约)。
- * 自包含 props 驱动,不绑定 daemon;W2 会话视图接入领域事件流。
+ * props 直接消费 W1-T1 的 ToolCallEntry / ToolCallGroup 领域投影(session-transcript-model),
+ * 不另立镜像类型;自包含、不绑定 daemon,W2 会话视图接入事件流。
  */
 
-export type ToolCallStatus = "running" | "succeeded" | "failed";
-
-export interface ToolCall {
-  readonly id: string;
-  readonly name: string;
-  /** 一句话摘要(单行截断展示)。 */
-  readonly summary: string;
-  readonly status: ToolCallStatus;
-  /** ISO 开始时间;running 且无 durationMs 时按它与当前时间出实时耗时。 */
-  readonly startedAt?: string;
-  /** 已结束调用的耗时毫秒;running 时可缺省。 */
-  readonly durationMs?: number | null;
-  /** 原始参数文本(通常为 JSON 字符串,允许超大负载,展示层截断)。 */
-  readonly arguments?: string | null;
-  /** 原始返回文本(允许超大负载,展示层截断)。 */
-  readonly result?: string | null;
-  /** 失败时的错误摘要。 */
-  readonly error?: string | null;
-}
+export type { ToolCallEntry, ToolCallStatus } from "../../session-transcript-model.ts";
 
 /** 展示层截断上限:预览最多渲染这么多字符,复制始终给完整原文(任务约束:严禁直接渲染超大字符串)。 */
 export const DEFAULT_PAYLOAD_PREVIEW_LIMIT = 2_000;
@@ -66,11 +54,11 @@ function useNowMs(active: boolean): number {
   return now;
 }
 
-function elapsedLabel(call: ToolCall, nowMs: number): string {
-  if (typeof call.durationMs === "number" && Number.isFinite(call.durationMs)) {
+function elapsedLabel(call: ToolCallEntry, nowMs: number): string {
+  if (call.durationMs !== null && Number.isFinite(call.durationMs)) {
     return formatDuration(call.durationMs);
   }
-  if (call.status === "running" && call.startedAt !== undefined) {
+  if (call.status === "running" && call.startedAt !== null) {
     const started = Date.parse(call.startedAt);
     if (Number.isFinite(started)) return formatDuration(Math.max(0, nowMs - started));
   }
@@ -166,15 +154,17 @@ export function ToolCallCard({
   onRetry,
   testId = "toolcall-card",
 }: {
-  readonly call: ToolCall;
+  readonly call: ToolCallEntry;
   readonly defaultExpanded?: boolean;
   readonly previewLimit?: number;
-  readonly onRetry?: (call: ToolCall) => void;
+  readonly onRetry?: (call: ToolCallEntry) => void;
   readonly testId?: string;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const bodyId = useId();
-  const nowMs = useNowMs(call.status === "running" && call.durationMs === undefined);
+  const nowMs = useNowMs(call.status === "running" && call.durationMs === null);
+  // 失败详情来自领域字段 result(没有独立 error 字段);摘要同样走截断,完整原文由 Result 块的复制按钮携带。
+  const failureText = truncatePayload(call.result ?? t("agentUi.toolcall.errorFallback"), previewLimit).text;
   return (
     <div
       data-testid={testId}
@@ -212,11 +202,11 @@ export function ToolCallCard({
           aria-label={t("agentUi.toolcall.detailAria", { name: call.name })}
           className="flex flex-col gap-2.5 border-t border-border px-2.5 py-2.5"
         >
-          {(call.arguments ?? "") !== "" && (
+          {call.args !== "" && (
             <PayloadBlock
               testId={`${testId}-arguments`}
               title={t("agentUi.toolcall.argumentsTitle")}
-              text={call.arguments ?? ""}
+              text={call.args}
               previewLimit={previewLimit}
               copyLabelKey="agentUi.toolcall.copyArgs"
             />
@@ -233,9 +223,9 @@ export function ToolCallCard({
           {call.status === "failed" && (
             <div
               data-testid={`${testId}-error`}
-              className="rounded-md border border-danger/40 px-2.5 py-2 ui-micro text-danger"
+              className="flex items-center justify-between gap-2 rounded-md border border-danger/40 px-2.5 py-2 ui-micro text-danger"
             >
-              {call.error ?? t("agentUi.toolcall.errorFallback")}
+              <span className="min-w-0 flex-1 truncate font-mono">{failureText}</span>
               {onRetry && (
                 <Button
                   variant="plain"
@@ -257,33 +247,30 @@ export function ToolCallCard({
 
 /**
  * 同一轮连续多次工具调用的折叠汇总条:默认一行汇总(如「已调用 6 个工具 · 耗时 1.8s」),
- * 展开后才铺开逐张 ToolCallCard,防止长对话被工具卡片淹没。
+ * 展开后才铺开逐张 ToolCallCard,防止长对话被工具卡片淹没。props 直接消费
+ * `toolCallGroups(sessionTranscriptTurns(...))` 产出的领域 ToolCallGroup。
  */
 export function ToolCallGroup({
-  calls,
+  group,
   defaultExpanded = false,
   previewLimit = DEFAULT_PAYLOAD_PREVIEW_LIMIT,
   onRetry,
   testId = "toolcall-group",
 }: {
-  readonly calls: readonly ToolCall[];
+  readonly group: ToolCallGroupModel;
   readonly defaultExpanded?: boolean;
   readonly previewLimit?: number;
-  readonly onRetry?: (call: ToolCall) => void;
+  readonly onRetry?: (call: ToolCallEntry) => void;
   readonly testId?: string;
 }) {
   const [expanded, setExpanded] = useState(defaultExpanded);
   const bodyId = useId();
+  const calls = group.calls;
   const failedCount = calls.filter((call) => call.status === "failed").length;
   const runningCount = calls.filter((call) => call.status === "running").length;
-  const totalMs = calls.reduce(
-    (sum, call) =>
-      typeof call.durationMs === "number" && Number.isFinite(call.durationMs) ? sum + call.durationMs : sum,
-    0,
-  );
   const summary = t("agentUi.toolcall.groupSummary", {
     count: calls.length,
-    duration: formatDuration(totalMs),
+    duration: formatDuration(group.totalDurationMs),
   });
   return (
     <div data-testid={testId} className="min-w-0 rounded-lg border border-border bg-surface-raised/30">
@@ -321,7 +308,7 @@ export function ToolCallGroup({
           className="flex flex-col gap-1.5 border-t border-border px-2 py-2"
         >
           {calls.map((call) => (
-            <ToolCallCard key={call.id} call={call} previewLimit={previewLimit} onRetry={onRetry} />
+            <ToolCallCard key={call.key} call={call} previewLimit={previewLimit} onRetry={onRetry} />
           ))}
         </div>
       )}

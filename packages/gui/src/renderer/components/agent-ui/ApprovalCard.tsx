@@ -4,7 +4,8 @@ import { CheckCircle, ShieldChevron, XCircle } from "@phosphor-icons/react";
 import { useEntryMotion } from "../../motion-config.tsx";
 import { MOTION_DURATION, MOTION_EASE } from "../../motion-tokens.ts";
 import { Button } from "../primitives/Button.tsx";
-import { StatusTag, type StatusTone } from "../primitives/StatusTag.tsx";
+import { StatusTag } from "../primitives/StatusTag.tsx";
+import { riskTone } from "../badges.tsx";
 import { formatTime } from "../../model/time.ts";
 import { t, type MessageKey } from "../../i18n/index.tsx";
 
@@ -26,11 +27,12 @@ export interface ApprovalDecision {
   readonly reason?: "user" | "timeout";
 }
 
-const RISK_META: Record<ApprovalRisk, { readonly labelKey: MessageKey; readonly tone: StatusTone }> = {
-  low: { labelKey: "agentUi.approval.risk.low", tone: "done" },
-  medium: { labelKey: "agentUi.approval.risk.medium", tone: "wait" },
-  high: { labelKey: "agentUi.approval.risk.high", tone: "bad" },
-  protected: { labelKey: "agentUi.approval.risk.protected", tone: "plan" },
+/** 风险徽标的文案源;风险色不在这里另写,统一取 badges.tsx 的 riskTone 映射。 */
+const RISK_LABEL: Record<ApprovalRisk, MessageKey> = {
+  low: "agentUi.approval.risk.low",
+  medium: "agentUi.approval.risk.medium",
+  high: "agentUi.approval.risk.high",
+  protected: "agentUi.approval.risk.protected",
 };
 
 const WARN_REMAINING_MS = 10_000;
@@ -38,8 +40,8 @@ const WARN_REMAINING_MS = 10_000;
 function RiskBadge({ risk }: { readonly risk: ApprovalRisk }): ReactNode {
   return (
     <StatusTag
-      tone={RISK_META[risk].tone}
-      label={t(RISK_META[risk].labelKey)}
+      tone={riskTone(risk)}
+      label={t(RISK_LABEL[risk])}
       testId="approval-risk"
       icon={risk === "protected" ? <ShieldChevron weight="bold" aria-hidden /> : undefined}
     />
@@ -94,6 +96,13 @@ export function ApprovalCard({
   readonly testId?: string;
 }) {
   const [attention, setAttention] = useState(false);
+  const resolvedRef = useRef<HTMLDivElement>(null);
+  const wasPendingRef = useRef(decided === null);
+  // N6:由待裁决收敛为已裁决时,把焦点交给结果摘要;已是裁决态首次挂载不抢焦点。
+  useEffect(() => {
+    if (wasPendingRef.current && decided !== null) resolvedRef.current?.focus();
+    wasPendingRef.current = decided === null;
+  }, [decided]);
   const decide = (verdict: ApprovalVerdict, reason: "user" | "timeout") => {
     if (decided !== null || onDecide === undefined) return;
     onDecide({ verdict, at: new Date().toISOString(), reason });
@@ -171,7 +180,12 @@ export function ApprovalCard({
           </div>
         </div>
       ) : (
-        <div data-testid="approval-resolved" className="flex min-w-0 items-center gap-2 px-3 py-2 ui-meta">
+        <div
+          ref={resolvedRef}
+          data-testid="approval-resolved"
+          tabIndex={-1}
+          className="flex min-w-0 items-center gap-2 px-3 py-2 ui-meta"
+        >
           {decided.verdict === "approved" ? (
             <CheckCircle weight="bold" aria-hidden className="shrink-0 text-success" />
           ) : (

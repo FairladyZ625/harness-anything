@@ -186,10 +186,25 @@ export function isDecisionState(value: string): value is DecisionState {
   return Object.hasOwn(DECISION_STATE_META, value);
 }
 
+/**
+ * 风险等级 → 语义色:低风险中性、中风险等待、高风险最高风险;受保护面按最高风险呈现。
+ * 这是风险色的唯一映射,ApprovalCard 等消费方只引用 riskTone,不再自写一份。
+ */
+const RISK_TONE: Record<RiskTier | "protected", StatusTone> = {
+  high: "bad",
+  medium: "wait",
+  low: "neutral",
+  protected: "bad",
+};
+
+export function riskTone(tier: RiskTier | "protected"): StatusTone {
+  return RISK_TONE[tier];
+}
+
 const RISK_META: Record<RiskTier, { label: string; tone: StatusTone }> = {
-  high: localizedLabel("components.badges.highRisk", { tone: "bad" }),
-  medium: localizedLabel("components.badges.mediumRisk", { tone: "wait" }),
-  low: localizedLabel("components.badges.lowRisk", { tone: "neutral" }),
+  high: localizedLabel("components.badges.highRisk", { tone: riskTone("high") }),
+  medium: localizedLabel("components.badges.mediumRisk", { tone: riskTone("medium") }),
+  low: localizedLabel("components.badges.lowRisk", { tone: riskTone("low") }),
 };
 
 export function RiskTierBadge({ tier }: { tier?: RiskTier }) {
