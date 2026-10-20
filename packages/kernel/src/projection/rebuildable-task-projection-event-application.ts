@@ -2,6 +2,7 @@ import { projectArtifactEntityState } from "./artifact-entity-state-projection.t
 import { readyDeferredEvents } from "./projection-deferred-events.ts";
 import { projectEventSummary } from "./event-summary-projection.ts";
 import { projectSquadRunEvent } from "./rebuildable-task-projection-squad-runs.ts";
+import { upsertPresetSnapshot } from "./rebuildable-task-projection-preset-snapshots.ts";
 import {
   normalizeHistoricalEvent,
   normalizeHistoricalPresetSnapshot,
@@ -96,7 +97,6 @@ import {
 import {
   canonicalJson,
   prepareQuery,
-  queryRow,
   queryRows,
   runSql,
   transaction,
@@ -136,30 +136,6 @@ const INSERT_TASK_SNAPSHOT_SQL = [
   "INSERT INTO task_snapshot(task_id, workspace_revision, snapshot_json, status, updated_at)",
   "VALUES (?, ?, ?, ?, ?)",
 ].join(" ");
-/**
- * A digest names one snapshot. A row an older build stored before today's historical normalization
- * is compared in normalized form and rewritten; any other difference is a conflict (returns false).
- */
-function upsertPresetSnapshot(db: DatabaseSync, digest: string, revision: number, valueJson: string): boolean {
-  const stored = queryRow<{ readonly value_json: string }>(
-    db,
-    "SELECT value_json FROM preset_snapshot WHERE digest = ?",
-    digest,
-  )?.value_json;
-  if (stored === undefined)
-    runSql(
-      db,
-      "INSERT INTO preset_snapshot(digest, workspace_revision, value_json) VALUES (?, ?, ?)",
-      digest,
-      revision,
-      valueJson,
-    );
-  else if (stored !== valueJson) {
-    if (canonicalJson(normalizeHistoricalPresetSnapshot(JSON.parse(stored))) !== valueJson) return false;
-    runSql(db, "UPDATE preset_snapshot SET value_json = ? WHERE digest = ?", valueJson, digest);
-  }
-  return true;
-}
 
 // Canonical-event dispatcher for non-task domains and task-event handoff.
 export function applyEvent(
