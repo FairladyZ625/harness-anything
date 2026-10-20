@@ -9,7 +9,9 @@
  *      重取:聚焦时探针先读,cut 变了派生读才跟着读。
  *   2. daemon 级读面(system status / connections status / fleet overview):台账 cut
  *      覆盖不到,各自的低频计时器是唯一周期刷新来源,保留;聚焦不重读。
- *   3. agenda 续读:未读完的游标窗口靠它拉完,读完即停,不是周期轮询。
+ *
+ * agenda / 关系图等游标切面的续读不在本表:它们在 queryFn 内排空
+ * (drainCursorPages),一次刷新读到终态,刷新时机由台账 cut 驱动。
  */
 export const QUERY_PACING_MS = {
   /** 台账探针间隔:cut 前进的唯一驱动(taskListQuery)。 */
@@ -26,8 +28,6 @@ export const QUERY_PACING_MS = {
    *  台账安静期也在走——不能只挂台账 cut 扇出,自持低频轮询保证停在页面上时数据在动
    *  (task_89085c1d5e532a54933b9bf444:此前挂载只读一次,页面冻结)。 */
   fleetOverview: 10_000,
-  /** agenda 未读完游标的续读节奏(读完即停,不是周期轮询)。 */
-  agendaCatchUp: 5_000,
 } as const;
 
 /** 台账探针的聚焦策略:聚焦即重探(数据新鲜也读);其余读面沿用全局默认不重读。 */

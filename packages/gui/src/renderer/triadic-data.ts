@@ -8,6 +8,7 @@ import type {
 } from "../api/renderer-dto.ts";
 import { harnessClient } from "./api-client.ts";
 import type { DecisionListSuccess, RelationFactSummaryRow, RelationGraphSuccess } from "./api-client.ts";
+import { drainCursorPages } from "./paginated-read.ts";
 import { agentEntityClient } from "./agent-entity-client.ts";
 import { schedulesClient } from "./schedules-client.ts";
 import { useFactArchiveVisibility } from "./fact-archive-preferences.tsx";
@@ -213,19 +214,14 @@ export function useRuntimePlaneQuery(repoId: string | null, options: { readonly 
 /**
  * Read the complete relation set before classifying graph membership.
  * A failed page rejects the whole read; partial edges cannot prove isolation.
+ * 排空循环与页预算在 drainCursorPages 唯一实现(与 agenda 同族):服务端游标异常
+ * 循环时在 CURSOR_READ_PAGE_BUDGET 内 fail-closed 抛错,不发布部分边集。
  */
 export async function readCompleteRelationGraph(
   read: (payload: { readonly limit: number; readonly cursor?: string }) => Promise<RelationGraphSuccess>,
 ): Promise<RelationGraphSuccess> {
-  const first = await read({ limit: 500 });
-  const pages = [first];
-  // 终止条件:服务端的 nextCursor 为空即最后一页(不是 cursor 本身为空)。
-  let cursor = first.page?.nextCursor;
-  while (cursor) {
-    const next = await read({ limit: 500, cursor });
-    pages.push(next);
-    cursor = next.page?.nextCursor;
-  }
+  const pages = await drainCursorPages((facets) => read({ limit: 500, ...facets }), "relation graph");
+  const first = pages[0];
   const unique = <T>(rows: readonly T[], key: (row: T) => string): T[] => [
     ...new Map(rows.map((row) => [key(row), row])).values(),
   ];

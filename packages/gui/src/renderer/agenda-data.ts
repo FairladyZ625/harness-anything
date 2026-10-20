@@ -1,7 +1,7 @@
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { attentionRegionWeights, compareAttention } from "@harness-anything/daemon/protocol";
 import { harnessClient, type AgendaSuccess } from "./api-client.ts";
-import { QUERY_PACING_MS } from "./query-pacing.ts";
+import { drainCursorPages } from "./paginated-read.ts";
 
 /** 每个 agenda source 的一页上限(daemon 上限 500;GUI 用默认页大小,不放大读面)。 */
 export const AGENDA_PAGE_LIMIT = 100;
@@ -15,40 +15,31 @@ export function agendaQuery(repoId: string) {
     queryKey: agendaQueryKeys.read(repoId),
     queryFn: () => readAgenda(repoId),
     staleTime: 10_000,
-    // The interval only carries an unfinished cursor read to completion; a settled agenda is
-    // refetched by the ledger cut (invalidateLedgerDependents), not by its own timer or focus.
-    refetchInterval: (query: { readonly state: { readonly data?: AgendaSuccess } }) =>
-      query.state.data?.page?.nextCursor ? QUERY_PACING_MS.agendaCatchUp : false,
+    // 续读在 queryFn 内排空,不需要计时器;读完的 agenda 由台账 cut
+    // (invalidateLedgerDependents)刷新,它既不是探针也不自持轮询。
   };
 }
 
 export function useAgendaQuery(repoId: string | null) {
-  const queryClient = useQueryClient(),
-    selectedRepoId = repoId ?? "unselected";
-  return useQuery({
-    ...agendaQuery(selectedRepoId),
-    // 续读状态存在缓存里:上一份切面没读完就沿 cursor 续,读完就重新水化。
-    queryFn: () =>
-      readAgenda(selectedRepoId, queryClient.getQueryData<AgendaSuccess>(agendaQueryKeys.read(selectedRepoId))),
-    enabled: repoId !== null,
-  });
+  return useQuery({ ...agendaQuery(repoId ?? "unselected"), enabled: repoId !== null });
 }
 
 /**
- * 议程读取形态:与台账读面同一纪律(一次刷新最多一个 `repo.agenda.read` 请求)。
+ * 议程读取形态:与台账读面同一纪律(与 readTaskList 同族的受控水化;议程切面小,
+ * 一次刷新内沿 composite cursor 排空到读完,不把续读交给任何节拍定时器)。
+ * 每页严格等上一页回来;页数上界是 drainCursorPages 的 CURSOR_READ_PAGE_BUDGET,
+ * 服务端游标异常循环时 fail-closed 抛错。
  *
- *   - 上一份切面还带着 `page.nextCursor` → 沿 composite cursor 续读下一页
- *     (cursor 存在 react-query 缓存里,不需要模块级可变变量);
- *   - 否则读第一页,重新水化。
- *
- * 未读完的切面 `status` 一律是 `pending`:视图据此显示「正在追赶 r{sourceRevision}」,
- * 分组计数在这一屏不冒充全局总数。
+ * 分组各自按实体 key 去重:composite cursor 是 per-source 的 keyset 游标,一次
+ * 排空 sweep 里同一实体不会在同一分组出现两次,去重只防跨 sweep 的重放。watermark
+ * 取 min、sourceRevision 取 max;daemon 在 cut 追赶中会把 status 报成 pending,
+ * 原样透传,视图据此显示「正在追赶 r{sourceRevision}」。
  */
-export async function readAgenda(repoId: string, previous?: AgendaSuccess): Promise<AgendaSuccess> {
-  const resumeCursor = previous?.page.nextCursor ?? null;
-  if (previous && resumeCursor !== null)
-    return joinAgendaCut(previous, await readAgendaPage(repoId, { cursor: resumeCursor }));
-  return joinAgendaCut(undefined, await readAgendaPage(repoId, {}));
+export async function readAgenda(repoId: string): Promise<AgendaSuccess> {
+  const [first, ...rest] = await drainCursorPages((facets) => readAgendaPage(repoId, facets), "agenda read");
+  let aspect = joinAgendaCut(undefined, first);
+  for (const page of rest) aspect = joinAgendaCut(aspect, page);
+  return aspect;
 }
 
 export async function readAgendaPage(repoId: string, facets: { readonly cursor?: string }): Promise<AgendaSuccess> {

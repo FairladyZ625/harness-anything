@@ -34,11 +34,8 @@ describe("renderer query pacing definitions", () => {
     expect(systemStatusQuery().refetchInterval).toBe(QUERY_PACING_MS.systemStatus);
     expect(connectionsQuery().refetchInterval).toBe(QUERY_PACING_MS.connectionStatus);
     expect(fleetOverviewQuery("repo-a").refetchInterval).toBe(QUERY_PACING_MS.fleetOverview);
-    const agendaInterval = agendaQuery("repo-a").refetchInterval as (query: {
-      readonly state: { readonly data?: { readonly page?: { readonly nextCursor?: string | null } } };
-    }) => number | false;
-    expect(agendaInterval({ state: { data: { page: { nextCursor: "c2" } } } })).toBe(QUERY_PACING_MS.agendaCatchUp);
-    expect(agendaInterval({ state: { data: { page: { nextCursor: null } } } })).toBe(false);
+    // agenda 续读改为 queryFn 内排空,不再有计时器:续读节拍不是它刷新来源,台账 cut 才是。
+    expect(agendaQuery("repo-a").refetchInterval).toBeUndefined();
     // 台账派生读不带自己的计时器:间隔只存在于上表与三个自持轮询的查询上。
     expect(workspaceSummaryQuery("repo-a").refetchInterval).toBeUndefined();
     expect(rendererQueryDefaults.queries.refetchOnWindowFocus).toBe(false);

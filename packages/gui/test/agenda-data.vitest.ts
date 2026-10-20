@@ -1,7 +1,7 @@
 // harness-test-tier: contract
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import { agendaQuery, readAgenda } from "../src/renderer/agenda-data.ts";
-import { QUERY_PACING_MS } from "../src/renderer/query-pacing.ts";
 import { harnessClient, type AgendaSuccess } from "../src/renderer/api-client.ts";
 import type { AgendaRead } from "../src/api/renderer-dto.ts";
 
@@ -107,20 +107,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe("agenda read discipline", () => {
-  it("reads exactly one page per refresh and follows the composite cursor until it is exhausted", async () => {
+  it("drains the whole cursor window inside one read and joins it into the settled aspect", async () => {
     pages.push(
       page({
         status: "pending",
         dispatchable: [row("task_a"), row("task_b")],
         page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
       }),
-    );
-    const first = await readAgenda("repo-a");
-    expect(first.status).toBe("pending");
-    expect(first.dispatchable.map(({ taskId }) => taskId)).toEqual(["task_a", "task_b"]);
-    expect(first.page.nextCursor).toBe("agenda-next");
-
-    pages.push(
       page({
         dispatchable: [row("task_b"), row("task_c")],
         page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
@@ -128,27 +121,23 @@ describe("agenda read discipline", () => {
         sourceRevision: 4,
       }),
     );
-    const second = await readAgenda("repo-a", first);
-    expect(second.status).toBe("ready");
-    // 每 refresh 只发一个请求;合并且按 taskId 去重。
-    expect(second.dispatchable.map(({ taskId }) => taskId)).toEqual(["task_a", "task_b", "task_c"]);
-    expect(second.watermark).toBe(3);
-    expect(second.sourceRevision).toBe(4);
-
-    pages.push(page({ dispatchable: [row("task_z", true)] }));
-    const restart = await readAgenda("repo-a", second);
-    expect(restart.dispatchable.map(({ taskId }) => taskId)).toEqual(["task_z"]);
+    const settled = await readAgenda("repo-a");
+    // 排空在这一次读取内完成:两页背靠背消费,中间不等任何节拍定时器。
+    expect(harnessClient.getAgenda).toHaveBeenCalledTimes(2);
+    expect(settled.status).toBe("ready");
+    expect(settled.page.nextCursor).toBeNull();
+    // 合并按 taskId 去重;watermark 取 min、sourceRevision 取 max。
+    expect(settled.dispatchable.map(({ taskId }) => taskId)).toEqual(["task_a", "task_b", "task_c"]);
+    expect(settled.watermark).toBe(3);
+    expect(settled.sourceRevision).toBe(4);
   });
 
-  it("reports a pending facet while a page window is still open", async () => {
-    pages.push(
-      page({
-        status: "pending",
-        page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-more" },
-      }),
-    );
-    const pending = await readAgenda("repo-a");
-    expect(pending.status).toBe("pending");
+  it("passes the daemon's own pending status through on a settled read", async () => {
+    // cut 追赶中:daemon 在最后一页(nextCursor 为空)仍可报 pending,原样透传给视图。
+    pages.push(page({ status: "pending" }));
+    const settled = await readAgenda("repo-a");
+    expect(settled.status).toBe("pending");
+    expect(settled.page.nextCursor).toBeNull();
   });
 
   it("merges each awaiting group by its own entity key across cursor pages", async () => {
@@ -183,9 +172,6 @@ describe("agenda read discipline", () => {
         ],
         page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
       }),
-    );
-    const first = await readAgenda("repo-a");
-    pages.push(
       page({
         awaitingYou: [awaitsRow("rel_a", 2), awaitsRow("rel_b")],
         answeredForYou: [answeredRow("rel_old"), answeredRow("rel_new")],
@@ -208,7 +194,7 @@ describe("agenda read discipline", () => {
         page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
       }),
     );
-    const joined = await readAgenda("repo-a", first);
+    const joined = await readAgenda("repo-a");
     // awaits 行按 relationId 去重,后读到的修订覆盖先前一页的同一条边。
     expect(joined.awaitingYou.map(({ relationId, relationRevision }) => [relationId, relationRevision])).toEqual([
       ["rel_a", 2],
@@ -249,9 +235,6 @@ describe("agenda read discipline", () => {
         regionWeights: { mine: 6.4, stuck: 3.9, run: 3, review: 3, queue: 0, recent: 4, works: 8 },
         page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
       }),
-    );
-    const first = await readAgenda("repo-a");
-    pages.push(
       page({
         attentionItems: [
           attention("relation/rel_a", 130, "mine", "task_w"),
@@ -262,7 +245,7 @@ describe("agenda read discipline", () => {
         page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
       }),
     );
-    const joined = await readAgenda("repo-a", first);
+    const joined = await readAgenda("repo-a");
     // 同 ref 两页都出现时保分高者(与 daemon buildAttentionItems 的 highest 同判据),全局按分数排序。
     expect(joined.attentionItems.map(({ ref, attention }) => [ref, attention.score])).toEqual([
       ["relation/rel_a", 130],
@@ -278,16 +261,40 @@ describe("agenda read discipline", () => {
   });
 });
 
-describe("agenda refresh cadence", () => {
-  it("polls only to finish an open cursor window; a settled agenda waits for the ledger cut", () => {
-    const interval = agendaQuery("repo-a").refetchInterval as (query: {
-      readonly state: { readonly data?: Partial<AgendaSuccess> };
-    }) => number | false;
-    expect(interval({ state: { data: { page: { nextCursor: "c2" } } as Partial<AgendaSuccess> } })).toBe(
-      QUERY_PACING_MS.agendaCatchUp,
+describe("agenda read cadence", () => {
+  it("finishes a multi-page agenda inside the first query round without a pacing timer", async () => {
+    // 时钟推进是独立字面量 6_000(越过旧 agendaCatchUp 的 5_000 节拍),不引用生产
+    // 常量:续读节拍若以任何形式复活,这里必红。
+    vi.useFakeTimers();
+    pages.push(
+      page({
+        status: "pending",
+        dispatchable: [row("task_a")],
+        page: { sourceLimit: 100, cursor: null, nextCursor: "agenda-next" },
+      }),
+      page({
+        dispatchable: [row("task_b")],
+        page: { sourceLimit: 100, cursor: "agenda-next", nextCursor: null },
+      }),
     );
-    expect(interval({ state: { data: { page: { nextCursor: null } } as Partial<AgendaSuccess> } })).toBe(false);
-    expect(interval({ state: {} })).toBe(false);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+      observer = new QueryObserver(client, agendaQuery("repo-a")),
+      unsubscribe = observer.subscribe(() => undefined);
+    client.mount();
+    try {
+      const settled = await observer.refetch();
+      // 首轮查询即终态:排空两页,不残留游标,不需要任何定时器推进。
+      expect(settled.data?.status).toBe("ready");
+      expect(settled.data?.page.nextCursor).toBeNull();
+      expect(harnessClient.getAgenda).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(6_000);
+      expect(harnessClient.getAgenda).toHaveBeenCalledTimes(2);
+    } finally {
+      unsubscribe();
+      client.unmount();
+      client.clear();
+      vi.useRealTimers();
+    }
   });
 });
 
