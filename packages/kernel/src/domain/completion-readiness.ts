@@ -361,15 +361,27 @@ function evaluateCompletion(
       reviewConsentCommands(task.taskId, snapshot.reviews, execution).join(" or "),
       "The owner's verdict accepts the latest approved review, pinned to its reviewed content.",
     );
-  if (context.delivery?.required && submission.commitSha !== null && !context.delivery.merged)
+  if (context.delivery?.required && submission.commitSha !== null && !context.delivery.merged) {
+    const hasMergeAnnotation =
+      Boolean(context.delivery.mergeSha) ||
+      (execution?.schema === "execution/v1" &&
+        execution.annotations?.some((entry) => /^merge_commit_sha:[0-9a-f]{40}$/u.test(entry.note)) === true);
+    if (context.delivery.merged === null && hasMergeAnnotation)
+      return one(
+        "delivery_missing",
+        "delivery",
+        `git fetch origin ${context.delivery.targetBranch}, then run ha task complete ${task.taskId}.`,
+        `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
+      );
     return one(
       "delivery_missing",
       "delivery",
-      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url>, then run ha task complete ${task.taskId}.`,
+      `Merge the delivery with node tools/pr-merge.mjs <PR-number-or-url> (or ha task annotate ${task.taskId} --execution-id ${executionId} --kind correction --note merge_commit_sha:<sha>), then run ha task complete ${task.taskId}.`,
       context.delivery.merged === false
         ? `The delivery merge commit is not present on origin/${context.delivery.targetBranch}.`
-        : `The delivery merge could not be verified locally; fetch origin/${context.delivery.targetBranch} and retry.`,
+        : `The delivery execution has no merge commit annotation; run node tools/pr-merge.mjs <PR-number-or-url> or record merge_commit_sha:<sha>.`,
     );
+  }
   return [];
 }
 

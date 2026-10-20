@@ -200,6 +200,29 @@ test("a frozen CI gate reads configured merge evidence instead of an observation
   assert.equal(taskCompletionNext(snapshot, { ...context, delivery: { ...delivery, merged: true } }).blocker, null);
 });
 
+test("delivery_missing prompts for pr-merge or annotate when merge annotation is missing", () => {
+  const snapshot = gatedAt([retiredCiRequirement], 6),
+    delivery = { required: true, targetBranch: "main", merged: null };
+  const unmerged = taskCompletionNext(snapshot, { ...context, delivery });
+  assert.equal(unmerged.blocker?.code, "delivery_missing");
+  assert.match(unmerged.next!.action, /node tools\/pr-merge\.mjs <PR-number-or-url>/u);
+  assert.match(unmerged.next!.action, /ha task annotate/u);
+  assert.match(unmerged.next!.reason, /no merge commit annotation/u);
+  assert.doesNotMatch(unmerged.next!.action, /fetch origin/u);
+  assert.doesNotMatch(unmerged.next!.reason, /fetch origin/u);
+});
+
+test("delivery_missing prompts for fetch when merge annotation is present but ref is not visible locally", () => {
+  const snapshot = gatedAt([retiredCiRequirement], 6),
+    mergeSha = "f".repeat(40),
+    delivery = { required: true, targetBranch: "main", merged: null, mergeSha };
+  const unmerged = taskCompletionNext(snapshot, { ...context, delivery });
+  assert.equal(unmerged.blocker?.code, "delivery_missing");
+  assert.match(unmerged.next!.action, /git fetch origin main/u);
+  assert.match(unmerged.next!.reason, /fetch origin\/main and retry/u);
+  assert.doesNotMatch(unmerged.next!.action, /node tools\/pr-merge\.mjs/u);
+});
+
 test("a nonempty delivery cut still requires a code/doc witness", () => {
   const snapshot = gatedAt([codeDocRequirement], 6);
   const result = taskCompletionNext(
