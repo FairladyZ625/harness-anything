@@ -117,15 +117,49 @@ test("wait-ci reports green in one line after a pending poll turns terminal", as
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
     { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
-  )) as { readonly outcome: string; readonly summary: string; readonly evidence: string };
+  )) as {
+    readonly outcome: string;
+    readonly summary: string;
+    readonly evidence: string;
+    readonly ci: { readonly headSha: string | null; readonly subjectUrl: string | null };
+  };
   assert.equal(receipt.outcome, "applied");
   assert.equal(receipt.summary, "all green (2 pass, 1 skipped)");
   assert.equal(receipt.evidence, prUrl);
+  assert.deepEqual(receipt.ci, { headSha: "head-1", subjectUrl: prUrl });
   assert.equal(scripted.calls.length, 2);
   assert.equal(clock.ticks(), 1);
   assert.equal(scripted.calls[0]?.branch, "task-pr");
   assert.equal(scripted.calls[0]?.env.GH_TOKEN, secret);
   assert.deepEqual(scripted.calls[0]?.provider, github());
+});
+
+test("wait-ci answers a reviewer dispatch with the head the verdict is bound to", async () => {
+  // The closeout reviewer reads the delivered PR's checks itself (dispatch_eba0e77f §6): the
+  // execution scope admits reviewer role only for this wait, and the verdict must name the
+  // provider head so the reviewer can compare it against the frozen delivery SHA.
+  const scripted = scriptedPort([greenSnapshot]),
+    clock = fakeClock(),
+    f = fixture("reviewer"),
+    context = {
+      ...f.context,
+      store: { readHead: () => ({ revision: 42 }) },
+      withHumanSummary: (receipt: unknown) => receipt,
+    };
+  const receipt = (await waitTaskPullRequestChecks(
+    context as never,
+    { kind: "task-pr", taskId: "task-pr", waitCi: true },
+    f.binding,
+    { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
+  )) as {
+    readonly outcome: string;
+    readonly summary: string;
+    readonly ci: { readonly headSha: string | null; readonly subjectUrl: string | null };
+  };
+  assert.equal(receipt.outcome, "applied");
+  assert.equal(receipt.summary, "all green (2 pass, 1 skipped)");
+  assert.deepEqual(receipt.ci, { headSha: "head-1", subjectUrl: prUrl });
+  assert.equal(scripted.calls[0]?.env.GH_TOKEN, secret);
 });
 
 test("wait-ci reports red with the failing check names and exits failed", async () => {
@@ -146,12 +180,19 @@ test("wait-ci reports red with the failing check names and exits failed", async 
     { kind: "task-pr", taskId: "task-pr", waitCi: true },
     binding,
     { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
-  )) as { readonly outcome: string; readonly code: string; readonly exitCode: number; readonly summary: string };
+  )) as {
+    readonly outcome: string;
+    readonly code: string;
+    readonly exitCode: number;
+    readonly summary: string;
+    readonly ci: { readonly headSha: string | null };
+  };
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "ci_checks_failed");
   assert.equal(receipt.exitCode, 1);
   assert.match(receipt.summary, /failed: integration-shard \(1 failed\)/u);
   assert.match(receipt.summary, /actions\/runs\/6\/job\/9/u);
+  assert.equal(receipt.ci.headSha, "head-1");
   assert.equal(scripted.calls.length, 1);
   assert.equal(clock.ticks(), 0);
 });
@@ -165,13 +206,20 @@ test("wait-ci times out with the pending count and never polls past its deadline
     { kind: "task-pr", taskId: "task-pr", waitCi: true, timeoutMinutes: 1 },
     binding,
     { hosting: github(), readChecks: scripted.port, waitCiDelay: clock.waitCiDelay, nowMs: clock.nowMs },
-  )) as { readonly outcome: string; readonly code: string; readonly exitCode: number; readonly summary: string };
+  )) as {
+    readonly outcome: string;
+    readonly code: string;
+    readonly exitCode: number;
+    readonly summary: string;
+    readonly ci: { readonly headSha: string | null };
+  };
   assert.equal(receipt.outcome, "op_rejected");
   assert.equal(receipt.code, "ci_wait_timeout");
   assert.equal(receipt.exitCode, 2);
   assert.match(receipt.summary, /timeout after 1 minute/u);
   assert.match(receipt.summary, /1 check still pending/u);
   assert.match(receipt.summary, new RegExp(prUrl.replace(/\//gu, "\\$&"), "u"));
+  assert.equal(receipt.ci.headSha, "head-1");
   // One-minute deadline at a 15s interval: the initial poll plus polls at 15s/30s/45s, then the
   // 60s read sees the deadline reached — the loop must not sleep past the answer it already has.
   assert.equal(scripted.calls.length, 5);
