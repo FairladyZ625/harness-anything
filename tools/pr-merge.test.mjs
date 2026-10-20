@@ -590,7 +590,7 @@ test("merges a lightweight task PR whose review and consent gates were lifted at
     branch: TASK_BRANCH,
     haState: reviewChainWithDeliveryBlockerHaState({
       consented: false,
-      closeoutOverrides: { review: false, consent: false, fact: false },
+      closeoutOverrides: { review: false, consent: false },
     }),
   });
 

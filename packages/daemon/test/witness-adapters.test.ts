@@ -699,7 +699,6 @@ test("dual control needs the automated pass and a human signoff, kept as separat
     closeout: "ready",
     closeoutPath: "tasks/task/closeout.md",
     eligibleDirtyPaths: [],
-    producesFactCount: 1,
   })[0];
   assert.equal(blocker?.gate, "lint");
   assert.match(blocker?.next.action ?? "", /ha task attest task --gate lint --result pass$/u);

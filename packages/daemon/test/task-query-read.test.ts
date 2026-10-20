@@ -1223,7 +1223,6 @@ test("single-task completion read carries the canonical next and validates its r
     closeout: "placeholder",
     closeoutPath: "tasks/task-1/closeout.md",
     eligibleDirtyPaths: [],
-    producesFactCount: 0,
     projectionStatus: "ready",
   });
   assert.ok(reads.length > 0);

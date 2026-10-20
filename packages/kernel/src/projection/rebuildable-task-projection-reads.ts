@@ -21,10 +21,15 @@ import type {
 } from "./projection-reads.ts";
 import { discardDatabase, withDatabase } from "./rebuildable-task-projection-database.ts";
 import { catchUpRound } from "./rebuildable-task-projection-event-application.ts";
-import { readSnapshot, readSnapshots } from "./rebuildable-task-projection-runtime.ts";
+import {
+  readSnapshot,
+  readSnapshotForTaskEventReduction,
+  readSnapshots,
+} from "./rebuildable-task-projection-runtime.ts";
 import {
   prepareQuery,
   queryPreparedRows,
+  queryRows,
   readProjectionCut,
   readStateDigest,
   transaction,
@@ -202,12 +207,7 @@ export function readProjection(
     return {
       status: cut.status,
       snapshot: presentationStatus ? presentSnapshot(snapshot, readTaskPresentationStatus(db, taskId)) : snapshot,
-      packagePath:
-        (
-          prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
-            /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
-          ).get(taskId) as { readonly package_path: string } | undefined
-        )?.package_path ?? null,
+      packagePath: readTaskPackagePath(db, taskId),
       watermark: cut.watermark,
       sourceRevision: cut.sourceRevision,
       warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
@@ -218,6 +218,50 @@ export function readProjection(
       },
     };
   });
+}
+
+function readTaskPackagePath(db: DatabaseSync, taskId: string): string | null {
+  return (
+    (
+      prepareQuery(db, "SELECT package_path FROM task_package WHERE task_id = ?", (sql) =>
+        /* @gate-identity check-bypass-write-boundary/bypass-write-015 */ db.prepare(sql),
+      ).get(taskId) as { readonly package_path: string } | undefined
+    )?.package_path ?? null
+  );
+}
+
+export function readForTaskContractMigration(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+  taskId: string,
+  limit: number,
+  now: () => string,
+): TaskProjectionRead {
+  const existed = localRuntimeStateFileSystem.exists(projectionPath);
+  return withDatabase(projectionPath, readHead, (db) => {
+    const cut = readProjectionCut(db, readHead),
+      snapshot = readSnapshotForTaskEventReduction(db, taskId, now());
+    return {
+      status: cut.status,
+      snapshot,
+      packagePath: readTaskPackagePath(db, taskId),
+      watermark: cut.watermark,
+      sourceRevision: cut.sourceRevision,
+      warnings: !existed && cut.sourceRevision > 0 ? ["projection_missing"] : [],
+      catchUp: { maxItems: limit, reducedItems: 0, sqliteTransactions: 0 },
+    };
+  });
+}
+
+export function readTaskIdsForTaskContractMigration(
+  projectionPath: string,
+  readHead: EventStreamPort["readHead"],
+): readonly string[] {
+  return withDatabase(projectionPath, readHead, (db) =>
+    queryRows<{ readonly task_id: string }>(db, "SELECT task_id FROM task_snapshot ORDER BY task_id").map(
+      ({ task_id }) => task_id,
+    ),
+  );
 }
 
 export function presentSnapshot(

@@ -234,7 +234,7 @@ test(
       );
       assert.deepEqual(
         child.closeoutOverrides,
-        { review: false, consent: false, fact: false },
+        { review: false, consent: false },
         "the profile's closeout overrides freeze into the task",
       );
       const closeoutDescriptor = childContract(f.root, packagePath).documents.find(
@@ -342,7 +342,7 @@ test(
         { factless: true },
       );
       const docsLightweight = createdTask(f.events(), "task-docs-lightweight-child");
-      assert.deepEqual(docsLightweight.closeoutOverrides, { review: false, consent: false, fact: false });
+      assert.deepEqual(docsLightweight.closeoutOverrides, { review: false, consent: false });
       const docsCompleted = (await f.run({
         kind: "task-complete",
         taskId: "task-docs-lightweight-child",

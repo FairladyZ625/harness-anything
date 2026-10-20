@@ -269,9 +269,7 @@ export function makeOfflineCompletionChain(input: {
         payload = {
           ...payload,
           historicalAcceptance: { sourceGeneration: input.generation, sourceRevision: event.workspaceRevision },
-          closeoutGates: gates
-            ? { ...gates, fact: gates.fact ?? true }
-            : effectiveCloseoutGates(closeout, task.completionGateIds, task.closeoutOverrides),
+          closeoutGates: gates ?? effectiveCloseoutGates(closeout, task.completionGateIds, task.closeoutOverrides),
         };
       }
       return { event: { ...event, payload } as CanonicalEventV1, blobs };

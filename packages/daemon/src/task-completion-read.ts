@@ -36,7 +36,6 @@ export function readCompletionContext(
       closeout: "missing",
       closeoutPath: "",
       eligibleDirtyPaths: [],
-      producesFactCount: 0,
       projectionStatus: status,
     },
     availability = taskCompletionNext(snapshot, unavailable);
@@ -50,20 +49,22 @@ export function readCompletionContext(
       closeout: "missing",
       closeoutPath: "",
       eligibleDirtyPaths: [],
-      producesFactCount: 0,
       projectionStatus: "pending",
     };
   // Completion names its next step for packages of any generation: a closeout the contract never
   // declared, has not written yet, or cannot judge without a scaffold is a step to take, not a
   // read failure that would fail the write rendering this step.
   const closeout = taskTransitionDocumentState({ projection, taskId, slot: "task.closeout" }),
-    facts = projection.readRelationQuery({ source: `task/${taskId}`, relationType: "produces", state: "active" }),
+    projectionStatus = projection.readRelationQuery({
+      source: `task/${taskId}`,
+      relationType: "produces",
+      state: "active",
+    }).status,
     common = {
       closeoutGates: readEffectiveCloseoutGates(projection, snapshot),
       delivery: readCompletionDeliveryStatus(projection, snapshot, rootDir),
       eligibleDirtyPaths: [],
-      producesFactCount: facts.rows.filter((row) => row.targetRef.startsWith("fact/")).length,
-      projectionStatus: facts.status,
+      projectionStatus,
       childTaskCount: projection.readTaskChildCounts([taskId])[taskId] ?? 0,
     };
   if (closeout.state === "undeclared") return { ...common, closeout: "missing", closeoutPath: "" };

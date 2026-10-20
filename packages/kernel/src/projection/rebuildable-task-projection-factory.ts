@@ -230,6 +230,8 @@ export function makeTaskProjectionReader(options: {
       readCut: () => withDatabase(projectionPath, readHead, (db) => readProjectionCut(db, readHead)),
       read: (taskId, presentationStatus) =>
         readProjection(projectionPath, readHead, unavailableSource, taskId, 4096, now, presentationStatus),
+      readForTaskContractMigration: taskQueries.readForTaskContractMigration,
+      readTaskIdsForTaskContractMigration: taskQueries.readTaskIdsForTaskContractMigration,
       list: (query) => listProjection(projectionPath, readHead, unavailableSource, 4096, now, query),
       ...entityQueryApi(context),
       readTaskIndex: taskQueries.readTaskIndex,

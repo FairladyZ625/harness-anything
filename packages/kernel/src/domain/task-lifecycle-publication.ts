@@ -376,7 +376,6 @@ function renderIndex(
         closeout: "ready",
         closeoutPath: `${path.slice(0, -"/INDEX.md".length)}/closeout.md`,
         eligibleDirtyPaths: [],
-        producesFactCount: 1,
       },
       current?.executionId,
     )?.action,

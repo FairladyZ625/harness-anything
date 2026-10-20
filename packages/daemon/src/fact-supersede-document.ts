@@ -24,6 +24,7 @@ export function supersededFactDocumentSource(
     statement: fact.statement,
     evidenceSource: fact.evidenceSource,
     observedAt: fact.observedAt,
+    ...(fact.observedCommit !== undefined ? { observedCommit: fact.observedCommit } : {}),
     confidence: fact.confidence,
   };
 }

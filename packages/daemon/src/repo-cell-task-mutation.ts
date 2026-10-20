@@ -297,17 +297,23 @@ export function taskMutation(
         typeof action.repairPresetId === "string" && action.repairPresetId.trim() ? action.repairPresetId.trim() : null,
       repairedMetadata =
         repairedPresetId === null || !task.metadata ? task.metadata : { ...task.metadata, presetId: repairedPresetId },
+      removeRetiredFactCloseoutOverride = action.removeRetiredFactCloseoutOverride === true,
+      remainingCloseoutOverrides = removeRetiredFactCloseoutOverride
+        ? Object.fromEntries(Object.entries(task.closeoutOverrides ?? {}).filter(([gateId]) => gateId !== "fact"))
+        : task.closeoutOverrides,
       fields = [
         "contractVersion",
         ...(repairedDigest === null ? [] : ["presetSnapshotDigest"]),
         ...(repairedTaskClass === null || repairedTaskClass === task.taskClass ? [] : ["taskClass"]),
         ...(repairedPresetId === null || repairedPresetId === task.metadata?.presetId ? [] : ["presetId"]),
+        ...(removeRetiredFactCloseoutOverride ? ["closeoutOverrides.fact"] : []),
       ];
     if (
       (task.contractVersion ?? 0) >= 1 &&
       repairedDigest === null &&
       repairedBody === null &&
-      (repairedTaskClass === null || repairedTaskClass === task.taskClass)
+      (repairedTaskClass === null || repairedTaskClass === task.taskClass) &&
+      !removeRetiredFactCloseoutOverride
     )
       throw cell.cellCodedError(
         "contract_current",
@@ -316,7 +322,12 @@ export function taskMutation(
     return {
       type: "task_contract_migrated",
       task: {
-        ...task,
+        ...(removeRetiredFactCloseoutOverride
+          ? (({ closeoutOverrides: _oldOverrides, ...withoutOverrides }) => withoutOverrides)(task)
+          : task),
+        ...(remainingCloseoutOverrides && Object.keys(remainingCloseoutOverrides).length > 0
+          ? { closeoutOverrides: remainingCloseoutOverrides }
+          : {}),
         contractVersion: 1,
         ...(repairedDigest === null ? {} : { presetSnapshotDigest: repairedDigest }),
         ...(repairedTaskClass === null ? {} : { taskClass: repairedTaskClass }),
@@ -324,8 +335,9 @@ export function taskMutation(
       },
       audit: {
         command: "contract-migrate",
-        reason:
-          repairedDigest !== null
+        reason: removeRetiredFactCloseoutOverride
+          ? "Removed retired closeoutOverrides.fact during task contract migration"
+          : repairedDigest !== null
             ? "Repaired migrated task preset digest and canonical task-contract package path"
             : repairedBody !== null && (repairedTaskClass === null || repairedTaskClass === task.taskClass)
               ? "Backfilled document slots the package compiler adds that this contract predates"

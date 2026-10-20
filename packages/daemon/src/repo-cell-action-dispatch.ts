@@ -217,7 +217,10 @@ export function executeRepoAction(
       targetId =
         typeof action[targetIdField] === "string" && action[targetIdField] ? String(action[targetIdField]) : null,
       targetRevision = targetId
-        ? cell.projection.read(targetId).snapshot.revision
+        ? (action.kind === "task-contract-migrate"
+            ? cell.projection.readForTaskContractMigration(targetId)
+            : cell.projection.read(targetId)
+          ).snapshot.revision
         : (cell.store.readHead()?.revision ?? 0),
       lifecycle = actionContract.execution.lifecycle;
     if (lifecycle?.coordination === "reserve" && targetId) cell.assertTaskWipCapacity(targetId, "active");

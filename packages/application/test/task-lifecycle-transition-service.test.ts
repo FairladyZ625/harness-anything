@@ -597,7 +597,7 @@ test("terminal lifecycle states clear a prior task pin", async () => {
         capabilityRef: "cap-complete-pin",
         actorRole: "owner",
         noActiveLease: true,
-        closeoutGates: { review: true, consent: true, fact: true, factDisposition: true, codeDoc: true },
+        closeoutGates: { review: true, consent: true, factDisposition: true, codeDoc: true },
         gateReceipts: [],
       },
     );

@@ -50,7 +50,7 @@
           "localePolicy": { "prefer": "project", "fallback": "en-US" }
         }
       ],
-      "closeoutOverrides": { "review": false, "consent": false, "fact": false },
+      "closeoutOverrides": { "review": false, "consent": false },
       "archiveOnComplete": true
     }
   ],
