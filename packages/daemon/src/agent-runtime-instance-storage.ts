@@ -3,12 +3,14 @@ import {
   copyFileSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   readlinkSync,
   renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
@@ -357,6 +359,52 @@ export function writeZcodeConfig(target: string, config: RuntimeInstanceConfig, 
     temp = `${target}.${process.pid}.tmp`;
   try {
     writeFileSync(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    renameSync(temp, target);
+  } catch (error) {
+    rmSync(temp, { force: true });
+    throw error;
+  }
+  chmodSync(target, 0o600);
+}
+
+export const deepseekHarnessApiKeyEnvironment = "HARNESS_DEEPSEEK_API_KEY";
+
+export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanceConfig): void {
+  const provider = runtimeProviderConfig(config),
+    providerId = provider.wireApi ? config.providerId : "deepseek-official",
+    patch = [
+      { id: "agent-default-model", config: { provider: providerId, model: config.defaultModel } },
+      { id: "acp", config: { provider: providerId, model: config.defaultModel } },
+      provider.wireApi
+        ? {
+            id: "llm-pi-ai",
+            config: {
+              providers: {
+                [providerId]: {
+                  api: provider.wireApi,
+                  ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
+                  apiKeyEnv: deepseekHarnessApiKeyEnvironment,
+                  displayName: providerId,
+                  models: config.models.map((id) => ({ id })),
+                },
+              },
+            },
+          }
+        : {
+            id: "llm-deepseek",
+            config: {
+              apiKeyEnv: deepseekHarnessApiKeyEnvironment,
+              ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
+              models: config.models.map((id) => ({ id })),
+            },
+          },
+    ],
+    directory = path.dirname(target),
+    temp = `${target}.${process.pid}.${randomUUID()}.tmp`;
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
+  try {
+    writeFileSync(temp, `${JSON.stringify(patch, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
     renameSync(temp, target);
   } catch (error) {
     rmSync(temp, { force: true });

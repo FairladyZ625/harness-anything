@@ -379,7 +379,7 @@ test("environment-borne permission modes reach the provider environment and ACP 
     assert.equal(readOnly.env.DSH_PERMISSION_MODE, "read-only");
     assert.equal(readOnly.model, '["deepseek-account","deepseek-v4-pro"]');
     // Negative controls: an argv-driven kind gets neither the variable nor the manifest model,
-    // and enforced isolation is refused for a kind that only runs where the App's login lives.
+    // and subscription cannot leave the App's shared login environment.
     store.create({
       schemaVersion: 2,
       instanceId: "codex-env-control",

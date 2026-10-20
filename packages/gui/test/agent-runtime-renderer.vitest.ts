@@ -747,7 +747,7 @@ describe("agent runtime renderer", () => {
     expect(field).toContain('autoComplete="off"');
     expect(field).toContain('value=""');
     expect(field).not.toMatch(/name="/u);
-    const dialog = (initialKind: "claude" | "codex" | "agy") =>
+    const dialog = (initialKind: "claude" | "codex" | "agy" | "deepseek-harness") =>
       renderToStaticMarkup(
         createElement(NewRuntimeDialog, {
           open: true,
@@ -759,6 +759,9 @@ describe("agent runtime renderer", () => {
         }),
       );
     for (const kind of ["claude", "codex", "agy"] as const) expect(dialog(kind)).toMatch(/type="password"/u);
+    expect(dialog("deepseek-harness")).toMatch(/type="password"/u);
+    expect(dialog("deepseek-harness")).toContain('data-testid="new-runtime-base-url"');
+    expect(dialog("deepseek-harness")).not.toContain("API override");
     expect(dialog("claude")).toMatch(/type="password"[^>]*disabled=""/u);
     expect(dialog("claude")).toContain("API override");
     expect(dialog("codex")).toContain("Codex-family models only.");

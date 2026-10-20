@@ -126,19 +126,25 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     );
   const kindId = String(value.kindId) as RuntimeInstanceKind,
     permissionMode = runtimePermissionMode(value.permissionMode, kindId),
-    isolationState = runtimeIsolationState(value.isolationState, kindId);
-  if (
-    (kindId === "codex" || kindId === "zcode") &&
-    auth.mode === "api-key" &&
-    isolationState === "operator-environment"
-  )
+    apiKeyIsolation = "apiKeyIsolation" in declaration.auth ? declaration.auth.apiKeyIsolation : undefined,
+    subscriptionIsolation =
+      "subscriptionIsolation" in declaration.auth ? declaration.auth.subscriptionIsolation : undefined,
+    isolationState = runtimeIsolationState(
+      value.isolationState ?? (auth.mode === "api-key" ? apiKeyIsolation : undefined),
+      kindId,
+    );
+  if (auth.mode === "api-key" && apiKeyIsolation && isolationState !== apiKeyIsolation)
     throw runtimeInstanceError(
       "invalid_runtime_isolation",
       [
-        `API-key ${kindId} instances require enforced isolation; the credential is `,
-        "injected through per-instance provider configuration, and the operator ",
-        "environment would have to rewrite the operator's own config.",
+        `API-key ${kindId} instances require ${apiKeyIsolation} isolation; their credential is `,
+        "injected into per-instance configuration and must not touch the operator's environment.",
       ].join(""),
+    );
+  if (auth.mode === "subscription" && subscriptionIsolation && isolationState !== subscriptionIsolation)
+    throw runtimeInstanceError(
+      "invalid_runtime_isolation",
+      `Subscription ${kindId} instances require ${subscriptionIsolation} isolation.`,
     );
   const common = {
     schemaVersion: 2 as const,
@@ -173,9 +179,28 @@ export function runtimeInstanceConfig(value: unknown): RuntimeInstanceConfig {
     },
     configuration = runtimeKindConfig(
       flat ? flatConfiguration : normalizeRuntimeInputAliases(value[value.kindId], declaration.configuration.fields),
-      declaration.configuration.fields,
+      declaration.configuration,
     );
   const credentialHeader = configuration.credentialHeader;
+  if (
+    kindId === "deepseek-harness" &&
+    auth.mode === "subscription" &&
+    (configuration.baseUrl !== undefined || configuration.wireApi !== undefined)
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      "DeepSeek Harness baseUrl and wireApi are available only for API-key instances.",
+    );
+  if (
+    kindId === "deepseek-harness" &&
+    auth.mode === "api-key" &&
+    configuration.wireApi === undefined &&
+    common.providerId !== declaration.defaultProviderId
+  )
+    throw runtimeInstanceError(
+      "invalid_runtime_kind_config",
+      `DeepSeek Harness's built-in API-key provider must use ${declaration.defaultProviderId}; custom providers require wireApi.`,
+    );
   if (credentialHeader !== undefined && auth.mode !== "api-key")
     throw runtimeInstanceError(
       "invalid_runtime_credential_header",
@@ -221,8 +246,9 @@ function normalizeRuntimeInputAliases(
 
 function runtimeKindConfig(
   value: unknown,
-  fields: RuntimeProviderDeclaration["configuration"]["fields"],
+  declaration: RuntimeProviderDeclaration["configuration"],
 ): Readonly<Record<string, unknown>> {
+  const fields = declaration.fields;
   if (value === undefined) return {};
   if (!isRuntimeInstanceRecord(value) || Object.keys(value).some((key) => !Object.hasOwn(fields, key)))
     throw runtimeInstanceError(
@@ -240,7 +266,13 @@ function runtimeKindConfig(
         if (shape === "agy-effort") return [key, agyEffort(item)];
         if (shape === "url")
           return [key, secureRuntimeBaseUrl(item, { allowInsecureHttp: value.allowInsecureHttp === true })];
-        if (shape === "identifier") return [key, identifier(item, key)];
+        if (shape === "identifier") {
+          const parsed = identifier(item, key),
+            choices = declaration.choices?.[key];
+          if (choices && !choices.includes(parsed))
+            throw runtimeInstanceError("invalid_runtime_kind_config", `${key} must be one of ${choices.join(", ")}.`);
+          return [key, parsed];
+        }
         return [key, runtimeEffort(item)];
       }),
   );

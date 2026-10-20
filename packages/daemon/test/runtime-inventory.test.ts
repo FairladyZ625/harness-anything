@@ -95,7 +95,7 @@ test("only Codex and Claude declare steer resume and Codex resumes before stdin 
 // (nothing on PATH), `dsh --profile acp` takes no flags, and the sandbox/approval policy is
 // the DSH_PERMISSION_MODE environment variable (asar acp profile: sandbox-policy.mode and
 // user-approval.policy both read it; only danger-full-access turns approval off).
-test("the DeepSeek Harness launch contract: bundle path, env-borne permissions, no resume yet", () => {
+test("the DeepSeek Harness launch contract keeps subscription shared and enables isolated API overrides", () => {
   const kind = runtimeKinds.find((entry) => entry.kindId === "deepseek-harness")!;
   assert.ok(kind);
   assert.equal(kind.protocolFamily, "acp");
@@ -108,8 +108,23 @@ test("the DeepSeek Harness launch contract: bundle path, env-borne permissions, 
     "workspace-write": { DSH_PERMISSION_MODE: "workspace-write" },
     "read-only": { DSH_PERMISSION_MODE: "read-only" },
   });
-  assert.deepEqual(kind.isolation, { defaultState: "operator-environment", states: ["operator-environment"] });
-  assert.deepEqual(kind.auth.modes, ["subscription"]);
+  assert.deepEqual(kind.isolation, {
+    defaultState: "operator-environment",
+    states: ["operator-environment", "enforced"],
+  });
+  assert.deepEqual(kind.auth, {
+    shape: "separate",
+    modes: ["subscription", "api-key"],
+    apiKeyIsolation: "enforced",
+    subscriptionIsolation: "operator-environment",
+    subscriptionProbe: ["--version"],
+    subscriptionProbeTimeoutMs: 10_000,
+    endpoints: { baseUrl: "optional" },
+  });
+  assert.deepEqual(kind.configuration.fields, { baseUrl: "url", wireApi: "identifier" });
+  assert.deepEqual(kind.configuration.choices, {
+    wireApi: ["openai-completions", "openai-responses", "anthropic-messages"],
+  });
   assert.equal(kind.auth.acpAuthMethod, undefined);
   assert.deepEqual(kind.declaredCapabilities, ["structured_witness", "attach", "session_identity"]);
   assert.equal(kind.capabilities.resume, "unsupported");

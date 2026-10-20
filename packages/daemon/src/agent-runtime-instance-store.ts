@@ -42,6 +42,8 @@ import {
   runtimeBaseUrl,
   runtimeInstanceKindConfig,
   sharedProviderDirectory,
+  deepseekHarnessApiKeyEnvironment,
+  writeDeepseekHarnessPatch,
   writeCodexConfig,
   writeZcodeConfig,
 } from "./agent-runtime-instance-storage.ts";
@@ -356,6 +358,8 @@ export function openRuntimeInstanceStore(input: {
       if (!home)
         throw runtimeInstanceError("invalid_runtime_launch", "ZCode launch environment has no home directory.");
       writeZcodeConfig(path.join(home, ".zcode", "cli", "config.json"), config, secret);
+    } else if (config.kindId === "deepseek-harness") {
+      env[deepseekHarnessApiKeyEnvironment] = secret;
     } else if (protocolFamily !== "acp") env.ANTHROPIC_API_KEY = secret;
     rememberAuthReadiness(config.instanceId, available());
     if (launchTempDirectory) mkdirSync(launchTempDirectory, { recursive: true, mode: 0o700 });
@@ -372,7 +376,7 @@ export function openRuntimeInstanceStore(input: {
       ...(permissionMode ? { permissionMode } : {}),
       // ACP agents authenticate through the client handshake, so the key rides the
       // launch manifest rather than the provider's environment.
-      ...(protocolFamily === "acp" ? { acpApiKey: secret } : {}),
+      ...(protocolFamily === "acp" && config.kindId !== "deepseek-harness" ? { acpApiKey: secret } : {}),
       ...acpLaunch,
     };
   }
@@ -818,6 +822,8 @@ export function openRuntimeInstanceStore(input: {
       mkdirSync(cli, { recursive: true, mode: 0o700 });
       chmodSync(cli, 0o700);
     }
+    if (config.kindId === "deepseek-harness" && config.auth.mode === "api-key")
+      writeDeepseekHarnessPatch(path.join(provider, "profiles", "acp", "cordis.patch.yml"), config);
     // Materialize non-secret defaults at creation. Each API-key launch atomically
     // publishes the current resolved bearer; metadata edits keep the previous
     // complete native config until that launch is ready.

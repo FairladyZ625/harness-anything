@@ -223,6 +223,43 @@ describe("provider planes (2026-08-20 adjudication)", () => {
     expect(planeAllowsEffort("zcode")).toBe(false);
     expect(planeAllowsPermissions("zcode")).toBe(true);
   });
+  it("offers DeepSeek Harness API overrides with the declared wire APIs and an isolated model payload", () => {
+    const options = ["openai-completions", "openai-responses", "anthropic-messages"];
+    expect(planeAuthModes("deepseek-harness")).toEqual(["subscription", "api-key"]);
+    expect(planeBaseUrlEndpoint("deepseek-harness")).toBe("optional");
+    expect(planeAllowsApiKey("deepseek-harness", "api-key")).toBe(true);
+    expect(planeAllowsBaseUrl("deepseek-harness", "api-key")).toBe(true);
+    expect(runtimeProviderPlane("deepseek-harness").wireApiValues).toEqual(options);
+    const api = applyRuntimeAuthMode(
+      {
+        ...form,
+        kindId: "deepseek-harness",
+        providerId: "deepseek",
+        model: "deepseek-v4-flash",
+        baseUrl: "https://api.deepseek.example/v1",
+        wireApi: "anthropic-messages",
+        apiKey: "sk-deepseek",
+      },
+      "api-key",
+    );
+    expect(api).toMatchObject({ authMode: "api-key", isolation: "enforced" });
+    expect(
+      applyRuntimeKind({ ...form, authMode: "api-key" }, "deepseek-harness", {
+        permissionMode: "bypass",
+        isolation: "operator-environment",
+      }),
+    ).toMatchObject({ authMode: "api-key", isolation: "enforced" });
+    expect(buildRuntimeInstanceCreatePayload({ ...api, apiKey: "sk-deepseek" }, "deepseek-install")).toMatchObject({
+      kindId: "deepseek-harness",
+      isolationState: "enforced",
+      authMode: "api-key",
+      apiKey: "sk-deepseek",
+      "deepseek-harness": {
+        baseUrl: "https://api.deepseek.example/v1",
+        wireApi: "anthropic-messages",
+      },
+    });
+  });
   it("declares endpoint configurability per kind instead of deriving it from auth modes", () => {
     expect(planeBaseUrlEndpoint("claude")).toBe("optional");
     expect(planeBaseUrlEndpoint("codex")).toBe("optional");

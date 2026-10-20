@@ -28,12 +28,15 @@ export interface RuntimeProviderDeclaration {
     readonly fields: Readonly<
       Record<string, "identifier" | "url" | "effort" | "boolean" | "headers" | "header-name" | "agy-effort">
     >;
+    readonly choices?: Readonly<Record<string, readonly string[]>>;
     readonly publicFields: Readonly<Record<string, string>>;
     readonly publicDefaults: Readonly<Record<string, unknown>>;
   };
   readonly auth: {
     readonly shape: "subscription-only" | "api-override" | "separate";
     readonly modes: readonly RuntimeAuthMode[];
+    readonly apiKeyIsolation?: "enforced";
+    readonly subscriptionIsolation?: "operator-environment";
     /** Command probes run the argv and judge by exit code. A file-key probe checks
      * that the declared `authFile` exists under the provider's config directory and
      * that the `acpCredentialKey` entry is non-empty — for CLIs whose status command
