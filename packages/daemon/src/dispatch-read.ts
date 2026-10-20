@@ -8,7 +8,11 @@ import {
   type TaskProjectionQueries,
 } from "@harness-anything/kernel";
 import { readDecisionAnnotationsByDispatch } from "./decision-annotations.ts";
-import { agentRuntimeSessionGroupTotals, buildAgentRuntimeSessionGroups } from "./agent-runtime-session-groups.ts";
+import {
+  agentRuntimeSessionGroupTotals,
+  buildAgentRuntimeSessionGroups,
+  latestDispatchStartedAt,
+} from "./agent-runtime-session-groups.ts";
 import {
   readDispatchStreamSummary,
   type RuntimeMetrics,
@@ -176,7 +180,7 @@ function readMemberTaskDispatches(input: {
     sessions,
     dispatches,
     dispatchEvents: member.rows,
-    dispatchStartedAt: new Map(member.rows.map((event) => [event.payload.runtimeSessionId, event.occurredAt] as const)),
+    dispatchStartedAt: latestDispatchStartedAt(member.rows),
     taskLabels,
     entityLabel,
     query: {

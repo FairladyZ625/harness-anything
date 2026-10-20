@@ -580,6 +580,78 @@ test("member dispatch reads page an executor's newest rows with window groups an
   assert.notDeepEqual(validateDaemonTaskDispatches({ ...page, totals: { groups: "many", sessions: 1326 } }), []);
 });
 
+// Member rows arrive newest-first, so a last-write-wins startedAt map keeps the session's
+// oldest page dispatch; a binding whose latest round is another task must fall back to the
+// session's newest dispatch, same as the full-history sessionGroups path.
+test("a member page window group falls back to the session's newest dispatch, not its oldest", () => {
+  const multiBinding = session("exited", "succeeded", {
+      runtimeSessionId: "runtime-terra-1",
+      taskBindings: [
+        { taskId: "task-a", executionId: "execution-dispatch_member_old", boundAt: "2026-08-23T00:00:00.000Z" },
+        { taskId: "task-b", executionId: "execution-dispatch_member_new", boundAt: "2026-08-24T00:00:00.000Z" },
+      ],
+    }),
+    dispatchEvent = (dispatchId: string, taskId: string, startedAt: string) =>
+      ({
+        schema: "agent-runtime-event/v1",
+        type: "runtime_dispatch_requested",
+        occurredAt: startedAt,
+        payload: {
+          dispatchId,
+          runtimeSessionId: "runtime-terra-1",
+          taskId,
+          executionId: `execution-${dispatchId}`,
+          instanceId: "instance-1",
+          agentId: "terra",
+          definitionSnapshotRef: "artifact:runtime-definition/test",
+          attemptGroupId: dispatchId,
+          attemptIndex: 0,
+          startedAt,
+        },
+      }) as unknown as Dispatch;
+  const older = dispatchEvent("dispatch_member_old", "task-a", "2026-08-23T00:00:00.000Z"),
+    newer = dispatchEvent("dispatch_member_new", "task-b", "2026-08-24T00:00:00.000Z"),
+    projection = {
+      read: () => ({ snapshot: { task: { taskId } }, packagePath: "tasks/task-1" }),
+      readDocument: () => ({ document: null }),
+      readRuntimeSessionEvents: () => [],
+      readRuntimeDispatchByResumeSource: () => null,
+      readRuntimeDispatchesByAttemptGroup: () => [],
+      readLeaseIntervals: () => [],
+      readEventWitness: () => null,
+      readCanonicalEvents: () => ({ events: [] }),
+      readTaskRelationsBySources: () => ({ rows: [] }),
+      readTaskRuntimeBatch: ({ taskIds }: { readonly taskIds: readonly string[] }) => ({
+        status: "ready",
+        taskIds,
+        rows: taskIds.map((taskId) => ({
+          taskId,
+          packagePath: `tasks/${taskId}`,
+          sessions: [],
+          title: `Title ${taskId}`,
+        })),
+        watermark: 1,
+        sourceRevision: 1,
+      }),
+      listEntities: () => [],
+      readCut: () => ({ status: "ready", watermark: 1, sourceRevision: 1 }),
+      readRuntimeSession: (id: string) => (id === "runtime-terra-1" ? multiBinding : null),
+      readRuntimeDispatchesByMember: () => ({
+        rows: [newer, older],
+        truncated: false,
+        sessions: [{ runtimeSessionId: "runtime-terra-1", taskIds: ["task-a", "task-b"], latestDecisionId: null }],
+      }),
+    } as unknown as TaskProjection;
+  const page = readTaskDispatches({ projection, agentId: "terra", limit: 2 });
+  assert.deepEqual(
+    page.groups.map((group) => [group.key, group.latestRound?.startedAt]),
+    [
+      ["task-a", "2026-08-24T00:00:00.000Z"],
+      ["task-b", "2026-08-24T00:00:00.000Z"],
+    ],
+  );
+});
+
 test("member dispatch payloads accept one selector and a bounded limit at both boundaries", () => {
   const context = {
       cellCodedError: (code: string, message: string) => Object.assign(new Error(message), { code }),
