@@ -91,7 +91,7 @@ function defaultRangeFor(lanes: readonly AgentLane[], now: number): LaneRange {
   if (ages.length === 0) return "1h";
 
   // Cover most recent work while a single old dispatch cannot expand the overview for every agent.
-  const typicalAge = ages[Math.min(Math.floor(ages.length * 0.75), ages.length - 1)]!;
+  const typicalAge = ages[Math.floor((ages.length - 1) * 0.75)]!;
   const desiredWindow = Math.max(15 * MINUTES, typicalAge);
   return TIME_RANGES.find((range) => range.ms >= desiredWindow)?.key ?? "6h";
 }

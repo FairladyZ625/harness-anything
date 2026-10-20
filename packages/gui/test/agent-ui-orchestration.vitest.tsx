@@ -348,6 +348,40 @@ describe("AgentTree", () => {
 // ---------------------------------------------------------------------------
 
 describe("AgentLanes", () => {
+  const renderDefaultRange = (ages: readonly number[], testId: string) => {
+    const container = mount(
+      createElement(AgentLanes, {
+        lanes: [
+          {
+            agentId: "sol",
+            role: "Sol",
+            tasks: ages.map((ageMinutes, index) => ({
+              id: `${testId}-${index}`,
+              label: `任务 ${index + 1}`,
+              startAt: BASE - ageMinutes * 60_000,
+              endAt: BASE - ageMinutes * 60_000 + 60_000,
+              status: "done" as const,
+            })),
+          },
+        ],
+        nowMs: BASE,
+        testId,
+      }),
+    );
+    return [...container.querySelectorAll<HTMLButtonElement>(`[data-testid^="${testId}-range-"]`)].find(
+      (button) => button.getAttribute("aria-pressed") === "true",
+    )?.dataset.testid;
+  };
+
+  it("keeps one older task from widening the four-task default window", () => {
+    expect(renderDefaultRange([10, 20, 40, 240], "outlier-lanes")).toBe("outlier-lanes-range-1h");
+  });
+
+  it("chooses a supported recent window for one or two tasks", () => {
+    expect(renderDefaultRange([40], "single-task-lanes")).toBe("single-task-lanes-range-1h");
+    expect(renderDefaultRange([20, 40], "two-task-lanes")).toBe("two-task-lanes-range-30m");
+  });
+
   it("separates four concurrent tasks into non-overlapping subtracks and grows the lane", () => {
     const container = mount(
       createElement(AgentLanes, {
