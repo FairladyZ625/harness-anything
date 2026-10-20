@@ -3,6 +3,7 @@ import { type DecisionEventV1 } from "../domain/decision-event.ts";
 import type { DocumentState } from "../domain/doc-sync.contract.ts";
 import { assertDecisionAdmission, decisionState, fail } from "./decision-projection-admission.ts";
 import { readDecisionBody } from "./decision-projection-documents.ts";
+import { decisionLegacyNumber } from "./decision-projection-reads.ts";
 import { applyEmbeddedRelationProjectionEvents } from "./relation-entity-projection.ts";
 import { prepareQuery, queryRows } from "./rebuildable-task-projection-sql.ts";
 
@@ -11,8 +12,12 @@ export function reduceDecisionEvent(db: DatabaseSync, event: DecisionEventV1): v
   const revision = event.workspaceRevision;
   if (event.type === "decision_proposed") {
     const p = event.payload;
-    prepareQuery(db, "INSERT INTO decision VALUES (?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)").run(
+    prepareQuery(
+      db,
+      "INSERT INTO decision(decision_id, legacy_number, state, title, question, risk_tier, urgency, vertical, preset, decision_class, applies_json, proposer_json, arbiter_json, proposed_at, decided_at, provenance_json, workspace_revision) VALUES (?, ?, 'proposed', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)",
+    ).run(
       event.decisionId,
+      decisionLegacyNumber(event.decisionId),
       p.title,
       p.question,
       p.riskTier,

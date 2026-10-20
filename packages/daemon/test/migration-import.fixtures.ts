@@ -295,7 +295,7 @@ export function buildProjectionOracle(root: string): void {
       "CREATE TABLE task_snapshot(task_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, snapshot_json TEXT NOT NULL)",
       "CREATE TABLE task_package(task_id TEXT PRIMARY KEY, package_path TEXT NOT NULL)",
       "CREATE TABLE event_index(op_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL UNIQUE, task_id TEXT, event_json TEXT NOT NULL)",
-      "CREATE TABLE decision(decision_id TEXT PRIMARY KEY, state TEXT, title TEXT, question TEXT, risk_tier TEXT, urgency TEXT, vertical TEXT, preset TEXT, decision_class TEXT, applies_json TEXT, proposer_json TEXT, arbiter_json TEXT, proposed_at TEXT, decided_at TEXT, provenance_json TEXT, workspace_revision INTEGER NOT NULL)",
+      "CREATE TABLE decision(decision_id TEXT PRIMARY KEY, legacy_number INTEGER, state TEXT, title TEXT, question TEXT, risk_tier TEXT, urgency TEXT, vertical TEXT, preset TEXT, decision_class TEXT, applies_json TEXT, proposer_json TEXT, arbiter_json TEXT, proposed_at TEXT, decided_at TEXT, provenance_json TEXT, workspace_revision INTEGER NOT NULL)",
       "CREATE TABLE decision_option(decision_id TEXT NOT NULL, kind TEXT NOT NULL, option_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, rationale TEXT, workspace_revision INTEGER NOT NULL)",
       "CREATE TABLE decision_claim(decision_id TEXT NOT NULL, claim_id TEXT NOT NULL, position INTEGER NOT NULL, text TEXT NOT NULL, load_bearing INTEGER NOT NULL, fulfillment TEXT, workspace_revision INTEGER NOT NULL)",
       "CREATE TABLE fact(fact_id TEXT PRIMARY KEY, workspace_revision INTEGER NOT NULL, row_json TEXT NOT NULL)",
@@ -349,9 +349,12 @@ export function buildProjectionOracle(root: string): void {
     for (const decision of cold.decisions) {
       revision += 1;
       database
-        .prepare("INSERT INTO decision VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .prepare(
+          "INSERT INTO decision(decision_id, legacy_number, state, title, question, risk_tier, urgency, vertical, preset, decision_class, applies_json, proposer_json, arbiter_json, proposed_at, decided_at, provenance_json, workspace_revision) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        )
         .run(
           decision.decisionId,
+          decision.legacyId ? Number(decision.legacyId.slice(1)) : null,
           decision.state,
           decision.title,
           decision.question,

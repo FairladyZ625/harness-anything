@@ -14,6 +14,7 @@ export { assertDecisionAdmission } from "./decision-projection-admission.ts";
 export { reduceDecisionEvent, refreshDecisionDocumentSearch } from "./decision-projection-reducer.ts";
 export {
   decisionLegacyId,
+  decisionLegacyNumber,
   listDecisionAgendaRowsPage,
   listDecisionRowsPage,
   readDecisionGraphRows,
