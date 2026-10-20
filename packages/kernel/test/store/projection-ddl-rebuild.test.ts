@@ -114,6 +114,23 @@ test("previous projection DDL is replaced on reopen and hot reads use their inde
     }
     const db = new DatabaseSync(projectionPath);
     try {
+      const decisionColumns = db.prepare("PRAGMA table_info(decision)").all() as unknown as readonly {
+          readonly name: string;
+          readonly type: string;
+        }[],
+        legacyNumber = decisionColumns.find(({ name }) => name === "legacy_number");
+      assert.equal(legacyNumber?.type, "INTEGER");
+      const decisionIndexes = db
+        .prepare(
+          "SELECT name, sql FROM sqlite_master WHERE type='index' AND name IN ('legacy_block', 'plain_block') ORDER BY name",
+        )
+        .all() as unknown as readonly { readonly name: string; readonly sql: string }[];
+      assert.deepEqual(
+        decisionIndexes.map(({ name }) => name),
+        ["legacy_block", "plain_block"],
+      );
+      assert.match(decisionIndexes[0]!.sql, /WHERE legacy_number IS NOT NULL/u);
+      assert.match(decisionIndexes[1]!.sql, /WHERE legacy_number IS NULL/u);
       for (const [part, args, expected] of [
         ["FROM lease_cas WHERE execution_id", ["missing"], "lease_cas_execution"],
         ["runtime_dispatch_requested' AND json_extract", ["missing"], "event_index_runtime_session"],

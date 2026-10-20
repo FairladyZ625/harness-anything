@@ -274,7 +274,7 @@ export function listDecisionRowsPage(
   filters: DecisionListFilters,
 ): { readonly rows: readonly DecisionProjectionRow[]; readonly page?: ProjectionPage } {
   const where: string[] = [],
-    values: string[] = [];
+    values: (string | number)[] = [];
   if (filters.search?.trim()) {
     where.push("decision_id IN (SELECT decision_id FROM decision_fts WHERE decision_fts MATCH ?)");
     values.push(ftsQuery(filters.search));
@@ -291,7 +291,10 @@ export function listDecisionRowsPage(
     where.push("EXISTS (SELECT 1 FROM json_each(decision.applies_json, '$.productLines') WHERE value=?)");
     values.push(filters.productLine);
   }
-  let ids = queryRows<{ readonly decision_id: string }>(
+  if (filters.limit !== undefined || filters.cursor !== undefined)
+    return listDecisionRowsPageFromIndex(db, filters, where, values);
+
+  const ids = queryRows<{ readonly decision_id: string }>(
     db,
     `SELECT decision_id FROM decision${where.length ? ` WHERE ${where.join(" AND ")}` : ""}`,
     ...values,
@@ -303,26 +306,85 @@ export function listDecisionRowsPage(
         (!filters.legacyId || legacy === filters.legacyId) &&
         (!filters.legacyRange ||
           (legacy !== undefined &&
-            projectedLegacyNumber(legacy) >= filters.legacyRange.start &&
-            projectedLegacyNumber(legacy) <= filters.legacyRange.end))
+            decisionLegacyNumber(decisionId)! >= filters.legacyRange.start &&
+            decisionLegacyNumber(decisionId)! <= filters.legacyRange.end))
       );
     })
     .sort(compareDecisionIds);
-  if (filters.cursor !== undefined) {
-    const [cursorId] = decodePageCursor(filters.cursor, 1);
-    ids = ids.filter((decisionId) => compareDecisionIds(decisionId, cursorId!) > 0);
-  }
-  if (filters.limit === undefined && filters.cursor === undefined)
-    return { rows: readDecisionRows(db, ids, filters.withBody === true) };
+
+  return { rows: readDecisionRows(db, ids, filters.withBody === true) };
+}
+
+function listDecisionRowsPageFromIndex(
+  db: DatabaseSync,
+  filters: DecisionListFilters,
+  where: readonly string[],
+  values: readonly (string | number)[],
+): { readonly rows: readonly DecisionProjectionRow[]; readonly page: ProjectionPage } {
   const pageLimit = filters.limit === undefined ? 100 : checkedPageLimit(filters.limit),
-    pageIds = ids.slice(0, pageLimit),
+    cursorId = filters.cursor === undefined ? undefined : decodePageCursor(filters.cursor, 1)[0]!,
+    cursorLegacyNumber = cursorId === undefined ? null : decisionLegacyNumber(cursorId),
+    legacyWhere = ["legacy_number IS NOT NULL", ...where],
+    legacyValues: (string | number)[] = [...values];
+
+  if (filters.legacyId) {
+    const match = /^E([1-9][0-9]*)$/u.exec(filters.legacyId);
+    if (match) {
+      legacyWhere.push("legacy_number = ?");
+      legacyValues.push(Number(match[1]));
+    } else legacyWhere.push("0");
+  }
+  if (filters.legacyRange !== undefined) {
+    legacyWhere.push("legacy_number BETWEEN ? AND ?");
+    legacyValues.push(filters.legacyRange.start, filters.legacyRange.end);
+  }
+
+  const cursorBoundary: readonly [number, string] =
+      cursorId === undefined
+        ? [0, ""]
+        : cursorLegacyNumber === null
+          ? [Number.MAX_SAFE_INTEGER, "\uffff"]
+          : [cursorLegacyNumber, cursorId],
+    legacyBranch = [
+      "SELECT * FROM (SELECT decision_id, legacy_number, decision_id AS tie FROM decision",
+      `WHERE ${[...legacyWhere, "(legacy_number, decision_id) > (?, ?)"].join(" AND ")}`,
+      "ORDER BY legacy_number, decision_id LIMIT ?)",
+    ].join(" ");
+  legacyValues.push(...cursorBoundary, pageLimit + 1);
+
+  const branches = [legacyBranch],
+    queryValues: (string | number)[] = [...legacyValues];
+  if (!filters.legacyId && filters.legacyRange === undefined) {
+    const plainWhere = ["legacy_number IS NULL", ...where, "decision_id > ?"],
+      plainCursor = cursorLegacyNumber === null && cursorId !== undefined ? cursorId : "";
+    branches.push(
+      [
+        "SELECT * FROM (SELECT decision_id, NULL AS legacy_number, decision_id AS tie FROM decision",
+        `WHERE ${plainWhere.join(" AND ")}`,
+        "ORDER BY decision_id LIMIT ?)",
+      ].join(" "),
+    );
+    queryValues.push(...values, plainCursor, pageLimit + 1);
+  }
+
+  const raw = queryRows<{ readonly decision_id: string }>(
+      db,
+      [
+        "SELECT decision_id FROM (",
+        branches.join(" UNION ALL "),
+        ") ORDER BY legacy_number IS NULL, legacy_number, tie LIMIT ?",
+      ].join(" "),
+      ...queryValues,
+      pageLimit + 1,
+    ),
+    pageIds = raw.slice(0, pageLimit).map(({ decision_id }) => decision_id),
     last = pageIds.at(-1);
   return {
     rows: readDecisionRows(db, pageIds, filters.withBody === true),
     page: {
       limit: pageLimit,
       cursor: filters.cursor ?? null,
-      nextCursor: ids.length > pageLimit && last ? encodePageCursor([last]) : null,
+      nextCursor: raw.length > pageLimit && last ? encodePageCursor([last]) : null,
     },
   };
 }
@@ -382,20 +444,19 @@ export function decisionLegacyId(decisionId: string): string | undefined {
   return match ? `E${Number(match[1])}` : undefined;
 }
 
-function projectedLegacyNumber(value: string): number {
-  return Number(value.slice(1));
+export function decisionLegacyNumber(decisionId: string): number | null {
+  const legacyId = decisionLegacyId(decisionId);
+  return legacyId === undefined ? null : Number(legacyId.slice(1));
 }
 
 function compareDecisionIds(left: string, right: string): number {
-  const legacyLeft = decisionLegacyId(left),
-    legacyRight = decisionLegacyId(right),
-    a = legacyLeft ? projectedLegacyNumber(legacyLeft) : undefined,
-    b = legacyRight ? projectedLegacyNumber(legacyRight) : undefined;
-  return a !== undefined && b !== undefined && a !== b
+  const a = decisionLegacyNumber(left),
+    b = decisionLegacyNumber(right);
+  return a !== null && b !== null && a !== b
     ? a - b
-    : a !== undefined && b === undefined
+    : a !== null && b === null
       ? -1
-      : a === undefined && b !== undefined
+      : a === null && b !== null
         ? 1
         : left.localeCompare(right);
 }

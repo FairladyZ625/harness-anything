@@ -44,6 +44,8 @@ beforeAll(() => {
   setupOverviewBoardEnvironment();
 });
 
+const minutesAgo = (minutes: number): string => new Date(Date.now() - minutes * 60_000).toISOString();
+
 describe("总览:顶部「需要你处理」紧凑决策带", () => {
   it("只列真实待人事项,并区分出不冒充需要用户的四类", () => {
     const read = agenda({
@@ -400,9 +402,11 @@ describe("总览:主区「关注的工作」", () => {
   });
 
   it("近期变化收进行悬停:关注工作的任务在,别人的任务不在", async () => {
+    const startedAt = Date.now(),
+      occurredAt = (minutes: number) => new Date(startedAt - minutes * 60_000).toISOString();
     const item = (patch: Record<string, unknown>) => ({
       eventId: `evt-${Math.random().toString(36).slice(2, 8)}`,
-      occurredAt: "2026-09-29T10:00:00.000Z",
+      occurredAt: occurredAt(60),
       workspaceRevision: 1,
       type: "execution_started",
       taskId: "task_m1",
@@ -422,9 +426,9 @@ describe("总览:主区「关注的工作」", () => {
               direction: "history",
               status: "ready",
               items: [
-                item({ type: "execution_started", taskId: "task_m1", occurredAt: "2026-09-29T10:05:00.000Z" }),
-                item({ type: "execution_submitted", taskId: "task_m1", occurredAt: "2026-09-29T10:20:00.000Z" }),
-                item({ type: "task_completed", taskId: "task_other", occurredAt: "2026-09-29T10:40:00.000Z" }),
+                item({ type: "execution_started", taskId: "task_m1", occurredAt: occurredAt(55) }),
+                item({ type: "execution_submitted", taskId: "task_m1", occurredAt: occurredAt(40) }),
+                item({ type: "task_completed", taskId: "task_other", occurredAt: occurredAt(20) }),
               ],
               historyCursor: null,
               liveCursor: null,
@@ -1110,6 +1114,7 @@ describe("总览:执行与下钻(tab + 内联名单)", () => {
 describe("总览:系统状态弱化与异常提升", () => {
   it("正常状态收成一行小字,不再铺状态卡片", async () => {
     // CI 读面给一个绿窗:安静小字只在真实读到「绿」后出现(读不到时是「未知」降级提示)。
+    const runAt = minutesAgo(60);
     const previous = (globalThis as { harness?: unknown }).harness;
     vi.stubGlobal("harness", {
       request: (method: string) =>
@@ -1144,7 +1149,7 @@ describe("总览:系统状态弱化与异常提升", () => {
                   job: "integration-shard-6",
                   wallclockMs: 600000,
                   runner: "ubuntu",
-                  occurredAt: "2026-09-29T07:18:00.000Z",
+                  occurredAt: runAt,
                   pass: true,
                   testCount: 10,
                   gateCount: 2,
@@ -1169,6 +1174,8 @@ describe("总览:系统状态弱化与异常提升", () => {
   });
 
   it("daemon 无响应与投影落后升成显眼状态点", async () => {
+    const failedRunAt = minutesAgo(60),
+      pullRequestRunAt = minutesAgo(120);
     const restore = (globalThis as { harness?: unknown }).harness;
     vi.stubGlobal("harness", {
       request: (method: string) =>
@@ -1203,7 +1210,7 @@ describe("总览:系统状态弱化与异常提升", () => {
                   job: "integration-shard-6",
                   wallclockMs: 600000,
                   runner: "ubuntu",
-                  occurredAt: "2026-09-29T07:18:00.000Z",
+                  occurredAt: failedRunAt,
                   pass: false,
                   testCount: 10,
                   gateCount: 2,
@@ -1224,7 +1231,7 @@ describe("总览:系统状态弱化与异常提升", () => {
                   job: "integration-shard-6",
                   wallclockMs: 600000,
                   runner: "ubuntu",
-                  occurredAt: "2026-09-29T06:00:00.000Z",
+                  occurredAt: pullRequestRunAt,
                   pass: true,
                   testCount: 10,
                   gateCount: 2,

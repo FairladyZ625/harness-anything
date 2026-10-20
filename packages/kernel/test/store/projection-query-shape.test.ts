@@ -348,6 +348,123 @@ test("decision list reads every match without paging parameters and a constant n
   }
 });
 
+test("decision pages preserve the legacy id order while seeking both indexed blocks", () => {
+  const counted = countingDatabase(),
+    { db } = counted;
+  try {
+    seed(db, 0, 0);
+    const decisionIds = [
+      "dec_E2_shape-z",
+      "dec_E2_shape-a",
+      "dec_E1_shape",
+      "dec_E10_shape",
+      "dec_alpha",
+      "dec_10",
+      "dec_2",
+      "other_plain",
+    ];
+    const applies = JSON.stringify({ modules: ["kernel"], productLines: ["harness"] }),
+      proposer = JSON.stringify({ principal: { personId: "shape" }, executor: null }),
+      columns = new Set(
+        (db.prepare("PRAGMA table_info(decision)").all() as unknown as readonly { readonly name: string }[]).map(
+          ({ name }) => name,
+        ),
+      ),
+      insert = db.prepare(
+        `INSERT INTO decision (${[
+          "decision_id",
+          "state",
+          "title",
+          "question",
+          "risk_tier",
+          "urgency",
+          "vertical",
+          "preset",
+          "decision_class",
+          "applies_json",
+          "proposer_json",
+          "arbiter_json",
+          "proposed_at",
+          "decided_at",
+          "workspace_revision",
+          ...(columns.has("legacy_number") ? ["legacy_number"] : []),
+        ].join(
+          ",",
+        )}) VALUES (?, 'active', ?, ?, 'high', 'medium', 'shape', 'default', 'ordinary', ?, ?, NULL, '2026-08-16T00:00:00.000Z', NULL, ?${
+          columns.has("legacy_number") ? ", ?" : ""
+        })`,
+      );
+    const expectedLegacyNumber = (decisionId: string): number | null => {
+      const match = /(?:^|_)E([1-9][0-9]*)(?:_|$)/u.exec(decisionId);
+      return match ? Number(match[1]) : null;
+    };
+    for (const [index, decisionId] of decisionIds.entries()) {
+      const parameters: (string | number | null)[] = [
+        decisionId,
+        decisionId,
+        `Should ${decisionId} ship?`,
+        applies,
+        proposer,
+        index + 1,
+      ];
+      if (columns.has("legacy_number")) parameters.push(expectedLegacyNumber(decisionId));
+      insert.run(...parameters);
+    }
+
+    const legacyOrder = (left: string, right: string): number => {
+      const leftNumber = expectedLegacyNumber(left),
+        rightNumber = expectedLegacyNumber(right);
+      return leftNumber !== null && rightNumber !== null && leftNumber !== rightNumber
+        ? leftNumber - rightNumber
+        : leftNumber !== null && rightNumber === null
+          ? -1
+          : leftNumber === null && rightNumber !== null
+            ? 1
+            : left.localeCompare(right);
+    };
+    const expected = [...decisionIds].sort(legacyOrder),
+      oldImplementation = listDecisionRowsPage(db, {}).rows.map(({ decisionId }) => decisionId),
+      visited: string[] = [];
+    assert.deepEqual(oldImplementation, expected);
+    let cursor: string | undefined;
+    do {
+      const page = listDecisionRowsPage(db, { limit: 2, ...(cursor ? { cursor } : {}) });
+      visited.push(...page.rows.map(({ decisionId }) => decisionId));
+      cursor = page.page?.nextCursor ?? undefined;
+    } while (cursor !== undefined);
+    assert.deepEqual(visited, expected);
+
+    const fromLegacy = listDecisionRowsPage(db, { limit: 2, cursor: encodePageCursor(["dec_E2_shape-a"]) });
+    assert.deepEqual(
+      fromLegacy.rows.map(({ decisionId }) => decisionId),
+      expected.filter((decisionId) => legacyOrder(decisionId, "dec_E2_shape-a") > 0).slice(0, 2),
+    );
+    const fromPlain = listDecisionRowsPage(db, { limit: 2, cursor: encodePageCursor(["dec_10"]) });
+    assert.deepEqual(
+      fromPlain.rows.map(({ decisionId }) => decisionId),
+      expected.filter((decisionId) => legacyOrder(decisionId, "dec_10") > 0).slice(0, 2),
+    );
+    db.prepare("DELETE FROM decision WHERE decision_id = ?").run("dec_E2_shape-a");
+    const afterDeletedLegacyCursor = listDecisionRowsPage(db, {
+      limit: 2,
+      cursor: encodePageCursor(["dec_E2_shape-a"]),
+    });
+    assert.deepEqual(
+      afterDeletedLegacyCursor.rows.map(({ decisionId }) => decisionId),
+      expected.filter((decisionId) => legacyOrder(decisionId, "dec_E2_shape-a") > 0).slice(0, 2),
+    );
+
+    const statement = counted.prepared().find((sql) => sql.includes("UNION ALL") && sql.includes("decision_id"));
+    assert.ok(statement, "paged decision ids are selected in one SQL statement");
+    const plan = queryPlan(db, { sql: statement!, args: [0, "", 3, "", 3, 3] });
+    assert.match(plan, /SEARCH decision USING (?:COVERING )?INDEX legacy_block/u);
+    assert.match(plan, /SEARCH decision USING (?:COVERING )?INDEX plain_block/u);
+    assert.doesNotMatch(plan, /SCAN decision\b/u);
+  } finally {
+    db.close();
+  }
+});
+
 test("readDecisionGraphRows still resolves evidenced coverage through the batched reads", () => {
   const { db } = countingDatabase();
   try {
