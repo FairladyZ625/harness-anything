@@ -69,6 +69,7 @@ afterEach(() => {
     act(() => root.unmount());
     container.remove();
   }
+  vi.useRealTimers();
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
@@ -198,6 +199,8 @@ async function fillNewMember(
 
 describe("EdgeInvitePanel", () => {
   it("picks an existing member from a searchable list and issues without any hand-typed identity", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-20T00:00:00.000Z"));
     const { container, issue, list, grants } = await mountPanel();
     expect(grants).toHaveBeenCalledTimes(1);
     expect(memberOptionValues(container)).toEqual(["", "__new__", "person-gui", "person-owner"]);

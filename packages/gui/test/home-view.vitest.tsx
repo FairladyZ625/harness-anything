@@ -32,6 +32,7 @@ afterEach(async () => {
   await act(async () => {
     for (const root of mounted.splice(0)) root.unmount();
   });
+  vi.useRealTimers();
   vi.restoreAllMocks();
   delete host.harness;
 });
@@ -529,6 +530,8 @@ describe("项目页补齐答复与数字跳转", () => {
 });
 
 it("renders the summary timestamp as relative activity with the full time on hover, and omits null", async () => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-21T00:05:00.000Z"));
   const at = new Date(Date.now() - 5 * 60_000).toISOString();
   const data = summary({ active: 1 });
   const { container } = await mountHome([repo({})], "canonical", {
