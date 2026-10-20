@@ -31,8 +31,6 @@ export interface RuntimeProviderDeclaration {
     readonly choices?: Readonly<Record<string, readonly string[]>>;
     readonly publicFields: Readonly<Record<string, string>>;
     readonly publicDefaults: Readonly<Record<string, unknown>>;
-    /** Default effort applied when a launch request does not select one explicitly. */
-    readonly defaultEffort?: string;
   };
   readonly auth: {
     readonly shape: "subscription-only" | "api-override" | "separate";

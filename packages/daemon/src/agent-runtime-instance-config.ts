@@ -15,7 +15,6 @@ import { secureRuntimeBaseUrl } from "./agent-runtime-launch-config.ts";
 import { runtimeIsolationState, runtimePermissionMode } from "./runtime-permissions.ts";
 import {
   isRuntimeKindId,
-  runtimeDefaultEffort,
   runtimeKindForId,
   runtimeKindIds,
   type RuntimeProviderDeclaration,
@@ -415,7 +414,7 @@ export function selectRuntimeModel(config: RuntimeInstanceConfig, requested?: st
 export function selectRuntimeEffort(config: RuntimeInstanceConfig, requested?: string): string | null {
   const provider = runtimeProviderConfig(config),
     declaration = runtimeKindForId(config.kindId),
-    effort = requested ?? provider.reasoningEffort ?? provider.effort ?? runtimeDefaultEffort(config.kindId);
+    effort = requested ?? provider.reasoningEffort ?? provider.effort;
   if (effort === undefined) return null;
   const fields = declaration.configuration.fields;
   if ("effort" in fields && fields.effort === "agy-effort") return agyEffort(effort);

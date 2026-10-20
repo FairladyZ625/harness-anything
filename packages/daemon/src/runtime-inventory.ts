@@ -239,7 +239,6 @@ export const runtimeKinds = [
         requires_openai_auth: null,
         http_headers: null,
       },
-      defaultEffort: "high",
     },
     auth: {
       shape: "separate",
@@ -1011,13 +1010,6 @@ export function runtimeKindForId(kindId: string): RuntimeKindInventory {
   const found = runtimeKinds.find((kind) => kind.kindId === kindId);
   if (!found) throw new Error(`Unknown runtime kind: ${kindId}`);
   return found;
-}
-
-export function runtimeDefaultEffort(kindId: string): string | undefined {
-  const configuration = runtimeKindForId(kindId).configuration;
-  return "defaultEffort" in configuration && typeof configuration.defaultEffort === "string"
-    ? configuration.defaultEffort
-    : undefined;
 }
 
 /** The configuration key that stores this kind's reasoning effort ("effort" or

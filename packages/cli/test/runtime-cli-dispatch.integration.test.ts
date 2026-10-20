@@ -128,7 +128,7 @@ test("Delegated dispatches archive identity, mission and separate reports and re
     squadId: "core-squad",
     instanceId: "cli-worker",
     model: "runtime-test-model",
-    reasoningEffort: "high",
+    reasoningEffort: null,
     fast: false,
     cwd: realpathSync(root),
     missionRef: `${packagePath}/artifacts/missions/${boundDispatchId}.md`,

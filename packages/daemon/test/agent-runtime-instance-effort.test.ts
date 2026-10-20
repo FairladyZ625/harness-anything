@@ -242,7 +242,7 @@ test("stored effort reaches launch flags for agy and config.toml for codex when 
   }
 });
 
-test("Codex instances default to high effort in both the definition and launch config", async () => {
+test("Codex instances without a declared effort preserve the provider default", async () => {
   const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-codex-default-effort-"));
   try {
     const store = openRuntimeInstanceStore({
@@ -266,10 +266,10 @@ test("Codex instances default to high effort in both the definition and launch c
       cwd: "/workspace/repo",
       prompt: "Use the instance default.",
     });
-    assert.equal(launch.definition.reasoningEffort, "high");
-    assert.match(
+    assert.equal(launch.definition.reasoningEffort, null);
+    assert.doesNotMatch(
       readFileSync(path.join(launch.env.CODEX_HOME!, "config.toml"), "utf8"),
-      /model_reasoning_effort = "high"/u,
+      /model_reasoning_effort/u,
     );
     const explicit = await store.prepareLaunch("codex-default-effort", {
       cwd: "/workspace/repo",

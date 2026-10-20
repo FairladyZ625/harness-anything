@@ -660,6 +660,11 @@ test("runtime spawn resolves command model, Agent model, then instance default w
       binding,
     );
     assert.equal(launched?.definition.model, "instance-default");
+    assert.equal(
+      launched?.definition.reasoningEffort,
+      null,
+      "an Agent without declared effort keeps the provider default",
+    );
     assert.match(
       launched?.prompt ?? "",
       /# Harness Execution Discipline.*<very_important>.*# Commander Context.*attention.*applicable gates.*<\/very_important>/su,

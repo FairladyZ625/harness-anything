@@ -23,7 +23,7 @@ import type {
   RuntimeInstanceSummary,
 } from "./agent-runtime-instance-types.ts";
 import { runtimeProviderConfig } from "./agent-runtime-instance-types.ts";
-import { runtimeDefaultEffort, runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
+import { runtimeEffortField, runtimeKindForId } from "./runtime-inventory.ts";
 
 export function migrateLegacyInstallationIdentities(
   instances: readonly RuntimeInstanceConfig[],
@@ -290,7 +290,7 @@ export function runtimeBaseUrl(config: RuntimeInstanceConfig): string | undefine
 
 export function writeCodexConfig(target: string, config: RuntimeInstanceConfig, bearerToken?: string): void {
   const provider = runtimeProviderConfig(config),
-    effort = provider.reasoningEffort ?? runtimeDefaultEffort(config.kindId),
+    effort = provider.reasoningEffort,
     headers =
       bearerToken && provider.credentialHeader
         ? { ...(provider.httpHeaders ?? {}), [provider.credentialHeader]: bearerToken }
