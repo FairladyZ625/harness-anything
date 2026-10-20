@@ -481,7 +481,7 @@ function TrendLegend({
         const value = layer.values.reduce((sum, item) => sum + item, 0);
         return (
           <li key={layer.key} className="flex min-w-0 items-center gap-1.5">
-            <span aria-hidden="true" className="size-2.5 shrink-0 rounded-[2px]" style={{ background: layer.color }} />
+            <span aria-hidden="true" className="size-2.5 shrink-0 rounded-xs" style={{ background: layer.color }} />
             <span className="truncate text-text-muted">{layer.name}</span>
             <span className="font-mono tabular-nums text-text">
               {layer.key === "cacheWrite" ? <CacheWriteValue row={writes} /> : preciseTokens(value)}

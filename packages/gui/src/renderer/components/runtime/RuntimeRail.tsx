@@ -442,9 +442,7 @@ function RailDegradedRow({
 export function RoleLabel({ role }: { readonly role: "worker" | "reviewer" | "commander" }) {
   return (
     <span
-      className={["shrink-0 rounded-[3px] border px-1 font-mono ui-micro tracking-[0.04em]", "text-text-muted"].join(
-        " ",
-      )}
+      className={["shrink-0 rounded-sm border px-1 font-mono ui-micro tracking-[0.04em]", "text-text-muted"].join(" ")}
       style={{ borderColor: "var(--color-border-strong)" }}
     >
       {t(

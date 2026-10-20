@@ -236,7 +236,7 @@ export function SessionDetailView({
             <span
               data-testid="session-owner-squad"
               className={
-                "inline-flex items-center gap-1 rounded-[3px] border border-border-strong " +
+                "inline-flex items-center gap-1 rounded-sm border border-border-strong " +
                 "px-1.5 ui-micro text-text-muted"
               }
             >
