@@ -42,6 +42,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
       loginUrl: "https://login.example",
       loginRealm: "harness",
       loginClientId: "edge-client",
+      loginCertificate: cert.toString("utf8"),
       createdBy: "person-admin",
       ttlMs: 72 * 60 * 60 * 1000,
     }),
@@ -51,7 +52,7 @@ test("one invitation creates and syncs an independent workspace for every reposi
     ports: EdgeJoinClientPorts = {
       session: async () => ({
         accessToken: "person-access-token",
-        authority: { url: "https://login.example", realm: "harness" },
+        authority: { url: "https://login.example", realm: "harness", certificate: cert.toString("utf8") },
       }),
       beginLogin: async () => assert.fail("an existing matching session must not start a login"),
       register: async (workspaceRoot, repoId) => {
@@ -111,6 +112,57 @@ test("one invitation creates and syncs an independent workspace for every reposi
     assert.equal(syncs[index]?.credential, "machine-credential");
   }
   assert.equal(JSON.stringify(result).includes("machine-credential"), false);
+  let loginAuthority: Record<string, unknown> | undefined;
+  const mismatchedSessionPorts: EdgeJoinClientPorts = {
+      ...ports,
+      session: async () => ({
+        accessToken: "person-access-token",
+        authority: { url: "https://login.example", realm: "harness", certificate: "another-root" },
+      }),
+      beginLogin: async (authority) => {
+        loginAuthority = authority;
+        return { ok: true, pending: true };
+      },
+    },
+    loginResult = await joinFleetEdge({ link: encodeEdgeJoinLink(invite.link) }, mismatchedSessionPorts);
+  assert.deepEqual(loginResult, { ok: true, pending: true, command: "edge-join" });
+  assert.equal(loginAuthority?.certificate, cert.toString("utf8"));
+
+  const publicInvite = createEdgeJoinStore({ randomToken: () => "public-trust-token" }).create({
+      centerOrigin: "https://center.example:8443",
+      repoIds: ["repo-a"],
+      personId: "person-edge",
+      permissionSnapshot: [{ groupId: "viewer", version: "snapshot-digest" }],
+      spkiSha256: "a".repeat(64),
+      loginUrl: "https://login.example",
+      loginRealm: "harness",
+      loginClientId: "edge-client",
+      createdBy: "person-admin",
+      ttlMs: 72 * 60 * 60 * 1000,
+    }),
+    publicSessionPorts: EdgeJoinClientPorts = {
+      ...ports,
+      session: async () => ({
+        accessToken: "person-access-token",
+        authority: { url: "https://login.example", realm: "harness", certificate: "previous-root" },
+      }),
+      join: async () => ({
+        schema: "fleet.edge.join.result/v1",
+        messageId: "public-result",
+        inReplyTo: "public-request",
+        joinId: publicInvite.record.joinId,
+        nodeId: "public-edge",
+        personId: "person-edge",
+        credential: "public-edge-credential",
+        repositories: [],
+        certificate: cert.toString("base64"),
+      }),
+    };
+  assert.equal(
+    (await joinFleetEdge({ link: encodeEdgeJoinLink(publicInvite.link) }, publicSessionPorts)).state,
+    "synced",
+    "an invitation without CA reuses the same authority session without comparing its CA",
+  );
   assert.deepEqual(
     progress.map(({ repository }) => `${repository.repoId}:${repository.phase}`),
     [

@@ -2,6 +2,22 @@ import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { consumeKnownError } from "@harness-anything/kernel";
+import type {
+  DeviceLoginRequest,
+  OidcLoginAuthority,
+  OidcSessionPorts,
+  StoredSession,
+} from "./oidc-session-contracts.ts";
+import {
+  clientFields,
+  coded,
+  decodeJwtPayload,
+  realmRoles,
+  requiredNumber,
+  requiredString,
+  transientDeviceTransportFailure,
+  unavailable,
+} from "./oidc-session-helpers.ts";
 import type { DaemonAuthenticationContext } from "./transport/auth-context.ts";
 import { managedRbacListenerUrl, managedRbacSessionStore, type ManagedRbacListener } from "./managed-rbac-service.ts";
 import { KeycloakPolicyAdapter } from "./keycloak-policy-adapter.ts";
@@ -9,8 +25,16 @@ import { verifyFleetHuman } from "./oidc-fleet-principal.ts";
 import { readFleetEdgeConfig } from "./client/fleet-edge-config.ts";
 import type { FleetDeviceLoginNotice } from "./fleet/command-protocol.ts";
 import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/peer.ts";
-import { Agent } from "undici";
 import { errorMessageWithCause } from "./error-cause.ts";
+import {
+  fetchWithTlsCa,
+  isUntrustedIssuer,
+  probeSystemCaTrust,
+  rootCaFromCertificateChain,
+  systemCaCertificates,
+} from "./tls-ca-certificate.ts";
+
+export type { DeviceLoginRequest, OidcLoginAuthority, OidcSessionPorts } from "./oidc-session-contracts.ts";
 
 interface RbacConfig {
   readonly url: string;
@@ -28,24 +52,6 @@ interface PendingLogin {
   readonly loginTarget?: string;
 }
 
-export interface OidcLoginAuthority {
-  readonly url: string;
-  readonly realm: string;
-  readonly clientId: string;
-  readonly clientSecret?: string;
-  readonly browserUrl?: string;
-  readonly certificate?: string;
-}
-
-export interface DeviceLoginRequest {
-  readonly nodeId: string;
-  readonly personId: string;
-  readonly userCode: string;
-  readonly createdAt: number;
-  readonly expiresAt: number;
-  readonly verificationUriComplete: string;
-}
-
 interface PendingDeviceLogin {
   readonly notice: FleetDeviceLoginNotice;
   readonly authority: OidcLoginAuthority;
@@ -56,27 +62,6 @@ interface PendingDeviceLogin {
   interval: number;
   nextPollAt: number;
   lastTransportError?: string;
-}
-
-interface StoredSession {
-  readonly schema: "harness-oidc-session/v2";
-  readonly accessToken: string;
-  readonly refreshToken: string;
-  readonly subject: string;
-  readonly personId: string;
-  /** When the access token lapses; a use at or near this moment renews it first. */
-  readonly expiresAt: number;
-  /** Ordinary SSO expiry; offline sessions have no locally inferred deadline. Keycloak decides on refresh. */
-  readonly sessionExpiresAt: number | null;
-  readonly roles: readonly string[];
-  readonly loginTarget?: string;
-  /** The Keycloak issuer this session was issued by; binding a request reads it instead of asking the center. */
-  readonly authority?: {
-    readonly url: string;
-    readonly realm: string;
-    readonly clientId?: string;
-    readonly certificate?: string;
-  };
 }
 
 /** What one use of the session finds. `unavailable` is set when Keycloak could not be asked to renew it. */
@@ -94,15 +79,6 @@ interface CenterToken {
 
 /** A use this close to the access token's end renews it, so the token a request carries outlives the request. */
 const renewalMarginMs = 30_000;
-
-export interface OidcSessionPorts {
-  readonly fetch: typeof fetch;
-  readonly now: () => number;
-  readonly randomBytes: typeof randomBytes;
-  readonly sessionStore: ReturnType<typeof managedRbacSessionStore>;
-  readonly reportDevice?: (target: string, notice: FleetDeviceLoginNotice) => Promise<void>;
-  readonly loginAuthority?: (target: string) => Promise<OidcLoginAuthority>;
-}
 
 /**
  * Daemon-owned PKCE and Device session. Refresh tokens stay here; a short-lived access token may
@@ -492,14 +468,26 @@ export class OidcSessionService {
     readonly clientId: string;
     readonly certificate?: string;
   }> {
-    const authority = await this.#loginAuthority();
-    // An invitation travels to another machine, so it names the listener every node can reach;
-    // the pinned certificate belongs to that same listener.
+    const authority = await this.#loginAuthority(),
+      url = authority.browserUrl ?? authority.url;
+    let certificate: string | undefined;
+    try {
+      await this.#probeSystemTrust(url);
+    } catch (error) {
+      if (!isUntrustedIssuer(error)) throw error;
+      consumeKnownError(error);
+      certificate = rootCaFromCertificateChain(authority.certificate ?? "", new URL(url).hostname);
+      if (!certificate)
+        throw coded(
+          "oidc_login_trust_unavailable",
+          "The login listener is not trusted by the system and its configured certificate chain has no usable root CA.",
+        );
+    }
     return {
-      url: authority.browserUrl ?? authority.url,
+      url,
       realm: authority.realm,
       clientId: authority.clientId,
-      ...(authority.certificate ? { certificate: authority.certificate } : {}),
+      ...(certificate ? { certificate } : {}),
     };
   }
 
@@ -587,7 +575,12 @@ export class OidcSessionService {
         subject: session.subject,
         expiresAt: session.expiresAt,
         accessToken: session.accessToken,
-        authority: { url: authority.url, realm: authority.realm, clientId: "harness-center" },
+        authority: {
+          url: authority.url,
+          realm: authority.realm,
+          clientId: "harness-center",
+          ...(authority.certificate ? { certificate: authority.certificate } : {}),
+        },
       },
     };
   }
@@ -878,19 +871,20 @@ export class OidcSessionService {
     input: string | URL,
     init?: RequestInit,
   ): Promise<Response> {
-    if (!authority.certificate) return this.#ports.fetch(input, init);
-    const dispatcher = new Agent({ connect: { ca: authority.certificate } });
-    try {
-      const response = await this.#ports.fetch(input, { ...init, dispatcher } as RequestInit & { dispatcher: Agent }),
-        body = await response.arrayBuffer();
-      return new Response([204, 205, 304].includes(response.status) ? null : body, {
-        status: response.status,
-        statusText: response.statusText,
-        headers: response.headers,
-      });
-    } finally {
-      await dispatcher.close();
-    }
+    const ca = authority.certificate ?? this.#defaultCaCertificates();
+    return this.#fetchWithCa(ca, input, init);
+  }
+
+  #defaultCaCertificates(): readonly string[] {
+    return this.#ports.defaultCaCertificates?.() ?? systemCaCertificates();
+  }
+
+  async #probeSystemTrust(url: string): Promise<void> {
+    await probeSystemCaTrust(this.#ports.fetch, this.#defaultCaCertificates(), url);
+  }
+
+  #fetchWithCa(ca: string | readonly string[], input: string | URL, init?: RequestInit): Promise<Response> {
+    return fetchWithTlsCa(this.#ports.fetch, ca, input, init);
   }
 
   /** The signed-in session holding a usable access token; fails when Keycloak could not be asked to renew it. */
@@ -1007,7 +1001,6 @@ export class OidcSessionService {
     this.#ports.sessionStore.write(`${JSON.stringify(session)}\n`);
   }
 }
-
 function clientFields(authority: OidcLoginAuthority): Record<string, string> {
   return {
     client_id: authority.clientId,

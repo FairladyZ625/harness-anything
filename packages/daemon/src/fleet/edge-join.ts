@@ -1,8 +1,9 @@
 import { createHash, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
+import { normalizeRootCaCertificate } from "../tls-ca-certificate.ts";
 
 export type EdgeJoinState = "pending" | "consumed" | "expired" | "revoked";
 export interface EdgeJoinLink {
-  readonly version: 1;
+  readonly version: 2;
   readonly joinId: string;
   readonly centerOrigin: string;
   readonly repoIds: readonly string[];
@@ -11,6 +12,7 @@ export interface EdgeJoinLink {
   readonly loginUrl: string;
   readonly loginRealm: string;
   readonly loginClientId: string;
+  readonly loginCertificate?: string;
 }
 export interface EdgeJoinPermissionSnapshot {
   readonly groupId: string;
@@ -30,6 +32,7 @@ export interface EdgeJoinRecord {
   readonly loginUrl: string;
   readonly loginRealm: string;
   readonly loginClientId: string;
+  readonly loginCertificate?: string;
   readonly expiresAt: string;
   readonly createdAt: string;
   readonly createdBy: string;
@@ -90,9 +93,10 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
     const candidate = decoded as Record<string, unknown>,
       centerOrigin = candidate.centerOrigin,
       repoIds = candidate.repoIds,
-      loginUrl = candidate.loginUrl;
+      loginUrl = candidate.loginUrl,
+      loginCertificate = candidate.loginCertificate;
     if (
-      candidate.version !== 1 ||
+      candidate.version !== 2 ||
       !isText(candidate.joinId) ||
       !isText(centerOrigin) ||
       !Array.isArray(repoIds) ||
@@ -104,6 +108,7 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
       !isText(loginUrl) ||
       !isText(candidate.loginRealm) ||
       !isText(candidate.loginClientId) ||
+      (loginCertificate !== undefined && !isText(loginCertificate)) ||
       Object.keys(candidate).some(
         (key) =>
           ![
@@ -116,6 +121,7 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
             "loginUrl",
             "loginRealm",
             "loginClientId",
+            "loginCertificate",
           ].includes(key),
       )
     )
@@ -133,7 +139,7 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
     )
       throw new Error("login URL");
     return {
-      version: 1,
+      version: 2,
       joinId: candidate.joinId as string,
       centerOrigin,
       repoIds: repoIds as string[],
@@ -142,6 +148,9 @@ export function decodeEdgeJoinLink(value: string): EdgeJoinLink {
       loginUrl: login.toString().replace(/\/$/u, ""),
       loginRealm: candidate.loginRealm as string,
       loginClientId: candidate.loginClientId as string,
+      ...(loginCertificate === undefined
+        ? {}
+        : { loginCertificate: normalizeRootCaCertificate(loginCertificate as string) }),
     };
   } catch {
     throw new EdgeJoinError("edge_join_invalid", "The edge join link is invalid.");
@@ -177,6 +186,8 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
       if (!Number.isSafeInteger(input.ttlMs) || input.ttlMs <= 0) throw new RangeError("ttlMs must be positive");
       const createdAt = now(),
         rawToken = token(),
+        loginCertificate =
+          input.loginCertificate === undefined ? undefined : normalizeRootCaCertificate(input.loginCertificate),
         record: EdgeJoinRecord = {
           joinId: randomUUID(),
           mode: "invitation",
@@ -191,6 +202,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
           loginUrl: input.loginUrl,
           loginRealm: input.loginRealm,
           loginClientId: input.loginClientId,
+          ...(loginCertificate === undefined ? {} : { loginCertificate }),
           expiresAt: new Date(Date.parse(createdAt) + input.ttlMs).toISOString(),
           createdAt,
           createdBy: input.createdBy,
@@ -198,7 +210,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
           revokedAt: null,
         },
         link: EdgeJoinLink = {
-          version: 1,
+          version: 2,
           joinId: record.joinId,
           centerOrigin: record.centerOrigin,
           repoIds: record.repoIds,
@@ -207,6 +219,7 @@ export function createEdgeJoinStore(options: EdgeJoinStoreOptions = {}) {
           loginUrl: record.loginUrl,
           loginRealm: record.loginRealm,
           loginClientId: record.loginClientId,
+          ...(record.loginCertificate === undefined ? {} : { loginCertificate: record.loginCertificate }),
         };
       records.set(record.joinId, record);
       options.onChange?.(clone(record));

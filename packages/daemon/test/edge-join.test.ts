@@ -1,5 +1,9 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import test from "node:test";
 import { parseFleetFrame } from "../src/fleet/command-protocol.ts";
 import { admitEdgeJoin } from "../src/fleet/edge-join-admission.ts";
@@ -35,6 +39,7 @@ test("an invitation uses a pasteable harness-edge string and persists only a tok
   assert.match(link, /^harness-edge:\/\/join\/[A-Za-z0-9_-]+$/u);
   assert.equal(typeof link, "string");
   assert.deepEqual(decodeEdgeJoinLink(link), created.link);
+  assert.equal(created.link.version, 2);
   assert.equal(created.record.repoIds.length, 2);
   assert.deepEqual(created.record.permissionSnapshot, inviteInput.permissionSnapshot);
   assert.deepEqual(store.list()[0]?.groupIds, ["contributor"]);
@@ -45,6 +50,14 @@ test("an invitation uses a pasteable harness-edge string and persists only a tok
   assert.throws(
     () => decodeEdgeJoinLink("https://center.example:8443/join#v=1&join=join-id"),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
+  );
+  assert.throws(
+    () =>
+      decodeEdgeJoinLink(
+        `harness-edge://join/${Buffer.from(JSON.stringify({ ...created.link, version: 1 }), "utf8").toString("base64url")}`,
+      ),
+    (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
+    "old v1 links are rejected rather than silently upgraded",
   );
 });
 
@@ -68,6 +81,50 @@ test("an invitation link rejects malformed fields and embedded URL credentials",
   );
   assert.throws(
     () => decodeEdgeJoinLink(makeLink({ centerOrigin: "http://center.example:8443" })),
+    (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
+  );
+  assert.throws(
+    () => decodeEdgeJoinLink(makeLink({ loginCertificate: "not a PEM CA" })),
+    (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
+  );
+});
+
+test("an invitation rejects a valid listener leaf when it is not a CA root", (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-edge-link-leaf-")),
+    keyFile = path.join(root, "leaf.key"),
+    certificateFile = path.join(root, "leaf.pem");
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certificateFile,
+      "-subj",
+      "/CN=login.example",
+      "-days",
+      "1",
+      "-addext",
+      "basicConstraints=critical,CA:FALSE",
+      "-addext",
+      "subjectAltName=DNS:login.example",
+    ],
+    { stdio: "ignore" },
+  );
+  const created = createEdgeJoinStore().create(inviteInput),
+    leafLink = {
+      ...created.link,
+      loginCertificate: readFileSync(certificateFile, "utf8"),
+    };
+  assert.throws(
+    () =>
+      decodeEdgeJoinLink(`harness-edge://join/${Buffer.from(JSON.stringify(leafLink), "utf8").toString("base64url")}`),
     (error: unknown) => error instanceof EdgeJoinError && error.code === "edge_join_invalid",
   );
 });

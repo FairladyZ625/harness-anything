@@ -1,6 +1,7 @@
 // harness-test-tier: fast
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -152,7 +153,88 @@ test("an invitation names the listener other machines can reach, not the center'
   );
   const invitation = await service.interactiveAuthority();
   assert.equal(invitation.url, "https://center.example.test:8443");
-  assert.equal(invitation.certificate, "public listener certificate");
+  assert.equal(invitation.certificate, undefined, "a system-trusted listener needs no invitation CA");
+});
+
+test("a private listener invitation carries its configured self-signed CA root", async (t) => {
+  const failure = Object.assign(new Error("self-signed certificate"), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" }),
+    { service, root } = fixture(
+      1_000,
+      {
+        fetch: (async (_input, init) => {
+          if (init?.method === "HEAD") throw new TypeError("fetch failed", { cause: failure });
+          return Response.json({});
+        }) as typeof fetch,
+      },
+      t,
+    ),
+    keyFile = path.join(root, "rbac", "listener-key.pem"),
+    certificateFile = path.join(root, "rbac", "listener.pem");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certificateFile,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "subjectAltName=DNS:center.example.test",
+    ],
+    { stdio: "ignore" },
+  );
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      url: "http://127.0.0.1:8080",
+      realm: "harness",
+      listener: {
+        hostname: "center.example.test",
+        port: 8443,
+        certificateFile,
+        certificateKeyFile: keyFile,
+      },
+    }),
+  );
+  const invitation = await service.interactiveAuthority();
+  assert.equal(invitation.url, "https://center.example.test:8443");
+  assert.equal(invitation.certificate, readFileSync(certificateFile, "utf8"));
+
+  const leafKeyFile = path.join(root, "rbac", "listener-leaf-key.pem"),
+    leafFile = path.join(root, "rbac", "listener-leaf.pem");
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      leafKeyFile,
+      "-out",
+      leafFile,
+      "-subj",
+      "/CN=center.example.test",
+      "-days",
+      "1",
+      "-addext",
+      "basicConstraints=critical,CA:FALSE",
+      "-addext",
+      "subjectAltName=DNS:center.example.test",
+    ],
+    { stdio: "ignore" },
+  );
+  writeFileSync(certificateFile, readFileSync(leafFile, "utf8"));
+  await assert.rejects(service.interactiveAuthority(), { code: "oidc_login_trust_unavailable" });
 });
 
 test("a session in use outlives its access token without signing in again", async (t) => {

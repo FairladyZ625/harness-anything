@@ -120,6 +120,7 @@ export class EdgeJoinAdminService {
         loginUrl: login.url,
         loginRealm: login.realm,
         loginClientId: login.clientId,
+        ...(login.certificate ? { loginCertificate: login.certificate } : {}),
         createdBy: actor,
         ttlMs: 72 * 60 * 60 * 1000,
       });
