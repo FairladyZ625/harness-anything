@@ -30,7 +30,9 @@ test("Windows owns one least-privilege scheduled task per local daemon target", 
   assert.match(content, /<LogonTrigger>/);
   assert.match(content, /<ExecutionTimeLimit>PT0S/);
   assert.match(content, /<MultipleInstancesPolicy>IgnoreNew/);
-  assert.match(content, /<RestartOnFailure>/);
+  // RestartOnFailure never fires for an action's non-zero process exit, so the launcher script owns
+  // the supersession relaunch and the XML must not claim restart behavior it does not have.
+  assert.ok(!content.includes("<RestartOnFailure>"));
   assert.ok(!daemonServiceUnitContent(unit, { ...launch, runAtLogin: false }).includes("LogonTrigger"));
   const encoded = /-EncodedCommand ([A-Za-z0-9+/=]+)/u.exec(content)![1]!;
   const script = Buffer.from(encoded, "base64").toString("utf16le");
@@ -39,7 +41,8 @@ test("Windows owns one least-privilege scheduled task per local daemon target", 
   assert.ok(script.includes("'--supervised'"));
   assert.ok(script.includes(`>> '${daemonStdioLogPath(target.userRoot, target.daemonId)}' 2>&1`));
   assert.ok(script.includes(path.resolve("certs/a'b.pem").replaceAll("'", "''")));
-  assert.ok(script.endsWith("exit $LASTEXITCODE"));
+  assert.match(script, /for \(;;\) \{\r?\n\s*& '/u);
+  assert.match(script, /if \(\$LASTEXITCODE -ne 75\) \{ exit \$LASTEXITCODE \}\r?\n\}/u);
   assert.ok(!daemonServiceUnitContent(unit, launch).includes("NODE_EXTRA_CA_CERTS"));
 });
 

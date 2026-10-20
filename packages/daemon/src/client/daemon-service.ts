@@ -19,7 +19,8 @@ export interface DaemonServiceState {
 export type DaemonServiceCommand = readonly [command: string, ...args: string[]];
 
 /** The process exits with this when a supervised daemon leaves for a newer disk build: non-zero is
- *  what makes the service manager start the successor, so the daemon must not start one itself. */
+ *  what makes the service manager (or, on Windows, the task launcher script) start the successor, so
+ *  the daemon must not start one itself. */
 export const daemonSupersededExitCode = 75;
 
 // One unit per (user root, daemon id), keyed exactly like the daemon endpoint: two user roots on one
@@ -46,14 +47,17 @@ export function installedDaemonServiceUnit(target: {
   return unit !== null && existsSync(unit.unitPath) ? unit : null;
 }
 
-// Three lines of each unit carry an existing invariant and are not style:
+// Each unit's restart path carries an existing invariant and is not style:
 // - KillMode=process: runtime workers outlive a daemon restart and are re-adopted by pid, and
 //   systemd would otherwise kill the unit's whole control group, workers included. launchd needs
 //   no counterpart: it only cleans up the daemon's own process group, and workers are spawned
 //   detached into groups of their own.
 // - --supervised: a daemon leaving for a newer build exits non-zero instead of starting its own
 //   successor, so the service manager is the only one that ever starts a daemon.
-// - Restart=on-failure / KeepAlive.SuccessfulExit=false: an operator stop exits zero and stays stopped.
+// - Restart=on-failure / KeepAlive.SuccessfulExit=false / the task launcher's exit-code loop: an
+//   operator stop exits zero and stays stopped. Task Scheduler's own RestartOnFailure cannot play
+//   this role: it fires only when an action fails to start, never when the action's process exits
+//   non-zero, so on Windows the launcher script itself relaunches on the supersession exit code.
 export function daemonServiceUnitContent(
   unit: DaemonServiceUnit,
   input: {
@@ -85,12 +89,17 @@ export function daemonServiceUnitContent(
       ...(input.extraCaCerts ? { NODE_EXTRA_CA_CERTS: path.resolve(input.extraCaCerts) } : {}),
     };
   if (unit.manager === "task-scheduler") {
-    // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers.
-    // Its native child is awaited: zero (operator stop) stays stopped; nonzero is supervised.
+    // Task Scheduler owns a hidden launcher so PATH/CA and output match the other managers. The
+    // launcher relaunches the supersession exit itself: RestartOnFailure counts a non-zero process
+    // exit as a completed run, so it can never start the successor. Zero (operator stop) stays
+    // stopped, and any other exit ends the launcher with the daemon's code, leaving the task ready
+    // for on-demand autostart instead of looping a crash.
     const script = [
       ...Object.entries(environment).map(([key, value]) => `$env:${key} = ${powerShellText(value)}`),
-      `& ${program.map(powerShellText).join(" ")} >> ${powerShellText(output)} 2>&1`,
-      "exit $LASTEXITCODE",
+      "for (;;) {",
+      `  & ${program.map(powerShellText).join(" ")} >> ${powerShellText(output)} 2>&1`,
+      `  if ($LASTEXITCODE -ne ${daemonSupersededExitCode}) { exit $LASTEXITCODE }`,
+      "}",
     ].join("\n");
     return [
       '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">',
@@ -98,7 +107,7 @@ export function daemonServiceUnitContent(
         ? "<Triggers/>"
         : "<Triggers><LogonTrigger><Enabled>true</Enabled></LogonTrigger></Triggers>",
       '<Principals><Principal id="User"><LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>',
-      "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit><RestartOnFailure><Interval>PT1M</Interval><Count>999</Count></RestartOnFailure></Settings>",
+      "<Settings><MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy><DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries><StopIfGoingOnBatteries>false</StopIfGoingOnBatteries><ExecutionTimeLimit>PT0S</ExecutionTimeLimit></Settings>",
       `<Actions Context="User"><Exec><Command>powershell.exe</Command><Arguments>-NoProfile -NonInteractive -WindowStyle Hidden -EncodedCommand ${Buffer.from(script, "utf16le").toString("base64")}</Arguments></Exec></Actions>`,
       "</Task>",
       "",
