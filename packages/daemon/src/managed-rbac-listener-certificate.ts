@@ -1,10 +1,36 @@
-import { createHash } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync, rmSync } from "node:fs";
+import { createHash, X509Certificate } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { isIP } from "node:net";
 import { networkInterfaces } from "node:os";
 import path from "node:path";
 import { runProcessTextAsync } from "./process-port.ts";
+import { validateCertificateNames } from "./tls-listener-admission.ts";
 import type { CertificateMode, ManagedRbacListener, ManagedRbacRequest } from "./managed-rbac-service.ts";
+
+function selfSignedCertificatePaths(root: string): {
+  readonly certificateFile: string;
+  readonly certificateKeyFile: string;
+} {
+  const directory = path.join(root, "listener");
+  return {
+    certificateFile: path.join(directory, "self-signed.pem"),
+    certificateKeyFile: path.join(directory, "self-signed.key"),
+  };
+}
+
+function existingCertificateIsCurrent(certificateFile: string, names: readonly string[]): boolean {
+  const certificatePem = readFileSync(certificateFile),
+    certificate = new X509Certificate(certificatePem),
+    now = Date.now();
+  if (Date.parse(certificate.validFrom) > now || Date.parse(certificate.validTo) <= now) return false;
+  try {
+    validateCertificateNames(certificatePem, names);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && (error as { readonly code?: unknown }).code === "cert_san_mismatch") return false;
+    throw error;
+  }
+}
 
 export function firstReachableAddress(): string {
   for (const entries of Object.values(networkInterfaces()))
@@ -17,14 +43,17 @@ export async function ensureSelfSignedCertificate(
   hostname: string,
   address: string,
 ): Promise<{ readonly certificateFile: string; readonly certificateKeyFile: string }> {
-  const directory = path.join(root, "listener"),
-    certificateFile = path.join(directory, "self-signed.pem"),
-    certificateKeyFile = path.join(directory, "self-signed.key");
+  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root),
+    names = [address, hostname];
   if (existsSync(certificateFile) && existsSync(certificateKeyFile)) {
-    chmodSync(certificateKeyFile, 0o600);
-    return { certificateFile, certificateKeyFile };
+    if (existingCertificateIsCurrent(certificateFile, names)) {
+      chmodSync(certificateKeyFile, 0o600);
+      return { certificateFile, certificateKeyFile };
+    }
   }
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  rmSync(certificateFile, { force: true });
+  rmSync(certificateKeyFile, { force: true });
+  mkdirSync(path.dirname(certificateFile), { recursive: true, mode: 0o700 });
   const san = isIP(hostname) !== 0 ? `IP:${hostname}` : `DNS:${hostname}`;
   const addressSan = address === hostname ? "" : isIP(address) !== 0 ? `,IP:${address}` : `,DNS:${address}`;
   try {
@@ -47,6 +76,7 @@ export async function ensureSelfSignedCertificate(
     ]);
     chmodSync(certificateKeyFile, 0o600);
     chmodSync(certificateFile, 0o644);
+    validateCertificateNames(readFileSync(certificateFile), names);
     return { certificateFile, certificateKeyFile };
   } catch (error) {
     rmSync(certificateFile, { force: true });
@@ -60,6 +90,12 @@ export async function ensureSelfSignedCertificate(
       },
     );
   }
+}
+
+export function removeSelfSignedCertificate(root: string): void {
+  const { certificateFile, certificateKeyFile } = selfSignedCertificatePaths(root);
+  rmSync(certificateFile, { force: true });
+  rmSync(certificateKeyFile, { force: true });
 }
 
 export function publicListener(listener: ManagedRbacListener): Omit<ManagedRbacListener, "certificateKeyFile"> {

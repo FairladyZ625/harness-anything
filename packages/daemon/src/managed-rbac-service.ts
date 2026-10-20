@@ -34,6 +34,7 @@ import {
   ensureSelfSignedCertificate,
   firstReachableAddress,
   listenerVersion,
+  removeSelfSignedCertificate,
   publicListener,
   requestedListener,
 } from "./managed-rbac-listener-certificate.ts";
@@ -296,6 +297,7 @@ export class ManagedRbacService {
     }
     try {
       await apply(listener ? { ...loopback, listener, certificateMode } : { ...loopback, certificateMode });
+      if (certificateMode === "domain" || certificateMode === "internal-ca") removeSelfSignedCertificate(this.#root);
     } catch (error) {
       await apply(config);
       throw mapListenerBindError(error);
@@ -316,6 +318,7 @@ export class ManagedRbacService {
       const hostname = request.hostname ?? address;
       const port = request.port ?? 8443;
       const generated = await ensureSelfSignedCertificate(this.#root, hostname, address);
+      validateCertificateNames(readFileSync(generated.certificateFile), [address, hostname]);
       return {
         address,
         hostname,
@@ -914,8 +917,8 @@ function requirePrivateKeyFile(file: string): void {
     throw managedRbacError(
       "rbac_listener_key_exposed",
       mode === undefined
-        ? `The listener's private key ${file} does not exist.`
-        : `The listener's private key ${file} has mode ${mode.toString(8).padStart(4, "0")}; only its owner may read it (chmod 600).`,
+        ? "The listener's private key must be present and readable only by its owner (chmod 600)."
+        : "The listener's private key must be readable only by its owner (chmod 600).",
     );
 }
 

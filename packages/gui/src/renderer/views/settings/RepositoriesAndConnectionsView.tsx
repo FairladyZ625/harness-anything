@@ -381,6 +381,7 @@ function CenterConnectionPanel({
                   </span>
                   <button
                     type="button"
+                    data-testid="center-certificate-file-choose"
                     className="rounded border border-border px-2 py-1"
                     onClick={() => void selectFile("certificate")}
                   >
@@ -398,6 +399,7 @@ function CenterConnectionPanel({
                   </span>
                   <button
                     type="button"
+                    data-testid="center-certificate-key-choose"
                     className="rounded border border-border px-2 py-1"
                     onClick={() => void selectFile("private-key")}
                   >
@@ -412,6 +414,7 @@ function CenterConnectionPanel({
           {centerSettings ? (
             <button
               type="button"
+              data-testid="center-certificate-save"
               disabled={saving || !settings}
               className="mt-3 rounded bg-accent px-3 py-1.5 ui-meta text-white disabled:opacity-50"
               onClick={() => void saveCertificate()}
