@@ -6,7 +6,26 @@ export const REPLICATION_FRAME_BYTES = 96 * 1024;
 export const REPLICATION_CHUNK_BYTES = 64 * 1024;
 
 export type ReplicationFrame =
-  | { readonly type: "replica.start"; readonly repoId: string; readonly position: ReplicationPosition | null }
+  | {
+      readonly type: "replica.start";
+      readonly repoId: string;
+      readonly position: ReplicationPosition | null;
+      readonly edgeBuildCommit?: string | null;
+      readonly taskEventShapeVersion?: number;
+    }
+  | {
+      readonly type: "replica.accept";
+      readonly centerBuildCommit: string | null;
+      readonly taskEventShapeVersion: number;
+    }
+  | {
+      readonly type: "replica.reject";
+      readonly code: string;
+      readonly message: string;
+      readonly centerBuildCommit: string | null;
+      readonly taskEventShapeVersion: number;
+    }
+  | { readonly type: "replica.failure"; readonly code: string; readonly message: string }
   | {
       readonly type: "replica.backup";
       readonly metadata: BaseBackupMetadata;
@@ -39,6 +58,21 @@ const shape = (value: unknown, fields: Record<string, Check>): boolean =>
   object(value) &&
   Object.keys(value).length === Object.keys(fields).length &&
   Object.entries(fields).every(([key, check]) => check(value[key]));
+const isReplicaStart = (value: unknown): boolean => {
+  const common = {
+    type: (v: unknown) => v === "replica.start",
+    repoId: text,
+    position: (v: unknown) => v === null || isReplicationPosition(v),
+  };
+  return (
+    shape(value, common) ||
+    shape(value, {
+      ...common,
+      edgeBuildCommit: (v: unknown) => v === null || text(v),
+      taskEventShapeVersion: uint,
+    })
+  );
+};
 export const isReplicationPosition = (value: unknown): value is ReplicationPosition =>
   shape(value, { history: text, sequence: uint, revision: uint });
 export const isBaseBackupMetadata = (value: unknown): value is BaseBackupMetadata =>
@@ -56,7 +90,17 @@ export function parseReplicationFrame(line: string): ReplicationFrame {
   const value: unknown = JSON.parse(line);
   if (!object(value) || typeof value.type !== "string") throw new Error("invalid replication frame");
   const types: Record<string, Record<string, Check>> = {
-    "replica.start": { repoId: text, position: (v) => v === null || isReplicationPosition(v) },
+    "replica.accept": {
+      centerBuildCommit: (v) => v === null || text(v),
+      taskEventShapeVersion: uint,
+    },
+    "replica.reject": {
+      code: text,
+      message: text,
+      centerBuildCommit: (v) => v === null || text(v),
+      taskEventShapeVersion: uint,
+    },
+    "replica.failure": { code: text, message: text },
     "replica.backup": { metadata: isBaseBackupMetadata, size: uint, sha256: hash },
     "replica.data": {
       offset: uint,
@@ -76,7 +120,11 @@ export function parseReplicationFrame(line: string): ReplicationFrame {
     "replica.resync": { reason: text },
   };
   const fields = Object.hasOwn(types, value.type) ? types[value.type] : undefined;
-  if (!fields || !shape(value, { type: (v) => v === value.type, ...fields }))
+  if (
+    !(value.type === "replica.start"
+      ? isReplicaStart(value)
+      : fields && shape(value, { type: (v) => v === value.type, ...fields }))
+  )
     throw new Error("invalid replication frame");
   return value as unknown as ReplicationFrame;
 }

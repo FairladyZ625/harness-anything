@@ -7,6 +7,7 @@ import { consumeKnownError, isContractVersionCompatible } from "@harness-anythin
 import { writeFileDurably } from "../durable-file.ts";
 import type { Delivery, FleetCenterOptions, SessionWindow, State, Upload } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
+import { replicationSlotKey } from "./replication-slot.ts";
 import {
   FLEET_CHUNK_BYTES,
   FLEET_FRAME_BYTES,
@@ -148,7 +149,7 @@ export async function serve(
     frame: Extract<ReplicationFrame, { readonly type: "replica.start" }>,
     humanClientId?: string,
   ): void => {
-    const key = `${node}\u0000${frame.repoId}`,
+    const key = replicationSlotKey({ nodeId: node, repoId: frame.repoId }),
       previous = replicationOwners.get(key);
     if (previous && previous !== socket) previous.destroy();
     replicationOwners.set(key, socket);

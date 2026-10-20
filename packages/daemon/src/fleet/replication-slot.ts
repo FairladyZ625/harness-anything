@@ -7,6 +7,7 @@ export interface ReplicationSlotKey {
   readonly repoId: string;
   readonly nodeId: string;
 }
+export const replicationSlotKey = (key: ReplicationSlotKey): string => `${key.nodeId}\u0000${key.repoId}`;
 export interface ReplicaDeliveryKey extends ReplicationSlotKey {
   readonly viewId: string;
 }

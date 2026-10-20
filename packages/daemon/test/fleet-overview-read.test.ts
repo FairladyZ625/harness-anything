@@ -34,6 +34,7 @@ function replica(nodeId: string, overrides: Partial<FleetReplicaStatus> = {}): F
     connected: true,
     delivery: "current",
     diskQuotaBytes: null,
+    syncFailure: null,
     ...overrides,
   };
 }
@@ -197,6 +198,17 @@ test("edge fields the read surface cannot see are unavailable with a reason, nev
     "sync-internals=unavailable",
   ]);
   assert.equal(result.links[0]!.state, "lag");
+});
+
+test("replica failure is carried to the node row while disconnected", () => {
+  const syncFailure = {
+    code: "edge_upgrade_required",
+    message: "Edge must upgrade to center build 86d1398 before applying task event shape 2.",
+  };
+  const result = buildFleetOverview(input({ replicas: [replica("cc90-ubuntu", { connected: false, syncFailure })] }));
+  const edge = result.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
+  assert.deepEqual(edge.replica?.syncFailure, syncFailure);
+  assert.deepEqual(validateFleetOverview(result), []);
 });
 
 test("events are attributed by the task's current lease, executor session join, else the center", () => {

@@ -18,7 +18,8 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import type { DaemonAuthenticationContext } from "../transport/auth-context.ts";
 import { createServer, type Server, type TLSSocket } from "node:tls";
-import { resolveHarnessLayout, sha256Bytes } from "@harness-anything/kernel";
+import { resolveHarnessLayout, sha256Bytes, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import { daemonBuildStamp } from "../build-identity.ts";
 import { readFileWindow, syncDirectory, syncFile } from "../durable-file.ts";
 import { openPersistentWriterEpoch, readLedgerWriterEpoch, type PersistentWriterEpoch } from "../writer-epoch.ts";
 import { runtimeErrorCode, runtimeErrorMessage } from "../runtime-spawn-errors.ts";
@@ -28,13 +29,7 @@ import {
   verifyOwnedClaims as verifyOwnedClaimsImpl,
 } from "./center-lease-claims.ts";
 import { digestId, immediate, loadState, mid, ownedUpload, serve, writeCenterDurableJson } from "./center-transport.ts";
-import type {
-  Delivery,
-  FleetCenterOptions,
-  FleetReplicaStatus,
-  FleetTlsCenter,
-  SessionWindow,
-} from "./center-types.ts";
+import type { Delivery, FleetCenterOptions, FleetTlsCenter, SessionWindow } from "./center-types.ts";
 import { FleetFault } from "./center-types.ts";
 import { FLEET_CHUNK_BYTES, type FleetFrameV1 } from "./command-protocol.ts";
 import {
@@ -44,8 +39,9 @@ import {
   sqliteLedgerPath,
 } from "@harness-anything/kernel";
 import { runWalSender } from "./walsender.ts";
-import { createReplicationRetention, openReplicationSlots } from "./replication-slot.ts";
+import { createReplicationRetention, openReplicationSlots, replicationSlotKey } from "./replication-slot.ts";
 import { startBaseBackup } from "./basebackup.ts";
+import { createReplicaStatusTracker } from "./replica-status.ts";
 /** The replication head poll interval: commit-to-edge latency floor versus idle reads. */
 const REPLICATION_HEAD_POLL_MS = 50;
 /** Edges treat three missed keepalives as a dead connection (peer.ts). */
@@ -241,6 +237,27 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       }
       throw error;
     }
+    const centerBuildCommit = daemonBuildStamp().commit,
+      replicaKeyForNode = { nodeId, repoId: frame.repoId };
+    if ((frame.taskEventShapeVersion ?? 0) < TASK_EVENT_SHAPE_COMPAT_VERSION) {
+      const failure = {
+        code: "edge_upgrade_required",
+        message: `Edge must upgrade to center build ${centerBuildCommit?.slice(0, 7) ?? "unknown"} before applying task event shape ${TASK_EVENT_SHAPE_COMPAT_VERSION}.`,
+      };
+      replicaStatus.recordFailure(replicaKeyForNode, failure);
+      await peer.send({
+        type: "replica.reject",
+        ...failure,
+        centerBuildCommit,
+        taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      });
+      throw new FleetFault(failure.code, failure.message);
+    }
+    await peer.send({
+      type: "replica.accept",
+      centerBuildCommit,
+      taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+    });
     const rootDir = repoRoot(frame.repoId),
       layout = resolveHarnessLayout(rootDir);
     const store = openSqliteEventStore({
@@ -351,7 +368,15 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
       },
     };
     try {
-      await runWalSender({ peer, source, slots, lease, signal });
+      await runWalSender({
+        peer,
+        source,
+        slots,
+        lease,
+        signal,
+        onFailure: (failure) => replicaStatus.recordFailure(replicaKeyForNode, failure),
+        onAcknowledged: () => replicaStatus.clearFailure(replicaKeyForNode),
+      });
     } finally {
       store.close();
     }
@@ -1002,47 +1027,19 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
   const sessions = new Map<string, Set<TLSSocket>>();
   const replicationOwners = new Map<string, TLSSocket>();
   // Slot ACKs against each repository's log head; a slot on another history must base-backup again.
-  const replicaStatus = (): FleetReplicaStatus[] => {
-    // A slot of a repository this center no longer serves has no head to lag behind.
-    const attached = new Set(
+  const replicaStatus = createReplicaStatusTracker({
+    slots: replicationSlots,
+    attachedRepositories: () =>
+      new Set(
         options.host
           .status()
           .repos.filter((repo) => repo.state === "attached")
           .map((repo) => repo.repoId),
       ),
-      heads = new Map<string, import("@harness-anything/kernel").ReplicationPosition>(),
-      head = (repoId: string) => {
-        if (!heads.has(repoId)) heads.set(repoId, readReplicationHead(repoId));
-        return heads.get(repoId)!;
-      },
-      now = Date.now();
-    return replicationSlots.list().flatMap((slot) => {
-      if (!attached.has(slot.repoId)) return [];
-      const center = head(slot.repoId);
-      const ack = slot.history === center.history ? slot.ack : null,
-        ackSequence = ack?.durable.sequence ?? null,
-        lagCommits = ackSequence === null ? null : Math.max(0, center.sequence - ackSequence),
-        ackedAt = ack === null ? null : slot.ackedAt;
-      return [
-        {
-          repoId: slot.repoId,
-          nodeId: slot.nodeId,
-          viewId: slot.nodeId,
-          centerRevision: center.revision,
-          centerSequence: center.sequence,
-          ackRevision: ack?.durable.revision ?? null,
-          ackSequence,
-          ackedAt,
-          lagRevisions: Math.max(0, center.revision - (ack?.durable.revision ?? 0)),
-          lagCommits,
-          lagMs: lagCommits === 0 ? 0 : ackedAt === null ? null : Math.max(0, now - Date.parse(ackedAt)),
-          connected: replicationOwners.has(`${slot.nodeId}\u0000${slot.repoId}`),
-          delivery: lagCommits === null ? "snapshot_required" : lagCommits === 0 ? "current" : "delta",
-          diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
-        },
-      ];
-    });
-  };
+    head: readReplicationHead,
+    isConnected: (key) => replicationOwners.has(replicationSlotKey(key)),
+    diskQuotaBytes: options.replicaDiskQuotaBytes ?? null,
+  });
   const server: Server = createServer({ key: options.key, cert: options.cert }, (socket) =>
     serve(socket, { ...options, onReplicationStart }, handle, sessions, replicationOwners),
   );
@@ -1090,6 +1087,6 @@ export async function listenFleetTls(options: FleetCenterOptions): Promise<Fleet
     replicaReceipt: () => {
       throw new Error("replica receipt is retired");
     },
-    status: () => ({ replicas: replicaStatus() }),
+    status: () => ({ replicas: replicaStatus.snapshot() }),
   };
 }

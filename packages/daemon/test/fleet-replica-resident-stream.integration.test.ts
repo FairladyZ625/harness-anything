@@ -9,7 +9,7 @@
 // start removes staging a crashed install left; edge sync waits for the center's head on the resident
 // stream, and write waits survive reconnects but fail when their own signal expires or the stream stops.
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, connect, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -26,6 +26,7 @@ import { readReplicaGeneration, replicaGenerationReaders } from "../src/fleet/re
 import { readReplicaHealth } from "../src/fleet/replica-health.ts";
 import {
   fleetReplicationFixture,
+  fakeReplicationCenter,
   replicationRepoId,
   seedCenterData,
   waitForState,
@@ -45,6 +46,35 @@ const pressure = async (fixture: FleetReplicationFixture, count = 1) => {
     assert.equal(appended.outcome, "applied", JSON.stringify(appended));
   }
 };
+
+test(
+  "a deterministic handshake rejection is recorded and does not reconnect in a tight loop",
+  { timeout: 30_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    const fake = await fakeReplicationCenter(t, fixture, (frame, send) => {
+      if (frame.type === "replica.start")
+        send({
+          type: "replica.reject",
+          code: "edge_upgrade_required",
+          message: "Edge must upgrade to center build 86d1398 before applying task event shape 2.",
+          centerBuildCommit: "86d1398",
+          taskEventShapeVersion: 2,
+        });
+    });
+    const viewRoot = mkdtempSync(path.join(tmpdir(), "ha-replica-deterministic-failure-"));
+    t.after(() => rmSync(viewRoot, { recursive: true, force: true }));
+    const stream = startStream(t, fixture, viewRoot, fake.port);
+    await waitForState(() => stream.failures.length === 1, "the first deterministic rejection", 10_000);
+    await new Promise<void>((resolve) => setTimeout(resolve, 750));
+    assert.equal(fake.counts()["replica.start"], 1, "the permanent failure waits five minutes before retrying");
+    assert.equal(
+      readReplicaHealth(path.join(viewRoot, "repos", replicationRepoId, "views", "edge-one")).syncFailure?.code,
+      "edge_upgrade_required",
+    );
+    await stream.stop();
+  },
+);
 const readOne = <T>(file: string, sql: string, params: readonly (string | number)[] = []): T => {
   const db = new DatabaseSync(file, { readOnly: true });
   try {

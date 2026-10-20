@@ -88,6 +88,8 @@ function overview(overrides: Partial<FleetOverviewRead> = {}): FleetOverviewRead
           lagRevisions: 1,
           lagMs: 61_000,
           delivery: "delta",
+          connected: true,
+          syncFailure: null,
         },
         replicaNote: null,
         watch: { kind: "unavailable", reason: "edge-sync-internals-not-exposed" },
@@ -353,6 +355,27 @@ describe("协作页舰队拓扑契约", () => {
     expect(view.nodeCard("cc90-ubuntu")!.getAttribute("aria-pressed")).toBe("false");
     expect(view.text()).toContain("2 节点");
     expect(view.text()).toContain("2 事件");
+  });
+
+  it("断开的边缘显示副本失败原因,不继续显示增长中的 lag 秒数", () => {
+    const data = overview();
+    const edge = data.nodes.find((node) => node.nodeId === "cc90-ubuntu")!;
+    if (edge.replica !== null) {
+      edge.replica = {
+        ...edge.replica,
+        connected: false,
+        syncFailure: {
+          code: "edge_upgrade_required",
+          message: "Edge must upgrade to 86d1398 before applying task event shape 2.",
+        },
+      };
+    }
+    const view = renderView({ data });
+    const card = view.nodeCard("cc90-ubuntu")!;
+    expect(card.getAttribute("data-state")).toBe("disconnected");
+    expect(card.textContent).toContain("断开");
+    expect(card.textContent).toContain("Edge must upgrade to 86d1398");
+    expect(card.textContent).not.toContain("61s");
   });
 
   it("本地仓显示中心提示条;读失败显示失败横幅而非空拓扑", () => {

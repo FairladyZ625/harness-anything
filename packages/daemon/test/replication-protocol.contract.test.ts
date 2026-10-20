@@ -27,7 +27,22 @@ const position = { history: "history-a", sequence: 9, revision: 7 } as const,
     projectionSchema: 11,
   } as const;
 const frames: readonly ReplicationFrame[] = [
-  { type: "replica.start", repoId: "repo", position },
+  {
+    type: "replica.start",
+    repoId: "repo",
+    position,
+    edgeBuildCommit: "5b496c24",
+    taskEventShapeVersion: 1,
+  },
+  { type: "replica.accept", centerBuildCommit: "86d1398", taskEventShapeVersion: 2 },
+  {
+    type: "replica.reject",
+    code: "edge_upgrade_required",
+    message: "Upgrade to 86d1398",
+    centerBuildCommit: "86d1398",
+    taskEventShapeVersion: 2,
+  },
+  { type: "replica.failure", code: "invalid_schema", message: "completion contract is invalid" },
   { type: "replica.backup", metadata, size: 4096, sha256: "b".repeat(64) },
   { type: "replica.data", offset: 0, data: Buffer.from("abc").toString("base64") },
   { type: "replica.backup.end" },
@@ -43,6 +58,14 @@ const frames: readonly ReplicationFrame[] = [
 test("replication wire union round-trips every replica frame", () => {
   for (const frame of frames)
     assert.deepEqual(parseReplicationFrame(serializeReplicationFrame(frame).trimEnd()), frame, frame.type);
+});
+
+test("the center can recognize a pre-versioned replica start and reject it explicitly", () => {
+  assert.deepEqual(parseReplicationFrame('{"type":"replica.start","repoId":"repo","position":null}'), {
+    type: "replica.start",
+    repoId: "repo",
+    position: null,
+  });
 });
 
 test("backup frames carry whole-package identity and reject damaged members", () => {

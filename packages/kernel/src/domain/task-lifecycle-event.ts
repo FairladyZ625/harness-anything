@@ -341,6 +341,8 @@ export class TaskLifecycleContractError extends Error {
     this.issues = issues;
   }
 }
+/** Increment when a task-event shape change makes older replica implementations unable to replay it. */
+export const TASK_EVENT_SHAPE_COMPAT_VERSION = 2;
 export const TASK_EVENT_V1_SCHEMA = Object.freeze({
   id: "task-event/v1",
   required: Object.freeze([

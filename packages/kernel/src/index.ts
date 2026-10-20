@@ -52,6 +52,7 @@ export {
   normalizeTaskLifecycleCommand,
   requiredGateWitnessCount,
   reviewDigest,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
   validateTaskEvent,
   validateTaskLifecycleCommandEnvelope,
 } from "./domain/task-lifecycle.contract.ts";
