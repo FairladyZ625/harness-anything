@@ -193,6 +193,29 @@ test("a directory literal for another repository's package is allowed", () => {
   });
 });
 
+test("the harness layout contract is not a monorepo-private path", () => {
+  // harness/tasks/ and harness/decisions/ exist in every managed repository, so
+  // product code may locate its own task and decision documents there. Only
+  // paths that exist solely in this monorepo may be forbidden.
+  for (const value of forbiddenDirectories) assert.match(value, /^(?:packages|tools)\//u);
+
+  withGateRoot("ha-self-repo-paths-", (root) => {
+    writeFixtureAllowlist(root);
+    writeSource(
+      root,
+      "packages/daemon/src/task-review-dispatch.ts",
+      [
+        "export const decisionPath = (decisionId: string) => `harness/decisions/decision-${decisionId}`;",
+        'export const layoutRoots = ["harness/tasks/", "harness/decisions/"];',
+      ].join("\n"),
+    );
+
+    const result = runGate(root, path.join(root, "allowlist"));
+
+    assert.equal(result.status, 0, result.stderr);
+  });
+});
+
 test("an allowlisted usage passes and is reported as such", () => {
   withGateRoot("ha-self-repo-paths-", (root) => {
     writeFixtureAllowlist(root, {

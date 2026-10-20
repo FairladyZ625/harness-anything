@@ -47,16 +47,6 @@
         "value": "tools/gates/",
         "ref": "task_427b738002d4d6c9c42a4cf010",
         "reason": "Gate sources are repository tooling: #3815 hardcoded tools/gates/canonical-event-compat.mjs as a persisted-shape routing criterion."
-      },
-      {
-        "value": "harness/tasks/",
-        "ref": "task_427b738002d4d6c9c42a4cf010",
-        "reason": "Self-hosted task packages carry task ids unique to this checkout; product code must not route on their paths."
-      },
-      {
-        "value": "harness/decisions/",
-        "ref": "task_427b738002d4d6c9c42a4cf010",
-        "reason": "Self-hosted decision packages carry decision ids unique to this checkout; product code must resolve decisions through the ledger contract, not a hardcoded path."
       }
     ],
     "allowlistedUsages": [
@@ -65,12 +55,6 @@
         "prefixes": ["packages/preset/assets/"],
         "ref": "task_427b738002d4d6c9c42a4cf010",
         "reason": "ha doctor is a self-development diagnostic: these are existence-guarded roots into this checkout's own authored docs and template assets, and the prefix guard only suppresses stale-command findings inside those templates. They never route user-repository behavior."
-      },
-      {
-        "path": "packages/daemon/src/task-review-dispatch.ts",
-        "prefixes": ["harness/decisions/"],
-        "ref": "task_427b738002d4d6c9c42a4cf010",
-        "reason": "The review dispatch resolves the consumer repository's accepted decision document through the harness layout contract (harness/decisions/decision-<id>), a path every managed repository has; the id is injected at dispatch time, not read from this checkout."
       }
     ]
   }
