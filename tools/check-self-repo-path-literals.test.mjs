@@ -12,24 +12,14 @@ const checkerPath = path.join(repoRoot, "tools/check-self-repo-path-literals.mjs
 const policyPath = path.join(repoRoot, "tools/gate-allowlists/check-self-repo-path-literals.json");
 const taskRef = "task_427b738002d4d6c9c42a4cf010";
 
-// The positive control is PR #3815's rework-before registry, copied verbatim: it
-// routes a review lane by testing delivery paths against this checkout's
-// directories, so a consumer repository can never hit it.
-const issue3815Source = `const persistedShapeSurfacePrefixes = [
-  "packages/kernel/src/domain/",
-  "packages/kernel/src/schemas/",
-  "packages/kernel/src/store/",
-  "packages/kernel/src/projection/",
-  "packages/preset/src/",
-  "packages/preset/assets/",
-] as const;
-
-export function persistedShapeSurfaceHits(deliverables: readonly string[]) {
-  return deliverables.filter((target) =>
-    persistedShapeSurfacePrefixes.some((prefix) => target.startsWith(prefix)),
-  );
-}
-`;
+// The positive control is PR #3815's rework-before registry, copied verbatim from
+// the branch into the gate fixture tree: it routes a review lane by testing
+// delivery paths against this checkout's directories, so a consumer repository
+// can never hit it.
+const issue3815Source = readFileSync(
+  path.join(repoRoot, "tools/gates/test/fixtures/self-repo-path-literals-issue-3815.ts.txt"),
+  "utf8",
+);
 
 const policy = JSON.parse(readFileSync(policyPath, "utf8"));
 const forbiddenDirectories = policy.entries.forbiddenDirectories.map((entry) => entry.value);

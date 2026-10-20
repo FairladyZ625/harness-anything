@@ -1,0 +1,20 @@
+// Positive-control fixture: the persisted-shape registry from PR #3815's
+// rework-before diff (packages/daemon/src/schema-migration-review.ts at
+// origin/task_95e4e53e388b83bcb2bb7f68ed, commit fefc8e9bf). The review lane
+// routes on this checkout's directories, so a consumer repository can never
+// hit it. tools/check-self-repo-path-literals.test.mjs writes this file into a
+// temp checkout and requires every directory prefix to be reported.
+const persistedShapeSurfacePrefixes = [
+  "packages/kernel/src/domain/",
+  "packages/kernel/src/schemas/",
+  "packages/kernel/src/store/",
+  "packages/kernel/src/projection/",
+  "packages/preset/src/",
+  "packages/preset/assets/",
+] as const;
+
+export function persistedShapeSurfaceHits(deliverables: readonly string[]) {
+  return deliverables.filter((target) =>
+    persistedShapeSurfacePrefixes.some((prefix) => target.startsWith(prefix)),
+  );
+}
