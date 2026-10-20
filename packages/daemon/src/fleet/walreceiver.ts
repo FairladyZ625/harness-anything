@@ -7,9 +7,11 @@ import {
   makeTaskEventReader,
   makeTaskProjection,
   openReplicaStore,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
   type ReplicationCommit,
   type ReplicationPosition,
 } from "@harness-anything/kernel";
+import { daemonBuildStamp } from "../build-identity.ts";
 import { parseReplicationCommit, type ReplicationPeer } from "./protocol.ts";
 import type { BaseBackupMetadata } from "./basebackup.ts";
 import type { ReplicaGeneration } from "./replica-generation.ts";
@@ -97,9 +99,53 @@ export async function runWalReceiver(input: {
   readonly signal: AbortSignal;
 }): Promise<void> {
   const { peer, target, signal } = input;
-  await peer.send({ type: "replica.start", repoId: input.repoId, position: target.position() });
+  await peer.send({
+    type: "replica.start",
+    repoId: input.repoId,
+    position: target.position(),
+    edgeBuildCommit: daemonBuildStamp().commit,
+    taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+  });
+  const rejectUnauthorizedRead = async (): Promise<never> => {
+    await target.reset?.();
+    await target.revoke?.();
+    throw Object.assign(new Error("authorization_denied: The node owner may not read this repository."), {
+      code: "authorization_denied",
+    });
+  };
+  const handshake = await peer.receive(signal);
+  if (handshake.type === "replica.reject") throw Object.assign(new Error(handshake.message), { code: handshake.code });
+  if (handshake.type === "replica.resync" && handshake.reason === "authorization_denied")
+    await rejectUnauthorizedRead();
+  if (handshake.type !== "replica.accept") throw new Error("replication handshake acceptance required");
+  if (handshake.taskEventShapeVersion > TASK_EVENT_SHAPE_COMPAT_VERSION)
+    throw Object.assign(
+      new Error(`Center requires task event shape ${handshake.taskEventShapeVersion}; upgrade this edge.`),
+      { code: "edge_upgrade_required" },
+    );
+  const reportFailure = async (error: unknown): Promise<void> => {
+    const observed = error as { readonly code?: unknown; readonly message?: unknown } | null;
+    const code = typeof observed?.code === "string" ? observed.code : "replica_apply_failed",
+      message = (error instanceof Error ? error.message : String(error)).slice(0, 512);
+    await peer.send({ type: "replica.failure", code, message });
+    // The sender may still be writing the rest of its bounded page. Drain without applying until
+    // it reads this failure and closes the session, so the report is not lost behind that page.
+    for (;;) {
+      try {
+        await peer.receive(signal);
+      } catch (drainError) {
+        if (signal.aborted) throw drainError;
+        throw error;
+      }
+    }
+  };
   const ack = async (position: ReplicationPosition) => {
-    await target.project(position);
+    try {
+      await target.project(position);
+    } catch (error) {
+      await reportFailure(error);
+      throw error;
+    }
     await peer.send({ type: "replica.ack", durable: position, applied: position });
   };
   const expect = async (type: "replica.backup.end" | "replica.commit.end" | "replica.object.end") => {
@@ -109,15 +155,10 @@ export async function runWalReceiver(input: {
     signal.throwIfAborted();
     const frame = await peer.receive(signal);
     if (frame.type === "replica.resync") {
-      await target.reset?.();
       // A denied replica is withdrawn and the stream fails: the owner and doctor see the denial, and
       // the reconnect loop re-admits the replica once the grant returns.
-      if (frame.reason === "authorization_denied") {
-        await input.target.revoke?.();
-        throw Object.assign(new Error("authorization_denied: The node owner may not read this repository."), {
-          code: "authorization_denied",
-        });
-      }
+      if (frame.reason === "authorization_denied") await rejectUnauthorizedRead();
+      await target.reset?.();
       continue;
     }
     if (frame.type === "replica.backup") {
@@ -181,8 +222,18 @@ export async function runWalReceiver(input: {
           await rm(file, { force: true });
         }
       }
-      target.apply(commit);
-      await target.project(commit.position);
+      try {
+        target.apply(commit);
+      } catch (error) {
+        await reportFailure(error);
+        throw error;
+      }
+      try {
+        await target.project(commit.position);
+      } catch (error) {
+        await reportFailure(error);
+        throw error;
+      }
       target.changedPaths?.([...changedPaths]);
       target.updatePosition?.(commit.position);
     } else if (frame.type === "replica.progress") {

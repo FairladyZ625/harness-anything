@@ -7,9 +7,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
+import { daemonBuildStamp } from "../src/build-identity.ts";
 import {
   fakeReplicationCenter,
   fleetReplicationFixture,
+  replicationRepoId,
   replicationPeer,
   seedCenterData,
   type FleetReplicationFixture,
@@ -87,6 +90,28 @@ test(
       "the committed outcome row reached the mirror",
     );
     assert.equal(centerOutcomeCount(fixture), outcomesAtInstall + 1, "center and mirror agree on outcome rows");
+  },
+);
+
+test(
+  "the center rejects a replica without the current task-event shape before sending data",
+  { timeout: 60_000 },
+  async (t) => {
+    const fixture = await fleetReplicationFixture(t);
+    const center = await fixture.openCenter();
+    const edge = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-one", "secret-edge-one");
+    const response = await edge.raw({ type: "replica.start", repoId: replicationRepoId, position: null });
+    assert.equal(response.type, "replica.reject");
+    if (response.type !== "replica.reject") return;
+    assert.equal(response.code, "edge_upgrade_required");
+    const expectedBuild = daemonBuildStamp().commit?.slice(0, 7) ?? "unknown";
+    assert.equal(response.centerBuildCommit, daemonBuildStamp().commit);
+    assert.ok(response.message.includes(expectedBuild));
+    assert.equal(response.taskEventShapeVersion, 2);
+    const status = center.status().replicas.find((replica) => replica.nodeId === "edge-one");
+    assert.equal(status?.connected, false);
+    assert.equal(status?.syncFailure?.code, "edge_upgrade_required");
+    assert.ok(status?.syncFailure?.message.includes(expectedBuild));
   },
 );
 
@@ -240,7 +265,15 @@ test("a second receiver for one node takes over and the older session is cut", {
   const center = await fixture.openCenter();
   const stale = await replicationPeer(fixture.track, center.port, fixture.cert, "edge-three", "secret-edge-three");
   // The stale session owns this node's replication for the repository once its start is served.
-  const first = await stale.request({ type: "replica.start", repoId: "replica-repo", position: null });
+  const accepted = await stale.request({
+    type: "replica.start",
+    repoId: "replica-repo",
+    position: null,
+    edgeBuildCommit: null,
+    taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+  });
+  assert.equal(accepted.type, "replica.accept");
+  const first = await stale.receive();
   assert.equal(first.type, "replica.backup");
   const edge = fixture.startEdge("edge-three");
   await edge.waitForEvent("installed");

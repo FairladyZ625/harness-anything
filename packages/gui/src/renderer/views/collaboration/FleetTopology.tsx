@@ -17,13 +17,14 @@ import { computeFleetLayout, curvePath, spinePath, type FleetNodePlacement } fro
  */
 
 /** 连线视觉状态:daemon links 可能一节点多行,取最差一行做节点级通道;无行 = absent。 */
-type LinkVisualState = "fresh" | "lag" | "unsynced" | "absent";
+type LinkVisualState = "fresh" | "lag" | "unsynced" | "disconnected" | "absent";
 
 const LINK_STATE_RANK: Readonly<Record<LinkVisualState, number>> = {
   fresh: 0,
   lag: 1,
   unsynced: 2,
-  absent: 3,
+  disconnected: 3,
+  absent: 4,
 };
 
 function linkStateOf(links: readonly FleetOverviewLink[]): LinkVisualState {
@@ -32,6 +33,10 @@ function linkStateOf(links: readonly FleetOverviewLink[]): LinkVisualState {
     (worst, link) => (LINK_STATE_RANK[link.state] > LINK_STATE_RANK[worst] ? link.state : worst),
     "fresh",
   );
+}
+
+function nodeLinkState(node: FleetOverviewNode, links: readonly FleetOverviewLink[]): LinkVisualState {
+  return node.replica?.connected === false ? "disconnected" : linkStateOf(links);
 }
 
 export function FleetTopology({
@@ -138,7 +143,7 @@ export function FleetTopology({
             const placement = layout.placement.get(node.nodeId);
             if (placement === undefined || centerPlacement === undefined) return null;
             const nodeLinks = linksByNode.get(node.nodeId) ?? [];
-            const state = linkStateOf(nodeLinks);
+            const state = nodeLinkState(node, nodeLinks);
             const path = layout.narrow
               ? spinePath(layout.spineX, centerPlacement, placement)
               : curvePath(centerPlacement, placement);
@@ -160,7 +165,7 @@ export function FleetTopology({
             key={node.nodeId}
             node={node}
             placement={layout.placement.get(node.nodeId)}
-            linkState={node.role === "center" ? null : linkStateOf(linksByNode.get(node.nodeId) ?? [])}
+            linkState={node.role === "center" ? null : nodeLinkState(node, linksByNode.get(node.nodeId) ?? [])}
             lagSeconds={Math.round((node.replica?.lagMs ?? linksByNode.get(node.nodeId)?.[0]?.lagMs ?? 0) / 1000)}
             center={center}
             centerRevision={centerRevision}
@@ -287,6 +292,14 @@ function TopologyNodeCard({
             title={center.commitSha ?? undefined}
           >
             {t("collaboration.centerHead")} {center.commitSha === null ? "unknown" : center.commitSha.slice(0, 8)}
+          </span>
+        ) : linkState === "disconnected" && node.replica?.syncFailure ? (
+          <span
+            className="max-w-[48%] shrink-0 truncate font-mono"
+            data-testid={`collaboration-node-sync-failure-${node.nodeId}`}
+            title={node.replica.syncFailure.message}
+          >
+            {node.replica.syncFailure.message}
           </span>
         ) : linkState === "lag" && lagSeconds > 0 ? (
           <span className="shrink-0 font-mono fleet-metric-lag">{lagSeconds}s</span>

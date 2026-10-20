@@ -84,6 +84,7 @@ export interface FleetReplicaStatus extends ReplicationSlotKey {
   readonly connected: boolean;
   readonly delivery: "current" | "delta" | "snapshot_required";
   readonly diskQuotaBytes: number | null;
+  readonly syncFailure: { readonly code: string; readonly message: string } | null;
 }
 
 export interface ReplicaDeliveryKey extends ReplicationSlotKey {

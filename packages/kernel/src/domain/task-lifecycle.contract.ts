@@ -1,6 +1,7 @@
 // Public compatibility façade for the task lifecycle contract.
 export {
   TaskLifecycleContractError,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
   TASK_EVENT_V1_SCHEMA,
   serializeTaskEvent,
   taskEventTypes,

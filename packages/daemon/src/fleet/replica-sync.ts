@@ -2,6 +2,14 @@ import { consumeKnownError } from "@harness-anything/kernel";
 import { runFleetReplicaStream, type FleetReplicaStreamOptions } from "./peer.ts";
 import { readReplicaGeneration } from "./replica-generation.ts";
 import { recordReplicaHealth, replicaFailure } from "./replica-health.ts";
+const DETERMINISTIC_RETRY_DELAY_MS = 5 * 60_000;
+const isDeterministicReplicaFailure = (error: unknown): boolean => {
+  const observed = error as { readonly code?: unknown; readonly name?: unknown } | null;
+  return (
+    observed?.code === "edge_upgrade_required" ||
+    (error instanceof Error && observed?.name === "TaskLifecycleContractError")
+  );
+};
 export interface ReplicaSyncOptions extends Omit<FleetReplicaStreamOptions, "onApplied"> {
   readonly signal?: AbortSignal;
   /**
@@ -210,9 +218,12 @@ export async function runFleetReplicaSync(options: ReplicaSyncOptions): Promise<
         options.onFailure?.(attempt.error);
       }
       const ceiling = Math.min(30_000, 250 * 2 ** Math.min(failures++, 7));
-      const delay = Math.floor(Math.random() * (ceiling + 1));
+      const retryDelay =
+        attempt.failed && isDeterministicReplicaFailure(attempt.error)
+          ? DETERMINISTIC_RETRY_DELAY_MS
+          : Math.floor(Math.random() * (ceiling + 1));
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, delay),
+        const timer = setTimeout(resolve, retryDelay),
           onAbort = () => {
             clearTimeout(timer);
             options.signal?.removeEventListener("abort", onAbort);

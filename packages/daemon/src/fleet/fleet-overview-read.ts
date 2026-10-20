@@ -135,6 +135,7 @@ export interface FleetNodeRow {
         | "lagMs"
         | "connected"
         | "delivery"
+        | "syncFailure"
       > & { readonly repoId: string })
     | null;
   /** replica 为 null 时必给原因;非 null 时为 null。 */
@@ -373,6 +374,7 @@ function projectReplica(replica: FleetReplicaStatus): NonNullable<FleetNodeRow["
     lagMs: replica.lagMs,
     connected: replica.connected,
     delivery: replica.delivery,
+    syncFailure: replica.syncFailure,
   };
 }
 
@@ -482,6 +484,16 @@ function validateNodeRow(node: unknown, at: string): readonly string[] {
         if (typeof entry[field] !== "string") errors.push(`${at}.replica.${field} must be a string`);
       for (const field of ["centerRevision", "lagRevisions"] as const)
         if (typeof entry[field] !== "number") errors.push(`${at}.replica.${field} must be a number`);
+      const failure = entry.syncFailure;
+      if (
+        failure !== null &&
+        (failure === undefined ||
+          typeof failure !== "object" ||
+          Array.isArray(failure) ||
+          typeof (failure as Record<string, unknown>).code !== "string" ||
+          typeof (failure as Record<string, unknown>).message !== "string")
+      )
+        errors.push(`${at}.replica.syncFailure must be a failure object or null`);
     }
   }
   return errors;

@@ -12,6 +12,7 @@ import {
   makeTaskProjectionReader,
   openSqliteEventStore,
   openReplicaStore,
+  TASK_EVENT_SHAPE_COMPAT_VERSION,
 } from "@harness-anything/kernel";
 import { eventAt, initRepo } from "../../kernel/test/store/task-event-store.fixtures.ts";
 import { backup, DatabaseSync } from "node:sqlite";
@@ -288,6 +289,11 @@ test("sender streams eventless commits to the real replica and records an applie
     });
     const key = { repoId: "stream", nodeId: "replica" };
     let projected = 0;
+    await primaryPeer.send({
+      type: "replica.accept",
+      centerBuildCommit: null,
+      taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+    });
     const sender = runWalSender({
       peer: primaryPeer,
       slots,
@@ -345,4 +351,100 @@ test("sender streams eventless commits to the real replica and records an applie
     replica.close();
     center.close();
   }
+});
+
+test("receiver reports an apply failure to the sender before closing the stream", async (t) => {
+  const root = mkdtempSync(path.join(tmpdir(), "ha-stream-failure-core-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const slots = openReplicationSlots(path.join(root, "slots.sqlite")),
+    abort = new AbortController(),
+    position = { history: "failure-history", sequence: 0, revision: 0 },
+    nextPosition = { ...position, sequence: 1 },
+    commit = { position: nextPosition, events: [], outcome: null, writer: null },
+    observed: { readonly code: string; readonly message: string }[] = [];
+  t.after(() => slots.close());
+  const channel = () => {
+      const queue: ReplicationFrame[] = [],
+        waiters: {
+          readonly resolve: (frame: ReplicationFrame) => void;
+          readonly reject: (error: unknown) => void;
+          readonly signal?: AbortSignal;
+          onAbort?: () => void;
+        }[] = [];
+      return {
+        send: async (frame: ReplicationFrame) => {
+          const waiter = waiters.shift();
+          if (waiter) {
+            if (waiter.onAbort) waiter.signal?.removeEventListener("abort", waiter.onAbort);
+            waiter.resolve(frame);
+          } else queue.push(frame);
+        },
+        receive: (signal?: AbortSignal): Promise<ReplicationFrame> => {
+          if (queue.length) return Promise.resolve(queue.shift()!);
+          if (signal?.aborted) return Promise.reject(signal.reason);
+          return new Promise<ReplicationFrame>((resolve, reject) => {
+            const waiter: (typeof waiters)[number] = { resolve, reject, signal };
+            waiter.onAbort = () => {
+              const index = waiters.indexOf(waiter);
+              if (index >= 0) waiters.splice(index, 1);
+              reject(signal!.reason);
+            };
+            signal?.addEventListener("abort", waiter.onAbort, { once: true });
+            waiters.push(waiter);
+          });
+        },
+      };
+    },
+    edgeToCenter = channel(),
+    centerToEdge = channel(),
+    centerPeer: ReplicationPeer = { send: centerToEdge.send, receive: edgeToCenter.receive },
+    edgePeer: ReplicationPeer = { send: edgeToCenter.send, receive: centerToEdge.receive };
+  await centerPeer.send({
+    type: "replica.accept",
+    centerBuildCommit: null,
+    taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+  });
+  const sender = runWalSender({
+    peer: centerPeer,
+    slots,
+    lease: slots.claim({ repoId: "stream", nodeId: "edge" }, position.history),
+    signal: abort.signal,
+    onFailure: (reason) => {
+      observed.push(reason);
+      abort.abort(new Error("center closed the failed session"));
+    },
+    source: {
+      read: () => ({ commits: [commit], done: true, head: nextPosition }),
+      wait: async () => undefined,
+      acknowledged: async () => undefined,
+      backup: async () => assert.fail("unexpected base backup"),
+      object: () => assert.fail("unexpected content object"),
+    },
+  });
+  const receiver = runWalReceiver({
+    peer: edgePeer,
+    repoId: "stream",
+    directory: root,
+    quotaBytes: 1024 * 1024,
+    maxBufferedBytes: 1024 * 1024,
+    signal: abort.signal,
+    target: {
+      position: () => position,
+      apply: () => {
+        const error = new Error("completion contract is invalid") as Error & { code: string };
+        error.name = "TaskLifecycleContractError";
+        error.code = "invalid_schema";
+        throw error;
+      },
+      installObject: async () => assert.fail("unexpected content object"),
+      install: async () => assert.fail("unexpected base backup"),
+      project: async () => undefined,
+    },
+  });
+  const results = await Promise.allSettled([sender, receiver]);
+  assert.deepEqual(
+    results.map((result) => result.status),
+    ["rejected", "rejected"],
+  );
+  assert.deepEqual(observed, [{ code: "invalid_schema", message: "completion contract is invalid" }]);
 });

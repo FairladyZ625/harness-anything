@@ -19,7 +19,7 @@ import { randomUUID, createHash } from "node:crypto";
 import type { TestContext } from "node:test";
 import { connect, createServer, type TLSSocket } from "node:tls";
 import { DatabaseSync } from "node:sqlite";
-import { makeTaskProjectionReader, sqliteLedgerPath } from "@harness-anything/kernel";
+import { makeTaskProjectionReader, sqliteLedgerPath, TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import { openDaemonHost } from "../src/daemon-host.ts";
 import { OidcSessionService } from "../src/oidc-session-service.ts";
 import { listenFleetTls, type FleetTlsCenter } from "../src/fleet/center.ts";
@@ -509,10 +509,31 @@ export async function fakeReplicationCenter(
         }
         const frame = parseReplicationFrame(line);
         received.push(frame);
-        const send = (out: ReplicationFrame) => socket.write(serializeReplicationFrame(out));
-        void Promise.resolve(handle(frame, send)).catch((error) => {
-          socket.destroy(error instanceof Error ? error : new Error(String(error)));
-        });
+        const pending: ReplicationFrame[] = [],
+          bufferStartResponse = frame.type === "replica.start",
+          write = (out: ReplicationFrame) => socket.write(serializeReplicationFrame(out)),
+          send = (out: ReplicationFrame) => {
+            if (bufferStartResponse) pending.push(out);
+            else write(out);
+          };
+        void Promise.resolve(handle(frame, send))
+          .then(() => {
+            if (frame.type === "replica.failure") {
+              socket.end();
+              return;
+            }
+            if (!bufferStartResponse) return;
+            if (pending[0]?.type !== "replica.reject")
+              write({
+                type: "replica.accept",
+                centerBuildCommit: null,
+                taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+              });
+            for (const out of pending) write(out);
+          })
+          .catch((error) => {
+            socket.destroy(error instanceof Error ? error : new Error(String(error)));
+          });
       }
     });
   });

@@ -1188,6 +1188,10 @@ html[data-theme="light"] ::selection {
   --fleet-state: var(--color-danger);
   opacity: 0.9;
 }
+.fleet-node--disconnected {
+  --fleet-state: var(--color-danger);
+  opacity: 0.9;
+}
 .fleet-node--absent {
   --fleet-state: var(--color-text-muted);
 }
@@ -1290,6 +1294,9 @@ html[data-theme="light"] ::selection {
 .fleet-link[data-state="unsynced"] {
   --link: var(--color-danger);
 }
+.fleet-link[data-state="disconnected"] {
+  --link: var(--color-danger);
+}
 .fleet-link[data-state="absent"] {
   --link: var(--color-text-muted);
 }
@@ -1300,7 +1307,8 @@ html[data-theme="light"] ::selection {
   stroke: color-mix(in oklab, var(--link) 78%, transparent);
   stroke-width: 2;
 }
-.fleet-link[data-state="unsynced"] .fleet-link-base {
+.fleet-link[data-state="unsynced"] .fleet-link-base,
+.fleet-link[data-state="disconnected"] .fleet-link-base {
   stroke-dasharray: 7 6;
   opacity: 0.7;
 }

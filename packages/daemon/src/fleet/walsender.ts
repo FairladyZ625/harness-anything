@@ -46,6 +46,8 @@ export async function runWalSender(input: {
   readonly slots: ReplicationSlots;
   readonly lease: ReplicationSlotLease;
   readonly signal: AbortSignal;
+  readonly onFailure?: (failure: { readonly code: string; readonly message: string }) => void;
+  readonly onAcknowledged?: () => void;
 }): Promise<void> {
   const { peer, source, slots, lease, signal } = input;
   const assertOwner = () => {
@@ -54,6 +56,12 @@ export async function runWalSender(input: {
   };
   const acknowledge = async (sent: ReplicationPosition) => {
     const frame = await peer.receive(signal);
+    if (frame.type === "replica.failure") {
+      input.onFailure?.({ code: frame.code, message: frame.message });
+      const failure = new Error(frame.message) as Error & { code: string };
+      failure.code = frame.code;
+      throw failure;
+    }
     if (
       frame.type !== "replica.ack" ||
       frame.durable.sequence !== sent.sequence ||
@@ -64,6 +72,7 @@ export async function runWalSender(input: {
       throw new Error("replication ACK does not match completed page");
     slots.acknowledge(lease, frame, sent);
     await source.acknowledged();
+    input.onAcknowledged?.();
   };
   const start = await peer.receive(signal);
   if (start.type !== "replica.start") throw new Error("replication start required");

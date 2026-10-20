@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
 import { DatabaseSync } from "node:sqlite";
+import { TASK_EVENT_SHAPE_COMPAT_VERSION } from "@harness-anything/kernel";
 import {
   runFleetReplicaSync,
   waitForFleetReplicaSequence,
@@ -245,6 +246,11 @@ async function receiveOneObjectCommit(object: Buffer, announcedSha256: string) {
       return frames;
     },
     frames: ReplicationFrame[] = [
+      {
+        type: "replica.accept",
+        centerBuildCommit: null,
+        taskEventShapeVersion: TASK_EVENT_SHAPE_COMPAT_VERSION,
+      },
       { type: "replica.commit", size: commit.length },
       ...data(commit),
       { type: "replica.object", sha256: announcedSha256, size: object.length },
