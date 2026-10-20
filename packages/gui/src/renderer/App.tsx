@@ -31,6 +31,7 @@ import { useFleetOverview } from "./collaboration-data.ts";
 import { collaborationSummaryOf } from "./model/collaboration.ts";
 import { TaskPreviewDrawer } from "./components/TaskPreviewDrawer.tsx";
 import { TaskReturnDialog } from "./components/taskDetail/TaskReturnDialog.tsx";
+import { useTaskReturnWorkflow } from "./components/taskDetail/task-return-workflow.ts";
 import { AppSidebar } from "./components/AppSidebar.tsx";
 import type { LedgerStatusBarInput } from "./components/sidebar/SystemStatusPanel.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -47,7 +48,6 @@ import {
   useActiveTasksQuery,
   useTasksQuery,
   useTaskWipQuery,
-  useTaskDeliveryDiffQuery,
   useWorkIndexQuery,
 } from "./task-data.ts";
 import { harnessClient } from "./api-client.ts";
@@ -172,20 +172,8 @@ function AppShell() {
   const lastLedgerCut = useRef<string | null>(null);
   const catalogQuery = useCatalogSnapshot(activeRepoId);
   const taskActions = useTaskActions(projectId);
-  const [returnTask, setReturnTask] = useState<{
-    task: TaskRow;
-    reviewId?: string;
-    repoId: string;
-    initialFeedback?: string;
-  } | null>(null);
-  const returnDiff = useTaskDeliveryDiffQuery(projectId, returnTask?.task.taskId ?? null);
-  const adjudicateTask = async (task: TaskRow, decision: "forward" | "return", reason: string, reviewId?: string) => {
-    if (decision === "return") setReturnTask({ task, reviewId, repoId: projectId });
-    else await taskActions.adjudicateTask(task, decision, reason, reviewId);
-  };
-  const openTaskReturnWithNote = async (task: TaskRow, reason: string, reviewId?: string) => {
-    setReturnTask({ task, reviewId, repoId: projectId, initialFeedback: reason });
-  };
+  const taskReturn = useTaskReturnWorkflow(projectId, taskActions.adjudicateTask);
+  const { adjudicateTask, openTaskReturnWithNote } = taskReturn;
   const decisionActions = useDecisionActions(projectId);
   // 应用位置由视图导航历史栈持有(REQ-GUI-01):view/selectedId/previewId/
   // focusedEntityRef/taskFilters/drill 全部从 location 派生,变更走 navigate()
@@ -1057,18 +1045,7 @@ function AppShell() {
             openTaskDetail(taskId);
           }}
         />
-        <TaskReturnDialog
-          open={returnTask?.repoId === projectId}
-          diffFiles={returnDiff.data?.files}
-          initialFeedback={returnTask?.initialFeedback}
-          onClose={() => setReturnTask(null)}
-          onReturn={(mode, feedback) => {
-            if (returnTask !== null) {
-              void taskActions.adjudicateTask(returnTask.task, "return", feedback, returnTask.reviewId, mode);
-              setReturnTask(null);
-            }
-          }}
-        />
+        <TaskReturnDialog {...taskReturn.dialogProps} />
         <CommandPalette
           open={paletteOpen}
           entries={paletteEntries}
