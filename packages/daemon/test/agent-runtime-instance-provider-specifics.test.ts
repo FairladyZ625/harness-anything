@@ -1,6 +1,6 @@
 // harness-test-tier: contract
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -77,6 +77,205 @@ test("ZCode API-key instances materialize one pinned model in their isolated HOM
           credentialRef: "credential:v1:zcode-multi",
         }),
       (error: unknown) => codedAs(error, "invalid_command"),
+    );
+  } finally {
+    rmSync(userRoot, { recursive: true, force: true });
+  }
+});
+
+test("DeepSeek Harness API-key instances write secret-free profile patches and inject the key only at launch", async () => {
+  const userRoot = mkdtempSync(path.join(tmpdir(), "ha-runtime-deepseek-api-")),
+    operatorDshHome = path.join(userRoot, "operator-home", ".dsh"),
+    deepseek = {
+      ...observed,
+      installationId: "deepseek-api-installation",
+      kindId: "deepseek-harness" as const,
+      executablePath: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
+    },
+    secret = "deepseek-runtime-test-secret";
+  try {
+    const store = openRuntimeInstanceStore({
+      userRoot,
+      env: {
+        PATH: "/runtime/tools",
+        HOME: "/operator/home",
+        DSH_HOME: operatorDshHome,
+        DEEPSEEK_API_KEY: "host-deepseek-key",
+      },
+      discover: () => [deepseek],
+      subscriptionReady: () => ({ status: "ready", code: null, hint: null }),
+      resolveCredential: async (reference) => {
+        assert.equal(reference, "credential:v1:deepseek-api");
+        return secret;
+      },
+    });
+    const created = store.command({
+      kind: "runtime-instance-create",
+      instanceId: "deepseek-api",
+      name: "DeepSeek API",
+      kindId: "deepseek-harness",
+      installationId: deepseek.installationId,
+      providerId: "deepseek",
+      models: ["deepseek-v4-flash"],
+      "deepseek-harness": { baseUrl: "https://api.deepseek.example/v1", wireApi: "anthropic-messages" },
+      authMode: "api-key",
+      credentialRef: "credential:v1:deepseek-api",
+    });
+    const receipt = JSON.stringify(created),
+      stateRoot = path.join(userRoot, "runtime-instances", "deepseek-api"),
+      configPath = path.join(stateRoot, "home", ".dsh", "profiles", "acp", "cordis.patch.yml");
+    assert.doesNotMatch(receipt, new RegExp(secret, "u"));
+    assert.doesNotMatch(readFileSync(path.join(userRoot, "runtime-instances.json"), "utf8"), new RegExp(secret, "u"));
+    assert.equal((created.instance as { isolationState: string }).isolationState, "enforced");
+
+    const launch = await store.prepareLaunch("deepseek-api", { cwd: "/workspace/repo", prompt: "Inspect" }),
+      patch = JSON.parse(readFileSync(configPath, "utf8")) as Array<{
+        id: string;
+        config: Record<string, unknown>;
+      }>;
+    assert.equal(launch.env.DSH_HOME, path.join(stateRoot, "home", ".dsh"));
+    assert.equal(launch.env.HARNESS_DEEPSEEK_API_KEY, secret);
+    assert.equal(launch.env.DEEPSEEK_API_KEY, undefined);
+    assert.equal(launch.acpApiKey, undefined);
+    assert.deepEqual(launch.args, ["--profile", "acp"]);
+    assert.deepEqual(patch, [
+      { id: "agent-default-model", config: { provider: "deepseek", model: "deepseek-v4-flash" } },
+      { id: "acp", config: { provider: "deepseek", model: "deepseek-v4-flash" } },
+      {
+        id: "llm-pi-ai",
+        config: {
+          providers: {
+            deepseek: {
+              api: "anthropic-messages",
+              apiKeyEnv: "HARNESS_DEEPSEEK_API_KEY",
+              baseURL: "https://api.deepseek.example/v1",
+              displayName: "deepseek",
+              models: [{ id: "deepseek-v4-flash" }],
+            },
+          },
+        },
+      },
+    ]);
+    assert.doesNotMatch(readFileSync(configPath, "utf8"), new RegExp(secret, "u"));
+    if (process.platform !== "win32") assert.equal(statSync(configPath).mode & 0o777, 0o600);
+    assert.equal(existsSync(path.join(operatorDshHome, "profiles", "acp", "cordis.patch.yml")), false);
+
+    const official = store.command({
+      kind: "runtime-instance-create",
+      instanceId: "deepseek-official-api",
+      name: "DeepSeek Official API",
+      kindId: "deepseek-harness",
+      installationId: deepseek.installationId,
+      providerId: "deepseek",
+      models: ["deepseek-v4-flash"],
+      "deepseek-harness": { baseUrl: "https://api.deepseek.example/v1" },
+      authMode: "api-key",
+      credentialRef: "credential:v1:deepseek-api",
+    });
+    assert.equal((official.instance as { authState: string }).authState, "configured");
+    const officialLaunch = await store.prepareLaunch("deepseek-official-api", {
+        cwd: "/workspace/repo",
+        prompt: "Inspect",
+      }),
+      officialPatchPath = path.join(
+        userRoot,
+        "runtime-instances",
+        "deepseek-official-api",
+        "home",
+        ".dsh",
+        "profiles",
+        "acp",
+        "cordis.patch.yml",
+      ),
+      officialPatch = JSON.parse(readFileSync(officialPatchPath, "utf8")) as Array<{
+        id: string;
+        config: Record<string, unknown>;
+      }>;
+    assert.deepEqual(officialPatch[2], {
+      id: "llm-deepseek",
+      config: {
+        apiKeyEnv: "HARNESS_DEEPSEEK_API_KEY",
+        baseURL: "https://api.deepseek.example/v1",
+        models: [{ id: "deepseek-v4-flash" }],
+      },
+    });
+    assert.deepEqual(officialPatch.slice(0, 2), [
+      {
+        id: "agent-default-model",
+        config: { provider: "deepseek-official", model: "deepseek-v4-flash" },
+      },
+      { id: "acp", config: { provider: "deepseek-official", model: "deepseek-v4-flash" } },
+    ]);
+    assert.equal(officialLaunch.env.HARNESS_DEEPSEEK_API_KEY, secret);
+    assert.doesNotMatch(JSON.stringify(officialPatch), new RegExp(secret, "u"));
+
+    const subscription = store.command({
+      kind: "runtime-instance-create",
+      instanceId: "deepseek-subscription",
+      name: "DeepSeek Subscription",
+      kindId: "deepseek-harness",
+      installationId: deepseek.installationId,
+      providerId: "deepseek",
+      models: ["deepseek-v4-flash"],
+      authMode: "subscription",
+    });
+    assert.equal((subscription.instance as { isolationState: string }).isolationState, "operator-environment");
+    const subscriptionLaunch = await store.prepareLaunch("deepseek-subscription", {
+      cwd: "/workspace/repo",
+      prompt: "Inspect",
+    });
+    assert.equal(subscriptionLaunch.env.DSH_HOME, operatorDshHome);
+    assert.equal(subscriptionLaunch.env.DEEPSEEK_API_KEY, "host-deepseek-key");
+    assert.equal(subscriptionLaunch.env.HARNESS_DEEPSEEK_API_KEY, undefined);
+    assert.equal(subscriptionLaunch.acpApiKey, undefined);
+    assert.equal(existsSync(path.join(userRoot, "runtime-instances", "deepseek-subscription", "home", ".dsh")), false);
+
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-create",
+          instanceId: "deepseek-bad-wire",
+          name: "DeepSeek Bad Wire",
+          kindId: "deepseek-harness",
+          installationId: deepseek.installationId,
+          providerId: "deepseek",
+          models: ["deepseek-v4-flash"],
+          "deepseek-harness": { wireApi: "responses" },
+          authMode: "api-key",
+          credentialRef: "credential:v1:deepseek-api",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_kind_config"),
+    );
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-create",
+          instanceId: "deepseek-subscription-endpoint",
+          name: "DeepSeek Subscription Endpoint",
+          kindId: "deepseek-harness",
+          installationId: deepseek.installationId,
+          providerId: "deepseek",
+          models: ["deepseek-v4-flash"],
+          "deepseek-harness": { baseUrl: "https://api.deepseek.example/v1" },
+          authMode: "subscription",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_kind_config"),
+    );
+    assert.throws(
+      () =>
+        store.command({
+          kind: "runtime-instance-create",
+          instanceId: "deepseek-api-operator",
+          name: "DeepSeek API Operator",
+          kindId: "deepseek-harness",
+          installationId: deepseek.installationId,
+          providerId: "deepseek",
+          models: ["deepseek-v4-flash"],
+          authMode: "api-key",
+          credentialRef: "credential:v1:deepseek-api",
+          isolationState: "operator-environment",
+        }),
+      (error: unknown) => codedAs(error, "invalid_runtime_isolation"),
     );
   } finally {
     rmSync(userRoot, { recursive: true, force: true });

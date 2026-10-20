@@ -41,6 +41,17 @@ export function parseRuntimeInstanceCreate(
     return rejected("invalid_field", `${kindId} runtime instances do not support ${String(authMode)} auth.`, json);
   if (declaration && !declaration.fast && flags.booleans.has("--fast"))
     return rejected("invalid_runtime_fast", `Fast mode is not supported by ${kindId} runtime instances.`, json);
+  const wireApi = flags.one.get("--wire-api");
+  if (declaration && "wireApiValues" in declaration && declaration.wireApiValues && authMode !== "api-key" && wireApi)
+    return rejected("invalid_field", "--wire-api is available only for API-key runtime instances.", json);
+  if (
+    declaration &&
+    "wireApiValues" in declaration &&
+    declaration.wireApiValues &&
+    wireApi &&
+    !declaration.wireApiValues.some((value) => value === wireApi)
+  )
+    return rejected("invalid_field", `--wire-api must be one of ${declaration.wireApiValues.join(", ")}.`, json);
   if (!header.ok) return rejected("invalid_field", header.hint, json);
   if (declaration && hasForeignAdapterOptions(declaration.fields, flags, header.value))
     return rejected("invalid_field", "This runtime kind does not accept options for another adapter.", json);

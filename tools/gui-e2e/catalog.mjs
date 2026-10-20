@@ -1,6 +1,7 @@
 import myDevices from "./scenarios/my-devices.mjs";
 import runtimeHandoff from "./scenarios/runtime-handoff.mjs";
 import agentRuntimeEffort from "./scenarios/agent-runtime-effort.mjs";
+import deepseekHarnessApiKey from "./scenarios/deepseek-harness-api-key.mjs";
 import agentSquadLifecycle from "./scenarios/agent-squad-lifecycle.mjs";
 import providerProjectAccess from "./scenarios/provider-project-access.mjs";
 import decisionsProvider from "./scenarios/decisions-provider.mjs";
@@ -64,6 +65,7 @@ export const catalog = [
   edgeReadFreshness,
   runtimeHandoff,
   agentRuntimeEffort,
+  deepseekHarnessApiKey,
   agentSquadLifecycle,
   providerProjectAccess,
   decisionsProvider,

@@ -243,6 +243,7 @@ export const runtimeKinds = [
     auth: {
       shape: "separate",
       modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
       subscriptionProbe: ["login", "status"],
       subscriptionProbeTimeoutMs: 5_000,
       // API-key instances write model_providers.<id>.base_url into the generated
@@ -425,6 +426,7 @@ export const runtimeKinds = [
     auth: {
       shape: "separate",
       modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
       subscriptionProbe: ["doctor"],
       subscriptionProbeTimeoutMs: 5_000,
       // API-key instances write provider options.baseURL into the generated
@@ -897,34 +899,39 @@ export const runtimeKinds = [
       // The desktop App's bundled CLI (0.2.1-rc.2); `dsh --profile acp` serves ACP over stdio.
       // The App does not place `dsh` on PATH, so the catalog names the bundle path: discovery
       // resolves it against every PATH entry (path.resolve keeps an absolute command) and the
-      // kindId+path key collapses the hits into one installation. The CLI shares the App's
-      // $DSH_HOME, so an operator-environment launch borrows the App's managed login without
-      // the harness touching any credential file.
+      // kindId+path key collapses the hits into one installation. Subscription instances reuse
+      // the App's $DSH_HOME; API-key instances get a private DSH_HOME and provider patch.
       command: "/Applications/DeepSeek Harness.app/Contents/Resources/runtime/cli/bin/dsh",
       configDirectory: ".dsh",
       configHomeEnvironment: "DSH_HOME",
       authFile: null,
-      // Models arrive on session/new as a grouped configOptions selector keyed by account
-      // route; the CLI exposes no model-listing subcommand.
+      // The CLI exposes no model-listing subcommand. Subscription selectors are advertised
+      // by account route; API-key models come from the instance's profile patch.
       modelProbe: null,
       modelProbeFormat: "json-models",
     },
     // No `resume`: initialize advertises sessionCapabilities.resume but no loadSession, and
     // the shared client speaks session/load only.
     declaredCapabilities: ["structured_witness", "attach", "session_identity"] as const,
-    configuration: { fields: {}, publicFields: {}, publicDefaults: {} },
+    configuration: {
+      fields: { baseUrl: "url", wireApi: "identifier" },
+      choices: { wireApi: ["openai-completions", "openai-responses", "anthropic-messages"] },
+      publicFields: { baseUrl: "baseUrl", baseUrlConfigured: "baseUrlConfigured", wireApi: "wireApi" },
+      publicDefaults: { baseUrl: null, baseUrlConfigured: false, wireApi: null },
+    },
     auth: {
-      shape: "subscription-only",
-      modes: ["subscription"],
+      shape: "separate",
+      modes: ["subscription", "api-key"],
+      apiKeyIsolation: "enforced",
+      subscriptionIsolation: "operator-environment",
       // initialize advertises authMethods: [] — the App's login is the whole credential story,
       // so presence (--version exits 0 in 0.2s) is the only local readiness check.
       subscriptionProbe: ["--version"],
       subscriptionProbeTimeoutMs: 10_000,
-      endpoints: { baseUrl: "none" },
+      endpoints: { baseUrl: "optional" },
     },
-    // Enforced isolation would point DSH_HOME at an empty per-instance directory, and the
-    // harness has no login flow for it; the kind runs only where the App's login lives.
-    isolation: { defaultState: "operator-environment", states: ["operator-environment"] },
+    // Subscription reuses the App's login. API-key calls use a separate profile and DSH_HOME.
+    isolation: { defaultState: "operator-environment", states: ["operator-environment", "enforced"] },
     permissions: { available: true, defaultMode: "bypass" },
     launch: {
       input: "stdin",

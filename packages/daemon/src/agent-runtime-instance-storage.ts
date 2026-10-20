@@ -3,6 +3,7 @@ import {
   copyFileSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   readlinkSync,
   renameSync,
   rmSync,
@@ -12,6 +13,7 @@ import {
 import path from "node:path";
 import type { AgentDefinitionSnapshot } from "@harness-anything/kernel";
 import { consumeKnownError } from "@harness-anything/kernel";
+import { writeFileDurably } from "./durable-file.ts";
 import { identifier, runtimeInstanceError, unavailable } from "./agent-runtime-instance-config.ts";
 import type {
   RuntimeAuthReadiness,
@@ -363,6 +365,44 @@ export function writeZcodeConfig(target: string, config: RuntimeInstanceConfig, 
     throw error;
   }
   chmodSync(target, 0o600);
+}
+
+export const deepseekHarnessApiKeyEnvironment = "HARNESS_DEEPSEEK_API_KEY";
+
+export function writeDeepseekHarnessPatch(target: string, config: RuntimeInstanceConfig): void {
+  const provider = runtimeProviderConfig(config),
+    providerId = provider.wireApi ? config.providerId : "deepseek-official",
+    patch = [
+      { id: "agent-default-model", config: { provider: providerId, model: config.defaultModel } },
+      { id: "acp", config: { provider: providerId, model: config.defaultModel } },
+      provider.wireApi
+        ? {
+            id: "llm-pi-ai",
+            config: {
+              providers: {
+                [providerId]: {
+                  api: provider.wireApi,
+                  ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
+                  apiKeyEnv: deepseekHarnessApiKeyEnvironment,
+                  displayName: providerId,
+                  models: config.models.map((id) => ({ id })),
+                },
+              },
+            },
+          }
+        : {
+            id: "llm-deepseek",
+            config: {
+              apiKeyEnv: deepseekHarnessApiKeyEnvironment,
+              ...(provider.baseUrl ? { baseURL: provider.baseUrl } : {}),
+              models: config.models.map((id) => ({ id })),
+            },
+          },
+    ],
+    directory = path.dirname(target);
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+  chmodSync(directory, 0o700);
+  writeFileDurably(target, `${JSON.stringify(patch, null, 2)}\n`, 0o600);
 }
 
 export function tomlString(value: string): string {

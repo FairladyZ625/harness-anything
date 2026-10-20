@@ -209,7 +209,10 @@ export function applyRuntimeKind(
     readonly isolation: CreateInstanceFormState["isolation"];
   },
 ): CreateInstanceFormState {
-  const authMode = planeAuthMode(kindId, form.authMode);
+  const authMode = planeAuthMode(kindId, form.authMode),
+    declaration = runtimeKindForId(kindId),
+    apiKeyIsolation = "apiKeyIsolation" in declaration.auth ? declaration.auth.apiKeyIsolation : undefined,
+    isolation = authMode === "api-key" && apiKeyIsolation ? apiKeyIsolation : defaults.isolation;
   return {
     ...form,
     kindId,
@@ -225,7 +228,7 @@ export function applyRuntimeKind(
     reasoningEffort: planeAllowsEffort(kindId) ? form.reasoningEffort : "",
     fast: "fast" in runtimeKindForId(kindId).configuration.fields ? form.fast : false,
     permissionMode: defaults.permissionMode,
-    isolation: defaults.isolation,
+    isolation,
   };
 }
 
@@ -233,8 +236,21 @@ export function applyRuntimeAuthMode(
   form: CreateInstanceFormState,
   requested: RuntimeAuthMode,
 ): CreateInstanceFormState {
-  const authMode = planeAuthMode(form.kindId, requested);
-  return { ...form, authMode, apiKey: "", baseUrl: planeAllowsBaseUrl(form.kindId, authMode) ? form.baseUrl : "" };
+  const plane = runtimeProviderPlane(form.kindId),
+    authMode = planeAuthMode(form.kindId, requested),
+    isolation =
+      authMode === "api-key" && plane.apiKeyIsolation
+        ? plane.apiKeyIsolation
+        : authMode === "subscription" && form.authMode === "api-key" && plane.apiKeyIsolation
+          ? runtimeKindForId(form.kindId).isolation.defaultState
+          : form.isolation;
+  return {
+    ...form,
+    authMode,
+    apiKey: "",
+    baseUrl: planeAllowsBaseUrl(form.kindId, authMode) ? form.baseUrl : "",
+    isolation,
+  };
 }
 
 export function runtimeInstanceFormReady(
@@ -249,6 +265,9 @@ export function runtimeInstanceFormReady(
     form.name.trim() !== "" &&
     (selectedModels.length > 0 || (Boolean(detected.defaultModel) && Boolean(detected.models?.length))) &&
     (form.authMode !== "api-key" || form.apiKey.trim() !== "") &&
+    (form.authMode !== "api-key" ||
+      !runtimeProviderPlane(form.kindId).apiKeyIsolation ||
+      form.isolation === runtimeProviderPlane(form.kindId).apiKeyIsolation) &&
     (!planeRequiresBaseUrl(form.kindId, form.authMode) || form.baseUrl.trim() !== "")
   );
 }

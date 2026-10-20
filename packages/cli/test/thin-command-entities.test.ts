@@ -1121,6 +1121,59 @@ test("runtime instance create leaves installation discovery to the daemon when o
   ]);
   assert.equal(parsed.ok, true, JSON.stringify(parsed));
   if (parsed.ok) assert.equal("installationId" in parsed.command.action, false);
+  for (const wireApi of ["openai-completions", "openai-responses", "anthropic-messages"]) {
+    const deepseek = parseThinCommand([
+      "runtime",
+      "instance",
+      "create",
+      "--id",
+      "deepseek-api",
+      "--name",
+      "DeepSeek API",
+      "--kind",
+      "deepseek-harness",
+      "--provider",
+      "deepseek",
+      "--model",
+      "deepseek-v4-flash",
+      "--auth",
+      "api-key",
+      "--credential-ref",
+      "credential:v1:deepseek-api",
+      "--base-url",
+      "https://api.deepseek.example/v1",
+      "--wire-api",
+      wireApi,
+    ]);
+    assert.equal(deepseek.ok, true, JSON.stringify(deepseek));
+    if (deepseek.ok) {
+      assert.deepEqual(deepseek.command.action["deepseek-harness"], {
+        baseUrl: "https://api.deepseek.example/v1",
+        wireApi,
+      });
+      assert.equal(deepseek.command.action.authMode, "api-key");
+    }
+  }
+  const invalidWire = parseThinCommand([
+    "runtime",
+    "instance",
+    "create",
+    "--id",
+    "deepseek-invalid",
+    "--name",
+    "DeepSeek Invalid",
+    "--kind",
+    "deepseek-harness",
+    "--provider",
+    "deepseek",
+    "--model",
+    "deepseek-v4-flash",
+    "--auth",
+    "subscription",
+    "--wire-api",
+    "openai-responses",
+  ]);
+  assert.equal(invalidWire.ok, false, JSON.stringify(invalidWire));
   const multi = parseThinCommand([
     "runtime",
     "instance",

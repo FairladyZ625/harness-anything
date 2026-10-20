@@ -54,9 +54,7 @@ const emptyForm = (kindId: RuntimeKindId): CreateInstanceFormState => ({
   isolation: runtimeIsolationState(undefined, kindId),
 });
 
-// Create dialog for the three provider planes. Which controls exist is derived from the
-// plane, never from a free-form toggle: agy renders no auth choice at all, claude renders
-// one instance with an optional API override, codex renders the two separate call paths.
+// Create controls follow each runtime kind's declared auth, endpoint, effort and config fields.
 export function NewRuntimeDialog({
   open,
   installations,
@@ -198,27 +196,34 @@ export function NewRuntimeDialog({
           <Hint>{t("agentRuntime.callPathCodex")}</Hint>
         </div>
       )}
-      <div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Toggle
-            checked={apiOn}
-            label={t("agentRuntime.apiOverride")}
-            disabled={!planeUsesApiOverride(form.kindId)}
-            onChange={(next) => setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))}
-          />
-          <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
-          <StatusTag
-            status={apiOn ? "active" : "planned"}
-            label={t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
-          />
+      {plane.authShape !== "separate" && (
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Toggle
+              checked={apiOn}
+              label={t("agentRuntime.apiOverride")}
+              disabled={!planeUsesApiOverride(form.kindId)}
+              onChange={(next) =>
+                setForm((current) => applyRuntimeAuthMode(current, next ? "api-key" : "subscription"))
+              }
+            />
+            <b className="ui-micro">{t("agentRuntime.apiOverride")}</b>
+            <StatusTag
+              status={apiOn ? "active" : "planned"}
+              label={t(apiOn ? "agentRuntime.apiOverrideOn" : "agentRuntime.apiOverrideOff")}
+            />
+          </div>
+          <p className="mt-1 ui-micro text-text-faint">
+            {t(
+              planeUsesApiOverride(form.kindId) ? "agentRuntime.callPathClaude" : "agentRuntime.capabilityUnsupported",
+              {
+                provider: form.kindId,
+                capability: t("agentRuntime.apiOverride"),
+              },
+            )}
+          </p>
         </div>
-        <p className="mt-1 ui-micro text-text-faint">
-          {t(planeUsesApiOverride(form.kindId) ? "agentRuntime.callPathClaude" : "agentRuntime.capabilityUnsupported", {
-            provider: form.kindId,
-            capability: t("agentRuntime.apiOverride"),
-          })}
-        </p>
-      </div>
+      )}
 
       <div className="mt-3 grid grid-cols-[repeat(auto-fill,minmax(215px,1fr))] gap-x-[18px] gap-y-2">
         <Labelled label={t("agentRuntime.instanceId")}>
@@ -358,8 +363,11 @@ export function NewRuntimeDialog({
               className="control"
             >
               <option value="">{t("agentRuntime.providerDefault")}</option>
-              <option value="responses">responses</option>
-              <option value="chat">chat</option>
+              {(plane.wireApiValues ?? ["responses", "chat"]).map((wireApi) => (
+                <option key={wireApi} value={wireApi}>
+                  {wireApi}
+                </option>
+              ))}
             </select>
           </Labelled>
         )}
@@ -406,8 +414,18 @@ export function NewRuntimeDialog({
             onChange={(event) => patch({ isolation: event.target.value as CreateInstanceFormState["isolation"] })}
             className="control"
           >
-            <option value="operator-environment">{t("agentRuntime.operatorEnvironment")}</option>
-            <option value="enforced">{t("agentRuntime.instanceStateRoot")}</option>
+            <option
+              value="operator-environment"
+              disabled={form.authMode === "api-key" && plane.apiKeyIsolation === "enforced"}
+            >
+              {t("agentRuntime.operatorEnvironment")}
+            </option>
+            <option
+              value="enforced"
+              disabled={form.authMode === "subscription" && plane.subscriptionIsolation === "operator-environment"}
+            >
+              {t("agentRuntime.instanceStateRoot")}
+            </option>
           </select>
         </Labelled>
       </div>
