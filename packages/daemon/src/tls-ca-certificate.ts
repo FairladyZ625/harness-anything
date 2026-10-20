@@ -1,5 +1,6 @@
 import { X509Certificate } from "node:crypto";
-import { getCACertificates } from "node:tls";
+import { isIP } from "node:net";
+import { connect as tlsConnect, getCACertificates } from "node:tls";
 import { Agent } from "undici";
 
 const pemCertificate = /-----BEGIN CERTIFICATE-----[\s\S]+?-----END CERTIFICATE-----/gu;
@@ -46,25 +47,6 @@ export function rootCaFromCertificateChain(value: string, hostname: string, now 
   return root.toString();
 }
 
-const untrustedIssuerCodes = new Set([
-  "DEPTH_ZERO_SELF_SIGNED_CERT",
-  "SELF_SIGNED_CERT_IN_CHAIN",
-  "UNABLE_TO_GET_ISSUER_CERT",
-  "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
-  "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
-]);
-
-export function isUntrustedIssuer(error: unknown): boolean {
-  const visited = new Set<object>();
-  let current: unknown = error;
-  while (typeof current === "object" && current !== null && !visited.has(current)) {
-    visited.add(current);
-    if ("code" in current && typeof current.code === "string" && untrustedIssuerCodes.has(current.code)) return true;
-    current = current instanceof Error ? current.cause : undefined;
-  }
-  return false;
-}
-
 /** Node's "default" bundle includes NODE_EXTRA_CA_CERTS; keep edge login on bundled and OS roots only. */
 export function systemCaCertificates(): readonly string[] {
   return [...new Set([...getCACertificates("bundled"), ...getCACertificates("system")])];
@@ -91,7 +73,36 @@ export async function fetchWithTlsCa(
   }
 }
 
-export async function probeSystemCaTrust(fetcher: typeof fetch, ca: readonly string[], url: string): Promise<void> {
-  const response = await fetchWithTlsCa(fetcher, ca, url, { method: "HEAD", redirect: "manual" });
-  await response.body?.cancel();
+export async function probeSystemCaTrust(fetcher: typeof fetch, ca: readonly string[], url: string): Promise<boolean> {
+  const endpoint = new URL(url);
+  if (endpoint.protocol === "http:") {
+    const response = await fetcher(url, { method: "HEAD", redirect: "manual" });
+    await response.body?.cancel();
+    return true;
+  }
+  if (endpoint.protocol !== "https:") throw new TypeError("Expected an HTTP(S) login listener URL.");
+
+  const hostname = endpoint.hostname.replace(/^\[|\]$/gu, ""),
+    port = endpoint.port === "" ? 443 : Number(endpoint.port);
+  return new Promise<boolean>((resolve, reject) => {
+    // Only this metadata probe reads authorization state; OIDC requests still reject untrusted peers.
+    const socket = tlsConnect({
+      host: hostname,
+      port,
+      ca: [...ca],
+      rejectUnauthorized: false,
+      ...(isIP(hostname) === 0 ? { servername: hostname } : {}),
+    });
+    const onError = (error: Error) => {
+      socket.destroy();
+      reject(error);
+    };
+    socket.once("error", onError);
+    socket.once("secureConnect", () => {
+      const trusted = socket.authorized && !socket.authorizationError;
+      socket.removeListener("error", onError);
+      socket.destroy();
+      resolve(trusted);
+    });
+  });
 }

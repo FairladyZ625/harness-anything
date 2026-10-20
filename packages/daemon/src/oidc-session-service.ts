@@ -28,7 +28,6 @@ import { reportFleetDeviceLogin, readFleetLoginAuthorityClient } from "./fleet/p
 import { errorMessageWithCause } from "./error-cause.ts";
 import {
   fetchWithTlsCa,
-  isUntrustedIssuer,
   probeSystemCaTrust,
   rootCaFromCertificateChain,
   systemCaCertificates,
@@ -470,19 +469,15 @@ export class OidcSessionService {
   }> {
     const authority = await this.#loginAuthority(),
       url = authority.browserUrl ?? authority.url;
-    let certificate: string | undefined;
-    try {
-      await this.#probeSystemTrust(url);
-    } catch (error) {
-      if (!isUntrustedIssuer(error)) throw error;
-      consumeKnownError(error);
-      certificate = rootCaFromCertificateChain(authority.certificate ?? "", new URL(url).hostname);
-      if (!certificate)
-        throw coded(
-          "oidc_login_trust_unavailable",
-          "The login listener is not trusted by the system and its configured certificate chain has no usable root CA.",
-        );
-    }
+    const systemTrusted = await this.#probeSystemTrust(url),
+      certificate = systemTrusted
+        ? undefined
+        : rootCaFromCertificateChain(authority.certificate ?? "", new URL(url).hostname);
+    if (!systemTrusted && !certificate)
+      throw coded(
+        "oidc_login_trust_unavailable",
+        "The login listener is not trusted by the system and its configured certificate chain has no usable root CA.",
+      );
     return {
       url,
       realm: authority.realm,
@@ -879,8 +874,8 @@ export class OidcSessionService {
     return this.#ports.defaultCaCertificates?.() ?? systemCaCertificates();
   }
 
-  async #probeSystemTrust(url: string): Promise<void> {
-    await probeSystemCaTrust(this.#ports.fetch, this.#defaultCaCertificates(), url);
+  async #probeSystemTrust(url: string): Promise<boolean> {
+    return probeSystemCaTrust(this.#ports.fetch, this.#defaultCaCertificates(), url);
   }
 
   #fetchWithCa(ca: string | readonly string[], input: string | URL, init?: RequestInit): Promise<Response> {

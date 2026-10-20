@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { createServer as createHttpsServer } from "node:https";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -16,6 +17,90 @@ import type { DaemonAuthenticationContext } from "../src/transport/auth-context.
 
 const sessionLifetimeSeconds = 21_600,
   accessTokenSeconds = 60;
+
+interface TestTlsCertificate {
+  readonly keyFile: string;
+  readonly certificateFile: string;
+  readonly key: Buffer;
+  readonly certificate: string;
+}
+
+function createTestTlsCertificate(root: string, name: string, isCa: boolean): TestTlsCertificate {
+  const keyFile = path.join(root, `${name}.key`),
+    certificateFile = path.join(root, `${name}.pem`);
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      keyFile,
+      "-out",
+      certificateFile,
+      "-subj",
+      "/CN=127.0.0.1",
+      "-days",
+      "1",
+      "-addext",
+      `basicConstraints=critical,CA:${isCa ? "TRUE" : "FALSE"}`,
+      "-addext",
+      "subjectAltName=IP:127.0.0.1",
+    ],
+    { stdio: "ignore" },
+  );
+  return {
+    keyFile,
+    certificateFile,
+    key: readFileSync(keyFile),
+    certificate: readFileSync(certificateFile, "utf8"),
+  };
+}
+
+async function startTlsListener(
+  t: TestContext,
+  certificate: TestTlsCertificate,
+): Promise<{ readonly port: number; readonly close: () => Promise<void> }> {
+  const server = createHttpsServer({ key: certificate.key, cert: certificate.certificate });
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.removeListener("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  assert.ok(address && typeof address === "object");
+  const close = () =>
+    new Promise<void>((resolve, reject) => {
+      if (!server.listening) {
+        resolve();
+        return;
+      }
+      server.closeAllConnections();
+      server.close((error) => (error ? reject(error) : resolve()));
+    });
+  t.after(close);
+  return { port: address.port, close };
+}
+
+function configureListener(root: string, certificate: TestTlsCertificate, port: number): void {
+  writeFileSync(
+    path.join(root, "rbac", "config.json"),
+    JSON.stringify({
+      url: "http://127.0.0.1:8080",
+      realm: "harness",
+      listener: {
+        hostname: "127.0.0.1",
+        port,
+        certificateFile: certificate.certificateFile,
+        certificateKeyFile: certificate.keyFile,
+      },
+    }),
+  );
+}
 
 /** A Keycloak token endpoint whose refresh tokens slide with use and lapse after `lifetimeSeconds` idle. */
 function fixture(start: number, ports: Partial<OidcSessionPorts>, t: TestContext) {
@@ -136,105 +221,39 @@ test("under a listener the browser signs in at its hostname while the daemon kee
 });
 
 test("an invitation names the listener other machines can reach, not the center's loopback", async (t) => {
-  const { service, root } = fixture(1_000, {}, t);
-  writeFileSync(path.join(root, "rbac", "listener.pem"), "public listener certificate");
-  writeFileSync(
-    path.join(root, "rbac", "config.json"),
-    JSON.stringify({
-      url: "http://127.0.0.1:8080",
-      realm: "harness",
-      listener: {
-        hostname: "center.example.test",
-        port: 8443,
-        certificateFile: path.join(root, "rbac", "listener.pem"),
-        certificateKeyFile: path.join(root, "rbac", "listener-key.pem"),
-      },
-    }),
-  );
+  const systemRoots: string[] = [],
+    { service, root } = fixture(1_000, { defaultCaCertificates: () => systemRoots }, t),
+    certificate = createTestTlsCertificate(root, "listener", true),
+    listener = await startTlsListener(t, certificate);
+  systemRoots.push(certificate.certificate);
+  configureListener(root, certificate, listener.port);
   const invitation = await service.interactiveAuthority();
-  assert.equal(invitation.url, "https://center.example.test:8443");
+  assert.equal(invitation.url, `https://127.0.0.1:${listener.port}`);
   assert.equal(invitation.certificate, undefined, "a system-trusted listener needs no invitation CA");
 });
 
 test("a private listener invitation carries its configured self-signed CA root", async (t) => {
-  const failure = Object.assign(new Error("self-signed certificate"), { code: "DEPTH_ZERO_SELF_SIGNED_CERT" }),
-    { service, root } = fixture(
-      1_000,
-      {
-        fetch: (async (_input, init) => {
-          if (init?.method === "HEAD") throw new TypeError("fetch failed", { cause: failure });
-          return Response.json({});
-        }) as typeof fetch,
-      },
-      t,
-    ),
-    keyFile = path.join(root, "rbac", "listener-key.pem"),
-    certificateFile = path.join(root, "rbac", "listener.pem");
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      keyFile,
-      "-out",
-      certificateFile,
-      "-subj",
-      "/CN=center.example.test",
-      "-days",
-      "1",
-      "-addext",
-      "subjectAltName=DNS:center.example.test",
-    ],
-    { stdio: "ignore" },
-  );
-  writeFileSync(
-    path.join(root, "rbac", "config.json"),
-    JSON.stringify({
-      url: "http://127.0.0.1:8080",
-      realm: "harness",
-      listener: {
-        hostname: "center.example.test",
-        port: 8443,
-        certificateFile,
-        certificateKeyFile: keyFile,
-      },
-    }),
-  );
+  const { service, root } = fixture(1_000, { defaultCaCertificates: () => [] }, t),
+    certificate = createTestTlsCertificate(root, "listener", true),
+    listener = await startTlsListener(t, certificate);
+  configureListener(root, certificate, listener.port);
   const invitation = await service.interactiveAuthority();
-  assert.equal(invitation.url, "https://center.example.test:8443");
-  assert.equal(invitation.certificate, readFileSync(certificateFile, "utf8"));
+  assert.equal(invitation.url, `https://127.0.0.1:${listener.port}`);
+  assert.equal(invitation.certificate, certificate.certificate);
 
-  const leafKeyFile = path.join(root, "rbac", "listener-leaf-key.pem"),
-    leafFile = path.join(root, "rbac", "listener-leaf.pem");
-  execFileSync(
-    "openssl",
-    [
-      "req",
-      "-x509",
-      "-newkey",
-      "rsa:2048",
-      "-nodes",
-      "-keyout",
-      leafKeyFile,
-      "-out",
-      leafFile,
-      "-subj",
-      "/CN=center.example.test",
-      "-days",
-      "1",
-      "-addext",
-      "basicConstraints=critical,CA:FALSE",
-      "-addext",
-      "subjectAltName=DNS:center.example.test",
-    ],
-    { stdio: "ignore" },
-  );
-  writeFileSync(certificateFile, readFileSync(leafFile, "utf8"));
+  const leaf = createTestTlsCertificate(root, "listener-leaf", false),
+    leafListener = await startTlsListener(t, leaf);
+  configureListener(root, leaf, leafListener.port);
   await assert.rejects(service.interactiveAuthority(), { code: "oidc_login_trust_unavailable" });
+});
+
+test("an unreachable login listener surfaces its connection error", async (t) => {
+  const { service, root } = fixture(1_000, { defaultCaCertificates: () => [] }, t),
+    certificate = createTestTlsCertificate(root, "listener", true),
+    listener = await startTlsListener(t, certificate);
+  await listener.close();
+  configureListener(root, certificate, listener.port);
+  await assert.rejects(service.interactiveAuthority(), { code: "ECONNREFUSED" });
 });
 
 test("a session in use outlives its access token without signing in again", async (t) => {
