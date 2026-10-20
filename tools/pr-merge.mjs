@@ -247,35 +247,31 @@ function mergeOpenPr(pr, root) {
   if (merged.state !== "MERGED") {
     throw new Error(`PR #${pr.number} did not reach MERGED state (state=${merged.state}).`);
   }
-  if (TASK_BRANCH_PATTERN.test(pr.headRefName) && merged.mergeCommit?.oid) {
-    const taskId = pr.headRefName,
-      evidence = readTaskReviewConsent(taskId, root),
-      cuts = currentExecutionCuts({
-        task: evidence.task,
-        executions: evidence.executions,
-        reviews: evidence.reviews,
-        consents: evidence.consents,
-        reviewDispositions: evidence.reviewDispositions ?? [],
-        codeDocWitnesses: evidence.codeDocWitnesses,
-        gateWitnesses: evidence.gateWitnesses,
-      });
-    if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
-    output(
-      "ha",
-      [
-        "task",
-        "annotate",
-        taskId,
-        "--execution-id",
-        cuts[0].executionId,
-        "--kind",
-        "correction",
-        "--note",
-        `merge_commit_sha:${merged.mergeCommit.oid}`,
-      ],
-      { cwd: root },
-    );
-  }
+  return merged;
+}
+
+function recordMergeCommitAnnotation(pr, merged, root) {
+  if (!TASK_BRANCH_PATTERN.test(pr.headRefName) || !merged.mergeCommit?.oid) return;
+  const taskId = pr.headRefName,
+    evidence = readTaskReviewConsent(taskId, root),
+    cuts = currentExecutionCuts({
+      task: evidence.task,
+      executions: evidence.executions,
+      reviews: evidence.reviews,
+      consents: evidence.consents,
+      reviewDispositions: evidence.reviewDispositions ?? [],
+      codeDocWitnesses: evidence.codeDocWitnesses,
+      gateWitnesses: evidence.gateWitnesses,
+    });
+  if (cuts.length !== 1) throw new Error(`Task ${taskId} has no unique current execution after merge.`);
+  const note = `merge_commit_sha:${merged.mergeCommit.oid}`;
+  const alreadyAnnotated = cuts[0].annotations?.some((entry) => entry.note === note);
+  if (alreadyAnnotated) return;
+  output(
+    "ha",
+    ["task", "annotate", taskId, "--execution-id", cuts[0].executionId, "--kind", "correction", "--note", note],
+    { cwd: root },
+  );
 }
 
 function deleteRemoteBranch(branch, root) {
@@ -362,10 +358,17 @@ function main(argv) {
 
   const { mainWorktree, pr, prWorktree } = preflight(argv[0]);
   console.log(`Finalizing PR #${pr.number} (${pr.headRefName} -> ${MAIN_BRANCH}).`);
+  let merged = pr;
   if (pr.state === "OPEN") {
     requireReviewConsent(pr, mainWorktree.path);
-    mergeOpenPr(pr, mainWorktree.path);
-  } else console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
+    merged = mergeOpenPr(pr, mainWorktree.path);
+  } else {
+    console.log(`PR #${pr.number} is already merged; continuing with cleanup.`);
+    if (!merged.mergeCommit?.oid) {
+      merged = readPr(String(pr.number), mainWorktree.path);
+    }
+  }
+  recordMergeCommitAnnotation(pr, merged, mainWorktree.path);
 
   deleteRemoteBranch(pr.headRefName, mainWorktree.path);
   removeLocalBranch(pr, prWorktree, mainWorktree.path);

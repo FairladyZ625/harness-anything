@@ -72,8 +72,15 @@ if (args[0] === "pr" && args[1] === "view") {
 }
 
 function makeFakeHa(bin) {
-  const script = `import { readFileSync } from "node:fs";
+  const script = `import { appendFileSync, readFileSync } from "node:fs";
 const args = process.argv.slice(2);
+if (args[0] === "task" && args[1] === "annotate") {
+  if (process.env.HA_ANNOTATE_LOG_PATH) {
+    appendFileSync(process.env.HA_ANNOTATE_LOG_PATH, JSON.stringify(args) + "\\n");
+  }
+  process.stdout.write(JSON.stringify({ ok: true }));
+  process.exit(0);
+}
 const state = JSON.parse(readFileSync(process.env.HA_STATE_PATH, "utf8"));
 if (args[0] !== "task" || args[1] !== "show" || !args[2] || args[3] !== "--json") {
   process.stderr.write(\`unexpected ha args: \${args.join(" ")}\\n\`);
@@ -200,11 +207,23 @@ function fixture(t, { branch = "codex/pr-123", haState = { fail: true } } = {}) 
     PR_STATE_PATH: statePath,
     HA_STATE_PATH: haStatePath,
     BUILD_LOG_PATH: buildLogPath,
+    HA_ANNOTATE_LOG_PATH: path.join(root, "annotate.log"),
     HARNESS_TASK_BOUND: "",
     HARNESS_ACTOR: "",
     HARNESS_CANONICAL_ROOT: "",
   };
-  return { env, headRefOid, main, prWorktree, remote, seed, statePath, upstreamHead, buildLogPath };
+  return {
+    env,
+    headRefOid,
+    main,
+    prWorktree,
+    remote,
+    seed,
+    statePath,
+    upstreamHead,
+    buildLogPath,
+    annotateLogPath: path.join(root, "annotate.log"),
+  };
 }
 
 test("merges, cleans the PR branch and worktree, and fast-forwards local main", (t) => {
@@ -626,4 +645,68 @@ test("fails closed when the harness ledger is unreachable for a task PR", (t) =>
   assert.equal(JSON.parse(readFileSync(setup.statePath, "utf8")).state, "OPEN");
   assert.equal(git(setup.main, "rev-parse", "HEAD"), initialHead);
   assert.equal(existsSync(setup.prWorktree), true);
+});
+
+test("annotates the current execution with merge_commit_sha when a task PR is already merged", (t) => {
+  const mergeSha = "a".repeat(40);
+  const haState = reviewChainWithDeliveryBlockerHaState();
+  const setup = fixture(t, { branch: TASK_BRANCH, haState });
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(
+    setup.statePath,
+    JSON.stringify({
+      ...prState,
+      state: "MERGED",
+      mergeCommit: { oid: mergeSha },
+    }),
+  );
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /is already merged; continuing with cleanup/u);
+  assert.equal(existsSync(setup.annotateLogPath), true);
+  const annotateLines = readFileSync(setup.annotateLogPath, "utf8").trim().split("\n");
+  assert.equal(annotateLines.length, 1);
+  const annotateArgs = JSON.parse(annotateLines[0]);
+  assert.deepEqual(annotateArgs, [
+    "task",
+    "annotate",
+    TASK_BRANCH,
+    "--execution-id",
+    "exe_cut",
+    "--kind",
+    "correction",
+    "--note",
+    `merge_commit_sha:${mergeSha}`,
+  ]);
+});
+
+test("does not duplicate merge_commit_sha annotation when the current execution already carries it", (t) => {
+  const mergeSha = "a".repeat(40);
+  const haState = reviewChainWithDeliveryBlockerHaState();
+  haState.receipt.executions[0].annotations = [
+    {
+      kind: "correction",
+      note: `merge_commit_sha:${mergeSha}`,
+      actor: { principal: { personId: "person_zeyu" } },
+      annotatedAt: "2026-10-05T12:00:00.000Z",
+    },
+  ];
+  const setup = fixture(t, { branch: TASK_BRANCH, haState });
+  const prState = JSON.parse(readFileSync(setup.statePath, "utf8"));
+  writeFileSync(
+    setup.statePath,
+    JSON.stringify({
+      ...prState,
+      state: "MERGED",
+      mergeCommit: { oid: mergeSha },
+    }),
+  );
+
+  const result = run(process.execPath, [helper, "123"], { cwd: setup.main, env: setup.env });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /is already merged; continuing with cleanup/u);
+  assert.equal(existsSync(setup.annotateLogPath), false);
 });

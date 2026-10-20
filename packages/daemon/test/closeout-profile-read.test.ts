@@ -224,7 +224,7 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
     code = codeDelivery(strictSubmitted, merge, merge);
 
   git(root, "update-ref", "refs/remotes/origin/release", merge);
-  assert.deepEqual(read(code), { required: true, merged: true, targetBranch: "release" });
+  assert.deepEqual(read(code), { required: true, merged: true, targetBranch: "release", mergeSha: merge });
 
   git(root, "update-ref", "refs/remotes/origin/release", base);
   assert.equal(read(code).merged, false, "a known target that does not contain the merge commit is unmerged");
@@ -233,10 +233,16 @@ test("delivery merge reads distinguish merged, unmerged, and unavailable Git evi
   assert.equal(read(code).merged, null, "a missing configured target ref is unknown");
   assert.equal(read(codeDelivery(strictSubmitted, null, merge)).required, false, "artifact-only delivery skips merge");
   assert.equal(read(codeDelivery(strictSubmitted, merge)).merged, null, "a missing merge annotation is unknown");
+  assert.equal(read(codeDelivery(strictSubmitted, merge)).mergeSha, undefined, "missing annotation has no mergeSha");
   assert.equal(
     read(codeDelivery(strictSubmitted, merge, "f".repeat(40))).merged,
     null,
     "an unavailable merge object is unknown",
+  );
+  assert.equal(
+    read(codeDelivery(strictSubmitted, merge, "f".repeat(40))).mergeSha,
+    "f".repeat(40),
+    "mergeSha is preserved when the object is unavailable",
   );
   assert.equal(
     read(codeDelivery(strictSubmitted, merge), shape("task-package-artifact") as unknown as TaskProjectionQueries)
