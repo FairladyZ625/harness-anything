@@ -47,7 +47,6 @@ const config = {
   asar: false,
   nativeModules: { npmRebuild: false },
   compression: "normal",
-  forceCodeSigning: true,
   directories: {
     app: "../..",
     output: outputDir,
@@ -86,6 +85,8 @@ const config = {
     },
   ],
   mac: {
+    // Per-platform: Windows keeps `sign: false`, which a top-level force would reject.
+    forceCodeSigning: true,
     target: [
       { target: "dmg", arch: ["arm64"] },
       { target: "zip", arch: ["arm64"] },

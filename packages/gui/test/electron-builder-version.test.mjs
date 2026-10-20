@@ -15,7 +15,10 @@ test("desktop app metadata uses the published CLI package version", () => {
 });
 
 test("macOS packaging requires hardened runtime signing and notarization", () => {
-  assert.equal(config.forceCodeSigning, true);
+  assert.equal(config.mac.forceCodeSigning, true);
+  // A top-level force applies to every platform and makes the unsigned Windows build throw.
+  assert.notEqual(config.forceCodeSigning, true);
+  assert.equal(config.win.sign, false);
   assert.equal(config.mac.sign.hardenedRuntime, true);
   assert.equal(config.mac.notarize, true);
   assert.match(config.mac.sign.entitlements, /entitlements\.mac\.plist$/u);
