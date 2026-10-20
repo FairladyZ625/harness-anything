@@ -18,6 +18,7 @@ import navigationHistory from "./scenarios/navigation-history.mjs";
 import projectSwitchRestore from "./scenarios/project-switch-restore.mjs";
 import projectWindows from "./scenarios/project-windows.mjs";
 import overview from "./scenarios/overview-first-usable.mjs";
+import overviewEntityUnpin from "./scenarios/overview-entity-unpin.mjs";
 import board from "./scenarios/board-preview-detail.mjs";
 import taskTimelineRecordNavigation from "./scenarios/task-timeline-record-navigation.mjs";
 import workProgressChain from "./scenarios/work-progress-chain.mjs";
@@ -87,6 +88,7 @@ export const catalog = [
   projectSwitchRestore,
   projectWindows,
   overview,
+  overviewEntityUnpin,
   board,
   taskTerminal,
   terminalBasics,
